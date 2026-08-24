@@ -117,7 +117,7 @@
         <cron-utils.version>9.2.1</cron-utils.version>
 
         <!-- YAML -->
-        <snakeyaml.version>2.2</snakeyaml.version>
+        <snakeyaml.version>2.6</snakeyaml.version>
 
         <!-- Architecture testing -->
         <archunit.version>1.2.1</archunit.version>
