@@ -46,7 +46,7 @@ jobs:
             lib-ext: dylib
             classifier: osx-aarch_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cache native deps + Velox
         uses: actions/cache@v4
@@ -156,7 +156,7 @@ jobs:
         # APIs) before we promote 21 to the primary target.
         java: ['17', '21']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download native library (for java.library.path fallback)
         uses: actions/download-artifact@v4
@@ -234,7 +234,7 @@ jobs:
     needs: java-build
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download native library
         uses: actions/download-artifact@v4
@@ -311,7 +311,7 @@ jobs:
             env_var: UBSAN_OPTIONS
             env_val: "halt_on_error=1:print_stacktrace=1:suppressions=sanitizer-suppressions/ubsan.supp"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cache native deps + Velox
         uses: actions/cache@v4
@@ -353,7 +353,7 @@ jobs:
     needs: native-build
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install build tools
         run: |
@@ -385,7 +385,7 @@ jobs:
     needs: java-build
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -430,7 +430,7 @@ jobs:
     needs: java-build
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -494,7 +494,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -517,7 +517,7 @@ jobs:
     name: Dead-Stub Detection
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Detect dead stubs in production code
         run: |
@@ -528,7 +528,7 @@ jobs:
     name: Documentation-Code Consistency
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -550,7 +550,7 @@ jobs:
     name: Code Quality
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Guard against root-level build artifacts
         run: |
@@ -600,7 +600,7 @@ jobs:
     name: ArchUnit Wiring Verification
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
