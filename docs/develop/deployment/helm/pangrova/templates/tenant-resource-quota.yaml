@@ -1,0 +1,55 @@
+{{- if .Values.multiTenancy.enabled }}
+{{- $defaults := .Values.multiTenancy.defaultResourceQuota }}
+{{- range .Values.multiTenancy.tenants }}
+{{- $ns := .namespace | default (printf "pangrova-%s" .name) }}
+{{- $quota := .resourceQuota | default dict }}
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ .name }}-quota
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: tenant
+    tenant: {{ .name }}
+spec:
+  hard:
+    requests.cpu: {{ $quota.cpu | default $defaults.cpu | quote }}
+    requests.memory: {{ $quota.memory | default $defaults.memory | quote }}
+    limits.cpu: {{ $quota.cpu | default $defaults.cpu | quote }}
+    limits.memory: {{ $quota.memory | default $defaults.memory | quote }}
+    pods: {{ $quota.pods | default $defaults.pods | quote }}
+    persistentvolumeclaims: {{ $quota.persistentVolumeClaims | default $defaults.persistentVolumeClaims | quote }}
+    requests.storage: {{ $quota.requestsStorage | default $defaults.requestsStorage | quote }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: {{ .name }}-limits
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: tenant
+    tenant: {{ .name }}
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: "2"
+        memory: "4Gi"
+      defaultRequest:
+        cpu: "500m"
+        memory: "1Gi"
+      max:
+        cpu: "8"
+        memory: "32Gi"
+      min:
+        cpu: "100m"
+        memory: "128Mi"
+    - type: Pod
+      max:
+        cpu: "16"
+        memory: "64Gi"
+{{- end }}
+{{- end }}

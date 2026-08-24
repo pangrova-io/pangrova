@@ -1,0 +1,382 @@
+# ============================================================
+# Pangrova Coordinator — Configuration (Production)
+#
+# Configuration priority (highest → lowest):
+#   1. CLI flag: --config /path/to/file.yml
+#   2. Environment variables (PANGROVA_* prefix)
+#   3. Classpath default YAML
+#   4. ConfigOption.defaultValue()
+#
+# Environment variable placeholders:
+#   ${ENV_VAR}           — required; startup fails if unset
+#   ${ENV_VAR:-default}  — optional with fallback
+#
+# Installation steps:
+#   1. Copy this file to /etc/pangrova/coordinator.yml
+#   2. Replace all <<PLACEHOLDER>> values
+#   3. Set secrets via environment variables (see pangrova-env.sh)
+#   4. Verify: pangrova-coordinator.sh --config /etc/pangrova/coordinator.yml --validate
+# ============================================================
+
+# ── Node Identity ─────────────────────────────────────────────
+coordinator:
+  # Unique, stable identifier for this Coordinator node.
+  # Used in leader-election state and distributed tracing.
+  # Convention: coordinator-<datacenter>-<index> (e.g. coordinator-us-east-1a-0)
+  id: "${HOSTNAME:-coordinator-0}"
+
+  # Bind address — listen on all interfaces.
+  # Restrict to a specific interface IP in zero-trust networks.
+  host: "0.0.0.0"
+
+  # HTTP REST API port (client-facing).
+  # Expose this port in load balancers and firewalls.
+  port: 8080
+
+  # Maximum size of an HTTP response body (for large result sets).
+  max-response-size: "256MB"
+
+  # ── High Availability ───────────────────────────────────────
+  #
+  # HA uses a JDBC-backed lease for leader election.
+  # All coordinator nodes MUST point to the same database.
+  # Only the leader accepts writes; followers forward requests.
+  #
+  # Minimum deployment: 3 coordinator nodes (quorum tolerance = 1)
+  ha:
+    enabled: true
+
+    # PostgreSQL is the only supported state store backend.
+    # Use a dedicated HA database, not the metadata database.
+    jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_ha"
+    username: "${PANGROVA_DB_USER}"
+    password: "${PANGROVA_DB_PASSWORD}"
+
+    # Connection pool size per coordinator node.
+    pool-size: 5
+
+    # How long a leader lease remains valid without renewal.
+    # Followers wait this long before attempting to take over.
+    # Must be > 3x heartbeat-interval to tolerate GC pauses.
+    lease-duration: "30s"
+
+    # How often the leader renews its lease.
+    heartbeat-interval: "10s"
+
+    # How long a follower waits after lease expiry before
+    # starting an election. Add jitter to avoid split elections.
+    election-timeout: "10s"
+
+    # When true, DDL (CREATE/ALTER/DROP TABLE, etc.) is restricted to the
+    # leader coordinator. Non-leader nodes reject DDL with HTTP 307 redirect.
+    # When false (default), DDL can execute on any coordinator — metadata
+    # consistency is guaranteed by the connector's concurrency control
+    # (Iceberg optimistic versioning, Paimon catalog lock) and the
+    # cross-node cache invalidation propagation mechanism.
+    ddl-leader-routing: false
+
+  # ── Query Execution ─────────────────────────────────────────
+  query:
+    # Wall-clock timeout per query. Queries exceeding this
+    # are cancelled and the client receives a timeout error.
+    # Increase for analytical workloads with large scans.
+    timeout: "10m"
+
+    # Maximum number of queries executing concurrently.
+    # Each query reserves memory on workers. Tune based on
+    # worker count × per-query memory budget / cluster RAM.
+    max-concurrent: 200
+
+    # Hard limit on queued queries when max-concurrent is reached.
+    # Requests beyond this limit receive HTTP 429.
+    max-queued: 500
+
+    # ── Result Cache ────────────────────────────────────────
+    result-cache:
+      # Cache query results by fingerprint for repeated queries.
+      # Invalidated automatically on table writes.
+      enabled: true
+      max-size: 500
+      ttl: "5m"
+      # Maximum size of a single cached result.
+      max-entry-size: "32MB"
+
+    # ── Adaptive Query Optimization ─────────────────────────
+    planner:
+      # Collect runtime statistics for adaptive re-planning.
+      stats-collection: true
+      # Replan if actual rows deviate from estimates by this factor.
+      replan-threshold: 3.0
+
+  # ── Worker Management ───────────────────────────────────────
+  worker:
+    # Mark a worker DEAD if no heartbeat received within this window.
+    # Must be > worker.heartbeat-interval (typically 3-5x).
+    heartbeat-timeout: "30s"
+
+    # Reassign tasks from a dead worker this many times before
+    # marking the query as failed.
+    max-retry: 3
+
+    # Minimum number of healthy workers before the Coordinator
+    # accepts new queries. Prevents routing to an underprovisioned cluster.
+    min-healthy-workers: 2
+
+    # Cooldown period after a worker recovery event before
+    # it is assigned high-priority queries again.
+    recovery-cooldown: "60s"
+
+
+# ── State Store ───────────────────────────────────────────────
+#
+# Unified backend for all distributed state (HA leases, task
+# journals, distributed DDL locks). JDBC is mandatory in
+# production — IN_MEMORY loses all state on restart.
+state-store:
+  type: JDBC
+  jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_meta"
+  username: "${PANGROVA_DB_USER}"
+  password: "${PANGROVA_DB_PASSWORD}"
+  pool-size: 10
+
+
+# ── Metadata ─────────────────────────────────────────────────
+#
+# Stores catalog definitions, table schemas, partition stats,
+# and index metadata. Requires a dedicated schema in PostgreSQL.
+metadata:
+  enabled: true
+  jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_meta"
+  username: "${PANGROVA_DB_USER}"
+  password: "${PANGROVA_DB_PASSWORD}"
+
+  # Connection pool — size depends on concurrent DDL operations.
+  pool:
+    min-idle: 5
+    max-size: 20
+    connection-timeout: "5s"
+    idle-timeout: "10m"
+    max-lifetime: "30m"
+
+  # ── Metadata Cache ────────────────────────────────────────
+  cache:
+    # L1: per-node on-heap cache. Holds schema and partition stats.
+    l1-max-size: 50000
+    l1-ttl: "120s"
+
+    # L2: distributed cache (if coordinator-to-coordinator sync enabled).
+    l2-enabled: false
+
+
+# ── Feature Flags ─────────────────────────────────────────────
+# Enable/disable subsystems. All defaults to true in production.
+# Disable only subsystems that are explicitly not needed.
+
+governance:
+  enabled: true
+  # Lineage tracking: record column-level read/write events.
+  lineage:
+    enabled: true
+  # Data quality checks run on write operations.
+  quality:
+    enabled: true
+
+resilience:
+  enabled: true
+  circuit-breaker:
+    # Open the breaker after this many consecutive failures.
+    failure-threshold: 5
+    # Keep breaker open this long before trying a probe request.
+    wait-duration: "30s"
+    # Close breaker after this many successful probes.
+    success-threshold: 3
+  retry:
+    max-attempts: 3
+    initial-backoff: "100ms"
+    max-backoff: "5s"
+    backoff-multiplier: 2.0
+
+streaming:
+  enabled: true
+  # CDC checkpoint interval — balance durability vs. overhead.
+  checkpoint-interval: "30s"
+
+tenant:
+  enabled: true
+
+indexing:
+  enabled: true
+  # Maximum concurrent index build operations per coordinator.
+  build-concurrency: 4
+  # Heartbeat for distributed index build lock renewal.
+  build-heartbeat: "15s"
+
+operations:
+  enabled: true
+  compaction:
+    enabled: true
+    # How often the compaction scheduler evaluates tables.
+    check-interval: "10m"
+    # Compact tables that have accumulated this many small files.
+    min-files: 10
+
+
+# ── Observability ────────────────────────────────────────────
+#
+# OpenTelemetry (OTLP) for traces and metrics.
+# Point otlp-endpoint to your OTel Collector (Grafana, Jaeger, etc.)
+observability:
+  enabled: true
+
+  # Service name as it appears in your tracing and metrics backends.
+  service-name: "pangrova-coordinator"
+
+  # OTLP gRPC endpoint (without trailing slash or scheme prefix).
+  otlp-endpoint: "${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}"
+
+  # Fraction of traces to sample (1.0 = 100%, 0.1 = 10%).
+  # In production start at 0.1 and adjust based on volume.
+  trace-sampling-rate: 0.1
+
+  # How often metrics are pushed to the OTLP endpoint.
+  metrics-export-interval: "30s"
+
+  # Export slow query plans as trace events (useful for tuning).
+  slow-query-threshold: "5s"
+
+
+# ── Security ─────────────────────────────────────────────────
+#
+# REQUIRED in production. Setting enabled=false makes the
+# Coordinator accept ALL requests without authentication —
+# never do this on a network-exposed deployment.
+security:
+  enabled: true
+
+  # ── Authentication ────────────────────────────────────────
+  auth:
+    # OAuth2 / OIDC JWT validation.
+    # Alternative: type: LDAP (see security.yml for LDAP config)
+    type: OAUTH2
+
+    oauth2:
+      # OIDC issuer — must match "iss" claim in client tokens.
+      # Discovery URL: ${issuer-uri}/.well-known/openid-configuration
+      issuer-uri: "${PANGROVA_OAUTH2_ISSUER_URI}"
+
+      # Expected token audience — must match "aud" claim.
+      audience: "${PANGROVA_OAUTH2_AUDIENCE:-pangrova-api}"
+
+      # JWKS endpoint. Auto-discovered from issuer-uri if omitted.
+      # jwks-uri: "${PANGROVA_OAUTH2_JWKS_URI}"
+
+      # JWT claim that maps to the Pangrova principal (user identity).
+      principal-claim: "sub"
+
+      # JWT claim that carries group memberships for RBAC.
+      groups-claim: "groups"
+
+      # JWT claim that carries the tenant identifier.
+      tenant-claim: "tenant_id"
+
+  # ── Internal Cluster Authentication ───────────────────────
+  # HMAC-SHA256 secret shared among all Coordinators and Workers.
+  # Generate: openssl rand -base64 48
+  # Must be identical on every node.
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
+
+  # Internal auth token TTL — rotate before this expires.
+  internal-auth-token-ttl: "1h"
+
+  # ── TLS ───────────────────────────────────────────────────
+  tls:
+    enabled: true
+    cert-file: "${PANGROVA_TLS_CERT_FILE:-/etc/pangrova/tls/server.crt}"
+    key-file: "${PANGROVA_TLS_KEY_FILE:-/etc/pangrova/tls/server.key}"
+    ca-file: "${PANGROVA_TLS_CA_FILE:-/etc/pangrova/tls/ca-bundle.crt}"
+    # Minimum TLS protocol version. TLS 1.2 is the minimum;
+    # use TLS 1.3 only if all clients support it.
+    min-protocol: "TLSv1.2"
+
+  # ── Authorization (RBAC) ──────────────────────────────────
+  rbac:
+    # Deny all requests that do not match an explicit grant.
+    default-deny: true
+
+  # ── Audit Logging ─────────────────────────────────────────
+  audit:
+    # Log all DDL operations (CREATE/DROP/ALTER TABLE).
+    log-ddl: true
+    # Log DML operations (SELECT/INSERT/UPDATE/DELETE).
+    # High volume — consider log-dml: false and rely on query logs.
+    log-dml: false
+    # Log all authentication failures.
+    log-auth-failures: true
+    # Retain audit logs for 90 days (rolled separately from app logs).
+    retention-days: 90
+
+
+# ── AI / Self-Intelligence ────────────────────────────────────
+#
+# AI-powered features: vector embedding pipeline, semantic query
+# cache, layout advisor, and automated index lifecycle management.
+# All features are off by default; enable per-feature as needed.
+ai:
+  # ── Embedding Pipeline ─────────────────────────────────────
+  embedding:
+    enabled: true
+    # Queue depth for pending embedding requests from ingest.
+    queue-capacity: 500000
+    # Send a batch to the inference provider every N rows.
+    batch-size: 64
+    # Or every N milliseconds, whichever comes first.
+    batch-timeout-ms: 100
+
+    # Inference provider configuration.
+    provider:
+      # OpenAI-compatible REST endpoint.
+      base-url: "${PANGROVA_INFERENCE_BASE_URL:-http://ollama:11434}"
+      model: "${PANGROVA_EMBEDDING_MODEL:-nomic-embed-text}"
+      # Timeout per inference HTTP call.
+      timeout: "10s"
+      # Concurrent HTTP connections to the inference provider.
+      max-connections: 8
+      # Number of parallel embedding drainer threads.
+      drainer-threads: 4
+
+  # ── Semantic Query Cache ────────────────────────────────────
+  semantic-cache:
+    enabled: true
+    # Maximum number of cached query embeddings (HNSW index).
+    capacity: 10000
+    # Cosine similarity threshold for a cache hit (0.0–1.0).
+    # Higher = stricter matching, fewer false positives.
+    similarity-threshold: 0.92
+    # Cache entry TTL — invalidated on table write even if not expired.
+    ttl: "10m"
+
+  # ── Conversation Context ────────────────────────────────────
+  conversation:
+    # Maximum turns retained per session for multi-turn SQL rewriting.
+    max-turns: 50
+    # Session idle timeout — purge context after inactivity.
+    session-ttl: "30m"
+
+  # ── Layout Advisor ──────────────────────────────────────────
+  layout-advisor:
+    # Ring buffer of recent query patterns used to score layouts.
+    pattern-capacity: 100000
+    # How often layout recommendations are re-evaluated.
+    recommendation-interval-minutes: 60
+
+  # ── Index Lifecycle Management ──────────────────────────────
+  index-lifecycle:
+    # How often to assess index health (staleness, compaction needed).
+    health-check-interval-minutes: 30
+    # How often to emit index rebuild recommendations.
+    recommendation-interval-minutes: 120
+
+  # ── Reranker ───────────────────────────────────────────────
+  reranker:
+    enabled: true
+    model: "${PANGROVA_RERANKER_MODEL:-BAAI/bge-reranker-v2-m3}"

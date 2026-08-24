@@ -1,0 +1,152 @@
+{
+  "version": 2,
+  "description": "TPC-H SF=10 performance baseline stored in version control. Updated monthly or after intentional performance changes. Alerts trigger on >15% regression for any query.",
+  "lastUpdated": "2025-01-15",
+  "scaleFactor": 10,
+  "environment": {
+    "runner": "dedicated-benchmark-host",
+    "cpu": "AMD EPYC 7R13 (16 vCPU)",
+    "memory": "64GB",
+    "storage": "NVMe SSD",
+    "jdk": "17",
+    "heap": "32g",
+    "nativeMemory": "16g",
+    "os": "Ubuntu 22.04"
+  },
+  "regressionThreshold": 0.15,
+  "alertThreshold": 0.15,
+  "queries": {
+    "Q1": {
+      "name": "Pricing Summary Report",
+      "baselineP50Ms": 2100,
+      "baselineP99Ms": 2800,
+      "description": "Full scan + filter + aggregation on lineitem (6M rows at SF=10)"
+    },
+    "Q2": {
+      "name": "Minimum Cost Supplier",
+      "baselineP50Ms": 450,
+      "baselineP99Ms": 680,
+      "description": "Correlated subquery with multi-table join (part, supplier, partsupp, nation, region)"
+    },
+    "Q3": {
+      "name": "Shipping Priority",
+      "baselineP50Ms": 1800,
+      "baselineP99Ms": 2400,
+      "description": "3-table join with filter and top-N (customer, orders, lineitem)"
+    },
+    "Q4": {
+      "name": "Order Priority Checking",
+      "baselineP50Ms": 1200,
+      "baselineP99Ms": 1700,
+      "description": "Semi-join with date range filter (orders, lineitem)"
+    },
+    "Q5": {
+      "name": "Local Supplier Volume",
+      "baselineP50Ms": 2500,
+      "baselineP99Ms": 3200,
+      "description": "6-table join with aggregation (region, nation, supplier, customer, orders, lineitem)"
+    },
+    "Q6": {
+      "name": "Forecasting Revenue Change",
+      "baselineP50Ms": 800,
+      "baselineP99Ms": 1100,
+      "description": "Single table scan with range predicates and aggregation (lineitem)"
+    },
+    "Q7": {
+      "name": "Volume Shipping",
+      "baselineP50Ms": 2800,
+      "baselineP99Ms": 3600,
+      "description": "Multi-table join with CASE expression (supplier, lineitem, orders, customer, nation)"
+    },
+    "Q8": {
+      "name": "National Market Share",
+      "baselineP50Ms": 3200,
+      "baselineP99Ms": 4100,
+      "description": "8-table join with division and CASE (part, supplier, lineitem, orders, customer, nation, region)"
+    },
+    "Q9": {
+      "name": "Product Type Profit Measure",
+      "baselineP50Ms": 4500,
+      "baselineP99Ms": 5800,
+      "description": "6-table join with expression evaluation (part, supplier, lineitem, partsupp, orders, nation)"
+    },
+    "Q10": {
+      "name": "Returned Item Reporting",
+      "baselineP50Ms": 2200,
+      "baselineP99Ms": 2900,
+      "description": "4-table join with filter on return flag (customer, orders, lineitem, nation)"
+    },
+    "Q11": {
+      "name": "Important Stock Identification",
+      "baselineP50Ms": 600,
+      "baselineP99Ms": 900,
+      "description": "Subquery with HAVING threshold (partsupp, supplier, nation)"
+    },
+    "Q12": {
+      "name": "Shipping Modes and Order Priority",
+      "baselineP50Ms": 1500,
+      "baselineP99Ms": 2000,
+      "description": "2-table join with CASE aggregation (orders, lineitem)"
+    },
+    "Q13": {
+      "name": "Customer Distribution",
+      "baselineP50Ms": 1900,
+      "baselineP99Ms": 2500,
+      "description": "Left outer join with nested aggregation (customer, orders)"
+    },
+    "Q14": {
+      "name": "Promotion Effect",
+      "baselineP50Ms": 1100,
+      "baselineP99Ms": 1500,
+      "description": "2-table join with conditional aggregation (lineitem, part)"
+    },
+    "Q15": {
+      "name": "Top Supplier",
+      "baselineP50Ms": 1400,
+      "baselineP99Ms": 1900,
+      "description": "View/CTE with max subquery (supplier, lineitem)"
+    },
+    "Q16": {
+      "name": "Parts/Supplier Relationship",
+      "baselineP50Ms": 700,
+      "baselineP99Ms": 1000,
+      "description": "Anti-join with GROUP BY and COUNT DISTINCT (partsupp, part, supplier)"
+    },
+    "Q17": {
+      "name": "Small-Quantity-Order Revenue",
+      "baselineP50Ms": 2000,
+      "baselineP99Ms": 2700,
+      "description": "Correlated subquery with AVG (lineitem, part)"
+    },
+    "Q18": {
+      "name": "Large Volume Customer",
+      "baselineP50Ms": 3800,
+      "baselineP99Ms": 4900,
+      "description": "Subquery with GROUP BY HAVING and top-N (customer, orders, lineitem)"
+    },
+    "Q19": {
+      "name": "Discounted Revenue",
+      "baselineP50Ms": 1300,
+      "baselineP99Ms": 1800,
+      "description": "Complex OR predicates with join (lineitem, part)"
+    },
+    "Q20": {
+      "name": "Potential Part Promotion",
+      "baselineP50Ms": 1600,
+      "baselineP99Ms": 2200,
+      "description": "Nested subqueries with semi-join (supplier, nation, partsupp, lineitem, part)"
+    },
+    "Q21": {
+      "name": "Suppliers Who Kept Orders Waiting",
+      "baselineP50Ms": 3500,
+      "baselineP99Ms": 4500,
+      "description": "Multi-level EXISTS/NOT EXISTS (supplier, lineitem, orders, nation)"
+    },
+    "Q22": {
+      "name": "Global Sales Opportunity",
+      "baselineP50Ms": 500,
+      "baselineP99Ms": 750,
+      "description": "Subquery with NOT EXISTS and AVG (customer, orders)"
+    }
+  }
+}

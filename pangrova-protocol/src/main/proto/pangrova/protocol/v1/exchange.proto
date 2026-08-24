@@ -1,0 +1,137 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1.exchange";
+option java_multiple_files = true;
+
+// Native exchange protocol for worker-to-worker shuffle data transport.
+// Used by the native shuffle server (C++) and
+// NativeShuffleTransport / NativeExchangeTransport (Java).
+
+// NOTE: The proto messages below are used for JNI command payloads and
+// wire-format documentation. No gRPC service is generated or used —
+// actual transport uses Arrow Flight DoGet with plain-text ticket encoding.
+
+// Request to fetch shuffle data for a specific partition.
+//
+// NOTE: The C++ FlightShuffleServer uses a plain-text ticket format
+// ("query_id\nstage_id\npartition_id") for DoGet, not this protobuf message.
+// This message is used for JNI command payloads and documentation only.
+// The plain-text format avoids protobuf dependency in the Flight hot path.
+message ShuffleRequest {
+    // Query identifier owning the shuffle data.
+    string query_id = 1;
+    // Stage identifier that produced the shuffle output.
+    int32 stage_id = 2;
+    // Partition identifier to fetch (0-based).
+    int32 partition_id = 3;
+}
+
+// A single batch of shuffle data streamed from upstream to downstream worker.
+// Each batch contains pre-serialized data (PrestoVectorSerde format) for
+// one partition, matching the format already stored in SerializedShuffleQueue.
+message ShuffleBatch {
+    // Serialized record batch bytes (PrestoVectorSerde or Arrow IPC format).
+    bytes data = 1;
+    // True when this is the last batch for the requested partition.
+    // After receiving is_last=true, the client should not expect more data.
+    bool is_last = 2;
+    // Number of rows in this batch (informational, for metrics).
+    int64 row_count = 3;
+    // Uncompressed size in bytes (informational, for backpressure decisions).
+    int64 uncompressed_bytes = 4;
+}
+
+// Command payload for START_SHUFFLE_SERVER JNI command.
+// Sent from Java NativeShuffleTransport to C++ via executeCommand().
+message StartShuffleServerCommand {
+    // Number of shuffle output partitions to serve.
+    int32 num_partitions = 1;
+    // Preferred port (0 = auto-assign).
+    int32 preferred_port = 2;
+}
+
+// Response payload for START_SHUFFLE_SERVER JNI command.
+// Returned from C++ to Java with the actual bound port.
+message StartShuffleServerResponse {
+    // Actual port the shuffle server is listening on.
+    int32 bound_port = 1;
+}
+
+// Command payload for CONNECT_EXCHANGE_SOURCE JNI command.
+// Sent from Java NativeExchangeTransport to C++ via executeCommand().
+message ConnectExchangeSourceCommand {
+    // Source identifier for the exchange source in the Velox plan.
+    string source_id = 1;
+    // Upstream worker transport server host.
+    string host = 2;
+    // Upstream worker transport server port.
+    int32 port = 3;
+    // Query identifier for the shuffle data.
+    string query_id = 4;
+    // Stage identifier that produced the shuffle output.
+    int32 stage_id = 5;
+    // Partition identifier to fetch.
+    int32 partition_id = 6;
+}
+
+// Command payload for START_NATIVE_EXCHANGE JNI command.
+// Sent from Java NativeExchangeTransport to C++ via executeCommand().
+// Instructs the native side to create PangrovaExchangeSource instances
+// in active mode for each upstream source.
+message StartNativeExchangeCommand {
+    // List of upstream exchange sources to connect to.
+    repeated ExchangeSourceInfo sources = 1;
+}
+
+// Describes one upstream exchange source for native-side creation.
+message ExchangeSourceInfo {
+    // Source task identifier (used as remoteTaskId in Velox ExchangeSource).
+    string source_task_id = 1;
+    // Upstream worker transport server host.
+    string host = 2;
+    // Upstream worker transport server port.
+    int32 port = 3;
+    // Partition identifier to fetch from the upstream server.
+    int32 partition_id = 4;
+}
+
+// ── Result serving protocol ──
+// Used by the native result server (C++) and NativeResultTransport (Java).
+// The coordinator fetches query results from the worker's result server
+// via DoGet. ResultRequest is the Ticket payload; the
+// Start/Stop commands manage the server lifecycle via JNI.
+
+// Request to fetch result data for a specific task.
+// Serialized as the Ticket payload in DoGet requests
+// to the worker's result server.
+message ResultRequest {
+    // Velox task identifier. The native result server uses this to pull
+    // pre-serialized pages from Velox OutputBufferManager.
+    string task_id = 1;
+}
+
+// Command payload for START_RESULT_SERVER JNI command.
+// Sent from Java NativeResultTransport to C++ via executeCommand().
+message StartResultServerCommand {
+    // Preferred port (0 = auto-assign).
+    int32 preferred_port = 1;
+}
+
+// Response payload for START_RESULT_SERVER JNI command.
+// Returned from C++ to Java with the actual bound port.
+message StartResultServerResponse {
+    // Actual port the result server is listening on.
+    int32 bound_port = 1;
+}
+
+// Command payload for creating a native task executor.
+// Wraps TaskRequest with additional execution flags that control
+// plan conversion and output routing on the native side.
+message CreateExecutorCommand {
+    // Serialized TaskRequest bytes (the Substrait plan + splits + config).
+    bytes task_request = 1;
+    // When true, VeloxPlanConverter wraps the plan root with a
+    // PartitionedOutputNode and VeloxTaskRunner skips the consumer callback,
+    // routing output through Velox OutputBufferManager for the native result server.
+    bool is_result_task = 2;
+}

@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "description": "TPC-H SF=100 performance baseline. Populated after first successful nightly run on dedicated benchmark hardware. Alerts trigger on >15% regression for any query.",
+  "lastUpdated": "2025-01-01",
+  "scaleFactor": 100,
+  "environment": {
+    "runner": "self-hosted-benchmark",
+    "cpu": "AMD EPYC 7R13 (32 vCPU)",
+    "memory": "128GB",
+    "storage": "NVMe SSD (3.5GB/s read)",
+    "jdk": "17",
+    "heap": "32g",
+    "nativeMemory": "48g",
+    "workers": 4,
+    "os": "Ubuntu 22.04"
+  },
+  "regressionThreshold": 0.15,
+  "queries": {
+    "q01": { "name": "Pricing Summary Report", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q02": { "name": "Minimum Cost Supplier", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q03": { "name": "Shipping Priority", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q04": { "name": "Order Priority Checking", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q05": { "name": "Local Supplier Volume", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q06": { "name": "Forecasting Revenue Change", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q07": { "name": "Volume Shipping", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q08": { "name": "National Market Share", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q09": { "name": "Product Type Profit Measure", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q10": { "name": "Returned Item Reporting", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q11": { "name": "Important Stock Identification", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q12": { "name": "Shipping Modes and Order Priority", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q13": { "name": "Customer Distribution", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q14": { "name": "Promotion Effect", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q15": { "name": "Top Supplier", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q16": { "name": "Parts/Supplier Relationship", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q17": { "name": "Small-Quantity-Order Revenue", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q18": { "name": "Large Volume Customer", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q19": { "name": "Discounted Revenue", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q20": { "name": "Potential Part Promotion", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q21": { "name": "Suppliers Who Kept Orders Waiting", "baselineP50Ms": 0, "baselineP99Ms": 0 },
+    "q22": { "name": "Global Sales Opportunity", "baselineP50Ms": 0, "baselineP99Ms": 0 }
+  }
+}

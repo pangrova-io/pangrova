@@ -1,0 +1,12 @@
+# SPI annotation baseline — pre-existing types lacking @Stable/@Experimental/@Internal.
+#
+# Maintained by scripts/check-spi-annotations.sh (Task 28.1).
+#
+# Rules:
+#   - DO NOT add new entries. Adding a new file here will be rejected; instead,
+#     annotate the new SPI type with @Stable(since="..."), @Experimental, or @Internal.
+#   - When a baseline entry is properly annotated, REMOVE it from this file
+#     (the gate enforces stale-entry removal so the baseline shrinks over time).
+#
+# Burndown target: empty file = full SPI annotation coverage.
+#

@@ -1,0 +1,62 @@
+# AI tool local config
+.aone_copilot/
+.qoder/repowiki/
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# Java
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+
+# Maven
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+dependency-reduced-pom.xml
+
+# jqwik property-based testing
+.jqwik-database
+
+# Clangd cache
+.cache/
+
+# Leaked build artifacts (root-level)
+/io/
+/org/
+
+# C++ / CMake build artifacts
+/pangrova-worker-native/build/
+**/build-*/
+cmake-build-*/
+CMakeUserPresets.json
+*.o
+*.a
+*.so
+*.dylib
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+
+# Velox build-time downloads and installs (created by setup-macos.sh)
+deps-download/
+deps-install/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testcontainers (developer-local; use DOCKER_HOST env var or ~/.testcontainers.properties)
+.testcontainers.properties
+
+# Env
+.env
+.env.local
+*.local

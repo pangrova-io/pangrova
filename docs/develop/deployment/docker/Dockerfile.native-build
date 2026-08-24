@@ -1,0 +1,121 @@
+# ==============================================================================
+# Dockerfile.native-build — Reproducible build environment for pangrova-worker-native
+#
+# Produces a deterministic build image with pinned Velox + all C++ dependencies.
+# Used by CI (release workflow) and developers who want bit-for-bit reproducible
+# native library builds without polluting their host system.
+#
+# Usage:
+#   docker build -f deploy/docker/Dockerfile.native-build -t pangrova-native-builder .
+#   docker run --rm -v $(pwd):/workspace pangrova-native-builder
+#
+# The container builds libpangrova_native.so and copies it to /workspace/output/
+# ==============================================================================
+
+FROM ubuntu:22.04 AS builder
+
+# TARGETARCH is auto-set by Docker Buildx (amd64, arm64)
+ARG TARGETARCH
+
+LABEL maintainer="pangrova-dev"
+LABEL description="Reproducible build environment for pangrova-worker-native (Velox JNI)"
+
+# Avoid interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Pinned versions for reproducibility
+ENV VELOX_REF=v2026.04.17.00
+ENV CMAKE_VERSION=3.28.3
+
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc-11 g++-11 \
+    cmake \
+    ninja-build \
+    ccache \
+    git \
+    curl \
+    wget \
+    pkg-config \
+    python3 \
+    openjdk-17-jdk-headless \
+    # Velox dependencies
+    libssl-dev \
+    libcurl4-openssl-dev \
+    libxml2-dev \
+    liblz4-dev \
+    libzstd-dev \
+    libsnappy-dev \
+    libevent-dev \
+    libdouble-conversion-dev \
+    libgflags-dev \
+    libgoogle-glog-dev \
+    libicu-dev \
+    libsodium-dev \
+    libre2-dev \
+    libboost-all-dev \
+    # Arrow C++ (system package for Arrow C Data Interface headers)
+    libarrow-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Use gcc-11 as default
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 \
+    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
+
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-${TARGETARCH}
+ENV CC=gcc-11
+ENV CXX=g++-11
+
+# Clone and build Velox (cached layer — only rebuilds when VELOX_REF changes)
+WORKDIR /opt
+RUN git clone --depth 1 --branch ${VELOX_REF} \
+    https://github.com/facebookincubator/velox.git /opt/velox-src
+
+WORKDIR /opt/velox-src
+RUN ./scripts/setup-ubuntu.sh
+
+RUN cmake -B _build/release \
+    -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DVELOX_ENABLE_TESTING=OFF \
+    -DVELOX_ENABLE_BENCHMARKS=OFF \
+    -DVELOX_ENABLE_EXAMPLES=OFF \
+    -DVELOX_ENABLE_SUBSTRAIT=ON \
+    -DVELOX_ENABLE_ARROW=ON \
+    -DVELOX_ENABLE_PARQUET=ON \
+    -DVELOX_ENABLE_S3=ON \
+    -DVELOX_ENABLE_HDFS=OFF \
+    -DVELOX_ENABLE_GCS=OFF \
+    && cmake --build _build/release -j$(nproc)
+
+RUN cmake --install _build/release --prefix /opt/velox-install
+
+# Copy deps-install for header/lib resolution
+RUN if [ -d "deps-install" ]; then cp -a deps-install /opt/velox-install/deps-install; fi
+
+ENV VELOX_HOME=/opt/velox-install
+ENV VELOX_INSTALL_PREFIX=/opt/velox-install
+ENV VELOX_BUILD_DIR=/opt/velox-src/_build/release
+
+# ==============================================================================
+# Build stage: compile pangrova-worker-native
+# ==============================================================================
+FROM builder AS native-build
+
+WORKDIR /workspace
+# Copy only what CMake needs (avoid invalidating cache on Java source changes)
+COPY pangrova-worker-native/ /workspace/pangrova-worker-native/
+
+WORKDIR /workspace/pangrova-worker-native
+RUN cmake -B build -GNinja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DPANGROVA_BUILD_TESTS=OFF \
+    && cmake --build build
+
+# ==============================================================================
+# Output stage: extract the native library
+# ==============================================================================
+FROM scratch AS output
+COPY --from=native-build /workspace/pangrova-worker-native/build/libpangrova_native.so /

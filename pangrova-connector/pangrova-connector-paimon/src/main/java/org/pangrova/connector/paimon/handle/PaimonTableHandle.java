@@ -1,0 +1,122 @@
+package org.pangrova.connector.paimon.handle;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
+
+/**
+ * Immutable handle referencing a Paimon table by schema, name, and metadata snapshot.
+ *
+ * <p>This handle contains only immutable metadata fields (String, long, Optional, List.of(), Map.of()).
+ * The live Paimon SDK Table object is NOT stored here to prevent SDK object leakage
+ * across module boundaries. Consumers needing the SDK Table must reload it via catalog API.
+ *
+ * <p>Metadata snapshot fields:
+ * <ul>
+ *   <li>{@code tableLocation} - Base location URI of the table</li>
+ *   <li>{@code snapshotId} - Optional snapshot ID for time-travel queries</li>
+ *   <li>{@code rowTypeJson} - JSON serialization of the Paimon RowType schema</li>
+ *   <li>{@code primaryKeys} - List of primary key column names (empty for append-only tables)</li>
+ *   <li>{@code partitionKeys} - List of partition key column names</li>
+ * </ul>
+ */
+public record PaimonTableHandle(
+        String schemaName,
+        String tableName,
+        String tableLocation,
+        Optional<Long> snapshotId,
+        String rowTypeJson,
+        List<String> primaryKeys,
+        List<String> partitionKeys,
+        Map<String, String> properties,
+        long pushedLimit) implements ConnectorTableHandle {
+
+    /** No limit pushed down. */
+    public static final long NO_LIMIT = 0L;
+
+    /**
+     * Compact constructor with defensive copies and null safety.
+     */
+    public PaimonTableHandle {
+        requireNonBlank(schemaName, "schemaName");
+        requireNonBlank(tableName, "tableName");
+        requireNonBlank(tableLocation, "tableLocation");
+        requireNonBlank(rowTypeJson, "rowTypeJson");
+        snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
+        primaryKeys = primaryKeys == null ? List.of() : List.copyOf(primaryKeys);
+        partitionKeys = partitionKeys == null ? List.of() : List.copyOf(partitionKeys);
+        properties = properties == null ? Map.of() : Map.copyOf(properties);
+    }
+
+    private static void requireNonBlank(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank");
+        }
+    }
+
+    /**
+     * Creates a handle with a specific snapshot ID for time-travel queries.
+     *
+     * @param targetSnapshotId the snapshot ID to query
+     * @return a new handle with the specified snapshot ID
+     */
+    public PaimonTableHandle withSnapshotId(long targetSnapshotId) {
+        return new PaimonTableHandle(
+                schemaName, tableName, tableLocation,
+                Optional.of(targetSnapshotId), rowTypeJson,
+                primaryKeys, partitionKeys, properties, pushedLimit);
+    }
+
+    @Override
+    public PaimonTableHandle withTimeTravelSnapshot(long targetSnapshotId) {
+        return withSnapshotId(targetSnapshotId);
+    }
+
+    /**
+     * Creates a handle without a specific snapshot (uses current snapshot).
+     *
+     * @return a new handle without snapshot ID
+     */
+    public PaimonTableHandle withoutSnapshotId() {
+        return new PaimonTableHandle(
+                schemaName, tableName, tableLocation,
+                Optional.empty(), rowTypeJson,
+                primaryKeys, partitionKeys, properties, pushedLimit);
+    }
+
+    /**
+     * Creates a handle with a pushed-down row limit.
+     *
+     * @param limit the maximum number of rows to return
+     * @return a new handle with the limit encoded
+     */
+    public PaimonTableHandle withLimit(long limit) {
+        return new PaimonTableHandle(
+                schemaName, tableName, tableLocation,
+                snapshotId, rowTypeJson,
+                primaryKeys, partitionKeys, properties, limit);
+    }
+
+    /**
+     * Returns true if a limit has been pushed down into this handle.
+     */
+    public boolean hasLimit() {
+        return pushedLimit > NO_LIMIT;
+    }
+
+    /**
+     * Returns true if this table has primary keys (LSM merge-on-read table).
+     */
+    public boolean hasPrimaryKeys() {
+        return !primaryKeys.isEmpty();
+    }
+
+    /**
+     * Returns true if this table is partitioned.
+     */
+    public boolean isPartitioned() {
+        return !partitionKeys.isEmpty();
+    }
+}

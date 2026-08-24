@@ -1,0 +1,12 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1";
+option java_multiple_files = true;
+
+// Wire representation of a fixed-dimension float vector.
+// Used for cross-boundary vector data transfer (Java ↔ Native).
+// Dimension field enables validation without schema context.
+message VectorValue {
+    repeated float values = 1;
+    int32 dimension = 2;
+}

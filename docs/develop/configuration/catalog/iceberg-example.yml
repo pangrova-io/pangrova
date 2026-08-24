@@ -1,0 +1,55 @@
+# ============================================================
+# Pangrova Iceberg Catalog — Configuration Template
+# This is a template, copy before editing
+# Usage: cp iceberg-example.yml <your-catalog-name>.yml
+#
+# Equivalent SQL:
+#   CREATE CATALOG my_iceberg USING iceberg
+#     WITH ('type' = 'hadoop', 'warehouse' = 's3://my-bucket/iceberg-warehouse')
+# ============================================================
+
+# Connector type (matches ConnectorFactory.getName())
+connector: iceberg
+
+# Connector properties
+# Flat key-value map, passed directly to ConnectorFactory.create()
+properties:
+
+  # ----------------------------------------------------------
+  # Catalog type
+  # ----------------------------------------------------------
+  # Options: hadoop, hive, rest, jdbc
+  # Default: hadoop (IcebergConnectorFactory falls back to hadoop when unspecified)
+  type: hadoop
+
+  # ----------------------------------------------------------
+  # Warehouse path (required)
+  # ----------------------------------------------------------
+  # Root path for all table data and metadata
+  warehouse: "s3://my-bucket/iceberg-warehouse"
+
+  # ----------------------------------------------------------
+  # Hive Metastore config
+  # ----------------------------------------------------------
+  # Required when type=hive
+  # uri: "thrift://hive-metastore:9083"
+
+  # ----------------------------------------------------------
+  # S3 storage backend
+  # ----------------------------------------------------------
+  # Configure the following when using S3 as storage backend
+  # s3.endpoint: "https://s3.amazonaws.com"
+  # s3.access-key-id: "${ENV:AWS_ACCESS_KEY_ID}"
+  # s3.secret-access-key: "${VAULT:secret/pangrova/s3#secret-key}"
+
+  # ----------------------------------------------------------
+  # HDFS storage backend
+  # ----------------------------------------------------------
+  # When using HDFS, set warehouse to an hdfs:// path
+  # warehouse: "hdfs://namenode:8020/iceberg-warehouse"
+
+  # ----------------------------------------------------------
+  # Local storage backend
+  # ----------------------------------------------------------
+  # For development and testing only
+  # warehouse: "/tmp/iceberg-warehouse"

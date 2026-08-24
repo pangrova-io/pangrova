@@ -1,0 +1,474 @@
+package org.pangrova.planner.substrait;
+
+import io.substrait.plan.Plan;
+import io.substrait.relation.Rel;
+import org.pangrova.planner.PangrovaPlanner;
+import org.pangrova.planner.PlanResult;
+import org.apache.calcite.jdbc.CalciteSchema;
+import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.type.RelDataType;
+import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.schema.Table;
+import org.apache.calcite.schema.impl.AbstractTable;
+import org.apache.calcite.sql.type.SqlTypeName;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Substrait IR round-trip consistency test framework (G-IR-07).
+ *
+ * <p>Verifies that Calcite RelNode plans survive the Substrait conversion pipeline
+ * with key structural properties preserved:
+ * <pre>
+ *   RelNode  --(SubstraitConverter)-->  Plan
+ *            --(serialize)-->           byte[]
+ *            --(parse proto)-->         proto.Plan
+ *            --(verify)-->             structural assertions
+ * </pre>
+ *
+ * <p>Covers: simple SELECT with filter, INNER JOIN, LEFT JOIN, GROUP BY
+ * with aggregation, subquery (decorrelated), and UNION ALL.
+ *
+ * <p>For queries that the lightweight deserializer supports (VirtualTable-based),
+ * a full Plan-level round-trip is also verified.</p>
+ */
+class SubstraitRoundTripTest {
+
+    private PangrovaPlanner planner;
+    private SubstraitConverter converter;
+    private SubstraitPlanSerializer serializer;
+
+    @BeforeEach
+    void setUp() {
+        planner = new PangrovaPlanner(buildTestSchema());
+        converter = new SubstraitConverter();
+        serializer = new SubstraitPlanSerializer();
+    }
+
+    // -----------------------------------------------------------------------
+    // 1. Simple SELECT with filter
+    // -----------------------------------------------------------------------
+
+    @Test
+    void selectWithFilterPreservesTableRefAndFilter() {
+        String sql = "SELECT * FROM orders WHERE o_orderkey > 100";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        assertThat(summary.relTypes)
+                .as("Operator types should include READ")
+                .contains("READ");
+        assertThat(summary.tableNames)
+                .as("Table reference must be preserved")
+                .contains("orders");
+        assertThat(summary.hasFilterInRead || summary.hasStandaloneFilter)
+                .as("Filter condition must be present (in ReadRel or as standalone FilterRel)")
+                .isTrue();
+        assertThat(summary.rootNames)
+                .as("Output column names must be preserved")
+                .isNotEmpty();
+
+        verifyByteLevelStability(sql);
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. INNER JOIN
+    // -----------------------------------------------------------------------
+
+    @Test
+    void innerJoinPreservesJoinTypeAndTableRefs() {
+        String sql = "SELECT * FROM orders o "
+                + "JOIN customer c ON o.o_custkey = c.c_custkey";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        assertThat(summary.relTypes)
+                .as("Operator types must include JOIN")
+                .contains("JOIN");
+        assertThat(summary.tableNames)
+                .as("Both table references must be preserved")
+                .contains("orders", "customer");
+        assertThat(summary.joinTypes)
+                .as("Join type must be INNER")
+                .contains("JOIN_TYPE_INNER");
+        assertThat(summary.rootNames)
+                .as("Output names must be present")
+                .isNotEmpty();
+
+        verifyByteLevelStability(sql);
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. LEFT JOIN
+    // -----------------------------------------------------------------------
+
+    @Test
+    void leftJoinPreservesJoinType() {
+        String sql = "SELECT * FROM orders o "
+                + "LEFT JOIN customer c ON o.o_custkey = c.c_custkey";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        assertThat(summary.relTypes)
+                .as("Operator types must include JOIN")
+                .contains("JOIN");
+        assertThat(summary.tableNames)
+                .as("Both table references must be preserved")
+                .contains("orders", "customer");
+        assertThat(summary.joinTypes)
+                .as("Join type must be LEFT")
+                .contains("JOIN_TYPE_LEFT");
+
+        verifyByteLevelStability(sql);
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. GROUP BY with aggregation
+    // -----------------------------------------------------------------------
+
+    @Test
+    void groupByPreservesAggregation() {
+        String sql = "SELECT o_orderstatus, COUNT(*), SUM(o_totalprice) "
+                + "FROM orders GROUP BY o_orderstatus";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        assertThat(summary.relTypes)
+                .as("Operator types must include AGGREGATE")
+                .contains("AGGREGATE");
+        assertThat(summary.tableNames)
+                .as("Table reference must be preserved")
+                .contains("orders");
+        assertThat(summary.aggregateMeasureCount)
+                .as("Should have 2 aggregate measures (COUNT, SUM)")
+                .isEqualTo(2);
+        assertThat(summary.rootNames)
+                .as("Output column names must include the grouping column alias")
+                .isNotEmpty();
+
+        verifyByteLevelStability(sql);
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Subquery (IN -> decorrelated to semi/inner join)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void subqueryProducesValidPlanWithBothTables() {
+        String sql = "SELECT * FROM orders "
+                + "WHERE o_custkey IN (SELECT c_custkey FROM customer)";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        // Calcite decorrelation converts IN-subquery to a join
+        assertThat(summary.tableNames)
+                .as("Both tables from main query and subquery must be present")
+                .contains("orders", "customer");
+        // The decorrelated plan should contain a JOIN or CROSS (semi-join path)
+        assertThat(summary.relTypes)
+                .as("Decorrelated subquery should produce JOIN or AGGREGATE operators")
+                .containsAnyOf("JOIN", "CROSS", "AGGREGATE");
+
+        verifyByteLevelStability(sql);
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. UNION ALL
+    // -----------------------------------------------------------------------
+
+    @Test
+    void unionAllPreservesSetOperation() {
+        String sql = "SELECT o_orderkey FROM orders "
+                + "UNION ALL SELECT c_custkey FROM customer";
+        ProtoSummary summary = roundTripToProto(sql);
+
+        assertThat(summary.relTypes)
+                .as("Operator types must include SET for UNION ALL")
+                .contains("SET");
+        assertThat(summary.tableNames)
+                .as("Both tables must be present in the union branches")
+                .contains("orders", "customer");
+        assertThat(summary.setOpTypes)
+                .as("Set operation type should be UNION ALL")
+                .contains("SET_OP_UNION_ALL");
+        assertThat(summary.rootNames)
+                .as("Output column names must be present")
+                .isNotEmpty();
+
+        verifyByteLevelStability(sql);
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Full Plan-level round-trip for literal query
+    // -----------------------------------------------------------------------
+
+    @Test
+    void planLevelRoundTripPreservesRootNamesAndInputType() {
+        // Literal queries use VirtualTableScan, which the deserializer supports
+        String sql = "SELECT 42 AS answer, 'hello' AS greeting";
+        Plan original = planAndConvert(sql);
+        byte[] bytes = serializer.serialize(original);
+        Plan restored = serializer.deserialize(bytes);
+
+        assertThat(restored.getRoots()).hasSameSizeAs(original.getRoots());
+        assertThat(restored.getRoots().get(0).getNames())
+                .as("Root output names must survive full round-trip")
+                .isEqualTo(original.getRoots().get(0).getNames());
+
+        // Both plans should have the same top-level Rel type
+        Rel originalInput = original.getRoots().get(0).getInput();
+        Rel restoredInput = restored.getRoots().get(0).getInput();
+        assertThat(restoredInput.getClass().getSimpleName())
+                .as("Top-level Rel type must be preserved")
+                .isEqualTo(originalInput.getClass().getSimpleName());
+    }
+
+    @Test
+    void planLevelRoundTripPreservesMultipleExpressions() {
+        String sql = "SELECT 1, 2, 3";
+        Plan original = planAndConvert(sql);
+        byte[] bytes = serializer.serialize(original);
+        Plan restored = serializer.deserialize(bytes);
+
+        assertThat(restored.getRoots().get(0).getNames())
+                .as("All output names must survive round-trip")
+                .hasSameSizeAs(original.getRoots().get(0).getNames());
+    }
+
+    // -----------------------------------------------------------------------
+    // 8. Proto-level version stamps survive round-trip
+    // -----------------------------------------------------------------------
+
+    @Test
+    void versionAndProducerSurviveRoundTrip() throws Exception {
+        Plan plan = planAndConvert("SELECT 1");
+        byte[] bytes = serializer.serialize(plan);
+        io.substrait.proto.Plan proto = io.substrait.proto.Plan.parseFrom(bytes);
+
+        assertThat(proto.hasVersion())
+                .as("Serialized plan must carry a Version sub-message")
+                .isTrue();
+        assertThat(proto.getVersion().getProducer())
+                .as("Producer must be stamped")
+                .isNotEmpty();
+        assertThat(proto.getVersion().getMajorNumber())
+                .as("Major version must match the current spec")
+                .isEqualTo(SubstraitProtocolVersion.SPEC_MAJOR);
+    }
+
+    // -----------------------------------------------------------------------
+    // 9. Output column count consistency
+    // -----------------------------------------------------------------------
+
+    @Test
+    void outputColumnCountConsistentAcrossRoundTrip() {
+        String[] queries = {
+            "SELECT * FROM orders",
+            "SELECT o_orderkey, o_custkey FROM orders",
+            "SELECT COUNT(*) FROM orders",
+            "SELECT * FROM orders o JOIN customer c ON o.o_custkey = c.c_custkey"
+        };
+        for (String sql : queries) {
+            PlanResult planResult = planner.plan(sql);
+            int relNodeFieldCount = planResult.plan().getRowType().getFieldCount();
+            Plan plan = converter.convert(planResult.plan(),
+                    planResult.preOptimizationColumnNames());
+            List<String> rootNames = plan.getRoots().get(0).getNames();
+
+            assertThat(rootNames)
+                    .as("Root name count must equal RelNode field count for: " + sql)
+                    .hasSize(relNodeFieldCount);
+        }
+    }
+
+    // ===== Helpers =====
+
+    /**
+     * Converts a SQL query through the full pipeline and returns a proto-level summary.
+     */
+    private ProtoSummary roundTripToProto(String sql) {
+        Plan plan = planAndConvert(sql);
+        byte[] bytes = serializer.serialize(plan);
+        try {
+            io.substrait.proto.Plan proto = io.substrait.proto.Plan.parseFrom(bytes);
+            return summarizeProto(proto);
+        } catch (Exception e) {
+            throw new AssertionError("Failed to parse serialized proto for: " + sql, e);
+        }
+    }
+
+    private Plan planAndConvert(String sql) {
+        PlanResult planResult = planner.plan(sql);
+        return converter.convert(planResult.plan(),
+                planResult.preOptimizationColumnNames());
+    }
+
+    /**
+     * Verifies byte-level stability: serialize -> parse -> re-serialize produces
+     * identical bytes. This ensures no information is lost at the proto boundary.
+     */
+    private void verifyByteLevelStability(String sql) {
+        Plan plan = planAndConvert(sql);
+        byte[] bytes1 = serializer.serialize(plan);
+        try {
+            io.substrait.proto.Plan proto = io.substrait.proto.Plan.parseFrom(bytes1);
+            byte[] bytes2 = proto.toByteArray();
+            assertThat(bytes2)
+                    .as("Proto round-trip must produce identical bytes for: " + sql)
+                    .isEqualTo(bytes1);
+        } catch (Exception e) {
+            throw new AssertionError("Byte-level stability check failed for: " + sql, e);
+        }
+    }
+
+    /**
+     * Walks the proto Plan tree and extracts a structural summary for assertions.
+     */
+    private static ProtoSummary summarizeProto(io.substrait.proto.Plan proto) {
+        ProtoSummary summary = new ProtoSummary();
+        if (!proto.getRelationsList().isEmpty()) {
+            io.substrait.proto.PlanRel planRel = proto.getRelations(0);
+            if (planRel.hasRoot()) {
+                summary.rootNames = planRel.getRoot().getNamesList();
+                walkRel(planRel.getRoot().getInput(), summary);
+            }
+        }
+        return summary;
+    }
+
+    /**
+     * Recursively walks a proto Rel tree, collecting operator types, table names,
+     * join types, aggregate info, and set operation types.
+     */
+    private static void walkRel(io.substrait.proto.Rel rel, ProtoSummary summary) {
+        String relType = rel.getRelTypeCase().name();
+        summary.relTypes.add(relType);
+
+        switch (rel.getRelTypeCase()) {
+            case READ -> {
+                io.substrait.proto.ReadRel read = rel.getRead();
+                if (read.getReadTypeCase()
+                        == io.substrait.proto.ReadRel.ReadTypeCase.NAMED_TABLE) {
+                    List<String> names = read.getNamedTable().getNamesList();
+                    // Use the last name segment (table name without catalog/schema)
+                    if (!names.isEmpty()) {
+                        summary.tableNames.add(names.get(names.size() - 1));
+                    }
+                }
+                if (read.hasFilter()) {
+                    summary.hasFilterInRead = true;
+                }
+            }
+            case FILTER -> {
+                io.substrait.proto.FilterRel filter = rel.getFilter();
+                summary.hasStandaloneFilter = true;
+                walkRel(filter.getInput(), summary);
+            }
+            case PROJECT -> {
+                io.substrait.proto.ProjectRel project = rel.getProject();
+                walkRel(project.getInput(), summary);
+            }
+            case JOIN -> {
+                io.substrait.proto.JoinRel join = rel.getJoin();
+                summary.joinTypes.add(join.getType().name());
+                walkRel(join.getLeft(), summary);
+                walkRel(join.getRight(), summary);
+            }
+            case CROSS -> {
+                io.substrait.proto.CrossRel cross = rel.getCross();
+                walkRel(cross.getLeft(), summary);
+                walkRel(cross.getRight(), summary);
+            }
+            case SORT -> {
+                io.substrait.proto.SortRel sort = rel.getSort();
+                walkRel(sort.getInput(), summary);
+            }
+            case FETCH -> {
+                io.substrait.proto.FetchRel fetch = rel.getFetch();
+                walkRel(fetch.getInput(), summary);
+            }
+            case AGGREGATE -> {
+                io.substrait.proto.AggregateRel agg = rel.getAggregate();
+                summary.aggregateMeasureCount += agg.getMeasuresCount();
+                walkRel(agg.getInput(), summary);
+            }
+            case SET -> {
+                io.substrait.proto.SetRel set = rel.getSet();
+                summary.setOpTypes.add(set.getOp().name());
+                for (io.substrait.proto.Rel input : set.getInputsList()) {
+                    walkRel(input, summary);
+                }
+            }
+            default -> {
+                // Extension rels or unknown types -- skip children
+            }
+        }
+    }
+
+    /**
+     * Structural summary extracted from a proto Plan for assertion purposes.
+     */
+    static class ProtoSummary {
+        final List<String> relTypes = new ArrayList<>();
+        final List<String> tableNames = new ArrayList<>();
+        final List<String> joinTypes = new ArrayList<>();
+        final List<String> setOpTypes = new ArrayList<>();
+        List<String> rootNames = List.of();
+        boolean hasFilterInRead;
+        boolean hasStandaloneFilter;
+        int aggregateMeasureCount;
+    }
+
+    // ===== Test schema =====
+
+    private static CalciteSchema buildTestSchema() {
+        CalciteSchema schema = CalciteSchema.createRootSchema(false);
+        schema.add("orders", ordersTable());
+        schema.add("customer", customerTable());
+        schema.add("lineitem", lineitemTable());
+        return schema;
+    }
+
+    private static Table ordersTable() {
+        return new AbstractTable() {
+            @Override
+            public RelDataType getRowType(RelDataTypeFactory tf) {
+                return tf.builder()
+                        .add("o_orderkey", SqlTypeName.BIGINT)
+                        .add("o_custkey", SqlTypeName.BIGINT)
+                        .add("o_orderstatus", SqlTypeName.VARCHAR, 1)
+                        .add("o_totalprice", SqlTypeName.DECIMAL, 15, 2)
+                        .add("o_orderdate", SqlTypeName.DATE)
+                        .build();
+            }
+        };
+    }
+
+    private static Table customerTable() {
+        return new AbstractTable() {
+            @Override
+            public RelDataType getRowType(RelDataTypeFactory tf) {
+                return tf.builder()
+                        .add("c_custkey", SqlTypeName.BIGINT)
+                        .add("c_name", SqlTypeName.VARCHAR, 25)
+                        .add("c_nationkey", SqlTypeName.BIGINT)
+                        .add("c_acctbal", SqlTypeName.DECIMAL, 15, 2)
+                        .build();
+            }
+        };
+    }
+
+    private static Table lineitemTable() {
+        return new AbstractTable() {
+            @Override
+            public RelDataType getRowType(RelDataTypeFactory tf) {
+                return tf.builder()
+                        .add("l_orderkey", SqlTypeName.BIGINT)
+                        .add("l_partkey", SqlTypeName.BIGINT)
+                        .add("l_quantity", SqlTypeName.DECIMAL, 15, 2)
+                        .add("l_extendedprice", SqlTypeName.DECIMAL, 15, 2)
+                        .build();
+            }
+        };
+    }
+}

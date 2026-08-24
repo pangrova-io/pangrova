@@ -1,0 +1,112 @@
+# ============================================================
+# Pangrova — Iceberg on AWS S3 (Production-Ready)
+#
+# Complete configuration for using Iceberg tables on AWS S3.
+# Supports both IAM role-based auth and static credentials.
+#
+# Usage:
+#   cp s3-iceberg.yml /etc/pangrova/catalog/my_lakehouse.yml
+#   # Edit warehouse path and credentials
+#   # Restart Coordinator to pick up new catalog
+#
+# Equivalent SQL:
+#   CREATE CATALOG my_lakehouse USING iceberg
+#   WITH (
+#     'type' = 'hadoop',
+#     'warehouse' = 's3://my-lakehouse-bucket/warehouse',
+#     's3.region' = 'us-east-1'
+#   );
+# ============================================================
+
+connector: iceberg
+
+properties:
+
+  # ----------------------------------------------------------
+  # Catalog type
+  # ----------------------------------------------------------
+  # Options: hadoop, hive, rest, jdbc, glue
+  #
+  # - hadoop: table metadata stored as files in the warehouse path
+  #   (simplest setup, no external metastore dependency)
+  # - hive: uses Hive Metastore for metadata
+  # - rest: uses Iceberg REST Catalog protocol
+  # - glue: uses AWS Glue as the metastore
+  type: hadoop
+
+  # ----------------------------------------------------------
+  # Warehouse path (required)
+  # ----------------------------------------------------------
+  # Root path for all Iceberg table data and metadata files.
+  # All tables in this catalog will be stored under this prefix.
+  #
+  # Format: s3://<bucket>/<prefix>
+  # Example: s3://my-lakehouse-bucket/warehouse
+  #
+  # Ensure the bucket exists and Pangrova has read/write access.
+  warehouse: "s3://${PANGROVA_S3_BUCKET:-my-lakehouse-bucket}/warehouse"
+
+  # ----------------------------------------------------------
+  # S3 Region (required)
+  # ----------------------------------------------------------
+  # AWS region where the S3 bucket resides.
+  s3.region: "${AWS_REGION:-us-east-1}"
+
+  # ----------------------------------------------------------
+  # S3 Authentication — Option A: IAM Role (Recommended)
+  # ----------------------------------------------------------
+  # When running on EC2/ECS/EKS, prefer instance profiles or
+  # Pod Identity. No static credentials needed — the AWS SDK
+  # auto-discovers IAM roles from the instance metadata service.
+  #
+  # If cross-account access is needed, specify a role to assume:
+  # s3.role-arn: "${AWS_ROLE_ARN}"
+  # s3.external-id: "${AWS_EXTERNAL_ID}"  # optional, for cross-account
+
+  # ----------------------------------------------------------
+  # S3 Authentication — Option B: Static Credentials
+  # ----------------------------------------------------------
+  # Use only when IAM roles are unavailable (on-premises, hybrid).
+  # NEVER hardcode credentials — inject via environment variables.
+  s3.access-key-id: "${AWS_ACCESS_KEY_ID}"
+  s3.secret-access-key: "${AWS_SECRET_ACCESS_KEY}"
+
+  # ----------------------------------------------------------
+  # S3 Endpoint (optional — for VPC endpoints or S3-compatible)
+  # ----------------------------------------------------------
+  # AWS VPC endpoint: https://s3.us-east-1.amazonaws.com
+  # s3.endpoint: "https://s3.${AWS_REGION:-us-east-1}.amazonaws.com"
+
+  # ----------------------------------------------------------
+  # S3 Client Tuning
+  # ----------------------------------------------------------
+  # Maximum concurrent connections to S3 per worker.
+  # Increase for high-throughput scans on large clusters.
+  # s3.max-connections: "100"
+
+  # Maximum number of retry attempts for transient S3 errors.
+  # s3.max-retries: "5"
+
+  # Enable S3 server-side encryption (SSE-S3 or SSE-KMS).
+  # s3.sse-type: "S3"           # Options: S3, KMS, NONE
+  # s3.sse-kms-key-id: ""       # Required when sse-type=KMS
+
+  # ----------------------------------------------------------
+  # AWS Glue Catalog (alternative to type=hadoop)
+  # ----------------------------------------------------------
+  # When using Glue as the metastore:
+  #   type: glue
+  #   glue.catalog-id: "${AWS_ACCOUNT_ID}"
+  #   glue.region: "${AWS_REGION:-us-east-1}"
+
+  # ----------------------------------------------------------
+  # Table Defaults
+  # ----------------------------------------------------------
+  # Default file format for new tables in this catalog.
+  # write.format.default: "parquet"
+
+  # Target file size for data files produced by writes.
+  # write.target-file-size-bytes: "536870912"   # 512 MB
+
+  # Enable automatic table compaction on writes.
+  # write.spark.fanout.enabled: "true"

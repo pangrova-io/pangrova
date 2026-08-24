@@ -1,0 +1,55 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v1/vector_value.proto";
+
+// First-class vector ANN search descriptor carried as a field on
+// TaskRequest (see task.proto). Replaces the legacy side-channel
+// where a serialized VectorSearchOperator was Base64-encoded into
+// session properties under "pangrova.vector_search_operator"
+// (F-CHAIN-INDEX-06).
+//
+// The coordinator populates this message when it detects a vector
+// ANN pattern (ORDER BY distance(col, query_vec) LIMIT K). The
+// worker reads the same fields directly from the task descriptor;
+// no string encoding/decoding round-trip is required.
+message VectorSearchInfo {
+    // Distance metric, aligned with org.pangrova.spi.index.vector.DistanceMetric.
+    enum DistanceMetric {
+        DISTANCE_METRIC_UNSPECIFIED = 0;
+        L2 = 1;
+        COSINE = 2;
+        INNER_PRODUCT = 3;
+    }
+
+    // Fully qualified table name (catalog.schema.table).
+    string table_name = 1;
+
+    // Name of the vector column to search.
+    string vector_column = 2;
+
+    // Query embedding vector.
+    VectorValue query_vector = 3;
+
+    // Number of nearest neighbors to return per worker (top-K).
+    int32 top_k = 4;
+
+    // Distance metric for similarity computation.
+    DistanceMetric distance_metric = 5;
+
+    // Vector index identifier for the target column. Empty triggers brute-force.
+    string index_id = 6;
+
+    // Algorithm-specific search parameters (efSearch, nprobe, etc.).
+    map<string, string> search_params = 7;
+
+    // Optional oversample factor: when > 0, workers fetch top_k * oversample
+    // candidates locally before pruning, improving recall after global merge.
+    int32 top_k_oversample = 8;
+
+    // Pre-filter predicates to apply before ANN search (optional).
+    // Encoded as serialized Substrait expression bytes.
+    repeated bytes filter_predicate = 9;
+}

@@ -1,0 +1,9 @@
+server:
+  port: 8080
+  host: localhost
+database:
+  url: jdbc:h2:mem:default
+  pool:
+    size: 5
+logging:
+  level: INFO

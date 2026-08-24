@@ -1,0 +1,6 @@
+{
+  "note": "Schema-only validation: test data uses TestDataGenerator (seed=42), not real TPC-H dbgen",
+  "query": "Q7 - Volume Shipping",
+  "scaleFactor": 0.01,
+  "rows": []
+}

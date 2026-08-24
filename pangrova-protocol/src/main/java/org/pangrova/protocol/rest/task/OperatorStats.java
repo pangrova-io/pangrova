@@ -1,0 +1,37 @@
+package org.pangrova.protocol.rest.task;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+/**
+ * Per-operator execution statistics aligned with Protobuf OperatorStats
+ * in pangrova_native_protocol.proto and common.proto.
+ *
+ * <p>Tracks input/output rows and bytes, CPU and wall time, memory usage,
+ * and spill at the individual operator level (TableScan, Project, Filter, etc.).</p>
+ *
+ * <p>Fields plan_node_id, memory_bytes, peak_memory_bytes, spill_bytes were added
+ * per design Req 21 to correlate stats to plan nodes and track per-operator
+ * memory and spill metrics.</p>
+ */
+public record OperatorStats(
+    @JsonProperty("operator_type") String operatorType,
+    @JsonProperty("input_rows") long inputRows,
+    @JsonProperty("output_rows") long outputRows,
+    @JsonProperty("input_bytes") long inputBytes,
+    @JsonProperty("output_bytes") long outputBytes,
+    @JsonProperty("cpu_nanos") long cpuNanos,
+    @JsonProperty("wall_nanos") long wallNanos,
+    @JsonProperty("plan_node_id") String planNodeId,
+    @JsonProperty("memory_bytes") long memoryBytes,
+    @JsonProperty("peak_memory_bytes") long peakMemoryBytes,
+    @JsonProperty("spill_bytes") long spillBytes
+) {
+    /**
+     * Backward-compatible constructor without memory/spill fields.
+     */
+    public OperatorStats(String operatorType, long inputRows, long outputRows,
+                         long inputBytes, long outputBytes, long cpuNanos, long wallNanos) {
+        this(operatorType, inputRows, outputRows, inputBytes, outputBytes,
+             cpuNanos, wallNanos, "", 0, 0, 0);
+    }
+}

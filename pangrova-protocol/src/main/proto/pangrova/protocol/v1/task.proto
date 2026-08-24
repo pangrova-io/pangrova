@@ -1,0 +1,379 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v1/common.proto";
+
+// Task type enum aligned with native proto TaskType.
+// See docs/architecture/20-java-native-protocol.md §4 for mapping contract.
+enum TaskType {
+    TASK_TYPE_UNSPECIFIED = 0;
+    TASK_TYPE_READ = 1;
+    TASK_TYPE_WRITE = 2;
+    TASK_TYPE_SHUFFLE_READ = 3;
+    TASK_TYPE_SHUFFLE_WRITE = 4;
+}
+
+message TaskRequest {
+    string task_id = 1;
+    string query_id = 2;
+    // Substrait plan bytes. Wire-compatible with native proto field
+    // "substrait_plan" (same field number 3, same type bytes).
+    bytes plan_fragment = 3;
+    repeated SplitInfo splits = 4;
+    ResourceLimit resource_limit = 5;
+    map<string, string> session_properties = 6;
+    TaskType task_type = 7;
+    int32 stage_id = 8;
+    reserved 9; // Was legacy_split_bytes — removed, field number permanently reserved.
+    int32 partition_id = 10;
+    WriteConfig write_config = 11;
+    ShuffleConfig shuffle_config = 12;
+    // Tenant identity for per-tenant resource governance and audit.
+    string tenant_id = 13;
+    // Authenticated principal for audit and access control propagation.
+    string principal = 14;
+}
+
+// File format enum aligned with native proto FileFormat.
+enum FileFormat {
+    FILE_FORMAT_UNSPECIFIED = 0;
+    FILE_FORMAT_PARQUET = 1;
+    FILE_FORMAT_ORC = 2;
+    FILE_FORMAT_LANCE = 3;
+}
+
+// Split descriptor aligned with native proto SplitInfo at field-number level.
+// Populated by TaskRequestBuilder and deserialized by C++ TaskRequestParser.
+// Field numbers MUST match pangrova_native_protocol.proto SplitInfo exactly.
+// See docs/architecture/20-java-native-protocol.md §3 for alignment contract.
+message SplitInfo {
+    string split_id = 1;
+    string connector_id = 2;
+    string file_path = 3;
+    FileFormat file_format = 4;
+    int64 start_offset = 5;
+    int64 length = 6;
+    repeated ColumnMapping column_mapping = 7;
+    map<string, string> partition_values = 8;
+    oneof connector_info {
+        IcebergSplitInfo iceberg_info = 9;
+        PaimonSplitInfo paimon_info = 10;
+    }
+    // Schema evolution metadata: column mappings and type promotions.
+    // Shared by Iceberg and Paimon; populated by Java-side split serialization.
+    SchemaEvolution schema_evolution = 11;
+    // Logical table name for split routing in multi-table joins.
+    // Populated by connector split serialization; empty for single-table plans.
+    string table_name = 12;
+    // Index evaluation hints from coordinator for worker-side L2 pruning.
+    // Each hint instructs the worker to load and evaluate one index file
+    // against a predicate before reading the data file.
+    // C++ side ignores this field (proto3 unknown field tolerance).
+    repeated IndexEvalHintInfo index_eval_hints = 13;
+    // Constraint predicates for native-side split skipping.
+    // Carries file-level column statistics (min/max) enabling the native
+    // engine to skip splits without reading file data.
+    SplitConstraintInfo split_constraint = 14;
+}
+
+// Lightweight hint from coordinator to worker for L2 index evaluation.
+// Carries the minimum information needed to load an index file and
+// evaluate a predicate, enabling data skipping at the worker without
+// coordinator memory pressure.
+message IndexEvalHintInfo {
+    string index_id = 1;
+    string index_type = 2;
+    string index_file_path = 3;
+    int32 generation = 4;
+    // Field 5 was predicate_json (string). Replaced by structured predicate field 7.
+    reserved 5;
+    // Data file path this hint applies to (for multi-file splits).
+    string data_file_path = 6;
+    // Structured predicate message replacing the legacy JSON string.
+    IndexPredicateInfo predicate = 7;
+}
+
+// Structured representation of an index predicate, replacing JSON string encoding.
+// Each predicate type is represented as a oneof variant with typed fields.
+message IndexPredicateInfo {
+    string column = 1;
+    oneof predicate_type {
+        EqualToPredicate equal_to = 2;
+        RangeQueryPredicate range_query = 3;
+        InListPredicate in_list = 4;
+        TextMatchPredicate text_match = 5;
+        LikePatternPredicate like_pattern = 6;
+        IsNullPredicate is_null = 7;
+        IsNotNullPredicate is_not_null = 8;
+        SpatialQueryPredicate spatial_query = 9;
+        ContainsElementPredicate contains_element = 10;
+    }
+}
+
+message ComparableValue {
+    oneof value_type {
+        string string_value = 1;
+        int64 long_value = 2;
+        int32 int_value = 3;
+        double double_value = 4;
+        float float_value = 5;
+        bool bool_value = 6;
+    }
+}
+
+message EqualToPredicate {
+    ComparableValue value = 1;
+}
+
+message RangeQueryPredicate {
+    ComparableValue lower = 1;
+    ComparableValue upper = 2;
+    bool lower_inclusive = 3;
+    bool upper_inclusive = 4;
+}
+
+message InListPredicate {
+    repeated ComparableValue values = 1;
+}
+
+message TextMatchPredicate {
+    string mode = 1;
+    repeated string tokens = 2;
+}
+
+message LikePatternPredicate {
+    string pattern = 1;
+}
+
+message IsNullPredicate {
+}
+
+message IsNotNullPredicate {
+}
+
+message SpatialQueryPredicate {
+    double min_x = 1;
+    double min_y = 2;
+    double max_x = 3;
+    double max_y = 4;
+    string op = 5;
+}
+
+message ContainsElementPredicate {
+    repeated ComparableValue elements = 1;
+    string mode = 2;
+}
+
+// Constraint predicates carried by a split for native-side split skipping.
+// Partition values enable partition pruning; column statistics enable
+// file-level data skipping without reading file contents.
+message SplitConstraintInfo {
+    // Partition column name → value pairs for partition pruning.
+    map<string, string> partition_values = 1;
+    // Per-column file-level statistics for data skipping.
+    repeated ColumnStatisticsInfo column_statistics = 2;
+    // Serialized Substrait expression for row-group level predicate pushdown.
+    // Produced by connector-side residual expression translation.
+    bytes predicate = 3;
+}
+
+// File-level column statistics for a single column.
+message ColumnStatisticsInfo {
+    string column_name = 1;
+    string min_value = 2;
+    string max_value = 3;
+    int64 null_count = 4;
+}
+
+message SchemaEvolution {
+    repeated ColumnMapping column_mappings = 1;
+    repeated TypePromotion type_promotions = 2;
+}
+
+message TypePromotion {
+    int32 field_id = 1;
+    string source_type = 2;
+    string target_type = 3;
+    // Column name in the current table schema corresponding to field_id.
+    // Used for name-based matching since Velox RowType does not carry field IDs.
+    string column_name = 4;
+}
+
+// Column mapping for schema evolution support.
+// Field layout matches native proto ColumnMapping.
+message ColumnMapping {
+    int32 source_field_id = 1;
+    int32 target_field_id = 2;
+    string source_name = 3;
+    string target_name = 4;
+    // Default value for missing columns (schema evolution).
+    // When non-empty, missing columns are filled with this value
+    // instead of null. String representation parsed by target type.
+    string default_value = 5;
+}
+
+// Iceberg-specific split metadata.
+// Field layout matches native proto IcebergSplitInfo.
+message IcebergSplitInfo {
+    IcebergReadMode read_mode = 1;
+    int64 snapshot_id = 2;
+    repeated DeleteFileInfo delete_files = 3;
+    int64 from_snapshot_id = 4;
+    int64 to_snapshot_id = 5;
+    int64 data_sequence_number = 6;
+    int32 spec_id = 7;
+    int32 content = 8;
+}
+
+enum IcebergReadMode {
+    ICEBERG_READ_SNAPSHOT = 0;
+    ICEBERG_READ_TIME_TRAVEL = 1;
+    ICEBERG_READ_INCREMENTAL = 2;
+}
+
+message DeleteFileInfo {
+    string file_path = 1;
+    DeleteFileType delete_type = 2;
+    repeated string equality_fields = 3;
+    int64 record_count = 4;
+    int64 data_sequence_number = 5;
+    int64 file_size = 6;
+    // Deletion vector file path for Iceberg v3 DV support.
+    // Only populated when delete_type = DELETE_FILE_TYPE_DELETION_VECTOR.
+    string dv_file_path = 7;
+}
+
+enum DeleteFileType {
+    DELETE_FILE_TYPE_UNSPECIFIED = 0;
+    DELETE_FILE_TYPE_POSITION = 1;
+    DELETE_FILE_TYPE_EQUALITY = 2;
+    DELETE_FILE_TYPE_DELETION_VECTOR = 3;
+}
+
+// Paimon-specific split metadata.
+// Field layout matches native proto PaimonSplitInfo.
+message PaimonSplitInfo {
+    PaimonReadMode read_mode = 1;
+    int32 bucket_id = 2;
+    repeated string primary_keys = 3;
+    repeated LsmLevelInfo lsm_levels = 4;
+    int64 snapshot_id = 5;
+    int64 from_snapshot_id = 6;
+    int64 to_snapshot_id = 7;
+    PaimonMergeEngine merge_engine = 8;
+    PaimonChangelogProducer changelog_producer = 9;
+    // MOW (Merge-On-Write) deletion vector fields.
+    bool deletion_vectors_enabled = 10;
+    string deletion_vector_file_path = 11;
+    // MOR merge control: false = COW / read-optimized (skip merge).
+    bool needs_merge = 12;
+    // Sequence column for ordering during merge.
+    string sequence_column = 13;
+    // Aggregation merge engine: column name → aggregation function mapping.
+    map<string, string> aggregation_specs = 14;
+    // True when reading changelog files with _row_kind column.
+    bool changelog_mode = 15;
+    // Paimon partition column values (Iceberg uses SplitInfo.partition_values).
+    map<string, string> partition_values = 16;
+}
+
+enum PaimonReadMode {
+    PAIMON_READ_MODE_UNSPECIFIED = 0;
+    PAIMON_READ_MODE_APPEND = 1;
+    PAIMON_READ_MODE_PRIMARY_KEY = 2;
+    PAIMON_READ_MODE_CHANGELOG = 3;
+    PAIMON_READ_MODE_INCREMENTAL = 4;
+}
+
+enum PaimonMergeEngine {
+    PAIMON_MERGE_DEDUPLICATE = 0;
+    PAIMON_MERGE_PARTIAL_UPDATE = 1;
+    PAIMON_MERGE_AGGREGATION = 2;
+    PAIMON_MERGE_FIRST_ROW = 3;
+}
+
+enum PaimonChangelogProducer {
+    PAIMON_CHANGELOG_NONE = 0;
+    PAIMON_CHANGELOG_INPUT = 1;
+    PAIMON_CHANGELOG_LOOKUP = 2;
+    PAIMON_CHANGELOG_FULL_COMPACTION = 3;
+}
+
+message LsmLevelInfo {
+    int32 level = 1;
+    repeated string file_paths = 2;
+    repeated bytes key_ranges = 3;
+    int64 total_record_count = 4;
+}
+
+// Write task configuration for external table targets.
+// All fields optional with empty defaults for backward compatibility.
+// file_format uses FileFormat enum aligned with native proto WriteConfig.
+message WriteConfig {
+    string target_table = 1;
+    string write_mode = 2;
+    repeated string partition_spec = 3;
+    reserved 4; // Was transaction_id — removed per F-NATIVE-WRITE-04.
+    FileFormat file_format = 5;
+    int64 target_file_size = 6;
+}
+
+// Shuffle serialization format aligned with native proto ShuffleSerdeFormat.
+enum ShuffleSerdeFormat {
+    SHUFFLE_SERDE_PRESTO_PAGES = 0;  // Velox PrestoVectorSerde (only format)
+}
+
+// Shuffle data persistence mode aligned with native proto ShufflePersistenceMode.
+enum ShufflePersistenceMode {
+    SHUFFLE_PERSISTENCE_MEMORY_ONLY = 0;       // Default: in-memory only
+    SHUFFLE_PERSISTENCE_MEMORY_AND_DISK = 1;   // Spill to local disk on pressure
+    SHUFFLE_PERSISTENCE_MEMORY_AND_REMOTE = 2; // Persist to remote storage (Remote Shuffle Service)
+}
+
+// Shuffle configuration forwarded from coordinator to worker.
+// Controls serialization format, compression, and batch sizing.
+message ShuffleConfig {
+    ShuffleSerdeFormat serde_format = 1;
+    string compression_codec = 2;  // lz4, zstd, none
+    int32 batch_size = 3;
+    ShufflePersistenceMode persistence_mode = 4;
+    // Number of output partitions for hash-based shuffle.
+    // 0 = no shuffle; 1 = single partition; >1 = hash partition.
+    int32 num_partitions = 5;
+    // Column indices used for partition hash computation.
+    // When empty, the first output column is used as default key.
+    repeated int32 partition_key_indices = 6;
+}
+
+message TaskResponse {
+    string task_id = 1;
+    TaskState state = 2;
+    TaskStats stats = 3;
+    ErrorInfo error = 4;
+}
+
+// Batch result status byte encoding for JNI nativeGetNextBatchColumnar.
+// The first byte of the JNI return array encodes this status.
+// Field values MUST match C++ JniBridge encoding exactly.
+// See docs/architecture/20-java-native-protocol.md §6 for alignment contract.
+enum BatchResultStatus {
+    BATCH_RESULT_STATUS_DATA = 0;
+    BATCH_RESULT_STATUS_EOF = 1;
+    BATCH_RESULT_STATUS_NOT_READY = 2;
+    BATCH_RESULT_STATUS_ERROR = 3;
+}
+
+// Task execution state.
+// Field values MUST match native proto TaskState exactly.
+// See docs/architecture/20-java-native-protocol.md §5 for alignment contract.
+enum TaskState {
+    TASK_STATE_UNSPECIFIED = 0;
+    TASK_STATE_PENDING = 1;
+    TASK_STATE_RUNNING = 2;
+    TASK_STATE_FLUSHING = 3;
+    TASK_STATE_FINISHED = 4;
+    TASK_STATE_FAILED = 5;
+    TASK_STATE_CANCELLED = 6;
+}

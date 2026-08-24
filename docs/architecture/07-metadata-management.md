@@ -1,0 +1,2437 @@
+---
+title: Metadata Management
+sidebar_label: Metadata Management
+---
+
+# Pangrova — Metadata Management
+
+> **Summary.** Unified metadata ownership, catalog federation, tiered metadata caching, and schema evolution.
+
+## 1. Design Background and Goals
+
+### 1.1 Problem Domain
+
+Pangrova's current metadata management is scattered across multiple components:
+- `ConnectorMetadata` ([06-connector-design.md §1.2](./06-connector-design.md)) handles Connector-level metadata operations
+- `CatalogAdapter` (this doc [§3.8](#38-catalogadapter-spi--external-catalog-federation-interface)) handles external Catalog federation
+
+These components have evolved independently and lack a unified metadata management layer, which leads to:
+1. Catalog registration/discovery/lifecycle-management logic is scattered throughout the Coordinator startup flow
+2. Metadata cache policy lacks a unified integration point with security policy ([15-security.md](./15-security.md)) and multi-tenancy isolation ([16-multi-tenancy.md](./16-multi-tenancy.md))
+3. Federated Catalog synchronization, version management, and Schema Evolution have no unified abstraction
+4. Dynamic Catalog registration/unloading (runtime `CREATE CATALOG` / `DROP CATALOG`) is not supported
+
+### 1.2 Design Goals
+
+| Goal | Description |
+|------|------|
+| Unified entry | All metadata operations go through the single `MetadataService` entry point, replacing scattered Managers |
+| Catalog lifecycle | Supports Catalog registration, discovery, health checks, and dynamic load/unload |
+| Multi-source federation | Uniformly adapts HMS, AWS Glue, Iceberg REST Catalog, and built-in Catalogs |
+| Metadata cache | Tiered cache (local + Redis) with invalidation coordinated with security policy |
+| Tenant isolation | Catalog visibility is bound to tenants; metadata operations are governed by RBAC |
+| Schema Evolution | Unified schema change management with consistent compatibility checks across Connectors |
+| Observability | End-to-end tracing of metadata operations; metrics such as cache hit rate and sync latency are exposed |
+
+### 1.3 Design References
+
+We follow Apache Gravitino's Catalog Federation approach, with the following simplifications:
+- Gravitino is a standalone metadata management service (a separate process); Pangrova embeds metadata management inside the Coordinator process
+- Gravitino supports cross-engine (Spark/Trino/Flink) metadata sharing; Pangrova serves only its own query engine
+- Gravitino has a standalone REST API and UI; Pangrova is managed via SQL DDL and internal APIs
+- Retain Gravitino's core abstraction: the four-level Metalake → Catalog → Schema → Table namespace
+
+### 1.4 Relationship to the Existing Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                         Metadata Management Integration Map                      │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  This document (07)                    Referenced architecture docs              │
+│  ─────────────                  ──────────────                                   │
+│  MetadataService         ←→    01: Coordinator HA, Shared State Layer            │
+│  CatalogRegistry         ←→    04: Connector Design (ConnectorSPI, PluginManager)│
+│  MetadataCache           ←→    09: Cache Layer (Redis)                           │
+│  CatalogFederation       ←→    this doc §3.8 CatalogAdapter SPI (authoritative) │ <!-- DEF-AP-002, CYCLE-003: removed phantom ref to non-existent 11 §6.2; catalog federation is owned by 07; 11 references 07 only -->
+│  TenantCatalogBinding    ←→    13: Multi-Tenancy (Namespace Isolation)           │
+│  MetadataAccessControl   ←→    12: Security (RBAC, RLS, Column Masking)          │
+│  SchemaEvolution         ←→    11: Data Governance §2 (Schema Evolution)         │
+│  MetadataObservability   ←→    14: Observability (OpenTelemetry)                 │
+│  MetadataReplication     ←→    15: Operations §4 (Disaster Recovery)             │
+│  QueryMetadataBinding    ←→    02: Query Execution §2.2 (PangrovaRootSchema)       │
+│  CatalogConfig           ←→    16: Configuration Reference                       │
+│  StreamingMetadata       ←→    10: Streaming (CDC Table Metadata)                │
+│  CacheSecurityBinding    ←→    05: Query Optimization §3 (Result Cache)          │
+│                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. Core Architecture
+
+### 2.1 Overall Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                         Metadata Management Architecture                         │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────────────┐     │
+│  │                        MetadataService (unified entry)                   │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │       │
+│  │  │ Catalog     │  │ Schema      │  │ Table       │  │ Column      │   │       │
+│  │  │ Operations  │  │ Operations  │  │ Operations  │  │ Operations  │   │       │
+│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘   │       │
+│  └─────────┼────────────────┼────────────────┼────────────────┼───────────┘      │
+│            └────────────────┴────────────────┴────────────────┘                  │
+│                                    │                                             │
+│            ┌───────────────────────┼───────────────────────┐                     │
+│            ▼                       ▼                       ▼                     │
+│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐               │
+│  │ AccessControl   │    │ MetadataCache   │    │ EventDispatcher │               │
+│  │ (RBAC + Tenant) │    │ (Local + Redis) │    │ (Change Events) │               │
+│  └────────┬────────┘    └────────┬────────┘    └────────┬────────┘               │
+│           │                      │                      │                        │
+│  ┌────────┴──────────────────────┴──────────────────────┴────────────────┐       │
+│  │                        CatalogRegistry                                 │      │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                    │       │
+│  │  │ Catalog     │  │ Lifecycle   │  │ Health      │                    │       │
+│  │  │ Store       │  │ Manager     │  │ Monitor     │                    │       │
+│  │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                    │       │
+│  └─────────┼────────────────┼────────────────┼───────────────────────────┘       │
+│            └────────────────┴────────────────┘                                   │
+│                             │                                                    │
+│         ┌───────────────────┼───────────────────────┐                            │
+│         ▼                   ▼                       ▼                            │
+│  ┌─────────────┐    ┌─────────────┐        ┌─────────────┐                       │
+│  │  Internal   │    │  Connector  │        │  Federation │                       │
+│  │  Catalog    │    │  Catalog    │        │  Catalog    │                       │
+│  │  (system)   │    │  (iceberg,  │        │  (hms, glue,│                       │
+│  │             │    │   paimon)   │        │   rest)     │                       │
+│  └─────────────┘    └──────┬──────┘        └──────┬──────┘                       │
+│                            │                      │                              │
+│                     ┌──────▼──────┐        ┌──────▼──────┐                       │
+│                     │ Connector   │        │ External    │                       │
+│                     │ SPI         │        │ Metastore   │                       │
+│                     │ (02-design) │        │ (HMS/Glue)  │                       │
+│                     └─────────────┘        └─────────────┘                       │
+│                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.2 Namespace Model
+
+Following Gravitino's four-level namespace, Pangrova simplifies to three levels (dropping Metalake, since Pangrova is single-engine):
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                         Namespace Model                                          │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  Three-part SQL reference: catalog.schema.table                                  │
+│                                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────────────┐     │
+│  │  Level 0: CatalogRegistry (globally unique)                              │    │
+│  │  ├── iceberg_prod    (ConnectorCatalog, type=iceberg)                    │    │
+│  │  ├── iceberg_staging (ConnectorCatalog, type=iceberg)                    │    │
+│  │  ├── paimon_rt       (ConnectorCatalog, type=paimon)                     │    │
+│  │  ├── hms_federation  (FederationCatalog, type=hms)                       │    │
+│  │  ├── glue_analytics  (FederationCatalog, type=glue)                      │    │
+│  │  └── system          (InternalCatalog, built-in)                         │    │
+│  │                                                                          │    │
+│  │  Level 1: Schema (within a Catalog)                                      │    │
+│  │  iceberg_prod                                                            │    │
+│  │  ├── warehouse                                                           │    │
+│  │  ├── raw                                                                 │    │
+│  │  └── staging                                                             │    │
+│  │                                                                          │    │
+│  │  Level 2: Table (within a Schema)                                        │    │
+│  │  iceberg_prod.warehouse                                                  │    │
+│  │  ├── fact_orders                                                         │    │
+│  │  ├── dim_customers                                                       │    │
+│  │  └── dim_products                                                        │    │
+│  └─────────────────────────────────────────────────────────────────────────┘     │
+│                                                                                  │
+│  Comparison with Gravitino:                                                      │
+│  ┌─────────────────────────────────────────────────────────────────────────┐     │
+│  │  Gravitino          │  Pangrova              │  Note                      │     │
+│  │  ─────────────────────────────────────────────────────────────────────  │     │
+│  │  Metalake           │  (not needed)        │  Pangrova is single-engine   │     │
+│  │  Catalog            │  Catalog             │  same                      │     │
+│  │  Schema             │  Schema              │  same                      │     │
+│  │  Table              │  Table               │  same                      │     │
+│  │  Fileset/Topic/Model│  (not needed)        │  Pangrova handles tables only│     │
+│  └─────────────────────────────────────────────────────────────────────────┘     │
+│                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 2.3 Catalog Type System
+
+```java
+/**
+ * Catalog type enum
+ */
+public enum CatalogType {
+    INTERNAL,       // built-in Catalog (system, information_schema)
+    CONNECTOR,      // Connector-backed Catalog (iceberg, paimon)
+    FEDERATION      // external Metastore federation (hms, glue, rest)
+}
+
+/**
+ * Catalog descriptor — the unified Catalog metadata model
+ * 
+ * Key distinction (see pangrova-implementation-guide.md):
+ * - Pangrova Catalog: three-part SQL table-name routing (catalog.schema.table)
+ * - Iceberg Catalog: Iceberg table metadata management (org.apache.iceberg.catalog.Catalog)
+ * The Pangrova Catalog is the routing layer; the Iceberg Catalog is the storage layer.
+ */
+public class CatalogDescriptor {
+    private final String name;                    // Catalog name (SQL reference name)
+    private final CatalogType type;               // Catalog type
+    private final String provider;                // provider (iceberg, paimon, hms, glue)
+    private final CatalogState state;             // lifecycle state
+    private final Map<String, String> properties; // configuration properties
+    private final String comment;                 // description
+    private final AuditInfo auditInfo;            // audit info (creator, timestamp)
+    
+    // tenant binding (see 16-multi-tenancy.md)
+    private final Set<String> allowedTenants;     // list of visible tenants; empty = globally visible
+}
+
+/**
+ * Catalog lifecycle state
+ */
+public enum CatalogState {
+    CREATING,       // creating (loading Connector, validating connection)
+    ACTIVE,         // running normally
+    DEGRADED,       // degraded (external Metastore unreachable; using cache)
+    SUSPENDED,      // suspended (manually paused by an administrator)
+    DROPPING        // dropping (cleaning up resources)
+}
+```
+
+---
+
+## 3. Core Component Design
+
+### 3.0 SessionContext → ConnectorSession Conversion
+
+<!-- Resolves: IC-MD-003 — SessionContext.toConnectorSession() conversion defined with field mapping -->
+
+`SessionContext` is the engine-level session object carrying identity, tenant, and query
+properties. `ConnectorSession` (defined in [06-connector-design.md §1.2](./06-connector-design.md))
+is the Connector SPI session object passed to all `ConnectorMetadata` methods. The
+`toConnectorSession()` method bridges these two layers.
+
+```java
+/**
+ * ConnectorSession — SPI-level session passed to all Connector methods.
+ * Authoritative field definition (see also 06-connector-design.md §1.2).
+ */
+public interface ConnectorSession {
+    String getIdentity();              // authenticated user principal
+    String getCatalogName();           // catalog this session is scoped to
+    Optional<String> getSchema();      // current default schema (if set)
+    String getTimeZone();              // session timezone (IANA format)
+    Locale getLocale();                // session locale
+    Map<String, String> getProperties(); // connector-specific session properties
+}
+
+/**
+ * SessionContext.toConnectorSession() — field mapping:
+ *
+ *   SessionContext field        → ConnectorSession field
+ *   ─────────────────────────────────────────────────────
+ *   identity.getUser()         → getIdentity()
+ *   currentCatalog             → getCatalogName()
+ *   currentSchema              → getSchema()
+ *   sessionProperties["timezone"] → getTimeZone()
+ *   sessionProperties["locale"]   → getLocale()
+ *   connectorProperties(catalog)  → getProperties()
+ *
+ * Fields NOT propagated (filtered for SPI isolation):
+ *   - tenantId        (tenant context is enforced at MetadataService level, not leaked to connectors)
+ *   - securityToken   (connectors use their own auth; engine token is not forwarded)
+ *   - queryId         (not relevant to connector operations)
+ *   - transactionId   (managed by ConnectorTransactionHandle, not session)
+ */
+public ConnectorSession toConnectorSession() {
+    return new ConnectorSessionImpl(
+        this.identity.getUser(),
+        this.currentCatalog,
+        Optional.ofNullable(this.currentSchema),
+        this.getProperty("timezone", ZoneId.systemDefault().getId()),
+        this.getProperty("locale", Locale.getDefault()),
+        this.getConnectorProperties(this.currentCatalog));
+}
+```
+
+### 3.1 MetadataService — Unified Entry Point
+
+<!-- Resolves: IC-MD-001 — MetadataService is the unified entry point for PangrovaRootSchema (02 §2.2).
+     PangrovaRootSchema uses listCatalogs/listSchemas/resolveTable instead of direct CatalogHandle access. -->
+
+```java
+/**
+ * Metadata service — the unified entry point for all metadata operations
+ * 
+ * Responsibilities:
+ * 1. Permission checks (delegated to AccessControl; see 15-security.md)
+ * 2. Cache lookups (delegated to MetadataCache)
+ * 3. Routing to the correct Catalog implementation
+ * 4. Publishing metadata change events
+ */
+public class MetadataService {
+    
+    private final CatalogRegistry catalogRegistry;
+    private final MetadataCache metadataCache;
+    private final AccessControl accessControl;
+    private final MetadataEventDispatcher eventDispatcher;
+    private final SchemaEvolutionChecker schemaChecker;
+    
+    // ── Catalog Operations ──
+    
+    public void createCatalog(SessionContext session, CatalogDescriptor descriptor) {
+        accessControl.checkCanCreateCatalog(session.getIdentity());
+        catalogRegistry.register(descriptor);
+        eventDispatcher.dispatch(new CatalogCreatedEvent(descriptor));
+    }
+    
+    public void dropCatalog(SessionContext session, String catalogName, boolean cascade) {
+        accessControl.checkCanDropCatalog(session.getIdentity(), catalogName);
+        if (!cascade && !listSchemas(session, catalogName).isEmpty()) {
+            throw new CatalogNotEmptyException(catalogName);
+        }
+        catalogRegistry.unregister(catalogName);
+        metadataCache.invalidateCatalog(catalogName);
+        eventDispatcher.dispatch(new CatalogDroppedEvent(catalogName));
+    }
+    
+    public List<String> listCatalogs(SessionContext session) {
+        Set<String> allCatalogs = catalogRegistry.listCatalogs();
+        // tenant filtering (see 16-multi-tenancy.md)
+        return allCatalogs.stream()
+            .filter(c -> accessControl.canAccessCatalog(session.getIdentity(), c))
+            .filter(c -> tenantFilter(session, c))
+            .toList();
+    }
+    
+    // ── Schema Operations ──
+    
+    public List<String> listSchemas(SessionContext session, String catalogName) {
+        accessControl.checkCanAccessCatalog(session.getIdentity(), catalogName);
+        CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
+        return handle.getMetadata(session).listSchemaNames(session.toConnectorSession());
+    }
+    
+    // ── Table Operations ──
+    
+    public ResolvedTable resolveTable(SessionContext session, TableRef tableRef) {
+        accessControl.checkCanAccessCatalog(session.getIdentity(), tableRef.getCatalog());
+        
+        // 1. look up cache
+        // <!-- Resolves: DEF-111 — MetadataCache interface aligned to 3-param version per §3.5 TieredMetadataCache -->
+        Optional<TableMetadata> cached = metadataCache.getTable(
+            tableRef.getCatalog(), tableRef.getSchema(), tableRef.getTable());
+        if (cached.isPresent()) {
+            // Wrap cached TableMetadata into ResolvedTable (security policies re-evaluated below)
+        }
+        
+        // 2. load from Catalog
+        CatalogHandle handle = catalogRegistry.getCatalog(tableRef.getCatalog());
+        ConnectorMetadata metadata = handle.getMetadata(session);
+        SchemaTableName schemaTable = new SchemaTableName(
+            tableRef.getSchema(), tableRef.getTable());
+        ConnectorTableHandle tableHandle = metadata.getTableHandle(
+            session.toConnectorSession(), schemaTable);
+        if (tableHandle == null) {
+            throw new TableNotFoundException(schemaTable);
+        }
+        
+        // 3. permission check (table-level)
+        accessControl.checkCanSelectFromTable(
+            session.getIdentity(),
+            new CatalogSchemaTableName(tableRef.getCatalog(), schemaTable));
+        
+        // 3.1 Security policy extraction (RLS + Column Masking)  [DEF-161]
+        // Retrieve row-level security filters and column masks for this table.
+        // The returned policies are attached to ResolvedTable and later injected
+        // into the Calcite RelNode tree during the Security Rewrite phase
+        // (see 03-query-execution.md §2.1, 15-security.md §3.2/§4.1).
+        Optional<Expression> rowFilter = accessControl.getRowFilter(
+            session.getIdentity(),
+            new CatalogSchemaTableName(tableRef.getCatalog(), schemaTable));
+        Map<String, Expression> columnMasks = accessControl.getColumnMasks(
+            session.getIdentity(),
+            new CatalogSchemaTableName(tableRef.getCatalog(), schemaTable));
+        
+        // 4. build ResolvedTable and cache it
+        ResolvedTable resolved = new ResolvedTable(
+            handle, tableHandle, metadata,
+            metadata.getTableMetadata(session.toConnectorSession(), tableHandle),
+            rowFilter,      // [DEF-161] RLS filter expression
+            columnMasks);   // [DEF-161] column mask expressions
+        metadataCache.putTable(tableRef.getCatalog(), tableRef.getSchema(),
+            tableRef.getTable(), resolved.getTableMetadata());
+        
+        return resolved;
+    }
+    
+    // ── Schema Evolution ──
+    
+    public void alterTable(SessionContext session, TableRef tableRef, TableChange change) {
+        accessControl.checkCanAlterTable(session.getIdentity(), tableRef);
+        
+        CatalogHandle handle = catalogRegistry.getCatalog(tableRef.getCatalog());
+        ConnectorMetadata metadata = handle.getMetadata(session);
+        
+        // Schema compatibility check (authoritative rules: §3.7 SchemaEvolutionValidator)
+        if (change instanceof SchemaChange schemaChange) {
+            schemaChecker.checkCompatibility(metadata, session, tableRef, schemaChange);
+        }
+        
+        metadata.alterTable(session.toConnectorSession(), tableRef, change);
+        // <!-- Resolves: DEF-111/DEF-113 — invalidateTable aligned to 3-param version per §3.5 -->
+        metadataCache.invalidateTable(tableRef.getCatalog(), tableRef.getSchema(), tableRef.getTable());
+        eventDispatcher.dispatch(new TableAlteredEvent(tableRef, change));
+    }
+}
+```
+
+### 3.2 CatalogRegistry — Catalog Registration and Lifecycle
+
+<!-- Resolves: IC-MD-002 — CatalogRegistry single authoritative definition; 04 §2.4 references this section -->
+<!-- Resolves: CYCLE-003 — 07 is authoritative for catalog federation; 11 references 07 (not reverse) -->
+
+```java
+/**
+ * Catalog registry — manages registration, discovery, and lifecycle of all Catalogs
+ * 
+ * Adds lifecycle management, health checks, and dynamic load/unload capabilities.
+ * 
+ * Persistence: Catalog descriptors are persisted to PostgreSQL (see 02-distributed-architecture.md §3.4)
+ * Synchronization: Catalog changes are synchronized across Coordinators via ZooKeeper Watch
+ */
+public class CatalogRegistry {
+    
+    private final ConcurrentMap<String, CatalogHandle> catalogs = new ConcurrentHashMap<>();
+    private final CatalogStore catalogStore;           // PostgreSQL persistence
+    private final PluginManager pluginManager;         // Connector loading (06-connector-design.md §2.3)
+    private final CuratorFramework curator;            // ZK synchronization
+    private final CatalogHealthMonitor healthMonitor;
+    
+    /**
+     * Load all Catalogs at startup
+     * Invocation point: PangrovaCoordinator.start() (02-distributed-architecture.md §1.2)
+     * 
+     * ── Initialization ordering contract (relationship to Coordinator HA Leader Election) ──
+     * 
+     * Invocation order of PangrovaCoordinator.start():
+     *   1. haService.start()              — connect to ZK; register as a Leader candidate
+     *   2. haService.registerAsCandidate() — participate in Leader Election
+     *   3. metadataService.initialize()   — invokes this method (CatalogRegistry.initialize())
+     *   4. workerManager.startDiscovery() — begin discovering Workers
+     *   5. httpServer.start()             — begin accepting client requests
+     * 
+     * Key constraints:
+     * - CatalogRegistry.initialize() runs before Leader Election completes
+     * - at this point the current Coordinator may or may not be the Leader
+     * - therefore initialize() does not depend on Leader status; every Coordinator loads the full set of Catalogs
+     * - the ZK Watch (watchCatalogChanges) remains valid after Leader Election,
+     *   because the Watch uses the ZK session (not Leader-exclusive)
+     * 
+     * Interaction with Leader Election:
+     * - DDL operations (CREATE/DROP CATALOG) require Leader coordination
+     *   (see 02-distributed-architecture.md §3.5.1)
+     * - but Catalog loading (initialize) is a read-only operation and does not require the Leader
+     * - if ZK is unavailable during initialize(), startup fails (fail-fast)
+     * 
+     * Sequence diagram:
+     *   ZK Connect ──► Leader Election (async) ──► ...eventually elected...
+     *        │
+     *        └──► CatalogRegistry.initialize()  ← does not wait for the Election result
+     *               ├── PostgreSQL: load descriptors  ← read-only, no Leader needed
+     *               ├── loadCatalog() × N        ← local load, no Leader needed
+     *               ├── watchCatalogChanges()    ← ZK Watch, not Leader-exclusive
+     *               └── healthMonitor.start()
+     */
+    public void initialize() {
+        // 0. Precondition: ZK session must be established (by haService.start())
+        Preconditions.checkState(curator.getState() == CuratorFrameworkState.STARTED,
+            "ZooKeeper session not established. CatalogRegistry.initialize() " +
+            "must be called after haService.start()");
+        
+        // 1. load persisted Catalog descriptors from PostgreSQL
+        List<CatalogDescriptor> descriptors = catalogStore.listAll();
+        for (CatalogDescriptor desc : descriptors) {
+            loadCatalog(desc);
+        }
+        
+        // 2. register a ZK Watch to observe Catalog changes from other Coordinators
+        watchCatalogChanges();
+        
+        // 3. start health checks
+        healthMonitor.start();
+    }
+    
+    /**
+     * Register a new Catalog (dynamic runtime registration)
+     */
+    public void register(CatalogDescriptor descriptor) {
+        // 1. persist to PostgreSQL
+        catalogStore.save(descriptor);
+        
+        // 2. load the Catalog
+        loadCatalog(descriptor);
+        
+        // 3. notify other Coordinators (ZK event)
+        notifyCatalogChange(descriptor.getName(), ChangeType.CREATED);
+    }
+    
+    /**
+     * Unload a Catalog (dynamic runtime unload)
+     */
+    public void unregister(String catalogName) {
+        CatalogHandle handle = catalogs.remove(catalogName);
+        if (handle != null) {
+            handle.shutdown();
+        }
+        catalogStore.delete(catalogName);
+        notifyCatalogChange(catalogName, ChangeType.DROPPED);
+    }
+    
+    /**
+     * Load a single Catalog — dispatch by type
+     */
+    private void loadCatalog(CatalogDescriptor descriptor) {
+        CatalogHandle handle = switch (descriptor.getType()) {
+            case INTERNAL -> loadInternalCatalog(descriptor);
+            case CONNECTOR -> loadConnectorCatalog(descriptor);
+            case FEDERATION -> loadFederationCatalog(descriptor);
+        };
+        handle.setState(CatalogState.ACTIVE);
+        catalogs.put(descriptor.getName(), handle);
+    }
+    
+    /**
+     * Load a Connector-backed Catalog
+     * Reuses the ClassLoader isolation mechanism of PluginManager (06-connector-design.md §2.3)
+     */
+    private CatalogHandle loadConnectorCatalog(CatalogDescriptor descriptor) {
+        ConnectorFactory factory = pluginManager.getConnectorFactory(descriptor.getProvider());
+        if (factory == null) {
+            throw new CatalogProviderNotFoundException(descriptor.getProvider());
+        }
+        Connector connector = factory.create(
+            descriptor.getName(), descriptor.getProperties(), createContext());
+        return new ConnectorCatalogHandle(descriptor, connector);
+    }
+    
+    /**
+     * Load a Federation Catalog (external Metastore)
+     * See §3.8 CatalogAdapter SPI in this document
+     */
+    private CatalogHandle loadFederationCatalog(CatalogDescriptor descriptor) {
+        CatalogAdapterFactory adapterFactory = CatalogAdapterFactory.get(descriptor.getProvider());
+        CatalogAdapter adapter = adapterFactory.create(descriptor.getProperties());
+        return new FederationCatalogHandle(descriptor, adapter);
+    }
+    
+    /**
+     * Multi-Coordinator synchronization — ZooKeeper Watch
+     * See 02-distributed-architecture.md §3.4 (Shared State Layer)
+     */
+    private void watchCatalogChanges() {
+        PathChildrenCache cache = new PathChildrenCache(
+            curator, "/pangrova/catalogs", true);
+        cache.getListenable().addListener((client, event) -> {
+            switch (event.getType()) {
+                case CHILD_ADDED, CHILD_UPDATED -> {
+                    String catalogName = ZKPaths.getNodeFromPath(event.getData().getPath());
+                    CatalogDescriptor desc = catalogStore.get(catalogName);
+                    if (desc != null && !catalogs.containsKey(catalogName)) {
+                        loadCatalog(desc);
+                    }
+                }
+                case CHILD_REMOVED -> {
+                    String catalogName = ZKPaths.getNodeFromPath(event.getData().getPath());
+                    CatalogHandle handle = catalogs.remove(catalogName);
+                    if (handle != null) handle.shutdown();
+                }
+            }
+        });
+        cache.start();
+    }
+    
+    public CatalogHandle getCatalog(String name) {
+        CatalogHandle handle = catalogs.get(name);
+        if (handle == null) throw new CatalogNotFoundException(name);
+        if (handle.getState() == CatalogState.SUSPENDED) {
+            throw new CatalogSuspendedException(name);
+        }
+        return handle;
+    }
+    
+    public Set<String> listCatalogs() {
+        return Collections.unmodifiableSet(catalogs.keySet());
+    }
+}
+```
+
+### 3.3 CatalogHandle — Catalog Abstraction Handle
+
+```java
+/**
+ * Catalog handle — the unified abstraction for Catalog operations
+ * 
+ * Three implementations correspond to the three Catalog types:
+ * - InternalCatalogHandle: system catalog (SHOW TABLES, system.runtime.*)
+ * - ConnectorCatalogHandle: Connector-backed (iceberg, paimon)
+ * - FederationCatalogHandle: external Metastore (hms, glue)
+ */
+public interface CatalogHandle {
+    CatalogDescriptor getDescriptor();
+    CatalogState getState();
+    void setState(CatalogState state);
+    
+    ConnectorMetadata getMetadata(SessionContext session);
+    ConnectorSplitManager getSplitManager();
+    ConnectorPageSourceProvider getPageSourceProvider();
+    default ConnectorPageSinkProvider getPageSinkProvider() {
+        throw new UnsupportedOperationException("Write not supported");
+    }
+    
+    /** health check */
+    HealthStatus checkHealth();
+    
+    /** close and release resources */
+    void shutdown();
+}
+
+/**
+ * Connector-backed Catalog handle
+ * Bridges to the Connector SPI (06-connector-design.md §1.2)
+ */
+public class ConnectorCatalogHandle implements CatalogHandle {
+    private final CatalogDescriptor descriptor;
+    private final Connector connector;
+    private volatile CatalogState state;
+    
+    @Override
+    public ConnectorMetadata getMetadata(SessionContext session) {
+        return connector.getMetadata(session.toConnectorSession());
+    }
+    
+    @Override
+    public HealthStatus checkHealth() {
+        try {
+            connector.getMetadata(SystemSession.INSTANCE).listSchemaNames(SystemSession.INSTANCE);
+            return HealthStatus.HEALTHY;
+        } catch (Exception e) {
+            return HealthStatus.unhealthy(e.getMessage());
+        }
+    }
+}
+
+/**
+ * Federation Catalog handle
+ * Bridges to the CatalogAdapter SPI (this doc §3.8)
+ * Adapts external Metastore metadata to the ConnectorMetadata interface
+ */
+public class FederationCatalogHandle implements CatalogHandle {
+    private final CatalogDescriptor descriptor;
+    private final CatalogAdapter adapter;
+    private volatile CatalogState state;
+    
+    @Override
+    public ConnectorMetadata getMetadata(SessionContext session) {
+        return new FederationConnectorMetadata(adapter, session);
+    }
+    
+    @Override
+    public HealthStatus checkHealth() {
+        try {
+            adapter.listSchemas();
+            return HealthStatus.HEALTHY;
+        } catch (Exception e) {
+            state = CatalogState.DEGRADED;
+            return HealthStatus.unhealthy(e.getMessage());
+        }
+    }
+}
+
+/**
+ * FederationConnectorMetadata — Bridges CatalogAdapter to ConnectorMetadata.
+ *
+ * Delegates read-only metadata operations to CatalogAdapter (§3.8) and throws
+ * UnsupportedOperationException for DDL/write operations not supported through
+ * the federation path.
+ *
+ * Resolves: IC-MD-005 — FederationConnectorMetadata class definition.
+ *
+ * Supported/Unsupported method mapping:
+ *   Supported (delegated to CatalogAdapter):
+ *     - listSchemaNames()      → adapter.listSchemas()
+ *     - listTables(schema)     → adapter.listTables(schema)
+ *     - getTableHandle()       → adapter.getTable() != null
+ *     - getTableMetadata()     → adapter.getTable()
+ *     - getTableStatistics()   → adapter.getTableStatistics()
+ *     - getColumnHandles()     → derived from adapter.getTable().columns()
+ *
+ *   Unsupported (throws UnsupportedOperationException):
+ *     - createSchema(), dropSchema()
+ *     - createTable(), dropTable(), renameTable()
+ *     - alterTable()
+ *     - applyFilter(), applyProjection() (no pushdown for federation)
+ */
+public class FederationConnectorMetadata implements ConnectorMetadata {
+
+    private final CatalogAdapter adapter;
+    private final SessionContext session;
+
+    public FederationConnectorMetadata(CatalogAdapter adapter, SessionContext session) {
+        this.adapter = requireNonNull(adapter, "adapter is null");
+        this.session = requireNonNull(session, "session is null");
+    }
+
+    @Override
+    public List<String> listSchemaNames(ConnectorSession session) {
+        return adapter.listSchemas();
+    }
+
+    @Override
+    public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schema) {
+        List<String> schemas = schema.map(List::of).orElseGet(adapter::listSchemas);
+        return schemas.stream()
+            .flatMap(s -> adapter.listTables(s).stream()
+                .map(t -> new SchemaTableName(s, t)))
+            .toList();
+    }
+
+    @Override
+    public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName) {
+        try {
+            TableMetadata meta = adapter.getTable(tableName.getSchemaName(), tableName.getTableName());
+            return new FederationTableHandle(tableName, meta);
+        } catch (TableNotFoundException e) {
+            return null;
+        }
+    }
+
+    @Override
+    public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
+        FederationTableHandle handle = (FederationTableHandle) table;
+        TableMetadata meta = handle.getMetadata();
+        return MetadataModelConverter.toConnectorTableMetadata(meta);
+    }
+
+    @Override
+    public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
+        FederationTableHandle handle = (FederationTableHandle) table;
+        return handle.getMetadata().columns().stream()
+            .collect(Collectors.toMap(
+                ColumnMetadata::name,
+                col -> new FederationColumnHandle(col.name(), col.type())));
+    }
+
+    @Override
+    public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
+        FederationTableHandle handle = (FederationTableHandle) table;
+        SchemaTableName name = handle.getTableName();
+        return adapter.getTableStatistics(name.getSchemaName(), name.getTableName());
+    }
+
+    // ── Unsupported DDL/Write operations ──
+
+    @Override
+    public void createSchema(ConnectorSession s, String schema, Map<String, Object> props) {
+        throw new UnsupportedOperationException("Federation catalogs are read-only");
+    }
+
+    @Override
+    public void dropSchema(ConnectorSession s, String schema) {
+        throw new UnsupportedOperationException("Federation catalogs are read-only");
+    }
+
+    @Override
+    public void createTable(ConnectorSession s, ConnectorTableMetadata meta, boolean ignoreExisting) {
+        throw new UnsupportedOperationException("Federation catalogs are read-only");
+    }
+
+    @Override
+    public void dropTable(ConnectorSession s, ConnectorTableHandle table) {
+        throw new UnsupportedOperationException("Federation catalogs are read-only");
+    }
+
+    @Override
+    public void renameTable(ConnectorSession s, ConnectorTableHandle table, SchemaTableName newName) {
+        throw new UnsupportedOperationException("Federation catalogs are read-only");
+    }
+
+    @Override
+    public void alterTable(ConnectorSession s, ConnectorTableHandle table, List<SchemaChange> changes) {
+        throw new UnsupportedOperationException("Federation catalogs are read-only");
+    }
+}
+```
+
+### 3.4 Catalog Health Checks
+
+```java
+/**
+ * Catalog health monitoring
+ * 
+ * Metrics are exposed to Prometheus (see 14-observability.md)
+ * The degraded state triggers alerts (see the degradation strategy in 12-resilience.md)
+ */
+public class CatalogHealthMonitor {
+    
+    private final CatalogRegistry registry;
+    private final ScheduledExecutorService scheduler;
+    private final MetricsProvider metrics;
+    
+    private static final Duration CHECK_INTERVAL = Duration.ofSeconds(30);
+    private static final int DEGRADED_THRESHOLD = 3; // consecutive failure count
+    
+    public void start() {
+        scheduler.scheduleAtFixedRate(this::checkAll,
+            CHECK_INTERVAL.toSeconds(), CHECK_INTERVAL.toSeconds(), TimeUnit.SECONDS);
+    }
+    
+    private void checkAll() {
+        for (CatalogHandle handle : registry.getAllHandles()) {
+            HealthStatus status = handle.checkHealth();
+            
+            metrics.recordCatalogHealth(handle.getDescriptor().getName(), status);
+            
+            if (!status.isHealthy()) {
+                int failCount = incrementFailCount(handle.getDescriptor().getName());
+                if (failCount >= DEGRADED_THRESHOLD) {
+                    handle.setState(CatalogState.DEGRADED);
+                    metrics.recordCatalogDegraded(handle.getDescriptor().getName());
+                }
+            } else {
+                resetFailCount(handle.getDescriptor().getName());
+                if (handle.getState() == CatalogState.DEGRADED) {
+                    handle.setState(CatalogState.ACTIVE);
+                }
+            }
+        }
+    }
+}
+```
+
+#### 3.4.1 Error Propagation from External Catalogs
+
+<!-- Resolves: IC-MD-008 — Error propagation from external catalogs to query execution fully specified -->
+
+When a catalog enters `DEGRADED` state, the behavior for in-flight and new queries is:
+
+| Scenario | Behavior | Rationale |
+|----------|----------|-----------|
+| `resolveTable()` on DEGRADED catalog | Serve from MetadataCache (L1/L2) if entry exists and staleness ≤ `metadata.degraded.max-staleness` (default 5 min). If cache miss or staleness exceeded → throw `CatalogDegradedException` with clear message. | Bounded staleness prevents silently serving arbitrarily old metadata. |
+| `listSchemas()` / `listTables()` on DEGRADED catalog | Same cache-or-fail strategy as `resolveTable()`. | Consistent behavior across all metadata operations. |
+| DDL on DEGRADED catalog (`CREATE TABLE`, `ALTER TABLE`) | Fail immediately with `CatalogDegradedException`. DDL requires authoritative state. | DDL against stale metadata risks schema corruption. |
+| Connector internal error (non-DEGRADED) | Map to `PangrovaException` with `ErrorCategory.EXTERNAL_ERROR` (see [12-resilience.md](./12-resilience.md)). Propagate to query execution layer as query failure. | Connector errors are not retryable at metadata level. |
+| External catalog timeout | Count toward DEGRADED threshold. If within threshold, retry once with halved timeout. If exceeded, transition to DEGRADED. | Graceful degradation with bounded retry. |
+
+```java
+// CatalogRegistry.getCatalog() — updated to handle DEGRADED state
+public CatalogHandle getCatalog(String name) {
+    CatalogHandle handle = catalogs.get(name);
+    if (handle == null) throw new CatalogNotFoundException(name);
+    if (handle.getState() == CatalogState.SUSPENDED) {
+        throw new CatalogSuspendedException(name);
+    }
+    // DEGRADED catalogs remain accessible — MetadataService decides
+    // whether to serve from cache or fail based on staleness policy.
+    // See MetadataService.resolveTable() cache-or-fail logic.
+    return handle;
+}
+```
+
+MetadataCache staleness tolerance configuration:
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `metadata.degraded.max-staleness` | `5m` | Maximum acceptable cache age when serving from DEGRADED catalog |
+| `metadata.degraded.ddl-allowed` | `false` | Whether DDL is allowed on DEGRADED catalogs (always false in production) |
+| `metadata.cache.async-refresh` | `true` | Non-blocking cache refresh on TTL expiry |
+
+Error category mapping from connector exceptions to Pangrova error model
+(see [12-resilience.md](./12-resilience.md) for full ErrorCategory definition):
+
+| Connector Exception | Pangrova ErrorCategory | Retryable |
+|---------------------|---------------------|-----------|
+| `CatalogBackendException` (timeout) | `EXTERNAL_ERROR` | Yes (bounded) |
+| `CatalogBackendException` (auth failure) | `PERMISSION_DENIED_ERROR` | No |
+| `CatalogBackendException` (not found) | `USER_ERROR` | No |
+| `ConnectorException` (internal) | `EXTERNAL_ERROR` | No |
+| `UnsupportedOperationException` | `NOT_SUPPORTED_ERROR` | No |
+
+
+### 3.5 MetadataCache — Tiered Metadata Cache
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                         Metadata Cache Architecture                                                              │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                                  │
+│  Difference from the data cache (13-cache-layer.md):                                                             │
+│  • The 08 cache is a data-plane cache (Row Group level, C++ layer, RAM/SSD)                                      │
+│  • This section cache is a control-plane cache (metadata level, Java layer, Caffeine/Redis)                      │
+│                                                                                                                  │
+│  Two-tier cache:                                                                                                 │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐                                │
+│  │                                                                              │                                │
+│  │ ┌─────────────────────┐  Hit                                                 │                                │
+│  │ │  L1: Caffeine       │ ────────────────────► Return Metadata                │                                │
+│  │ │  (JVM-local)        │                                                      │                                │
+│  │ │  TTL: 60s           │                                                      │                                │
+│  │ └──────┬──────────────┘                                                      │                                │
+│  │        │ Miss                                                                │                                │
+│  │        ▼                                                                     │                                │
+│  │ ┌─────────────────────┐  Hit                                                 │                                │
+│  │ │  L2: Redis          │ ──► Fill L1 ────────► Return Metadata                │                                │
+│  │ │  (cross-Coordinator │                                                      │                                │
+│  │ │   shared)           │                                                      │                                │
+│  │ │  TTL: 300s          │                                                      │                                │
+│  │ └──────┬──────────────┘                                                      │                                │
+│  │        │ Miss                                                                │                                │
+│  │        ▼                                                                     │                                │
+│  │ ┌─────────────────────┐                                                      │                                │
+│  │ │  Metastore          │ ──► Fill L2 + L1 ───► Return Metadata                │                                │
+│  │ │  (PostgreSQL)       │                                                      │                                │
+│  │ └──────┬──────────────┘                                                      │                                │
+│  │        │ Miss                                                                │                                │
+│  │        ▼                                                                     │                                │
+│  │ CatalogAdapter (external backend) ──► Fill Metastore + L2 + L1               │                                │
+│  │                                                                              │                                │
+│  └──────────────────────────────────────────────────────────────────────────────┘                                │
+│                                                                                                                  │
+│  Invalidation policy:                                                                                            │
+│  • DDL operations: immediately invalidate L1 + L2 (broadcast via Redis Pub/Sub)                                  │
+│  • Security-policy changes: invalidate the cache of affected tables (see 15-security.md)                         │
+│  • Tenant changes: invalidate the Catalog cache bound to the tenant (see 16-multi-tenancy.md)                    │
+│  • TTL expiry: refresh asynchronously without blocking reads                                                     │
+│                                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+
+```java
+/**
+ * Two-tier metadata cache
+ * 
+ * L1: Caffeine (JVM-local, low latency, visible to a single Coordinator)
+ * L2: Redis (shared across Coordinators; see 02-distributed-architecture.md §3.4)
+ * 
+ * Invalidation broadcast: Redis Pub/Sub ensures L1 is invalidated consistently across all Coordinators
+ */
+public class TieredMetadataCache implements MetadataCache {
+    
+    private final Cache<String, List<String>> schemaCache;     // L1 schema list
+    private final Cache<String, TableMetadata> tableCache;     // L1 table metadata
+    private final RedisTemplate<String, String> redis;         // L2
+    private final ObjectMapper objectMapper;
+    private final MetricsProvider metrics;
+    
+    private static final String CACHE_PREFIX = "pangrova:metadata:";
+    private static final String INVALIDATION_CHANNEL = "pangrova:metadata:invalidation";
+    
+    public TieredMetadataCache(MetadataCacheConfig config,
+                                RedisTemplate<String, String> redis,
+                                MetricsProvider metrics) {
+        this.schemaCache = Caffeine.newBuilder()
+            .maximumSize(config.getMaxSize())
+            .expireAfterWrite(config.getTtlSeconds(), TimeUnit.SECONDS)
+            .refreshAfterWrite(config.getRefreshAfterWriteSeconds(), TimeUnit.SECONDS)
+            .recordStats()
+            .build();
+        this.tableCache = Caffeine.newBuilder()
+            .maximumSize(config.getMaxSize())
+            .expireAfterWrite(config.getTtlSeconds(), TimeUnit.SECONDS)
+            .refreshAfterWrite(config.getRefreshAfterWriteSeconds(), TimeUnit.SECONDS)
+            .recordStats()
+            .build();
+        this.redis = redis;
+        this.metrics = metrics;
+        
+        // subscribe to invalidation broadcasts
+        subscribeInvalidation();
+    }
+    
+    @Override
+    public Optional<TableMetadata> getTable(String catalog, String schema, String table) {
+        String key = buildKey(catalog, schema, table);
+        
+        // L1 lookup
+        TableMetadata cached = tableCache.getIfPresent(key);
+        if (cached != null) {
+            metrics.createCounter("metadata.cache.l1.hits", "L1 cache hits", "1").add(1);
+            return Optional.of(cached);
+        }
+        
+        // L2 lookup
+        String json = redis.opsForValue().get(CACHE_PREFIX + key);
+        if (json != null) {
+            metrics.createCounter("metadata.cache.l2.hits", "L2 cache hits", "1").add(1);
+            TableMetadata metadata = deserialize(json);
+            tableCache.put(key, metadata);  // backfill L1
+            return Optional.of(metadata);
+        }
+        
+        metrics.createCounter("metadata.cache.misses", "Cache misses", "1").add(1);
+        return Optional.empty();
+    }
+    
+    @Override
+    public void putTable(String catalog, String schema, String table, TableMetadata metadata) {
+        String key = buildKey(catalog, schema, table);
+        tableCache.put(key, metadata);                                    // L1
+        redis.opsForValue().set(CACHE_PREFIX + key, serialize(metadata),
+            Duration.ofSeconds(300));                                      // L2
+    }
+    
+    @Override
+    public void invalidateTable(String catalog, String schema, String table) {
+        String key = buildKey(catalog, schema, table);
+        tableCache.invalidate(key);                                       // L1 local
+        redis.delete(CACHE_PREFIX + key);                                 // L2
+        redis.convertAndSend(INVALIDATION_CHANNEL, key);                  // broadcast to other Coordinators
+    }
+    
+    @Override
+    public void invalidateCatalog(String catalog) {
+        // clear all cache under this Catalog
+        String pattern = catalog + ".*";
+        tableCache.asMap().keySet().removeIf(k -> k.startsWith(catalog + "."));
+        schemaCache.invalidate(catalog);
+        
+        // Redis: scan and delete
+        Set<String> keys = redis.keys(CACHE_PREFIX + pattern);
+        if (keys != null && !keys.isEmpty()) {
+            redis.delete(keys);
+        }
+        redis.convertAndSend(INVALIDATION_CHANNEL, "catalog:" + catalog);
+    }
+    
+    /**
+     * Subscribe to Redis invalidation broadcasts and apply invalidations from other Coordinators to the local L1
+     */
+    private void subscribeInvalidation() {
+        redis.getConnectionFactory().getConnection().subscribe(
+            (message, pattern) -> {
+                String key = new String(message.getBody());
+                if (key.startsWith("catalog:")) {
+                    String catalog = key.substring("catalog:".length());
+                    tableCache.asMap().keySet().removeIf(k -> k.startsWith(catalog + "."));
+                    schemaCache.invalidate(catalog);
+                } else {
+                    tableCache.invalidate(key);
+                }
+            },
+            INVALIDATION_CHANNEL.getBytes());
+    }
+    
+    @Override
+    public CacheStats getStats() {
+        com.github.benmanes.caffeine.cache.stats.CacheStats l1Stats = tableCache.stats();
+        return new CacheStats(
+            l1Stats.hitCount(), l1Stats.missCount(),
+            l1Stats.evictionCount(), tableCache.estimatedSize());
+    }
+}
+```
+
+
+### 3.6 MetadataSyncService — Metadata Synchronization
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                         Metadata Sync Architecture                                                                   │
+├──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                                      │
+│  Sync modes:                                                                                                         │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐                                  │
+│  │   Mode         │ Trigger                     │ Use case                        │                                  │
+│  │   ──────────────────────────────────────────────────────────────────────────── │                                  │
+│  │   Incremental  │ Scheduled (default 60s)     │ Normal operation, low overhead  │                                  │
+│  │   Full         │ Manual / first registration │ Initialization, data repair     │                                  │
+│  │   Event-driven │ External Webhook/Listener   │ Latency-sensitive scenarios     │                                  │
+│  └────────────────────────────────────────────────────────────────────────────────┘                                  │
+│                                                                                                                      │
+│  Sync flow (incremental):                                                                                            │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐                                  │
+│  │   1. Read last_sync_time                                                       │                                  │
+│  │   2. CatalogAdapter.getChangesSince(last_sync_time)                            │                                  │
+│  │   3. For each MetadataChange:                                                  │                                  │
+│  │      • ADD    → Metastore.saveTable() + Cache.put()                            │                                  │
+│  │      • UPDATE → Metastore.saveTable() + Cache.invalidate()                     │                                  │
+│  │      • DELETE → Metastore.deleteTable() + Cache.invalidate()                   │                                  │
+│  │   4. Update last_sync_time                                                     │                                  │
+│  │   5. Record SyncResult (changes, errors, elapsed)                              │                                  │
+│  └────────────────────────────────────────────────────────────────────────────────┘                                  │
+│                                                                                                                      │
+│  Conflict resolution: the external backend is the Source of Truth; the local Metastore is overwritten unconditionally│
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+
+```java
+/**
+ * Metadata synchronization service
+ * 
+ * Synchronizes metadata from an external Catalog backend to the local Metastore.
+ * Runs only on the Coordinator Leader (see 02-distributed-architecture.md §1.1),
+ * using ZK Leader Election to guarantee single-point execution and avoid duplicate synchronization.
+ */
+public class MetadataSyncService {
+    
+    private final CatalogRegistry catalogRegistry;
+    private final MetadataStore metadataStore;
+    private final MetadataCache metadataCache;
+    private final MetadataEventDispatcher eventDispatcher;
+    private final MetricsProvider metrics;
+    private final ScheduledExecutorService scheduler;
+    
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final Duration BASE_BACKOFF = Duration.ofSeconds(1);
+    
+    /**
+     * Incremental sync — pull only changes since the last sync
+     */
+    public SyncResult incrementalSync(String catalogName) {
+        CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
+        CatalogAdapter adapter = extractAdapter(handle);
+        
+        Instant lastSync = metadataStore.getLastSyncTime(catalogName)
+            .orElse(Instant.EPOCH);
+        
+        int changesApplied = 0;
+        List<String> errors = new ArrayList<>();
+        Instant startTime = Instant.now();
+        
+        try {
+            List<MetadataChange> changes = adapter.getChangesSince(lastSync);
+            for (MetadataChange change : changes) {
+                try {
+                    applyChange(catalogName, change);
+                    changesApplied++;
+                } catch (Exception e) {
+                    errors.add(change.describe() + ": " + e.getMessage());
+                }
+            }
+            metadataStore.updateSyncTime(catalogName, Instant.now());
+        } catch (Exception e) {
+            errors.add("Sync failed: " + e.getMessage());
+        }
+        
+        SyncResult result = new SyncResult(catalogName, Instant.now(),
+            changesApplied, errors.size(), errors,
+            Duration.between(startTime, Instant.now()).toMillis());
+        
+        metadataStore.recordSyncHistory(result);
+        metrics.createCounter("metadata.sync.changes", "Sync changes applied", "1")
+            .add(changesApplied);
+        
+        return result;
+    }
+    
+    /**
+     * Full sync — completely replace the local Metastore with the external backend state
+     */
+    public SyncResult fullSync(String catalogName) {
+        CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
+        CatalogAdapter adapter = extractAdapter(handle);
+        
+        int changesApplied = 0;
+        List<String> errors = new ArrayList<>();
+        Instant startTime = Instant.now();
+        
+        for (String schema : adapter.listSchemas()) {
+            metadataStore.saveSchemas(catalogName, List.of(schema));
+            for (String table : adapter.listTables(schema)) {
+                try {
+                    TableMetadata metadata = adapter.getTable(schema, table);
+                    metadataStore.saveTable(catalogName, schema, table, metadata);
+                    metadataCache.invalidateTable(catalogName, schema, table);
+                    changesApplied++;
+                } catch (Exception e) {
+                    errors.add(schema + "." + table + ": " + e.getMessage());
+                }
+            }
+        }
+        
+        metadataStore.updateSyncTime(catalogName, Instant.now());
+        
+        SyncResult result = new SyncResult(catalogName, Instant.now(),
+            changesApplied, errors.size(), errors,
+            Duration.between(startTime, Instant.now()).toMillis());
+        metadataStore.recordSyncHistory(result);
+        return result;
+    }
+    
+    /**
+     * Apply a single metadata change
+     */
+    private void applyChange(String catalogName, MetadataChange change) {
+        switch (change.getType()) {
+            case ADD, UPDATE -> {
+                metadataStore.saveTable(catalogName, change.getSchema(),
+                    change.getTable(), change.getMetadata());
+                metadataCache.invalidateTable(catalogName,
+                    change.getSchema(), change.getTable());
+            }
+            case DELETE -> {
+                metadataStore.deleteTable(catalogName,
+                    change.getSchema(), change.getTable());
+                metadataCache.invalidateTable(catalogName,
+                    change.getSchema(), change.getTable());
+            }
+        }
+        eventDispatcher.dispatch(new MetadataSyncedEvent(catalogName, change));
+    }
+    
+    /**
+     * Retry synchronization with exponential backoff
+     * See the retry strategy in 12-resilience.md
+     */
+    public SyncResult syncWithRetry(String catalogName) {
+        for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+            try {
+                return incrementalSync(catalogName);
+            } catch (CatalogBackendException e) {
+                if (attempt == MAX_RETRY_ATTEMPTS) throw e;
+                Duration backoff = BASE_BACKOFF.multipliedBy((long) Math.pow(2, attempt - 1));
+                sleep(backoff);
+            }
+        }
+        throw new IllegalStateException("Unreachable");
+    }
+}
+```
+
+
+### 3.7 SchemaEvolutionValidator — Schema Change Validation
+
+```java
+/**
+ * Schema change compatibility validator
+ * 
+ * This is the authoritative implementation of schema evolution validation rules.
+ * 17-data-governance.md §2.3 delegates to this component for compatibility checks.
+ * This component acts as a pre-interceptor for MetadataService.alterTable().
+ * 
+ * Safe changes (allowed):
+ *   int → bigint, float → double,
+ *   decimal(p1,s) → decimal(p2,s) where p2 > p1,
+ *   varchar(n1) → varchar(n2) where n2 > n1,
+ *   non-nullable → nullable
+ * 
+ * Unsafe changes (rejected):
+ *   bigint → int, double → float,
+ *   nullable → non-nullable,
+ *   any narrowing type change
+ */
+public class SchemaEvolutionValidator {
+    
+    private static final Map<String, Set<String>> SAFE_PROMOTIONS = Map.of(
+        "INT", Set.of("BIGINT"),
+        "FLOAT", Set.of("DOUBLE"),
+        "DECIMAL", Set.of("DECIMAL"),  // precision increase
+        "VARCHAR", Set.of("VARCHAR")   // length increase
+    );
+    
+    public ValidationResult validate(TableMetadata current, List<SchemaChange> changes) {
+        List<String> errors = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        
+        Map<String, ColumnMetadata> columnMap = current.columns().stream()
+            .collect(Collectors.toMap(ColumnMetadata::name, Function.identity()));
+        
+        for (SchemaChange change : changes) {
+            validateSingleChange(change, columnMap, errors, warnings);
+        }
+        
+        return new ValidationResult(errors.isEmpty(), errors, warnings);
+    }
+    
+    private void validateSingleChange(SchemaChange change,
+                                       Map<String, ColumnMetadata> columns,
+                                       List<String> errors,
+                                       List<String> warnings) {
+        switch (change) {
+            case SchemaChange.AddColumn add ->
+                warnings.add("Adding column: " + add.name());
+                
+            case SchemaChange.DropColumn drop -> {
+                if (!columns.containsKey(drop.name())) {
+                    errors.add("Column not found: " + drop.name());
+                } else {
+                    warnings.add("Dropping column: " + drop.name());
+                }
+            }
+            
+            case SchemaChange.RenameColumn rename -> {
+                if (!columns.containsKey(rename.oldName())) {
+                    errors.add("Column not found: " + rename.oldName());
+                }
+                if (columns.containsKey(rename.newName())) {
+                    errors.add("Column already exists: " + rename.newName());
+                }
+            }
+            
+            case SchemaChange.ChangeType typeChange -> {
+                ColumnMetadata col = columns.get(typeChange.name());
+                if (col == null) {
+                    errors.add("Column not found: " + typeChange.name());
+                } else if (!isPromotionSafe(col.type(), typeChange.newType())) {
+                    errors.add("Incompatible type change: " + typeChange.name() +
+                        " from " + col.type() + " to " + typeChange.newType());
+                }
+            }
+            
+            case SchemaChange.ChangeNullability nullChange -> {
+                ColumnMetadata col = columns.get(nullChange.name());
+                if (col == null) {
+                    errors.add("Column not found: " + nullChange.name());
+                } else if (col.nullable() && !nullChange.nullable()) {
+                    errors.add("Cannot change nullable to non-nullable: " +
+                        nullChange.name());
+                }
+            }
+        }
+    }
+    
+    private boolean isPromotionSafe(ColumnType from, ColumnType to) {
+        if (from.equals(to)) return true;
+        Set<String> allowed = SAFE_PROMOTIONS.get(from.baseType());
+        if (allowed == null || !allowed.contains(to.baseType())) return false;
+        // DECIMAL/VARCHAR: precision/length must increase
+        if ("DECIMAL".equals(from.baseType())) {
+            return to.precision() >= from.precision() && to.scale() == from.scale();
+        }
+        if ("VARCHAR".equals(from.baseType())) {
+            return to.length() >= from.length();
+        }
+        return true;
+    }
+}
+```
+
+
+### 3.8 CatalogAdapter SPI — External Catalog Federation Interface
+
+<!-- Resolves: IC-MD-004 — CatalogAdapter SPI authoritative definition -->
+<!-- Resolves: DEF-109 — CatalogAdapter interface method signatures missing -->
+<!-- Resolves: RED-007 — CatalogAdapter phantom redundancy; all refs now point to 07 §3.8 -->
+
+The `CatalogAdapter` SPI is the abstraction layer for integrating external metastores
+(HMS, AWS Glue, Iceberg REST Catalog, etc.) into Pangrova's unified metadata management.
+This is the **authoritative definition** — all other documents (including
+[01-overview.md §5.1](./01-overview.md) and [06-connector-design.md](./06-connector-design.md))
+should reference this section for the complete interface specification.
+
+`FederationCatalogHandle` (§3.3) delegates to `CatalogAdapter` to bridge external
+catalog metadata into the `ConnectorMetadata` interface expected by the query engine.
+`MetadataSyncService` (§3.6) uses `CatalogAdapter` for both incremental and full
+metadata synchronization.
+
+```java
+/**
+ * CatalogAdapter SPI — Federation interface for external metastores.
+ *
+ * Implementations bridge an external catalog system (HMS, AWS Glue,
+ * Iceberg REST Catalog, etc.) into Pangrova's metadata layer.
+ *
+ * Thread-safety: Implementations MUST be thread-safe. A single
+ * CatalogAdapter instance is shared across all Coordinator threads.
+ *
+ * Error handling: Methods throw CatalogBackendException on
+ * communication failures with the external metastore. Callers
+ * (MetadataSyncService, FederationCatalogHandle) handle degradation
+ * and retry (see 12-resilience.md).
+ */
+public interface CatalogAdapter extends Closeable {
+
+    // ── Schema Operations ──
+
+    /**
+     * List all schema names in this external catalog.
+     *
+     * Used by:
+     *   - FederationCatalogHandle.checkHealth() (§3.3)
+     *   - MetadataSyncService.fullSync() (§3.6)
+     *
+     * @return non-null list of schema names
+     * @throws CatalogBackendException if the external metastore is unreachable
+     */
+    List<String> listSchemas();
+
+    // ── Table Operations ──
+
+    /**
+     * List all table names within the given schema.
+     *
+     * Used by:
+     *   - MetadataSyncService.fullSync() (§3.6)
+     *
+     * @param schema schema name (non-null)
+     * @return non-null list of table names
+     * @throws CatalogBackendException if the external metastore is unreachable
+     * @throws SchemaNotFoundException if the schema does not exist
+     */
+    List<String> listTables(String schema);
+
+    /**
+     * Retrieve full table metadata from the external catalog.
+     *
+     * Used by:
+     *   - MetadataSyncService.fullSync() (§3.6)
+     *   - FederationConnectorMetadata.getTableMetadata()
+     *
+     * @param schema schema name (non-null)
+     * @param table  table name (non-null)
+     * @return table metadata including columns, partitioning, properties
+     * @throws CatalogBackendException if the external metastore is unreachable
+     * @throws TableNotFoundException  if the table does not exist
+     */
+    TableMetadata getTable(String schema, String table);
+
+    /**
+     * Retrieve table-level statistics for query optimization.
+     *
+     * Returns row count, data size, and per-column statistics
+     * (NDV, null fraction, min/max) when available from the
+     * external catalog. Used by the CBO (see 04-query-optimization.md)
+     * to generate optimal plans for federation tables.
+     *
+     * @param schema schema name (non-null)
+     * @param table  table name (non-null)
+     * @return table statistics, or {@code TableStatistics.empty()} if unavailable
+     * @throws CatalogBackendException if the external metastore is unreachable
+     */
+    TableStatistics getTableStatistics(String schema, String table);
+
+    // ── Change Tracking ──
+
+    /**
+     * Retrieve metadata changes since the given timestamp.
+     *
+     * Used by:
+     *   - MetadataSyncService.incrementalSync() (§3.6)
+     *
+     * Implementations that do not support incremental change tracking
+     * should throw UnsupportedOperationException; the caller falls
+     * back to fullSync().
+     *
+     * @param since timestamp of last successful sync (non-null)
+     * @return ordered list of metadata changes since {@code since}
+     * @throws CatalogBackendException      if the external metastore is unreachable
+     * @throws UnsupportedOperationException if change tracking is not supported
+     */
+    List<MetadataChange> getChangesSince(Instant since);
+
+    // ── Lifecycle ──
+
+    /**
+     * Release resources held by this adapter (connections, caches, etc.).
+     * Called when the catalog is unregistered or the Coordinator shuts down.
+     */
+    @Override
+    void close();
+}
+```
+
+```java
+/**
+ * Factory SPI for creating CatalogAdapter instances.
+ *
+ * Discovered via ServiceLoader (META-INF/services/com.pangrova.catalog.CatalogAdapterFactory).
+ * Each external catalog provider (hms, glue, iceberg-rest) ships its own factory.
+ *
+ * Used by:
+ *   - CatalogRegistry.loadFederationCatalog() (§3.2)
+ */
+public interface CatalogAdapterFactory {
+
+    /**
+     * @return provider identifier (e.g., "hms", "glue", "iceberg-rest")
+     */
+    String name();
+
+    /**
+     * Create a CatalogAdapter from catalog properties.
+     *
+     * @param properties catalog configuration from CatalogDescriptor (§2.3)
+     * @return configured adapter instance
+     * @throws CatalogProviderNotFoundException if required config is missing
+     */
+    CatalogAdapter create(Map<String, String> properties);
+
+    /**
+     * Lookup factory by provider name.
+     */
+    static CatalogAdapterFactory get(String provider) {
+        return ServiceLoader.load(CatalogAdapterFactory.class).stream()
+            .map(ServiceLoader.Provider::get)
+            .filter(f -> f.name().equals(provider))
+            .findFirst()
+            .orElseThrow(() -> new CatalogProviderNotFoundException(provider));
+    }
+}
+```
+
+**Built-in Implementations:**
+
+| Provider | Factory Class | Adapter Class | Notes |
+|----------|--------------|---------------|-------|
+| `hms` | `HmsCatalogAdapterFactory` | `HmsCatalogAdapter` | Hive Metastore Thrift client |
+| `glue` | `GlueCatalogAdapterFactory` | `GlueCatalogAdapter` | AWS Glue Data Catalog SDK |
+| `iceberg-rest` | `IcebergRestCatalogAdapterFactory` | `IcebergRestCatalogAdapter` | Iceberg REST Catalog spec |
+
+**Relationship to ConnectorMetadata (06-connector-design.md §1.2):**
+
+`CatalogAdapter` is intentionally narrower than `ConnectorMetadata` (6 methods vs 14+).
+Federation catalogs expose read-only metadata; DDL and write operations are not
+supported through the federation path. `FederationConnectorMetadata` (§3.3) bridges
+`CatalogAdapter` to the `ConnectorMetadata` interface by delegating supported methods
+and throwing `UnsupportedOperationException` for DDL/write methods.
+
+---
+
+## 4. Unified Metadata Model
+
+### 4.1 TableMetadata — Cross-Catalog Common Model
+
+```java
+/**
+ * Unified table metadata model
+ * 
+ * All CatalogAdapters convert external-backend metadata into this model.
+ * This model is the basic unit for Metastore persistence and cache storage.
+ * 
+ * Relationship to ConnectorTableMetadata (06-connector-design.md §1.2):
+ * - ConnectorTableMetadata is the Connector SPI internal model, oriented toward query execution
+ * - TableMetadata is the metadata-management-layer model, oriented toward federated storage and caching
+ * - MetadataService.resolveTable() handles conversion between the two
+ */
+public record TableMetadata(
+    String catalog,
+    String schema,
+    String table,
+    List<ColumnMetadata> columns,
+    Map<String, String> partitionSpec,
+    List<String> sortOrder,
+    Map<String, String> properties,
+    Instant createdAt,
+    Instant updatedAt
+) {
+    public String qualifiedName() {
+        return catalog + "." + schema + "." + table;
+    }
+}
+
+public record ColumnMetadata(
+    String name,
+    ColumnType type,
+    boolean nullable,
+    String comment,
+    Map<String, String> tags    // data-classification tags (see 17-data-governance.md §5)
+) {}
+
+/**
+ * Column type — supports parameterized types (DECIMAL(p,s), VARCHAR(n))
+ */
+public record ColumnType(
+    String baseType,            // INT, BIGINT, FLOAT, DOUBLE, DECIMAL, VARCHAR, ...
+    int precision,              // DECIMAL precision; 0 for other types
+    int scale,                  // DECIMAL scale; 0 for other types
+    int length                  // VARCHAR length; 0 for other types
+) {
+    public static ColumnType of(String baseType) {
+        return new ColumnType(baseType, 0, 0, 0);
+    }
+    
+    public static ColumnType decimal(int precision, int scale) {
+        return new ColumnType("DECIMAL", precision, scale, 0);
+    }
+    
+    public static ColumnType varchar(int length) {
+        return new ColumnType("VARCHAR", 0, 0, length);
+    }
+    
+    @Override
+    public String toString() {
+        if (precision > 0) return baseType + "(" + precision + "," + scale + ")";
+        if (length > 0) return baseType + "(" + length + ")";
+        return baseType;
+    }
+}
+```
+
+
+### 4.2 TableMetadata ↔ ConnectorTableMetadata Conversion Contract
+
+`MetadataService.resolveTable()` handles conversion between `TableMetadata` (the metadata-management layer) and `ConnectorTableMetadata` ([06-connector-design.md §1.2](./06-connector-design.md)). The two models serve different purposes, their field sets are not fully aligned, and conversion adds or drops some information.
+
+#### Field Mapping
+
+| TableMetadata Field | ConnectorTableMetadata Field | Direction | Notes |
+|---|---|---|---|
+| `catalog` | (implicit, from CatalogHandle) | → only | ConnectorTableMetadata has no catalog name; it is provided by the CatalogHandle context |
+| `schema` + `table` | `SchemaTableName` | ↔ | lossless in both directions |
+| `columns` | `List<ColumnMetadata>` | ↔ | see the type-mapping table below |
+| `columns[].tags` | — | → lost | **Information loss**: ConnectorTableMetadata has no data-classification tags; they are dropped during conversion |
+| `partitionSpec` | `ConnectorTableLayout.partitioning` | → transform | Map format is converted to the Connector's PartitioningHandle |
+| `sortOrder` | `ConnectorTableLayout.sortOrder` | → transform | String list is converted to a SortItem list |
+| `properties` | `Map<String, Object> properties` | ↔ | value type is widened from String to Object |
+| `createdAt` / `updatedAt` | — | → lost | **Information loss**: ConnectorTableMetadata has no audit timestamps |
+| — | `ConnectorTableHandle` | ← only | **Information gain**: created by the Connector; includes runtime state such as snapshot ID and delete-file information |
+
+#### Type Mapping (ColumnType ↔ Connector Type)
+
+| ColumnType | Connector Type | Reversible |
+|---|---|---|
+| `INT` | `IntegerType` | ✓ |
+| `BIGINT` | `BigintType` | ✓ |
+| `FLOAT` | `RealType` | ✓ |
+| `DOUBLE` | `DoubleType` | ✓ |
+| `DECIMAL(p,s)` | `DecimalType(p,s)` | ✓ |
+| `VARCHAR(n)` | `VarcharType(n)` | ✓ |
+| `BOOLEAN` | `BooleanType` | ✓ |
+| `DATE` | `DateType` | ✓ |
+| `TIMESTAMP` | `TimestampType` | ✓ (precision may differ) |
+| Nested (STRUCT/ARRAY/MAP) | `RowType/ArrayType/MapType` | ✓ (recursive) |
+
+#### Information Loss and Compensation
+
+Information lost during conversion is compensated by the following mechanisms:
+
+| Lost Field | Compensation | When Needed |
+|---|---|---|
+| `tags` (data classification) | reloaded from MetadataCache or MetadataStore at query time | when RLS/Column Masking needs tag information ([15-security.md §5](./15-security.md)) |
+| `createdAt/updatedAt` | loaded from MetadataStore at query time (e.g., `system.metadata.tables` queries) | auditing and data-governance scenarios |
+| `ConnectorTableHandle` | created by `ConnectorMetadata.getTableHandle()`; includes runtime information such as the Iceberg snapshot ID | required during query execution |
+
+#### Conversion Implementation
+
+```java
+/**
+ * TableMetadata ↔ ConnectorTableMetadata converter
+ * 
+ * One-way conversion: resolveTable() obtains ConnectorTableMetadata from ConnectorMetadata,
+ * then merges supplementary TableMetadata information (tags, audit info) from the MetadataStore.
+ * 
+ * No reverse conversion is provided: ConnectorTableMetadata → TableMetadata is handled by MetadataSyncService,
+ * which builds TableMetadata directly from the external backend via the CatalogAdapter.
+ */
+public class MetadataModelConverter {
+    
+    public static ResolvedTable merge(
+            ConnectorTableMetadata connectorMeta,
+            ConnectorTableHandle tableHandle,
+            Optional<TableMetadata> cachedMeta) {
+        // ConnectorTableMetadata provides: schema, columns, properties, partitioning
+        // TableMetadata adds: tags, createdAt, updatedAt
+        // ConnectorTableHandle provides: snapshot ID, runtime state
+        return new ResolvedTable(connectorMeta, tableHandle, 
+            cachedMeta.map(TableMetadata::columnTags).orElse(Map.of()));
+    }
+}
+```
+
+### 4.3 MetadataChange — Synchronization Change Model
+
+```java
+/**
+ * Metadata change event — the input unit for MetadataSyncService
+ */
+public record MetadataChange(
+    ChangeType type,
+    String schema,
+    String table,
+    TableMetadata metadata,     // non-null for ADD/UPDATE, null for DELETE
+    Instant changeTime
+) {
+    public enum ChangeType { ADD, UPDATE, DELETE }
+    
+    public String describe() {
+        return type + " " + schema + "." + table;
+    }
+}
+
+/**
+ * Synchronization result
+ */
+public record SyncResult(
+    String catalogName,
+    Instant syncTime,
+    int changesApplied,
+    int errors,
+    List<String> errorMessages,
+    long durationMs
+) {}
+```
+
+### 4.4 TableMetadata JSON Serialization
+
+```java
+/**
+ * TableMetadata serializer
+ * 
+ * Used for Metastore persistence (PostgreSQL JSONB columns) and Redis caching.
+ * Guarantees round-trip: serialize(deserialize(json)) == json
+ */
+public class TableMetadataSerializer {
+    
+    private final ObjectMapper mapper;
+    
+    public TableMetadataSerializer() {
+        this.mapper = new ObjectMapper()
+            .registerModule(new JavaTimeModule())
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    }
+    
+    public String serialize(TableMetadata metadata) {
+        try {
+            return mapper.writeValueAsString(metadata);
+        } catch (JsonProcessingException e) {
+            throw new MetadataSerializationException("Serialize failed", e);
+        }
+    }
+    
+    public TableMetadata deserialize(String json) {
+        try {
+            return mapper.readValue(json, TableMetadata.class);
+        } catch (JsonProcessingException e) {
+            throw new MetadataSerializationException(
+                "Deserialize failed: " + json.substring(0, Math.min(100, json.length())), e);
+        }
+    }
+}
+```
+
+Serialization example:
+
+```json
+{
+  "catalog": "iceberg_prod",
+  "schema": "warehouse",
+  "table": "orders",
+  "columns": [
+    {"name": "order_id", "type": {"baseType": "BIGINT"}, "nullable": false, "comment": "Primary key", "tags": {}},
+    {"name": "customer_id", "type": {"baseType": "BIGINT"}, "nullable": false, "comment": null, "tags": {}},
+    {"name": "amount", "type": {"baseType": "DECIMAL", "precision": 18, "scale": 2}, "nullable": false, "comment": "Order amount", "tags": {}},
+    {"name": "email", "type": {"baseType": "VARCHAR", "length": 255}, "nullable": true, "comment": null, "tags": {"pii_type": "PII_EMAIL"}}
+  ],
+  "partitionSpec": {"date": "day(created_at)"},
+  "sortOrder": ["created_at DESC"],
+  "properties": {"format-version": "2", "write.format.default": "parquet"},
+  "createdAt": "2024-01-01T00:00:00Z",
+  "updatedAt": "2024-06-15T12:30:00Z"
+}
+```
+
+
+---
+
+## 5. Metadata Persistence (Metastore)
+
+### 5.1 PostgreSQL Schema
+
+Persisted to a PostgreSQL Cluster (see [02-distributed-architecture.md §3.4](./02-distributed-architecture.md)).
+
+```sql
+-- Catalog definition table
+CREATE TABLE catalog_definitions (
+    name VARCHAR(255) PRIMARY KEY,
+    type VARCHAR(50) NOT NULL,              -- INTERNAL, CONNECTOR, FEDERATION
+    provider VARCHAR(50) NOT NULL,          -- iceberg, paimon, hms, glue, rest
+    state VARCHAR(20) NOT NULL DEFAULT 'CREATING',
+    properties JSON NOT NULL,
+    comment TEXT,
+    allowed_tenants JSON,                   -- list of visible tenants (see 16-multi-tenancy.md)
+    created_by VARCHAR(255),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Schema metadata table
+CREATE TABLE schema_metadata (
+    catalog_name VARCHAR(255) NOT NULL,
+    schema_name VARCHAR(255) NOT NULL,
+    properties JSON,
+    synced_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (catalog_name, schema_name),
+    FOREIGN KEY (catalog_name) REFERENCES catalog_definitions(name) ON DELETE CASCADE
+);
+
+-- Table metadata table
+CREATE TABLE table_metadata (
+    catalog_name VARCHAR(255) NOT NULL,
+    schema_name VARCHAR(255) NOT NULL,
+    table_name VARCHAR(255) NOT NULL,
+    columns JSON NOT NULL,                  -- serialized List<ColumnMetadata>
+    partition_spec JSON,
+    sort_order JSON,
+    properties JSON,
+    table_created_at TIMESTAMP,
+    table_updated_at TIMESTAMP,
+    synced_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (catalog_name, schema_name, table_name),
+    FOREIGN KEY (catalog_name, schema_name)
+        REFERENCES schema_metadata(catalog_name, schema_name) ON DELETE CASCADE
+);
+
+-- full-text search index (supports searchTables)
+CREATE FULLTEXT INDEX idx_table_search
+    ON table_metadata(catalog_name, schema_name, table_name);
+
+-- synchronization history table
+CREATE TABLE sync_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    catalog_name VARCHAR(255) NOT NULL,
+    sync_type VARCHAR(20) NOT NULL,         -- INCREMENTAL, FULL
+    sync_time TIMESTAMP NOT NULL,
+    changes_applied INT NOT NULL DEFAULT 0,
+    errors INT NOT NULL DEFAULT 0,
+    error_messages JSON,
+    duration_ms BIGINT NOT NULL,
+    INDEX idx_catalog_time (catalog_name, sync_time)
+);
+```
+
+
+### 5.2 MetadataStore Implementation
+
+```java
+/**
+ * PostgreSQL-backed Metastore implementation
+ * 
+ * Uses JDBC + a HikariCP connection pool.
+ * All JSON columns are serialized/deserialized with TableMetadataSerializer.
+ */
+public class JdbcMetadataStore implements MetadataStore {
+    
+    private final DataSource dataSource;
+    private final TableMetadataSerializer serializer;
+    
+    public JdbcMetadataStore(DataSource dataSource) {
+        this.dataSource = dataSource;
+        this.serializer = new TableMetadataSerializer();
+    }
+    
+    @Override
+    public void saveTable(String catalog, String schema, String table,
+                          TableMetadata metadata) {
+        String sql = """
+            INSERT INTO table_metadata
+                (catalog_name, schema_name, table_name, columns,
+                 partition_spec, sort_order, properties,
+                 table_created_at, table_updated_at, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE
+                columns = VALUES(columns),
+                partition_spec = VALUES(partition_spec),
+                sort_order = VALUES(sort_order),
+                properties = VALUES(properties),
+                table_updated_at = VALUES(table_updated_at),
+                synced_at = NOW()
+            """;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, catalog);
+            ps.setString(2, schema);
+            ps.setString(3, table);
+            ps.setString(4, serializer.serializeColumns(metadata.columns()));
+            ps.setString(5, serializer.serializeMap(metadata.partitionSpec()));
+            ps.setString(6, serializer.serializeList(metadata.sortOrder()));
+            ps.setString(7, serializer.serializeMap(metadata.properties()));
+            ps.setTimestamp(8, Timestamp.from(metadata.createdAt()));
+            ps.setTimestamp(9, Timestamp.from(metadata.updatedAt()));
+            ps.executeUpdate();
+        }
+    }
+    
+    @Override
+    public Optional<TableMetadata> loadTable(String catalog, String schema, String table) {
+        String sql = """
+            SELECT columns, partition_spec, sort_order, properties,
+                   table_created_at, table_updated_at
+            FROM table_metadata
+            WHERE catalog_name = ? AND schema_name = ? AND table_name = ?
+            """;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, catalog);
+            ps.setString(2, schema);
+            ps.setString(3, table);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                return Optional.of(new TableMetadata(
+                    catalog, schema, table,
+                    serializer.deserializeColumns(rs.getString("columns")),
+                    serializer.deserializeMap(rs.getString("partition_spec")),
+                    serializer.deserializeList(rs.getString("sort_order")),
+                    serializer.deserializeMap(rs.getString("properties")),
+                    rs.getTimestamp("table_created_at").toInstant(),
+                    rs.getTimestamp("table_updated_at").toInstant()));
+            }
+        }
+    }
+    
+    @Override
+    public List<TableRef> searchTables(String pattern) {
+        String sql = """
+            SELECT catalog_name, schema_name, table_name
+            FROM table_metadata
+            WHERE MATCH(catalog_name, schema_name, table_name) AGAINST(? IN BOOLEAN MODE)
+            LIMIT 100
+            """;
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, pattern);
+            List<TableRef> results = new ArrayList<>();
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    results.add(new TableRef(
+                        rs.getString("catalog_name"),
+                        rs.getString("schema_name"),
+                        rs.getString("table_name")));
+                }
+            }
+            return results;
+        }
+    }
+}
+```
+
+
+---
+
+## 6. SQL DDL Support
+
+### 6.1 Catalog DDL
+
+```sql
+-- register a Connector-backed Catalog
+CREATE CATALOG iceberg_prod
+USING iceberg
+WITH (
+    'uri' = 'http://iceberg-rest:8181',
+    'warehouse' = 's3://data-lake/warehouse',
+    's3.endpoint' = 'http://minio:9000',
+    's3.access-key-id' = '${S3_ACCESS_KEY}',
+    's3.secret-access-key' = '${S3_SECRET_KEY}'
+);
+
+-- register a Federation Catalog (external Metastore)
+CREATE CATALOG hive_federation
+USING hms
+WITH (
+    'uri' = 'thrift://hive-metastore:9083'
+);
+
+CREATE CATALOG glue_analytics
+USING glue
+WITH (
+    'region' = 'us-east-1',
+    'catalog-id' = '123456789012'
+);
+
+-- list registered Catalogs
+SHOW CATALOGS;
+-- output:
+-- | name            | type       | provider | state  | last_sync_time       |
+-- |-----------------|------------|----------|--------|----------------------|
+-- | system          | INTERNAL   | built-in | ACTIVE | -                    |
+-- | iceberg_prod    | CONNECTOR  | iceberg  | ACTIVE | 2024-06-15T12:30:00Z |
+-- | hive_federation | FEDERATION | hms      | ACTIVE | 2024-06-15T12:29:45Z |
+-- | glue_analytics  | FEDERATION | glue     | DEGRADED| 2024-06-15T12:25:00Z |
+
+-- show Catalog details
+DESCRIBE CATALOG iceberg_prod;
+
+-- suspend a Catalog (used during maintenance)
+ALTER CATALOG hive_federation SET state = 'SUSPENDED';
+
+-- resume a Catalog
+ALTER CATALOG hive_federation SET state = 'ACTIVE';
+
+-- unload a Catalog
+DROP CATALOG hive_federation;
+
+-- force a full sync
+CALL system.sync_catalog('hive_federation', 'FULL');
+
+-- view synchronization history
+SELECT * FROM system.metadata.sync_history
+WHERE catalog_name = 'hive_federation'
+ORDER BY sync_time DESC LIMIT 10;
+```
+
+
+### 6.2 Metadata Queries (System Tables)
+
+```sql
+-- search tables across Catalogs
+SELECT * FROM system.metadata.tables
+WHERE table_name LIKE '%orders%';
+
+-- view a table's column information
+SELECT * FROM system.metadata.columns
+WHERE catalog_name = 'iceberg_prod'
+  AND schema_name = 'warehouse'
+  AND table_name = 'fact_orders';
+
+-- search by tag (integrates with data classification in 17-data-governance.md §5)
+SELECT * FROM system.metadata.columns
+WHERE tags['pii_type'] IS NOT NULL;
+
+-- view Catalog health status
+SELECT * FROM system.metadata.catalog_health;
+-- output:
+-- | catalog_name   | state    | last_check_time      | consecutive_failures |
+-- |----------------|----------|----------------------|----------------------|
+-- | iceberg_prod   | ACTIVE   | 2024-06-15T12:30:00Z | 0                    |
+-- | glue_analytics | DEGRADED | 2024-06-15T12:30:00Z | 5                    |
+
+-- view cache statistics
+SELECT * FROM system.metadata.cache_stats;
+-- output:
+-- | level | hits   | misses | evictions | hit_rate | size  |
+-- |-------|--------|--------|-----------|----------|-------|
+-- | L1    | 125000 | 3200   | 800       | 97.5%    | 8500  |
+-- | L2    | 2800   | 400    | 200       | 87.5%    | 9200  |
+```
+
+### 6.3 Schema Evolution DDL
+
+```sql
+-- add a column
+ALTER TABLE iceberg_prod.warehouse.orders
+ADD COLUMN shipping_address VARCHAR(500) AFTER customer_id;
+
+-- type promotion (safe change)
+ALTER TABLE iceberg_prod.warehouse.orders
+ALTER COLUMN amount TYPE DECIMAL(20, 4);
+
+-- unsafe change — rejected by SchemaEvolutionValidator
+ALTER TABLE iceberg_prod.warehouse.orders
+ALTER COLUMN amount TYPE INT;
+-- ERROR: Incompatible type change: amount from DECIMAL(18,2) to INT
+
+-- change nullability (only non-nullable → nullable is allowed)
+ALTER TABLE iceberg_prod.warehouse.orders
+ALTER COLUMN customer_id SET NULL;
+
+-- view schema change history
+SELECT * FROM iceberg_prod.warehouse.orders$schema_history;
+```
+
+
+---
+
+## 7. Observability Integration
+
+### 7.1 Metadata Metrics
+
+All metrics are exposed to Prometheus via the MetricsProvider SPI (see [14-observability.md §2.1](./14-observability.md)).
+
+| Metric | Type | Description |
+|--------|------|------|
+| `pangrova.metadata.cache.l1.hits` | Counter | L1 (Caffeine) cache hits |
+| `pangrova.metadata.cache.l1.misses` | Counter | L1 cache misses |
+| `pangrova.metadata.cache.l2.hits` | Counter | L2 (Redis) cache hits |
+| `pangrova.metadata.cache.l2.misses` | Counter | L2 cache misses |
+| `pangrova.metadata.cache.evictions` | Counter | cache evictions |
+| `pangrova.metadata.cache.size` | Gauge | current number of cache entries |
+| `pangrova.metadata.catalog.health` | Gauge | Catalog health status (1=ACTIVE, 0.5=DEGRADED, 0=DOWN) |
+| `pangrova.metadata.catalog.count` | Gauge | total number of registered Catalogs |
+| `pangrova.metadata.sync.duration_ms` | Histogram | distribution of sync durations |
+| `pangrova.metadata.sync.changes` | Counter | number of synced changes (by catalog label) |
+| `pangrova.metadata.sync.errors` | Counter | number of sync errors (by catalog label) |
+| `pangrova.metadata.resolve.latency_ms` | Histogram | resolveTable latency distribution |
+| `pangrova.metadata.schema.validation.rejected` | Counter | number of rejected schema changes |
+
+
+### 7.2 Metadata Operation Tracing
+
+```java
+/**
+ * Metadata operation tracing
+ * 
+ * Each MetadataService method creates a Span,
+ * associated with the query-level Trace (see 14-observability.md §4.1).
+ */
+public class TracedMetadataService implements MetadataService {
+    
+    private final MetadataService delegate;
+    private final TracingProvider tracing;
+    
+    @Override
+    public ResolvedTable resolveTable(SessionContext session, TableRef tableRef) {
+        Span span = tracing.startSpan("metadata.resolveTable", SpanKind.INTERNAL);
+        try (Scope scope = span.makeCurrent()) {
+            span.setAttribute("catalog", tableRef.getCatalog());
+            span.setAttribute("schema", tableRef.getSchema());
+            span.setAttribute("table", tableRef.getTable());
+            
+            ResolvedTable result = delegate.resolveTable(session, tableRef);
+            
+            span.setAttribute("cache.hit", result.isFromCache());
+            return result;
+        } catch (Exception e) {
+            span.setStatus(StatusCode.ERROR, e.getMessage());
+            span.recordException(e);
+            throw e;
+        } finally {
+            span.end();
+        }
+    }
+}
+```
+
+### 7.3 Grafana Dashboard Recommendations
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                    Metadata Management Dashboard                                 │
+├──────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  Row 1: Catalog Overview                                                         │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                │
+│  │ Catalog Count    │  │ Active / Degraded│  │ Sync Lag (max)   │                │
+│  │     [Stat]       │  │    [Stat]        │  │    [Stat]        │                │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘                │
+│                                                                                  │
+│  Row 2: Cache Performance                                                        │
+│  ┌──────────────────────────────────┐  ┌──────────────────────────────────┐      │
+│  │ Cache Hit Rate (L1 vs L2)       │  │ Cache Size Over Time             │       │
+│  │         [Time Series]           │  │         [Time Series]            │       │
+│  └──────────────────────────────────┘  └──────────────────────────────────┘      │
+│                                                                                  │
+│  Row 3: Sync Health                                                              │
+│  ┌──────────────────────────────────┐  ┌──────────────────────────────────┐      │
+│  │ Sync Duration by Catalog        │  │ Sync Errors Over Time            │       │
+│  │         [Heatmap]               │  │         [Time Series]            │       │
+│  └──────────────────────────────────┘  └──────────────────────────────────┘      │
+│                                                                                  │
+│  Row 4: Resolve Latency                                                          │
+│  ┌──────────────────────────────────┐  ┌──────────────────────────────────┐      │
+│  │ resolveTable P50/P95/P99        │  │ Schema Validation Rejections     │       │
+│  │         [Histogram]             │  │         [Bar Chart]              │       │
+│  └──────────────────────────────────┘  └──────────────────────────────────┘      │
+│                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+
+---
+
+## 8. Configuration Reference
+
+All configuration uses YAML format (see [21-configuration-reference.md](./21-configuration-reference.md)).
+
+```yaml
+# metadata-config.yaml
+metadata:
+  # ── Metastore persistence ──
+  store:
+    type: postgresql                                # postgresql | embedded (for testing)
+    jdbc-url: jdbc:postgresql://localhost:5432/pangrova_metastore
+    username: ${METASTORE_USER}
+    password: ${METASTORE_PASSWORD}
+    pool-size: 10
+    connection-timeout-ms: 5000
+
+  # ── Metadata cache ──
+  cache:
+    max-size: 10000                                # max number of L1 entries
+    ttl-seconds: 300                               # L2 (Redis) TTL
+    l1-ttl-seconds: 60                             # L1 (Caffeine) TTL
+    refresh-after-write-seconds: 60                # async refresh interval
+
+  # ── Metadata sync ──
+  sync:
+    enabled: true
+    interval-seconds: 60                           # incremental sync interval
+    retry-max-attempts: 3
+    retry-backoff-ms: 1000                         # exponential backoff base
+    full-sync-on-register: true                    # automatically full-sync when registering a new Catalog
+
+  # ── Catalog health checks ──
+  health:
+    check-interval-seconds: 30
+    degraded-threshold: 3                          # consecutive failure count triggers DEGRADED
+
+  # ── Schema Evolution ──
+  schema-evolution:
+    compatibility-check: true                      # enable compatibility checks
+    allow-incompatible-changes: false              # whether to allow incompatible changes (forbidden in production)
+
+  # ── Federation Catalog registration (loaded at startup) ──
+  catalogs:
+    iceberg_prod:
+      type: connector
+      provider: iceberg
+      properties:
+        uri: http://iceberg-rest:8181
+        warehouse: s3://data-lake/warehouse
+    hive_federation:
+      type: federation
+      provider: hms
+      properties:
+        uri: thrift://hive-metastore:9083
+    glue_analytics:
+      type: federation
+      provider: glue
+      properties:
+        region: us-east-1
+        catalog-id: '123456789012'
+```
+
+
+---
+
+## 9. Event-Driven Architecture
+
+### 9.1 MetadataEventDispatcher
+
+Metadata changes are broadcast over an event bus, decoupling downstream consumers.
+
+```java
+/**
+ * Metadata event dispatcher
+ * 
+ * Consumers:
+ * - MetadataCache: invalidate the cache
+ * - QueryResultCache: invalidate associated query results (see 04-query-optimization.md §3.3)
+ * - LineageEventEmitter: record lineage (see 17-data-governance.md §3)
+ * - SecurityPolicyRefresher: refresh security policy (see 15-security.md)
+ * - StreamingMetadataTracker: update streaming-table metadata (see 09-streaming.md)
+ */
+public class MetadataEventDispatcher {
+    
+    private final List<MetadataEventListener> listeners = new CopyOnWriteArrayList<>();
+    private final ExecutorService asyncExecutor;
+    
+    public void addListener(MetadataEventListener listener) {
+        listeners.add(listener);
+    }
+    
+    public void dispatch(MetadataEvent event) {
+        for (MetadataEventListener listener : listeners) {
+            asyncExecutor.submit(() -> {
+                try {
+                    listener.onEvent(event);
+                } catch (Exception e) {
+                    // event consumption failures do not affect the main flow
+                    log.warn("Event listener failed: {}", listener.getClass().getSimpleName(), e);
+                }
+            });
+        }
+    }
+}
+
+/**
+ * Metadata event types
+ */
+public sealed interface MetadataEvent {
+    record CatalogCreatedEvent(CatalogDescriptor descriptor) implements MetadataEvent {}
+    record CatalogDroppedEvent(String catalogName) implements MetadataEvent {}
+    record CatalogStateChangedEvent(String catalogName, CatalogState oldState, CatalogState newState) implements MetadataEvent {}
+    record TableCreatedEvent(TableRef tableRef, TableMetadata metadata) implements MetadataEvent {}
+    record TableDroppedEvent(TableRef tableRef) implements MetadataEvent {}
+    record TableAlteredEvent(TableRef tableRef, List<SchemaChange> changes) implements MetadataEvent {}
+    record MetadataSyncedEvent(String catalogName, MetadataChange change) implements MetadataEvent {}
+}
+
+public interface MetadataEventListener {
+    void onEvent(MetadataEvent event);
+}
+```
+
+
+---
+
+## 10. Error Handling
+
+### 10.1 Exception Hierarchy
+
+```java
+/**
+ * Base class for metadata exceptions
+ */
+public class MetadataException extends RuntimeException {
+    public MetadataException(String message) { super(message); }
+    public MetadataException(String message, Throwable cause) { super(message, cause); }
+}
+
+// Catalog-related
+public class CatalogNotFoundException extends MetadataException { ... }
+public class CatalogAlreadyExistsException extends MetadataException { ... }
+public class CatalogSuspendedException extends MetadataException { ... }
+public class CatalogProviderNotFoundException extends MetadataException { ... }
+public class CatalogNotEmptyException extends MetadataException { ... }
+
+// Table-related
+public class TableNotFoundException extends MetadataException { ... }
+
+// external-backend-related
+public class CatalogBackendException extends MetadataException { ... }
+
+// persistence-related
+public class MetastoreException extends MetadataException { ... }
+
+// serialization-related
+public class MetadataSerializationException extends MetadataException { ... }
+
+// Schema-change-related (not an exception, a structured result)
+public record ValidationResult(boolean compatible, List<String> errors, List<String> warnings) {}
+```
+
+<!-- Resolves: DEF-112 — Exception to PangrovaErrorCode mapping (see 12-resilience.md §2) -->
+
+**Exception → PangrovaErrorCode Mapping**:
+
+| Exception | Error Code | Code | Retryable |
+|-----------|-----------|------|-----------|
+| CatalogNotFoundException | CATALOG_NOT_FOUND | 1701 | No |
+| CatalogAlreadyExistsException | CATALOG_ALREADY_EXISTS | 1702 | No |
+| CatalogSuspendedException | CATALOG_SUSPENDED | 1703 | No |
+| CatalogProviderNotFoundException | CATALOG_PROVIDER_NOT_FOUND | 1704 | No |
+| CatalogBackendException | CATALOG_BACKEND_ERROR | 1705 | Yes (external) |
+| MetastoreException | METASTORE_ERROR | 1706 | Yes (transient) |
+| MetadataSerializationException | METADATA_SERIALIZATION_ERROR | 1707 | No |
+| TableNotFoundException | TABLE_NOT_FOUND | 1101 | No |
+
+> Note: `CatalogBackendException` and `MetastoreException` are retryable because they represent transient external failures. All other metadata errors are user errors (wrong name, already exists, etc.) and should not be retried. Error codes registered in [12-resilience.md §2](./12-resilience.md).
+
+### 10.2 Error Handling Strategy
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                         Error Handling Strategy                                                        │
+├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                                        │
+│  Error scenario                       │ Handling                       │ Degradation behavior          │
+│  ──────────────────────────────────────────────────────────────────────────────────────────────────────│
+│  External backend unreachable (query) │ Return cached data (if any)    │ DEGRADED state                │
+│  External backend unreachable (sync)  │ Exponential-backoff retry (3x) │ Log error, skip               │
+│  External backend unreachable (DDL)   │ Throw CatalogBackendException  │ Do not update Metastore       │
+│  Metastore DB connection failure      │ Throw MetastoreException       │ Cache only                    │
+│  Redis connection failure             │ Fall back to L1-only cache     │ Skip L2 read/write            │
+│  Incompatible schema change           │ Return ValidationResult        │ Do not apply change           │
+│  JSON deserialization failure         │ Throw SerializationException   │ Re-fetch from external backend│
+│  Duplicate Catalog name               │ Throw AlreadyExistsException   │ Keep the existing Catalog     │
+│                                                                                                        │
+│  Principles:                                                                                           │
+│  • External backend errors → wrapped as Pangrova exceptions without leaking internal details             │
+│  • Internal errors (Metastore/Cache) → log and degrade rather than fail when possible                  │
+│  • Schema validation errors → returned as a structured result, no exception thrown                     │
+│                                                                                                        │
+└────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+
+---
+
+## 11. Module Structure
+
+```
+pangrova-metadata/
+├── src/main/java/org/pangrova/metadata/
+│   ├── MetadataModule.java                  # module entry point; assembles all components
+│   ├── service/
+│   │   ├── MetadataService.java             # unified entry interface
+│   │   └── DefaultMetadataService.java      # default implementation
+│   ├── catalog/
+│   │   ├── CatalogDescriptor.java           # Catalog descriptor
+│   │   ├── CatalogType.java                 # Catalog type enum
+│   │   ├── CatalogState.java                # lifecycle state
+│   │   ├── CatalogHandle.java               # Catalog handle interface
+│   │   ├── ConnectorCatalogHandle.java      # Connector-backed implementation
+│   │   ├── FederationCatalogHandle.java     # Federation implementation
+│   │   ├── InternalCatalogHandle.java       # built-in Catalog implementation
+│   │   ├── CatalogRegistry.java             # registry
+│   │   └── CatalogHealthMonitor.java        # health check
+│   ├── cache/
+│   │   ├── MetadataCache.java               # cache interface
+│   │   ├── TieredMetadataCache.java         # L1+L2 implementation
+│   │   └── MetadataCacheConfig.java         # cache config
+│   ├── store/
+│   │   ├── MetadataStore.java               # persistence interface
+│   │   └── JdbcMetadataStore.java           # PostgreSQL implementation
+│   ├── sync/
+│   │   ├── MetadataSyncService.java         # sync service
+│   │   ├── MetadataChange.java              # change model
+│   │   └── SyncResult.java                  # sync result
+│   ├── schema/
+│   │   ├── SchemaChange.java                # Schema change sealed interface
+│   │   ├── SchemaEvolutionValidator.java    # compatibility validation
+│   │   └── ValidationResult.java            # validation result
+│   ├── model/
+│   │   ├── TableMetadata.java               # unified table metadata
+│   │   ├── ColumnMetadata.java              # column metadata
+│   │   ├── ColumnType.java                  # column type
+│   │   └── TableRef.java                    # three-part table reference
+│   ├── event/
+│   │   ├── MetadataEvent.java               # event sealed interface
+│   │   ├── MetadataEventDispatcher.java     # event dispatch
+│   │   └── MetadataEventListener.java       # event listener interface
+│   ├── serde/
+│   │   └── TableMetadataSerializer.java     # JSON serialization
+│   └── exception/
+│       ├── MetadataException.java           # base exception class
+│       ├── CatalogNotFoundException.java
+│       ├── CatalogAlreadyExistsException.java
+│       ├── CatalogBackendException.java
+│       ├── MetastoreException.java
+│       └── MetadataSerializationException.java
+└── src/main/resources/
+    └── db/
+        └── migration/
+            └── V1__init_schema.sql          # Flyway migration script
+```
+
+
+<!-- Resolves: DEF-AP-014 — Observability integration for metadata management -->
+## 12. Observability Integration
+
+This section defines the metrics and tracing integration points for the metadata management layer. For the full observability design, see [14-observability.md](./14-observability.md).
+
+### 12.1 Metrics
+
+| Metric | Type | Source Component | Description |
+|--------|------|-----------------|-------------|
+| `pangrova.metadata.catalog.refresh_total` | counter | CatalogRegistry | Catalog refresh operations |
+| `pangrova.metadata.catalog.refresh_latency_ms` | histogram | CatalogRegistry | Catalog refresh latency |
+| `pangrova.metadata.schema.cache_hit_ratio` | gauge | SchemaCache | Schema cache hit ratio |
+| `pangrova.metadata.table.resolve_latency_ms` | histogram | CatalogAdapter | Table resolution latency |
+| `pangrova.metadata.event.published_total` | counter | MetadataEventBus | Metadata change events published |
+
+### 12.2 Tracing
+
+Metadata management emits the following spans (see [14 §4](./14-observability.md) for span schema):
+
+- `metadata.catalog.resolve` — Catalog resolution span
+- `metadata.table.get` — Table metadata fetch span
+- `metadata.schema.list` — Schema listing span
+- `metadata.stats.collect` — Statistics collection span
+
+
+<!-- Resolves: DEF-105 — PangrovaRootSchema.getCatalogHandle() alignment with MetadataService -->
+> **Cross-reference (§3.1 MetadataService)**: `MetadataService.getCatalogHandle(catalogName)` returns a `FederationCatalogHandle` that wraps the `CatalogAdapter` (§3.8). The `PangrovaRootSchema` in [02 §2.2](./03-query-execution.md) calls this method during query planning to resolve catalog references. The return type is `Optional<FederationCatalogHandle>` — empty if catalog not registered.
+
+<!-- Resolves: DEF-106 — Phantom references to 11 §6.2 CatalogAdapter -->
+> **CatalogAdapter Authoritative Location**: CatalogAdapter SPI is defined in §3.8 of this document (07). All former references to "11 §6.2" have been corrected to point here. See also [00 §5.1](./01-overview.md) SPI summary table.
+
+<!-- Resolves: DEF-108 — MetadataService class vs interface inconsistency -->
+> **MetadataService Design (§3.1)**: `MetadataService` is defined as an **interface** (not a concrete class). `TracedMetadataService` (§7.2) is a decorator that implements `MetadataService` and delegates to the actual implementation while adding tracing spans. The implementation class is `DefaultMetadataService`.

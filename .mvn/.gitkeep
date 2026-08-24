@@ -1,0 +1,10 @@
+# Marker file only — do not delete.
+#
+# Maven's launcher walks up from the invocation directory looking for a `.mvn`
+# directory and sets `maven.multiModuleProjectDirectory` to its parent. The root
+# pom.xml uses that property to locate `config/checkstyle/*` and
+# `config/spotbugs/*`, so without this anchor those paths resolve relative to
+# whichever submodule directory `mvn` was invoked from and the build fails with
+# "Unable to find suppressions file at location: <module>/config/checkstyle/...".
+#
+# Verify with: cd <any-submodule> && mvn -o -B checkstyle:check

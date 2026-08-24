@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================
+  Pangrova — Logging Configuration (Production)
+
+  Pattern: structured key=value pairs for log aggregation.
+  All appenders use UTF-8. Timestamps are ISO 8601 UTC.
+
+  Appender architecture (why async):
+    Application threads write to an in-memory queue.
+    A dedicated I/O thread drains the queue to disk.
+    This decouples logging latency from query execution latency.
+
+  Appenders:
+    CONSOLE     — stdout; useful in containers / Kubernetes
+    FILE        — rolling file (size + time), main log
+    ERROR_FILE  — rolling file, ERROR level only
+    ASYNC_FILE  — AsyncAppender wrapping FILE (neverBlock=true)
+    ASYNC_ERROR — AsyncAppender wrapping ERROR_FILE (neverBlock=false,
+                  errors must not be silently dropped)
+
+  Root logger → CONSOLE + ASYNC_FILE + ASYNC_ERROR
+
+  Log directory: set PANGROVA_LOG_DIR env var (default: logs/).
+  ============================================================
+-->
+<configuration scan="true" scanPeriod="60 seconds">
+
+  <!-- ── Variables ──────────────────────────────────────── -->
+  <property name="LOG_DIR"     value="${PANGROVA_LOG_DIR:-logs}" />
+  <property name="LOG_ROLE"    value="${PANGROVA_ROLE:-pangrova}" />
+
+  <!--
+    Structured pattern — parseable by Loki, Elasticsearch, Splunk.
+    Fields: timestamp, level, logger (last 40 chars), thread,
+            trace_id and query_id from MDC (set by Pangrova internals),
+            the log message, then the exception if present.
+  -->
+  <property name="LOG_PATTERN"
+            value="timestamp=%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z',UTC} level=%-5level logger=%logger{40} thread=%thread trace_id=%X{trace_id:-} query_id=%X{query_id:-} task_id=%X{task_id:-} tenant=%X{tenant_id:-} msg=%msg%n%ex{full}" />
+
+  <!--
+    Console pattern is slightly more human-readable (coloured level).
+    Disable CONSOLE appender in production if stdout is not ingested.
+  -->
+  <property name="CONSOLE_PATTERN"
+            value="%d{HH:mm:ss.SSS} %highlight(%-5level) %cyan(%logger{36}) trace=%X{trace_id:-} query=%X{query_id:-} - %msg%n%ex{short}" />
+
+  <!-- ── Console Appender ────────────────────────────────── -->
+  <!--
+    Keep CONSOLE active for container deployments where stdout is
+    the primary log sink (Docker / Kubernetes log driver).
+    In bare-metal deployments where disk is the only sink, set
+    the root level of CONSOLE to OFF.
+  -->
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>${CONSOLE_PATTERN}</pattern>
+      <charset>UTF-8</charset>
+    </encoder>
+  </appender>
+
+  <!-- ── Rolling File Appender — main log ───────────────── -->
+  <!--
+    SizeAndTimeBasedRollingPolicy rolls on BOTH time (daily) and
+    size (512 MB per file). This prevents a single high-traffic day
+    from producing an unmanageably large file.
+
+    Retention: 30 days / 50 GB total, whichever comes first.
+    Adjust totalSizeCap to match your available disk space.
+    Allow ~10% headroom above totalSizeCap for the active file.
+  -->
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/${LOG_ROLE}.log</file>
+    <encoder>
+      <pattern>${LOG_PATTERN}</pattern>
+      <charset>UTF-8</charset>
+    </encoder>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${LOG_DIR}/${LOG_ROLE}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+      <maxFileSize>512MB</maxFileSize>
+      <maxHistory>30</maxHistory>
+      <totalSizeCap>50GB</totalSizeCap>
+      <!-- Delete oldest files immediately when totalSizeCap is reached. -->
+      <cleanHistoryOnStart>true</cleanHistoryOnStart>
+    </rollingPolicy>
+    <!-- Do not buffer output — flushing is handled by the AsyncAppender. -->
+    <immediateFlush>false</immediateFlush>
+  </appender>
+
+  <!-- ── Error-Only Rolling File Appender ───────────────── -->
+  <!--
+    Separate file for ERROR level events only. Allows on-call
+    engineers to tail a low-volume file for actionable alerts
+    without wading through INFO volume.
+  -->
+  <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>${LOG_DIR}/${LOG_ROLE}-error.log</file>
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>ERROR</level>
+    </filter>
+    <encoder>
+      <pattern>${LOG_PATTERN}</pattern>
+      <charset>UTF-8</charset>
+    </encoder>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>${LOG_DIR}/${LOG_ROLE}-error.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+      <maxFileSize>256MB</maxFileSize>
+      <maxHistory>90</maxHistory>
+      <totalSizeCap>10GB</totalSizeCap>
+      <cleanHistoryOnStart>true</cleanHistoryOnStart>
+    </rollingPolicy>
+  </appender>
+
+  <!-- ── Async Wrapper — main log ───────────────────────── -->
+  <!--
+    neverBlock=true: if the async queue is full, the logging call
+    returns immediately (log event is DROPPED). This ensures that
+    a logging I/O stall never blocks a query execution thread.
+
+    queueSize=8192: at ~500 bytes per event and 8192 slots the
+    queue absorbs ~4 MB of backlog before events are dropped.
+    Increase if you see "Dropped events" in the log.
+
+    discardingThreshold=0: do not discard TRACE/DEBUG events
+    early — let the neverBlock policy govern all levels equally.
+  -->
+  <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="FILE" />
+    <queueSize>8192</queueSize>
+    <neverBlock>true</neverBlock>
+    <discardingThreshold>0</discardingThreshold>
+    <includeCallerData>false</includeCallerData>
+  </appender>
+
+  <!-- ── Async Wrapper — error log ──────────────────────── -->
+  <!--
+    neverBlock=false: ERROR events MUST NOT be silently dropped.
+    If the error-log queue is full an application thread will
+    block briefly, which is acceptable for rare error events.
+  -->
+  <appender name="ASYNC_ERROR" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="ERROR_FILE" />
+    <queueSize>1024</queueSize>
+    <neverBlock>false</neverBlock>
+    <discardingThreshold>0</discardingThreshold>
+    <includeCallerData>true</includeCallerData>
+  </appender>
+
+  <!-- ── Noisy Library Suppression ──────────────────────── -->
+  <!--
+    Third-party libraries that log at INFO with high frequency.
+    Promote to WARN to reduce volume without losing actionable events.
+  -->
+
+  <!-- Netty: connection lifecycle events at INFO are high-volume -->
+  <logger name="io.netty"                      level="WARN" />
+
+  <!-- Calcite: plan normalization noise at INFO -->
+  <logger name="org.apache.calcite"            level="WARN" />
+
+  <!-- Arrow: allocation/release events, excessive at INFO -->
+  <logger name="org.apache.arrow"              level="WARN" />
+
+  <!-- gRPC: channel state machine events -->
+  <logger name="io.grpc"                       level="WARN" />
+
+  <!-- Hadoop UserGroupInformation: Kerberos ticket refresh noise -->
+  <logger name="org.apache.hadoop.security"    level="WARN" />
+  <logger name="org.apache.hadoop"             level="WARN" />
+
+  <!-- Iceberg: table metadata caching events -->
+  <logger name="org.apache.iceberg"            level="WARN" />
+
+  <!-- Paimon: catalog refresh events -->
+  <logger name="org.apache.paimon"             level="WARN" />
+
+  <!-- HikariCP: connection pool events at DEBUG are excessive -->
+  <logger name="com.zaxxer.hikari"             level="INFO" />
+
+  <!-- Flyway: migration output is always useful -->
+  <logger name="org.flywaydb"                  level="INFO" />
+
+  <!-- Olingo OData server (REST catalog) -->
+  <logger name="org.apache.olingo"             level="WARN" />
+
+  <!-- TestContainers — suppress in production; useful in test logs -->
+  <logger name="org.testcontainers"            level="WARN" />
+  <logger name="com.github.dockerjava"         level="WARN" />
+
+  <!-- ── Pangrova Module-Level Tuning ────────────────────── -->
+  <!--
+    Production defaults: INFO for all Pangrova packages.
+    Uncomment individual DEBUG lines during incident investigation;
+    revert to INFO once resolved to avoid log volume explosion.
+  -->
+
+  <!-- Query planner: DEBUG shows plan trees and rule application -->
+  <logger name="org.pangrova.planner"            level="INFO" />
+  <!-- <logger name="org.pangrova.planner"         level="DEBUG" /> -->
+
+  <!-- Query coordinator: DEBUG shows task dispatch and scheduling -->
+  <logger name="org.pangrova.coordinator"        level="INFO" />
+  <!-- <logger name="org.pangrova.coordinator"     level="DEBUG" /> -->
+
+  <!-- Worker execution: DEBUG shows pipeline stages and batch counts -->
+  <logger name="org.pangrova.worker"             level="INFO" />
+  <!-- <logger name="org.pangrova.worker"          level="DEBUG" /> -->
+
+  <!-- Metadata store: DEBUG shows catalog cache hits/misses -->
+  <logger name="org.pangrova.metadata"           level="INFO" />
+
+  <!-- Security / auth: DEBUG for JWT validation details -->
+  <logger name="org.pangrova.security"           level="INFO" />
+
+  <!-- AI / embedding pipeline -->
+  <logger name="org.pangrova.worker.ai"          level="INFO" />
+  <!-- <logger name="org.pangrova.worker.ai"      level="DEBUG" /> -->
+
+  <!-- JNI bridge: WARN in production; DEBUG for native crash diagnosis -->
+  <logger name="org.pangrova.worker.jni"         level="WARN" />
+
+  <!-- ── Root Logger ────────────────────────────────────── -->
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"     />
+    <appender-ref ref="ASYNC_FILE"  />
+    <appender-ref ref="ASYNC_ERROR" />
+  </root>
+
+</configuration>

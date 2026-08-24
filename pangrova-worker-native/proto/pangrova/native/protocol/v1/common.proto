@@ -1,0 +1,52 @@
+syntax = "proto3";
+package pangrova.native.protocol.v1;
+
+option java_package = "org.pangrova.native.protocol.v1";
+option java_multiple_files = true;
+
+// Shared types used across multiple proto files in this package.
+//
+// PROTOCOL VERSIONING: This package uses proto3 with forward-compatible
+// evolution. New fields may be added without breaking existing parsers
+// (proto3 ignores unknown fields). Field removal or renumbering is
+// forbidden — use `reserved` to retire fields. The package path
+// (pangrova.native.protocol.v1) will be bumped to v2 only for
+// backward-incompatible structural changes (message splits, semantic
+// changes to existing fields).
+
+enum FileFormat {
+  FILE_FORMAT_UNSPECIFIED = 0;
+  FILE_FORMAT_PARQUET = 1;
+  FILE_FORMAT_ORC = 2;
+  FILE_FORMAT_LANCE = 3;
+}
+
+message ColumnMapping {
+  int32 source_field_id = 1;
+  int32 target_field_id = 2;
+  string source_name = 3;
+  string target_name = 4;
+  // Default value for missing columns (schema evolution).
+  // When non-empty, missing columns are filled with this value
+  // instead of null. String representation parsed by target type.
+  string default_value = 5;
+}
+
+message TypePromotion {
+  int32 field_id = 1;
+  string source_type = 2;
+  string target_type = 3;
+  string column_name = 4;
+}
+
+message SchemaEvolution {
+  repeated ColumnMapping column_mappings = 1;
+  repeated TypePromotion type_promotions = 2;
+}
+
+message ResourceLimit {
+  int64 max_memory_bytes = 1;
+  int32 max_threads = 2;
+  int64 max_spill_bytes = 3;
+  string spill_directory = 4;
+}

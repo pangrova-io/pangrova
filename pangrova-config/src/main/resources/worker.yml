@@ -1,0 +1,82 @@
+# =============================================================================
+# Pangrova Worker — Default Configuration
+# =============================================================================
+#
+# This file ships with the pangrova-config module and provides sensible defaults
+# for all worker configuration keys defined in WorkerOptions.
+#
+# Priority (highest → lowest):
+#   1. CLI YAML (--config path/to/file.yml)
+#   2. Environment variables (PANGROVA_* prefix)
+#   3. This classpath default YAML
+#   4. ConfigOption.defaultValue()
+#
+# Environment variable placeholders are supported: ${ENV_VAR} or ${ENV_VAR:-default}
+# =============================================================================
+
+# ---- Server ----
+worker:
+  host: "0.0.0.0"
+  port: 8081
+  # advertised-host: "my-worker-host.example.com"
+  id: "worker-1"
+
+  # ---- Coordinator Connection ----
+  # coordinator-url: "http://coordinator:8080"
+  heartbeat-interval: "10s"
+
+  # ---- Transport ----
+  transport:
+    port: 0  # 0 = auto-assign
+
+  # ---- Task Execution ----
+  task:
+    result-retention-seconds: 300
+
+  # ---- Shuffle ----
+  shuffle:
+    buffer-capacity: 100
+    max-memory-bytes: 536870912   # 512 MB
+    spill-threshold: 0.8
+
+  # ---- Memory / Resources ----
+  memory:
+    budget-bytes: 536870912       # 512 MB
+    system-reserved-bytes: 67108864  # 64 MB
+    node-bytes: 1073741824        # 1 GB
+
+  threads:
+    query: 4
+    io: 2
+    scheduler: 1
+
+  # Engine-level spill. The directory is the switch: leaving it unset disables
+  # spill entirely. The paths below are examples, not defaults — code-side
+  # defaults derive from ${java.io.tmpdir}, which is NOT /tmp on macOS.
+  # spill:
+  #   directory: "/var/lib/pangrova/spill"
+
+  # ---- Native Engine ----
+  native:
+    # path: "/opt/pangrova/lib/libpangrova_native.so"
+    # workdir: "/var/lib/pangrova/native"
+    delete-after-load: true
+
+  # ---- Registration Retry ----
+  registration:
+    max-attempts: 5
+    initial-backoff: "1s"
+    max-backoff: "30s"
+
+  # ---- CDC ----
+  cdc:
+    enabled: true
+
+# ---- Feature Flags ----
+observability:
+  enabled: true
+  # service-name: "pangrova-worker"
+  # otlp-endpoint: "http://otel-collector:4317"
+
+security:
+  enabled: false

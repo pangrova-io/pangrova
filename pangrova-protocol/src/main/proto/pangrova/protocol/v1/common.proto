@@ -1,0 +1,126 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1";
+option java_multiple_files = true;
+
+message TaskSource {
+    string source_id = 1;
+    repeated Split splits = 2;
+}
+
+message Split {
+    string connector_id = 1;
+    bytes serialized_split = 2;
+}
+
+message ResourceLimit {
+    int64 max_memory_bytes = 1;
+    int32 max_threads = 2;
+    int64 max_spill_bytes = 3;
+    string spill_directory = 4;
+}
+
+message OperatorStats {
+    string operator_type = 1;
+    int64 input_rows = 2;
+    int64 output_rows = 3;
+    int64 input_bytes = 4;
+    int64 output_bytes = 5;
+    int64 cpu_nanos = 6;
+    int64 wall_nanos = 7;
+    // Added per design Req 21: correlate stats to plan nodes and track memory/spill.
+    string plan_node_id = 8;
+    int64 memory_bytes = 9;
+    int64 peak_memory_bytes = 10;
+    int64 spill_bytes = 11;
+}
+
+message TaskStats {
+    int64 rows_read = 1;
+    int64 bytes_read = 2;
+    int64 rows_written = 3;
+    int64 bytes_written = 4;
+    int64 elapsed_time_ms = 5;
+    int64 cpu_time_ms = 6;
+    int64 memory_bytes = 7;
+    int64 peak_memory_bytes = 8;
+    int64 spill_bytes = 9;
+    int64 cache_hit_bytes = 10;
+    int64 cache_miss_bytes = 11;
+    repeated OperatorStats operator_stats = 12;
+    int64 backpressure_wait_ms = 13;
+}
+
+message ErrorInfo {
+    string error_code = 1;
+    string message = 2;
+    string stack_trace = 3;
+}
+
+// Configuration for NativeBridge.nativeInit() — Velox runtime setup.
+// Field layout MUST match native proto NativeConfig (pangrova_native_protocol.proto)
+// for cross-boundary wire compatibility. Field numbers are authoritative.
+message NativeInitConfig {
+    int64 max_memory_bytes = 1;       // 0 → native default 8GB
+    int32 io_thread_count = 2;        // 0 → native default 4
+    bool cache_enabled = 3;
+    int64 ram_cache_bytes = 4;        // 0 → native default 8GB
+    int64 ssd_cache_bytes = 5;        // 0 → native default 100GB
+    string ssd_cache_path = 6;        // empty means SSD cache has no configured path
+
+    // Velox FileSystem authentication configuration.
+    // Field numbers 7-18 MUST match native proto NativeConfig exactly.
+    string s3_endpoint = 7;
+    // SECURITY: Sensitive credential — must only transit over TLS-encrypted channels.
+    // Never log or include in error messages.
+    string s3_access_key = 8;
+    // SECURITY: Sensitive credential — must only transit over TLS-encrypted channels.
+    // Never log or include in error messages.
+    string s3_secret_key = 9;
+    string s3_region = 10;
+    string hdfs_host = 11;
+    int32 hdfs_port = 12;
+    string kerberos_principal = 13;
+    // SECURITY: Sensitive credential — keytab file path. Ensure restricted
+    // file permissions (0600) and TLS for wire transfer.
+    string kerberos_keytab = 14;
+    // SECURITY: Sensitive credential — GCS service account key file path.
+    // Ensure restricted file permissions (0600).
+    string gcs_credentials_path = 15;
+
+    // OSS S3-compatible access configuration.
+    bool s3_path_style_access = 16;    // OSS/MinIO requires path-style
+    // Proto3 bool defaults to false. Callers MUST explicitly set this field
+    // to true when SSL is desired. The C++ parser only disables SSL when
+    // this field is false AND s3_path_style_access is true (indicating
+    // deliberate S3 configuration, e.g., local MinIO). Without both signals,
+    // the C++ side defaults to SSL enabled (secure by default).
+    bool s3_ssl_enabled = 17;
+    string s3_security_token = 18;     // STS temporary token for OSS
+
+    // Task 158: SSD cache shard count — configurable to match NativeCacheConfig.
+    // Previously absent; native side hardcoded 4, Java default was 8, docs said 16.
+    int32 ssd_shards = 19;             // 0 → native default 4
+
+    // Task 157: SSD checkpoint interval in bytes. 0 disables checkpointing
+    // (Velox SsdCache won't persist its index, so restarts lose the cache).
+    // Set to a non-zero value (e.g. 1 GB) to enable warm restart.
+    int64 checkpoint_interval_bytes = 20;  // 0 → disabled (current default)
+
+    // Memory pressure thresholds (percentage of total memory, 0-100).
+    // 0 → native defaults (50/70/85/95). Configurable via worker YAML.
+    double memory_pressure_threshold_low = 21;
+    double memory_pressure_threshold_medium = 22;
+    double memory_pressure_threshold_high = 23;
+    double memory_pressure_threshold_critical = 24;
+
+    // Engine-level spill configuration. Field numbers 25-26 MUST match native
+    // proto NativeConfig exactly.
+    //
+    // spill_directory is the switch: an empty path means engine-level spill is
+    // disabled. These fields were previously absent, so the native side could
+    // never learn the configured spill directory and engine-level spill was
+    // silently inert.
+    bool spill_enabled = 25;
+    string spill_directory = 26;
+}

@@ -1,0 +1,327 @@
+name: Nightly TPC Benchmark (SF=100)
+
+on:
+  schedule:
+    # Run nightly at 2:00 AM UTC on dedicated hardware
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      benchmark:
+        description: 'Benchmark to run'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - tpch
+          - tpcds
+          - both
+      scale_factor:
+        description: 'Scale factor'
+        required: true
+        default: '100'
+        type: string
+
+concurrency:
+  group: nightly-tpc-benchmark
+  cancel-in-progress: false
+
+env:
+  SCALE_FACTOR: ${{ github.event.inputs.scale_factor || '100' }}
+  DATA_DIR: /data/tpc
+  NATIVE_LIB_DIR: ${{ github.workspace }}/pangrova-worker-native/build
+
+jobs:
+  data-generation:
+    name: Generate TPC Data (SF=${{ github.event.inputs.scale_factor || '100' }})
+    runs-on: [self-hosted, benchmark, linux, x86_64]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check existing data
+        id: check-data
+        run: |
+          TPCH_EXISTS=false
+          TPCDS_EXISTS=false
+          if [[ -d "${DATA_DIR}/tpch/sf${SCALE_FACTOR}/parquet" ]]; then
+            TPCH_EXISTS=true
+          fi
+          if [[ -d "${DATA_DIR}/tpcds/sf${SCALE_FACTOR}/parquet" ]]; then
+            TPCDS_EXISTS=true
+          fi
+          echo "tpch_exists=${TPCH_EXISTS}" >> "$GITHUB_OUTPUT"
+          echo "tpcds_exists=${TPCDS_EXISTS}" >> "$GITHUB_OUTPUT"
+
+      - name: Install data generation dependencies
+        if: steps.check-data.outputs.tpch_exists == 'false' || steps.check-data.outputs.tpcds_exists == 'false'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc g++ make git python3 python3-pip
+          pip3 install pyarrow
+
+      - name: Generate TPC-H data
+        if: steps.check-data.outputs.tpch_exists == 'false'
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/generate-tpc-data.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/generate-tpc-data.sh \
+            --benchmark tpch \
+            --scale-factor "$SCALE_FACTOR" \
+            --output-dir "$DATA_DIR" \
+            --parallel 8
+
+      - name: Generate TPC-DS data
+        if: steps.check-data.outputs.tpcds_exists == 'false'
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/generate-tpc-data.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/generate-tpc-data.sh \
+            --benchmark tpcds \
+            --scale-factor "$SCALE_FACTOR" \
+            --output-dir "$DATA_DIR" \
+            --parallel 8
+
+      - name: Verify data integrity
+        run: |
+          echo "=== TPC-H Data ==="
+          ls -lh "${DATA_DIR}/tpch/sf${SCALE_FACTOR}/parquet/" 2>/dev/null || echo "TPC-H data not found"
+          echo ""
+          echo "=== TPC-DS Data ==="
+          ls -lh "${DATA_DIR}/tpcds/sf${SCALE_FACTOR}/parquet/" 2>/dev/null || echo "TPC-DS data not found"
+
+  build-cluster:
+    name: Build Pangrova Cluster
+    runs-on: [self-hosted, benchmark, linux, x86_64]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache native deps + Velox
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/native-deps
+            ~/.pangrova/velox
+          key: pangrova-native-benchmark-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build native library
+        run: |
+          ./pangrova-worker-native/bin/setup-native-build-env.sh
+          source ~/.pangrova/env.sh
+          cd pangrova-worker-native
+          cmake --preset dev-release
+          cmake --build build --target all
+
+      - name: Build Java modules
+        run: |
+          RESOURCE_DIR=pangrova-native-bundle/src/main/resources/META-INF/native/linux/x86_64
+          mkdir -p "${RESOURCE_DIR}"
+          cp pangrova-worker-native/build/libpangrova_native.so "${RESOURCE_DIR}/"
+          mvn -B install -pl pangrova-native-bundle -Dnative.platform.classifier=linux-x86_64 -DskipTests
+          mvn -B package -DskipTests -pl '!pangrova-native-bundle'
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pangrova-cluster-build
+          path: |
+            pangrova-coordinator/target/*.jar
+            pangrova-worker/target/*.jar
+            pangrova-worker-native/build/libpangrova_native.so
+            pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-shaded.jar
+          retention-days: 1
+
+  run-tpch:
+    name: TPC-H SF=${{ github.event.inputs.scale_factor || '100' }} (22 queries)
+    runs-on: [self-hosted, benchmark, linux, x86_64]
+    needs: [data-generation, build-cluster]
+    if: github.event.inputs.benchmark != 'tpcds'
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pangrova-cluster-build
+          path: build-artifacts
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Start Pangrova cluster
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/start-benchmark-cluster.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/start-benchmark-cluster.sh \
+            --data-dir "${DATA_DIR}/tpch/sf${SCALE_FACTOR}/parquet" \
+            --workers 4 \
+            --heap 32g \
+            --native-memory 16g
+
+      - name: Load TPC-H schema
+        run: |
+          pangrova-cli --host localhost --port 8080 \
+            --file pangrova-testing/pangrova-test-benchmark/queries/tpch/schema.sql
+
+      - name: Run TPC-H benchmark
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/run-tpc-benchmark.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/run-tpc-benchmark.sh \
+            --benchmark tpch \
+            --scale-factor "$SCALE_FACTOR" \
+            --iterations 3 \
+            --warmup 1 \
+            --timeout 600 \
+            --output "${{ github.workspace }}/tpch-results.json"
+
+      - name: Compare against baseline
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/tpch-regression-check.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/tpch-regression-check.sh \
+            "${{ github.workspace }}/tpch-results.json" \
+            pangrova-testing/pangrova-test-benchmark/baseline/tpch-sf100-baseline.json
+
+      - name: Stop cluster
+        if: always()
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/stop-benchmark-cluster.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/stop-benchmark-cluster.sh || true
+
+      - name: Upload TPC-H results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpch-sf100-results-${{ github.run_number }}
+          path: ${{ github.workspace }}/tpch-results.json
+          retention-days: 90
+
+      - name: Store results for trend tracking
+        if: success()
+        run: |
+          cp "${{ github.workspace }}/tpch-results.json" \
+            "pangrova-testing/pangrova-test-benchmark/results/tpch-sf${SCALE_FACTOR}-$(date +%Y-%m-%d).json"
+
+  run-tpcds:
+    name: TPC-DS SF=${{ github.event.inputs.scale_factor || '100' }} (99 queries)
+    runs-on: [self-hosted, benchmark, linux, x86_64]
+    needs: [data-generation, build-cluster]
+    if: github.event.inputs.benchmark != 'tpch'
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: pangrova-cluster-build
+          path: build-artifacts
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Start Pangrova cluster
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/start-benchmark-cluster.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/start-benchmark-cluster.sh \
+            --data-dir "${DATA_DIR}/tpcds/sf${SCALE_FACTOR}/parquet" \
+            --workers 4 \
+            --heap 32g \
+            --native-memory 16g
+
+      - name: Load TPC-DS schema
+        run: |
+          pangrova-cli --host localhost --port 8080 \
+            --file pangrova-testing/pangrova-test-benchmark/queries/tpcds/schema.sql
+
+      - name: Run TPC-DS benchmark
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/run-tpc-benchmark.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/run-tpc-benchmark.sh \
+            --benchmark tpcds \
+            --scale-factor "$SCALE_FACTOR" \
+            --iterations 3 \
+            --warmup 1 \
+            --timeout 600 \
+            --output "${{ github.workspace }}/tpcds-results.json"
+
+      - name: Stop cluster
+        if: always()
+        run: |
+          chmod +x pangrova-testing/pangrova-test-benchmark/scripts/stop-benchmark-cluster.sh
+          pangrova-testing/pangrova-test-benchmark/scripts/stop-benchmark-cluster.sh || true
+
+      - name: Upload TPC-DS results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tpcds-sf100-results-${{ github.run_number }}
+          path: ${{ github.workspace }}/tpcds-results.json
+          retention-days: 90
+
+  report:
+    name: Generate Benchmark Report
+    runs-on: [self-hosted, benchmark, linux, x86_64]
+    needs: [run-tpch, run-tpcds]
+    if: always() && (needs.run-tpch.result == 'success' || needs.run-tpcds.result == 'success')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download TPC-H results
+        if: needs.run-tpch.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: tpch-sf100-results-${{ github.run_number }}
+          path: results
+
+      - name: Download TPC-DS results
+        if: needs.run-tpcds.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: tpcds-sf100-results-${{ github.run_number }}
+          path: results
+
+      - name: Generate summary report
+        run: |
+          echo "# Nightly TPC Benchmark Report" > report.md
+          echo "Date: $(date -u +%Y-%m-%d)" >> report.md
+          echo "Scale Factor: SF=${SCALE_FACTOR}" >> report.md
+          echo "" >> report.md
+          if [[ -f results/tpch-results.json ]]; then
+            echo "## TPC-H Results" >> report.md
+            python3 -c "
+          import json, sys
+          with open('results/tpch-results.json') as f:
+              data = json.load(f)
+          summary = data.get('summary', {})
+          print(f\"Passed: {summary.get('passed', 0)}/{summary.get('total', 0)}\")
+          " >> report.md
+          fi
+          if [[ -f results/tpcds-results.json ]]; then
+            echo "## TPC-DS Results" >> report.md
+            python3 -c "
+          import json, sys
+          with open('results/tpcds-results.json') as f:
+              data = json.load(f)
+          summary = data.get('summary', {})
+          print(f\"Passed: {summary.get('passed', 0)}/{summary.get('total', 0)}\")
+          " >> report.md
+          fi
+
+      - name: Post summary to job
+        run: cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Alert on failures
+        if: needs.run-tpch.result == 'failure' || needs.run-tpcds.result == 'failure'
+        run: |
+          echo "::error::TPC benchmark has failures. Check artifacts for details."

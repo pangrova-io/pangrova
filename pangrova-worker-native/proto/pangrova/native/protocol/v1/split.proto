@@ -1,0 +1,132 @@
+syntax = "proto3";
+package pangrova.native.protocol.v1;
+
+option java_package = "org.pangrova.native.protocol.v1";
+option java_multiple_files = true;
+
+import "pangrova/native/protocol/v1/common.proto";
+
+message SplitInfo {
+  string split_id = 1;
+  string connector_id = 2;
+  string file_path = 3;
+  FileFormat file_format = 4;
+  int64 start_offset = 5;
+  int64 length = 6;
+  repeated ColumnMapping column_mapping = 7;
+  map<string, string> partition_values = 8;
+  oneof connector_info {
+    IcebergSplitInfo iceberg_info = 9;
+    PaimonSplitInfo paimon_info = 10;
+  }
+  SchemaEvolution schema_evolution = 11;
+  string table_name = 12;
+  repeated IndexEvalHintInfo index_eval_hints = 13;
+  // Constraint predicates for native-side split skipping.
+  SplitConstraintInfo split_constraint = 14;
+}
+
+message IndexEvalHintInfo {
+  string index_id = 1;
+  string index_type = 2;
+  string index_file_path = 3;
+  int32 generation = 4;
+  string predicate_json = 5;
+  string data_file_path = 6;
+}
+
+message IcebergSplitInfo {
+  IcebergReadMode read_mode = 1;
+  int64 snapshot_id = 2;
+  repeated DeleteFileInfo delete_files = 3;
+  int64 from_snapshot_id = 4;
+  int64 to_snapshot_id = 5;
+  int64 data_sequence_number = 6;
+  int32 spec_id = 7;
+  int32 content = 8;
+}
+
+enum IcebergReadMode {
+  ICEBERG_READ_SNAPSHOT = 0;
+  ICEBERG_READ_TIME_TRAVEL = 1;
+  ICEBERG_READ_INCREMENTAL = 2;
+}
+
+message DeleteFileInfo {
+  string file_path = 1;
+  DeleteFileType delete_type = 2;
+  repeated string equality_fields = 3;
+  int64 record_count = 4;
+  int64 data_sequence_number = 5;
+  int64 file_size = 6;
+  string dv_file_path = 7;
+}
+
+enum DeleteFileType {
+  DELETE_FILE_TYPE_UNSPECIFIED = 0;
+  DELETE_FILE_TYPE_POSITION = 1;
+  DELETE_FILE_TYPE_EQUALITY = 2;
+  DELETE_FILE_TYPE_DELETION_VECTOR = 3;
+}
+
+message PaimonSplitInfo {
+  PaimonReadMode read_mode = 1;
+  int32 bucket_id = 2;
+  repeated string primary_keys = 3;
+  repeated LsmLevelInfo lsm_levels = 4;
+  int64 snapshot_id = 5;
+  int64 from_snapshot_id = 6;
+  int64 to_snapshot_id = 7;
+  PaimonMergeEngine merge_engine = 8;
+  PaimonChangelogProducer changelog_producer = 9;
+  bool deletion_vectors_enabled = 10;
+  string deletion_vector_file_path = 11;
+  bool needs_merge = 12;
+  string sequence_column = 13;
+  map<string, string> aggregation_specs = 14;
+  bool changelog_mode = 15;
+  map<string, string> partition_values = 16;
+}
+
+enum PaimonReadMode {
+  PAIMON_READ_MODE_UNSPECIFIED = 0;
+  PAIMON_READ_MODE_APPEND = 1;
+  PAIMON_READ_MODE_PRIMARY_KEY = 2;
+  PAIMON_READ_MODE_CHANGELOG = 3;
+  PAIMON_READ_MODE_INCREMENTAL = 4;
+}
+
+enum PaimonMergeEngine {
+  PAIMON_MERGE_DEDUPLICATE = 0;
+  PAIMON_MERGE_PARTIAL_UPDATE = 1;
+  PAIMON_MERGE_AGGREGATION = 2;
+  PAIMON_MERGE_FIRST_ROW = 3;
+}
+
+enum PaimonChangelogProducer {
+  PAIMON_CHANGELOG_NONE = 0;
+  PAIMON_CHANGELOG_INPUT = 1;
+  PAIMON_CHANGELOG_LOOKUP = 2;
+  PAIMON_CHANGELOG_FULL_COMPACTION = 3;
+}
+
+message LsmLevelInfo {
+  int32 level = 1;
+  repeated string file_paths = 2;
+  repeated bytes key_ranges = 3;
+  int64 total_record_count = 4;
+}
+
+// Constraint predicates carried by a split for native-side split skipping.
+message SplitConstraintInfo {
+  map<string, string> partition_values = 1;
+  repeated ColumnStatisticsInfo column_statistics = 2;
+}
+
+// File-level column statistics for a single column.
+message ColumnStatisticsInfo {
+  string column_name = 1;
+  string min_value = 2;
+  string max_value = 3;
+  int64 null_count = 4;
+}

@@ -1,0 +1,97 @@
+package org.pangrova.worker.http.endpoint;
+
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.ExceptionMapper;
+import jakarta.ws.rs.ext.Provider;
+import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.protocol.rest.error.ErrorDetail;
+import org.pangrova.spi.security.AccessDeniedException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Unified JAX-RS exception-to-JSON mapper for all Worker REST endpoints.
+ *
+ * <p>Maps exception types to HTTP status codes and produces {@link ErrorDetail} JSON responses:
+ * <ul>
+ *   <li>{@link IllegalArgumentException} → 400 BAD_REQUEST</li>
+ *   <li>{@link AccessDeniedException} → 403 ACCESS_DENIED</li>
+ *   <li>Not-found exceptions → 404 NOT_FOUND</li>
+ *   <li>All other exceptions → 500 INTERNAL_ERROR</li>
+ * </ul>
+ *
+ * <p>Logs 5xx errors at ERROR level, 4xx at WARN level.</p>
+ */
+@Provider
+public final class WorkerExceptionMapper implements ExceptionMapper<Exception> {
+
+    private static final Logger LOG = LoggerFactory.getLogger(WorkerExceptionMapper.class);
+
+    @Override
+    public Response toResponse(Exception exception) {
+        int status = resolveHttpStatus(exception);
+        String errorCode = resolveErrorCode(exception, status);
+        String errorType = resolveErrorType(status);
+        String message = resolveMessage(exception);
+
+        logException(status, errorCode, message, exception);
+
+        ErrorDetail detail = new ErrorDetail(errorCode, errorType, message);
+        return Response.status(status)
+                .type(MediaType.APPLICATION_JSON_TYPE)
+                .entity(detail)
+                .build();
+    }
+
+    private static int resolveHttpStatus(Exception exception) {
+        if (exception instanceof IllegalArgumentException) {
+            return 400;
+        }
+        if (exception instanceof AccessDeniedException) {
+            return 403;
+        }
+        if (isNotFoundException(exception)) {
+            return 404;
+        }
+        return 500;
+    }
+
+    private static String resolveErrorCode(Exception exception, int status) {
+        if (exception instanceof PangrovaException pangrovaEx) {
+            return pangrovaEx.getErrorCode().getCode();
+        }
+        return switch (status) {
+            case 400 -> "BAD_REQUEST";
+            case 403 -> "ACCESS_DENIED";
+            case 404 -> "NOT_FOUND";
+            default -> "INTERNAL_ERROR";
+        };
+    }
+
+    private static String resolveErrorType(int status) {
+        if (status >= 400 && status < 500) {
+            return "USER_ERROR";
+        }
+        return "INTERNAL_ERROR";
+    }
+
+    private static String resolveMessage(Exception exception) {
+        String msg = exception.getMessage();
+        return (msg != null) ? msg : exception.getClass().getSimpleName();
+    }
+
+    private static boolean isNotFoundException(Exception exception) {
+        String className = exception.getClass().getSimpleName();
+        return className.contains("NotFoundException");
+    }
+
+    private static void logException(int status, String errorCode,
+                                     String message, Exception exception) {
+        if (status >= 500) {
+            LOG.error("event=internal_error errorCode={} message={}", errorCode, message, exception);
+        } else {
+            LOG.warn("event=client_error status={} errorCode={} message={}", status, errorCode, message);
+        }
+    }
+}

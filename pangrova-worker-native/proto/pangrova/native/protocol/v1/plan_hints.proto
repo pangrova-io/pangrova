@@ -1,0 +1,15 @@
+syntax = "proto3";
+package pangrova.native.protocol.v1;
+
+option java_package = "org.pangrova.native.protocol.v1";
+option java_multiple_files = true;
+
+// Hint attached to MergeJoinRel.advanced_extension.enhancement
+// to communicate sort-order metadata from the Java planner.
+message MergeJoinHint {
+  // When true, the planner guarantees both inputs are already sorted
+  // on the join keys. The native converter skips SortNode insertion.
+  // When false (default), the converter inserts OrderByNode on each
+  // input to satisfy MergeJoinNode's sorted-input requirement.
+  bool inputs_pre_sorted = 1;
+}

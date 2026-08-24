@@ -1,0 +1,115 @@
+# ============================================================
+# Pangrova — Iceberg on Alibaba Cloud OSS (Production-Ready)
+#
+# Complete configuration for using Iceberg tables on Alibaba
+# Cloud Object Storage Service (OSS). OSS is S3-compatible,
+# so Pangrova accesses it via the S3 protocol with a custom endpoint.
+#
+# Usage:
+#   cp oss-iceberg.yml /etc/pangrova/catalog/my_oss_lakehouse.yml
+#   # Edit warehouse path, endpoint, and credentials
+#   # Restart Coordinator to pick up new catalog
+#
+# Equivalent SQL:
+#   CREATE CATALOG my_oss_lakehouse USING iceberg
+#   WITH (
+#     'type' = 'hadoop',
+#     'warehouse' = 's3://my-oss-bucket/warehouse',
+#     's3.endpoint' = 'https://oss-cn-hangzhou.aliyuncs.com',
+#     's3.region' = 'cn-hangzhou',
+#     's3.path-style-access' = 'false'
+#   );
+# ============================================================
+
+connector: iceberg
+
+properties:
+
+  # ----------------------------------------------------------
+  # Catalog type
+  # ----------------------------------------------------------
+  type: hadoop
+
+  # ----------------------------------------------------------
+  # Warehouse path (required)
+  # ----------------------------------------------------------
+  # OSS bucket path. Use s3:// protocol prefix (not oss://).
+  # Pangrova uses the S3-compatible API to access OSS buckets.
+  #
+  # Format: s3://<oss-bucket-name>/<prefix>
+  # Example: s3://my-data-lake/iceberg-warehouse
+  warehouse: "s3://${PANGROVA_OSS_BUCKET:-my-oss-bucket}/warehouse"
+
+  # ----------------------------------------------------------
+  # OSS Endpoint (required)
+  # ----------------------------------------------------------
+  # Alibaba Cloud OSS endpoint format:
+  #   Public:   https://oss-{region}.aliyuncs.com
+  #   Internal: https://oss-{region}-internal.aliyuncs.com
+  #   VPC:      https://{bucket}.oss-{region}-internal.aliyuncs.com
+  #
+  # Use the internal endpoint when Pangrova runs within
+  # the same Alibaba Cloud VPC — avoids public network traffic
+  # and associated costs.
+  #
+  # Common regions:
+  #   cn-hangzhou, cn-shanghai, cn-beijing, cn-shenzhen,
+  #   cn-hongkong, ap-southeast-1 (Singapore),
+  #   us-west-1, eu-central-1
+  s3.endpoint: "${PANGROVA_OSS_ENDPOINT:-https://oss-cn-hangzhou-internal.aliyuncs.com}"
+
+  # ----------------------------------------------------------
+  # OSS Region (required)
+  # ----------------------------------------------------------
+  # Must match the OSS endpoint region.
+  s3.region: "${PANGROVA_OSS_REGION:-cn-hangzhou}"
+
+  # ----------------------------------------------------------
+  # Path Style Access — MUST be false for OSS
+  # ----------------------------------------------------------
+  # OSS uses virtual-hosted-style URLs (bucket as subdomain):
+  #   https://{bucket}.oss-{region}.aliyuncs.com/{key}
+  # NOT path-style:
+  #   https://oss-{region}.aliyuncs.com/{bucket}/{key}
+  s3.path-style-access: "false"
+
+  # ----------------------------------------------------------
+  # OSS Authentication — AccessKey
+  # ----------------------------------------------------------
+  # Create an AccessKey pair in the Alibaba Cloud RAM console:
+  #   https://ram.console.aliyun.com/manage/ak
+  #
+  # Best practice: use a RAM user with minimum required
+  # permissions (oss:GetObject, oss:PutObject, oss:ListBucket,
+  # oss:DeleteObject on the specific bucket).
+  #
+  # NEVER hardcode credentials — inject via environment variables.
+  s3.access-key-id: "${ALIBABA_CLOUD_ACCESS_KEY_ID}"
+  s3.secret-access-key: "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}"
+
+  # ----------------------------------------------------------
+  # OSS Authentication — STS Token (optional, for temporary auth)
+  # ----------------------------------------------------------
+  # When using STS (Security Token Service) for temporary credentials:
+  # s3.session-token: "${ALIBABA_CLOUD_SECURITY_TOKEN}"
+
+  # ----------------------------------------------------------
+  # S3 Client Tuning
+  # ----------------------------------------------------------
+  # OSS-specific tuning:
+  # s3.max-connections: "100"
+  # s3.max-retries: "3"
+  # s3.connection-timeout-ms: "5000"
+  # s3.socket-timeout-ms: "30000"
+
+  # ----------------------------------------------------------
+  # OSS Server-Side Encryption
+  # ----------------------------------------------------------
+  # OSS supports SSE-KMS and SSE-OSS:
+  # s3.sse-type: "S3"   # "S3" maps to OSS default encryption
+
+  # ----------------------------------------------------------
+  # Table Defaults
+  # ----------------------------------------------------------
+  # write.format.default: "parquet"
+  # write.target-file-size-bytes: "536870912"   # 512 MB

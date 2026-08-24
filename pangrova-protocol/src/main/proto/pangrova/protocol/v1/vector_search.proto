@@ -1,0 +1,83 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1";
+option java_multiple_files = true;
+
+// Wire representation of a vector ANN search task dispatched from
+// coordinator to worker. Carries the minimum information needed for
+// the worker to execute an approximate nearest neighbor search on a
+// single data file.
+message VectorSearchTask {
+    // Path to the data file to search.
+    string data_file_path = 1;
+    // Name of the vector column in the data file.
+    string vector_column = 2;
+    // Query vector values (dimension inferred from length).
+    repeated float query_vector = 3;
+    // Number of nearest neighbors to return.
+    int32 top_k = 4;
+    // Distance metric name (L2, COSINE, INNER_PRODUCT).
+    string metric = 5;
+    // Algorithm-specific search parameters (e.g. efSearch, nprobe).
+    map<string, string> search_params = 6;
+    // Whether to fall back to brute-force scan when no READY index exists.
+    bool brute_force_fallback_enabled = 7;
+
+    // L4-11D: Pre-filter bitset for ANN search.
+    // When present, only rows whose bit is set (1) in this bitset are
+    // considered during ANN search. This enables efficient WHERE-clause
+    // pushdown without post-filtering, reducing wasted distance computations.
+    //
+    // Encoding: roaring bitmap serialized bytes (portable format).
+    // Empty bytes = no pre-filter (search all rows).
+    bytes pre_filter_bitset = 8;
+
+    // L4-11D: Pre-filter strategy.
+    // Controls how the pre-filter is applied relative to ANN search.
+    PreFilterStrategy pre_filter_strategy = 9;
+
+    // L4-11B: Shard IDs assigned to this worker for this search.
+    // When non-empty, the worker only searches these shards.
+    repeated string assigned_shard_ids = 10;
+
+    // L4-11C: Whether the coordinator supports streaming results.
+    // When true, the worker may send partial results incrementally.
+    bool streaming_enabled = 11;
+}
+
+// L4-11D: Strategy for applying pre-filter bitset during ANN search.
+enum PreFilterStrategy {
+    // No pre-filter; search all rows.
+    PRE_FILTER_NONE = 0;
+    // Apply bitset BEFORE ANN graph traversal (recommended for high selectivity).
+    // Skips non-matching nodes during graph traversal.
+    PRE_FILTER_BEFORE_SEARCH = 1;
+    // Apply bitset AFTER ANN candidate generation (recommended for low selectivity).
+    // Generates candidates normally, then filters results.
+    PRE_FILTER_AFTER_SEARCH = 2;
+    // Adaptive: engine decides based on selectivity ratio.
+    // If selectivity < 10%, use BEFORE; otherwise use AFTER.
+    PRE_FILTER_ADAPTIVE = 3;
+}
+
+// Wire representation of a single scored row returned from vector search.
+message ScoredRowResult {
+    // Row offset within the data file.
+    int64 row_offset = 1;
+    // Distance from the query vector (lower = more similar).
+    double distance = 2;
+}
+
+// Wire representation of vector search results for a single data file.
+message VectorSearchTaskResult {
+    // Path to the data file that was searched.
+    string data_file_path = 1;
+    // Scored rows sorted by distance ascending, size <= top_k.
+    repeated ScoredRowResult neighbors = 2;
+    // L4-11C: Total rows scanned (for streaming progress tracking).
+    int64 total_rows_scanned = 3;
+    // L4-11C: Whether this is a partial (streaming) result.
+    bool is_partial = 4;
+    // L4-11B: Shard ID that produced these results.
+    string shard_id = 5;
+}

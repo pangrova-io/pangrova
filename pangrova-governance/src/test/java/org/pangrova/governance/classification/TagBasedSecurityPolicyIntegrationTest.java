@@ -1,0 +1,126 @@
+package org.pangrova.governance.classification;
+
+import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.mask.ColumnMask;
+import org.pangrova.security.mask.EnrichedColumnMaskStore;
+import org.pangrova.security.mask.ColumnMaskingProcessor;
+import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
+import org.pangrova.security.rowfilter.RowPolicy;
+import org.pangrova.security.rowfilter.RowPolicyStore;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Verifies TagBasedSecurityPolicy writes masks via SPI ColumnMaskStore,
+ * and RbacAccessControl reads them via ColumnMaskingProcessor — shared store wiring.
+ */
+class TagBasedSecurityPolicyIntegrationTest {
+
+    @Test
+    void tagChangeCreatesColumnMaskVisibleToAccessControl() {
+        var sharedStore = new InMemoryColumnMaskStore();
+        var policy = new TagBasedSecurityPolicy(sharedStore, new NoOpAuditConfigStore());
+        var maskProcessor = new ColumnMaskingProcessor(sharedStore);
+        var accessControl = new RbacAccessControl(
+                List.of(), new RowLevelSecurityFilter(emptyRowPolicyStore()), maskProcessor);
+
+        // Simulate PII tag applied to a column
+        var event = new TagChangedEvent(
+                "catalog", "schema", "users", "email",
+                "pii_type", null, "PII_EMAIL");
+        policy.onTagChanged(event);
+
+        // Verify mask is visible through AccessControl
+        UserIdentity user = new UserIdentity("alice", Set.of("analyst"), Map.of(), Instant.now());
+        Optional<String> mask = accessControl.getColumnMask(
+                user, "catalog", "schema", "users", "email");
+        assertThat(mask).isPresent();
+        assertThat(mask.get()).contains("mask_email");
+    }
+
+    @Test
+    void tagRemovalDeletesMaskFromAccessControl() {
+        var sharedStore = new InMemoryColumnMaskStore();
+        var policy = new TagBasedSecurityPolicy(sharedStore, new NoOpAuditConfigStore());
+        var maskProcessor = new ColumnMaskingProcessor(sharedStore);
+        var accessControl = new RbacAccessControl(
+                List.of(), new RowLevelSecurityFilter(emptyRowPolicyStore()), maskProcessor);
+
+        // Apply tag
+        policy.onTagChanged(new TagChangedEvent(
+                "catalog", "schema", "users", "ssn",
+                "pii_type", null, "PII_SSN"));
+
+        // Verify mask exists
+        UserIdentity user = new UserIdentity("bob", Set.of("analyst"), Map.of(), Instant.now());
+        assertThat(accessControl.getColumnMask(user, "catalog", "schema", "users", "ssn"))
+                .isPresent();
+
+        // Remove tag
+        policy.onTagChanged(new TagChangedEvent(
+                "catalog", "schema", "users", "ssn",
+                "pii_type", "PII_SSN", null));
+
+        // Verify mask is gone
+        assertThat(accessControl.getColumnMask(user, "catalog", "schema", "users", "ssn"))
+                .isEmpty();
+    }
+
+    private static RowPolicyStore emptyRowPolicyStore() {
+        return new RowPolicyStore() {
+            @Override public List<RowPolicy> getPolicies(String c, String s, String t) {
+                return List.of();
+            }
+            @Override public void savePolicy(RowPolicy p) { }
+            @Override public void deletePolicy(long id) { }
+        };
+    }
+
+    static class InMemoryColumnMaskStore implements EnrichedColumnMaskStore {
+        private final List<ColumnMask> masks = new ArrayList<>();
+        private long nextId = 1;
+
+        @Override
+        public List<ColumnMask> getColumnMasks(String catalog, String schema, String table, String column) {
+            return masks.stream()
+                    .filter(m -> m.catalogName().equals(catalog)
+                            && m.schemaName().equals(schema)
+                            && m.tableName().equals(table)
+                            && m.columnName().equals(column))
+                    .toList();
+        }
+
+        @Override
+        public void saveColumnMask(ColumnMask mask) {
+            masks.removeIf(m -> m.maskName().equals(mask.maskName())
+                    && m.tableName().equals(mask.tableName())
+                    && m.columnName().equals(mask.columnName()));
+            masks.add(new ColumnMask(nextId++, mask.maskName(), mask.catalogName(),
+                    mask.schemaName(), mask.tableName(), mask.columnName(),
+                    mask.maskExpression(), mask.applyToRoles(), mask.exemptRoles(),
+                    mask.enabled()));
+        }
+
+        @Override
+        public void deleteMask(long maskId) {
+            masks.removeIf(m -> m.maskId() == maskId);
+        }
+    }
+
+    static class NoOpAuditConfigStore implements AuditConfigStore {
+        @Override public void enableDetailedAudit(String cat, String schema, String table) { }
+        @Override public void disableDetailedAudit(String cat, String schema, String table) { }
+        @Override public boolean isDetailedAuditEnabled(String cat, String schema, String table) {
+            return false;
+        }
+    }
+}

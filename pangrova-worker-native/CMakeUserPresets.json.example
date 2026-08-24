@@ -1,0 +1,28 @@
+{
+  "$comment": [
+    "Copy this file to CMakeUserPresets.json and adjust paths for your machine.",
+    "CMakeUserPresets.json is in .gitignore — never committed."
+  ],
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "local",
+      "inherits": "dev-release",
+      "displayName": "Local dev (adjust paths below)",
+      "cacheVariables": {
+        "VELOX_INSTALL_PREFIX": "${sourceDir}/../../velox",
+        "VELOX_HOME":           "${sourceDir}/../../velox/velox-src",
+        "VELOX_BUILD_DIR":      "${sourceDir}/../../velox/velox-src/_build/release",
+        "ARROW_FLIGHT_HOME":    "${sourceDir}/../../arrow",
+        "Arrow_DIR":            "${sourceDir}/../../arrow/lib/cmake/Arrow",
+        "Parquet_DIR":          "${sourceDir}/../../arrow/lib/cmake/Parquet"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local",
+      "configurePreset": "local"
+    }
+  ]
+}

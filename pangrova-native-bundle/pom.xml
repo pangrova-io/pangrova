@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.pangrova</groupId>
+        <artifactId>pangrova-bom</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pangrova-native-bundle</artifactId>
+    <name>Pangrova Native Bundle</name>
+    <description>
+        Per-platform classifier JAR containing the native JNI library (libpangrova_native).
+        Follows the Netty tcnative-boringssl-static / sqlite-jdbc pattern:
+        each platform produces a separate JAR with classifier (e.g. linux-x86_64, osx-aarch_64).
+        Consumers depend on this artifact with ${os.detected.classifier} to auto-select
+        the correct platform at build time.
+    </description>
+
+    <!--
+      This module is a packaging-only module. It does NOT contain Java source code.
+      The release workflow:
+        1. Builds libpangrova_native.{so,dylib} on each platform via CMake
+        2. Stages the library into src/main/resources/META-INF/native/{os}/{arch}/
+        3. Runs: mvn package -pl pangrova-native-bundle -Dnative.resource.dir=...
+        4. Installs/deploys the JAR with classifier matching the build platform
+
+      Development builds skip this module (no native lib to bundle).
+    -->
+
+    <build>
+        <plugins>
+            <!--
+              maven-jar-plugin produces the classifier JAR.
+              The classifier is set by CI via -Dnative.platform.classifier=linux-x86_64
+              For local dev, this module is typically skipped.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <classifier>${native.platform.classifier}</classifier>
+                </configuration>
+            </plugin>
+        </plugins>
+
+        <!--
+          Native libraries are staged into src/main/resources/ by CI before packaging.
+          Resource path convention: META-INF/native/{os}/{arch}/libpangrova_native.{so,dylib}
+          This matches NativeLibraryLoader's classpath extraction path.
+        -->
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+    </build>
+
+    <profiles>
+        <!--
+          enforce-native-lib: activated when native.platform.classifier IS set.
+          Ensures the native library directory exists before packaging.
+        -->
+        <profile>
+            <id>enforce-native-lib</id>
+            <activation>
+                <property>
+                    <name>native.platform.classifier</name>
+                </property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-enforcer-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>enforce-native-lib-present</id>
+                                <goals>
+                                    <goal>enforce</goal>
+                                </goals>
+                                <phase>validate</phase>
+                                <configuration>
+                                    <rules>
+                                        <requireFilesExist>
+                                            <files>
+                                                <file>${project.basedir}/src/main/resources/META-INF/native</file>
+                                            </files>
+                                            <message>
+                                                Native library directory must exist when packaging.
+                                                Run the CMake build first to stage the library.
+                                            </message>
+                                        </requireFilesExist>
+                                    </rules>
+                                    <fail>true</fail>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!--
+          skip-native-bundle: activated when native.platform.classifier is NOT set.
+          This prevents build failures during normal development (mvn clean install)
+          where no native library is available to bundle.
+        -->
+        <profile>
+            <id>skip-native-bundle</id>
+            <activation>
+                <property>
+                    <name>!native.platform.classifier</name>
+                </property>
+            </activation>
+            <properties>
+                <maven.install.skip>true</maven.install.skip>
+                <maven.deploy.skip>true</maven.deploy.skip>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <configuration>
+                            <skipIfEmpty>true</skipIfEmpty>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>

@@ -1,0 +1,33 @@
+package org.pangrova.planner.cost.join;
+
+import org.apache.calcite.plan.RelOptRule;
+import org.apache.calcite.plan.RelOptRuleCall;
+import org.apache.calcite.rel.logical.LogicalJoin;
+
+/**
+ * Converts a logical join to a physical sort-merge join.
+ * Always applicable as a fallback — sort-merge works for any equi-join
+ * regardless of input size. Preferred when inputs are pre-sorted on join keys
+ * or when both sides are too large for hash join.
+ */
+public final class SortMergeJoinRule extends RelOptRule {
+
+    public SortMergeJoinRule() {
+        super(operand(LogicalJoin.class, any()), "SortMergeJoinRule");
+    }
+
+    @Override
+    public void onMatch(RelOptRuleCall call) {
+        LogicalJoin join = call.rel(0);
+        PangrovaSortMergeJoin sortMergeJoin = new PangrovaSortMergeJoin(
+                new SortMergeJoinConfig(
+                        join.getCluster(),
+                        join.getTraitSet(),
+                        join.getLeft(),
+                        join.getRight(),
+                        join.getCondition(),
+                        join.getVariablesSet(),
+                        join.getJoinType()));
+        call.transformTo(sortMergeJoin);
+    }
+}

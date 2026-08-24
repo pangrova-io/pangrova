@@ -1,0 +1,155 @@
+{{- if .Values.multiTenancy.enabled }}
+{{- $root := . }}
+{{- $defaultResources := .Values.multiTenancy.defaultWorkerResources }}
+{{- $defaultReplicas := .Values.multiTenancy.defaultWorkerReplicas }}
+{{- $defaultAutoscaling := .Values.multiTenancy.defaultAutoscaling }}
+{{- range .Values.multiTenancy.tenants }}
+{{- $ns := .namespace | default (printf "pangrova-%s" .name) }}
+{{- $replicas := .workerReplicas | default $defaultReplicas }}
+{{- $resources := .workerResources | default $defaultResources }}
+{{- $autoscaling := .autoscaling | default $defaultAutoscaling }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pangrova-worker-config
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: worker
+    tenant: {{ .name }}
+data:
+  worker.yml: |
+    {{- $root.Values.config.worker | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pangrova-worker
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: worker
+    tenant: {{ .name }}
+spec:
+  serviceName: pangrova-worker
+  replicas: {{ $replicas }}
+  selector:
+    matchLabels:
+      app: pangrova
+      component: worker
+      tenant: {{ .name }}
+  template:
+    metadata:
+      labels:
+        app: pangrova
+        component: worker
+        tenant: {{ .name }}
+    spec:
+      containers:
+        - name: worker
+          image: "{{ $root.Values.image.repository }}:{{ $root.Values.image.tag }}"
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          command: ["/opt/pangrova/bin/pangrova.sh"]
+          args: ["start", "worker"]
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: PANGROVA_HOME
+              value: /opt/pangrova
+            - name: PANGROVA_CONF_DIR
+              value: /opt/pangrova/config
+            - name: PANGROVA_LOG_DIR
+              value: /opt/pangrova/logs
+            - name: PANGROVA_JAVA_OPTS
+              value: {{ $root.Values.worker.javaOpts | quote }}
+            - name: WORKER_COORDINATOR_URL
+              value: "http://pangrova-coordinator.{{ $root.Values.namespace }}.svc.cluster.local:8080"
+            - name: PANGROVA_TENANT_ID
+              value: {{ .name | quote }}
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: {{ $root.Values.worker.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $root.Values.worker.readinessProbe.periodSeconds }}
+            failureThreshold: {{ $root.Values.worker.readinessProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: {{ $root.Values.worker.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $root.Values.worker.livenessProbe.periodSeconds }}
+            failureThreshold: {{ $root.Values.worker.livenessProbe.failureThreshold }}
+          resources:
+            {{- toYaml $resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/pangrova/config/worker.yml
+              subPath: worker.yml
+            - name: logs
+              mountPath: /opt/pangrova/logs
+      volumes:
+        - name: config
+          configMap:
+            name: pangrova-worker-config
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pangrova-worker
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: worker
+    tenant: {{ .name }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: 8081
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: pangrova
+    component: worker
+    tenant: {{ .name }}
+---
+{{- if $autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pangrova-worker
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: worker
+    tenant: {{ .name }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: StatefulSet
+    name: pangrova-worker
+  minReplicas: {{ $autoscaling.minReplicas }}
+  maxReplicas: {{ $autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ $autoscaling.targetMemoryUtilizationPercentage }}
+{{- end }}
+{{- end }}
+{{- end }}

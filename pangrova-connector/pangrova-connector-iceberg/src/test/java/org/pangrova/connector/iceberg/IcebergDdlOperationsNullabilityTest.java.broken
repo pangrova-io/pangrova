@@ -1,0 +1,128 @@
+package org.pangrova.connector.iceberg;
+
+import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.Types;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * Tests for {@link IcebergDdlOperations#setColumnNullability} verifying that:
+ * <ul>
+ *   <li>Making a required (NOT NULL) column nullable succeeds (Iceberg supports this).</li>
+ *   <li>Making a nullable column NOT NULL throws UnsupportedOperationException (Iceberg does not support this).</li>
+ *   <li>Making an already-nullable column nullable is idempotent (no error).</li>
+ * </ul>
+ *
+ * Fixes finding F-META-06: ALTER COLUMN nullability was silently ignored but reported success.
+ */
+class IcebergDdlOperationsNullabilityTest {
+
+    @TempDir
+    Path warehouse;
+
+    private Catalog catalog;
+
+    private static final Schema BASE_SCHEMA = new Schema(
+            Types.NestedField.required(1, "id", Types.LongType.get()),
+            Types.NestedField.optional(2, "name", Types.StringType.get()),
+            Types.NestedField.required(3, "age", Types.IntegerType.get()));
+
+    @BeforeEach
+    void setUp() {
+        catalog = createHadoopCatalog();
+        if (catalog instanceof SupportsNamespaces nsCatalog) {
+            nsCatalog.createNamespace(Namespace.of("db"));
+        }
+        catalog.buildTable(TableIdentifier.of("db", "test_table"), BASE_SCHEMA)
+                .withProperty("format-version", "2")
+                .create();
+    }
+
+    @Test
+    void makeRequiredColumnNullable_succeeds() {
+        IcebergTableHandle handle = buildHandle("db", "test_table");
+
+        // Column 'id' is required (NOT NULL) -- make it nullable
+        IcebergDdlOperations.setColumnNullability(catalog, handle, "id", true);
+
+        Table table = catalog.loadTable(TableIdentifier.of("db", "test_table"));
+        Types.NestedField idField = table.schema().findField("id");
+        assertThat(idField).isNotNull();
+        assertThat(idField.isOptional()).isTrue();
+    }
+
+    @Test
+    void makeNullableColumnNotNull_throwsUnsupported() {
+        IcebergTableHandle handle = buildHandle("db", "test_table");
+
+        // Column 'name' is already nullable -- making it NOT NULL is unsupported
+        assertThatThrownBy(() ->
+                IcebergDdlOperations.setColumnNullability(catalog, handle, "name", false))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("does not support making column")
+                .hasMessageContaining("name")
+                .hasMessageContaining("NOT NULL");
+    }
+
+    @Test
+    void makeAlreadyNullableColumnNullable_isIdempotent() {
+        IcebergTableHandle handle = buildHandle("db", "test_table");
+
+        // Column 'name' is already nullable -- makeOptional should be idempotent
+        IcebergDdlOperations.setColumnNullability(catalog, handle, "name", true);
+
+        Table table = catalog.loadTable(TableIdentifier.of("db", "test_table"));
+        Types.NestedField nameField = table.schema().findField("name");
+        assertThat(nameField).isNotNull();
+        assertThat(nameField.isOptional()).isTrue();
+    }
+
+    @Test
+    void makeRequiredColumnNullable_multipleColumns() {
+        IcebergTableHandle handle = buildHandle("db", "test_table");
+
+        // Both 'id' and 'age' are required -- make them nullable
+        IcebergDdlOperations.setColumnNullability(catalog, handle, "id", true);
+        // Reload handle after schema change
+        handle = buildHandle("db", "test_table");
+        IcebergDdlOperations.setColumnNullability(catalog, handle, "age", true);
+
+        Table table = catalog.loadTable(TableIdentifier.of("db", "test_table"));
+        assertThat(table.schema().findField("id").isOptional()).isTrue();
+        assertThat(table.schema().findField("age").isOptional()).isTrue();
+    }
+
+    private Catalog createHadoopCatalog() {
+        Map<String, String> props = Map.of(
+                "type", "hadoop",
+                "warehouse", warehouse.toString());
+        return org.apache.iceberg.CatalogUtil.buildIcebergCatalog(
+                "test_catalog", props, new org.apache.hadoop.conf.Configuration());
+    }
+
+    private IcebergTableHandle buildHandle(String schema, String table) {
+        Table icebergTable = catalog.loadTable(TableIdentifier.of(schema, table));
+        return new IcebergTableHandle(
+                schema, table,
+                icebergTable.location(),
+                Optional.empty(),
+                icebergTable.schema().toString(),
+                icebergTable.spec().toString(),
+                2,
+                icebergTable.properties());
+    }
+}

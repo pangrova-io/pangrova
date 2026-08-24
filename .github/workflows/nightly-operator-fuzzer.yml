@@ -1,0 +1,101 @@
+name: Nightly Operator Fuzzer
+
+on:
+  schedule:
+    # Run at 02:00 UTC every day
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of plans to generate and test'
+        required: false
+        default: '10000'
+      mode:
+        description: 'Fuzzer mode (operator|expression|plan|all)'
+        required: false
+        default: 'operator'
+      seed:
+        description: 'Random seed (0 for time-based)'
+        required: false
+        default: '0'
+
+env:
+  FUZZER_ITERATIONS: ${{ github.event.inputs.iterations || '10000' }}
+  FUZZER_MODE: ${{ github.event.inputs.mode || 'operator' }}
+  FUZZER_SEED: ${{ github.event.inputs.seed || '0' }}
+
+jobs:
+  operator-fuzzer:
+    name: Operator Fuzzer (${{ github.event.inputs.iterations || '10000' }} plans)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache native deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/native-deps
+            ~/.pangrova/velox
+          key: pangrova-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+          restore-keys: |
+            pangrova-native-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc g++
+
+      - name: Build fuzzer
+        run: |
+          cd pangrova-testing/pangrova-test-fuzzer/src/main/cpp
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Determine seed
+        id: seed
+        run: |
+          if [ "${{ env.FUZZER_SEED }}" = "0" ]; then
+            echo "value=$(date +%s)" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ env.FUZZER_SEED }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run operator fuzzer
+        run: |
+          pangrova-testing/pangrova-test-fuzzer/src/main/cpp/build/pangrova_fuzzer_runner \
+            --mode ${{ env.FUZZER_MODE }} \
+            --iterations ${{ env.FUZZER_ITERATIONS }} \
+            --seed ${{ steps.seed.outputs.value }} \
+            --batch-size 100 \
+            --output fuzzer-results.json
+
+      - name: Upload fuzzer results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-fuzzer-results-${{ github.run_number }}
+          path: fuzzer-results.json
+          retention-days: 90
+
+      - name: Upload crash report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-fuzzer-crash-${{ github.run_number }}
+          path: |
+            fuzzer-results.json
+            pangrova-testing/pangrova-test-fuzzer/src/main/cpp/build/
+          retention-days: 30
+
+      - name: Post summary
+        if: always()
+        run: |
+          if [ -f fuzzer-results.json ]; then
+            echo "## Operator Fuzzer Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat fuzzer-results.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi

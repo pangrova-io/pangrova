@@ -1,0 +1,159 @@
+package org.pangrova.config;
+
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.Test;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Unit tests for {@link CoordinatorOptions}.
+ * Verifies all typed config keys, default values, and the R1.3 requirement
+ * that all feature flags default to true except security.enabled.
+ */
+class CoordinatorOptionsTest {
+
+    // ---- Server defaults ----
+
+    @Test
+    void coordinatorHostDefaultsToAllInterfaces() {
+        assertThat(CoordinatorOptions.COORDINATOR_HOST.defaultValue()).isEqualTo("0.0.0.0");
+        assertThat(CoordinatorOptions.COORDINATOR_HOST.typeClass()).isEqualTo(String.class);
+    }
+
+    @Test
+    void coordinatorPortDefaultsTo8080() {
+        assertThat(CoordinatorOptions.COORDINATOR_PORT.defaultValue()).isEqualTo(8080);
+        assertThat(CoordinatorOptions.COORDINATOR_PORT.typeClass()).isEqualTo(Integer.class);
+    }
+
+    // ---- Feature flags: all true except security ----
+
+    @Test
+    void allFeatureFlagsDefaultTrueExceptSecurity() {
+        List<ConfigOption<Boolean>> enabledByDefault = List.of(
+                CoordinatorOptions.METADATA_ENABLED,
+                CoordinatorOptions.GOVERNANCE_ENABLED,
+                CoordinatorOptions.RESILIENCE_ENABLED,
+                CoordinatorOptions.STREAMING_ENABLED,
+                CoordinatorOptions.TENANT_ENABLED,
+                CoordinatorOptions.INDEXING_ENABLED,
+                CoordinatorOptions.OPERATIONS_ENABLED,
+                CoordinatorOptions.OBSERVABILITY_ENABLED);
+
+        for (ConfigOption<Boolean> flag : enabledByDefault) {
+            assertThat(flag.defaultValue())
+                    .as("Feature flag '%s' should default to true", flag.key())
+                    .isTrue();
+            assertThat(flag.typeClass()).isEqualTo(Boolean.class);
+        }
+    }
+
+    @Test
+    void securityEnabledDefaultsToFalse() {
+        assertThat(CoordinatorOptions.SECURITY_ENABLED.defaultValue()).isFalse();
+        assertThat(CoordinatorOptions.SECURITY_ENABLED.key()).isEqualTo("security.enabled");
+        assertThat(CoordinatorOptions.SECURITY_ENABLED.typeClass()).isEqualTo(Boolean.class);
+    }
+
+    // ---- HA defaults ----
+
+    @Test
+    void highAvailabilityEnabledDefaultsToFalse() {
+        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_ENABLED.defaultValue()).isFalse();
+        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_ENABLED.key()).isEqualTo("coordinator.ha.enabled");
+    }
+
+    @Test
+    void highAvailabilityJdbcUrlHasNoDefault() {
+        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_JDBC_URL.defaultValue()).isNull();
+        assertThat(CoordinatorOptions.HIGH_AVAILABILITY_JDBC_URL.hasDefaultValue()).isFalse();
+    }
+
+    // ---- Query defaults ----
+
+    @Test
+    void queryTimeoutDefaultsToFiveMinutes() {
+        assertThat(CoordinatorOptions.QUERY_TIMEOUT.defaultValue()).isEqualTo(Duration.ofMinutes(5));
+        assertThat(CoordinatorOptions.QUERY_TIMEOUT.typeClass()).isEqualTo(Duration.class);
+    }
+
+    @Test
+    void queryMaxConcurrentDefaultsTo100() {
+        assertThat(CoordinatorOptions.QUERY_MAX_CONCURRENT.defaultValue()).isEqualTo(100);
+    }
+
+    // ---- Worker management defaults ----
+
+    @Test
+    void workerHeartbeatTimeoutDefaultsTo30Seconds() {
+        assertThat(CoordinatorOptions.WORKER_HEARTBEAT_TIMEOUT.defaultValue()).isEqualTo(Duration.ofSeconds(30));
+    }
+
+    @Test
+    void workerMaxRetryDefaultsTo3() {
+        assertThat(CoordinatorOptions.WORKER_MAX_RETRY.defaultValue()).isEqualTo(3);
+    }
+
+    // ---- Metadata defaults ----
+
+    @Test
+    void stateStoreTypeDefaultsToInMemory() {
+        assertThat(CoordinatorOptions.STATE_STORE_TYPE.defaultValue())
+                .isEqualTo(StateStoreType.IN_MEMORY);
+        assertThat(CoordinatorOptions.STATE_STORE_TYPE.key())
+                .isEqualTo("state-store.type");
+        assertThat(CoordinatorOptions.STATE_STORE_TYPE.typeClass())
+                .isEqualTo(StateStoreType.class);
+    }
+
+    @Test
+    void stateStoreTypeResolvedFromConfig() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(
+                Map.of("state-store.type", "JDBC"));
+        assertThat(config.get(CoordinatorOptions.STATE_STORE_TYPE))
+                .isEqualTo(StateStoreType.JDBC);
+    }
+
+    @Test
+    void stateStoreTypeDefaultsToInMemoryWithEmptyConfig() {
+        PangrovaConfiguration emptyConfig = PangrovaConfiguration.fromYaml(Map.of());
+        assertThat(emptyConfig.get(CoordinatorOptions.STATE_STORE_TYPE))
+                .isEqualTo(StateStoreType.IN_MEMORY);
+    }
+
+    @Test
+    void metadataJdbcUrlHasNoDefault() {
+        assertThat(CoordinatorOptions.METADATA_JDBC_URL.defaultValue()).isNull();
+        assertThat(CoordinatorOptions.METADATA_JDBC_URL.hasDefaultValue()).isFalse();
+    }
+
+    @Test
+    void metadataCacheL1MaxSizeDefaultsTo10000() {
+        assertThat(CoordinatorOptions.METADATA_CACHE_L1_MAX_SIZE.defaultValue()).isEqualTo(10_000);
+    }
+
+    @Test
+    void metadataCacheL1TtlDefaultsTo60Seconds() {
+        assertThat(CoordinatorOptions.METADATA_CACHE_L1_TTL.defaultValue()).isEqualTo(Duration.ofSeconds(60));
+    }
+
+    // ---- R1.3: Empty config enables all modules except security ----
+
+    @Test
+    void emptyConfigEnablesAllModulesExceptSecurity() {
+        PangrovaConfiguration emptyConfig = PangrovaConfiguration.fromYaml(Map.of());
+
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.METADATA_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.GOVERNANCE_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.RESILIENCE_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.STREAMING_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.TENANT_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.INDEXING_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.OBSERVABILITY_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.SECURITY_ENABLED)).isFalse();
+    }
+}

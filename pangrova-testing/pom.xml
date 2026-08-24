@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.pangrova</groupId>
+        <artifactId>pangrova-bom</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>pangrova-testing</artifactId>
+    <packaging>pom</packaging>
+    <name>Pangrova Testing</name>
+    <description>Testing framework parent for Pangrova: common, benchmark, e2e, fuzzer</description>
+
+    <modules>
+        <module>pangrova-test-common</module>
+        <module>pangrova-test-benchmark</module>
+        <module>pangrova-test-e2e</module>
+        <module>pangrova-test-fuzzer</module>
+        <module>pangrova-test-chaos</module>
+        <module>pangrova-test-smoke</module>
+    </modules>
+</project>

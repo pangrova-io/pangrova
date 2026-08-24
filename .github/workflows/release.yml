@@ -1,0 +1,170 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  native-build:
+    name: Native Build (${{ matrix.platform.name }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        platform:
+          - name: linux-x86_64
+            runner: ubuntu-latest
+            os: linux
+            arch: x86_64
+            lib-ext: so
+            classifier: linux-x86_64
+            docker-build: true
+            docker-platform: linux/amd64
+          - name: linux-aarch_64
+            runner: ubuntu-24.04-arm
+            os: linux
+            arch: aarch64
+            lib-ext: so
+            classifier: linux-aarch_64
+            docker-build: true
+            docker-platform: linux/arm64
+          - name: osx-x86_64
+            runner: macos-13
+            os: osx
+            arch: x86_64
+            lib-ext: dylib
+            classifier: osx-x86_64
+            docker-build: false
+          - name: osx-aarch_64
+            runner: macos-14
+            os: osx
+            arch: aarch64
+            lib-ext: dylib
+            classifier: osx-aarch_64
+            docker-build: false
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Docker reproducible build (Linux) ---
+      - name: Set up QEMU (cross-arch Docker builds)
+        if: matrix.platform.docker-build
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: matrix.platform.docker-build
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build native library via Docker (reproducible)
+        if: matrix.platform.docker-build
+        run: |
+          docker buildx build \
+            -f docker/Dockerfile.native-build \
+            --platform ${{ matrix.platform.docker-platform }} \
+            --target output \
+            --output type=local,dest=native-output \
+            .
+          mkdir -p native-lib
+          cp native-output/libpangrova_native.${{ matrix.platform.lib-ext }} native-lib/
+
+      # --- Direct build (macOS — no Docker) ---
+      - name: Cache native deps + Velox
+        if: "!matrix.platform.docker-build"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/native-deps
+            ~/.pangrova/velox
+          key: pangrova-native-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja
+
+      - name: Setup native build environment (macOS)
+        if: "!matrix.platform.docker-build"
+        run: ./pangrova-worker-native/bin/setup-native-build-env.sh
+
+      - name: CMake configure (macOS)
+        if: "!matrix.platform.docker-build"
+        run: |
+          source ~/.pangrova/env.sh
+          cmake --preset dev-release -DPANGROVA_BUILD_TESTS=OFF
+        working-directory: pangrova-worker-native
+
+      - name: CMake build (macOS)
+        if: "!matrix.platform.docker-build"
+        run: |
+          cmake --build build
+          mkdir -p ../native-lib
+          cp build/libpangrova_native.${{ matrix.platform.lib-ext }} ../native-lib/
+        working-directory: pangrova-worker-native
+
+      # --- Stage native lib into classifier JAR resource path ---
+      - name: Stage native library for Maven packaging
+        run: |
+          RESOURCE_DIR=pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}
+          mkdir -p "${RESOURCE_DIR}"
+          cp native-lib/libpangrova_native.${{ matrix.platform.lib-ext }} "${RESOURCE_DIR}/"
+          echo "Staged native library:"
+          find pangrova-native-bundle/src/main/resources -type f
+
+      # --- Build classifier JAR ---
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build classifier JAR
+        run: |
+          mvn -B package -pl pangrova-native-bundle \
+            -Dnative.platform.classifier=${{ matrix.platform.classifier }} \
+            -DskipTests
+
+      - name: Upload classifier JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-bundle-${{ matrix.platform.classifier }}
+          path: pangrova-native-bundle/target/pangrova-native-bundle-*-${{ matrix.platform.classifier }}.jar
+          retention-days: 1
+
+      - name: Upload raw native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-lib-${{ matrix.platform.name }}
+          path: native-lib/libpangrova_native.*
+          retention-days: 1
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: native-build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build Java modules
+        run: mvn -B clean package -DskipTests -Prelease -pl '!pangrova-native-bundle'
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/native-bundle-*/pangrova-native-bundle-*.jar
+            artifacts/native-lib-*/libpangrova_native.*

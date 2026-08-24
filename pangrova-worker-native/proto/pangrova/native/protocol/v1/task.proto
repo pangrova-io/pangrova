@@ -1,0 +1,114 @@
+syntax = "proto3";
+package pangrova.native.protocol.v1;
+
+option java_package = "org.pangrova.native.protocol.v1";
+option java_multiple_files = true;
+
+import "pangrova/native/protocol/v1/common.proto";
+import "pangrova/native/protocol/v1/split.proto";
+import "pangrova/native/protocol/v1/shuffle.proto";
+
+enum TaskType {
+  TASK_TYPE_UNSPECIFIED = 0;
+  TASK_TYPE_READ = 1;
+  TASK_TYPE_WRITE = 2;
+  TASK_TYPE_SHUFFLE_READ = 3;
+  TASK_TYPE_SHUFFLE_WRITE = 4;
+}
+
+// Task execution state.
+// Field values MUST match Java proto TaskState exactly.
+// See docs/architecture/20-java-native-protocol.md §5 for alignment contract.
+enum TaskState {
+  TASK_STATE_UNSPECIFIED = 0;
+  TASK_STATE_PENDING = 1;
+  TASK_STATE_RUNNING = 2;
+  TASK_STATE_FLUSHING = 3;
+  TASK_STATE_FINISHED = 4;
+  TASK_STATE_FAILED = 5;
+  TASK_STATE_CANCELLED = 6;
+}
+
+message TaskRequest {
+  string task_id = 1;
+  string query_id = 2;
+  bytes substrait_plan = 3;
+  repeated SplitInfo splits = 4;
+  ResourceLimit resource_limit = 5;
+  map<string, string> session_properties = 6;
+  TaskType task_type = 7;
+  int32 stage_id = 8;
+  reserved 9; // Was java_split_bytes — removed, field number permanently reserved.
+  int32 partition_id = 10;
+  WriteConfig write_config = 11;
+  ShuffleConfig shuffle_config = 12;
+  string tenant_id = 13;
+  string principal = 14;
+  // Query-level deadline (epoch millis). The native executor aborts if wall time exceeds this.
+  int64 deadline_epoch_ms = 15;
+}
+
+// Write task configuration forwarded from Java coordinator.
+message WriteConfig {
+  string target_table = 1;
+  string write_mode = 2;
+  repeated string partition_spec = 3;
+  string transaction_id = 4;
+  FileFormat file_format = 5;
+  int64 target_file_size = 6;
+}
+
+message TaskStatus {
+  string task_id = 1;
+  TaskState state = 2;
+  string error_message = 3;
+  string error_code = 4;
+  // C++ stack trace captured at the point of failure.
+  // Propagated to Java for debugging without native core dumps.
+  string native_stack_trace = 5;
+}
+
+message OperatorStats {
+  string operator_type = 1;
+  int64 input_rows = 2;
+  int64 output_rows = 3;
+  int64 input_bytes = 4;
+  int64 output_bytes = 5;
+  int64 cpu_nanos = 6;
+  int64 wall_nanos = 7;
+  string plan_node_id = 8;
+  int64 memory_bytes = 9;
+  int64 peak_memory_bytes = 10;
+  int64 spill_bytes = 11;
+}
+
+message TaskStats {
+  int64 rows_read = 1;
+  int64 bytes_read = 2;
+  int64 rows_written = 3;
+  int64 bytes_written = 4;
+  int64 elapsed_time_ms = 5;
+  int64 cpu_time_ms = 6;
+  int64 memory_bytes = 7;
+  int64 peak_memory_bytes = 8;
+  int64 spill_bytes = 9;
+  int64 cache_hit_bytes = 10;
+  int64 cache_miss_bytes = 11;
+  repeated OperatorStats operator_stats = 12;
+  int64 backpressure_wait_ms = 13;
+}
+
+// Command envelope for creating a native task executor.
+message CreateExecutorCommand {
+  bytes task_request = 1;
+  bool is_result_task = 2;
+}
+
+// Response payload for NATIVE_COMMAND_GET_CAPABILITIES.
+message NativeCapabilityResponse {
+  repeated string supported_rel_types = 1;
+  repeated string supported_expr_types = 2;
+  repeated string supported_functions = 3;
+  // Native engine version (historically named velox_version in wire format — retained for compatibility)
+  string velox_version = 4;
+}

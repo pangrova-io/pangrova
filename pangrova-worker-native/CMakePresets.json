@@ -1,0 +1,138 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "20",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "hermetic-base",
+      "hidden": true,
+      "inherits": "base",
+      "description": "Base preset using hermetic deps from ~/.pangrova/native-deps",
+      "cacheVariables": {
+        "PANGROVA_DEPS_PREFIX": "$env{PANGROVA_DEPS_PREFIX}",
+        "CMAKE_PREFIX_PATH": "$env{PANGROVA_DEPS_PREFIX};$env{VELOX_HOME}/deps-install",
+        "CMAKE_IGNORE_PATH": "/opt/local;/opt/homebrew",
+        "CMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY": "OFF",
+        "VELOX_HOME": "$env{VELOX_HOME}",
+        "VELOX_BUILD_DIR": "$env{VELOX_BUILD_DIR}",
+        "VELOX_INSTALL_PREFIX": "$env{VELOX_INSTALL_PREFIX}",
+        "ARROW_FLIGHT_HOME": "$env{ARROW_FLIGHT_HOME}",
+        "LANCE_FFI_PREFIX": "$env{LANCE_FFI_PREFIX}"
+      }
+    },
+    {
+      "name": "dev-debug",
+      "inherits": "hermetic-base",
+      "displayName": "Dev Debug (hermetic deps, tests ON)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PANGROVA_BUILD_TESTS": "ON",
+        "PANGROVA_ENABLE_OTEL": "ON"
+      }
+    },
+    {
+      "name": "dev-release",
+      "inherits": "hermetic-base",
+      "displayName": "Dev Release — recommended default (hermetic deps, tests ON)",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PANGROVA_BUILD_TESTS": "ON",
+        "PANGROVA_ENABLE_OTEL": "ON"
+      }
+    },
+    {
+      "name": "sanitizer-base",
+      "hidden": true,
+      "inherits": "hermetic-base",
+      "description": "Base preset for sanitizer builds (Debug, tests ON, frame pointers)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PANGROVA_BUILD_TESTS": "ON",
+        "PANGROVA_ENABLE_OTEL": "OFF"
+      }
+    },
+    {
+      "name": "dev-asan",
+      "inherits": "sanitizer-base",
+      "displayName": "Dev AddressSanitizer (heap/stack/global overflow, use-after-free)",
+      "binaryDir": "${sourceDir}/build-asan",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-fsanitize=address -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=address"
+      }
+    },
+    {
+      "name": "dev-msan",
+      "inherits": "sanitizer-base",
+      "displayName": "Dev MemorySanitizer (uninitialized memory reads)",
+      "binaryDir": "${sourceDir}/build-msan",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-fsanitize=memory -fno-omit-frame-pointer -fsanitize-memory-track-origins=2",
+        "CMAKE_CXX_FLAGS": "-fsanitize=memory -fno-omit-frame-pointer -fsanitize-memory-track-origins=2",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=memory",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=memory"
+      }
+    },
+    {
+      "name": "dev-ubsan",
+      "inherits": "sanitizer-base",
+      "displayName": "Dev UndefinedBehaviorSanitizer (UB detection)",
+      "binaryDir": "${sourceDir}/build-ubsan",
+      "cacheVariables": {
+        "CMAKE_C_FLAGS": "-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=all",
+        "CMAKE_CXX_FLAGS": "-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize-recover=all",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=undefined"
+      }
+    },
+    {
+      "name": "ci-linux-x86_64",
+      "inherits": "hermetic-base",
+      "displayName": "CI Linux x86_64 (release, tests OFF)",
+      "binaryDir": "${sourceDir}/build-ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PANGROVA_BUILD_TESTS": "OFF",
+        "PANGROVA_ENABLE_OTEL": "ON"
+      }
+    },
+    {
+      "name": "ci-osx-aarch64",
+      "inherits": "hermetic-base",
+      "displayName": "CI macOS aarch64 (release, tests OFF)",
+      "binaryDir": "${sourceDir}/build-ci",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PANGROVA_BUILD_TESTS": "OFF",
+        "PANGROVA_ENABLE_OTEL": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "dev-debug",       "configurePreset": "dev-debug" },
+    { "name": "dev-release",     "configurePreset": "dev-release" },
+    { "name": "dev-asan",        "configurePreset": "dev-asan" },
+    { "name": "dev-msan",        "configurePreset": "dev-msan" },
+    { "name": "dev-ubsan",       "configurePreset": "dev-ubsan" },
+    { "name": "ci-linux-x86_64", "configurePreset": "ci-linux-x86_64" },
+    { "name": "ci-osx-aarch64",  "configurePreset": "ci-osx-aarch64" }
+  ],
+  "testPresets": [
+    { "name": "dev-debug",   "configurePreset": "dev-debug",   "output": { "outputOnFailure": true } },
+    { "name": "dev-release", "configurePreset": "dev-release", "output": { "outputOnFailure": true } },
+    { "name": "dev-asan",    "configurePreset": "dev-asan",    "output": { "outputOnFailure": true }, "environment": { "ASAN_OPTIONS": "detect_container_overflow=0:detect_leaks=1:halt_on_error=1", "LSAN_OPTIONS": "suppressions=${sourceDir}/sanitizer-suppressions/asan.supp" } },
+    { "name": "dev-msan",    "configurePreset": "dev-msan",    "output": { "outputOnFailure": true }, "environment": { "MSAN_OPTIONS": "suppressions=${sourceDir}/sanitizer-suppressions/msan.supp:halt_on_error=1" } },
+    { "name": "dev-ubsan",   "configurePreset": "dev-ubsan",   "output": { "outputOnFailure": true }, "environment": { "UBSAN_OPTIONS": "suppressions=${sourceDir}/sanitizer-suppressions/ubsan.supp:halt_on_error=1:print_stacktrace=1" } }
+  ]
+}

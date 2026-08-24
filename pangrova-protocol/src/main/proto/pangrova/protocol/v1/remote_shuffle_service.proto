@@ -1,0 +1,131 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1.shuffle";
+option java_multiple_files = true;
+
+// Remote Shuffle Service gRPC protocol.
+// Provides shuffle data externalization for fault tolerance and memory isolation.
+
+service ShuffleService {
+    // Register a shuffle before task dispatch. Allocates partition buffers.
+    rpc RegisterShuffle(RegisterShuffleRequest) returns (RegisterShuffleResponse);
+
+    // Client-streaming: write multiple batches in a single RPC call.
+    rpc WriteBatch(stream WriteBatchRequest) returns (WriteBatchResponse);
+
+    // Commit a partition, making data available for downstream reads.
+    rpc CommitPartition(CommitPartitionRequest) returns (CommitPartitionResponse);
+
+    // Server-streaming: read partition data. Blocks until CommitPartition is called.
+    // Maps to ExchangeReadMode.BLOCKING.
+    rpc ReadPartition(ReadPartitionRequest) returns (stream ReadBatchResponse);
+
+    // Server-streaming: read partition data as it arrives (before commit).
+    // Maps to ExchangeReadMode.STREAMING.
+    rpc ReadPartitionStreaming(ReadPartitionRequest) returns (stream ReadBatchResponse);
+
+    // Cleanup all shuffle data for a query.
+    rpc Cleanup(CleanupRequest) returns (CleanupResponse);
+
+    // Heartbeat from Worker to shuffle server for liveness detection.
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// --- Registration ---
+
+message RegisterShuffleRequest {
+    string query_id = 1;
+    int32 stage_id = 2;
+    int32 num_partitions = 3;
+    int64 estimated_bytes_per_partition = 4;
+    bool require_replication = 5;
+    // Optional: if set, use this ID instead of generating a new one (for replica registration).
+    string shuffle_id = 6;
+}
+
+message RegisterShuffleResponse {
+    string shuffle_id = 1;
+    repeated ShuffleEndpoint endpoints = 2;
+}
+
+message ShuffleEndpoint {
+    string host = 1;
+    int32 port = 2;
+    // Partition range assigned to this endpoint (inclusive).
+    int32 partition_start = 3;
+    int32 partition_end = 4;
+}
+
+// --- Write ---
+
+message WriteBatchRequest {
+    string shuffle_id = 1;
+    int32 partition_id = 2;
+    int64 sequence = 3;
+    // Arrow IPC serialized batch — passed through without deserialization.
+    bytes arrow_ipc_data = 4;
+    int32 uncompressed_size = 5;
+    CompressionCodec codec = 6;
+}
+
+message WriteBatchResponse {
+    int64 batches_accepted = 1;
+    int64 bytes_accepted = 2;
+}
+
+// --- Commit ---
+
+message CommitPartitionRequest {
+    string shuffle_id = 1;
+    int32 partition_id = 2;
+}
+
+message CommitPartitionResponse {
+    int64 total_bytes = 1;
+    int64 total_rows = 2;
+}
+
+// --- Read ---
+
+message ReadPartitionRequest {
+    string shuffle_id = 1;
+    int32 partition_id = 2;
+    // Optional: resume from a specific sequence (0 = start from beginning).
+    int64 start_sequence = 3;
+}
+
+message ReadBatchResponse {
+    bytes arrow_ipc_data = 1;
+    int64 sequence = 2;
+    bool is_last = 3;
+}
+
+// --- Cleanup ---
+
+message CleanupRequest {
+    string query_id = 1;
+}
+
+message CleanupResponse {
+    int64 partitions_cleaned = 1;
+    int64 bytes_freed = 2;
+}
+
+// --- Heartbeat ---
+
+message HeartbeatRequest {
+    string worker_id = 1;
+    int64 timestamp_ms = 2;
+}
+
+message HeartbeatResponse {
+    bool accepted = 1;
+}
+
+// --- Shared ---
+
+enum CompressionCodec {
+    NONE = 0;
+    LZ4 = 1;
+    ZSTD = 2;
+}

@@ -1,0 +1,120 @@
+{{- if .Values.multiTenancy.enabled }}
+{{- $root := . }}
+{{- range .Values.multiTenancy.tenants }}
+{{- $ns := .namespace | default (printf "pangrova-%s" .name) }}
+---
+# Default deny all ingress and egress traffic within the tenant namespace.
+# Only explicitly allowed traffic (same namespace, control plane, DNS) is permitted.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}-deny-all
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: tenant
+    tenant: {{ .name }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow intra-namespace traffic (pods within the same tenant can communicate)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}-allow-intra-namespace
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: tenant
+    tenant: {{ .name }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+  egress:
+    - to:
+        - podSelector: {}
+---
+# Allow DNS resolution (required for service discovery)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}-allow-dns
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: tenant
+    tenant: {{ .name }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+{{- if $root.Values.multiTenancy.networkPolicy.allowFromControlPlane }}
+# Allow ingress from the control-plane namespace (coordinator -> tenant workers)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .name }}-allow-control-plane
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: tenant
+    tenant: {{ .name }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $root.Values.namespace }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $root.Values.namespace }}
+{{- end }}
+{{- range $root.Values.multiTenancy.networkPolicy.additionalAllowedNamespaces }}
+---
+# Allow traffic from additional namespace: {{ . }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $.name }}-allow-{{ . }}
+  namespace: {{ $ns }}
+  labels:
+    app: pangrova
+    component: tenant
+    tenant: {{ $.name }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . }}
+{{- end }}
+{{- end }}
+{{- end }}

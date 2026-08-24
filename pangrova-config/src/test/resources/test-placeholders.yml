@@ -1,0 +1,4 @@
+database:
+  password: ${DB_PASSWORD}
+  url: ${DB_URL:-jdbc:h2:mem:fallback}
+  username: ${DB_USER:-admin}

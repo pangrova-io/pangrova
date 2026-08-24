@@ -1,0 +1,262 @@
+package org.pangrova.coordinator.index.lifecycle;
+
+import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
+import org.pangrova.indexing.config.IndexingConfig;
+import org.pangrova.indexing.storage.IndexStorageManager;
+import org.pangrova.metadata.catalog.CatalogDescriptor;
+import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.metadata.index.model.IndexFileMapping;
+import org.pangrova.metadata.model.QualifiedTableRef;
+import org.pangrova.metadata.model.TableMetadata;
+import org.pangrova.metadata.store.MetadataStore;
+import org.pangrova.metadata.sync.SyncResult;
+import org.pangrova.spi.index.IndexDescriptor;
+import org.pangrova.spi.index.IndexState;
+import org.pangrova.spi.index.IndexType;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Verifies index versioning with generation fencing in GC:
+ * GC keeps generation N-1 (rollback), deletes generation N-2 and older.
+ */
+@DisplayName("Index GC Generation Fencing")
+class IndexGcGenerationFencingTest {
+
+    private IndexGarbageCollector gc;
+
+    @AfterEach
+    void tearDown() {
+        if (gc != null) {
+            gc.close();
+        }
+    }
+
+    @Test
+    @DisplayName("GC skips mappings from current generation (N)")
+    void gcSkipsCurrentGeneration() {
+        var store = new GenerationTrackingStore();
+        // Index at generation 3
+        IndexDescriptor descriptor = buildDescriptor("idx-1", 3, IndexState.READY);
+        store.addDescriptor(descriptor);
+        // Mapping at generation 3 (current) — should be skipped
+        store.addStaleMapping(buildMapping("idx-1", "/data/f1.parquet", "/idx/f1.idx", 3));
+
+        gc = buildGc(store);
+        GcResult result = gc.runGc();
+
+        assertThat(result.orphanedCount()).isZero();
+        assertThat(store.removedMappings).isEmpty();
+    }
+
+    @Test
+    @DisplayName("GC skips mappings from generation N-1 (rollback)")
+    void gcSkipsRollbackGeneration() {
+        var store = new GenerationTrackingStore();
+        // Index at generation 3
+        IndexDescriptor descriptor = buildDescriptor("idx-1", 3, IndexState.READY);
+        store.addDescriptor(descriptor);
+        // Mapping at generation 2 (N-1) — should be kept for rollback
+        store.addStaleMapping(buildMapping("idx-1", "/data/f2.parquet", "/idx/f2.idx", 2));
+
+        gc = buildGc(store);
+        GcResult result = gc.runGc();
+
+        assertThat(result.orphanedCount()).isZero();
+        assertThat(store.removedMappings).isEmpty();
+    }
+
+    @Test
+    @DisplayName("GC deletes mappings from generation N-2 and older")
+    void gcDeletesOldGenerations() {
+        var store = new GenerationTrackingStore();
+        // Index at generation 3
+        IndexDescriptor descriptor = buildDescriptor("idx-1", 3, IndexState.READY);
+        store.addDescriptor(descriptor);
+        // Mapping at generation 1 (N-2) — should be deleted
+        store.addStaleMapping(buildMapping("idx-1", "/data/old.parquet", "/idx/old.idx", 1));
+
+        gc = buildGc(store);
+        GcResult result = gc.runGc();
+
+        assertThat(result.orphanedCount()).isEqualTo(1);
+        assertThat(store.removedMappings).hasSize(1);
+        assertThat(store.removedMappings.get(0)).isEqualTo("idx-1:/data/old.parquet");
+    }
+
+    @Test
+    @DisplayName("GC deletes generation 0 when current is 3")
+    void gcDeletesVeryOldGeneration() {
+        var store = new GenerationTrackingStore();
+        IndexDescriptor descriptor = buildDescriptor("idx-1", 3, IndexState.READY);
+        store.addDescriptor(descriptor);
+        // Generation 0 — well below N-2 threshold
+        store.addStaleMapping(buildMapping("idx-1", "/data/ancient.parquet", "/idx/ancient.idx", 0));
+
+        gc = buildGc(store);
+        GcResult result = gc.runGc();
+
+        assertThat(result.orphanedCount()).isEqualTo(1);
+        assertThat(store.removedMappings).contains("idx-1:/data/ancient.parquet");
+    }
+
+    @Test
+    @DisplayName("GC skips BUILDING state indexes regardless of generation")
+    void gcSkipsBuildingState() {
+        var store = new GenerationTrackingStore();
+        IndexDescriptor descriptor = buildDescriptor("idx-1", 3, IndexState.BUILDING);
+        store.addDescriptor(descriptor);
+        // Old generation but BUILDING — should be skipped
+        store.addStaleMapping(buildMapping("idx-1", "/data/building.parquet", "/idx/building.idx", 0));
+
+        gc = buildGc(store);
+        GcResult result = gc.runGc();
+
+        assertThat(result.orphanedCount()).isZero();
+        assertThat(store.removedMappings).isEmpty();
+    }
+
+    @Test
+    @DisplayName("Mixed generations: only N-2 and older are deleted")
+    void gcMixedGenerations() {
+        var store = new GenerationTrackingStore();
+        IndexDescriptor descriptor = buildDescriptor("idx-1", 4, IndexState.READY);
+        store.addDescriptor(descriptor);
+
+        // Gen 4 (current) — keep
+        store.addStaleMapping(buildMapping("idx-1", "/data/gen4.parquet", "/idx/gen4.idx", 4));
+        // Gen 3 (N-1) — keep for rollback
+        store.addStaleMapping(buildMapping("idx-1", "/data/gen3.parquet", "/idx/gen3.idx", 3));
+        // Gen 2 (N-2) — delete
+        store.addStaleMapping(buildMapping("idx-1", "/data/gen2.parquet", "/idx/gen2.idx", 2));
+        // Gen 1 (N-3) — delete
+        store.addStaleMapping(buildMapping("idx-1", "/data/gen1.parquet", "/idx/gen1.idx", 1));
+
+        gc = buildGc(store);
+        GcResult result = gc.runGc();
+
+        assertThat(result.orphanedCount()).isEqualTo(2);
+        assertThat(store.removedMappings)
+                .containsExactlyInAnyOrder("idx-1:/data/gen2.parquet", "idx-1:/data/gen1.parquet");
+    }
+
+    // ── Helpers ──
+
+    private IndexGarbageCollector buildGc(GenerationTrackingStore store) {
+        var config = new IndexingConfig("/tmp/test-gc-gen", false, null, null);
+        var resolver = buildResolver();
+        var deps = new IndexGcContext(store, new IndexStorageManager(), resolver, config);
+        return new IndexGarbageCollector(deps, null);
+    }
+
+    private static ConnectorAccessorResolver buildResolver() {
+        var persistence = new StubMetadataStore();
+        var registry = new CatalogRegistry(persistence, desc -> null, null, null);
+        registry.initialize();
+        return new ConnectorAccessorResolver(registry);
+    }
+
+    private static IndexDescriptor buildDescriptor(String indexId, int generation, IndexState state) {
+        return new IndexDescriptor(
+                indexId, "test-index", "cat", "sch", "tbl",
+                List.of("col1"), IndexType.BITMAP, Map.of(),
+                state, null, generation, null, null,
+                Instant.now().minusSeconds(3600), Instant.now(), "default");
+    }
+
+    private static IndexFileMapping buildMapping(String indexId, String dataFile,
+                                                  String indexFile, int generation) {
+        return new IndexFileMapping(
+                indexId, dataFile, indexFile,
+                100L, 1024L, "abc123", generation, "snap-1", 1L,
+                Instant.now().minusSeconds(7200), 0L);
+    }
+
+    /**
+     * In-memory IndexMetadataStore that tracks generation-based GC behavior.
+     * Stale mappings are returned directly; removal is tracked for assertions.
+     */
+    static final class GenerationTrackingStore implements IndexMetadataStore {
+        private final Map<String, IndexDescriptor> descriptors = new HashMap<>();
+        private final List<IndexFileMapping> staleMappings = new ArrayList<>();
+        final CopyOnWriteArrayList<String> removedMappings = new CopyOnWriteArrayList<>();
+
+        void addDescriptor(IndexDescriptor d) { descriptors.put(d.indexId(), d); }
+        void addStaleMapping(IndexFileMapping m) { staleMappings.add(m); }
+
+        @Override public void registerIndex(IndexDescriptor d) {}
+        @Override public void updateIndexState(String id, String s, Instant t) {}
+        @Override public Optional<IndexDescriptor> findIndex(String id) {
+            return Optional.ofNullable(descriptors.get(id));
+        }
+        @Override public List<IndexDescriptor> findIndexesByTable(String c, String s, String t) { return List.of(); }
+        @Override public List<IndexDescriptor> findReadyIndexesForColumns(
+                String c, String s, String t, List<String> cols, boolean includeStale) { return List.of(); }
+        @Override public void dropIndex(String id, Instant t) {}
+        @Override public void purgeIndex(String id) {}
+        @Override public void registerIndexFile(IndexFileMapping m) {}
+        @Override public void batchRegisterIndexFiles(List<IndexFileMapping> m) {}
+        @Override public List<IndexFileMapping> getIndexFileMappings(String id) { return List.of(); }
+        @Override public Map<String, Map<String, String>> batchGetIndexFileMappings(
+                List<String> ids, List<String> paths) { return Map.of(); }
+        @Override public void removeIndexFileMapping(String id, String path) {
+            removedMappings.add(id + ":" + path);
+        }
+        @Override public boolean removeIndexFileMappingIfState(String indexId, String dataFilePath,
+                                                                IndexState expectedState) {
+            IndexDescriptor desc = descriptors.get(indexId);
+            if (desc != null && desc.state() == expectedState) {
+                removedMappings.add(indexId + ":" + dataFilePath);
+                return true;
+            }
+            return false;
+        }
+        @Override public List<String> filterUnindexedFiles(String id, List<String> paths) { return List.of(); }
+        @Override public void markOrphanedByDataFiles(String id, List<String> paths) {}
+        @Override public List<IndexFileMapping> listStaleFileMappings(long ms) { return staleMappings; }
+        @Override public List<IndexFileMapping> listStaleFileMappings(long ms, Instant createdBefore) {
+            return staleMappings;
+        }
+        @Override public void updateLastVerifiedAt(String id, String path, long ts) {}
+        @Override public List<IndexDescriptor> findIndexesByColumn(
+                String c, String s, String t, String col) { return List.of(); }
+        @Override public void renameColumnInIndexes(
+                String c, String s, String t, String old, String n) {}
+        @Override public void dropAllIndexesForTable(String c, String s, String t, Instant ts) {}
+        @Override public void renameTable(String c, String s, String old, String n) {}
+        @Override public List<IndexDescriptor> findIndexesByState(IndexState state) { return List.of(); }
+        @Override public void updateLastIndexedSnapshotId(String id, String snap) {}
+        @Override public Map<String, IndexDescriptor> findIndexesByIds(List<String> indexIds) {
+            Map<String, IndexDescriptor> result = new HashMap<>();
+            for (String id : indexIds) {
+                IndexDescriptor d = descriptors.get(id);
+                if (d != null) result.put(id, d);
+            }
+            return result;
+        }
+    }
+
+    /** Minimal MetadataStore for CatalogRegistry initialization. */
+    static final class StubMetadataStore implements MetadataStore {
+        @Override public void saveTable(TableMetadata m) {}
+        @Override public Optional<TableMetadata> loadTable(String c, String s, String t) { return Optional.empty(); }
+        @Override public void deleteTable(String c, String s, String t) {}
+        @Override public List<QualifiedTableRef> searchTables(String p) { return List.of(); }
+        @Override public void saveCatalogDescriptor(CatalogDescriptor d) {}
+        @Override public Optional<CatalogDescriptor> getCatalogDescriptor(String n) { return Optional.empty(); }
+        @Override public void deleteCatalogDescriptor(String n) {}
+        @Override public List<CatalogDescriptor> listAllCatalogDescriptors() { return List.of(); }
+        @Override public Optional<Instant> getLastSyncTime(String c) { return Optional.empty(); }
+        @Override public void updateSyncTime(String c, Instant t) {}
+        @Override public void recordSyncHistory(SyncResult r) {}
+        @Override public void saveSchemas(String c, List<String> s) {}
+    }
+}

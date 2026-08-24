@@ -1,0 +1,84 @@
+# E2E Test Failures Summary
+# Total: 17 failures
+# Generated from surefire-reports
+
+## Category A: Multi-Split Data Loss (Expected more rows than received)
+## Root cause: Result fetch race condition - coordinator marks query FINISHED before native task completes all splits
+
+1. ha.CoordinatorHaE2ETest$SplitBrainProtection
+   Error: Expected size: 3 but was: 1
+   Detail: Only got 1 row [id=1], missing 2 rows from other splits
+
+2. memory.MemorySpillE2ETest$NoDoubleAccounting
+   Error: Expected size: 5 but was: 3
+   Detail: Got 3 categories (cat_1, cat_2, cat_3), missing 2 categories from other data files
+
+3. optimizer.QueryOptimizationE2ETest$RuntimeFilter
+   Error: Expected size: 20 but was: 10
+   Detail: Got exactly half (10/20) - only one of two data files read
+
+4. pipeline.FullPipelineE2ETest$MixedWorkload
+   Error: Expected size: 2 but was: 1
+   Detail: Got 1 row [id=0, val=0], missing row from second INSERT
+
+5. streaming.StreamingCdcE2ETest$CheckpointContinuation
+   Error: Expected size: 3 but was: 2
+   Detail: Got [id=2,batch=2] and [id=3,batch=3], missing first batch
+
+## Category B: JOIN/Shuffle returns 0 rows (multi-stage queries)
+## Root cause: Shuffle exchange or multi-stage DAG dispatch issue
+
+6. memory.MemorySpillE2ETest$HashJoinSpill
+   Error: Expected size: 100 but was: 0
+   Detail: JOIN query returned empty result
+
+7. optimizer.QueryOptimizationE2ETest$MultiWayJoin
+   Error: Expected size: 2 but was: 0
+   Detail: Multi-way JOIN returned empty result
+
+8. shuffle.ShuffleFaultToleranceE2ETest$LargeShuffleCompletes
+   Error: Expected size: 50 but was: 0
+   Detail: Large shuffle query returned empty result
+
+9. observability.ObservabilityE2ETest$MultiStageObservable
+   Error: Expected size: 2 but was: 0
+   Detail: Multi-stage observable query returned empty result
+
+10. indexing.IndexE2ETest$PreFilterPushdown
+    Error: Expected size: 10 but was: 0
+    Detail: Index pre-filter pushdown query returned empty result
+
+## Category C: DELETE/DML not taking effect
+## Root cause: DELETE WHERE clause not properly applied or stale reads
+
+11. optimizer.QueryOptimizationE2ETest$NullWhereDelete
+    Error: Expected size: 2 but was: 3
+    Detail: DELETE WHERE val IS NULL did not remove the null row
+
+12. write.WriteDmlTransactionE2ETest$UpdateDeleteMerge
+    Error: MERGE DAG dispatch timed out
+    Detail: MERGE INTO ... WHEN MATCHED THEN UPDATE ... WHEN NOT MATCHED THEN INSERT ... timed out
+
+## Category D: Unsupported Operations / Planner Errors
+
+13. shuffle.ShuffleFaultToleranceE2ETest$EphemeralFastFail
+    Error: UnsupportedOperationException
+    Detail: SELECT 1 UNION ALL SELECT 2 (tableless UNION ALL not supported)
+
+14. write.WriteDmlTransactionE2ETest$TimeTravel
+    Error: Object 'snapshots' not found
+    Detail: table.snapshots metadata table not supported in planner
+
+15. indexing.IndexE2ETest$UdfFallback
+    Error: No match found for function signature LENGTH(<CHARACTER>)
+    Detail: LENGTH() function not registered in planner
+
+## Category E: Security/Auth Issues
+
+16. security.SecurityEnforcementE2ETest$InsertSelectSourceAuth
+    Error: Expected size: 2 but was: 0
+    Detail: INSERT...SELECT with source table auth returned empty
+
+17. security.SecurityEnforcementE2ETest$RoleHierarchy
+    Error: Expected size: 0 but was: 1
+    Detail: Role hierarchy check - viewer should not see admin data but got 1 row

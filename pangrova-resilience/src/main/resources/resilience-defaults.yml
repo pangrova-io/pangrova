@@ -1,0 +1,89 @@
+resilience:
+  services:
+    coordinator-to-metadata:
+      circuitBreaker:
+        failureRateThreshold: 50
+        slowCallRateThreshold: 80
+        slowCallDurationMs: 5000
+        minimumNumberOfCalls: 10
+        slidingWindowSize: 100
+        waitDurationInOpenStateMs: 30000
+        permittedNumberOfCallsInHalfOpenState: 3
+      retry:
+        maxAttempts: 3
+        waitDurationMs: 500
+        backoffMultiplier: 2.0
+        maxWaitDurationMs: 10000
+      bulkhead:
+        maxConcurrentCalls: 20
+        maxWaitDurationMs: 500
+      rateLimiter:
+        limitForPeriod: 200
+        limitRefreshPeriodMs: 1000
+        timeoutDurationMs: 500
+
+    coordinator-to-catalog:
+      circuitBreaker:
+        failureRateThreshold: 50
+        slowCallRateThreshold: 80
+        slowCallDurationMs: 8000
+        minimumNumberOfCalls: 8
+        slidingWindowSize: 60
+        waitDurationInOpenStateMs: 45000
+        permittedNumberOfCallsInHalfOpenState: 3
+      retry:
+        maxAttempts: 3
+        waitDurationMs: 1000
+        backoffMultiplier: 2.0
+        maxWaitDurationMs: 15000
+      bulkhead:
+        maxConcurrentCalls: 30
+        maxWaitDurationMs: 1000
+      rateLimiter:
+        limitForPeriod: 150
+        limitRefreshPeriodMs: 1000
+        timeoutDurationMs: 500
+
+    coordinator-query-admission:
+      circuitBreaker:
+        failureRateThreshold: 50
+        slowCallRateThreshold: 100
+        slowCallDurationMs: 30000
+        minimumNumberOfCalls: 10
+        slidingWindowSize: 20
+        waitDurationInOpenStateMs: 30000
+        permittedNumberOfCallsInHalfOpenState: 3
+
+    coordinator-to-worker:
+      circuitBreaker:
+        failureRateThreshold: 60
+        slowCallRateThreshold: 90
+        slowCallDurationMs: 10000
+        minimumNumberOfCalls: 5
+        slidingWindowSize: 50
+        waitDurationInOpenStateMs: 60000
+        permittedNumberOfCallsInHalfOpenState: 5
+      retry:
+        maxAttempts: 2
+        waitDurationMs: 1000
+        backoffMultiplier: 2.0
+        maxWaitDurationMs: 5000
+      bulkhead:
+        maxConcurrentCalls: 50
+        maxWaitDurationMs: 1000
+
+    worker-to-shuffle:
+      circuitBreaker:
+        failureRateThreshold: 70
+        minimumNumberOfCalls: 10
+        slidingWindowSize: 50
+        waitDurationInOpenStateMs: 15000
+        permittedNumberOfCallsInHalfOpenState: 3
+      retry:
+        maxAttempts: 3
+        waitDurationMs: 200
+        backoffMultiplier: 2.0
+        maxWaitDurationMs: 5000
+      bulkhead:
+        maxConcurrentCalls: 100
+        maxWaitDurationMs: 200

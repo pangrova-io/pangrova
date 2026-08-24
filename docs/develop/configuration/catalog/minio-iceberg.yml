@@ -1,0 +1,104 @@
+# ============================================================
+# Pangrova — Iceberg on MinIO (Self-Hosted S3-Compatible)
+#
+# Complete configuration for using Iceberg tables on MinIO or
+# other S3-compatible object stores (Ceph RADOS GW, Cloudflare R2,
+# Backblaze B2, Wasabi, DigitalOcean Spaces, etc.)
+#
+# Usage:
+#   cp minio-iceberg.yml /etc/pangrova/catalog/my_minio.yml
+#   # Edit endpoint, bucket, and credentials
+#   # Restart Coordinator to pick up new catalog
+#
+# Equivalent SQL:
+#   CREATE CATALOG my_minio USING iceberg
+#   WITH (
+#     'type' = 'hadoop',
+#     'warehouse' = 's3://pangrova-data/warehouse',
+#     's3.endpoint' = 'http://minio:9000',
+#     's3.path-style-access' = 'true'
+#   );
+# ============================================================
+
+connector: iceberg
+
+properties:
+
+  # ----------------------------------------------------------
+  # Catalog type
+  # ----------------------------------------------------------
+  type: hadoop
+
+  # ----------------------------------------------------------
+  # Warehouse path (required)
+  # ----------------------------------------------------------
+  # MinIO bucket path. Use s3:// protocol prefix.
+  # Ensure the bucket is created before starting Pangrova:
+  #   mc mb myminio/pangrova-data
+  warehouse: "s3://${PANGROVA_MINIO_BUCKET:-pangrova-data}/warehouse"
+
+  # ----------------------------------------------------------
+  # MinIO Endpoint (required)
+  # ----------------------------------------------------------
+  # MinIO API endpoint (NOT the console port).
+  # Default MinIO ports:
+  #   API:     9000
+  #   Console: 9001
+  #
+  # Use https:// when TLS is configured on MinIO.
+  s3.endpoint: "${PANGROVA_MINIO_ENDPOINT:-http://minio:9000}"
+
+  # ----------------------------------------------------------
+  # Path Style Access — MUST be true for MinIO
+  # ----------------------------------------------------------
+  # MinIO uses path-style URLs (bucket in path):
+  #   http://minio:9000/{bucket}/{key}
+  # NOT virtual-hosted-style:
+  #   http://{bucket}.minio:9000/{key}
+  s3.path-style-access: "true"
+
+  # ----------------------------------------------------------
+  # Region (optional for MinIO)
+  # ----------------------------------------------------------
+  # MinIO ignores region, but the S3 SDK requires one.
+  # Use any valid region string.
+  s3.region: "${AWS_REGION:-us-east-1}"
+
+  # ----------------------------------------------------------
+  # MinIO Credentials
+  # ----------------------------------------------------------
+  # MinIO uses access key / secret key authentication,
+  # identical to AWS S3 static credentials.
+  #
+  # Default MinIO root credentials (development only!):
+  #   MINIO_ROOT_USER=minioadmin
+  #   MINIO_ROOT_PASSWORD=minioadmin
+  #
+  # For production, create a dedicated user with limited policy:
+  #   mc admin user add myminio pangrova-user <password>
+  #   mc admin policy attach myminio readwrite --user pangrova-user
+  s3.access-key-id: "${MINIO_ACCESS_KEY:-minioadmin}"
+  s3.secret-access-key: "${MINIO_SECRET_KEY:-minioadmin}"
+
+  # ----------------------------------------------------------
+  # S3 Client Tuning
+  # ----------------------------------------------------------
+  # MinIO-specific tuning for local network:
+  # s3.max-connections: "50"
+  # s3.max-retries: "3"
+
+  # ----------------------------------------------------------
+  # TLS for MinIO (when configured)
+  # ----------------------------------------------------------
+  # If MinIO is configured with TLS:
+  # 1. Use https:// in s3.endpoint
+  # 2. Ensure the CA certificate is in the JVM trust store:
+  #    keytool -importcert -alias minio-ca \
+  #      -file /path/to/minio-ca.crt \
+  #      -keystore $JAVA_HOME/lib/security/cacerts
+
+  # ----------------------------------------------------------
+  # Table Defaults
+  # ----------------------------------------------------------
+  # write.format.default: "parquet"
+  # write.target-file-size-bytes: "134217728"   # 128 MB (smaller for dev)

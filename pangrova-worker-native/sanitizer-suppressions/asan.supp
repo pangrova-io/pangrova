@@ -1,0 +1,29 @@
+# AddressSanitizer suppressions for known third-party issues
+# Format: interceptor_name:library_or_function_pattern
+#
+# Velox memory pool uses custom allocators that ASan does not understand.
+# These are not real leaks — Velox manages its own memory lifecycle.
+leak:facebook::velox::memory::MemoryPoolImpl
+leak:facebook::velox::memory::MemoryAllocator
+leak:facebook::velox::memory::MemoryManager
+
+# Arrow Flight gRPC internals may report false positives on shutdown
+leak:grpc_core::
+leak:grpc_init
+leak:re2::RE2::DoMatch
+
+# Protobuf arena allocations are intentionally leaked at process exit
+leak:google::protobuf::Arena
+
+# folly internals (used by Velox)
+leak:folly::SingletonVault
+leak:folly::detail::SingletonHolder
+leak:folly::FallbackGetcpu
+
+# macOS process-wide runtime caches are intentionally retained until exit.
+leak:__CFTSDGetTable
+leak:_fetchInitializingClassList
+leak:__Balloc_D2A
+leak:libc++abi.dylib
+# Reproduces unchanged when the gtest filter selects zero tests.
+leak:_malloc_zone_memalign

@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: pangrova-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: worker
+spec:
+  serviceName: pangrova-worker
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app: pangrova
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: pangrova
+        component: worker
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/opt/pangrova/bin/pangrova.sh"]
+          args: ["start", "worker"]
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          env:
+            - name: PANGROVA_HOME
+              value: /opt/pangrova
+            - name: PANGROVA_CONF_DIR
+              value: /opt/pangrova/config
+            - name: PANGROVA_LOG_DIR
+              value: /opt/pangrova/logs
+            - name: PANGROVA_JAVA_OPTS
+              value: {{ .Values.worker.javaOpts | quote }}
+            - name: WORKER_COORDINATOR_URL
+              value: "http://pangrova-coordinator:8080"
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/pangrova/config/worker.yml
+              subPath: worker.yml
+            - name: logs
+              mountPath: /opt/pangrova/logs
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: /opt/pangrova/data
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: pangrova-config
+        - name: logs
+          emptyDir: {}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.persistence.storageClass }}
+        storageClassName: {{ .Values.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

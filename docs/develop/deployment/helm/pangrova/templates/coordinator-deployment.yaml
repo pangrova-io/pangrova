@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pangrova-coordinator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: coordinator
+spec:
+  replicas: {{ .Values.coordinator.replicas }}
+  selector:
+    matchLabels:
+      app: pangrova
+      component: coordinator
+  template:
+    metadata:
+      labels:
+        app: pangrova
+        component: coordinator
+    spec:
+      containers:
+        - name: coordinator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/opt/pangrova/bin/pangrova.sh"]
+          args: ["start", "coordinator"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PANGROVA_HOME
+              value: /opt/pangrova
+            - name: PANGROVA_CONF_DIR
+              value: /opt/pangrova/config
+            - name: PANGROVA_LOG_DIR
+              value: /opt/pangrova/logs
+            - name: PANGROVA_JAVA_OPTS
+              value: {{ .Values.coordinator.javaOpts | quote }}
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.coordinator.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/pangrova/config/coordinator.yml
+              subPath: coordinator.yml
+            - name: logs
+              mountPath: /opt/pangrova/logs
+      volumes:
+        - name: config
+          configMap:
+            name: pangrova-config
+        - name: logs
+          emptyDir: {}

@@ -1,0 +1,17 @@
+syntax = "proto3";
+package pangrova.protocol.v1;
+option java_package = "org.pangrova.protocol.v1";
+option java_multiple_files = true;
+
+message TransportTicket {
+    string query_id = 1;
+    string task_id = 2;
+    int32 output_partition = 3;
+    TicketType type = 4;
+}
+
+enum TicketType {
+    TICKET_TYPE_UNSPECIFIED = 0;
+    TICKET_TYPE_SHUFFLE = 1;
+    TICKET_TYPE_RESULT = 2;
+}

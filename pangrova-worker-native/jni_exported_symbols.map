@@ -1,0 +1,11 @@
+# Linker version script for libpangrova_native.so (Linux)
+# Only Java_* and JNI_* entry points are visible; all other symbols
+# (including jemalloc's malloc/free and je_* internals) become local.
+{
+    global:
+        Java_*;
+        JNI_OnLoad;
+        JNI_OnUnload;
+    local:
+        *;
+};

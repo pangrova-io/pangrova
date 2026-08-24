@@ -1,0 +1,35 @@
+package org.pangrova.coordinator.query.execution.dispatch.task;
+
+import java.util.List;
+
+import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
+import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
+import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
+import org.pangrova.coordinator.query.execution.dispatch.StatementResult;
+import org.pangrova.coordinator.query.statement.ShowDescribeExecutor;
+import org.pangrova.parser.ast.statement.ShowTablesStatement;
+import org.pangrova.spi.connector.data.TypedRow;
+
+/**
+ * Executes SHOW TABLES by delegating to {@link ShowDescribeExecutor#executeShowTables}.
+ */
+public final class ShowTablesTask implements MetadataTask<ShowTablesStatement> {
+
+    private final ShowDescribeExecutor executor;
+
+    public ShowTablesTask(ShowDescribeExecutor executor) {
+        this.executor = executor;
+    }
+
+    @Override
+    public StatementResult execute(ShowTablesStatement statement, StatementExecutionContext context) {
+        org.pangrova.spi.security.UserIdentity user = context.session() != null
+                ? context.session().userIdentity() : null;
+        List<TypedRow> rows = executor.executeShowTables(statement, user);
+        return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
+    }
+
+    private static List<String> extractColumnNames(List<TypedRow> rows) {
+        return rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
+    }
+}

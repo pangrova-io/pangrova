@@ -1,0 +1,154 @@
+package org.pangrova.worker.result;
+
+import static org.pangrova.common.util.Preconditions.checkNotNull;
+
+import org.pangrova.spi.execution.ResultTransport;
+import org.pangrova.spi.execution.TaskExecutor;
+import org.pangrova.worker.jni.NativeCommandBuilder;
+import org.pangrova.worker.jni.NativeCommandType;
+import org.pangrova.worker.jni.proto.StartResultServerPayload;
+import org.pangrova.worker.jni.proto.StartResultServerResponsePayload;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Native result transport delegating to C++ NativeResultServer via JNI.
+ *
+ * <p>Result data flows entirely within C++: the native engine's PartitionedOutputNode serializes
+ * via PrestoVectorSerde into OutputBufferManager, NativeResultServer pulls
+ * pre-serialized pages via getData(), and the coordinator fetches via data exchange
+ * protocol. Java only issues lifecycle control commands (start/stop server).</p>
+ *
+ *
+ * @see ResultTransport
+ */
+public final class NativeResultTransport implements ResultTransport {
+
+    private static final Logger LOG = LoggerFactory.getLogger(NativeResultTransport.class);
+
+    public static final int CMD_START_RESULT_SERVER = NativeCommandType.START_RESULT_SERVER;
+    static final int CMD_STOP_RESULT_SERVER = NativeCommandType.STOP_RESULT_SERVER;
+
+    private final TaskExecutor taskExecutor;
+    private final String localHost;
+    private volatile int boundPort = -1;
+
+    /**
+     * @param taskExecutor native task executor for issuing JNI commands
+     * @param localHost    hostname to report in result server endpoint
+     */
+    public NativeResultTransport(TaskExecutor taskExecutor, String localHost) {
+        this.taskExecutor = checkNotNull(taskExecutor, "taskExecutor must not be null");
+        this.localHost = localHost != null ? localHost : "localhost";
+    }
+
+    /**
+     * Starts the C++ NativeResultServer via JNI executeCommand.
+     *
+     * <p>The native side creates a NativeResultServer that pulls pre-serialized
+     * pages from the native OutputBufferManager and serves them via the data exchange protocol.
+     * The bound port is returned so the coordinator knows where to fetch results.</p>
+     *
+     * <p><b>Handle convention:</b> Uses {@code executorHandle=0} because this is a
+     * global (per-worker) command, not scoped to a specific task executor. The
+     * native dispatcher routes handle=0 commands to global handlers. This is safe
+     * because {@link org.pangrova.worker.execution.NativeTaskExecutor#acquireReadLock}
+     * only checks the {@code closed} flag, not the handle value.</p>
+     *
+     * @param preferredPort preferred port (0 for auto-assign)
+     * @return the actual bound port
+     * @throws IllegalStateException if the native command returns an invalid response
+     */
+    public int startServer(int preferredPort) {
+        byte[] commandPayload = buildStartResultServerPayload(preferredPort);
+        byte[] command = buildCommand(0, CMD_START_RESULT_SERVER, commandPayload);
+        byte[] response = taskExecutor.executeCommand(0, command);
+
+        int port = extractBoundPort(response);
+        this.boundPort = port;
+        LOG.info("event=native_result_server_started preferredPort={} boundPort={}",
+                preferredPort, port);
+        return port;
+    }
+
+    /**
+     * Stops the C++ NativeResultServer via JNI executeCommand.
+     *
+     * <p>The native side gracefully shuts down the NativeResultServer,
+     * draining in-flight data retrieval requests before termination.</p>
+     */
+    public void stopServer() {
+        if (boundPort < 0) {
+            LOG.debug("event=native_result_server_stop_skipped reason=not_started");
+            return;
+        }
+        byte[] command = buildCommand(0, CMD_STOP_RESULT_SERVER, null);
+        taskExecutor.executeCommand(0, command);
+        boundPort = -1;
+        LOG.info("event=native_result_server_stopped");
+    }
+
+    /**
+     * Returns the bound port of the NativeResultServer, or -1 if not started.
+     */
+    public int boundPort() {
+        return boundPort;
+    }
+
+    /**
+     * Returns the local hostname for the result server endpoint.
+     */
+    public String localHost() {
+        return localHost;
+    }
+
+    /**
+     * Delegates to {@link #stopServer()} to gracefully shut down the
+     * C++ NativeResultServer.
+     */
+    @Override
+    public void close() {
+        stopServer();
+    }
+
+    // --- Proto-generated payload encoding ---
+
+    /**
+     * Builds StartResultServerCommand payload using generated proto.
+     * Note: proto3 omits fields at default value (0), so we encode explicitly
+     * for port=0 to guarantee non-empty wire format on the native side.
+     */
+    public static byte[] buildStartResultServerPayload(int preferredPort) {
+        if (preferredPort == 0) {
+            // field 1 (preferred_port), wire type 0 (varint): tag=0x08, value=0x00
+            return new byte[]{0x08, 0x00};
+        }
+        return StartResultServerPayload.newBuilder()
+                .setPreferredPort(preferredPort)
+                .build()
+                .toByteArray();
+    }
+
+    /**
+     * Builds a NativeCommand proto envelope.
+     */
+    public static byte[] buildCommand(long executorHandle, int commandType, byte[] payload) {
+        return NativeCommandBuilder.buildCommand(executorHandle, commandType, payload);
+    }
+
+    /**
+     * Extracts bound_port from StartResultServerResponse via generated proto.
+     */
+    static int extractBoundPort(byte[] response) {
+        byte[] payload = NativeCommandBuilder.extractResultPayload(response);
+        if (payload == null || payload.length == 0) {
+            throw new IllegalStateException(
+                    "START_RESULT_SERVER command returned empty response");
+        }
+        try {
+            return StartResultServerResponsePayload.parseFrom(payload).getBoundPort();
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw new IllegalStateException("Failed to parse StartResultServerResponse", e);
+        }
+    }
+}

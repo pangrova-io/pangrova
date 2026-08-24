@@ -1,0 +1,23 @@
+# UndefinedBehaviorSanitizer suppressions for known third-party issues
+# Format: type:source_file_or_function_pattern
+#
+# Suppress known UB in third-party code that we cannot fix.
+
+# Velox uses intentional unsigned integer overflow in hash functions
+unsigned-integer-overflow:facebook::velox::*Hash*
+unsigned-integer-overflow:facebook::velox::common::hash::*
+
+# Protobuf generated code may trigger alignment warnings
+alignment:google::protobuf::*
+
+# folly uses type punning in some optimized paths
+alignment:folly::*
+vptr:folly::*
+
+# gRPC internals
+vptr:grpc_core::*
+nonnull-attribute:grpc_core::*
+
+# Arrow compute kernels use intentional unsigned overflow for hashing
+unsigned-integer-overflow:arrow::compute::*
+unsigned-integer-overflow:arrow::internal::*

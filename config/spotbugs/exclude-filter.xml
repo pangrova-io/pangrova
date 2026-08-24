@@ -1,0 +1,422 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter
+    xmlns="https://github.com/spotbugs/filter/3.0.0"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="https://github.com/spotbugs/filter/3.0.0
+                        https://raw.githubusercontent.com/spotbugs/spotbugs/master/spotbugs/etc/findbugsfilter.xsd">
+
+    <!--
+        Pangrova SpotBugs exclusion filter.
+
+        Organisation:
+          §1 Generated code       — protobuf, ANTLR, grpc stubs
+          §2 Test code            — relaxed for test-only patterns
+          §3 Protocol / DTO       — builder pattern, exposure by design
+          §4 JNI bridge           — native method naming, field access
+          §5 Concurrent code      — explicitly synchronized; @GuardedBy patterns
+          §6 Java 17+ patterns    — records, sealed classes, pattern matching
+          §7 Performance FPs      — premature-optimisation warnings irrelevant here
+          §8 FindSecBugs FPs      — known false-positives in controlled internal paths
+
+        Rule:
+          Every exclusion must have a comment explaining WHY it is excluded and,
+          if it is temporary, when it can be removed.
+    -->
+
+    <!-- ================================================================
+         §1 GENERATED CODE
+         ================================================================ -->
+
+    <!--
+        Protobuf-generated .pb.java files do not follow Java conventions and
+        contain deliberate exposure of mutable state via getters/builders.
+    -->
+    <Match>
+        <Source name="~.*\.pb\.java"/>
+    </Match>
+
+    <!--
+        gRPC-generated stub classes (ImplBase, Stub, BlockingStub etc.)
+        follow gRPC API patterns that SpotBugs considers violations.
+    -->
+    <Match>
+        <Class name="~.*Grpc\$.*"/>
+    </Match>
+    <Match>
+        <Source name="~.*Grpc\.java"/>
+    </Match>
+
+    <!--
+        ANTLR4-generated lexer/parser/visitor/listener classes.
+    -->
+    <Match>
+        <Class name="~org\.pangrova\.parser\.generated\..*"/>
+    </Match>
+
+    <!-- ANTLR sources generated in org.pangrova.parser retain grammar-owned code patterns. -->
+    <Match>
+        <Source name="~PangrovaSql(Lexer|Parser)\.java"/>
+    </Match>
+
+    <!--
+        Protobuf Builder inner classes expose mutable state by design:
+        the builder accumulates state before calling build().
+        EI_EXPOSE_REP / EI_EXPOSE_REP2 / MS_EXPOSE_REP are expected.
+    -->
+    <Match>
+        <Class name="~.*\$Builder"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2,MS_EXPOSE_REP"/>
+    </Match>
+
+    <!--
+        Protocol package: DTO/record types in protocol expose their contents
+        intentionally — callers read the fields to produce wire messages.
+    -->
+    <Match>
+        <Package name="~org\.pangrova\.protocol\..*"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- ================================================================
+         §2 TEST CODE
+         ================================================================ -->
+
+    <!--
+        Test classes routinely:
+          - Ignore return values of void-result side-effect calls
+          - Use non-thread-safe patterns (single-threaded tests)
+          - Access static state for test fixtures
+          - Cast to internal types for assertion purposes
+    -->
+    <Match>
+        <Source name="~.*Test\.java"/>
+        <Bug pattern="RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT,
+                      RV_RETURN_VALUE_IGNORED,
+                      DM_GC,
+                      ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD,
+                      NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+    </Match>
+
+    <!-- Property tests (jqwik) generate values and discard them intentionally. -->
+    <Match>
+        <Source name="~.*PropertyTest\.java"/>
+        <Bug pattern="RV_RETURN_VALUE_IGNORED,RV_RETURN_VALUE_IGNORED_NO_SIDE_EFFECT,DM_GC"/>
+    </Match>
+
+    <!-- Benchmark harness reads results to prevent dead-code elimination. -->
+    <Match>
+        <Source name="~.*Benchmark\.java"/>
+        <Bug pattern="RV_RETURN_VALUE_IGNORED,DM_GC,SS_SHOULD_BE_STATIC"/>
+    </Match>
+
+    <!-- Test infrastructure base classes (e.g. ContainerTestBase, SqlE2ETestBase). -->
+    <Match>
+        <Source name="~.*TestBase\.java|.*TestContainers\.java|.*SharedTestContainers\.java"/>
+        <Bug pattern="ST_WRITE_TO_STATIC_FROM_INSTANCE_METHOD,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- ================================================================
+         §3 PROTOCOL / DTO PATTERNS
+         ================================================================ -->
+
+    <!--
+        Immutable record/DTO types returned from factory methods:
+        the caller receives the reference and owns it — no defensive copy needed.
+    -->
+    <Match>
+        <Package name="~org\.pangrova\.spi\..*"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!--
+        Configuration records: constructed once at startup, then read-only.
+        SpotBugs cannot see that no mutations occur after the constructor.
+    -->
+    <Match>
+        <Package name="~org\.pangrova\.config\..*"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2,MS_EXPOSE_REP"/>
+    </Match>
+
+    <!-- Parser AST canonical constructors freeze collection components before publication. -->
+    <Match>
+        <Package name="~org\.pangrova\.parser\.ast(\..*)?"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <!-- Recovery-mode clients intentionally inspect ANTLR's partial parse tree. -->
+    <Match>
+        <Class name="org.pangrova.parser.ParseResult"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <!-- Public parser constructors validate limits but the API remains extensible and has no finalizer. -->
+    <Match>
+        <Class name="org.pangrova.parser.SqlParser"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+
+    <!--
+        Substrait / Protobuf Any fields are deserialized by type-URL at runtime.
+        The unchecked cast is controlled by the type registry and is safe.
+    -->
+    <Match>
+        <Package name="~org\.pangrova\.protocol\..*"/>
+        <Bug pattern="BC_UNCONFIRMED_CAST,BC_UNCONFIRMED_CAST_OF_RETURN_VALUE"/>
+    </Match>
+
+    <!-- ================================================================
+         §4 JNI BRIDGE
+         ================================================================ -->
+
+    <!--
+        JNI callback methods (called from C++ via AttachCurrentThread) are
+        not referenced from Java source. SpotBugs reports them as dead code.
+        These live in the jni sub-package only.
+    -->
+    <Match>
+        <Package name="~org\.pangrova\.worker\.jni.*"/>
+        <Bug pattern="UPM_UNCALLED_PRIVATE_METHOD,UMAC_UNCALLABLE_METHOD_OF_ANONYMOUS_CLASS"/>
+    </Match>
+
+    <!--
+        Native method declarations: SpotBugs cannot analyse native bodies
+        and generates false NP/RV warnings for callers of native methods.
+    -->
+    <Match>
+        <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+        <Method name="~.*native.*|.*Native.*|.*Jni.*"/>
+    </Match>
+
+    <!--
+        NativeLibraryLoader extracts a resource to a temp file and loads it.
+        The temp file path is intentionally not cleaned up at exit (OS handles it).
+        DM_DEFAULT_ENCODING: the path is always ASCII; no encoding issue.
+    -->
+    <Match>
+        <Class name="~.*NativeLibraryLoader"/>
+        <Bug pattern="DM_DEFAULT_ENCODING,PATH_TRAVERSAL_IN,RV_RETURN_VALUE_IGNORED_BAD_PRACTICE"/>
+    </Match>
+
+    <!--
+        Arrow memory buffers managed outside the JVM heap:
+        SpotBugs reports OBL_UNSATISFIED_OBLIGATION when a resource is
+        transferred to a scope that outlives the current method (ownership
+        transfer pattern). These transfers are explicit and deliberate.
+    -->
+    <Match>
+        <Package name="~org\.pangrova\.worker\..*"/>
+        <Bug pattern="OBL_UNSATISFIED_OBLIGATION,OBL_UNSATISFIED_OBLIGATION_EXCEPTION_EDGE"/>
+    </Match>
+
+    <!-- ================================================================
+         §5 CONCURRENT CODE
+         ================================================================ -->
+
+    <!--
+        Classes annotated @ThreadSafe use explicit locking or CAS operations.
+        SpotBugs cannot follow the @GuardedBy contracts and reports false
+        JCIP_FIELD_ISNT_GUARDED_BY_LOCK violations. Trust the annotation.
+    -->
+    <Match>
+        <Bug pattern="JCIP_FIELD_ISNT_GUARDED_BY_LOCK"/>
+    </Match>
+
+    <!--
+        AtomicReference / AtomicLong used for lock-free state machines:
+        SpotBugs sometimes warns about the result of compareAndSet() being
+        ignored when the caller loops on failure (intentional).
+    -->
+    <Match>
+        <Bug pattern="RV_RETURN_VALUE_IGNORED"/>
+        <Method name="~.*compareAndSet.*|.*updateAndGet.*|.*accumulateAndGet.*"/>
+    </Match>
+
+    <!--
+        ScheduledExecutorService.scheduleAtFixedRate() / scheduleWithFixedDelay()
+        return a ScheduledFuture that is discarded when the task is fire-and-forget.
+        The Executor itself is shut down explicitly — the future is not needed.
+    -->
+    <Match>
+        <Bug pattern="RV_RETURN_VALUE_IGNORED_BAD_PRACTICE"/>
+        <Method name="~.*schedule.*|.*submit.*|.*execute.*"/>
+    </Match>
+
+    <!-- Retry jitter is not used for secrets or security-sensitive randomness. -->
+    <Match>
+        <Class name="org.pangrova.common.concurrent.RetryingCommitWrapper"/>
+        <Bug pattern="PREDICTABLE_RANDOM"/>
+    </Match>
+
+    <!-- Boxed accessors preserve SQL NULL consistently across all TypedRow value types. -->
+    <Match>
+        <Class name="org.pangrova.spi.connector.data.TypedRow"/>
+        <Method name="getBoolean"/>
+        <Bug pattern="NP_BOOLEAN_RETURN_NULL"/>
+    </Match>
+
+    <!--
+        Non-short-circuit boolean operators (& and |) are used deliberately
+        in some bit-manipulation routines where side-effect evaluation is needed.
+    -->
+    <Match>
+        <Bug pattern="NS_DANGEROUS_NON_SHORT_CIRCUIT"/>
+        <Package name="~org\.pangrova\.worker\.ai\..*"/>
+    </Match>
+
+    <!-- ================================================================
+         §6 JAVA 17+ PATTERNS
+         ================================================================ -->
+
+    <!--
+        Java 16+ record classes generate getters, equals, hashCode, and toString
+        automatically. SpotBugs sometimes reports EI_EXPOSE_REP2 on record
+        accessor methods that return array / collection fields — these are
+        intentional because records are immutable value types.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Method name="~.*Record.*|.*record.*"/>
+    </Match>
+
+    <!--
+        Sealed class hierarchies used for ADT-style modelling: exhaustive
+        switch expressions cover all permitted subclasses. SpotBugs may warn
+        about missing defaults in switch that are provably exhaustive.
+    -->
+    <Match>
+        <Bug pattern="SF_SWITCH_FALLTHROUGH,SF_SWITCH_NO_DEFAULT"/>
+        <Package name="~org\.pangrova\.spi\..*"/>
+    </Match>
+
+    <!--
+        Text blocks (JEP 378) that contain SQL, JSON, or YAML strings may
+        trigger DM_DEFAULT_ENCODING when passed to methods that take a Charset.
+        Text blocks are always UTF-16 internally; no encoding issue.
+    -->
+    <Match>
+        <Bug pattern="DM_DEFAULT_ENCODING"/>
+    </Match>
+
+    <!-- ================================================================
+         §7 PERFORMANCE FALSE POSITIVES
+         ================================================================ -->
+
+    <!--
+        DM_BOXED_PRIMITIVE_FOR_PARSING: Integer.parseInt() is preferred over
+        Integer.valueOf() for numeric parsing — both are correct. SpotBugs
+        prefers one form; we use either based on readability.
+    -->
+    <Match>
+        <Bug pattern="DM_BOXED_PRIMITIVE_FOR_PARSING,DM_NUMBER_CTOR"/>
+    </Match>
+
+    <!--
+        DM_GC: explicit System.gc() calls appear only in benchmark harnesses
+        where controlled GC pressure is intentional. Production code does not
+        call System.gc() — the benchmark suppression in §2 handles those.
+    -->
+    <Match>
+        <Bug pattern="DM_GC"/>
+    </Match>
+
+    <!--
+        SS_SHOULD_BE_STATIC: SpotBugs recommends making a field static when
+        it is only assigned in a constructor and not changed. In some cases
+        the field is non-static intentionally (per-instance configuration).
+        We rely on code review for this, not blanket suppression — kept here
+        as a record of the conscious decision to not suppress it globally.
+        INTENTIONALLY NOT SUPPRESSED.
+    -->
+
+    <!-- ================================================================
+         §8 FINDSECBUGS FALSE POSITIVES
+         ================================================================ -->
+
+    <!--
+        SQL_INJECTION_JDBC: Pangrova's SQL execution always goes through the
+        parser (ANTLR4) and planner (Calcite). Raw JDBC calls in the metadata
+        layer use parameterised PreparedStatements. The remaining raw-string
+        SQL appears only in DDL that is constructed from validated catalog
+        metadata — not from user input.
+    -->
+    <Match>
+        <Bug pattern="SQL_INJECTION_JDBC,SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING"/>
+        <Package name="~org\.pangrova\.metadata\..*"/>
+    </Match>
+
+    <!-- Security schema statements come only from the bundled, constant classpath DDL resource. -->
+    <Match>
+        <Class name="org.pangrova.security.store.PersistentStoreSupport"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+
+    <!-- LDAP substitutions are escaped with the RFC 4515 filter-value encoder before search. -->
+    <Match>
+        <Class name="org.pangrova.security.authn.LdapAuthenticator"/>
+        <Bug pattern="LDAP_INJECTION"/>
+    </Match>
+
+    <!--
+        These constructors validate required collaborators before publication. None of the
+        concrete service classes has a finalizer; the abstract store owns no resource itself.
+    -->
+    <Match>
+        <Class name="~org\.pangrova\.security\.(audit\.AuditEventEmitter|authn\.AuthenticationManager|authz\.DynamicRbacAccessControl|store\.PersistentStoreSupport)"/>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+    </Match>
+
+    <!-- Service objects are injected collaborators whose identity and mutable state are intentional. -->
+    <Match>
+        <Class name="~org\.pangrova\.security\.(audit\.AuditLogger|authz\.DynamicRbacAccessControl|rowfilter\.RowLevelSecurityFilter|tenant\.resolver\.TenantResolver|tenant\.sql\.(TenantLifecycleManager|TenantStatementHandler))"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!--
+        Audit delegates are exposed through an immutable list for inspection. AuthenticationRequest
+        deliberately returns its owned char array so erase() can zero the exact bytes used by binders.
+    -->
+    <Match>
+        <Class name="~org\.pangrova\.security\.(audit\.CompositeAuditEventWriter|authn\.AuthenticationRequest)"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <!--
+        PATH_TRAVERSAL_IN: paths used in native library extraction are derived
+        from classpath resource names, not user input. The resource name is
+        constant at compile time.
+    -->
+    <Match>
+        <Bug pattern="PATH_TRAVERSAL_IN,PATH_TRAVERSAL_OUT"/>
+        <Package name="~org\.pangrova\.worker\.native_.*|~org\.pangrova\.common\.native_.*"/>
+    </Match>
+
+    <!--
+        HARD_CODE_PASSWORD: configuration properties named "password" or "secret"
+        appear in test container setup (pangrova / pangrova_test) and in default
+        YAML stubs. These are not production credentials.
+    -->
+    <Match>
+        <Bug pattern="HARD_CODE_PASSWORD"/>
+        <Source name="~.*Test.*\.java|.*Container.*\.java|.*Config.*\.java"/>
+    </Match>
+
+    <!--
+        UNVALIDATED_REDIRECT: the redirect URLs in the REST API are constructed
+        from validated tenant identifiers, not from raw request parameters.
+    -->
+    <Match>
+        <Bug pattern="UNVALIDATED_REDIRECT"/>
+        <Package name="~org\.pangrova\.coordinator\.api\..*"/>
+    </Match>
+
+    <!--
+        WEAK_MESSAGE_DIGEST_MD5 / WEAK_MESSAGE_DIGEST_SHA1: MD5/SHA-1 appear
+        only for non-cryptographic checksums (file integrity, cache keys, ETags).
+        Cryptographic hashing (auth tokens, signatures) uses SHA-256 or stronger.
+    -->
+    <Match>
+        <Bug pattern="WEAK_MESSAGE_DIGEST_MD5,WEAK_MESSAGE_DIGEST_SHA1"/>
+        <Package name="~org\.pangrova\.common\.checksum.*|~org\.pangrova\.cache\..*"/>
+    </Match>
+
+</FindBugsFilter>

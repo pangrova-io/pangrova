@@ -1,0 +1,48 @@
+# ============================================================
+# Pangrova Paimon Catalog — Configuration Template
+# This is a template, copy before editing
+# Usage: cp paimon-example.yml <your-catalog-name>.yml
+#
+# Equivalent SQL:
+#   CREATE CATALOG my_paimon USING paimon
+#     WITH ('warehouse' = 's3://my-bucket/paimon-warehouse')
+# ============================================================
+
+# Connector type (matches ConnectorFactory.getName())
+connector: paimon
+
+# Connector properties
+# Flat key-value map, passed directly to ConnectorFactory.create()
+properties:
+
+  # ----------------------------------------------------------
+  # Warehouse path (required)
+  # ----------------------------------------------------------
+  # Root path for all table data and metadata
+  warehouse: "s3://my-bucket/paimon-warehouse"
+
+  # ----------------------------------------------------------
+  # Metastore type
+  # ----------------------------------------------------------
+  # Options: filesystem (default), hive
+  # metastore: filesystem
+
+  # ----------------------------------------------------------
+  # S3 storage backend
+  # ----------------------------------------------------------
+  # Configure the following when using S3 as storage backend
+  # s3.endpoint: "https://s3.amazonaws.com"
+  # s3.access-key-id: "${ENV:AWS_ACCESS_KEY_ID}"
+  # s3.secret-access-key: "${VAULT:secret/pangrova/s3#secret-key}"
+
+  # ----------------------------------------------------------
+  # HDFS storage backend
+  # ----------------------------------------------------------
+  # When using HDFS, set warehouse to an hdfs:// path
+  # warehouse: "hdfs://namenode:8020/paimon-warehouse"
+
+  # ----------------------------------------------------------
+  # Local storage backend
+  # ----------------------------------------------------------
+  # For development and testing only
+  # warehouse: "/tmp/paimon-warehouse"

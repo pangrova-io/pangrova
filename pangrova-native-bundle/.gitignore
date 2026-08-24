@@ -1,0 +1,3 @@
+# Native libraries staged by CI — never committed
+src/main/resources/META-INF/native/
+target/

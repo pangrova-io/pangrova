@@ -1,0 +1,24 @@
+# MemorySanitizer suppressions for known third-party issues
+# Format: fun:function_pattern
+#
+# MSan requires all dependencies to be instrumented with MSan.
+# Third-party libraries built without MSan instrumentation will trigger
+# false positives. Suppress known-safe third-party code here.
+
+# Velox internals — not built with MSan instrumentation
+fun:facebook::velox::*
+
+# Arrow/Parquet — not built with MSan instrumentation
+fun:arrow::*
+fun:parquet::*
+
+# gRPC/Protobuf — not built with MSan instrumentation
+fun:grpc::*
+fun:grpc_core::*
+fun:google::protobuf::*
+
+# folly — not built with MSan instrumentation
+fun:folly::*
+
+# fmt library
+fun:fmt::*

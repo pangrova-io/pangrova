@@ -1,0 +1,114 @@
+package org.pangrova.worker.bootstrap.phase;
+
+import java.net.InetAddress;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.pangrova.operations.bootstrap.BootstrapFailedException;
+import org.pangrova.operations.bootstrap.HealthCheckEndpoint;
+import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.worker.PangrovaWorker;
+import org.pangrova.worker.WorkerComponents;
+import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
+import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
+import org.pangrova.worker.bootstrap.lifecycle.WorkerHealthConditions;
+import org.pangrova.worker.http.WorkerHttpServer;
+import org.pangrova.worker.http.WorkerHttpServer.WorkerHttpConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Manages Worker HTTP server lifecycle: Jetty startup, JAX-RS resource registration,
+ * health endpoint, and tracing filter.
+ */
+public final class WorkerHttpBootstrap {
+
+    private static final Logger LOG = LoggerFactory.getLogger(WorkerHttpBootstrap.class);
+
+    /**
+     * Bind addresses that must never be advertised to remote peers: a wildcard
+     * tells the OS "listen on every interface" but is not routable, so a peer
+     * that dials it cannot reach this worker.
+     */
+    private static final java.util.Set<String> WILDCARD_ADDRESSES = java.util.Set.of(
+            "0.0.0.0", "::", "[::]", "::0", "0:0:0:0:0:0:0:0", "*");
+
+    private WorkerHttpBootstrap() {}
+
+    /**
+     * Creates and starts the Worker HTTP server with task/exchange JAX-RS resources.
+     */
+    public static void startHttp(WorkerBootstrapConfig config,
+                          WorkerComponentRefs refs,
+                          WorkerObservabilitySetup observability,
+                          AtomicBoolean started) {
+        try {
+            int resultPort = refs.resultServerPort();
+            String workerHost = resolveAdvertisedHost(config);
+            WorkerHttpConfig httpConfig = new WorkerHttpConfig(config.httpPort(), workerHost, resultPort,
+                    config.internalAuthSecret());
+            HealthCheckEndpoint healthEndpoint = buildHealthEndpoint(started, refs);
+            ExchangeTransport exchangeTransport = refs.exchangeTransport();
+            WorkerHttpServer server = new WorkerHttpServer(
+                    httpConfig, refs.taskManager(), exchangeTransport, healthEndpoint);
+            server.start();
+            refs.setHttpServer(server);
+            refs.setWorker(new PangrovaWorker(new WorkerComponents(refs.taskManager())));
+            LOG.info("event=phase_started phase=HTTP port={} workerHost={}", server.getPort(), workerHost);
+        } catch (Exception e) {
+            throw new BootstrapFailedException("HTTP", e);
+        }
+    }
+
+    /**
+     * Resolves the address this worker advertises to the coordinator and to remote
+     * peers (shuffle/result fetching).
+     *
+     * <p>Priority: {@code worker.advertised-host} → {@code worker.host} when it is a
+     * concrete (non-wildcard) address → {@code InetAddress.getLocalHost().getHostName()}
+     * → {@code "localhost"}.</p>
+     *
+     * <p>{@code worker.host} is a bind address whose default is {@code 0.0.0.0}; it is
+     * deliberately skipped when it is a wildcard, because advertising a wildcard leaves
+     * peers with an address they cannot dial.</p>
+     */
+    static String resolveAdvertisedHost(WorkerBootstrapConfig config) {
+        String advertised = config.advertisedHost();
+        if (advertised != null && !advertised.isBlank()) {
+            LOG.info("event=worker_advertised_host_resolved source=config host={}", advertised.trim());
+            return advertised.trim();
+        }
+        String bindHost = config.httpHost();
+        if (bindHost != null && !bindHost.isBlank() && !isWildcardAddress(bindHost)) {
+            LOG.info("event=worker_advertised_host_resolved source=bind_host host={}", bindHost.trim());
+            return bindHost.trim();
+        }
+        try {
+            String hostname = InetAddress.getLocalHost().getHostName();
+            LOG.info("event=worker_advertised_host_resolved source=InetAddress host={} "
+                    + "detail=set_worker.advertised-host_explicitly_behind_NAT", hostname);
+            return hostname;
+        } catch (Exception e) {
+            LOG.warn("event=worker_advertised_host_resolve_failed error={} fallback=localhost", e.getMessage());
+            return "localhost";
+        }
+    }
+
+    /** Returns true when {@code host} is a wildcard bind address that must not be advertised. */
+    static boolean isWildcardAddress(String host) {
+        return host != null && WILDCARD_ADDRESSES.contains(host.trim());
+    }
+
+    /**
+     * Stops the Worker HTTP server (delegated to WorkerShutdownSequence).
+     */
+    public static void stopHttp(WorkerComponentRefs refs) {
+        WorkerShutdownSequence.stopHttp(refs.httpServer());
+    }
+
+    static HealthCheckEndpoint buildHealthEndpoint(AtomicBoolean started, WorkerComponentRefs refs) {
+        return new HealthCheckEndpoint(
+                HealthCheckEndpoint.NodeType.WORKER,
+                new WorkerHealthConditions(started, refs));
+    }
+}

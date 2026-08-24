@@ -1,0 +1,2 @@
+org.pangrova.observability.tracing.OtelTracingProvider
+org.pangrova.observability.noop.NoOpTracingProvider

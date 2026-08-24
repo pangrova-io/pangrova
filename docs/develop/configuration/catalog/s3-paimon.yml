@@ -1,0 +1,87 @@
+# ============================================================
+# Pangrova — Paimon on S3/OSS (Production-Ready)
+#
+# Complete configuration for using Apache Paimon tables on
+# S3-compatible object storage (AWS S3, Alibaba Cloud OSS,
+# MinIO, etc.)
+#
+# Paimon is a streaming data lake table format optimized for
+# real-time analytics. It stores data and metadata directly
+# in the object store (no external metastore required).
+#
+# Usage:
+#   cp s3-paimon.yml /etc/pangrova/catalog/my_paimon.yml
+#   # Edit warehouse path and credentials
+#   # Restart Coordinator to pick up new catalog
+#
+# Equivalent SQL:
+#   CREATE CATALOG my_paimon USING paimon
+#   WITH (
+#     'warehouse' = 's3://my-bucket/paimon-warehouse',
+#     's3.endpoint' = 'https://oss-cn-hangzhou.aliyuncs.com',
+#     's3.access-key-id' = '...',
+#     's3.secret-access-key' = '...'
+#   );
+# ============================================================
+
+connector: paimon
+
+properties:
+
+  # ----------------------------------------------------------
+  # Warehouse path (required)
+  # ----------------------------------------------------------
+  # Root path for all Paimon table data and metadata.
+  # Paimon uses a filesystem-based metastore by default —
+  # all catalog metadata is stored as files under this path.
+  #
+  # Format: s3://<bucket>/<prefix>
+  warehouse: "s3://${PANGROVA_S3_BUCKET:-my-lakehouse-bucket}/paimon-warehouse"
+
+  # ----------------------------------------------------------
+  # Metastore type
+  # ----------------------------------------------------------
+  # Options:
+  #   filesystem (default) — metadata stored as files in warehouse
+  #   hive — uses Hive Metastore for metadata
+  metastore: filesystem
+
+  # ----------------------------------------------------------
+  # S3/OSS Configuration — AWS S3
+  # ----------------------------------------------------------
+  # s3.region: "${AWS_REGION:-us-east-1}"
+  # s3.access-key-id: "${AWS_ACCESS_KEY_ID}"
+  # s3.secret-access-key: "${AWS_SECRET_ACCESS_KEY}"
+
+  # ----------------------------------------------------------
+  # S3/OSS Configuration — Alibaba Cloud OSS
+  # ----------------------------------------------------------
+  # OSS endpoint (use internal endpoint for VPC access):
+  s3.endpoint: "${PANGROVA_OSS_ENDPOINT:-https://oss-cn-hangzhou-internal.aliyuncs.com}"
+  s3.region: "${PANGROVA_OSS_REGION:-cn-hangzhou}"
+  s3.path-style-access: "false"
+  s3.access-key-id: "${ALIBABA_CLOUD_ACCESS_KEY_ID}"
+  s3.secret-access-key: "${ALIBABA_CLOUD_ACCESS_KEY_SECRET}"
+
+  # ----------------------------------------------------------
+  # S3/OSS Configuration — MinIO
+  # ----------------------------------------------------------
+  # s3.endpoint: "${PANGROVA_MINIO_ENDPOINT:-http://minio:9000}"
+  # s3.path-style-access: "true"
+  # s3.region: "us-east-1"
+  # s3.access-key-id: "${MINIO_ACCESS_KEY}"
+  # s3.secret-access-key: "${MINIO_SECRET_KEY}"
+
+  # ----------------------------------------------------------
+  # Table Defaults
+  # ----------------------------------------------------------
+  # Default bucket number for new tables (parallelism).
+  # bucket: "4"
+
+  # Changelog producer mode: none, input, lookup, full-compaction
+  # changelog-producer: "input"
+
+  # Compaction settings
+  # compaction.min.file-num: "5"
+  # compaction.max.file-num: "50"
+  # compaction.target-file-size: "128MB"

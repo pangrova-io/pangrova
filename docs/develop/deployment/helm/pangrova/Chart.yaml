@@ -1,0 +1,17 @@
+apiVersion: v2
+name: pangrova
+description: Pangrova — High-performance lakehouse distributed SQL query engine
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - sql
+  - query-engine
+  - lakehouse
+  - distributed
+  - analytics
+home: https://github.com/pangrova/pangrova
+sources:
+  - https://github.com/pangrova/pangrova
+maintainers:
+  - name: Pangrova Contributors

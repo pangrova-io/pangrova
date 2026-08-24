@@ -1,0 +1,116 @@
+package org.pangrova.coordinator.query.execution.dispatch.dag;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
+import org.pangrova.coordinator.query.stage.Stage;
+import org.pangrova.coordinator.query.stage.StageDAG;
+import org.pangrova.coordinator.query.stage.StageStateMachine;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Evaluates DAG completion state: determines when all stages are finished,
+ * resolves the final dispatch result, and handles timeout awaiting.
+ */
+public final class DAGCompletionEvaluator {
+
+    private static final Logger LOG = LoggerFactory.getLogger(DAGCompletionEvaluator.class);
+
+    private DAGCompletionEvaluator() {}
+
+    static boolean allStagesFinished(StageDAG dag) {
+        return dag.stageEntities().stream()
+                .allMatch(s -> s.stateMachine().getState()
+                        == StageStateMachine.State.FINISHED);
+    }
+
+    static Set<Integer> collectActiveStageIds(StageDAG dag) {
+        Set<Integer> ids = new HashSet<>();
+        for (Stage s : dag.stageEntities()) {
+            StageStateMachine.State st = s.stateMachine().getState();
+            if (st == StageStateMachine.State.SCHEDULING
+                    || st == StageStateMachine.State.RUNNING
+                    || st == StageStateMachine.State.FLUSHING
+                    || st == StageStateMachine.State.FINISHED) {
+                ids.add(s.stageId());
+            }
+        }
+        return ids;
+    }
+
+    static void completeWithLastResult(
+            ConcurrentHashMap<Integer, DispatchResult> results,
+            StageDAG dag, CompletableFuture<DispatchResult> completion) {
+        int rootId = dag.stageEntities().stream()
+                .filter(s -> "OUTPUT".equals(s.plan().taskType()))
+                .mapToInt(Stage::stageId)
+                .findFirst()
+                .orElseGet(() -> {
+                    int fallback = findSinkStageId(dag);
+                    LOG.warn("event=output_stage_not_found fallbackStageId={} "
+                            + "reason=no_stage_with_OUTPUT_taskType", fallback);
+                    return fallback;
+                });
+        DispatchResult r = results.get(rootId);
+        if (r != null) {
+            completion.complete(r);
+        } else if (!results.isEmpty()) {
+            completion.complete(results.values().iterator().next());
+        } else {
+            completion.completeExceptionally(
+                    new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
+                            "All stages finished but no dispatch result collected"));
+        }
+    }
+
+    static int findSinkStageId(StageDAG dag) {
+        Set<Integer> hasDownstream = new HashSet<>();
+        for (List<Integer> upstreams : dag.edges().values()) {
+            hasDownstream.addAll(upstreams);
+        }
+        // Collect all sink stages (no downstream consumers). Deterministically
+        // pick the lowest stageId to ensure consistent result selection.
+        return dag.stageEntities().stream()
+                .mapToInt(Stage::stageId)
+                .filter(id -> !hasDownstream.contains(id))
+                .min()
+                .orElse(dag.stageEntities().stream()
+                        .mapToInt(Stage::stageId).max().orElse(0));
+    }
+
+    static DispatchResult awaitCompletion(
+            CompletableFuture<DispatchResult> completion,
+            long timeoutMs, String queryId) {
+        try {
+            return completion.orTimeout(timeoutMs, TimeUnit.MILLISECONDS).join();
+        } catch (java.util.concurrent.CompletionException ce) {
+            Throwable cause = ce.getCause();
+            if (cause instanceof java.util.concurrent.TimeoutException) {
+                throw new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
+                        "DAG dispatch timed out [queryId=" + queryId + "]");
+            }
+            throw DispatchCanceller.wrapIfNeeded(
+                    cause instanceof Exception ex ? ex
+                            : new RuntimeException(cause), queryId);
+        }
+    }
+
+    static DAGDispatchEngine.StageDispatchRecord findDispatchRecord(
+            String taskId, List<DAGDispatchEngine.StageDispatchRecord> dispatched) {
+        for (DAGDispatchEngine.StageDispatchRecord rec : dispatched) {
+            if (rec.result().taskId().equals(taskId)) {
+                return rec;
+            }
+        }
+        return null;
+    }
+}

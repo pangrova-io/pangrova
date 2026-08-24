@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pangrova-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+data:
+  coordinator.yml: |
+    {{- .Values.config.coordinator | nindent 4 }}
+  worker.yml: |
+    {{- .Values.config.worker | nindent 4 }}

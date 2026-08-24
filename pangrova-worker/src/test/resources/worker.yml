@@ -1,0 +1,8 @@
+worker:
+  host: "127.0.0.1"
+  port: 8081
+  id: "test-worker"
+transport:
+  port: 8082
+memory:
+  budget: 1073741824

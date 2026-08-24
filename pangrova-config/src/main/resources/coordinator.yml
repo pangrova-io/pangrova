@@ -1,0 +1,79 @@
+# =============================================================================
+# Pangrova Coordinator — Default Configuration
+# =============================================================================
+#
+# This file ships with the pangrova-config module and provides sensible defaults
+# for all coordinator configuration keys defined in CoordinatorOptions.
+#
+# Priority (highest → lowest):
+#   1. CLI YAML (--config path/to/file.yml)
+#   2. Environment variables (PANGROVA_* prefix)
+#   3. This classpath default YAML
+#   4. ConfigOption.defaultValue()
+#
+# Environment variable placeholders are supported: ${ENV_VAR} or ${ENV_VAR:-default}
+# =============================================================================
+
+# ---- Server ----
+coordinator:
+  id: "coordinator-1"
+  host: "0.0.0.0"
+  port: 8080
+
+  # ---- High Availability ----
+  ha:
+    enabled: false
+    # jdbc-url: "jdbc:postgresql://localhost:5432/pangrova_ha"
+    # DDL leader routing: when true, DDL is restricted to the leader node (HTTP 307 redirect).
+    # Default false — DDL can execute on any coordinator; consistency is guaranteed by
+    # connector concurrency control + cross-node invalidation propagation.
+    ddl-leader-routing: false
+
+  # ---- Query ----
+  query:
+    timeout: "5m"
+    max-concurrent: 100
+
+  # ---- Worker Management ----
+  worker:
+    heartbeat-timeout: "30s"
+    max-retry: 3
+
+# ---- Feature Flags ----
+# All modules default to enabled except security.
+
+# ---- State Store ----
+# Global backend for all SPI state stores: IN_MEMORY (dev/test) or JDBC (production).
+state-store:
+  type: IN_MEMORY
+
+metadata:
+  enabled: true
+  # jdbc-url: "jdbc:postgresql://localhost:5432/pangrova_metadata"
+  cache:
+    l1-max-size: 10000
+    l1-ttl: "60s"
+
+governance:
+  enabled: true
+
+resilience:
+  enabled: true
+
+streaming:
+  enabled: true
+
+tenant:
+  enabled: true
+
+indexing:
+  enabled: true
+
+operations:
+  enabled: true
+
+observability:
+  enabled: true
+
+security:
+  enabled: false

@@ -1,0 +1,103 @@
+syntax = "proto3";
+package pangrova.native.protocol.v1;
+
+option java_package = "org.pangrova.worker.jni.proto";
+option java_multiple_files = true;
+option java_outer_classname = "CommandProtos";
+
+// Unified command channel for control-plane operations.
+// Adding a new command requires only a new enum value + payload message.
+
+enum NativeCommandType {
+  NATIVE_COMMAND_UNKNOWN = 0;
+  NATIVE_COMMAND_INJECT_DYNAMIC_FILTER = 1;
+  NATIVE_COMMAND_UPDATE_MEMORY_LIMIT = 2;
+  NATIVE_COMMAND_PREFETCH_SPLITS = 3;
+  NATIVE_COMMAND_EVICT_CACHE = 4;
+  NATIVE_COMMAND_GET_METRICS = 5;
+  NATIVE_COMMAND_GET_CACHE_STATS = 6;
+  NATIVE_COMMAND_GET_CAPABILITIES = 7;
+  NATIVE_COMMAND_MEMORY_PRESSURE = 8;
+  // 9 reserved.
+  NATIVE_COMMAND_START_FLIGHT_SERVER = 10;
+  NATIVE_COMMAND_CONNECT_EXCHANGE_SOURCE = 11;
+  NATIVE_COMMAND_START_RESULT_SERVER = 12;
+  NATIVE_COMMAND_STOP_RESULT_SERVER = 13;
+  NATIVE_COMMAND_START_NATIVE_EXCHANGE = 14;
+  NATIVE_COMMAND_STOP_SHUFFLE_SERVER = 15;
+  NATIVE_COMMAND_NO_MORE_EXCHANGE_SOURCES = 16;
+}
+
+message NativeCommand {
+  int64 executor_handle = 1;
+  NativeCommandType command_type = 2;
+  bytes payload = 3;
+}
+
+message NativeCommandResponse {
+  bool success = 1;
+  string error_message = 2;
+  bytes result_payload = 3;
+}
+
+message UpdateMemoryLimitPayload {
+  int64 new_limit_bytes = 1;
+}
+
+message EvictCachePayload {
+  string pattern = 1;
+}
+
+message InjectDynamicFilterPayload {
+  string plan_node_id = 1;
+  bytes filter_proto = 2;
+}
+
+message StartFlightServerPayload {
+  int32 num_partitions = 1;
+}
+
+message StartFlightServerResponsePayload {
+  int32 bound_port = 1;
+}
+
+message StartResultServerPayload {
+  int32 preferred_port = 1;
+}
+
+message StartResultServerResponsePayload {
+  int32 bound_port = 1;
+}
+
+// Payload for CONNECT_EXCHANGE_SOURCE command.
+message ConnectExchangeSourcePayload {
+  string source_id = 1;
+  string host = 2;
+  int32 port = 3;
+  string query_id = 4;
+  int32 stage_id = 5;
+  int32 partition_id = 6;
+  int64 executor_handle = 7;
+}
+
+// Payload for START_NATIVE_EXCHANGE command.
+message StartNativeExchangePayload {
+  repeated ExchangeSourceInfo sources = 1;
+}
+
+// Describes one upstream exchange source for native-side creation.
+message ExchangeSourceInfo {
+  string source_task_id = 1;
+  string host = 2;
+  int32 port = 3;
+  int32 partition_id = 4;
+}
+
+// Wire-format descriptor for user-defined functions.
+message NativeFunctionDescriptorProto {
+  string name = 1;
+  string return_type = 2;
+  repeated string argument_types = 3;
+  int32 function_type = 4;
+  int32 deterministic = 5;
+}

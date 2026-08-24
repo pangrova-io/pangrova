@@ -1,0 +1,7 @@
+# Test-only classpath default for PangrovaCoordinatorMain.loadPangrovaConfiguration.
+# Production deployments are expected to supply their own coordinator.yml via
+# --config or to rely on ConfigOption defaults; this minimal file exists so the
+# bootstrap unit tests can verify the classpath-default loading path.
+coordinator:
+  id: test-coordinator
+  port: 8080

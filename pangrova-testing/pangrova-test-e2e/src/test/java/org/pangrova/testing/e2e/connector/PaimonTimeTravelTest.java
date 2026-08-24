@@ -1,0 +1,190 @@
+package org.pangrova.testing.e2e.connector;
+
+import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.testing.e2e.SqlE2ETestBase;
+import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.runner.QueryError;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
+
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Paimon time travel E2E tests.
+ *
+ * <p>Verifies that Paimon tables support time travel via:
+ * <ul>
+ *   <li>{@code FOR VERSION AS OF <snapshot-id>} — read at a specific snapshot</li>
+ *   <li>{@code scan.tag-name} table property — read at a named tag</li>
+ *   <li>Clear error when snapshot does not exist</li>
+ * </ul>
+ *
+ * <p>Requirements: C6
+ */
+@DisplayName("Paimon Time Travel E2E Tests")
+class PaimonTimeTravelTest extends SqlE2ETestBase {
+
+    private static final String CATALOG = "paimon_tt";
+    private static final String SCHEMA = "default";
+    private static final String FQN_PREFIX = CATALOG + "." + SCHEMA + ".";
+
+    private String tableName;
+
+    @Override
+    protected List<ConnectorTestConfig> connectorConfigs() {
+        return List.of(
+                ConnectorTestConfig.paimon(
+                        CATALOG, SCHEMA, paimonWarehouse().toString()));
+    }
+
+    @BeforeAll
+    static void registerConnectors() {
+        registerTestConnectors(List.of(
+                ConnectorTestConfig.paimon(
+                        CATALOG, SCHEMA, paimonWarehouse().toString())));
+    }
+
+    @BeforeEach
+    void assignUniqueTableName(TestInfo testInfo) {
+        String method = testInfo.getTestMethod()
+                .map(m -> m.getName()).orElse("unknown");
+        tableName = "t_" + method + "_" + System.nanoTime();
+    }
+
+    private String fqn() {
+        return FQN_PREFIX + tableName;
+    }
+
+
+    // --- 2.13.3: snapshot-id time travel ---
+
+    @Nested
+    @DisplayName("2.13.3 - Snapshot ID Time Travel")
+    class SnapshotIdTimeTravel {
+
+        @Test
+        @DisplayName("FOR VERSION AS OF returns data at historical snapshot")
+        void timeTravelBySnapshotIdReturnsHistoricalData() {
+            sqlRunner.executeDdl("CREATE TABLE " + fqn()
+                    + " (id BIGINT, name VARCHAR,"
+                    + " PRIMARY KEY (id) NOT ENFORCED)");
+
+            // Batch 1
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (id, name) VALUES (1, 'alice'), (2, 'bob')");
+
+            // Get snapshot ID after batch 1
+            List<TypedRow> snapshots = sqlRunner.execute(
+                    "SELECT * FROM " + fqn() + "$snapshots ORDER BY snapshot_id");
+            assertThat(snapshots).isNotEmpty();
+            long snapshotAfterBatch1 = ((Number) snapshots.get(snapshots.size() - 1)
+                    .getRaw("snapshot_id")).longValue();
+
+            // Batch 2
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (id, name) VALUES (3, 'carol'), (4, 'dave')");
+
+            // Time travel to snapshot after batch 1
+            List<TypedRow> historicalRows = sqlRunner.execute(
+                    "SELECT * FROM " + fqn()
+                    + " FOR VERSION AS OF " + snapshotAfterBatch1 + " ORDER BY id");
+
+            // Should only see batch 1 data
+            assertThat(historicalRows).hasSize(2);
+            assertThat(((Number) historicalRows.get(0).getRaw("id")).longValue()).isEqualTo(1L);
+            assertThat(historicalRows.get(0).getRaw("name")).isEqualTo("alice");
+            assertThat(((Number) historicalRows.get(1).getRaw("id")).longValue()).isEqualTo(2L);
+            assertThat(historicalRows.get(1).getRaw("name")).isEqualTo("bob");
+
+            // Current query should see all data
+            List<TypedRow> currentRows = sqlRunner.execute(
+                    "SELECT * FROM " + fqn() + " ORDER BY id");
+            assertThat(currentRows).hasSize(4);
+        }
+    }
+
+    // --- 2.13.4: tag-name time travel ---
+
+    @Nested
+    @DisplayName("2.13.4 - Tag Name Time Travel")
+    class TagNameTimeTravel {
+
+        @Test
+        @DisplayName("Query at tag returns data at tagged snapshot")
+        void timeTravelByTagNameReturnsTaggedData() {
+            sqlRunner.executeDdl("CREATE TABLE " + fqn()
+                    + " (id BIGINT, val VARCHAR,"
+                    + " PRIMARY KEY (id) NOT ENFORCED)");
+
+            // Insert initial data
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (id, val) VALUES (1, 'v1'), (2, 'v1')");
+
+            // Create tag at current state
+            sqlRunner.execute("CALL " + CATALOG
+                    + ".create_tag('" + tableName + "', 'release_v1')");
+
+            // Insert more data after tag
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (id, val) VALUES (3, 'v2'), (4, 'v2')");
+
+            // Get the snapshot ID for the tag to use FOR VERSION AS OF
+            List<TypedRow> tags = sqlRunner.execute(
+                    "SELECT * FROM " + fqn() + "$tags WHERE tag_name = 'release_v1'");
+            assertThat(tags).hasSize(1);
+            long tagSnapshotId = ((Number) tags.get(0).getRaw("snapshot_id")).longValue();
+
+            // Time travel to the tagged snapshot
+            List<TypedRow> taggedRows = sqlRunner.execute(
+                    "SELECT * FROM " + fqn()
+                    + " FOR VERSION AS OF " + tagSnapshotId + " ORDER BY id");
+
+            // Should only see data at tag point (batch 1)
+            assertThat(taggedRows).hasSize(2);
+            assertThat(((Number) taggedRows.get(0).getRaw("id")).longValue()).isEqualTo(1L);
+            assertThat(taggedRows.get(0).getRaw("val")).isEqualTo("v1");
+            assertThat(((Number) taggedRows.get(1).getRaw("id")).longValue()).isEqualTo(2L);
+
+            // Current query should see all data
+            List<TypedRow> currentRows = sqlRunner.execute(
+                    "SELECT * FROM " + fqn() + " ORDER BY id");
+            assertThat(currentRows).hasSize(4);
+        }
+    }
+
+    // --- 2.13.5: non-existent snapshot clear error ---
+
+    @Nested
+    @DisplayName("2.13.5 - Non-existent Snapshot Error")
+    class NonExistentSnapshotError {
+
+        @Test
+        @DisplayName("FOR VERSION AS OF with non-existent snapshot-id returns clear error")
+        void nonExistentSnapshotIdReturnsError() {
+            sqlRunner.executeDdl("CREATE TABLE " + fqn()
+                    + " (id BIGINT, name VARCHAR,"
+                    + " PRIMARY KEY (id) NOT ENFORCED)");
+
+            sqlRunner.execute("INSERT INTO " + fqn()
+                    + " (id, name) VALUES (1, 'alice')");
+
+            // Use a snapshot ID that does not exist (very large number)
+            long nonExistentSnapshotId = 999999999L;
+
+            QueryError error = sqlRunner.executeExpectingError(
+                    "SELECT * FROM " + fqn()
+                    + " FOR VERSION AS OF " + nonExistentSnapshotId);
+
+            assertThat(error).isNotNull();
+            assertThat(error.message())
+                    .containsIgnoringCase("snapshot")
+                    .containsIgnoringCase("not found");
+        }
+    }
+}

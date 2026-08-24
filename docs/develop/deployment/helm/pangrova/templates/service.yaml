@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pangrova-coordinator
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: coordinator
+spec:
+  type: {{ .Values.coordinator.service.type }}
+  ports:
+    - port: {{ .Values.coordinator.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: pangrova
+    component: coordinator
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pangrova-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: worker
+spec:
+  type: {{ .Values.worker.service.type }}
+  clusterIP: None
+  ports:
+    - port: {{ .Values.worker.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: pangrova
+    component: worker

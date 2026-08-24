@@ -1,0 +1,32 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.pangrova.spi.index.pruning;
+
+/**
+ * Per-row-group column statistics extracted from Parquet/ORC file footers.
+ *
+ * @param rowGroupIndex row group (Parquet) or stripe (ORC) index within the file
+ * @param columnName    column name
+ * @param minValue      minimum value in this row group (nullable if unknown)
+ * @param maxValue      maximum value in this row group (nullable if unknown)
+ * @param nullCount     number of null values in this row group
+ * @param rowCount      total number of rows in this row group
+ */
+public record RowGroupPruningSummary(
+        int rowGroupIndex,
+        String columnName,
+        Comparable<?> minValue,
+        Comparable<?> maxValue,
+        long nullCount,
+        long rowCount) {}

@@ -1,0 +1,1086 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.pangrova</groupId>
+    <artifactId>pangrova-bom</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>Pangrova BOM</name>
+    <description>Bill of Materials and parent POM for Pangrova distributed query engine</description>
+
+    <!-- Module dependency order: common -> spi -> [protocol, observability] -->
+    <modules>
+        <module>pangrova-common</module>
+        <module>pangrova-config</module>
+        <module>pangrova-spi</module>
+        <module>pangrova-shuffle</module>
+        <module>pangrova-parser</module>
+        <module>pangrova-planner</module>
+        <module>pangrova-protocol</module>
+        <module>pangrova-observability</module>
+        <module>pangrova-resilience</module>
+        <module>pangrova-operations</module>
+        <module>pangrova-resource</module>
+        <module>pangrova-coordinator</module>
+        <module>pangrova-worker</module>
+        <module>pangrova-metadata</module>
+        <module>pangrova-connector</module>
+        <module>pangrova-standalone</module>
+        <module>pangrova-security</module>
+        <module>pangrova-streaming</module>
+        <module>pangrova-governance</module>
+        <module>pangrova-indexing</module>
+        <module>pangrova-transport</module>
+        <module>pangrova-client</module>
+        <module>pangrova-testing</module>
+        <module>pangrova-native-bundle</module>
+    </modules>
+
+    <properties>
+        <!-- Build settings -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+
+        <!-- Core dependencies -->
+        <antlr4.version>4.13.1</antlr4.version>
+        <calcite.version>1.36.0</calcite.version>
+        <avatica.version>1.25.0</avatica.version>
+        <arrow.version>19.0.0</arrow.version>
+        <substrait.version>0.23.0</substrait.version>
+        <!-- gRPC >= 1.76.0 required: the protoc-gen-grpc-java osx-aarch_64 artifacts
+             before it are x86_64-only binaries that cannot execute on arm64 macOS
+             hosts without Rosetta 2; 1.76.0 ships a universal (x86_64+arm64) binary. -->
+        <grpc.version>1.76.0</grpc.version>
+        <protobuf.version>4.33.4</protobuf.version>
+        <netty.version>4.1.114.Final</netty.version>
+        <guava.version>32.1.3-jre</guava.version>
+        <jackson.version>2.16.0</jackson.version>
+        <jetty.version>11.0.18</jetty.version>
+        <jersey.version>3.0.16</jersey.version>
+
+        <!-- Observability dependencies -->
+        <opentelemetry.version>1.32.0</opentelemetry.version>
+        <micrometer.version>1.12.0</micrometer.version>
+        <slf4j.version>2.0.9</slf4j.version>
+        <logback.version>1.4.14</logback.version>
+
+        <!-- Testing dependencies -->
+        <junit.version>5.10.1</junit.version>
+        <assertj.version>3.24.2</assertj.version>
+        <testcontainers.version>1.20.6</testcontainers.version>
+        <jqwik.version>1.8.2</jqwik.version>
+        <awaitility.version>4.2.2</awaitility.version>
+
+        <!-- Connector dependencies -->
+        <iceberg.version>1.11.0</iceberg.version>
+        <paimon.version>1.4.1</paimon.version>
+        <hadoop.version>3.3.6</hadoop.version>
+
+        <!-- JWT -->
+        <jjwt.version>0.12.3</jjwt.version>
+
+        <!-- Database -->
+        <flyway.version>9.22.3</flyway.version>
+        <postgresql.version>42.7.4</postgresql.version>
+        <hikaricp.version>5.1.0</hikaricp.version>
+        <h2.version>2.2.224</h2.version>
+        <!-- A-HA-01: quorum-replicated coordination backend (Apache Curator + ZooKeeper) to remove the single-JDBC coordination SPOF -->
+        <curator.version>5.2.0</curator.version>
+        <zookeeper.version>3.8.4</zookeeper.version>
+        <dropwizard.metrics.version>4.1.21</dropwizard.metrics.version>
+        <snappy.version>1.1.10.5</snappy.version>
+
+        <!-- Lineage -->
+        <openlineage.version>1.12.0</openlineage.version>
+
+        <!-- Bitmap -->
+        <roaringbitmap.version>1.3.0</roaringbitmap.version>
+
+        <!-- Caching -->
+        <caffeine.version>3.1.8</caffeine.version>
+        <jedis.version>5.2.0</jedis.version>
+
+        <!-- Infrastructure -->
+        <tomcat-annotations-api.version>6.0.53</tomcat-annotations-api.version>
+        <awssdk.version>2.25.16</awssdk.version>
+        <findsecbugs.version>1.13.0</findsecbugs.version>
+
+        <!-- Resilience4j -->
+        <resilience4j.version>2.2.0</resilience4j.version>
+
+        <!-- Cron -->
+        <cron-utils.version>9.2.1</cron-utils.version>
+
+        <!-- YAML -->
+        <snakeyaml.version>2.2</snakeyaml.version>
+
+        <!-- Architecture testing -->
+        <archunit.version>1.2.1</archunit.version>
+
+        <!-- JaCoCo agent arg (empty when coverage profile is inactive) -->
+        <jacoco.agent.argLine></jacoco.agent.argLine>
+
+        <!-- Plugin versions -->
+        <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+        <maven-surefire-plugin.version>3.2.2</maven-surefire-plugin.version>
+        <maven-checkstyle-plugin.version>3.3.1</maven-checkstyle-plugin.version>
+        <checkstyle.version>10.12.7</checkstyle.version>
+        <spotbugs-maven-plugin.version>4.8.3.1</spotbugs-maven-plugin.version>
+        <spotbugs.version>4.8.3</spotbugs.version>
+        <kafka.version>3.7.0</kafka.version>
+        <protobuf-maven-plugin.version>2.7.0</protobuf-maven-plugin.version>
+        <jacoco-maven-plugin.version>0.8.11</jacoco-maven-plugin.version>
+        <pitest-maven-plugin.version>1.17.0</pitest-maven-plugin.version>
+        <pitest-junit5-plugin.version>1.2.1</pitest-junit5-plugin.version>
+        <os-maven-plugin.version>1.7.1</os-maven-plugin.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Core dependencies -->
+            <dependency>
+                <groupId>org.apache.calcite</groupId>
+                <artifactId>calcite-core</artifactId>
+                <version>${calcite.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.calcite.avatica</groupId>
+                <artifactId>avatica-core</artifactId>
+                <version>${avatica.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.calcite.avatica</groupId>
+                <artifactId>avatica-server</artifactId>
+                <version>${avatica.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-vector</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-unsafe</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-memory-netty</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>flight-core</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>flight-sql</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-c-data</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.substrait</groupId>
+                <artifactId>core</artifactId>
+                <version>${substrait.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.kafka</groupId>
+                <artifactId>kafka-clients</artifactId>
+                <version>${kafka.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>${grpc.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.protobuf</groupId>
+                <artifactId>protobuf-java-util</artifactId>
+                <version>${protobuf.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.netty</groupId>
+                <artifactId>netty-bom</artifactId>
+                <version>${netty.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>${guava.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-databind</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-annotations</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.core</groupId>
+                <artifactId>jackson-core</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.fasterxml.jackson.datatype</groupId>
+                <artifactId>jackson-datatype-jsr310</artifactId>
+                <version>${jackson.version}</version>
+            </dependency>
+
+            <!-- Jetty (embedded HTTP server) -->
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-server</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-servlet</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-util</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-security</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-http</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.eclipse.jetty</groupId>
+                <artifactId>jetty-io</artifactId>
+                <version>${jetty.version}</version>
+            </dependency>
+
+            <!-- Jersey JAX-RS (3.0.x = Jakarta EE 9.1 / Servlet 5.0, compatible with Jetty 11) -->
+            <dependency>
+                <groupId>org.glassfish.jersey.core</groupId>
+                <artifactId>jersey-server</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish.jersey.containers</groupId>
+                <artifactId>jersey-container-servlet</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish.jersey.media</groupId>
+                <artifactId>jersey-media-json-jackson</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.glassfish.jersey.inject</groupId>
+                <artifactId>jersey-hk2</artifactId>
+                <version>${jersey.version}</version>
+            </dependency>
+
+            <!-- Observability dependencies -->
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-core</artifactId>
+                <version>${micrometer.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+
+            <!-- Testing dependencies -->
+            <dependency>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
+                <version>${junit.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-api</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.junit.jupiter</groupId>
+                <artifactId>junit-jupiter-engine</artifactId>
+                <version>${junit.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.assertj</groupId>
+                <artifactId>assertj-core</artifactId>
+                <version>${assertj.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>net.jqwik</groupId>
+                <artifactId>jqwik</artifactId>
+                <version>${jqwik.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <!-- F-E2E-01..05: replace Thread.sleep polling in E2E/chaos suites with
+                     Awaitility-based deterministic waits (CLAUDE.md C3 anti-busy-wait rule). -->
+                <groupId>org.awaitility</groupId>
+                <artifactId>awaitility</artifactId>
+                <version>${awaitility.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>${archunit.version}</version>
+                <scope>test</scope>
+            </dependency>
+
+            <!-- Internal modules -->
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-config</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-coordinator</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-spi</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-shuffle-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-shuffle-celeborn</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-protocol</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-observability</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-parser</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-planner</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-worker</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-metadata</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-connector-iceberg</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-connector-paimon</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- Apache Iceberg -->
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-api</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-core</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-parquet</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-orc</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.iceberg</groupId>
+                <artifactId>iceberg-arrow</artifactId>
+                <version>${iceberg.version}</version>
+            </dependency>
+
+            <!-- Apache Parquet (compile-time access for Iceberg Parquet reader API) -->
+            <dependency>
+                <groupId>org.apache.parquet</groupId>
+                <artifactId>parquet-column</artifactId>
+                <version>1.17.1</version>
+            </dependency>
+
+            <!-- Apache Hadoop (required by Iceberg/Paimon filesystem catalogs) -->
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-common</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-hdfs</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.hadoop</groupId>
+                <artifactId>hadoop-mapreduce-client-core</artifactId>
+                <version>${hadoop.version}</version>
+            </dependency>
+
+            <!-- Apache Paimon -->
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-core</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.paimon</groupId>
+                <artifactId>paimon-format</artifactId>
+                <version>${paimon.version}</version>
+            </dependency>
+
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-resilience</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-operations</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-resource</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-security</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-streaming</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-governance</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-indexing</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-transport</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-client-rest</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-client-jdbc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-client-cli</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-test-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-native-bundle</artifactId>
+                <version>${project.version}</version>
+                <classifier>${os.detected.classifier}</classifier>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-test-benchmark</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-test-e2e</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-test-fuzzer</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.pangrova</groupId>
+                <artifactId>pangrova-test-chaos</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.antlr</groupId>
+                <artifactId>antlr4-runtime</artifactId>
+                <version>${antlr4.version}</version>
+            </dependency>
+            <!-- JWT (jjwt) -->
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-api</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-impl</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.jsonwebtoken</groupId>
+                <artifactId>jjwt-jackson</artifactId>
+                <version>${jjwt.version}</version>
+            </dependency>
+
+            <!-- Database: Flyway -->
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-core</artifactId>
+                <version>${flyway.version}</version>
+            </dependency>
+
+            <!-- Lineage: OpenLineage SDK -->
+            <dependency>
+                <groupId>io.openlineage</groupId>
+                <artifactId>openlineage-java</artifactId>
+                <version>${openlineage.version}</version>
+            </dependency>
+
+            <!-- Database: PostgreSQL JDBC -->
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>${postgresql.version}</version>
+            </dependency>
+
+            <!-- Database: HikariCP connection pool -->
+            <dependency>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${hikaricp.version}</version>
+            </dependency>
+
+            <!-- Bitmap -->
+            <dependency>
+                <groupId>org.roaringbitmap</groupId>
+                <artifactId>RoaringBitmap</artifactId>
+                <version>${roaringbitmap.version}</version>
+            </dependency>
+
+            <!-- Caching -->
+            <dependency>
+                <groupId>com.github.ben-manes.caffeine</groupId>
+                <artifactId>caffeine</artifactId>
+                <version>${caffeine.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>redis.clients</groupId>
+                <artifactId>jedis</artifactId>
+                <version>${jedis.version}</version>
+            </dependency>
+
+            <!-- Cron expression parsing -->
+            <dependency>
+                <groupId>com.cronutils</groupId>
+                <artifactId>cron-utils</artifactId>
+                <version>${cron-utils.version}</version>
+            </dependency>
+
+            <!-- YAML parsing -->
+            <dependency>
+                <groupId>org.yaml</groupId>
+                <artifactId>snakeyaml</artifactId>
+                <version>${snakeyaml.version}</version>
+            </dependency>
+
+            <!-- AWS SDK v2 BOM for S3 shuffle persistence -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${awssdk.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- Resilience4j -->
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-circuitbreaker</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-retry</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-bulkhead</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-ratelimiter</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.github.resilience4j</groupId>
+                <artifactId>resilience4j-timelimiter</artifactId>
+                <version>${resilience4j.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <extensions>
+            <extension>
+                <groupId>kr.motd.maven</groupId>
+                <artifactId>os-maven-plugin</artifactId>
+                <version>${os-maven-plugin.version}</version>
+            </extension>
+        </extensions>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${maven-compiler-plugin.version}</version>
+                    <configuration>
+                        <source>${maven.compiler.source}</source>
+                        <target>${maven.compiler.target}</target>
+                        <release>${maven.compiler.source}</release>
+                        <forceJavacCompilerUse>true</forceJavacCompilerUse>
+                        <useIncrementalCompilation>false</useIncrementalCompilation>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${maven-surefire-plugin.version}</version>
+                    <configuration>
+                        <includes>
+                            <include>**/*Test.java</include>
+                            <include>**/*PropertyTest.java</include>
+                        </includes>
+                        <excludes>
+                            <exclude>**/*IntegrationTest.java</exclude>
+                        </excludes>
+                        <argLine>${jacoco.agent.argLine} --add-opens=java.base/java.nio=ALL-UNNAMED</argLine>
+                        <!-- Single forked JVM reused across test classes.
+                             reuseForks=false (one JVM per test class) causes
+                             intermittent failures with JUnit Platform + jqwik
+                             engine discovery (junit5#1579) and ANTLR/protobuf
+                             generated class loading on macOS. forkCount=1 +
+                             reuseForks=true provides sequential execution with
+                             sufficient isolation for all test types. -->
+                        <forkCount>1</forkCount>
+                        <reuseForks>true</reuseForks>
+                        <!-- Propagate DOCKER_HOST to forked JVMs for TestContainers.
+                             Surefire forks do not inherit shell env vars by default.
+                             If DOCKER_HOST is set in the shell (e.g. for Colima,
+                             Podman, or remote Docker), this forwards it to the
+                             forked JVM so TestContainers can discover the daemon.
+                             On systems where DOCKER_HOST is unset, this resolves
+                             to empty string and TC uses standard /var/run/docker.sock. -->
+                        <environmentVariables>
+                            <DOCKER_HOST>${env.DOCKER_HOST}</DOCKER_HOST>
+                            <!-- Ryuk bind-mounts the Docker socket into its container.
+                                 On Colima the host path differs from the VM-internal
+                                 path; override to the VM-internal /var/run/docker.sock. -->
+                            <TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>/var/run/docker.sock</TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>
+                        </environmentVariables>
+                        <!-- docker-java reads 'api.version' as a system property.
+                             Modern Docker daemons (Colima, Podman) require ≥ 1.44;
+                             docker-java defaults to 1.32 which is rejected. -->
+                        <systemPropertyVariables>
+                            <api.version>1.44</api.version>
+                        </systemPropertyVariables>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-checkstyle-plugin</artifactId>
+                    <version>${maven-checkstyle-plugin.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.puppycrawl.tools</groupId>
+                            <artifactId>checkstyle</artifactId>
+                            <version>${checkstyle.version}</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <configLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/checkstyle.xml</configLocation>
+                        <suppressionsLocation>${maven.multiModuleProjectDirectory}/config/checkstyle/suppressions.xml</suppressionsLocation>
+                        <consoleOutput>true</consoleOutput>
+                        <failsOnError>true</failsOnError>
+                        <failOnViolation>true</failOnViolation>
+                        <includeTestSourceDirectory>false</includeTestSourceDirectory>
+                        <sourceDirectories>
+                            <sourceDirectory>${project.build.sourceDirectory}</sourceDirectory>
+                        </sourceDirectories>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>com.github.spotbugs</groupId>
+                    <artifactId>spotbugs-maven-plugin</artifactId>
+                    <version>${spotbugs-maven-plugin.version}</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>com.github.spotbugs</groupId>
+                            <artifactId>spotbugs</artifactId>
+                            <version>${spotbugs.version}</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <effort>Max</effort>
+                        <threshold>Medium</threshold>
+                        <failOnError>true</failOnError>
+                        <excludeFilterFile>${maven.multiModuleProjectDirectory}/config/spotbugs/exclude-filter.xml</excludeFilterFile>
+                        <plugins>
+                            <plugin>
+                                <groupId>com.h3xstream.findsecbugs</groupId>
+                                <artifactId>findsecbugs-plugin</artifactId>
+                                <version>${findsecbugs.version}</version>
+                            </plugin>
+                        </plugins>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.jacoco</groupId>
+                    <artifactId>jacoco-maven-plugin</artifactId>
+                    <version>${jacoco-maven-plugin.version}</version>
+                    <configuration>
+                        <propertyName>jacoco.agent.argLine</propertyName>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>prepare-agent</id>
+                            <goals>
+                                <goal>prepare-agent</goal>
+                            </goals>
+                        </execution>
+                        <execution>
+                            <id>report</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>report</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>io.github.ascopes</groupId>
+                    <artifactId>protobuf-maven-plugin</artifactId>
+                    <version>${protobuf-maven-plugin.version}</version>
+                    <configuration>
+                        <protocVersion>${protobuf.version}</protocVersion>
+                        <sourceDirectories>
+                            <sourceDirectory>src/main/proto</sourceDirectory>
+                        </sourceDirectories>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>generate</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>integration-test</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <groups>integration</groups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>coverage</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>prepare-agent</id>
+                                <goals>
+                                    <goal>prepare-agent</goal>
+                                </goals>
+                            </execution>
+                            <execution>
+                                <id>report</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>report</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>static-analysis</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-checkstyle-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>checkstyle-check</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>com.github.spotbugs</groupId>
+                        <artifactId>spotbugs-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>spotbugs-check</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>check</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!--
+            Mutation testing profile (PIT).
+
+            Runs the PIT mutation testing engine against selected core modules to
+            measure test suite effectiveness (kills/survivors per mutation).
+
+            Usage:
+              mvn -pl pangrova-planner     -Pmutation org.pitest:pitest-maven:mutationCoverage
+              mvn -pl pangrova-coordinator -Pmutation org.pitest:pitest-maven:mutationCoverage
+              mvn -pl pangrova-resource    -Pmutation org.pitest:pitest-maven:mutationCoverage
+
+            Reports land in target/pit-reports/ (HTML + XML). Aim for >=60% mutation
+            score on core decision-heavy code (planner rules, coordinator state
+            machine, resource scheduler). Mutators are scoped to DEFAULTS to keep
+            runtime under ~10 min per module on a developer laptop.
+
+            CI integration is deferred (nightly job) — initial runs are exploratory
+            to establish baselines before gating PRs on mutation score.
+        -->
+        <profile>
+            <id>mutation</id>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.pitest</groupId>
+                            <artifactId>pitest-maven</artifactId>
+                            <version>${pitest-maven-plugin.version}</version>
+                            <dependencies>
+                                <dependency>
+                                    <groupId>org.pitest</groupId>
+                                    <artifactId>pitest-junit5-plugin</artifactId>
+                                    <version>${pitest-junit5-plugin.version}</version>
+                                </dependency>
+                            </dependencies>
+                            <configuration>
+                                <testPlugin>junit5</testPlugin>
+                                <targetClasses>
+                                    <param>org.pangrova.${project.artifactId}.*</param>
+                                </targetClasses>
+                                <targetTests>
+                                    <param>org.pangrova.*</param>
+                                </targetTests>
+                                <mutators>
+                                    <mutator>DEFAULTS</mutator>
+                                </mutators>
+                                <outputFormats>
+                                    <outputFormat>HTML</outputFormat>
+                                    <outputFormat>XML</outputFormat>
+                                </outputFormats>
+                                <timestampedReports>false</timestampedReports>
+                                <threads>4</threads>
+                                <mutationThreshold>0</mutationThreshold>
+                                <coverageThreshold>0</coverageThreshold>
+                                <skipFailingTests>true</skipFailingTests>
+                            </configuration>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>update-golden-plans</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/*PlanStabilityTest.java</include>
+                            </includes>
+                            <excludes>
+                                <exclude>none</exclude>
+                            </excludes>
+                            <systemPropertyVariables>
+                                <pangrova.golden.update>true</pangrova.golden.update>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- E2E scenario test profile: mvn verify -Pe2e -->
+        <profile>
+            <id>e2e</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <groups>e2e</groups>
+                            <excludedGroups>none</excludedGroups>
+                            <includes>
+                                <include>**/*E2ETest.java</include>
+                                <include>**/*E2E*.java</include>
+                            </includes>
+                            <excludes>
+                                <exclude>none</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
+</project>
