@@ -97,7 +97,7 @@ jobs:
 
       - name: Publish native test report
         if: always()
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v3
         with:
           name: Native Tests (${{ matrix.platform.name }})
           path: pangrova-worker-native/build/test-results.xml
