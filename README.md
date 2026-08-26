@@ -21,6 +21,8 @@ Pangrova is a next-generation **distributed SQL query engine** purpose-built for
 
 The defining architectural bet is **read-write separation**: scan-heavy analytical workloads run in C++ at native speed, while full ACID transactional DML (MERGE INTO, INSERT, DELETE) runs in Java with deep integration into open table format SDKs — delivering both raw performance and correctness guarantees.
 
+> **Vision:** make lakehouse analytics as fast as a dedicated data warehouse, with AI built into every query — while keeping data in open formats and eliminating data silos.
+
 ### Why Pangrova?
 
 | Dimension | Pangrova's Approach |
@@ -30,15 +32,106 @@ The defining architectural bet is **read-write separation**: scan-heavy analytic
 | **Open Formats** | First-class Apache Iceberg & Apache Paimon connectors via pluggable SPI |
 | **Scalability** | Multi-active Coordinator cluster (no SPOF) + auto-scaling Worker pool |
 | **Extensibility** | Trino-style Connector SPI — build your own connector without touching engine internals |
-| **Observability** | OpenTelemetry tracing, Prometheus metrics, structured logging — production-ready from day one |
-| **Enterprise Security** | JWT / LDAP / OAuth2 authentication, RBAC, column masking, row-level filtering |
 | **AI-Native** | Vector search, hybrid retrieval, in-DB embeddings, LLM UDFs — AI is a SQL primitive, not an external service |
+| **Observability** | OpenTelemetry tracing and metrics (OTLP export), structured logging — production-ready from day one |
+| **Enterprise Security** | JWT / LDAP / OAuth2 authentication, RBAC, column masking, row-level filtering |
 
-### Vision
+---
 
-> **Make lakehouse analytics as fast as a dedicated data warehouse, with AI built into every query — while keeping data in open formats and eliminating data silos.**
+## Quick Start
 
-Pangrova aims to be the **unified analytical + AI interface** for modern data platforms — enabling organizations to query petabyte-scale data lakes with sub-second latency, run vector search and LLM inference in the same SQL statement, and achieve all of this with zero data duplication.
+### Prerequisites
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| JDK | 17+ | `JAVA_HOME` must be set |
+| Maven | 3.9+ | For building from source |
+| Docker | 20+ | Required for integration tests (TestContainers) |
+| CMake + Ninja | 3.20+ | Optional — only for building the C++ native execution library |
+
+### Build from Source
+
+```bash
+git clone https://github.com/pangrova-project/pangrova.git
+cd pangrova
+mvn clean install -DskipTests
+```
+
+The Java build alone is sufficient to run the engine. To enable native vectorized
+execution, build the C++ library separately (see the
+[Developer Guide](docs/architecture/24-developer-guide.md)):
+
+```bash
+cmake --preset dev-release -S pangrova-worker-native
+cmake --build pangrova-worker-native/build --parallel
+```
+
+### Start in Development Mode
+
+The fastest way to get started — runs Coordinator and Worker in a single JVM:
+
+```bash
+./bin/pangrova-standalone.sh
+```
+
+The engine is now listening on `http://localhost:8080`.
+
+### Start a Distributed Cluster
+
+```bash
+# Terminal 1: Start Coordinator
+./bin/pangrova-coordinator.sh
+
+# Terminal 2: Start Worker (auto-registers with Coordinator)
+./bin/pangrova-worker.sh
+
+# Optional: check cluster health
+./bin/pangrova-cluster-status.sh
+./bin/pangrova-health-check.sh
+```
+
+> All scripts run in the foreground by default. Add `--daemon` to run in the
+> background (PID files are written to `logs/`). A unified entry point,
+> `bin/pangrova.sh`, wraps `start`, `stop`, `status`, `health-check`, `cli`,
+> `catalog`, and `rolling-upgrade` subcommands.
+
+### Run Your First Query
+
+```bash
+./bin/pangrova-cli.sh --host localhost --port 8080
+```
+
+```sql
+-- Verify the engine responds
+SELECT 1 + 1 AS result;
+
+-- Inspect registered catalogs
+SHOW CATALOGS;
+
+-- Query your lakehouse (after registering a catalog, see docs/guide/getting-started.md)
+SELECT count(*), region
+FROM local_iceberg.sales.orders
+WHERE order_date >= TIMESTAMP '2024-01-01'
+GROUP BY region
+ORDER BY count(*) DESC;
+```
+
+You can also submit queries over REST:
+
+```bash
+curl -X POST http://localhost:8080/v1/query/submit \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT 1 + 1 AS result"}'
+```
+
+### Stop All Processes
+
+```bash
+./bin/pangrova-stop.sh --all
+```
+
+> `pangrova-stop.sh` stops processes started with `--daemon` (via PID files in
+> `logs/`). Foreground processes are stopped with `Ctrl+C`.
 
 ---
 
@@ -81,66 +174,6 @@ sequenceDiagram
 
 ---
 
-## AI-Native Capabilities
-
-Pangrova treats AI as a **first-class citizen** — not an afterthought bolted onto a traditional query engine. Inspired by the approach of SingleStore, ClickHouse, and DuckDB's AI extensions, Pangrova integrates intelligence at both the **user-facing** and **self-optimizing** layers.
-
-### Layer 1: Database WITH AI — AI as SQL Primitives
-
-Use AI capabilities directly in SQL, no external pipelines needed:
-
-```sql
--- In-database embedding generation
-SELECT ai_embed('bge-m3', 'wireless headphones') AS embedding;
-
--- Vector similarity search with ANN acceleration (HNSW / IVFPQ)
-SELECT id, vector_score(embedding, ai_embed('bge-m3', 'noise cancelling'))
-FROM products
-ORDER BY vector_score DESC
-LIMIT 10;
-
--- Hybrid search: BM25 full-text + vector similarity with RRF fusion
-SELECT id, rrf(text_score(description, 'headphones'), vector_score(embedding, ?)) AS score
-FROM products
-WHERE MATCH(description, 'headphones')
-ORDER BY score DESC
-LIMIT 10;
-
--- LLM invocation as a SQL function
-SELECT ai_generate('gpt-4', 'Summarize: ' || content) FROM articles;
-SELECT ai_classify('sentiment', review_text) FROM reviews;
-```
-
-| Capability | Description |
-|-----------|-------------|
-| **Vector Search** | HNSW, IVFPQ & DiskANN indexes, L2/Cosine/Inner Product distance, AVX512/NEON SIMD acceleration |
-| **In-DB Embeddings** | `ai_embed(model, text)` — generate embeddings without leaving SQL |
-| **Hybrid Search** | Unified `rrf()` / weighted fusion of BM25 text scores + vector similarity |
-| **LLM Functions** | `ai_generate`, `ai_classify`, `ai_extract` — invoke external models as UDFs |
-| **Full-Text Search** | Inverted index with BM25 scoring, `MATCH()` + `text_score()` |
-| **Auto-Embedding DDL** | Declarative column-level embedding configuration |
-
-### Layer 2: Database AS AI — Self-Optimizing Intelligence
-
-The engine observes, learns, and optimizes itself — no DBA intervention required:
-
-| Capability | What It Does |
-|-----------|---------------|
-| **Semantic Cache** | Cache results by query *meaning*, not exact SQL text — hit rate 3-5× higher |
-| **Retrieval Quality Observability** | Continuously measure recall/precision of AI search results |
-| **Vector Index Lifecycle** | Auto-detect staleness, recommend rebuild, advise optimal index type |
-| **Learned Cardinality Estimation** | Replace histogram guesses with ML models trained on execution feedback |
-| **Intelligent Data Layout Advisor** | Recommend partition/sort/compaction from observed query patterns |
-| **Conversation-Aware Context** | Multi-turn session memory for AI agent interactions |
-
-### Why This Matters
-
-> Traditional databases treat AI as an external concern — embeddings are pre-computed elsewhere, vector search is a separate service, and the optimizer never learns from execution.
->
-> Pangrova collapses this stack: **one engine, one SQL interface, one place where analytical queries and AI workloads co-execute** with shared memory, shared indexes, and shared optimization.
-
----
-
 ## Core Features
 
 - **Native Vectorized Execution** — C++ Velox engine with Arrow columnar memory, achieving bare-metal throughput without JVM overhead
@@ -152,7 +185,63 @@ The engine observes, learns, and optimizes itself — no DBA intervention requir
 - **Connector SPI** — Pluggable data source architecture (built-in Iceberg & Paimon; extensible to custom sources)
 - **Streaming Ingestion** — CDC via Kafka, dynamic tables, continuous queries
 - **Enterprise Security** — JWT/LDAP/OAuth2 authentication, fine-grained RBAC, column masking, row filtering
-- **Full Observability** — OpenTelemetry distributed tracing, Prometheus metrics, structured key=value logging
+- **Full Observability** — OpenTelemetry distributed tracing and metrics (OTLP export), structured key=value logging
+
+---
+
+## AI-Native Capabilities
+
+Pangrova treats AI as a **first-class citizen** — not an afterthought bolted onto a traditional query engine. Intelligence is integrated at both the **user-facing** and **self-optimizing** layers.
+
+### Database WITH AI — AI as SQL Primitives
+
+Use AI capabilities directly in SQL, no external pipelines needed:
+
+```sql
+-- In-database embedding generation
+SELECT ai_embed('bge_m3', 'wireless headphones') AS embedding;
+
+-- Vector similarity search with ANN acceleration (HNSW / IVFPQ / DiskANN)
+SELECT id, l2_distance(embedding, ARRAY[0.5, 0.3, 0.2, 0.0]) AS dist
+FROM products
+ORDER BY l2_distance(embedding, ARRAY[0.5, 0.3, 0.2, 0.0]) ASC
+LIMIT 10;
+
+-- Hybrid search: BM25 full-text + vector similarity with RRF fusion
+SELECT id, title FROM products
+WHERE MATCH(description, 'headphones')
+ORDER BY l2_distance(embedding, ARRAY[0.5, 0.3, 0.2, 0.0]) ASC
+LIMIT 10
+RERANK BY rrf(60);
+
+-- LLM invocation as a SQL function
+SELECT ai_complete('llama3', 'Summarize: ' || content) FROM articles;
+```
+
+| Capability | Description |
+|-----------|-------------|
+| **Vector Search** | HNSW, IVFPQ & DiskANN indexes, L2/Cosine/Inner Product distance, AVX-512/AVX2/NEON SIMD acceleration |
+| **In-DB Embeddings** | `ai_embed(model, text)` — generate embeddings without leaving SQL |
+| **Hybrid Search** | `MATCH()` full-text + vector ORDER BY, fused via `RERANK BY rrf(k)` / `linear_combination(...)` |
+| **LLM Functions** | `ai_complete`, `ai_classify`, `ai_summarize`, `ai_extract`, `ai_filter`, `ai_guard`, `ai_predict`, `ai_translate` — invoke external models as UDFs |
+| **Multimodal AI** | `ai_describe_image`, `ai_parse_document`, `ai_transcribe`, `ai_ocr` over FILE inputs |
+| **Full-Text Search** | Inverted index with BM25 scoring via the `MATCH()` predicate |
+| **Auto-Embedding DDL** | `GENERATED ALWAYS AS (ai_embed(...))` columns + `CREATE EMBEDDING MODEL` declarative configuration |
+
+### Database AS AI — Self-Optimizing Intelligence
+
+The engine observes, learns, and optimizes itself — no DBA intervention required:
+
+| Capability | What It Does |
+|-----------|---------------|
+| **Semantic Cache** | Cache results by query *meaning*, not exact SQL text — hit rate 3-5× higher |
+| **Cardinality Feedback Learning** | Collect actual row counts from execution to correct stale statistics |
+| **Vector Index Lifecycle** | Auto-detect staleness, recommend rebuild, advise optimal index type |
+| **Data Layout Advisor** | Recommend partition/sort/compaction from observed query patterns |
+| **Retrieval Quality Observability** *(planned)* | Continuously measure recall/precision of AI search results |
+| **Conversation-Aware Context** *(planned)* | Multi-turn session memory for AI agent interactions |
+
+> Traditional databases treat AI as an external concern — embeddings are pre-computed elsewhere, vector search is a separate service, and the optimizer never learns from execution. Pangrova collapses this stack: **one engine, one SQL interface, one place where analytical queries and AI workloads co-execute** with shared memory, shared indexes, and shared optimization.
 
 ---
 
@@ -161,78 +250,43 @@ The engine observes, learns, and optimizes itself — no DBA intervention requir
 | Layer | Technology |
 |-------|-----------|
 | SQL Parsing | ANTLR4 (custom grammar) |
-| Query Optimization | Apache Calcite 1.36 |
-| Plan Interchange | Substrait 0.23 |
+| Query Optimization | Apache Calcite |
+| Plan Interchange | Substrait |
 | Native Execution | Meta Velox |
-| Columnar Format | Apache Arrow 19.0 |
-| Data Transport | Arrow Flight (gRPC 1.65) |
-| Table Formats | Apache Iceberg 1.11, Apache Paimon 1.4 |
-| Observability | OpenTelemetry 1.32, Micrometer 1.12 |
+| Columnar Format | Apache Arrow |
+| Data Transport | Arrow Flight (gRPC) |
+| Table Formats | Apache Iceberg, Apache Paimon |
+| Coordination & Protocol | Apache ZooKeeper (Curator), Protobuf / gRPC |
+| Observability | OpenTelemetry |
 | Testing | JUnit 5, jqwik (property-based), TestContainers |
+
+For exact dependency versions, see the root [pom.xml](pom.xml).
 
 ---
 
-## Quick Start
+## Repository Layout
 
-### Prerequisites
-
-| Requirement | Version | Notes |
-|-------------|---------|-------|
-| JDK | 17+ | `JAVA_HOME` must be set |
-| Maven | 3.8+ | For building from source |
-| Docker | 20+ | Required for integration tests (TestContainers) |
-
-### Build from Source
-
-```bash
-git clone https://github.com/pangrova-project/pangrova.git
-cd pangrova
-mvn clean install -DskipTests
-```
-
-### Start in Development Mode
-
-The fastest way to get started — runs Coordinator and Worker in a single JVM:
-
-```bash
-./bin/pangrova-standalone.sh
-```
-
-The engine is now listening on `http://localhost:8080`.
-
-### Start a Distributed Cluster
-
-```bash
-# Terminal 1: Start Coordinator
-./bin/pangrova-coordinator.sh
-
-# Terminal 2: Start Worker (auto-registers with Coordinator)
-./bin/pangrova-worker.sh
-```
-
-### Run Your First Query
-
-```bash
-./bin/pangrova-cli.sh --host localhost --port 8080
-```
-
-```sql
--- Verify the cluster is running
-SELECT * FROM system.runtime.nodes;
-
--- Query your lakehouse
-SELECT count(*), region
-FROM iceberg.sales.orders
-WHERE order_date >= TIMESTAMP '2024-01-01'
-GROUP BY region
-ORDER BY count(*) DESC;
-```
-
-### Stop All Processes
-
-```bash
-./bin/pangrova-stop.sh --all
-```
+| Module | Responsibility |
+|--------|----------------|
+| `pangrova-parser` | ANTLR4-based SQL parsing |
+| `pangrova-planner` | Calcite-based optimization & Substrait plan generation |
+| `pangrova-coordinator` | Cluster coordination, query lifecycle, HA |
+| `pangrova-worker` | Java-side task management, DML execution |
+| `pangrova-worker-native` | C++20 Velox execution engine, JNI bridge, vector indexes |
+| `pangrova-native-bundle` | Per-platform packaging of the native JNI library |
+| `pangrova-spi` / `pangrova-connector` | Connector SPI and built-in Iceberg / Paimon connectors |
+| `pangrova-shuffle` | Shuffle exchange core and Celeborn integration |
+| `pangrova-metadata` / `pangrova-indexing` | Catalog management and index services |
+| `pangrova-streaming` | CDC ingestion and continuous queries |
+| `pangrova-security` / `pangrova-governance` | Authentication, RBAC, masking, lineage |
+| `pangrova-resource` / `pangrova-resilience` | Resource management and fault tolerance |
+| `pangrova-observability` / `pangrova-operations` | Metrics, tracing, and ops tooling |
+| `pangrova-protocol` | Protobuf message and REST API contract definitions |
+| `pangrova-transport` | Arrow IPC / Arrow Flight decoding for clients |
+| `pangrova-common` / `pangrova-config` | Shared utilities and the typed YAML configuration framework |
+| `pangrova-standalone` | Single-JVM Coordinator + Worker entry point for dev/test |
+| `pangrova-client` | CLI, JDBC, and REST clients |
+| `pangrova-testing` | E2E, benchmark, chaos, fuzz, and smoke test suites |
 
 ---
 
@@ -240,13 +294,17 @@ ORDER BY count(*) DESC;
 
 | Document | Description |
 |----------|-------------|
+| [Getting Started](docs/guide/getting-started.md) | Installation and first-query walkthrough |
+| [SQL Reference](docs/guide/sql-reference.md) | Supported SQL syntax and lakehouse extensions |
+| [Vector Search](docs/guide/vector-search.md) | ANN indexes, similarity search, hybrid retrieval |
+| [AI Functions](docs/guide/ai-functions.md) | `ai_embed`, `ai_complete`, and related functions |
+| [Connectors](docs/guide/connectors.md) | Iceberg, Paimon, and connector development |
+| [Clients](docs/guide/clients.md) | CLI, JDBC, and REST client usage |
 | [Architecture Overview](docs/architecture/01-overview.md) | System design, core principles, protocol mapping |
-| [Distributed Architecture](docs/architecture/02-distributed-architecture.md) | Coordinator/Worker design, HA, scaling |
-| [Query Execution](docs/architecture/03-query-execution.md) | End-to-end query lifecycle |
-| [Native Layer](docs/architecture/05-native-layer.md) | Velox integration, JNI bridge, memory model |
-| [Connector Design](docs/architecture/06-connector-design.md) | SPI contracts, connector development |
 | [Configuration Reference](docs/develop/configuration/CONFIG.md) | All configuration options with defaults |
 | [Developer Guide](docs/architecture/24-developer-guide.md) | Development setup, code standards, testing |
+
+The full architecture series (24 documents) lives in [docs/architecture/](docs/architecture/README.md).
 
 ---
 
@@ -280,6 +338,8 @@ We welcome contributions of all kinds — bug reports, feature requests, documen
 - [ ] **RAG Pipeline Operator** — Native retrieve-augment-generate as a single SQL statement
 - [ ] **Federated Query** — Cross-catalog joins with predicate pushdown
 - [ ] **Materialized Views** — Automatic refresh, query rewriting
+- [ ] **Retrieval Quality Observability** — Recall/precision measurement for AI search (designed, see [AI-Native Architecture](docs/architecture/18-ai-native-architecture.md))
+- [ ] **Conversation-Aware Context** — Multi-turn session memory for AI agents (designed, see [AI-Native Architecture](docs/architecture/18-ai-native-architecture.md))
 - [ ] **GPU Acceleration** — RAPIDS integration for AI inference and compute-intensive operations
 - [ ] **Serverless Mode** — Auto-suspend/resume, pay-per-query deployment
 
@@ -301,19 +361,3 @@ Pangrova stands on the shoulders of outstanding open-source projects:
 ## License
 
 Pangrova is licensed under the [Apache License 2.0](LICENSE).
-
-```
-Copyright 2024 The Pangrova Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
