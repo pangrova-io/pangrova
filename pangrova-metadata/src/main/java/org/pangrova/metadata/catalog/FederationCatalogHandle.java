@@ -10,7 +10,7 @@ import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
 import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
 
 /**
- * CatalogHandle backed by a CatalogAdapter for federated external catalogs.
+ * CatalogHandle backed by a {@code FederatedCatalog} for external catalogs.
  */
 public final class FederationCatalogHandle implements CatalogHandle {
 

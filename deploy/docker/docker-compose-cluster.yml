@@ -1,0 +1,179 @@
+# ============================================================
+# Pangrova — Distributed Cluster (docker-compose)
+# 2 Coordinators + 3 Workers with health checks and dependencies.
+#
+# Usage:
+#   cd deploy/docker
+#   docker compose -f docker-compose-cluster.yml up -d
+#   docker compose -f docker-compose-cluster.yml ps
+#   docker compose -f docker-compose-cluster.yml down
+#
+# Override image version:
+#   PANGROVA_VERSION=0.1.0 docker compose -f docker-compose-cluster.yml up -d
+# ============================================================
+
+services:
+  # ---- Coordinators ----
+  coordinator-1:
+    image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
+    container_name: pangrova-coordinator-1
+    hostname: coordinator-1
+    command: ["start", "coordinator"]
+    ports:
+      - "8080:8080"
+    environment:
+      - PANGROVA_HOME=/opt/pangrova
+      - PANGROVA_CONF_DIR=/opt/pangrova/config
+      - PANGROVA_LOG_DIR=/opt/pangrova/logs
+      - PANGROVA_JAVA_OPTS=${COORDINATOR_JAVA_OPTS:--Xms2g -Xmx8g}
+      - COORDINATOR_ID=coordinator-1
+      # Object Storage credentials (pass via .env file)
+      - AWS_REGION=${AWS_REGION:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL:-}
+      - ALIBABA_CLOUD_ACCESS_KEY_ID=${ALIBABA_CLOUD_ACCESS_KEY_ID:-}
+      - ALIBABA_CLOUD_ACCESS_KEY_SECRET=${ALIBABA_CLOUD_ACCESS_KEY_SECRET:-}
+      - PANGROVA_OSS_ENDPOINT=${PANGROVA_OSS_ENDPOINT:-}
+      - PANGROVA_OSS_REGION=${PANGROVA_OSS_REGION:-}
+    volumes:
+      - coordinator-1-logs:/opt/pangrova/logs
+    networks:
+      - pangrova-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  coordinator-2:
+    image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
+    container_name: pangrova-coordinator-2
+    hostname: coordinator-2
+    command: ["start", "coordinator"]
+    ports:
+      - "8082:8080"
+    environment:
+      - PANGROVA_HOME=/opt/pangrova
+      - PANGROVA_CONF_DIR=/opt/pangrova/config
+      - PANGROVA_LOG_DIR=/opt/pangrova/logs
+      - PANGROVA_JAVA_OPTS=${COORDINATOR_JAVA_OPTS:--Xms2g -Xmx8g}
+      - COORDINATOR_ID=coordinator-2
+    volumes:
+      - coordinator-2-logs:/opt/pangrova/logs
+    networks:
+      - pangrova-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---- Workers ----
+  worker-1:
+    image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
+    container_name: pangrova-worker-1
+    hostname: worker-1
+    command: ["start", "worker"]
+    ports:
+      - "8081:8081"
+    environment:
+      - PANGROVA_HOME=/opt/pangrova
+      - PANGROVA_CONF_DIR=/opt/pangrova/config
+      - PANGROVA_LOG_DIR=/opt/pangrova/logs
+      - PANGROVA_JAVA_OPTS=${WORKER_JAVA_OPTS:--Xms2g -Xmx16g -XX:MaxDirectMemorySize=4g}
+      - WORKER_ID=worker-1
+      - WORKER_COORDINATOR_URL=http://coordinator-1:8080
+    volumes:
+      - worker-1-logs:/opt/pangrova/logs
+      - worker-1-data:/opt/pangrova/data
+    networks:
+      - pangrova-net
+    depends_on:
+      coordinator-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  worker-2:
+    image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
+    container_name: pangrova-worker-2
+    hostname: worker-2
+    command: ["start", "worker"]
+    ports:
+      - "8083:8081"
+    environment:
+      - PANGROVA_HOME=/opt/pangrova
+      - PANGROVA_CONF_DIR=/opt/pangrova/config
+      - PANGROVA_LOG_DIR=/opt/pangrova/logs
+      - PANGROVA_JAVA_OPTS=${WORKER_JAVA_OPTS:--Xms2g -Xmx16g -XX:MaxDirectMemorySize=4g}
+      - WORKER_ID=worker-2
+      - WORKER_COORDINATOR_URL=http://coordinator-1:8080
+    volumes:
+      - worker-2-logs:/opt/pangrova/logs
+      - worker-2-data:/opt/pangrova/data
+    networks:
+      - pangrova-net
+    depends_on:
+      coordinator-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  worker-3:
+    image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
+    container_name: pangrova-worker-3
+    hostname: worker-3
+    command: ["start", "worker"]
+    ports:
+      - "8084:8081"
+    environment:
+      - PANGROVA_HOME=/opt/pangrova
+      - PANGROVA_CONF_DIR=/opt/pangrova/config
+      - PANGROVA_LOG_DIR=/opt/pangrova/logs
+      - PANGROVA_JAVA_OPTS=${WORKER_JAVA_OPTS:--Xms2g -Xmx16g -XX:MaxDirectMemorySize=4g}
+      - WORKER_ID=worker-3
+      - WORKER_COORDINATOR_URL=http://coordinator-1:8080
+    volumes:
+      - worker-3-logs:/opt/pangrova/logs
+      - worker-3-data:/opt/pangrova/data
+    networks:
+      - pangrova-net
+    depends_on:
+      coordinator-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  coordinator-1-logs:
+  coordinator-2-logs:
+  worker-1-logs:
+  worker-1-data:
+  worker-2-logs:
+  worker-2-data:
+  worker-3-logs:
+  worker-3-data:
+
+networks:
+  pangrova-net:
+    driver: bridge

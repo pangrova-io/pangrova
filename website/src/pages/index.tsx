@@ -63,7 +63,7 @@ ORDER BY vector_score DESC
 LIMIT 10;`,
   timeTravel: `-- Query data as it existed at a specific point in time
 SELECT * FROM iceberg.analytics.events
-FOR SYSTEM_TIME AS OF TIMESTAMP '2024-06-01 12:00:00';`,
+FOR SYSTEM_TIME AS OF 123456789;`,
 };
 
 function HeroSection() {
@@ -78,7 +78,7 @@ function HeroSection() {
           Calcite Optimization + Arrow Zero-Copy + Velox Native Execution
         </p>
         <div className={styles.buttons}>
-          <Link className="button button--secondary button--lg" to="/docs/guide/getting-started">
+          <Link className="button button--secondary button--lg" to="/docs/getting-started/quickstart">
             Get Started →
           </Link>
           <Link
@@ -199,4 +199,3 @@ export default function Home(): React.JSX.Element {
     </Layout>
   );
 }
-

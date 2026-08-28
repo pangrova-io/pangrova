@@ -18,7 +18,7 @@ import java.util.Objects;
  * TestContainers-based Pangrova cluster for true multi-process E2E testing.
  *
  * <p>Starts a coordinator container and N worker containers using the
- * {@code pangrova/pangrova:latest} Docker image (built from {@code docs/develop/deployment/docker/Dockerfile}).
+ * {@code pangrova/pangrova:latest} Docker image (built from {@code deploy/docker/Dockerfile}).
  *
  * <p>Usage:
  * <pre>{@code

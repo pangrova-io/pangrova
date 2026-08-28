@@ -3,7 +3,7 @@ package org.pangrova.metadata.adapter;
 import java.util.Map;
 
 /**
- * Factory for creating CatalogAdapter instances from configuration properties.
+ * Factory for creating FederatedCatalog instances from configuration properties.
  */
 public interface FederatedCatalogFactory {
 

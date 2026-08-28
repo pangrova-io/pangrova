@@ -6,7 +6,7 @@ option java_multiple_files = true;
 import "pangrova/protocol/v1/common.proto";
 
 // Task type enum aligned with native proto TaskType.
-// See docs/architecture/20-java-native-protocol.md §4 for mapping contract.
+// See docs/architecture/jni-bridge.md §1 for the mapping contract.
 enum TaskType {
     TASK_TYPE_UNSPECIFIED = 0;
     TASK_TYPE_READ = 1;
@@ -47,7 +47,7 @@ enum FileFormat {
 // Split descriptor aligned with native proto SplitInfo at field-number level.
 // Populated by TaskRequestBuilder and deserialized by C++ TaskRequestParser.
 // Field numbers MUST match pangrova_native_protocol.proto SplitInfo exactly.
-// See docs/architecture/20-java-native-protocol.md §3 for alignment contract.
+// See docs/architecture/jni-bridge.md §1 for the alignment contract.
 message SplitInfo {
     string split_id = 1;
     string connector_id = 2;
@@ -357,7 +357,7 @@ message TaskResponse {
 // Batch result status byte encoding for JNI nativeGetNextBatchColumnar.
 // The first byte of the JNI return array encodes this status.
 // Field values MUST match C++ JniBridge encoding exactly.
-// See docs/architecture/20-java-native-protocol.md §6 for alignment contract.
+// See docs/architecture/jni-bridge.md §1 for the alignment contract.
 enum BatchResultStatus {
     BATCH_RESULT_STATUS_DATA = 0;
     BATCH_RESULT_STATUS_EOF = 1;
@@ -367,7 +367,7 @@ enum BatchResultStatus {
 
 // Task execution state.
 // Field values MUST match native proto TaskState exactly.
-// See docs/architecture/20-java-native-protocol.md §5 for alignment contract.
+// See docs/architecture/jni-bridge.md §1 for the alignment contract.
 enum TaskState {
     TASK_STATE_UNSPECIFIED = 0;
     TASK_STATE_PENDING = 1;

@@ -1,0 +1,76 @@
+# ============================================================
+# Pangrova — Single-node Development Cluster (docker-compose)
+# 1 Coordinator + 1 Worker on a custom bridge network.
+#
+# Usage:
+#   cd deploy/docker
+#   docker compose up -d
+#   docker compose ps
+#   docker compose down
+#
+# Override image version:
+#   PANGROVA_VERSION=0.1.0 docker compose up -d
+# ============================================================
+
+services:
+  coordinator:
+    image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
+    container_name: pangrova-coordinator
+    hostname: coordinator
+    command: ["start", "coordinator"]
+    ports:
+      - "${COORDINATOR_PORT:-8080}:8080"
+    environment:
+      - PANGROVA_HOME=/opt/pangrova
+      - PANGROVA_CONF_DIR=/opt/pangrova/config
+      - PANGROVA_LOG_DIR=/opt/pangrova/logs
+      - PANGROVA_JAVA_OPTS=${COORDINATOR_JAVA_OPTS:--Xms2g -Xmx8g}
+    volumes:
+      - coordinator-logs:/opt/pangrova/logs
+    networks:
+      - pangrova-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  worker:
+    image: pangrova/pangrova:${PANGROVA_VERSION:-latest}
+    container_name: pangrova-worker
+    hostname: worker
+    command: ["start", "worker"]
+    ports:
+      - "${WORKER_PORT:-8081}:8081"
+    environment:
+      - PANGROVA_HOME=/opt/pangrova
+      - PANGROVA_CONF_DIR=/opt/pangrova/config
+      - PANGROVA_LOG_DIR=/opt/pangrova/logs
+      - PANGROVA_JAVA_OPTS=${WORKER_JAVA_OPTS:--Xms2g -Xmx16g -XX:MaxDirectMemorySize=4g}
+      - WORKER_COORDINATOR_URL=http://coordinator:8080
+    volumes:
+      - worker-logs:/opt/pangrova/logs
+      - worker-data:/opt/pangrova/data
+    networks:
+      - pangrova-net
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  coordinator-logs:
+  worker-logs:
+  worker-data:
+
+networks:
+  pangrova-net:
+    driver: bridge

@@ -28,7 +28,7 @@ public enum InteropMode {
      * protobuf schemas (Java-side {@code task.proto} and native-side
      * {@code pangrova_native_protocol.proto}). Field numbers must be kept
      * in sync across proto definitions per the contract in
-     * {@code docs/architecture/20-java-native-protocol.md}.
+     * {@code docs/architecture/jni-bridge.md}.
      *
      * <p>This is the current production mode. Batch results cross the
      * JNI boundary as serialized byte arrays with a status-byte prefix

@@ -1,0 +1,85 @@
+---
+title: "Catalog Management"
+description: "Register, inspect, and drop catalogs via SQL, files, and the CLI utility"
+---
+
+# Catalog Management
+
+Two ways to register catalogs — SQL at runtime or configuration files at startup — plus the catalog utility.
+
+
+## Catalog Management
+
+### Method 1: SQL (Runtime)
+
+Register catalogs dynamically via SQL:
+
+```sql
+CREATE CATALOG prod_iceberg
+USING iceberg
+WITH (
+  'type' = 'hive',
+  'warehouse' = 's3://prod-bucket/iceberg',
+  'uri' = 'thrift://hive-metastore:9083'
+);
+
+SHOW CATALOGS;
+DESCRIBE CATALOG prod_iceberg;
+DROP CATALOG prod_iceberg;
+```
+
+### Method 2: Configuration Files (Startup)
+
+Place YAML files in `config/catalog/` — one file per catalog. The filename (without `.yml`) becomes the catalog name.
+
+```bash
+# Copy from template
+cp config/catalog/iceberg-example.yml config/catalog/prod-iceberg.yml
+
+# Edit the configuration
+vi config/catalog/prod-iceberg.yml
+```
+
+> **Note**: File-based catalog auto-registration at startup is 🔮 Planned. Currently, `config/catalog/` files serve as configuration references and are used by `bin/pangrova-catalog.sh list`.
+
+### Catalog Management Utility
+
+```bash
+# List configured catalogs
+bin/pangrova-catalog.sh list
+
+# Test catalog connectivity (requires running Coordinator)
+bin/pangrova-catalog.sh test my-iceberg
+```
+
+---
+
+### Catalog Registration Fails
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `ConnectorFactory not found: iceberg` | Missing connector JAR | Verify `pangrova-connector-iceberg-*.jar` is in `lib/` |
+| `Cannot create warehouse directory` | Permission denied on warehouse path | Check filesystem permissions or S3 credentials |
+| `Unable to connect to Hive Metastore` | Wrong URI or metastore down | Verify `uri` property and metastore availability |
+
+---
+
+### Query Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `Table not found` | Wrong catalog/schema path | Use fully-qualified name: `catalog.schema.table` |
+| `Schema mismatch` | Column type changed | Check schema evolution history with `DESCRIBE TABLE` |
+
+---
+
+### Connector SPI
+
+Pangrova uses a Connector SPI for pluggable data source integration. Each connector implements `ConnectorFactory`:
+
+| Method | Purpose |
+|--------|---------|
+| `getName()` | Returns the connector type name (e.g., `iceberg`, `paimon`) |
+| `create(catalogName, properties, context)` | Creates a connector instance with the given properties |
+
+The `properties` map in `config/catalog/*.yml` is passed directly to `ConnectorFactory.create()`. This means any property supported by the underlying Iceberg or Paimon library can be set in the YAML file.

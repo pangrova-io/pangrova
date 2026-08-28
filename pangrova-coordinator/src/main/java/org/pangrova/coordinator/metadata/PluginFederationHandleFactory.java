@@ -17,8 +17,8 @@ import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Bridges ServiceLoader-discovered CatalogAdapterFactory instances to CatalogRegistry.
- * Each federation provider (hms, glue, iceberg-rest) ships its own factory.
+ * Bridges ServiceLoader-discovered FederatedCatalogFactory instances to CatalogRegistry.
+ * Federation providers supply their own factory through a plugin.
  */
 public final class PluginFederationHandleFactory implements FederationHandleFactory {
 
@@ -61,7 +61,7 @@ public final class PluginFederationHandleFactory implements FederationHandleFact
         FederatedCatalogFactory factory = factoryCache.get(provider);
         if (factory == null) {
             throw new CatalogProviderNotFoundException(
-                    "No CatalogAdapterFactory found for provider '" + provider + "'");
+                    "No FederatedCatalogFactory found for provider '" + provider + "'");
         }
         return factory;
     }

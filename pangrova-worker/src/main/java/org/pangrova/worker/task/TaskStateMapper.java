@@ -7,7 +7,7 @@ import org.pangrova.spi.execution.TaskStatus;
  * Maps Worker TaskState to SPI TaskState and Protobuf TaskState.
  * Exhaustive switch (no default) ensures compile-time safety on enum changes.
  *
- * <p>See docs/architecture/20-java-native-protocol.md §5 for TaskState alignment.</p>
+ * <p>See docs/architecture/jni-bridge.md §1 for TaskState alignment.</p>
  */
 final class TaskStateMapper {
 

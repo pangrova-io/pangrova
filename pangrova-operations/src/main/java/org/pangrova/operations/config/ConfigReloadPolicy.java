@@ -4,7 +4,7 @@ import java.util.Set;
 
 /**
  * Defines which configuration key prefixes are allowed for hot reload per §6.1
- * of the operations architecture (docs/architecture/15-operations.md).
+ * of the operations guide (docs/operations/day-2.md).
  *
  * <p>Classification from §6.1:
  * <ul>

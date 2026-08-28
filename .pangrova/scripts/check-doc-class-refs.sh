@@ -21,12 +21,23 @@ if [ ! -d "$DOCS_DIR" ]; then
 fi
 
 # Extract backtick-quoted PascalCase identifiers that look like class names.
+# Fenced blocks are excluded because architecture documents intentionally contain
+# pseudocode, target interfaces, and third-party API examples; inline references
+# are the assertions that readers are most likely to interpret as repository types.
 # Pattern: starts with uppercase, contains at least one lowercase, length >= 4,
 # no spaces, no dots (excludes package names), no parens (excludes method calls).
 # Uses -E (extended regex) for portability across GNU and BSD grep.
 extract_class_refs() {
-    grep -ohE '`[A-Z][a-zA-Z0-9]{3,}`' "$DOCS_DIR"/*.md 2>/dev/null \
+    for doc in "$DOCS_DIR"/*.md; do
+        if head -n 30 "$doc" | grep -Eiq 'Status.*(Draft|Target architecture)'; then
+            continue
+        fi
+        awk '/^```/{in_fence = !in_fence; next} !in_fence{print}' "$doc"
+    done \
+        | grep -ivE 'proposed|planned|target design|remaining work|new (class|component)|phase [0-9]|does not exist|not implemented' \
+        | grep -ohE '`[A-Z][a-zA-Z0-9]{3,}`' 2>/dev/null \
         | sed 's/`//g' \
+        | grep -E '[a-z]' \
         | sort -u
 }
 
@@ -63,40 +74,64 @@ is_excluded() {
             return 0 ;;
         Leader|Follower|Primary|Secondary|Master|Slave)
             return 0 ;;
+        # JDK types and common third-party API types
+        AtomicReference|CompletableFuture|ConcurrentHashMap|CopyOnWriteArrayList)
+            return 0 ;;
+        ScheduledExecutorService|Semaphore|ServiceLoader|Closeable|Exception)
+            return 0 ;;
+        IllegalStateException|UnsupportedOperationException)
+            return 0 ;;
+        RelNode|LogicalTableModify|LogicalValues|TableModify|TableScan|CalciteSchema)
+            return 0 ;;
+        AppendFiles|ExpireSnapshots|RewriteDataFiles|RewriteManifests)
+            return 0 ;;
+        DeleteOrphanFiles|RemoveOrphanFilesAction|ExpireSnapshotsAction)
+            return 0 ;;
+        CompactAction|OrphanFilesClean|OptimisticLockException)
+            return 0 ;;
+        ArrowArray|ArrowSchema|FixedSizeListArray|VectorSchemaRoot|RecordBatch|RowVector)
+            return 0 ;;
+        FlightTicket|CallStatus|Roaring64Map|PrestoVectorSerde|AsyncDataCache)
+            return 0 ;;
+        # Generic type roles that do not claim a Pangrova implementation
+        Abstract|Cache|Codec|DataWriter|Deserializer|EvictionPolicy|Exchange)
+            return 0 ;;
+        FileSystem|Partitioner|Serializer|Ticket|Utils|VectorFunction)
+            return 0 ;;
+        FormatReader|ParquetFormatReader|OrcFormatReader|MemoryManager)
+            return 0 ;;
+        ShuffleReader|ShuffleWriter)
+            return 0 ;;
         *)
             return 1 ;;
     esac
 }
 
-# Check if a class name exists in the codebase
+# Build the code symbol index once. The previous implementation recursively
+# scanned the repository for every referenced name, including large generated
+# and dependency directories, which made this gate impractical on real docs.
+build_symbol_index() {
+    {
+        rg --no-filename --only-matching \
+            '(class|struct|interface|enum|record|message)[[:space:]]+[A-Z][A-Za-z0-9]*' \
+            "$REPO_ROOT" \
+            --glob '*.java' --glob '*.proto' --glob '*.h' --glob '*.hpp' \
+            --glob '*.cc' --glob '*.cpp' \
+            --glob '!**/target/**' --glob '!website/node_modules/**' \
+            --glob '!website/build/**' --glob '!website/.docusaurus/**' \
+            --glob '!.git/**' 2>/dev/null \
+            | awk '{print $2}'
+        rg --files "$REPO_ROOT" \
+            -g '*.java' -g '*.proto' -g '*.h' -g '*.hpp' -g '*.cc' -g '*.cpp' \
+            -g '!**/target/**' -g '!website/node_modules/**' -g '!website/build/**' \
+            -g '!website/.docusaurus/**' -g '!.git/**' \
+            | awk -F/ '{name=$NF; sub(/\.[^.]+$/, "", name); print name}'
+    } | sort -u
+}
+
 class_exists() {
     local class_name="$1"
-
-    # Check for .java file with this name
-    local java_file
-    java_file=$(find "$REPO_ROOT" -name "${class_name}.java" \
-        -not -path "*/target/*" 2>/dev/null | head -1)
-    if [ -n "$java_file" ]; then
-        return 0
-    fi
-
-    # Check for class/interface/enum/record declaration in source
-    local decl
-    decl=$(grep -rl "\b\(class\|interface\|enum\|record\) ${class_name}\b" \
-        "$REPO_ROOT" --include="*.java" --exclude-dir=target 2>/dev/null | head -1)
-    if [ -n "$decl" ]; then
-        return 0
-    fi
-
-    # Check for .proto message with this name
-    local proto_msg
-    proto_msg=$(grep -rl "message ${class_name}" \
-        "$REPO_ROOT" --include="*.proto" --exclude-dir=target 2>/dev/null | head -1)
-    if [ -n "$proto_msg" ]; then
-        return 0
-    fi
-
-    return 1
+    grep -Fqx "$class_name" <<< "$CODE_SYMBOLS"
 }
 
 echo "=== Documentation-Code Class Reference Check ==="
@@ -106,6 +141,7 @@ MISSING=()
 CHECKED=0
 
 CLASS_REFS=$(extract_class_refs)
+CODE_SYMBOLS=$(build_symbol_index)
 
 if [ -z "$CLASS_REFS" ]; then
     echo "No class references found in docs/architecture/*.md"

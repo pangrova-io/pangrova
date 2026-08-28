@@ -21,7 +21,7 @@ DEFAULT_COORDINATOR_URL="http://localhost:8080"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANGROVA_HOME="${PANGROVA_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/docs/develop/configuration}"
+PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/etc}"
 # shellcheck source=/dev/null
 [[ -f "$PANGROVA_CONF_DIR/pangrova-env.sh" ]] && source "$PANGROVA_CONF_DIR/pangrova-env.sh"
 PANGROVA_LOG_DIR="${PANGROVA_LOG_DIR:-$PANGROVA_HOME/logs}"

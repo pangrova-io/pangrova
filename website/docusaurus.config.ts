@@ -13,7 +13,7 @@ const config: Config = {
   organizationName: 'pangrova-project',
   projectName: 'pangrova',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
 
   i18n: {
     defaultLocale: 'en',
@@ -27,7 +27,7 @@ const config: Config = {
     mermaid: true,
     format: 'detect',
     hooks: {
-      onBrokenMarkdownLinks: 'warn',
+      onBrokenMarkdownLinks: 'throw',
     },
   },
 
@@ -57,9 +57,9 @@ const config: Config = {
           editUrl: 'https://github.com/pangrova-project/pangrova/tree/main/',
           showLastUpdateTime: true,
           showLastUpdateAuthor: true,
-          numberPrefixParser: true,
+          numberPrefixParser: false,
           exclude: [
-            '**/ai-native-evolution-report-*',
+            'internal/**',
           ],
         },
         blog: {
@@ -109,8 +109,8 @@ const config: Config = {
         {
           title: 'Documentation',
           items: [
-            {label: 'Getting Started', to: '/docs/guide/getting-started'},
-            {label: 'SQL Reference', to: '/docs/guide/sql-reference'},
+            {label: 'Getting Started', to: '/docs/getting-started/quickstart'},
+            {label: 'SQL Reference', to: '/docs/sql-reference/queries'},
             {label: 'Architecture', to: '/docs/architecture/overview'},
           ],
         },

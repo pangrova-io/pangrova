@@ -16,13 +16,13 @@
 #
 # Environment:
 #   PANGROVA_HOME        — Project root (auto-detected from script location)
-#   PANGROVA_CONF_DIR    — Config directory (default: $PANGROVA_HOME/docs/develop/configuration)
+#   PANGROVA_CONF_DIR    — Config directory (default: $PANGROVA_HOME/etc)
 # ==============================================================================
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANGROVA_HOME="${PANGROVA_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/docs/develop/configuration}"
+PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/etc}"
 CATALOG_DIR="$PANGROVA_CONF_DIR/catalog"
 DEFAULT_COORDINATOR_URL="http://localhost:8080"
 
@@ -44,7 +44,7 @@ Options for 'test':
 
 Environment Variables:
   PANGROVA_HOME       Project root directory (auto-detected)
-  PANGROVA_CONF_DIR   Config directory (default: \$PANGROVA_HOME/docs/develop/configuration)
+  PANGROVA_CONF_DIR   Config directory (default: \$PANGROVA_HOME/etc)
 
 Catalog files are stored in: \$PANGROVA_CONF_DIR/catalog/*.yml
 

@@ -1,0 +1,36 @@
+# ============================================================
+# Pangrova — Security Configuration (Production)
+#
+# Security settings live in the main coordinator.yml / worker.yml
+# configuration files; there is no separate security configuration
+# loader. This file is a reference template for the keys that exist.
+#
+# All secrets MUST be injected via environment variables.
+# Never store real credentials, keys, or tokens in config files.
+# ============================================================
+
+# ── Authentication (coordinator.yml) ──────────────────────────
+#
+# Setting security.enabled=true without security.auth.type fails
+# coordinator startup. Supported types: OAUTH2, LDAP.
+# (NOOP accepts all requests — development only.)
+security:
+  enabled: true
+  auth:
+    type: OAUTH2
+
+# ── Internal Cluster Authentication (worker.yml) ──────────────
+#
+# Coordinator→Worker control calls carry an X-Internal-Auth header
+# verified against this shared secret on each worker. The secret
+# must be identical on all nodes.
+#
+# Generate: openssl rand -base64 48
+worker:
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
+
+# ── TLS ───────────────────────────────────────────────────────
+#
+# Pangrova does not configure TLS termination itself. Place a load
+# balancer or service mesh (HAProxy, ALB, Istio, ...) in front of
+# the cluster to terminate TLS before the coordinator HTTP port.

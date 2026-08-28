@@ -19,7 +19,10 @@
 
 Pangrova is a next-generation **distributed SQL query engine** purpose-built for the lakehouse paradigm. It fuses the power of [Apache Calcite](https://calcite.apache.org/) cost-based optimization with [Meta Velox](https://velox-lib.io/) native vectorized execution, bridged by [Apache Arrow](https://arrow.apache.org/) zero-copy columnar transport.
 
-The defining architectural bet is **read-write separation**: scan-heavy analytical workloads run in C++ at native speed, while full ACID transactional DML (MERGE INTO, INSERT, DELETE) runs in Java with deep integration into open table format SDKs — delivering both raw performance and correctness guarantees.
+The defining architectural boundary is between coordination and execution: Java owns SQL planning,
+scheduling, metadata, and final catalog commits, while C++ owns vectorized, read-dependent execution.
+Metadata-only writes remain in Java; distributed writes return commit fragments to the coordinator for
+one connector-owned atomic commit.
 
 > **Vision:** make lakehouse analytics as fast as a dedicated data warehouse, with AI built into every query — while keeping data in open formats and eliminating data silos.
 
@@ -27,14 +30,14 @@ The defining architectural bet is **read-write separation**: scan-heavy analytic
 
 | Dimension | Pangrova's Approach |
 |-----------|-------------------|
-| **Performance** | C++ Velox vectorized execution + Arrow zero-copy JNI — no serialization overhead between Java and native |
-| **SQL Completeness** | Full ANSI SQL + lakehouse extensions (time-travel, MERGE INTO, INSERT OVERWRITE, COMPACT, VACUUM) |
+| **Performance** | C++ Velox vectorized execution with explicit Protobuf/Arrow IPC boundaries across JNI |
+| **SQL** | ANSI-style query support plus lakehouse extensions, with support documented per statement |
 | **Open Formats** | First-class Apache Iceberg & Apache Paimon connectors via pluggable SPI |
-| **Scalability** | Multi-active Coordinator cluster (no SPOF) + auto-scaling Worker pool |
+| **Scalability** | Coordinator/Worker execution with HA and resource-management components |
 | **Extensibility** | Trino-style Connector SPI — build your own connector without touching engine internals |
-| **AI-Native** | Vector search, hybrid retrieval, in-DB embeddings, LLM UDFs — AI is a SQL primitive, not an external service |
-| **Observability** | OpenTelemetry tracing and metrics (OTLP export), structured logging — production-ready from day one |
-| **Enterprise Security** | JWT / LDAP / OAuth2 authentication, RBAC, column masking, row-level filtering |
+| **AI-Native** | Vector, full-text, embedding, and model-provider primitives with maturity called out in the reference docs |
+| **Observability** | OpenTelemetry provider SPIs, metrics, tracing, and structured-logging components |
+| **Security** | Pluggable authentication plus authorization, masking, row-filter, and audit components; see configuration docs for the verified runtime surface |
 
 ---
 
@@ -54,12 +57,14 @@ The defining architectural bet is **read-write separation**: scan-heavy analytic
 ```bash
 git clone https://github.com/pangrova-project/pangrova.git
 cd pangrova
+./pangrova-worker-native/bin/setup-native-build-env.sh
+./pangrova-worker-native/bin/build-native.sh
 mvn clean install -DskipTests
 ```
 
-The Java build alone is sufficient to run the engine. To enable native vectorized
-execution, build the C++ library separately (see the
-[Developer Guide](docs/architecture/24-developer-guide.md)):
+Pangrova ships as an integrated Java/native engine. The native library must be built and packaged
+before executing queries through a Worker. See the
+[Developer Guide](docs/contributing/developer-guide.md)):
 
 ```bash
 cmake --preset dev-release -S pangrova-worker-native
@@ -108,7 +113,7 @@ SELECT 1 + 1 AS result;
 -- Inspect registered catalogs
 SHOW CATALOGS;
 
--- Query your lakehouse (after registering a catalog, see docs/guide/getting-started.md)
+-- Query your lakehouse after registering a catalog; see docs/getting-started/quickstart.md
 SELECT count(*), region
 FROM local_iceberg.sales.orders
 WHERE order_date >= TIMESTAMP '2024-01-01'
@@ -176,11 +181,11 @@ sequenceDiagram
 
 ## Core Features
 
-- **Native Vectorized Execution** — C++ Velox engine with Arrow columnar memory, achieving bare-metal throughput without JVM overhead
-- **Read-Write Separation** — Scans in C++ for maximum read performance; DML in Java for full transactional correctness with Iceberg/Paimon SDKs
-- **AI-Native SQL** — Vector search, hybrid retrieval, in-DB embeddings, LLM functions — all as first-class SQL operators
+- **Native Vectorized Execution** — C++ Velox execution with Arrow columnar data and an explicit JNI protocol
+- **Coordinated Distributed Writes** — read-dependent transforms run on Workers; the Coordinator performs the final Iceberg/Paimon catalog commit
+- **AI-Native Primitives** — Vector search, embedding, reranking, and model-provider building blocks with support levels documented per feature
 - **Adaptive Query Execution (AQE)** — Runtime partition coalescing, skew join handling, dynamic filtering based on live statistics
-- **Lakehouse SQL Extensions** — Time-travel queries, MERGE INTO, INSERT OVERWRITE, COMPACT, VACUUM
+- **Lakehouse SQL Extensions** — Time travel, DML, and maintenance syntax with current support documented in the SQL reference
 - **Multi-Active HA** — No single point of failure; Coordinator cluster with leader election and warm Output Worker pool
 - **Connector SPI** — Pluggable data source architecture (built-in Iceberg & Paimon; extensible to custom sources)
 - **Streaming Ingestion** — CDC via Kafka, dynamic tables, continuous queries
@@ -294,17 +299,17 @@ For exact dependency versions, see the root [pom.xml](pom.xml).
 
 | Document | Description |
 |----------|-------------|
-| [Getting Started](docs/guide/getting-started.md) | Installation and first-query walkthrough |
-| [SQL Reference](docs/guide/sql-reference.md) | Supported SQL syntax and lakehouse extensions |
-| [Vector Search](docs/guide/vector-search.md) | ANN indexes, similarity search, hybrid retrieval |
-| [AI Functions](docs/guide/ai-functions.md) | `ai_embed`, `ai_complete`, and related functions |
-| [Connectors](docs/guide/connectors.md) | Iceberg, Paimon, and connector development |
-| [Clients](docs/guide/clients.md) | CLI, JDBC, and REST client usage |
-| [Architecture Overview](docs/architecture/01-overview.md) | System design, core principles, protocol mapping |
-| [Configuration Reference](docs/develop/configuration/CONFIG.md) | All configuration options with defaults |
-| [Developer Guide](docs/architecture/24-developer-guide.md) | Development setup, code standards, testing |
+| [Getting Started](docs/getting-started/quickstart.md) | Installation and first-query walkthrough |
+| [SQL Reference](docs/sql-reference/queries.md) | Supported SQL syntax and lakehouse extensions |
+| [Vector Search](docs/sql-reference/functions/vector-search.md) | ANN indexes, similarity search, hybrid retrieval |
+| [AI Functions](docs/sql-reference/functions/ai-functions.md) | `ai_embed`, `ai_complete`, and related functions |
+| [Connectors](docs/getting-started/connectors/iceberg.md) | Iceberg and Paimon setup |
+| [Clients](docs/getting-started/clients/jdbc.md) | CLI, JDBC, and REST client usage |
+| [Architecture Overview](docs/architecture/overview.md) | System design, core principles, protocol mapping |
+| [Configuration Reference](docs/configuration/reference.md) | Verified YAML keys, system properties, and environment variables |
+| [Developer Guide](docs/contributing/developer-guide.md) | Development setup, code standards, testing |
 
-The full architecture series (24 documents) lives in [docs/architecture/](docs/architecture/README.md).
+The architecture index lives in [docs/architecture/](docs/architecture/index.md).
 
 ---
 
@@ -338,8 +343,8 @@ We welcome contributions of all kinds — bug reports, feature requests, documen
 - [ ] **RAG Pipeline Operator** — Native retrieve-augment-generate as a single SQL statement
 - [ ] **Federated Query** — Cross-catalog joins with predicate pushdown
 - [ ] **Materialized Views** — Automatic refresh, query rewriting
-- [ ] **Retrieval Quality Observability** — Recall/precision measurement for AI search (designed, see [AI-Native Architecture](docs/architecture/18-ai-native-architecture.md))
-- [ ] **Conversation-Aware Context** — Multi-turn session memory for AI agents (designed, see [AI-Native Architecture](docs/architecture/18-ai-native-architecture.md))
+- [ ] **Retrieval Quality Observability** — Recall/precision measurement for AI search (designed, see [AI-Native Architecture](docs/architecture/ai-native.md))
+- [ ] **Conversation-Aware Context** — Multi-turn session memory for AI agents (designed, see [AI-Native Architecture](docs/architecture/ai-native.md))
 - [ ] **GPU Acceleration** — RAPIDS integration for AI inference and compute-intensive operations
 - [ ] **Serverless Mode** — Auto-suspend/resume, pay-per-query deployment
 

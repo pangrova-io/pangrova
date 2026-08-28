@@ -7,7 +7,7 @@
 #
 # Environment:
 #   PANGROVA_HOME        — Project root (auto-detected from script location)
-#   PANGROVA_CONF_DIR    — Config directory (default: $PANGROVA_HOME/docs/develop/configuration)
+#   PANGROVA_CONF_DIR    — Config directory (default: $PANGROVA_HOME/etc)
 #   PANGROVA_LOG_DIR     — Log directory (default: $PANGROVA_HOME/logs)
 #   JAVA_HOME          — JDK 17+ path
 #   PANGROVA_JAVA_OPTS   — JVM options override (highest priority)
@@ -27,7 +27,7 @@ MAIN_CLASS="org.pangrova.standalone.PangrovaStandaloneMain"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANGROVA_HOME="${PANGROVA_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/docs/develop/configuration}"
+PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/etc}"
 PANGROVA_LOG_DIR="${PANGROVA_LOG_DIR:-$PANGROVA_HOME/logs}"
 
 # --- Help ---
@@ -46,7 +46,7 @@ Options:
 
 Environment Variables:
   PANGROVA_HOME       Project root directory (auto-detected)
-  PANGROVA_CONF_DIR   Config directory (default: \$PANGROVA_HOME/docs/develop/configuration)
+  PANGROVA_CONF_DIR   Config directory (default: \$PANGROVA_HOME/etc)
   PANGROVA_LOG_DIR    Log directory (default: \$PANGROVA_HOME/logs)
   JAVA_HOME         JDK installation path
   PANGROVA_JAVA_OPTS  JVM options (overrides jvm-coordinator.config)

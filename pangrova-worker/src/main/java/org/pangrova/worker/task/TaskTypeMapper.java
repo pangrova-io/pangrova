@@ -6,7 +6,7 @@ import org.pangrova.protocol.v1.TaskType;
  * Maps REST taskType string to Protobuf TaskType enum.
  * Exhaustive switch (no default) ensures compile-time safety on new task types.
  *
- * <p>Mapping table (see docs/architecture/20-java-native-protocol.md §4):
+ * <p>Mapping table (see docs/architecture/jni-bridge.md §1):
  * <pre>
  *   COMPUTE → TASK_TYPE_READ
  *   OUTPUT  → TASK_TYPE_READ

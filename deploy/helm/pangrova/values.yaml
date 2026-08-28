@@ -1,0 +1,244 @@
+# ============================================================
+# Pangrova Helm Chart — Default Values
+# Override these values via --set, --values, or a custom values file.
+#
+# Usage:
+#   helm install pangrova deploy/helm/pangrova -n pangrova --create-namespace
+#   helm install pangrova deploy/helm/pangrova -n pangrova -f my-values.yaml
+#   helm install pangrova deploy/helm/pangrova -n pangrova --set worker.replicas=5
+# ============================================================
+
+# ---- Global ----
+namespace: pangrova
+
+# ---- Image ----
+image:
+  repository: pangrova/pangrova
+  tag: latest
+  pullPolicy: IfNotPresent
+  # pullSecrets:
+  #   - name: my-registry-secret
+
+# ---- Service Account ----
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ---- Coordinator ----
+coordinator:
+  replicas: 2
+
+  resources:
+    requests:
+      cpu: "2"
+      memory: "4Gi"
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+
+  service:
+    type: ClusterIP
+    port: 8080
+    # annotations: {}
+
+  javaOpts: "-Xms2g -Xmx8g"
+
+  # Pod-level settings
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+  # Readiness/liveness probe tuning
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 3
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 5
+
+# ---- Worker ----
+worker:
+  replicas: 3
+
+  resources:
+    requests:
+      cpu: "4"
+      memory: "16Gi"
+    limits:
+      cpu: "8"
+      memory: "32Gi"
+
+  service:
+    type: ClusterIP
+    port: 8081
+    # annotations: {}
+
+  javaOpts: "-Xms2g -Xmx16g -XX:MaxDirectMemorySize=4g"
+
+  # Pod-level settings
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  podAnnotations: {}
+  podLabels: {}
+
+  # Readiness/liveness probe tuning
+  readinessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 3
+  livenessProbe:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    failureThreshold: 5
+
+# ---- Configuration (embedded YAML content) ----
+# These are mounted as ConfigMap and injected into containers.
+# Override with --set-file or in a custom values file.
+config:
+  coordinator: |
+    coordinator:
+      id: "coordinator-1"
+      host: "0.0.0.0"
+      port: 8080
+      ha:
+        enabled: false
+      query:
+        timeout: "5m"
+        max-concurrent: 100
+      worker:
+        heartbeat-timeout: "30s"
+        max-retry: 3
+    state-store:
+      type: IN_MEMORY
+    metadata:
+      enabled: true
+    observability:
+      enabled: true
+    security:
+      enabled: false
+  worker: |
+    worker:
+      host: "0.0.0.0"
+      port: 8081
+      heartbeat-interval: "10s"
+      shuffle:
+        buffer-capacity: 100
+        max-memory-bytes: 536870912
+        spill-threshold: 0.8
+      memory:
+        budget-bytes: 536870912
+        system-reserved-bytes: 67108864
+        node-bytes: 1073741824
+      threads:
+        query: 4
+        io: 2
+        scheduler: 1
+      registration:
+        max-attempts: 5
+        initial-backoff: "1s"
+        max-backoff: "30s"
+    observability:
+      enabled: true
+    security:
+      enabled: false
+
+# ---- Persistence (Worker data volumes) ----
+persistence:
+  enabled: false
+  size: 100Gi
+  storageClass: ""
+  # accessModes:
+  #   - ReadWriteOnce
+
+# ---- Autoscaling (Worker HPA) ----
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  # targetMemoryUtilizationPercentage: 80
+
+# ---- Multi-Tenancy (per-tenant namespace isolation) ----
+multiTenancy:
+  enabled: false
+  # List of tenants. Each tenant gets its own namespace, resource quota,
+  # network policy, and isolated worker pool.
+  tenants: []
+    # - name: tenant-alpha
+    #   namespace: pangrova-tenant-alpha
+    #   resourceQuota:
+    #     cpu: "16"
+    #     memory: "64Gi"
+    #     pods: "20"
+    #     persistentVolumeClaims: "10"
+    #     requestsStorage: "500Gi"
+    #   workerReplicas: 3
+    #   workerResources:
+    #     requests:
+    #       cpu: "4"
+    #       memory: "16Gi"
+    #     limits:
+    #       cpu: "8"
+    #       memory: "32Gi"
+    #   autoscaling:
+    #     enabled: true
+    #     minReplicas: 2
+    #     maxReplicas: 10
+    #     targetCPUUtilizationPercentage: 70
+    #     targetMemoryUtilizationPercentage: 80
+
+  # Default resource quota applied to tenants without explicit quota
+  defaultResourceQuota:
+    cpu: "8"
+    memory: "32Gi"
+    pods: "10"
+    persistentVolumeClaims: "5"
+    requestsStorage: "200Gi"
+
+  # Default worker settings for tenants without explicit worker config
+  defaultWorkerReplicas: 2
+  defaultWorkerResources:
+    requests:
+      cpu: "4"
+      memory: "16Gi"
+    limits:
+      cpu: "8"
+      memory: "32Gi"
+
+  # Default autoscaling for tenant worker pools
+  defaultAutoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # Network policy settings
+  networkPolicy:
+    # Allow traffic from the control-plane namespace (coordinator)
+    allowFromControlPlane: true
+    # Additional namespaces allowed to communicate with tenant namespaces
+    additionalAllowedNamespaces: []
+
+# ---- Ingress ----
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: pangrova.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: pangrova-tls
+    #   hosts:
+    #     - pangrova.example.com

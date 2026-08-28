@@ -18,7 +18,7 @@ enum TaskType {
 
 // Task execution state.
 // Field values MUST match Java proto TaskState exactly.
-// See docs/architecture/20-java-native-protocol.md §5 for alignment contract.
+// See docs/architecture/jni-bridge.md §1 for the alignment contract.
 enum TaskState {
   TASK_STATE_UNSPECIFIED = 0;
   TASK_STATE_PENDING = 1;

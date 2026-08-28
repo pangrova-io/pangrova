@@ -1,0 +1,78 @@
+# ============================================================
+# Pangrova — Iceberg REST Catalog
+#
+# Use this when your data lake uses the Iceberg REST Catalog
+# specification (Apache Polaris, Project Nessie, Gravitino,
+# Tabular, AWS Glue REST mode, Snowflake Open Catalog, etc.)
+#
+# Usage:
+#   cp rest-catalog-example.yml /etc/pangrova/catalog/my_lakehouse.yml
+#   # The file name (without .yml) becomes the catalog name in SQL
+#   # Restart Coordinator to pick up new catalog
+#
+# Equivalent SQL:
+#   CREATE CATALOG my_lakehouse USING iceberg
+#   WITH (
+#     'catalog-type' = 'rest',
+#     'uri' = 'https://catalog.internal/api/catalog',
+#     'credential' = '...'
+#   );
+# ============================================================
+
+connector: iceberg
+
+properties:
+
+  # ----------------------------------------------------------
+  # Catalog type — Iceberg REST Catalog (open standard)
+  # ----------------------------------------------------------
+  catalog-type: rest
+
+  # ----------------------------------------------------------
+  # Endpoint (required)
+  # ----------------------------------------------------------
+  # Base URI of the catalog server.
+  # Examples:
+  #   Apache Polaris:   https://polaris.internal/api/catalog
+  #   Project Nessie:   https://nessie.internal/iceberg
+  #   AWS Glue:         https://glue.<region>.amazonaws.com/iceberg
+  #   Snowflake:        https://<account>.snowflakecomputing.com/polaris/api/catalog
+  uri: "${ICEBERG_REST_URI:-https://catalog.internal/api/catalog}"
+
+  # ----------------------------------------------------------
+  # Warehouse hint (optional)
+  # ----------------------------------------------------------
+  # Storage location prefix returned to the catalog server as a hint.
+  warehouse: "${ICEBERG_WAREHOUSE:-s3://my-lakehouse/warehouse}"
+
+  # ----------------------------------------------------------
+  # OAuth2 Authentication (optional)
+  # ----------------------------------------------------------
+  # These properties are passed through to the Iceberg RESTCatalog,
+  # which handles the token lifecycle internally.
+  #
+  # Client credentials ("client-id:client-secret") for the
+  # client-credentials grant:
+  credential: "${ICEBERG_REST_CREDENTIAL}"
+
+  # Token endpoint of the authorization server (overrides discovery):
+  # oauth2-server-uri: "${ICEBERG_AUTH_TOKEN_ENDPOINT}"
+
+  # OAuth2 scope requested in the client credentials grant:
+  # scope: "PRINCIPAL_ROLE:catalog-admin"
+
+  # Pre-existing bearer token (alternative to credential):
+  # token: "${ICEBERG_BEARER_TOKEN}"
+
+  # ----------------------------------------------------------
+  # Object Storage Credentials (optional)
+  # ----------------------------------------------------------
+  # If the catalog server does not vend storage credentials,
+  # all remaining properties are passed through to the Hadoop
+  # Configuration used by the FileIO:
+  #
+  # s3.region: "${AWS_REGION:-us-east-1}"
+  # s3.access-key-id: "${AWS_ACCESS_KEY_ID}"
+  # s3.secret-access-key: "${AWS_SECRET_ACCESS_KEY}"
+  # s3.endpoint: "${AWS_ENDPOINT_URL}"       # S3-compatible stores
+  # s3.path-style-access: "true"             # MinIO/Ceph

@@ -1,0 +1,73 @@
+---
+title: "Index DDL"
+description: "CREATE / DROP / ALTER / SHOW INDEX statements and the index type catalog"
+---
+
+# Index DDL
+
+Indexes accelerate predicate evaluation and ANN search over lakehouse tables. All
+index types share the same DDL surface; behavior differs by `USING <type>`.
+
+## Index Types
+
+| Type | Category | Best for |
+|------|----------|----------|
+| [`BLOOM_FILTER`](data-skipping/bloom-filter.md) | Data-skipping | Equality predicates on high-cardinality columns |
+| [`NGRAM_BLOOM_FILTER`](data-skipping/ngram-bloom-filter.md) | Data-skipping | Substring (`LIKE '%...%'`) pattern matching |
+| [`BITMAP`](data-skipping/bitmap.md) | Data-skipping | Low-cardinality columns, combined predicates |
+| [`SPARSE`](data-skipping/sparse.md) | Data-skipping | Range predicates on sorted / near-sorted columns |
+| [`BTREE`](lookup/btree.md) | Lookup | Range and equality lookups |
+| [`HASH`](lookup/hash.md) | Lookup | Fast equality lookups |
+| [`PREFIX`](lookup/prefix.md) | Lookup | Prefix-based string matching |
+| [`INVERTED`](full-text.md) | Full-text | Token-based full-text search |
+| [`GIN`](containment.md) | Containment | Composite value containment (arrays, maps) |
+| [`R_TREE`](spatial.md) | Spatial | Bounding-box and geospatial predicates |
+| [`VECTOR`](vector.md) | Vector | Approximate nearest neighbor (ANN) search |
+
+## CREATE INDEX
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_events_user
+ON prod.analytics.events (user_id)
+USING BLOOM_FILTER
+WITH (
+  'bloom.fpp' = '0.01',
+  'bloom.expected_entries' = '1000000'
+);
+```
+
+**With FORCE (rebuild even if exists):**
+
+```sql
+CREATE INDEX idx_orders_status
+ON prod.analytics.orders (status)
+USING BLOOM_FILTER
+FORCE;
+```
+
+## DROP INDEX
+
+```sql
+DROP INDEX IF EXISTS idx_events_user ON prod.analytics.events;
+```
+
+## ALTER INDEX
+
+```sql
+ALTER INDEX idx_orders_status ON prod.analytics.orders REBUILD;
+```
+
+## SHOW INDEXES
+
+```sql
+SHOW INDEXES ON prod.analytics.events;
+```
+
+## Notes
+
+- The index type name after `USING` is an identifier; options in `WITH (...)` are
+  type-specific — see each index type's page.
+- Indexes are maintained as data files are written and can be rebuilt online with
+  `ALTER INDEX ... REBUILD`.
+- For the design behind index build and evaluation, see
+  [Indexing Architecture](../architecture/indexing.md).

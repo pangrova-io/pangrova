@@ -39,6 +39,6 @@ Vector search, hybrid retrieval, in-database embeddings, and LLM UDFs are first-
 
 ## What's Next
 
-We're actively developing Pangrova in the open. Check out our [Getting Started guide](/docs/guide/getting-started) to try it out, or dive into the [Architecture docs](/docs/architecture/overview) to understand the design.
+We're actively developing Pangrova in the open. Check out our [Getting Started guide](/docs/getting-started/quickstart) to try it out, or dive into the [Architecture docs](/docs/architecture/overview) to understand the design.
 
 Star us on [GitHub](https://github.com/pangrova-project/pangrova) and join the conversation!

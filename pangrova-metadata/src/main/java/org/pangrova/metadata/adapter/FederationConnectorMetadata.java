@@ -16,7 +16,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Read-only ConnectorMetadata that delegates to a CatalogAdapter.
+ * Read-only ConnectorMetadata that delegates to a {@link FederatedCatalog}.
  * All DDL operations throw UnsupportedOperationException.
  */
 public class FederationConnectorMetadata implements ConnectorMetadata {

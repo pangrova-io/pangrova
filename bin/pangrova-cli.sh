@@ -8,7 +8,7 @@
 #
 # Environment:
 #   PANGROVA_HOME              — Project root (auto-detected from script location)
-#   PANGROVA_CONF_DIR          — Config directory (default: $PANGROVA_HOME/docs/develop/configuration)
+#   PANGROVA_CONF_DIR          — Config directory (default: $PANGROVA_HOME/etc)
 #   PANGROVA_COORDINATOR_URL   — Coordinator URL, e.g. http://host:8080 (parsed into --host/--port
 #                              if --host and --port are not explicitly provided)
 #   JAVA_HOME                — JDK 17+ path
@@ -22,7 +22,7 @@ MAIN_CLASS="org.pangrova.client.cli.PangrovaCli"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PANGROVA_HOME="${PANGROVA_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/docs/develop/configuration}"
+PANGROVA_CONF_DIR="${PANGROVA_CONF_DIR:-$PANGROVA_HOME/etc}"
 
 # --- Help ---
 usage() {
@@ -42,7 +42,7 @@ All options are passed through to PangrovaCli.
 
 Environment Variables:
   PANGROVA_HOME              Project root directory (auto-detected)
-  PANGROVA_CONF_DIR          Config directory (default: \$PANGROVA_HOME/docs/develop/configuration)
+  PANGROVA_CONF_DIR          Config directory (default: \$PANGROVA_HOME/etc)
   PANGROVA_COORDINATOR_URL   Coordinator URL (e.g. https://coordinator:8080); --host/--port
                            are extracted from it when not explicitly provided on the command line
 

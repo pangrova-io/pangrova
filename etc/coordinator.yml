@@ -1,0 +1,140 @@
+# ============================================================
+# Pangrova Coordinator — Configuration (Production)
+#
+# Configuration priority (highest → lowest):
+#   1. Environment variables (PANGROVA_* prefix)
+#   2. CLI flag: --config /path/to/file.yml
+#   3. Classpath default YAML
+#   4. ConfigOption.defaultValue()
+#
+# Environment variable placeholders:
+#   ${ENV_VAR}           — required; startup fails if unset
+#   ${ENV_VAR:-default}  — optional with fallback
+#
+# Installation steps:
+#   1. Copy this file to /etc/pangrova/coordinator.yml
+#   2. Adjust the values below for your environment
+#   3. Set secrets via environment variables (see pangrova-env.sh)
+#
+# All keys below are defined in CoordinatorOptions (pangrova-config).
+# See docs/configuration/coordinator.md for the full reference.
+# ============================================================
+
+# ── Node Identity ─────────────────────────────────────────────
+coordinator:
+  # Unique, stable identifier for this Coordinator node.
+  # Used in leader-election state.
+  # Convention: coordinator-<datacenter>-<index> (e.g. coordinator-us-east-1a-0)
+  id: "${HOSTNAME:-coordinator-0}"
+
+  # Bind address — listen on all interfaces.
+  # Restrict to a specific interface IP in zero-trust networks.
+  host: "0.0.0.0"
+
+  # HTTP REST API port (client-facing).
+  # Expose this port in load balancers and firewalls.
+  port: 8080
+
+  # Deployment role: QUERY (serve queries only), MAINTENANCE
+  # (background tasks only), or COMBINED (both).
+  role: "COMBINED"
+
+  # ── High Availability ───────────────────────────────────────
+  #
+  # HA uses a JDBC-backed lease for leader election.
+  # All coordinator nodes MUST point to the same database.
+  ha:
+    enabled: true
+
+    # Use a dedicated HA database, not the metadata database.
+    # The connection is opened with empty username/password — supply
+    # credentials via connection-string parameters or instance-level
+    # trust (e.g. IAM database authentication, .pgpass).
+    jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_ha"
+
+    # When true, DDL is restricted to the leader coordinator
+    # (non-leaders respond with HTTP 307 redirect). When false
+    # (default), DDL can execute on any coordinator.
+    ddl-leader-routing: false
+
+  # ── Query Execution ─────────────────────────────────────────
+  query:
+    # Wall-clock timeout per query. Queries exceeding this
+    # are cancelled and the client receives a timeout error.
+    # Increase for analytical workloads with large scans.
+    timeout: "10m"
+
+    # Maximum number of queries executing concurrently.
+    max-concurrent: 200
+
+  # ── Worker Management ───────────────────────────────────────
+  worker:
+    # Mark a worker DEAD if no heartbeat received within this window.
+    # Must be > worker.heartbeat-interval (typically 3-5x).
+    heartbeat-timeout: "30s"
+
+    # Reassign tasks from a dead worker this many times before
+    # marking the query as failed.
+    max-retry: 3
+
+
+# ── State Store ───────────────────────────────────────────────
+#
+# Unified backend for all distributed state (HA leases, task
+# journals, distributed DDL locks). JDBC is mandatory in
+# production — IN_MEMORY loses all state on restart.
+state-store:
+  type: JDBC
+
+
+# ── Metadata ─────────────────────────────────────────────────
+metadata:
+  enabled: true
+  jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_meta"
+
+  # ── Metadata Cache ────────────────────────────────────────
+  cache:
+    # Per-node on-heap cache for schema and partition stats.
+    l1-max-size: 50000
+    l1-ttl: "120s"
+
+
+# ── Feature Flags ─────────────────────────────────────────────
+# Enable/disable subsystems. All default to true in production.
+# Disable only subsystems that are explicitly not needed.
+
+governance:
+  enabled: true
+
+resilience:
+  enabled: true
+
+streaming:
+  enabled: true
+
+tenant:
+  enabled: true
+
+indexing:
+  enabled: true
+
+operations:
+  enabled: true
+
+
+# ── Observability ────────────────────────────────────────────
+observability:
+  enabled: true
+
+
+# ── Security ─────────────────────────────────────────────────
+#
+# REQUIRED in production. Setting enabled=false makes the
+# Coordinator accept ALL requests without authentication —
+# never do this on a network-exposed deployment.
+security:
+  enabled: true
+
+  # Authenticator type: OAUTH2 or LDAP (NOOP is development only).
+  auth:
+    type: OAUTH2
