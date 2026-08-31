@@ -146,7 +146,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pangrova-cluster-build
           path: build-artifacts
@@ -219,7 +219,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pangrova-cluster-build
           path: build-artifacts
@@ -279,14 +279,14 @@ jobs:
 
       - name: Download TPC-H results
         if: needs.run-tpch.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: tpch-sf100-results-${{ github.run_number }}
           path: results
 
       - name: Download TPC-DS results
         if: needs.run-tpcds.result == 'success'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: tpcds-sf100-results-${{ github.run_number }}
           path: results
