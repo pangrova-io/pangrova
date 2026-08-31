@@ -18,7 +18,7 @@
 
     <properties>
         <!-- Celeborn client version — matches Docker image apache/celeborn:0.6.3 -->
-        <celeborn.version>0.6.3</celeborn.version>
+        <celeborn.version>0.7.0</celeborn.version>
     </properties>
 
     <dependencies>
