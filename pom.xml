@@ -135,7 +135,7 @@
         <kafka.version>3.7.0</kafka.version>
         <protobuf-maven-plugin.version>2.7.0</protobuf-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.11</jacoco-maven-plugin.version>
-        <pitest-maven-plugin.version>1.17.0</pitest-maven-plugin.version>
+        <pitest-maven-plugin.version>1.30.0</pitest-maven-plugin.version>
         <pitest-junit5-plugin.version>1.2.1</pitest-junit5-plugin.version>
         <os-maven-plugin.version>1.7.1</os-maven-plugin.version>
     </properties>
