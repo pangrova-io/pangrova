@@ -103,7 +103,7 @@ jobs:
           key: pangrova-native-benchmark-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh') }}
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -152,7 +152,7 @@ jobs:
           path: build-artifacts
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -225,7 +225,7 @@ jobs:
           path: build-artifacts
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
