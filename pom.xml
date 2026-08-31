@@ -90,7 +90,7 @@
         <hikaricp.version>5.1.0</hikaricp.version>
         <h2.version>2.2.224</h2.version>
         <!-- A-HA-01: quorum-replicated coordination backend (Apache Curator + ZooKeeper) to remove the single-JDBC coordination SPOF -->
-        <curator.version>5.2.0</curator.version>
+        <curator.version>5.9.0</curator.version>
         <zookeeper.version>3.8.4</zookeeper.version>
         <dropwizard.metrics.version>4.1.21</dropwizard.metrics.version>
         <snappy.version>1.1.10.5</snappy.version>
