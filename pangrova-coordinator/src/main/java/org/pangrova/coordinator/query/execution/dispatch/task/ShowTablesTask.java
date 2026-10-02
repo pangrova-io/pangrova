@@ -23,9 +23,7 @@ public final class ShowTablesTask implements MetadataTask<ShowTablesStatement> {
 
     @Override
     public StatementResult execute(ShowTablesStatement statement, StatementExecutionContext context) {
-        org.pangrova.spi.security.UserIdentity user = context.session() != null
-                ? context.session().userIdentity() : null;
-        List<TypedRow> rows = executor.executeShowTables(statement, user);
+        List<TypedRow> rows = executor.executeShowTables(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
     }
 

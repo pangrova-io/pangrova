@@ -6,6 +6,7 @@ import org.apache.calcite.sql.SqlIdentifier;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlSyntax;
 import org.apache.calcite.sql.validate.SqlNameMatchers;
+import org.apache.calcite.sql.type.ReturnTypes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
  * Unit tests for {@link PangrovaSqlOperatorTable}.
@@ -91,6 +93,51 @@ class PangrovaSqlOperatorTableTest {
     @Test
     void unknownFunctionNotFound() {
         assertThat(lookupByName("NONEXISTENT_FUNC")).isEmpty();
+    }
+
+    @Test
+    void qualifiedIdentifierDoesNotAssumeSimpleName() {
+        SqlIdentifier qualified = new SqlIdentifier(
+                List.of("catalog", "schema", "AI_COMPLETE"),
+                org.apache.calcite.sql.parser.SqlParserPos.ZERO);
+        List<SqlOperator> result = new ArrayList<>();
+
+        assertThatCode(() -> operatorTable.lookupOperatorOverloads(
+                qualified,
+                SqlFunctionCategory.USER_DEFINED_FUNCTION,
+                SqlSyntax.FUNCTION,
+                result,
+                SqlNameMatchers.withCaseSensitive(false)))
+                .doesNotThrowAnyException();
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void aiFunctionsExposeExactArityInsteadOfVariadicContract() {
+        SqlFunction complete = (SqlFunction) lookupByName("AI_COMPLETE").get(0);
+        SqlFunction embed = (SqlFunction) lookupByName("AI_EMBED").get(0);
+        SqlFunction classify = (SqlFunction) lookupByName("AI_CLASSIFY").get(0);
+        SqlFunction fileFromBytes = (SqlFunction) lookupByName("FILE_FROM_BYTES").get(0);
+
+        assertThat(complete.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(2);
+        assertThat(complete.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(3);
+        assertThat(embed.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(2);
+        assertThat(embed.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
+        assertThat(classify.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(3);
+        assertThat(fileFromBytes.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
+    }
+
+    @Test
+    void textSearchPredicateAndScoreHaveDistinctContracts() {
+        SqlFunction match = (SqlFunction) lookupByName("MATCH").get(0);
+        SqlFunction score = (SqlFunction) lookupByName("BM25_SCORE").get(0);
+
+        assertThat(match.getReturnTypeInference()).isSameAs(ReturnTypes.BOOLEAN_NULLABLE);
+        assertThat(score.getReturnTypeInference()).isSameAs(ReturnTypes.DOUBLE_NULLABLE);
+        assertThat(match.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(2);
+        assertThat(match.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
+        assertThat(score.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(2);
+        assertThat(score.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
     }
 
     private List<SqlOperator> lookupByName(String name) {

@@ -1,7 +1,7 @@
 LogicalSort(sort0=[$1], sort1=[$0], dir0=[ASC], dir1=[ASC], fetch=[100])
   LogicalFilter(condition=[>=($1, 10)])
     LogicalAggregate(group=[{8}], cnt=[COUNT()])
-      LogicalFilter(condition=[>($87, *(1.2:DECIMAL(2, 1), $105))])
+      LogicalFilter(condition=[>(CAST($87):DECIMAL(9, 3) NOT NULL, *(1.2:DECIMAL(2, 1), $105))])
         LogicalCorrelate(correlation=[$cor0], joinType=[left], requiredColumns=[{94}])
           LogicalFilter(condition=[=($57, $104)])
             LogicalJoin(condition=[true], joinType=[left])

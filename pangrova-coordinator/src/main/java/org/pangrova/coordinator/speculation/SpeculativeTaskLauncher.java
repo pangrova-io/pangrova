@@ -21,9 +21,8 @@ import org.slf4j.LoggerFactory;
  * Manages speculative task copies: tracks original -> speculative task pairs
  * and dispatches speculative copies to different workers.
  *
- * <p>When dispatch dependencies are configured (via {@link #setDispatchDependencies}),
- * {@link #launchSpeculative} actually schedules a duplicate task on a different worker.
- * When unconfigured (e.g. in unit tests), the method falls back to bookkeeping-only mode.</p>
+ * <p>{@link #launchSpeculative} schedules a real duplicate task on a different
+ * worker and fails closed when dispatch dependencies are absent.</p>
  *
  * <p>Concurrency strategy: ConcurrentHashMap for both forward and reverse pair registries.</p>
  */
@@ -37,8 +36,7 @@ public class SpeculativeTaskLauncher {
     // reverse: speculative taskId -> original taskId
     private final ConcurrentHashMap<String, String> reversePairs = new ConcurrentHashMap<>();
 
-    // Dispatch dependencies -- set after construction due to bootstrap ordering.
-    // When null, launchSpeculative does bookkeeping only (backward compat with tests).
+    // Dispatch dependencies are set after construction due to bootstrap ordering.
     private volatile TaskDispatcher taskDispatcher;
     private volatile WorkerManager workerManager;
     private volatile CoordinatorTaskTracker taskTracker;
@@ -70,34 +68,32 @@ public class SpeculativeTaskLauncher {
      *   <li>Dispatches a cloned task with a new speculative task ID</li>
      *   <li>Registers the speculative task in the task tracker</li>
      * </ol>
-     * When dependencies are not configured, falls back to bookkeeping-only.
-     *
      * @param originalTaskId the straggler task to speculatively re-execute
      * @param excludeWorkerId the worker running the original (slow) task
      * @param queryId the query this task belongs to
      * @return the generated speculative task ID
      */
     public String launchSpeculative(String originalTaskId, String excludeWorkerId, String queryId) {
+        if (queryId == null || queryId.isBlank()) {
+            throw new IllegalArgumentException("queryId is required for speculative dispatch");
+        }
+        if (taskDispatcher == null || workerManager == null || taskTracker == null) {
+            throw new IllegalStateException("speculative dispatch dependencies are not configured");
+        }
         String speculativeId = "spec-" + UUID.randomUUID();
-        speculativePairs.put(originalTaskId, speculativeId);
-        reversePairs.put(speculativeId, originalTaskId);
+        synchronized (this) {
+            if (speculativePairs.putIfAbsent(originalTaskId, speculativeId) != null) {
+                return null;
+            }
+            reversePairs.put(speculativeId, originalTaskId);
+        }
 
-        if (taskDispatcher != null && workerManager != null && taskTracker != null) {
-            dispatchSpeculativeCopy(queryId, originalTaskId, speculativeId, excludeWorkerId);
-        } else {
-            LOG.debug("event=speculative_bookkeeping_only originalTaskId={} speculativeId={}"
-                    + " reason=dispatch_dependencies_not_configured",
-                    originalTaskId, speculativeId);
+        if (!dispatchSpeculativeCopy(
+                queryId, originalTaskId, speculativeId, excludeWorkerId)) {
+            removePair(originalTaskId);
+            return null;
         }
         return speculativeId;
-    }
-
-    /**
-     * Backward-compatible overload for callers that do not pass queryId.
-     * Falls back to bookkeeping-only mode.
-     */
-    public String launchSpeculative(String originalTaskId, String excludeWorkerId) {
-        return launchSpeculative(originalTaskId, excludeWorkerId, null);
     }
 
     public boolean isSpeculative(String taskId) {
@@ -125,7 +121,7 @@ public class SpeculativeTaskLauncher {
     /**
      * Removes tracking for a speculative pair (cleanup after resolution).
      */
-    public void removePair(String originalTaskId) {
+    public synchronized void removePair(String originalTaskId) {
         String specId = speculativePairs.remove(originalTaskId);
         if (specId != null) {
             reversePairs.remove(specId);
@@ -134,16 +130,19 @@ public class SpeculativeTaskLauncher {
 
     // --- Internal dispatch logic ---
 
-    private void dispatchSpeculativeCopy(String queryId, String originalTaskId,
-                                          String speculativeId, String excludeWorkerId) {
+    private boolean dispatchSpeculativeCopy(String queryId, String originalTaskId,
+                                             String speculativeId, String excludeWorkerId) {
         SubmitTaskRequest originalRequest = taskTracker.getTaskRequest(originalTaskId);
         if (originalRequest == null) {
             LOG.warn("event=speculative_dispatch_skip originalTaskId={} speculativeId={}"
                     + " reason=original_request_not_found", originalTaskId, speculativeId);
-            return;
+            return false;
         }
-        if (queryId == null) {
-            queryId = originalRequest.queryId();
+        if (!queryId.equals(
+                originalRequest.taskRequest().getAttempt().getQueryOrJobId())) {
+            LOG.warn("event=speculative_dispatch_skip originalTaskId={} speculativeId={}"
+                    + " reason=query_identity_mismatch", originalTaskId, speculativeId);
+            return false;
         }
 
         WorkerInfo targetWorker = selectAlternateWorker(excludeWorkerId);
@@ -151,12 +150,15 @@ public class SpeculativeTaskLauncher {
             LOG.warn("event=speculative_dispatch_skip originalTaskId={} speculativeId={}"
                     + " excludeWorkerId={} reason=no_alternate_worker_available",
                     originalTaskId, speculativeId, excludeWorkerId);
-            return;
+            return false;
         }
 
         SubmitTaskRequest specRequest = cloneWithNewTaskId(originalRequest, speculativeId);
         try {
             taskTracker.registerTask(queryId, speculativeId);
+            // Status fencing and Native report validation require the exact
+            // cloned canonical request, not only its coordinator task ID.
+            taskTracker.registerTaskRequest(speculativeId, specRequest);
             taskTracker.markScheduled(queryId, speculativeId);
 
             DispatchResult result = taskDispatcher.dispatch(specRequest, targetWorker);
@@ -164,22 +166,29 @@ public class SpeculativeTaskLauncher {
             taskTracker.assignWorker(speculativeId, targetWorker.workerId());
             taskTracker.updateTaskState(queryId, speculativeId, "RUNNING");
             taskTracker.recordTaskStart(speculativeId,
-                    String.valueOf(originalRequest.stageId()));
+                    String.valueOf(originalRequest.taskRequest().getAttempt().getStageId()));
 
             LOG.info("event=speculative_dispatch_success originalTaskId={} speculativeId={}"
                     + " targetWorker={} queryId={}",
                     originalTaskId, speculativeId, targetWorker.workerId(), queryId);
+            return true;
         } catch (Exception e) {
             LOG.warn("event=speculative_dispatch_failed originalTaskId={} speculativeId={}"
                     + " targetWorker={} error={}",
                     originalTaskId, speculativeId, targetWorker.workerId(), e.getMessage(), e);
-            // Best-effort: the original task continues regardless.
-            // Clean up the speculative task registration if dispatch failed.
             try {
-                taskTracker.updateTaskState(queryId, speculativeId, "FAILED");
-            } catch (Exception cleanup) {
-                LOG.debug("event=speculative_cleanup_failed speculativeId={}", speculativeId);
+                taskDispatcher.cancelTask(
+                        speculativeId, targetWorker.host(), targetWorker.httpPort());
+            } catch (Exception cancelFailure) {
+                LOG.warn("event=speculative_cancel_after_dispatch_failure_failed"
+                        + " originalTaskId={} speculativeId={} targetWorker={} error={}",
+                        originalTaskId, speculativeId, targetWorker.workerId(),
+                        cancelFailure.getMessage(), cancelFailure);
             }
+            // The original task remains authoritative. A speculative dispatch
+            // failure must not invoke the query-wide task failure callback.
+            taskTracker.retireSpeculativeLoser(queryId, speculativeId);
+            return false;
         }
     }
 
@@ -201,25 +210,15 @@ public class SpeculativeTaskLauncher {
      * All other fields (plan, splits, session properties, etc.) are preserved.
      */
     private static SubmitTaskRequest cloneWithNewTaskId(SubmitTaskRequest original, String newTaskId) {
-        return new SubmitTaskRequest(
-                newTaskId,
-                original.queryId(),
-                original.stageId(),
-                original.partitionId(),
-                original.taskType(),
-                original.planFragment(),
-                original.splits(),
-                original.exchangeSources(),
-                original.resourceLimit(),
-                original.sessionProperties(),
-                original.outputConfig(),
-                original.writeConfig(),
-                original.dynamicFilters(),
-                original.shuffleConfig(),
-                original.splitMode(),
-                original.tenantId(),
-                original.principal(),
-                original.vectorSearch(),
-                original.coordinatorEpoch());
+        var canonical = original.taskRequest();
+        var next = org.pangrova.protocol.rest.task.TaskAttemptDescriptor
+                .from(canonical.getAttempt()).nextAttempt();
+        return SubmitTaskRequest.from(canonical.toBuilder()
+                .setAttempt(canonical.getAttempt().toBuilder()
+                        .setTaskId(newTaskId)
+                        .setPlanEpoch(next.planEpoch())
+                        .setAttemptId(next.attemptId())
+                        .setFencingToken(next.fencingToken()))
+                .build());
     }
 }

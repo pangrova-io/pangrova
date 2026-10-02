@@ -21,7 +21,7 @@ if(NOT ARROW_FLIGHT_HOME)
   # Auto-detect from Arrow's install prefix — check for headers OR library.
   # Headers are sufficient for compilation; the strip script removes Flight .o
   # files so the library is not needed at link time.
-  get_target_property(_arrow_loc Arrow::arrow_shared IMPORTED_LOCATION)
+  get_target_property(_arrow_loc ${PANGROVA_ARROW_TARGET} IMPORTED_LOCATION)
   if(_arrow_loc)
     get_filename_component(_arrow_lib_dir "${_arrow_loc}" DIRECTORY)
     get_filename_component(_arrow_prefix "${_arrow_lib_dir}" DIRECTORY)
@@ -39,6 +39,9 @@ if(NOT ARROW_FLIGHT_HOME)
 endif()
 
 if(NOT ARROW_FLIGHT_HOME)
+  if(PANGROVA_PRODUCTION_BUILD)
+    message(FATAL_ERROR "Linux production requires a static Arrow Flight package")
+  endif()
   set(ARROW_FLIGHT_FOUND FALSE)
   message(STATUS "Arrow Flight: ARROW_FLIGHT_HOME not set — FlightShuffleServer disabled")
   return()
@@ -53,6 +56,9 @@ find_library(ARROW_FLIGHT_LIB
 if(ARROW_FLIGHT_LIB)
   # Detect static vs shared library
   string(REGEX MATCH "\\.(a|lib)$" _IS_STATIC "${ARROW_FLIGHT_LIB}")
+  if(PANGROVA_PRODUCTION_BUILD AND NOT _IS_STATIC)
+    message(FATAL_ERROR "Linux production cannot link shared Arrow Flight: ${ARROW_FLIGHT_LIB}")
+  endif()
   if(_IS_STATIC)
     add_library(arrow_flight_imported STATIC IMPORTED)
   else()
@@ -70,7 +76,11 @@ if(ARROW_FLIGHT_LIB)
   # When OTEL is ON, gRPC comes via OpenTelemetry's gRPC::grpc++ target.
   # When OTEL is OFF (sanitizer builds), we must find gRPC ourselves.
   if(_IS_STATIC)
-    find_package(gRPC QUIET CONFIG)
+    if(PANGROVA_PRODUCTION_BUILD)
+      find_package(gRPC REQUIRED CONFIG)
+    else()
+      find_package(gRPC QUIET CONFIG)
+    endif()
     if(gRPC_FOUND)
       set_target_properties(arrow_flight_imported PROPERTIES
         INTERFACE_LINK_LIBRARIES "gRPC::grpc++;gRPC::grpc"
@@ -90,6 +100,8 @@ if(ARROW_FLIGHT_LIB)
   endif()
   set(ARROW_FLIGHT_FOUND TRUE)
   message(STATUS "Arrow Flight found (full): ${ARROW_FLIGHT_LIB}")
+elseif(PANGROVA_PRODUCTION_BUILD)
+  message(FATAL_ERROR "Linux production requires libarrow_flight.a under ${ARROW_FLIGHT_HOME}")
 elseif(EXISTS "${ARROW_FLIGHT_HOME}/include/arrow/flight/types.h")
   # Headers-only mode: Flight headers available for compilation but no library
   # to link. The strip script (bin/strip-velox-optional-deps.sh) removes .o

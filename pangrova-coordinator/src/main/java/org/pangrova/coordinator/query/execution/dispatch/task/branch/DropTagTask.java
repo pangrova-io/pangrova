@@ -24,8 +24,8 @@ public final class DropTagTask implements MetadataTask<DropTagStatement> {
 
     @Override
     public StatementResult execute(DropTagStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeDropTag(statement, context.session().userIdentity());
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeDropTag(statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
     }
 

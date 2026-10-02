@@ -15,7 +15,7 @@ class LazyMetadataSchemaCacheTest {
 
     @Test
     void cachedTableMapReturnedWithinTtl() {
-        var schema = new LazyMetadataSchema(null, "cat", "sch");
+        var schema = new LazyMetadataSchema(null, "cat", "sch", MetadataPlanningTestSessions.session());
 
         Map<String, Table> first = schema.getTableMap();
         Map<String, Table> second = schema.getTableMap();
@@ -25,7 +25,7 @@ class LazyMetadataSchemaCacheTest {
 
     @Test
     void invalidateCacheForcesRefresh() {
-        var schema = new LazyMetadataSchema(null, "cat", "sch");
+        var schema = new LazyMetadataSchema(null, "cat", "sch", MetadataPlanningTestSessions.session());
 
         Map<String, Table> before = schema.getTableMap();
         schema.invalidateCache();

@@ -1,5 +1,6 @@
 package org.pangrova.planner;
 
+import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.planner.mv.DynamicTableResolution;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.apache.calcite.rel.RelNode;
@@ -7,11 +8,13 @@ import org.apache.calcite.rel.RelNode;
 import java.util.List;
 
 /**
- * Immutable result of {@link PangrovaPlanner#plan(String)}, bundling the optimized
+ * Query-owned result of {@link PangrovaPlanner#plan(String)}, bundling the optimized
  * plan with metadata that was previously stored in volatile fields.
  *
  * <p>Eliminates the race condition where concurrent {@code plan()} calls could
- * overwrite each other's column names and runtime filter descriptors.</p>
+ * overwrite each other's column names and runtime filter descriptors. Metadata
+ * collections are immutable; the Calcite tree remains confined to this query's
+ * planning lifecycle and must not be cached or mutated concurrently.</p>
  *
  * @param plan                        the optimized Calcite RelNode plan
  * @param preOptimizationColumnNames  column names captured before HEP optimization
@@ -20,6 +23,7 @@ import java.util.List;
  * @param mergeOnReadHints            merge-on-read resolutions for DTs with pending deltas;
  *                                    empty when no DTs require merge-on-read
  */
+@NotThreadSafe
 public record PlanResult(
         RelNode plan,
         List<String> preOptimizationColumnNames,
@@ -49,17 +53,4 @@ public record PlanResult(
                 runtimeFilterDescriptors, mergeOnReadHints);
     }
 
-    /**
-     * Creates a copy of this PlanResult with the plan detached from the VolcanoPlanner's
-     * shared cluster (F-PLANNER-10). This prevents data races when a cached plan's cluster
-     * is reused by a subsequent query on the same thread.
-     *
-     * <p>The detachment is done by copying the RelNode tree with its current trait set,
-     * which severs the reference chain back to the thread-local VolcanoPlanner.</p>
-     */
-    public PlanResult withDetachedPlan() {
-        RelNode detached = plan.copy(plan.getTraitSet(), plan.getInputs());
-        return new PlanResult(detached, preOptimizationColumnNames,
-                runtimeFilterDescriptors, mergeOnReadHints);
-    }
 }

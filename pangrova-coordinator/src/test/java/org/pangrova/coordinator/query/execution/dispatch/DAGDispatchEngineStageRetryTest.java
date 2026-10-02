@@ -100,7 +100,9 @@ class DAGDispatchEngineStageRetryTest {
     private static StageLifecycleEvent event(Stage stage, String queryId) {
         StageNode node = stage.plan();
         StageDAG dag = StageDAG.create(List.of(stage), List.of(node), Map.of(), List.of());
-        return new StageLifecycleEvent(stage, dag, queryId, null);
+        return new StageLifecycleEvent(stage, dag, queryId,
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
+                        new org.pangrova.coordinator.query.CoordinatorSessionContext(queryId, Map.of(), null, "tenant-test")));
     }
 
     private static void transitionToFailed(Stage stage, ErrorDetail error) {

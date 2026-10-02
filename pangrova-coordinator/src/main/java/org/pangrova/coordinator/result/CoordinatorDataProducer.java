@@ -10,8 +10,9 @@ import org.slf4j.LoggerFactory;
 import java.util.Objects;
 
 /**
- * Data producer serving coordinator-local results (constant-fold, DDL, DML).
- * Looks up columnar IPC bytes from {@link CoordinatorResultBuffer} by queryId.
+ * Data producer serving bounded coordinator control-plane statement results.
+ * Relational query rows are never written here; clients read those directly
+ * from the Worker endpoint returned by dispatch.
  * Throws {@link DataProducerException} with {@link TransportStatus#NOT_FOUND}
  * when the queryId is missing or expired, so clients receive an explicit error
  * instead of a false-success empty result (EOF).

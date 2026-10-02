@@ -7,6 +7,7 @@ import org.pangrova.worker.bootstrap.WorkerComponentRefs;
 import org.pangrova.worker.jni.NativeFunctionBridge;
 import org.pangrova.worker.jni.NativeFunctionConfig;
 import org.pangrova.worker.jni.NativeFunctionDescriptor;
+import org.pangrova.worker.jni.NativeRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,9 +28,8 @@ import java.util.ServiceLoader;
  *   <li>Stores the bridge in {@link WorkerComponentRefs} for lifecycle management</li>
  * </ol>
  *
- * <p>Best-effort: individual factory or function registration failures are logged
- * but do not block worker startup. Queries referencing unregistered UDFs will
- * fail at planning time with a descriptive error.</p>
+ * <p>Registration is fail-closed. A worker must not accept tasks if its Java
+ * function catalog cannot be reproduced in the native expression engine.</p>
  */
 public final class NativeFunctionBootstrap {
 
@@ -44,6 +44,12 @@ public final class NativeFunctionBootstrap {
      * @param functionConfig configuration controlling auto-registration
      */
     public static void initialize(WorkerComponentRefs refs, NativeFunctionConfig functionConfig) {
+        initialize(refs, functionConfig, ServiceLoader.load(FunctionFactory.class));
+    }
+
+    static void initialize(WorkerComponentRefs refs,
+                           NativeFunctionConfig functionConfig,
+                           Iterable<FunctionFactory> factories) {
         if (!functionConfig.autoRegister()) {
             LOG.info("event=phase_skipped phase=native_functions reason=auto_register_disabled");
             return;
@@ -53,23 +59,67 @@ public final class NativeFunctionBootstrap {
         int scalarCount = 0;
         int aggregateCount = 0;
         int factoryCount = 0;
+        List<AutoCloseable> resources = new java.util.ArrayList<>();
 
-        ServiceLoader<FunctionFactory> loader = ServiceLoader.load(FunctionFactory.class);
-        for (FunctionFactory factory : loader) {
-            factoryCount++;
-            String pluginName = factory.getName();
-            Map<String, String> pluginConfig = functionConfig.configForPlugin(pluginName);
-            LOG.info("event=function_factory_discovered plugin={}", pluginName);
+        try {
+            for (FunctionFactory factory : factories) {
+                if (factory instanceof AutoCloseable closeable) {
+                    resources.add(closeable);
+                }
+                factoryCount++;
+                String pluginName = factory.getName();
+                Map<String, String> pluginConfig = functionConfig.configForPlugin(pluginName);
+                LOG.info("event=function_factory_discovered plugin={}", pluginName);
 
-            scalarCount += registerScalarFunctions(bridge, factory, pluginConfig, pluginName);
-            aggregateCount += registerAggregateFunctions(bridge, factory, pluginConfig, pluginName);
+                scalarCount += registerScalarFunctions(bridge, factory, pluginConfig, pluginName);
+                aggregateCount += registerAggregateFunctions(bridge, factory, pluginConfig, pluginName);
+            }
+
+            refs.setNativeFunctionBridge(bridge);
+            refs.setNativeFunctionResources(resources);
+
+            List<NativeFunctionDescriptor> descriptors = bridge.buildDescriptors();
+            if (refs.nativeAvailable()) {
+                NativeRuntime.nativeRegisterFunctions(bridge, descriptors);
+            }
+            LOG.info("event=native_functions_registered factories={} scalars={} aggregates={} descriptors={}",
+                    factoryCount, scalarCount, aggregateCount, descriptors.size());
+        } catch (RuntimeException | Error startupFailure) {
+            closeResources(resources, startupFailure);
+            refs.setNativeFunctionResources(List.of());
+            throw startupFailure;
         }
+    }
 
-        refs.setNativeFunctionBridge(bridge);
+    /** Closes provider registries and other resources owned by function factories. */
+    public static void close(WorkerComponentRefs refs) {
+        List<AutoCloseable> resources = refs.nativeFunctionResources();
+        RuntimeException firstFailure = closeResources(resources, null);
+        refs.setNativeFunctionResources(List.of());
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
+    }
 
-        List<NativeFunctionDescriptor> descriptors = bridge.buildDescriptors();
-        LOG.info("event=native_functions_registered factories={} scalars={} aggregates={} descriptors={}",
-                factoryCount, scalarCount, aggregateCount, descriptors.size());
+    private static RuntimeException closeResources(
+            List<AutoCloseable> resources, Throwable startupFailure) {
+        RuntimeException firstFailure = null;
+        for (int i = resources.size() - 1; i >= 0; i--) {
+            try {
+                resources.get(i).close();
+            } catch (Exception failure) {
+                if (firstFailure == null) {
+                    firstFailure = new IllegalStateException(
+                            "Failed to close native function resource", failure);
+                } else {
+                    firstFailure.addSuppressed(failure);
+                }
+                if (startupFailure != null) {
+                    startupFailure.addSuppressed(failure);
+                }
+            }
+        }
+        return firstFailure;
     }
 
     private static int registerScalarFunctions(NativeFunctionBridge bridge,
@@ -77,20 +127,16 @@ public final class NativeFunctionBootstrap {
                                                Map<String, String> pluginConfig,
                                                String pluginName) {
         int count = 0;
-        try {
-            List<ScalarFunction> scalars = factory.getScalarFunctions(pluginConfig);
-            for (ScalarFunction fn : scalars) {
-                try {
-                    bridge.registerScalar(fn);
-                    count++;
-                } catch (Exception e) {
-                    LOG.warn("event=scalar_function_register_failed plugin={} function={} error={}",
-                            pluginName, fn.getMetadata().name(), e.getMessage());
-                }
+        List<ScalarFunction> scalars = factory.getScalarFunctions(pluginConfig);
+        for (ScalarFunction fn : scalars) {
+            try {
+                bridge.registerScalar(fn);
+                count++;
+            } catch (RuntimeException e) {
+                throw new IllegalStateException(
+                        "Failed to register scalar function '" + fn.getMetadata().name()
+                                + "' from plugin '" + pluginName + "'", e);
             }
-        } catch (Exception e) {
-            LOG.warn("event=scalar_functions_load_failed plugin={} error={}",
-                    pluginName, e.getMessage());
         }
         return count;
     }
@@ -100,20 +146,16 @@ public final class NativeFunctionBootstrap {
                                                   Map<String, String> pluginConfig,
                                                   String pluginName) {
         int count = 0;
-        try {
-            List<AggregateFunction> aggregates = factory.getAggregateFunctions(pluginConfig);
-            for (AggregateFunction fn : aggregates) {
-                try {
-                    bridge.registerAggregate(fn);
-                    count++;
-                } catch (Exception e) {
-                    LOG.warn("event=aggregate_function_register_failed plugin={} function={} error={}",
-                            pluginName, fn.getMetadata().name(), e.getMessage());
-                }
+        List<AggregateFunction> aggregates = factory.getAggregateFunctions(pluginConfig);
+        for (AggregateFunction fn : aggregates) {
+            try {
+                bridge.registerAggregate(fn);
+                count++;
+            } catch (RuntimeException e) {
+                throw new IllegalStateException(
+                        "Failed to register aggregate function '" + fn.getMetadata().name()
+                                + "' from plugin '" + pluginName + "'", e);
             }
-        } catch (Exception e) {
-            LOG.warn("event=aggregate_functions_load_failed plugin={} error={}",
-                    pluginName, e.getMessage());
         }
         return count;
     }

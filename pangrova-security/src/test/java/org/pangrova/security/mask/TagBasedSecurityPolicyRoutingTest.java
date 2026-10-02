@@ -50,8 +50,7 @@ class TagBasedSecurityPolicyRoutingTest {
 
         // ---- Read path (enforcement via ColumnMaskingProcessor) ----
         ColumnMaskingProcessor enforcement = new ColumnMaskingProcessor(sharedStore);
-        Optional<String> enforcedMask = enforcement.getMask(
-                ANALYST, "lakehouse", "public", "customers", "email");
+        Optional<String> enforcedMask = enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "lakehouse", "public", "customers", "email");
 
         assertThat(enforcedMask)
                 .as("Mask written via SPI must be visible to enforcement processor")
@@ -76,11 +75,11 @@ class TagBasedSecurityPolicyRoutingTest {
         spiWriter.saveMask(new ColumnMaskRecord(0, "auto_pii_ssn",
                 "cat", "sch", "users", "ssn", "partial", List.of(), List.of(), true));
 
-        assertThat(enforcement.getMask(ANALYST, "cat", "sch", "users", "email"))
+        assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "users", "email"))
                 .hasValue("mask_email");
-        assertThat(enforcement.getMask(ANALYST, "cat", "sch", "users", "phone"))
+        assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "users", "phone"))
                 .hasValue("mask_phone");
-        assertThat(enforcement.getMask(ANALYST, "cat", "sch", "users", "ssn"))
+        assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "users", "ssn"))
                 .hasValue("partial");
     }
 
@@ -98,7 +97,7 @@ class TagBasedSecurityPolicyRoutingTest {
                 "cat", "sch", "users", "email", "mask_email", List.of(), List.of(), true));
 
         // Verify it's enforced
-        assertThat(enforcement.getMask(ANALYST, "cat", "sch", "users", "email")).isPresent();
+        assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "users", "email")).isPresent();
 
         // Read it back via SPI to get the assigned ID (simulates TagBasedSecurityPolicy.removeMask)
         List<ColumnMaskRecord> masks = spiWriter.getMasks("cat", "sch", "users", "email");
@@ -109,7 +108,7 @@ class TagBasedSecurityPolicyRoutingTest {
         spiWriter.deleteMask(maskId);
 
         // Verify enforcement no longer sees it
-        assertThat(enforcement.getMask(ANALYST, "cat", "sch", "users", "email")).isEmpty();
+        assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "users", "email")).isEmpty();
     }
 
     /**
@@ -125,13 +124,13 @@ class TagBasedSecurityPolicyRoutingTest {
         // Initial mask
         spiWriter.saveMask(new ColumnMaskRecord(0, "auto_pii_email",
                 "cat", "sch", "users", "email", "mask_email", List.of(), List.of(), true));
-        assertThat(enforcement.getMask(ANALYST, "cat", "sch", "users", "email"))
+        assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "users", "email"))
                 .hasValue("mask_email");
 
         // Update: same mask name, different expression (PII type changed)
         spiWriter.saveMask(new ColumnMaskRecord(0, "auto_pii_email",
                 "cat", "sch", "users", "email", "partial", List.of(), List.of(), true));
-        assertThat(enforcement.getMask(ANALYST, "cat", "sch", "users", "email"))
+        assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "users", "email"))
                 .hasValue("partial");
 
         // Only one mask should exist (replaced, not duplicated)
@@ -159,7 +158,7 @@ class TagBasedSecurityPolicyRoutingTest {
         Thread reader = new Thread(() -> {
             for (int i = 0; i < iterations; i++) {
                 // Should never throw ConcurrentModificationException
-                enforcement.getMask(ANALYST, "cat", "sch", "t", "col" + i);
+                enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "t", "col" + i);
             }
         });
 
@@ -170,7 +169,7 @@ class TagBasedSecurityPolicyRoutingTest {
 
         // After concurrent operations, all written masks should be readable
         for (int i = 0; i < iterations; i++) {
-            assertThat(enforcement.getMask(ANALYST, "cat", "sch", "t", "col" + i))
+            assertThat(enforcement.getMask(ANALYST, java.util.Set.of("analyst"), "cat", "sch", "t", "col" + i))
                     .as("Mask for col%d should be present after concurrent write/read", i)
                     .isPresent();
         }

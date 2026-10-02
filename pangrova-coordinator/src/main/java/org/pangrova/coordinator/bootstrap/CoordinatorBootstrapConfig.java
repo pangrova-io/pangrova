@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.pangrova.config.ShuffleMode;
 import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
+import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 
 /**
  * Configuration for Coordinator bootstrap sequence.
@@ -65,6 +66,16 @@ public record CoordinatorBootstrapConfig(
     public boolean governanceEnabled() { return featureFlags.governance(); }
     public boolean resilienceEnabled() { return featureFlags.resilience(); }
     public boolean tenantEnabled() { return featureFlags.tenant(); }
+
+    void requireAuthenticatedTenancy() {
+        if (tenantEnabled()
+                && (!securityEnabled() || securityConfig == null
+                    || securityConfig.authenticatorType()
+                        == SecurityConfig.AuthenticatorType.NOOP)) {
+            throw new IllegalStateException(
+                    "Tenant isolation requires an enabled, non-NOOP authenticator");
+        }
+    }
     public boolean operationsEnabled() { return featureFlags.operations(); }
     public boolean speculationEnabled() { return featureFlags.speculation(); }
     public boolean pullModeSplitAssignmentEnabled() { return featureFlags.pullModeSplitAssignment(); }
@@ -116,6 +127,7 @@ public record CoordinatorBootstrapConfig(
     public int coordinatorTransportPort() { return transport.port(); }
     public long coordinatorTransportAllocatorLimitBytes() { return transport.allocatorLimitBytes(); }
     public String coordinatorTransportAdvertisedHost() { return transport.advertisedHost(); }
+    public ShuffleTlsConfig shuffleTlsConfig() { return transport.shuffleTls(); }
 
     public long workerSuspectThresholdMs() { return workerHealth.suspectThresholdMs(); }
     public long workerDeadThresholdMs() { return workerHealth.deadThresholdMs(); }
@@ -240,7 +252,11 @@ public record CoordinatorBootstrapConfig(
     }
 
     /** Transport layer parameters. */
-    public record TransportConfig(int port, long allocatorLimitBytes, String advertisedHost) {
+    public record TransportConfig(
+            int port,
+            long allocatorLimitBytes,
+            String advertisedHost,
+            ShuffleTlsConfig shuffleTls) {
         public static final int DEFAULT_PORT = 0;
         public static final long DEFAULT_ALLOCATOR_LIMIT_BYTES = 256L * 1024 * 1024;
         public static final String DEFAULT_ADVERTISED_HOST = "localhost";
@@ -249,10 +265,6 @@ public record CoordinatorBootstrapConfig(
             if (advertisedHost == null || advertisedHost.isBlank()) {
                 throw new IllegalArgumentException("advertisedHost must not be blank");
             }
-        }
-
-        public TransportConfig(int port, long allocatorLimitBytes) {
-            this(port, allocatorLimitBytes, DEFAULT_ADVERTISED_HOST);
         }
 
         /**
@@ -267,7 +279,9 @@ public record CoordinatorBootstrapConfig(
         }
 
         public static TransportConfig defaults() {
-            return new TransportConfig(DEFAULT_PORT, DEFAULT_ALLOCATOR_LIMIT_BYTES, DEFAULT_ADVERTISED_HOST);
+            return new TransportConfig(
+                    DEFAULT_PORT, DEFAULT_ALLOCATOR_LIMIT_BYTES,
+                    DEFAULT_ADVERTISED_HOST, null);
         }
     }
 
@@ -294,49 +308,39 @@ public record CoordinatorBootstrapConfig(
         }
     }
 
-    /** Security subsystem configuration: authenticator type, backend-specific properties, and initial grants. */
-    public record SecurityConfig(AuthenticatorType authenticatorType, List<GrantEntry> grants,
-                                 String internalAuthSecret) {
+    /** Security subsystem configuration: authenticator type and backend-specific properties. */
+    public record SecurityConfig(AuthenticatorType authenticatorType,
+                                 String internalAuthSecret, java.util.Map<String, String> authenticatorProperties) {
         public enum AuthenticatorType { NOOP, OAUTH2, LDAP }
 
         public SecurityConfig {
             if (authenticatorType == null) {
                 throw new IllegalArgumentException("authenticatorType must not be null");
             }
-            grants = grants != null ? List.copyOf(grants) : List.of();
-        }
-
-        /** Convenience constructor without auth secret. */
-        public SecurityConfig(AuthenticatorType authenticatorType, List<GrantEntry> grants) {
-            this(authenticatorType, grants, null);
+            authenticatorProperties = java.util.Map.copyOf(authenticatorProperties);
+            if (authenticatorType == AuthenticatorType.OAUTH2
+                    && authenticatorProperties.getOrDefault("issuerUri", "").isBlank()) {
+                throw new IllegalArgumentException("OAuth2 requires security.auth.properties.issuer-uri");
+            }
+            if (authenticatorProperties.containsKey("requireSignatureVerification")) {
+                throw new IllegalArgumentException("Authentication signature bypass settings are not supported");
+            }
+            if (authenticatorType == AuthenticatorType.LDAP
+                    && authenticatorProperties.getOrDefault("ldapUrl", "").isBlank()) {
+                throw new IllegalArgumentException("LDAP requires security.auth.properties.ldap-url");
+            }
         }
 
         public static SecurityConfig noop() {
-            return new SecurityConfig(AuthenticatorType.NOOP, List.of(), null);
+            return new SecurityConfig(AuthenticatorType.NOOP, null, java.util.Map.of());
         }
 
-        /**
-         * A single grant entry loaded from YAML config {@code security.grants[]}.
-         * Null or "*" in pattern fields acts as a wildcard.
-         */
-        public record GrantEntry(
-                String role,
-                String privilege,
-                String objectType,
-                String catalog,
-                String schema,
-                String table,
-                String column) {
-
-            public GrantEntry {
-                if (role == null || role.isBlank()) {
-                    throw new IllegalArgumentException("grant role must not be blank");
-                }
-                if (privilege == null || privilege.isBlank()) {
-                    throw new IllegalArgumentException("grant privilege must not be blank");
-                }
-            }
+        @Override
+        public String toString() {
+            return "SecurityConfig[type=" + authenticatorType
+                    + ", configuredAuthProperties=" + authenticatorProperties.keySet() + "]";
         }
+
     }
 
     /** OTel bootstrap parameters for observability initialization. */

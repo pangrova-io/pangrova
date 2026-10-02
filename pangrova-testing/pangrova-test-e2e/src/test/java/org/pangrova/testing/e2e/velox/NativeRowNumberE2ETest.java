@@ -46,7 +46,7 @@ class NativeRowNumberE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA,
                         icebergWarehouse().toString())));

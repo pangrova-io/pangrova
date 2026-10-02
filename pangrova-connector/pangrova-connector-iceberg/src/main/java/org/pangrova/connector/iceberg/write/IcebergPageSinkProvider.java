@@ -68,6 +68,13 @@ public class IcebergPageSinkProvider implements ConnectorPageSinkProvider {
      */
     private Table resolveTable(IcebergOutputTableHandle handle) {
         TableIdentifier id = TableIdentifier.of(handle.schemaName(), handle.tableName());
-        return catalog.loadTable(id);
+        Table table = catalog.loadTable(id);
+        table.refresh();
+        java.util.UUID uuid = table.uuid();
+        if (uuid == null || !handle.tableUuid().equals(uuid.toString())) {
+            throw new IllegalStateException(
+                    "Iceberg table UUID changed since the distributed write was planned");
+        }
+        return table;
     }
 }

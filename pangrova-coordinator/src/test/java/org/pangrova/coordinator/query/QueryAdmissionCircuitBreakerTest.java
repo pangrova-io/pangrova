@@ -189,7 +189,7 @@ class QueryAdmissionCircuitBreakerTest {
                         compiler, null, null, null,
                         new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING),
                         scheduler, wm, new CoordinatorTaskTracker(),
-                        null, null, null, null, 0L),
+                        null, null, null, 0L),
                 null, null);
     }
 }

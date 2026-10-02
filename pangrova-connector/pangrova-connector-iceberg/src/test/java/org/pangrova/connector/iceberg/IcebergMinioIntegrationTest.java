@@ -56,7 +56,7 @@ class IcebergMinioIntegrationTest {
         IcebergConnectorFactory factory = new IcebergConnectorFactory();
         assertThat(factory.getName()).isEqualTo("iceberg");
 
-        ConnectorContext context = new ConnectorContext() {};
+        ConnectorContext context = java.util.Optional::empty;
         Connector connector = factory.create("iceberg", config, context);
         assertThat(connector).isNotNull();
     }
@@ -81,7 +81,7 @@ class IcebergMinioIntegrationTest {
     }
 
     private Connector createConnectorViaFactory() {
-        ConnectorContext context = new ConnectorContext() {};
+        ConnectorContext context = java.util.Optional::empty;
         return new IcebergConnectorFactory().create("iceberg", config, context);
     }
 }

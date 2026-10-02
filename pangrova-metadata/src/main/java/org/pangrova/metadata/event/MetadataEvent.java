@@ -8,6 +8,7 @@ import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.sync.MetadataChange;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Sealed interface for all metadata lifecycle events.
@@ -42,6 +43,33 @@ public sealed interface MetadataEvent permits
      * Listeners (IndexCommitHandler, DynamicTableDdlExecutor) use this to mark
      * affected indexes for rebuild and DTs for schema refresh.
      */
-    record SchemaEvolutionEvent(String catalogName, QualifiedTableRef tableRef,
-                                List<SchemaChange> schemaChanges) implements MetadataEvent {}
+    record TenantImpactScope(boolean allTenants, Set<String> tenantIds) {
+        public TenantImpactScope {
+            tenantIds = tenantIds == null ? Set.of() : Set.copyOf(tenantIds);
+            if (allTenants == !tenantIds.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "tenant impact must be either all tenants or a non-empty tenant set");
+            }
+        }
+
+        public static TenantImpactScope global() {
+            return new TenantImpactScope(true, Set.of());
+        }
+
+        public static TenantImpactScope tenants(Set<String> tenantIds) {
+            return new TenantImpactScope(false, tenantIds);
+        }
+    }
+
+    record SchemaEvolutionEvent(
+            String catalogName,
+            QualifiedTableRef tableRef,
+            List<SchemaChange> schemaChanges,
+            TenantImpactScope tenantScope) implements MetadataEvent {
+        public SchemaEvolutionEvent {
+            if (tenantScope == null) {
+                throw new IllegalArgumentException("tenantScope must not be null");
+            }
+        }
+    }
 }

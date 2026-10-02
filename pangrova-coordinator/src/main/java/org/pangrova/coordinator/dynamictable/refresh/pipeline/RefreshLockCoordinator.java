@@ -3,6 +3,7 @@ package org.pangrova.coordinator.dynamictable.refresh.pipeline;
 import org.pangrova.coordinator.dynamictable.refresh.LockRenewalFailedException;
 import org.pangrova.coordinator.dynamictable.refresh.lock.RefreshLockManager;
 import org.pangrova.metadata.dynamictable.DynamicTableState;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,6 +14,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manages distributed lock acquisition, periodic renewal, and release
@@ -29,6 +31,7 @@ public final class RefreshLockCoordinator {
     private final RefreshLockManager lockManager;
     private final ScheduledExecutorService renewalScheduler;
     private final AtomicBoolean renewalAborted = new AtomicBoolean(false);
+    private final ConcurrentHashMap<String, LeaseEntry> heldLeases = new ConcurrentHashMap<>();
 
     public RefreshLockCoordinator(RefreshLockManager lockManager) {
         this(lockManager, createDefaultRenewalScheduler());
@@ -60,15 +63,23 @@ public final class RefreshLockCoordinator {
      * @return true if the lock was acquired
      */
     public boolean acquireLock(DynamicTableState state, Duration timeout) {
-        return lockManager.tryAcquire(
-                state.dtName(), state.coordinatorId(), state.epoch(), timeout);
+        if (heldLeases.containsKey(state.dtName())) {
+            return false;
+        }
+        LeaseEntry acquired = lockManager.tryAcquire(
+                state.dtName(), state.coordinatorId(), timeout).orElse(null);
+        return acquired != null
+                && heldLeases.putIfAbsent(state.dtName(), acquired) == null;
     }
 
     /**
      * Releases the distributed refresh lock for the given DT.
      */
     public void releaseLock(String dtName, String coordinatorId) {
-        lockManager.release(dtName, coordinatorId);
+        LeaseEntry held = heldLeases.remove(dtName);
+        if (held != null && held.holderId().equals(coordinatorId)) {
+            lockManager.release(held);
+        }
     }
 
     /**
@@ -109,7 +120,9 @@ public final class RefreshLockCoordinator {
      */
     private void renewLock(String dtName, String coordinatorId, Duration lockTimeout) {
         try {
-            boolean renewed = lockManager.tryRenew(dtName, coordinatorId, lockTimeout);
+            LeaseEntry held = heldLeases.get(dtName);
+            boolean renewed = held != null && held.holderId().equals(coordinatorId)
+                    && lockManager.tryRenew(held, lockTimeout);
             if (!renewed) {
                 renewalAborted.set(true);
                 LOG.warn("event=dt_lock_renewal_failed dtName={} coordinatorId={} action=abort_before_write",

@@ -45,6 +45,13 @@ public record QueryExecutionContext(
     }
 
     /** Returns a copy with the compiled plan and pre-optimization column names set. */
+    public QueryExecutionContext withCompiler(SqlCompiler queryCompiler) {
+        return new QueryExecutionContext(stateMachine, sql, session, queryCompiler,
+                compiledPlan, preOptColumnNames, cacheKey, snapshotOverrides, originalSql,
+                runtimeFilterDescriptors);
+    }
+
+    /** Returns a copy with the compiled plan and pre-optimization column names set. */
     public QueryExecutionContext withCompiledPlan(Object plan, List<String> columnNames) {
         return new QueryExecutionContext(stateMachine, sql, session, compiler,
                 plan, columnNames, cacheKey, snapshotOverrides, originalSql,
@@ -62,6 +69,13 @@ public record QueryExecutionContext(
     /** Returns a copy with the compiled plan set (preserves existing pre-opt column names). */
     public QueryExecutionContext withCompiledPlan(Object plan) {
         return withCompiledPlan(plan, preOptColumnNames);
+    }
+
+    /** Rewrites utility syntax into its canonical query without losing audit SQL. */
+    public QueryExecutionContext withRewrittenSql(String rewrittenSql) {
+        return new QueryExecutionContext(stateMachine, rewrittenSql, session, compiler,
+                compiledPlan, preOptColumnNames, cacheKey, snapshotOverrides,
+                originalSql, runtimeFilterDescriptors);
     }
 
     /** Returns a copy with snapshot overrides and stripped SQL set. */

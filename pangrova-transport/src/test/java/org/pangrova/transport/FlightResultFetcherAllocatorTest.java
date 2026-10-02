@@ -47,4 +47,20 @@ class FlightResultFetcherAllocatorTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("allocatorLimitBytes");
     }
+
+    @Test
+    void expiredCallerDeadlineDoesNotWaitForFlightIdleTimeout() {
+        assertThat(FlightResultFetcher.readWaitNanos(
+                System.currentTimeMillis() - 1)).isZero();
+    }
+
+    @Test
+    void callerDeadlineBoundsEachFlightBatchRead() {
+        long remainingNanos = FlightResultFetcher.readWaitNanos(
+                System.currentTimeMillis() + 1_000);
+        assertThat(remainingNanos).isPositive()
+                .isLessThanOrEqualTo(java.util.concurrent.TimeUnit.SECONDS.toNanos(1));
+        assertThat(FlightResultFetcher.readWaitNanos(Long.MAX_VALUE))
+                .isEqualTo(java.util.concurrent.TimeUnit.SECONDS.toNanos(120));
+    }
 }

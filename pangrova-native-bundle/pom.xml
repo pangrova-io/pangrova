@@ -54,7 +54,11 @@
         -->
         <resources>
             <resource>
-                <directory>src/main/resources</directory>
+                <directory>${native.resource.dir}</directory>
+                <targetPath>META-INF/native/${native.resource.os}/${native.resource.arch}</targetPath>
+                <includes>
+                    <include>libpangrova_native.*</include>
+                </includes>
                 <filtering>false</filtering>
             </resource>
         </resources>
@@ -88,11 +92,11 @@
                                     <rules>
                                         <requireFilesExist>
                                             <files>
-                                                <file>${project.basedir}/src/main/resources/META-INF/native</file>
+                                                <file>${native.library.path}</file>
                                             </files>
                                             <message>
-                                                Native library directory must exist when packaging.
-                                                Run the CMake build first to stage the library.
+                                                The exact classifier native library must exist when packaging.
+                                                Stage the CMake output and set -Dnative.library.path to that file.
                                             </message>
                                         </requireFilesExist>
                                     </rules>

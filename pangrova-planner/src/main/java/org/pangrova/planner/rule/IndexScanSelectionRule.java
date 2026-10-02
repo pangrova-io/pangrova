@@ -1,5 +1,7 @@
 package org.pangrova.planner.rule;
 
+import org.pangrova.planner.PlanTable;
+
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.RelOptRuleCall;
 import org.apache.calcite.plan.RelOptRuleOperand;
@@ -96,7 +98,7 @@ public final class IndexScanSelectionRule extends RelOptRule {
         }
 
         TableScan scan = call.rel(0);
-        List<String> qualifiedName = scan.getTable().getQualifiedName();
+        List<String> qualifiedName = PlanTable.require(scan).getQualifiedName();
         if (qualifiedName.size() < 3) {
             return; // Need catalog.schema.table
         }

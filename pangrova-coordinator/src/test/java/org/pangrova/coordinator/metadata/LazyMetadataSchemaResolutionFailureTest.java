@@ -48,7 +48,7 @@ class LazyMetadataSchemaResolutionFailureTest {
         CatalogRegistry registry = buildRegistry(
                 new FailingListTablesMetadata(new RuntimeException("Connection refused to metadata backend")));
 
-        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA);
+        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
 
         assertThatThrownBy(lazySchema::getTableMap)
                 .isInstanceOf(MetadataResolutionException.class)
@@ -69,7 +69,7 @@ class LazyMetadataSchemaResolutionFailureTest {
         CatalogRegistry registry = buildRegistry(
                 new FailingGetTableHandleMetadata(new RuntimeException("Timeout reading table metadata")));
 
-        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA);
+        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
 
         assertThatThrownBy(lazySchema::getTableMap)
                 .isInstanceOf(MetadataResolutionException.class)
@@ -86,7 +86,7 @@ class LazyMetadataSchemaResolutionFailureTest {
         CatalogRegistry registry = buildRegistry(
                 new FailingListTablesMetadata(new RuntimeException("Network unreachable")));
 
-        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA);
+        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
 
         // Backend failure must NOT silently return empty map
         // (which would cause "table not found" semantic drift)
@@ -100,7 +100,7 @@ class LazyMetadataSchemaResolutionFailureTest {
         // behavior is unchanged: no exception, table absent from map
         CatalogRegistry registry = buildRegistry(new MissingTableMetadata());
 
-        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA);
+        var lazySchema = new LazyMetadataSchema(registry, CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
 
         Map<String, Table> tableMap = lazySchema.getTableMap();
         assertThat(tableMap).doesNotContainKey("missing_table");

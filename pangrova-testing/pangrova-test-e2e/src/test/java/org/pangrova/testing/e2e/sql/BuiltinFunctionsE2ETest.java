@@ -232,13 +232,8 @@ class BuiltinFunctionsE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (1, DATE '2024-01-01')");
 
             String sql = "SELECT dt + INTERVAL '30' DAY AS future_date FROM " + fqn();
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).hasSize(1);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).hasSize(1);
 
             executeDdl("DROP TABLE " + fqn());
         }

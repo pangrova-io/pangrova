@@ -1,7 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch.shuffle;
 
-import java.nio.file.Path;
-
 import org.pangrova.shuffle.ShuffleCapabilities;
 import org.pangrova.shuffle.ShuffleContext;
 import org.pangrova.shuffle.ShuffleDurability;
@@ -9,7 +7,6 @@ import org.pangrova.shuffle.ShuffleManagerFactory;
 import org.pangrova.shuffle.ShuffleProvider;
 import org.pangrova.shuffle.ShuffleRetentionPolicy;
 import org.pangrova.shuffle.exchange.SpoolBackedExchangeManager;
-import org.pangrova.shuffle.spool.LocalFsSpoolStore;
 import org.pangrova.shuffle.spool.SpoolStore;
 import org.pangrova.shuffle.spool.SpoolStoreContext;
 import org.pangrova.shuffle.spool.SpoolStoreFactory;
@@ -28,19 +25,16 @@ import java.util.ServiceLoader;
  *
  * <p>Configuration properties:
  * <ul>
- *   <li>{@code shuffle.object-store.backend} — SpoolStoreFactory name to use (default: "local-fs" for dev)</li>
- *   <li>{@code shuffle.object-store.dir} — base path for spool data (bucket path or local dir)</li>
+ *   <li>{@code shuffle.object-store.backend} — required durable SpoolStoreFactory name</li>
  * </ul>
  *
- * <p><strong>Note:</strong> For production S3/HDFS, a corresponding {@code SpoolStoreFactory}
- * implementation must be on the classpath. For development and testing, falls back to
- * {@code LocalFsSpoolStore} with DURABLE semantics (simulating object-store durability on local disk).
+ * <p>A local filesystem does not survive node loss and must never be advertised
+ * as durable. Missing or weaker backends fail provider construction.
  */
 public final class ObjectStoreShuffleManagerFactory implements ShuffleManagerFactory {
 
     public static final String NAME = "object-store";
     private static final String PROP_BACKEND = "shuffle.object-store.backend";
-    private static final String PROP_DIR = "shuffle.object-store.dir";
 
     @Override
     public String name() {
@@ -49,15 +43,25 @@ public final class ObjectStoreShuffleManagerFactory implements ShuffleManagerFac
 
     @Override
     public ShuffleProvider create(ShuffleContext context) {
-        String backend = context.getOrDefault(PROP_BACKEND, "local-fs");
-        String baseDir = context.getOrDefault(PROP_DIR,
-                System.getProperty("java.io.tmpdir") + "/pangrova-shuffle-durable");
-
-        // Resolve SpoolStore via ServiceLoader or fall back to LocalFsSpoolStore.
+        String backend = context.getOrDefault(PROP_BACKEND, "");
+        if (backend.isBlank()) {
+            throw new IllegalArgumentException(
+                    "object-store shuffle requires shuffle.object-store.backend");
+        }
         SpoolStore spoolStore = resolveSpoolStore(backend, context);
         if (spoolStore == null) {
-            // Fallback: use local-fs with durable semantics for dev/test.
-            spoolStore = new LocalFsSpoolStore(Path.of(baseDir));
+            throw new IllegalArgumentException(
+                    "No SpoolStoreFactory registered for object-store backend: " + backend);
+        }
+        if (spoolStore.durability() != ShuffleDurability.DURABLE) {
+            IllegalArgumentException failure = new IllegalArgumentException(
+                    "object-store backend does not guarantee DURABLE shuffle: " + backend);
+            try {
+                spoolStore.close();
+            } catch (Exception closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
         }
 
         SpoolBackedExchangeManager exchangeManager = new SpoolBackedExchangeManager(spoolStore);
@@ -75,6 +79,6 @@ public final class ObjectStoreShuffleManagerFactory implements ShuffleManagerFac
                 return factory.create(new SpoolStoreContext(backend, context.properties()));
             }
         }
-        return null; // No matching factory found — caller uses fallback.
+        return null;
     }
 }

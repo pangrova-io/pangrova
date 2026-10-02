@@ -14,6 +14,7 @@
 
 #include "../TestMemoryHelper.h"
 #include "split/SplitConfig.h"
+#include "pangrova/protocol/v2/connector.pb.h"
 #include "delete/DeletionVectorRowFilter.h"
 #include "merge/DeduplicateMergeReader.h"
 #include "merge/FirstRowMergeReader.h"
@@ -132,16 +133,19 @@ TEST_F(PaimonVeloxIntegrationTest, MorAggregation) {
   split.paimon->primary_keys = {"id"};
   split.paimon->sequence_column = "seq";
   split.paimon->aggregation_specs["value"] = "SUM";
-  split.paimon->aggregation_specs["count"] = "COUNT";
+  split.paimon->aggregation_specs["minimum"] = "MIN";
 
-  // Note: "count" is not in outputType_ (id, value, seq), so we use a
+  // The additional aggregate is not in outputType_ (id, value, seq), so use a
   // compatible output type that includes all aggregation columns.
-  auto aggOutputType = ROW({"id", "value", "seq", "count"},
+  auto aggOutputType = ROW({"id", "value", "seq", "minimum"},
                            {BIGINT(), BIGINT(), BIGINT(), BIGINT()});
   auto reader = merge::MergeReaderFactory::create(
       split.paimon.value(), aggOutputType);
   EXPECT_NE(reader, nullptr);
   EXPECT_EQ(split.paimon->aggregation_specs.size(), 2);
+  split.paimon->aggregation_specs["minimum"] = "COUNT";
+  EXPECT_THROW(merge::MergeReaderFactory::create(split.paimon.value(), aggOutputType),
+               std::invalid_argument);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,11 +184,16 @@ TEST_F(PaimonVeloxIntegrationTest, CowNoMerge) {
 TEST_F(PaimonVeloxIntegrationTest, MowDeletionVector) {
   auto split = makePaimonSplit("/data/paimon/bucket-0/data-001.parquet");
   split.paimon->deletion_vectors_enabled = true;
-  split.paimon->deletion_vector_file_path = "/data/paimon/dv/dv-001.bin";
+  protocol::v2::FileSplitDetail detail;
+  auto* vector = detail.mutable_physical_file_scan()->mutable_deletion_vector();
+  vector->set_opaque_location("/data/paimon/dv/dv-001.bin");
+  vector->set_byte_offset(12);
+  vector->set_byte_length(64);
+  split.file_scan_detail = detail.SerializeAsString();
   split.paimon->needs_merge = false;
 
   EXPECT_TRUE(split.paimon->deletion_vectors_enabled);
-  EXPECT_FALSE(split.paimon->deletion_vector_file_path.empty());
+  EXPECT_FALSE(split.file_scan_detail.empty());
 
   // MOW with DV: no merge reader, DV filter applied instead.
   auto reader = merge::MergeReaderFactory::create(split.paimon.value(), outputType_);

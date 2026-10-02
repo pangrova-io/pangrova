@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Property 30: Resilience chain from main() to fault recovery.</p>
  */
 @Tag("Feature: e2e-pipeline-integration - Property 30: Resilience chain")
-class ResilienceChainTest {
+class ResilienceChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -202,20 +202,21 @@ class ResilienceChainTest {
 
     /**
      * CoordinatorBootstrap starts with resilience components accessible,
-     * and HTTP endpoint responds with 200.
+     * and HTTP submission reaches worker admission. Without a Worker, it
+     * must report service unavailable rather than a false successful query.
      */
     @Test
     void coordinatorBootstrapStartsWithResilienceComponents() throws Exception {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-resilience", 0);
-        bootstrap = new CoordinatorBootstrap(config);
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(config);
 
         assertThat(bootstrap.isStarted()).isTrue();
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
 
         HttpResponse<String> resp = submitQuery(bootstrap.getHttpPort(), "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
     }
 
     /**
@@ -250,12 +251,13 @@ class ResilienceChainTest {
         }
     }
 
-    private static HttpResponse<String> submitQuery(int port, String sql)
+    private HttpResponse<String> submitQuery(int port, String sql)
             throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

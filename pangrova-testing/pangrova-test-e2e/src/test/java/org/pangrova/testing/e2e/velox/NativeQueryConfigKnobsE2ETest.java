@@ -42,8 +42,6 @@ class NativeQueryConfigKnobsE2ETest extends SqlE2ETestBase {
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .configure(DeserializationFeature.USE_LONG_FOR_INTS, true);
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
-    private static final long POLL_TIMEOUT_MS =
-            Long.parseLong(System.getProperty("pangrova.e2e.poll.timeout.ms", "600000"));
 
     /**
      * Session properties that disable all performance knobs.
@@ -76,7 +74,7 @@ class NativeQueryConfigKnobsE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(ConnectorTestConfig.icebergLocal(
                 CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.loadTpcHDataViaConnector(
@@ -93,8 +91,7 @@ class NativeQueryConfigKnobsE2ETest extends SqlE2ETestBase {
                     sql, sessionProperties);
             byte[] body = MAPPER.writeValueAsBytes(request);
 
-            HttpRequest httpReq = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+            HttpRequest httpReq = authenticatedHttpRequest(URI.create(url))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                     .build();
@@ -109,51 +106,33 @@ class NativeQueryConfigKnobsE2ETest extends SqlE2ETestBase {
             SubmitQueryResponse submitResponse = MAPPER.readValue(
                     resp.body(), SubmitQueryResponse.class);
             String queryId = submitResponse.queryId();
-
-            String terminalBody = pollQueryUntilTerminal(queryId);
-            var terminalJson = MAPPER.readTree(terminalBody);
-            String terminalState = terminalJson.get("state").asText();
-            if ("FAILED".equals(terminalState)) {
-                String detail = terminalJson.has("error_message")
-                        ? terminalJson.get("error_message").asText()
-                        : "unknown error";
-                throw new RuntimeException(
-                        "Query failed: " + queryId + " — " + detail);
+            String canonicalTaskId = submitResponse.resultEndpoint() == null
+                    ? null : submitResponse.resultEndpoint().ticket();
+            String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
+            List<TypedRow> rows;
+            try {
+                rows = fetchResultsViaTransport(
+                        submitResponse.resultEndpoint(), queryId);
+                var terminal = MAPPER.readTree(pollUntilTerminal(queryId));
+                if (!"FINISHED".equals(terminal.path("state").asText())) {
+                    throw new IllegalStateException(
+                            "Query did not finish successfully: " + queryId + " " + terminal);
+                }
+            } catch (Exception failure) {
+                cancelNativeTaskAfterFetch(canonicalTaskId, workerTaskId);
+                throw failure;
             }
-
-            return fetchResultsViaFlight(queryId, taskTracker);
+            releaseNativeTaskAfterTerminal(workerTaskId);
+            return rows;
         } catch (TimeoutException e) {
             throw new RuntimeException(
-                    "Query polling timed out after "
-                    + POLL_TIMEOUT_MS + "ms", e);
+                    "Query polling timed out", e);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException(
                     "Pipeline execution failed: " + e.getMessage(), e);
         }
-    }
-
-    private String pollQueryUntilTerminal(String queryId) throws Exception {
-        String url = "http://localhost:" + coordinatorHttpPort()
-                + "/v1/query/" + queryId + "/state";
-        long deadline = System.currentTimeMillis() + POLL_TIMEOUT_MS;
-
-        while (System.currentTimeMillis() < deadline) {
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url)).GET().build();
-            HttpResponse<String> resp = HTTP_CLIENT.send(
-                    req, HttpResponse.BodyHandlers.ofString());
-            String body = resp.body();
-            String state = MAPPER.readTree(body).get("state").asText();
-
-            if ("FINISHED".equals(state) || "FAILED".equals(state)) {
-                return body;
-            }
-            Thread.sleep(50);
-        }
-        throw new TimeoutException(
-                "Query " + queryId + " did not reach terminal state");
     }
 
     @Nested

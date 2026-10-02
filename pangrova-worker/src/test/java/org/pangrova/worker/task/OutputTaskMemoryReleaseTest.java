@@ -1,8 +1,18 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
+import org.apache.arrow.flight.FlightClient;
+import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.Ticket;
+import org.apache.arrow.memory.RootAllocator;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.resource.ResourceManager;
 import org.pangrova.resource.memory.MemoryArbitrator;
 import org.pangrova.resource.spill.SpillManager;
@@ -11,347 +21,227 @@ import org.pangrova.spi.execution.PlanFragment;
 import org.pangrova.spi.execution.PlanNodeId;
 import org.pangrova.spi.execution.QueryId;
 import org.pangrova.spi.execution.TaskDescriptor;
-import org.pangrova.spi.execution.TaskExecutor;
 import org.pangrova.spi.execution.TaskResourceLimit;
+import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
 import org.pangrova.worker.task.memory.MemoryRefs;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
-/**
- * F-WORKER-EXEC-07: Validates that OUTPUT tasks release memory budget
- * immediately when reporting FINISHED, rather than deferring release
- * to the background completion monitor.
- *
- * <p>Key properties verified:</p>
- * <ul>
- *   <li>Memory budget is released before FINISHED status is reported</li>
- *   <li>Memory release is idempotent (atomic claim-and-reset)</li>
- *   <li>Executor handle is still released by the completion monitor</li>
- * </ul>
- */
+/** Actual JNI result retention and task-budget release, not a SQL/distributed E2E. */
+@Tag("native-required")
+@ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class OutputTaskMemoryReleaseTest {
-
-    private static final String WORKER_ID = "test-worker-output-memory";
-    private static final long TASK_MEMORY_BYTES = 64L * 1024 * 1024; // 64 MB
-    private static final long TOTAL_MEMORY = 1L * 1024 * 1024 * 1024; // 1 GB
-
-    private TaskManager taskManager;
+    private ActualNativeTaskFixture runtime;
+    private TaskManager manager;
+    private final RecordingTaskStatusReporter reports = new RecordingTaskStatusReporter();
 
     @AfterEach
-    void tearDown() {
-        if (taskManager != null) {
-            taskManager.close();
+    void closeActualOwners() {
+        if (manager != null) {
+            manager.releaseTerminalTaskExecutors();
+            if (runtime != null) runtime.stopTransports();
+            manager.close();
         }
+        if (runtime != null) runtime.close();
     }
 
-    /**
-     * Verifies that when an OUTPUT task reports FINISHED, the memory budget
-     * has already been released from the arbitrator. This prevents subsequent
-     * tasks from starving on memory while the completion monitor polls for
-     * native task termination.
-     */
     @Test
-    void outputTaskReleasesMemoryBeforeFinishedReport() throws Exception {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(TOTAL_MEMORY, 0);
-        // Track available memory at the moment FINISHED is reported
-        AtomicLong memoryAtFinishedReport = new AtomicLong(-1);
-        CountDownLatch finishedReported = new CountDownLatch(1);
+    void outputTaskReleasesMemoryOnlyAfterActualResultEof() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
+        TaskRequest request = runtime.valuesRequest(true);
+        TaskInfo info = submit(request, "OUTPUT", reports);
+        awaitFinishedReport();
+        long handle = info.executorHandle();
+        assertThat(handle).isPositive();
+        assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
+        assertThat(runtime.arbitrator().getAvailableMemory())
+                .isLessThanOrEqualTo(availableBeforeTask - info.allocatedBufferMemory());
+        assertThat(runtime.drainEvidence(handle, request).getDrained()).isFalse();
 
-        MemoryCapturingReporter reporter = new MemoryCapturingReporter(
-                arbitrator, memoryAtFinishedReport, finishedReported);
-
-        ControllableTaskExecutor executor = new ControllableTaskExecutor();
-        executor.markAllFinished();
-        TaskManager manager = buildTaskManager(executor, reporter, arbitrator);
-        this.taskManager = manager;
-
-        // Submit an OUTPUT task with a memory limit
-        String taskId = manager.submitTask(
-                buildOutputDescriptor("q-out-1"),
-                buildOutputRequest("q-out-1"));
-
-        // Wait for FINISHED to be reported
-        boolean reported = finishedReported.await(5, TimeUnit.SECONDS);
-        assertThat(reported)
-                .as("FINISHED should be reported within timeout")
-                .isTrue();
-
-        // At the time FINISHED was reported, memory should have already been
-        // released. The available memory should be >= (TOTAL - initial overhead).
-        // Before the fix, memory would still be held by the task at report time.
-        long availableAtReport = memoryAtFinishedReport.get();
-        assertThat(availableAtReport)
-                .as("Memory should be substantially released by FINISHED report time. "
-                        + "Available memory should be at least 90%% of total.")
-                .isGreaterThanOrEqualTo((long) (TOTAL_MEMORY * 0.9));
+        consumeActualResult(request);
+        await().atMost(Duration.ofSeconds(20)).until(() -> runtime.drainEvidence(handle, request).getDrained());
+        assertThat(manager.cleanupTerminalTasks(Duration.ofHours(1))).isEqualTo(1);
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.allocatedBufferMemory()).isZero();
+        assertThat(info.allocatedMemory()).isZero();
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
+        TaskReport receipt = TaskReport.parseFrom(info.executorReleaseReport());
+        assertThat(receipt.getAttempt()).isEqualTo(request.getAttempt());
+        assertThat(receipt.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+        assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+        assertThat(receipt.hasNativeTaskStats()).isTrue();
+        assertThat(receipt.getNativeTaskStats().toByteArray()).isEqualTo(info.terminalTaskStats());
     }
 
-    /**
-     * Verifies that memory release is idempotent: calling releaseTaskMemory
-     * and releaseBufferMemory twice does not double-release from the arbitrator.
-     */
     @Test
     void memoryReleaseIsIdempotent() {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(TOTAL_MEMORY, 0);
-        TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
-
-        TaskInfo info = buildOutputTaskInfo("q-idem-1");
-
-        // Request memory
+        var arbitrator = new MemoryArbitrator(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES, 0);
+        var requestor = new TaskMemoryRequestor(arbitrator, 0.0);
+        var request = ActualNativeTaskFixture.valuesTaskRequest(true);
+        var info = new TaskInfo("idempotent-release", request.getAttempt().getQueryOrJobId(),
+                SubmitTaskRequest.from(request), descriptor(request, "OUTPUT"), Instant.now());
         requestor.requestMemoryForTask(info);
         requestor.requestBufferMemory(info);
-
-        long afterAlloc = arbitrator.getAvailableMemory();
-        assertThat(afterAlloc).isLessThan(TOTAL_MEMORY);
-
-        // First release
+        assertThat(arbitrator.getAvailableMemory()).isLessThan(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
         requestor.releaseTaskMemory(info);
         requestor.releaseBufferMemory(info);
-        long afterFirstRelease = arbitrator.getAvailableMemory();
-
-        // Second release (should be a no-op)
+        long afterFirst = arbitrator.getAvailableMemory();
         requestor.releaseTaskMemory(info);
         requestor.releaseBufferMemory(info);
-        long afterSecondRelease = arbitrator.getAvailableMemory();
-
-        // Available memory should be the same after both releases
-        assertThat(afterSecondRelease)
-                .as("Second release should be a no-op (idempotent)")
-                .isEqualTo(afterFirstRelease);
-
-        // And both should restore total memory
-        assertThat(afterFirstRelease).isEqualTo(TOTAL_MEMORY);
+        assertThat(arbitrator.getAvailableMemory()).isEqualTo(afterFirst);
+        assertThat(afterFirst).isEqualTo(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
     }
 
-    /**
-     * Verifies that the native executor handle is still released by the
-     * completion monitor after the OUTPUT task reports FINISHED.
-     */
     @Test
-    void outputTaskExecutorHandleReleasedByCompletionMonitor() throws Exception {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(TOTAL_MEMORY, 0);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        ControllableTaskExecutor executor = new ControllableTaskExecutor();
-        TaskManager manager = buildTaskManager(executor, reporter, arbitrator);
-        this.taskManager = manager;
-
-        String taskId = manager.submitTask(
-                buildOutputDescriptor("q-handle-1"),
-                buildOutputRequest("q-handle-1"));
-
-        // Wait for FINISHED state
-        awaitState(manager, taskId, TaskManager.TaskState.FINISHED, 5000);
-
-        // Mark native task as finished so completion monitor releases the handle
-        executor.markAllFinished();
-
-        // Poll for the completion monitor to release the handle
-        long deadline = System.currentTimeMillis() + 5000;
-        while (executor.releasedHandles.isEmpty() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
-
-        // Verify the executor was released
-        assertThat(executor.releasedHandles)
-                .as("Completion monitor should release the executor handle")
-                .isNotEmpty();
+    void outputTaskReportsOneCanonicalFinishOnlyAfterNativeCompletion() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        TaskRequest request = runtime.valuesRequest(true);
+        TaskInfo info = submit(request, "OUTPUT", reports);
+        awaitFinishedReport();
+        var finished = reports.reports().stream().filter(report -> "FINISHED".equals(report.state())).toList();
+        assertThat(finished).hasSize(1);
+        TaskReport report = TaskReport.parseFrom(finished.get(0).canonicalTaskReport());
+        assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+        assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+        assertThat(report.getAttempt()).isEqualTo(request.getAttempt());
+        assertThat(report).isEqualTo(TaskReport.parseFrom(runtime.executor().getTaskStatus(info.executorHandle())));
+        assertThat(info.terminalTaskStats()).isNotEmpty();
+        assertThat(reports.reports()).anyMatch(value -> "RUNNING".equals(value.state())
+                && value.reportSequence() < finished.get(0).reportSequence());
+        assertThat(info.executorHandle()).isPositive();
+        assertThat(info.allocatedBufferMemory()).isPositive();
+        manager.releaseTaskExecutor(info.taskId());
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.allocatedBufferMemory()).isZero();
     }
 
-    /**
-     * Verifies that a COMPUTE task still releases memory in the correct order:
-     * after native completion, before FINISHED report. This ensures we didn't
-     * break the COMPUTE path while fixing the OUTPUT path.
-     */
     @Test
     void computeTaskReleasesMemoryBeforeFinishedReport() throws Exception {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(TOTAL_MEMORY, 0);
-        AtomicLong memoryAtFinishedReport = new AtomicLong(-1);
-        CountDownLatch finishedReported = new CountDownLatch(1);
-
-        MemoryCapturingReporter reporter = new MemoryCapturingReporter(
-                arbitrator, memoryAtFinishedReport, finishedReported);
-
-        ControllableTaskExecutor executor = new ControllableTaskExecutor();
-        executor.markAllFinished();
-        TaskManager manager = buildTaskManager(executor, reporter, arbitrator, TransportRefs.empty());
-        this.taskManager = manager;
-
-        String taskId = manager.submitTask(
-                buildComputeDescriptor("q-comp-1"),
-                buildComputeRequest("q-comp-1"));
-
-        boolean reported = finishedReported.await(5, TimeUnit.SECONDS);
-        assertThat(reported).isTrue();
-
-        long availableAtReport = memoryAtFinishedReport.get();
-        assertThat(availableAtReport)
-                .as("COMPUTE task should also release memory before FINISHED")
-                .isGreaterThanOrEqualTo(TOTAL_MEMORY - TASK_MEMORY_BYTES);
-    }
-
-    // --- helpers ---
-
-    private TaskManager buildTaskManager(ControllableTaskExecutor executor,
-                                          TaskStatusReporter reporter,
-                                          MemoryArbitrator arbitrator) {
-        return buildTaskManager(executor, reporter, arbitrator, new TransportRefs(null, null, null));
-    }
-
-    private TaskManager buildTaskManager(ControllableTaskExecutor executor,
-                                          TaskStatusReporter reporter,
-                                          MemoryArbitrator arbitrator,
-                                          TransportRefs transportRefs) {
-        ThreadBudgetTracker tpm = new ThreadBudgetTracker(8, 4, 2);
-        ResourceManager rm = new ResourceManager(arbitrator, tpm, new SpillManager());
-        TaskManagerContext deps = new TaskManagerContext(
-                reporter, executor,
-                new MemoryRefs(rm),
-                transportRefs,
-                Executors.newCachedThreadPool(r -> {
-                    Thread t = new Thread(r, "test-completion-monitor");
-                    t.setDaemon(true);
-                    return t;
-                }));
-        return new TaskManager(deps, WORKER_ID, 0.0);
-    }
-
-    private TaskDescriptor buildOutputDescriptor(String queryId) {
-        return new TaskDescriptor(
-                new QueryId(queryId),
-                new TestPlanFragment(),
-                List.of(), Map.of(),
-                0, 0, "OUTPUT",
-                new TaskResourceLimit(TASK_MEMORY_BYTES, 1, 0, ""));
-    }
-
-    private SubmitTaskRequest buildOutputRequest(String queryId) {
-        return SubmitTaskRequest.builder()
-                .taskId("coord-task-" + queryId)
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("OUTPUT")
-                .planFragment("cGxhbg==")
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(new ResourceLimitPayload(TASK_MEMORY_BYTES, 1, 0, ""))
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
-    }
-
-    private TaskDescriptor buildComputeDescriptor(String queryId) {
-        return new TaskDescriptor(
-                new QueryId(queryId),
-                new TestPlanFragment(),
-                List.of(), Map.of(),
-                0, 0, "COMPUTE",
-                new TaskResourceLimit(TASK_MEMORY_BYTES, 1, 0, ""));
-    }
-
-    private SubmitTaskRequest buildComputeRequest(String queryId) {
-        return SubmitTaskRequest.builder()
-                .taskId("coord-task-" + queryId)
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment("cGxhbg==")
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(new ResourceLimitPayload(TASK_MEMORY_BYTES, 1, 0, ""))
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
-    }
-
-    private TaskInfo buildOutputTaskInfo(String queryId) {
-        return new TaskInfo(
-                "task-" + queryId, queryId,
-                buildOutputRequest(queryId),
-                buildOutputDescriptor(queryId),
-                Instant.now());
-    }
-
-    private void awaitState(TaskManager manager, String taskId,
-                            TaskManager.TaskState expected, long timeoutMs) {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            var state = manager.getTaskState(taskId);
-            if (state.isPresent() && state.get() == expected) {
-                return;
-            }
-            try { Thread.sleep(50); } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-        }
-    }
-
-    /**
-     * Reporter that captures the arbitrator's available memory at the moment
-     * a FINISHED status is reported.
-     */
-    static final class MemoryCapturingReporter implements TaskStatusReporter {
-        private final MemoryArbitrator arbitrator;
-        private final AtomicLong memoryAtFinished;
-        private final CountDownLatch finishedLatch;
-
-        MemoryCapturingReporter(MemoryArbitrator arbitrator,
-                                AtomicLong memoryAtFinished,
-                                CountDownLatch finishedLatch) {
-            this.arbitrator = arbitrator;
-            this.memoryAtFinished = memoryAtFinished;
-            this.finishedLatch = finishedLatch;
-        }
-
-        @Override
-        public void report(TaskStatusReport report) {
+        runtime = new ActualNativeTaskFixture();
+        long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
+        var memoryAtFinished = new AtomicLong(-1);
+        TaskStatusReporter observation = report -> {
             if ("FINISHED".equals(report.state())) {
-                memoryAtFinished.compareAndSet(-1, arbitrator.getAvailableMemory());
-                finishedLatch.countDown();
+                memoryAtFinished.set(runtime.arbitrator().getAvailableMemory());
             }
+            reports.report(report);
+        };
+        TaskInfo info = submit(runtime.valuesRequest(false), "COMPUTE", observation);
+        awaitFinishedReport();
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.allocatedMemory()).isZero();
+        assertThat(info.allocatedBufferMemory()).isZero();
+        assertThat(memoryAtFinished.get()).isGreaterThanOrEqualTo(availableBeforeTask);
+        assertThat(reports.reports().stream().filter(report -> "FINISHED".equals(report.state()))).hasSize(1);
+    }
+
+    @Test
+    void explicitResultRetirementReleasesTheUnclaimedQueueOnce() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
+        TaskInfo info = submit(runtime.valuesRequest(true), "OUTPUT", reports);
+        awaitFinishedReport();
+        assertThat(info.executorHandle()).isPositive();
+        assertThat(info.allocatedBufferMemory()).isPositive();
+        manager.releaseTaskExecutor(info.taskId());
+        long afterFirst = runtime.arbitrator().getAvailableMemory();
+        byte[] firstReceipt = info.executorReleaseReport();
+        manager.releaseTaskExecutor(info.taskId());
+        assertThat(info.executorReleaseReport()).isEqualTo(firstReceipt);
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.allocatedBufferMemory()).isZero();
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(afterFirst);
+        assertThat(afterFirst).isEqualTo(availableBeforeTask);
+    }
+
+    @Test
+    void missingResultTransportRejectsBeforeCreatingAnActualNativeHandle() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
+        var resources = new ResourceManager(runtime.arbitrator(), new ThreadBudgetTracker(8, 4, 2), new SpillManager());
+        var monitor = Executors.newSingleThreadExecutor(task -> new Thread(task, "unavailable-result-completion"));
+        manager = new TaskManager(new TaskManagerContext(reports, runtime.executor(),
+                new MemoryRefs(resources, runtime.nodePool(), null), new TransportRefs(null, null, null), monitor),
+                "unavailable-result-worker", 0.0);
+        var request = runtime.valuesRequest(true);
+        String id = manager.submitTask(descriptor(request, "OUTPUT"), SubmitTaskRequest.from(request));
+        var info = manager.tasks.get(id);
+        assertThat(info.getState()).isEqualTo(TaskManager.TaskState.FAILED);
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.allocatedBufferMemory()).isZero();
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
+        assertThat(reports.reports()).noneMatch(report -> "FINISHED".equals(report.state()));
+        var failed = reports.reports().stream().filter(report -> "FAILED".equals(report.state())).findFirst().orElseThrow();
+        assertThat(failed.error().message()).contains("result transport is unavailable");
+        assertThat(TaskReport.parseFrom(failed.canonicalTaskReport()).getReportOrigin())
+                .isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
+    }
+
+    @Test
+    void shutdownQuiescesActualTransportsAndReleasesTaskGrantsBeforeReturning() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
+        var request = runtime.valuesRequest(true);
+        var info = submit(request, "OUTPUT", reports);
+        awaitFinishedReport();
+        assertThat(info.executorHandle()).isPositive();
+        manager.close();
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.allocatedBufferMemory()).isZero();
+        assertThat(runtime.transports().resultTransport().boundPort()).isEqualTo(-1);
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
+        assertThatThrownBy(() -> manager.submitTask(descriptor(request, "OUTPUT"), SubmitTaskRequest.from(request)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("draining");
+        manager.close();
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
+    }
+
+    private TaskInfo submit(TaskRequest request, String taskType, TaskStatusReporter reporter) {
+        var resources = new ResourceManager(runtime.arbitrator(), new ThreadBudgetTracker(8, 4, 2), new SpillManager());
+        var monitor = Executors.newSingleThreadExecutor(task -> new Thread(task, "actual-native-completion"));
+        manager = new TaskManager(new TaskManagerContext(reporter, runtime.executor(),
+                new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
+                "actual-native-budget-worker", 0.0);
+        String id = manager.submitTask(descriptor(request, taskType), SubmitTaskRequest.from(request));
+        return manager.tasks.get(id);
+    }
+
+    private void awaitFinishedReport() {
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                assertThat(reports.reports()).anyMatch(report -> "FINISHED".equals(report.state())));
+    }
+
+    private void consumeActualResult(TaskRequest request) throws Exception {
+        try (var allocator = new RootAllocator(ActualNativeTaskFixture.TASK_MEMORY_BYTES);
+             var client = FlightClient.builder(allocator, Location.forGrpcInsecure("127.0.0.1", runtime.resultPort())).build();
+             var stream = client.getStream(new Ticket(runtime.resultTicket(request).getBytes(StandardCharsets.UTF_8)))) {
+            assertThat(stream.next()).isTrue();
+            assertThat(stream.getRoot().getRowCount()).isEqualTo(1);
+            assertThat(stream.getRoot().getFieldVectors()).hasSize(1);
+            assertThat(stream.getRoot().getVector(0).getObject(0)).isEqualTo(42L);
+            assertThat(stream.next()).isFalse();
         }
     }
 
-    /**
-     * TaskExecutor that allows programmatic control of when tasks finish
-     * and tracks released handles.
-     */
-    static final class ControllableTaskExecutor implements TaskExecutor {
-        private final java.util.Set<Long> finishedHandles =
-                java.util.concurrent.ConcurrentHashMap.newKeySet();
-        final CopyOnWriteArrayList<Long> releasedHandles = new CopyOnWriteArrayList<>();
-        private volatile boolean allFinished = false;
-        private long nextHandle = 1;
-
-        @Override public long createTask(byte[] taskRequestBytes) { return nextHandle++; }
-        @Override public void startTask(long h) {}
-        @Override public boolean isFinished(long h) { return allFinished || finishedHandles.contains(h); }
-        @Override public void releaseTask(long h) { releasedHandles.add(h); }
-        @Override public void cancelTask(long h) {}
-
-        void markFinished(long handle) { finishedHandles.add(handle); }
-        void markAllFinished() { allFinished = true; }
-    }
-
-    private static final class TestPlanFragment implements PlanFragment {
-        @Override public PlanNodeId getId() { return new PlanNodeId("test-node"); }
-        @Override public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
+    private static TaskDescriptor descriptor(TaskRequest request, String taskType) {
+        PlanFragment fragment = new PlanFragment() {
+            @Override public PlanNodeId getId() { return new PlanNodeId("actual-values"); }
+            @Override public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
+        };
+        return new TaskDescriptor(new QueryId(request.getAttempt().getQueryOrJobId()), fragment,
+                List.of(), Map.of(), 0, 0, taskType,
+                new TaskResourceLimit(request.getResourceGrant().getNativeMemoryBytes(), 1, 0, ""));
     }
 }

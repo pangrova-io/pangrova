@@ -18,6 +18,7 @@ import org.pangrova.transport.ResultBatch;
 import org.pangrova.transport.TransportException;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -70,6 +71,9 @@ final class ResultBatchDecoder {
     private static String formatCell(Object value) {
         if (value == null) {
             return "NULL";
+        }
+        if (value instanceof float[] vector) {
+            return truncate(Arrays.toString(vector));
         }
         return truncate(value.toString());
     }

@@ -75,7 +75,8 @@ final class CrossCatalogVersionPinner {
 
     private static void collectCatalogs(RelNode node, Set<String> catalogs) {
         if (node instanceof org.apache.calcite.rel.core.TableScan scan) {
-            List<String> qualifiedName = scan.getTable().getQualifiedName();
+            List<String> qualifiedName = PlanTable.require(scan)
+                    .getQualifiedName();
             if (qualifiedName.size() >= 3) {
                 catalogs.add(qualifiedName.get(0));
             }

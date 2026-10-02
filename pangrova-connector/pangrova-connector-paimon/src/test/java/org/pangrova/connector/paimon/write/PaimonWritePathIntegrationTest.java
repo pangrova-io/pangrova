@@ -1,6 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.connector.paimon.PaimonMetadata;
+import org.pangrova.connector.paimon.PaimonCommitTestSupport;
 import org.pangrova.connector.paimon.PaimonPageSourceProvider;
 import org.pangrova.connector.paimon.PaimonSplitManager;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
@@ -65,7 +66,9 @@ class PaimonWritePathIntegrationTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() {
+            return Map.of("tenant_id", "paimon-write-test");
+        }
     };
 
     private static final List<ConnectorTableMetadata.Column> PK_COLUMNS = List.of(
@@ -195,7 +198,7 @@ class PaimonWritePathIntegrationTest {
         List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
         sink.appendPage(new Page(columns, rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
+        PaimonCommitTestSupport.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
         sink.close();
     }
 

@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -19,7 +18,7 @@ import java.util.concurrent.TimeUnit;
  * memory growth in long-running worker processes.</p>
  *
  * <p>Concurrency: thread-safe. Cleanup iterates over a ConcurrentHashMap snapshot
- * and removes entries atomically via iterator.</p>
+ * and removes entries using compare-and-remove only after resource release.</p>
  */
 @ThreadSafe
 public final class TaskCleanupScheduler {
@@ -34,18 +33,40 @@ public final class TaskCleanupScheduler {
      *
      * @param tasks     the task registry to clean
      * @param retention minimum age of terminal tasks before removal
-     * @param coordinatorIndexRemover callback to remove coordinator index entries
+     * @param resourceRelease callback that joins resources before removing their index
+     * @param consumedResultProbe actual Native result-owner drain evidence
      * @return number of tasks removed
      */
     public static int cleanupTerminalTasks(
             Map<String, TaskInfo> tasks,
             Duration retention,
-            java.util.function.Consumer<TaskInfo> coordinatorIndexRemover) {
+            java.util.function.Consumer<TaskInfo> resourceRelease,
+            java.util.function.Predicate<TaskInfo> consumedResultProbe) {
         Instant cutoff = Instant.now().minus(retention);
         int removed = 0;
-        Iterator<Map.Entry<String, TaskInfo>> iterator = tasks.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, TaskInfo> entry = iterator.next();
+        RuntimeException failures = null;
+        for (Map.Entry<String, TaskInfo> entry : tasks.entrySet()) {
+            TaskInfo info = entry.getValue();
+            if (tasks.get(entry.getKey()) != info) continue;
+            try {
+                // This action exists only after a real release failed. It
+                // carries the original FSM continuation, never inferred success.
+                info.retryCleanup();
+                if (cleanupTask(entry, tasks, cutoff, resourceRelease, consumedResultProbe)) removed++;
+            } catch (RuntimeException failure) {
+                if (failures == null) failures = new IllegalStateException("Task resource cleanup sweep failed");
+                failures.addSuppressed(new IllegalStateException("Task cleanup failed: " + info.taskId(), failure));
+            }
+        }
+        if (removed > 0) LOG.info("event=terminal_tasks_cleaned count={}", removed);
+        if (failures != null) throw failures;
+        return removed;
+    }
+
+    private static boolean cleanupTask(Map.Entry<String, TaskInfo> entry,
+                                       Map<String, TaskInfo> tasks, Instant cutoff,
+                                       java.util.function.Consumer<TaskInfo> resourceRelease,
+                                       java.util.function.Predicate<TaskInfo> consumedResultProbe) {
             TaskInfo info = entry.getValue();
             TaskManager.TaskState state = info.getState();
             if ((state == TaskManager.TaskState.FINISHED
@@ -58,17 +79,21 @@ public final class TaskCleanupScheduler {
                 if (referenceTime == null) {
                     referenceTime = info.startTime();
                 }
-                if (referenceTime.isBefore(cutoff)) {
-                    iterator.remove();
-                    coordinatorIndexRemover.accept(info);
-                    removed++;
+                if (referenceTime.isBefore(cutoff) || resultDeadlineExpired(info)
+                        || consumedResultProbe.test(info)) {
+                    // Retain the exact task and its grant if the actual release fails.
+                    resourceRelease.accept(info);
+                    return tasks.remove(entry.getKey(), info);
                 }
             }
-        }
-        if (removed > 0) {
-            LOG.info("event=terminal_tasks_cleaned count={}", removed);
-        }
-        return removed;
+        return false;
+    }
+
+    private static boolean resultDeadlineExpired(TaskInfo info) {
+        var submitted = info.request();
+        return submitted != null
+                && submitted.taskRequest().getExecutionOptions().getDirectResultOutput()
+                && submitted.taskRequest().getDeadlineEpochMs() <= System.currentTimeMillis();
     }
 
     /**
@@ -78,20 +103,22 @@ public final class TaskCleanupScheduler {
      * @param tasks                   the task registry to clean
      * @param retention               minimum age before terminal task removal
      * @param interval                interval between cleanup runs
-     * @param coordinatorIndexRemover callback to remove coordinator index entries
+     * @param resourceRelease callback that joins resources before removing their index
+     * @param consumedResultProbe actual Native result-owner drain evidence
      */
     public static void startPeriodicCleanup(
             ScheduledExecutorService executor,
             Map<String, TaskInfo> tasks,
             Duration retention,
             Duration interval,
-            java.util.function.Consumer<TaskInfo> coordinatorIndexRemover) {
+            java.util.function.Consumer<TaskInfo> resourceRelease,
+            java.util.function.Predicate<TaskInfo> consumedResultProbe) {
         executor.scheduleAtFixedRate(
                 () -> {
                     try {
-                        cleanupTerminalTasks(tasks, retention, coordinatorIndexRemover);
+                        cleanupTerminalTasks(tasks, retention, resourceRelease, consumedResultProbe);
                     } catch (Exception e) {
-                        LOG.warn("event=terminal_task_cleanup_error error={}", e.getMessage());
+                        LOG.warn("event=terminal_task_cleanup_error", e);
                     }
                 },
                 interval.toSeconds(), interval.toSeconds(), TimeUnit.SECONDS);

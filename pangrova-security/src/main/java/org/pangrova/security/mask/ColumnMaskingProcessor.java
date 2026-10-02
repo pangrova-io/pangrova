@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Comparator;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Evaluates column masking policies for a given user, table, and column.
@@ -36,17 +37,25 @@ public class ColumnMaskingProcessor {
      * @param column column name
      * @return rendered mask expression when a policy applies
      */
-    public Optional<String> getMask(UserIdentity user, String catalog, String schema, String table, String column) {
-        return store.getColumnMasks(catalog, schema, table, column).stream()
-                .filter(ColumnMask::enabled)
-                .sorted(Comparator.comparingLong(ColumnMask::maskId))
-                .filter(m -> m.appliesTo(user))
-                .findFirst()
-                .flatMap(m -> applyMask(m, user, column));
+    public Optional<String> getMask(UserIdentity user, Set<String> effectiveRoles,
+                                    String catalog, String schema, String table, String column) {
+        return renderMasks(user, effectiveRoles, column, store.getColumnMasks(catalog, schema, table, column));
     }
 
-    private Optional<String> applyMask(ColumnMask mask, UserIdentity user, String column) {
-        if (mask.isExempt(user)) {
+    /** Renders masks read on the caller's current authorization transaction. */
+    public static Optional<String> renderMasks(
+            UserIdentity user, Set<String> effectiveRoles, String column, java.util.List<ColumnMask> masks) {
+        return masks.stream()
+                .filter(ColumnMask::enabled)
+                .sorted(Comparator.comparingLong(ColumnMask::maskId))
+                .filter(m -> m.appliesTo(effectiveRoles))
+                .findFirst()
+                .flatMap(m -> applyMask(m, user, effectiveRoles, column));
+    }
+
+    private static Optional<String> applyMask(
+            ColumnMask mask, UserIdentity user, Set<String> effectiveRoles, String column) {
+        if (mask.isExempt(effectiveRoles)) {
             LOG.info("event=column_mask_exemption principal={} maskId={} column={}",
                     user.principal(), mask.maskId(), column);
             return Optional.empty();

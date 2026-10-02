@@ -1,9 +1,15 @@
 package org.pangrova.security.tenant.quota;
 
-import org.h2.jdbcx.JdbcDataSource;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.postgresql.ds.PGSimpleDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import javax.sql.DataSource;
+import java.sql.SQLException;
+import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -18,17 +24,52 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ClusterConcurrencySlotsTest {
 
-    private static DataSource h2(String name) {
-        JdbcDataSource ds = new JdbcDataSource();
-        ds.setURL("jdbc:h2:mem:" + name + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL");
-        ds.setUser("sa");
-        ds.setPassword("");
-        return ds;
+    @SuppressWarnings("resource")
+    private static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:16-alpine")
+                    .withDatabaseName("pangrova_security_test")
+                    .withUsername("pangrova")
+                    .withPassword("pangrova");
+
+    @BeforeAll
+    static void startPostgres() {
+        POSTGRES.start();
+    }
+
+    @AfterAll
+    static void stopPostgres() {
+        POSTGRES.stop();
+    }
+
+    private static DataSource postgres(String name) {
+        String schema = name.toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9_]", "_") + "_"
+                + UUID.randomUUID().toString().replace("-", "");
+        PGSimpleDataSource admin = dataSource(null);
+        try (var connection = admin.getConnection();
+             var statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schema);
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to create isolated test schema", e);
+        }
+        return dataSource(schema);
+    }
+
+    private static PGSimpleDataSource dataSource(String schema) {
+        PGSimpleDataSource dataSource = new PGSimpleDataSource();
+        dataSource.setURL(POSTGRES.getJdbcUrl());
+        dataSource.setUser(POSTGRES.getUsername());
+        dataSource.setPassword(POSTGRES.getPassword());
+        if (schema != null) {
+            dataSource.setCurrentSchema(schema);
+        }
+        return dataSource;
     }
 
     @Test
     void jdbcReserveRespectsLimit() {
-        ClusterConcurrencySlots slots = new JdbcClusterConcurrencySlots(h2("slots_limit"));
+        ClusterConcurrencySlots slots = new JdbcClusterConcurrencySlots(
+                postgres("slots_limit"));
         assertThat(slots.tryReserve("t", 2)).isTrue();
         assertThat(slots.tryReserve("t", 2)).isTrue();
         assertThat(slots.tryReserve("t", 2)).as("3rd exceeds limit 2").isFalse();
@@ -37,7 +78,8 @@ class ClusterConcurrencySlotsTest {
 
     @Test
     void jdbcReleaseFreesSlot() {
-        ClusterConcurrencySlots slots = new JdbcClusterConcurrencySlots(h2("slots_release"));
+        ClusterConcurrencySlots slots = new JdbcClusterConcurrencySlots(
+                postgres("slots_release"));
         assertThat(slots.tryReserve("t", 1)).isTrue();
         assertThat(slots.tryReserve("t", 1)).as("at limit").isFalse();
         slots.release("t");
@@ -48,7 +90,7 @@ class ClusterConcurrencySlotsTest {
     @Test
     void jdbcConcurrentReservesFromTwoCoordinatorsNeverOversell() throws InterruptedException {
         // Two coordinators sharing ONE store burst-admit; the atomic gate must cap total at the limit.
-        DataSource shared = h2("slots_concurrent");
+        DataSource shared = postgres("slots_concurrent");
         ClusterConcurrencySlots coordA = new JdbcClusterConcurrencySlots(shared);
         ClusterConcurrencySlots coordB = new JdbcClusterConcurrencySlots(shared);
         int limit = 5;

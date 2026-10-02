@@ -16,4 +16,9 @@ public record QueryContext(
         String activeRolesHash,
         String rlsPolicyHash,
         String columnMaskHash
-) {}
+) {
+    /** Freezes the session identity used to compute cache fingerprints. */
+    public QueryContext {
+        sessionProperties = Map.copyOf(sessionProperties);
+    }
+}

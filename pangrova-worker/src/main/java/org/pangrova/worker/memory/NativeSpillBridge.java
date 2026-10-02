@@ -58,9 +58,8 @@ public final class NativeSpillBridge {
      * Triggers native operator spill via pool reclaim and reports the outcome.
      *
      * @param requestedBytes the bytes that could not be allocated
-     * @return true if the reclaim freed memory (or the native library is
-     *         unavailable and the request degrades to a signal); false when
-     *         spill is disabled or the reclaim freed nothing
+     * @return true only if native reclaim freed memory; false when spill is
+     *         disabled, native is unavailable, or reclaim freed nothing
      */
     public boolean requestSpill(long requestedBytes) {
         if (!spillEnabled.get()) {
@@ -84,10 +83,9 @@ public final class NativeSpillBridge {
                 return false;
             }
         } catch (UnsatisfiedLinkError e) {
-            // Native library not loaded (test/dev environment without native build).
-            // Fall back to signal-only mode and log once.
-            LOG.debug("event=native_reclaim_unavailable reason=native_lib_not_loaded");
-            return true; // signal recorded; native side handles via its own poll path
+            LOG.warn("event=native_reclaim_unavailable reason=native_lib_not_loaded");
+            spillFailureCount.incrementAndGet();
+            return false;
         }
     }
 

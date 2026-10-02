@@ -46,7 +46,8 @@ public record MultimodalPrompt(List<ContentPart> parts) {
 
     /**
      * Extracts the text content from this prompt by concatenating all Text parts.
-     * Used as fallback when the provider does not support multimodal input.
+     * Used for text accounting and prompt construction; it must not be used to
+     * discard non-text parts when a provider lacks multimodal capability.
      *
      * @return concatenated text content
      */

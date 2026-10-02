@@ -1,5 +1,7 @@
 package org.pangrova.testing.e2e.velox;
 
+import org.pangrova.protocol.v2.NativeMetricsSnapshot;
+import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
@@ -25,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Cache operations are exercised via the unified command channel
  * ({@link NativeRuntime#nativeCommand}) using
  * {@link NativeCommandBuilder} to build command protos for
- * GET_CACHE_STATS, EVICT_CACHE, and PREFETCH_SPLITS.</p>
+ * GET_METRICS, EVICT_CACHE, and PREFETCH_ARTIFACTS.</p>
  *
  * <p>All tests use TPC-H data and real infrastructure — no mocks or stubs.</p>
  *
@@ -46,7 +48,7 @@ class NativeCacheE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.loadTpcHDataViaConnector(
@@ -264,13 +266,18 @@ class NativeCacheE2ETest extends SqlE2ETestBase {
      */
     private static CacheSnapshot fetchCacheStats() {
         try {
-            byte[] cmd = NativeCommandBuilder.getCacheStats();
+            byte[] cmd = NativeCommandBuilder.getMetrics();
             byte[] resp = NativeRuntime.nativeCommand(0, cmd);
             byte[] payload = NativeCommandBuilder.extractResultPayload(resp);
             if (payload == null || payload.length == 0) {
                 return new CacheSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0);
             }
-            return parseCacheStatsProto(payload);
+            var cache = NativeMetricsSnapshot.parseFrom(payload).getCache();
+            return new CacheSnapshot(
+                    cache.getRamHits(), cache.getRamMisses(), cache.getSsdHits(),
+                    cache.getSsdMisses(), cache.getPromotions(), cache.getDemotions(),
+                    cache.getEvictions(), cache.getRamUsedBytes(),
+                    cache.getSsdUsedBytes(), cache.getPrefetchHitRate());
         } catch (Exception e) {
             // Native library not loaded or command failed — return empty stats
             return new CacheSnapshot(0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0);
@@ -294,7 +301,8 @@ class NativeCacheE2ETest extends SqlE2ETestBase {
      */
     private static void issuePrefetchCommand() {
         try {
-            byte[] cmd = NativeCommandBuilder.prefetchSplits(new byte[0]);
+            byte[] cmd = NativeCommandBuilder.prefetchArtifacts(
+                    PrefetchArtifactsRequest.getDefaultInstance());
             NativeRuntime.nativeCommand(0, cmd);
         } catch (Exception e) {
             // Ignore — prefetch is best-effort
@@ -303,7 +311,7 @@ class NativeCacheE2ETest extends SqlE2ETestBase {
 
     /**
      * Parses a serialized CacheStats proto using manual wire-format decoding.
-     * Field layout (from pangrova_native_protocol.proto):
+     * Field layout (from canonical runtime.proto):
      * <pre>
      *   int64 ram_hits = 1;
      *   int64 ram_misses = 2;

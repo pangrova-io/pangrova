@@ -7,15 +7,10 @@ import org.pangrova.security.authn.LdapAuthenticator;
 import org.pangrova.security.authn.BypassAuthenticator;
 import org.pangrova.security.authn.OAuth2Authenticator;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
-import org.pangrova.security.authz.Privilege;
-import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.StaticGrantStore;
+import org.pangrova.security.store.PersistentGrantStore;
+import org.pangrova.security.store.PersistentRoleStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
-import org.pangrova.security.mask.EmptyColumnMaskStore;
-import org.pangrova.security.mask.EnrichedColumnMaskStore;
-import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
-import org.pangrova.security.rowfilter.RowPolicyStore;
 import org.pangrova.security.store.PersistentColumnMaskStore;
 import org.pangrova.security.store.PersistentRowPolicyStore;
 import org.pangrova.security.tenant.quota.ClusterConcurrencySlots;
@@ -23,14 +18,12 @@ import org.pangrova.security.tenant.quota.JdbcClusterConcurrencySlots;
 import org.pangrova.security.tenant.quota.QuotaChecker;
 import org.pangrova.security.tenant.quota.TenantQuotaAdmissionController;
 import org.pangrova.security.tenant.store.TenantStore;
-import org.pangrova.security.event.SecurityPolicyEventPublisher;
 import org.pangrova.spi.resource.tenant.GlobalTenantUsageView;
 import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 import javax.sql.DataSource;
@@ -77,19 +70,29 @@ final class SecurityBootstrap {
                         + "for an explicitly unsecured deployment.\"");
                 authnConfig = Map.of("bypass.enabled", "true");
             } else {
-                authnConfig = Map.of();
+                authnConfig = config.securityConfig().authenticatorProperties();
             }
             authenticator.init(authnConfig);
             authenticationManager = new AuthenticationManager(List.of(authenticator));
             accessControl = buildAccessControl();
             LOG.info("Phase: security — initialized (authenticator={})", authenticator.getName());
         } catch (Exception e) {
+            try {
+                shutdown();
+            } catch (RuntimeException closeFailure) {
+                e.addSuppressed(closeFailure);
+            }
             throw new BootstrapFailedException("Security", e);
         }
     }
 
     void shutdown() {
-        // Security components have no explicit shutdown lifecycle
+        AuthenticationManager previous = authenticationManager;
+        authenticationManager = null;
+        accessControl = null;
+        if (previous != null) {
+            previous.close();
+        }
     }
 
     private Authenticator buildAuthenticator() {
@@ -108,59 +111,18 @@ final class SecurityBootstrap {
     }
 
     private AccessControl buildAccessControl() {
-        RowPolicyStore rowPolicyStore;
-        EnrichedColumnMaskStore columnMaskStore;
-        if (dataSource != null) {
-            rowPolicyStore = new PersistentRowPolicyStore(dataSource);
-            columnMaskStore = new PersistentColumnMaskStore(dataSource);
-            LOG.info("Phase: security — using persistent RLS/masking stores (JDBC-backed)");
-        } else {
-            // F-SEC-02: with security ENABLED but no datasource, RLS/column-masking policy
-            // stores are empty, so every row filter and column mask is silently disabled.
-            // Raise this to a CRITICAL security alarm (not a mere warning) so an operator who
-            // believes policies are enforced cannot miss that they are not.
-            LOG.error("event=security_alarm severity=CRITICAL component=access_control "
-                    + "message=\"No datasource configured; row-level security and column-masking "
-                    + "stores are EMPTY. ALL RLS filters and column masks are DISABLED and policies "
-                    + "will NOT be enforced. Configure a JDBC datasource to enable policy "
-                    + "enforcement before serving production traffic.\"");
-            rowPolicyStore = new EmptyRowPolicyStore();
-            columnMaskStore = new EmptyColumnMaskStore();
+        if (dataSource == null) {
+            throw new IllegalStateException("Security requires the authoritative PostgreSQL datasource");
         }
-        RowLevelSecurityFilter rlsFilter = new RowLevelSecurityFilter(rowPolicyStore);
-        ColumnMaskingProcessor maskProcessor = new ColumnMaskingProcessor(columnMaskStore);
-        List<PrivilegeGrant> grants = loadGrants();
-        if (!grants.isEmpty()) {
-            LOG.info("Phase: security — loaded {} initial grants from config", grants.size());
-        }
-        // F-SEC-05: Use DynamicRbacAccessControl for runtime grant refresh support.
-        // DynamicRbacAccessControl accepts a GrantStore and publishes policy events,
-        // enabling GRANT/REVOKE statements to take effect without coordinator restart.
-        StaticGrantStore grantStore = new StaticGrantStore(grants);
-        SecurityPolicyEventPublisher eventPublisher = new SecurityPolicyEventPublisher();
-        return new DynamicRbacAccessControl(grantStore, rlsFilter, maskProcessor, eventPublisher);
-    }
-
-    private List<PrivilegeGrant> loadGrants() {
-        CoordinatorBootstrapConfig.SecurityConfig secCfg = config.securityConfig();
-        if (secCfg == null || secCfg.grants().isEmpty()) {
-            return List.of();
-        }
-        return secCfg.grants().stream()
-                .map(SecurityBootstrap::toPrivilegeGrant)
-                .toList();
-    }
-
-    private static PrivilegeGrant toPrivilegeGrant(CoordinatorBootstrapConfig.SecurityConfig.GrantEntry entry) {
-        Privilege privilege = Privilege.valueOf(entry.privilege().toUpperCase(Locale.ROOT));
-        return PrivilegeGrant.of(
-                entry.role(),
-                privilege,
-                entry.objectType(),
-                entry.catalog(),
-                entry.schema(),
-                entry.table(),
-                entry.column());
+        PersistentRoleStore roles = new PersistentRoleStore(dataSource);
+        roles.initSchema();
+        PersistentGrantStore grants = new PersistentGrantStore(dataSource);
+        // A missing or unavailable authority prevents the process from serving secured traffic.
+        roles.listRoles();
+        grants.listGrants();
+        return new DynamicRbacAccessControl(grants, roles,
+                new RowLevelSecurityFilter(new PersistentRowPolicyStore(dataSource)),
+                new ColumnMaskingProcessor(new PersistentColumnMaskStore(dataSource)));
     }
 
     AuthenticationManager authenticationManager() {

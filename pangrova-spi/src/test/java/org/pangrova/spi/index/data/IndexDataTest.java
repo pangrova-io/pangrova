@@ -13,12 +13,9 @@ import org.pangrova.spi.index.data.spatial.RTreeNode;
 import org.pangrova.spi.index.data.spatial.SparseEntry;
 import org.pangrova.spi.index.data.spatial.SparseIndexData;
 import org.pangrova.spi.index.data.text.GinIndexData;
-import org.pangrova.spi.index.data.text.InvertedIndexData;
 import org.pangrova.spi.index.data.text.NGramBloomIndexData;
 import org.pangrova.spi.index.data.text.PrefixEntry;
 import org.pangrova.spi.index.data.text.PrefixIndexData;
-import org.pangrova.spi.index.data.vector.VectorIndexData;
-import org.pangrova.spi.index.vector.DistanceMetric;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -28,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for {@link IndexData} sealed interface, all 10 implementations,
+ * Unit tests for {@link IndexData} implementations,
  * auxiliary records, and {@link BoundingBox} spatial operations.
  */
 class IndexDataTest {
@@ -39,12 +36,6 @@ class IndexDataTest {
     void btreeReturnsCorrectType() {
         var data = new BTreeIndexData(List.of(), false);
         assertEquals(IndexType.BTREE, data.indexType());
-    }
-
-    @Test
-    void invertedReturnsCorrectType() {
-        var data = new InvertedIndexData(Map.of(), false);
-        assertEquals(IndexType.INVERTED, data.indexType());
     }
 
     @Test
@@ -93,14 +84,6 @@ class IndexDataTest {
     void ginReturnsCorrectType() {
         var data = new GinIndexData(Map.of(), false);
         assertEquals(IndexType.GIN, data.indexType());
-    }
-
-    @Test
-    void vectorReturnsCorrectType() {
-        var data = new VectorIndexData(
-                VectorIndexData.VectorAlgorithmType.HNSW, 128, DistanceMetric.L2,
-                100, new byte[16], Map.of());
-        assertEquals(IndexType.VECTOR, data.indexType());
     }
 
     // ── Defensive copy — byte[] fields ──────────────────────────────
@@ -185,22 +168,6 @@ class IndexDataTest {
     }
 
     // ── Defensive copy — Map fields ─────────────────────────────────
-
-    @Test
-    void invertedDefensiveDeepCopy() {
-        var mutablePostings = new HashMap<String, List<Integer>>();
-        var mutablePositions = new ArrayList<>(List.of(1, 2, 3));
-        mutablePostings.put("term", mutablePositions);
-
-        var data = new InvertedIndexData(mutablePostings, true);
-
-        // Mutate originals
-        mutablePostings.put("new_term", List.of(4));
-        mutablePositions.add(99);
-
-        assertEquals(1, data.postings().size());
-        assertEquals(List.of(1, 2, 3), data.postings().get("term"));
-    }
 
     @Test
     void ginDefensiveDeepCopy() {
@@ -376,7 +343,6 @@ class IndexDataTest {
     void estimatedSizeIsNonNegative() {
         List<IndexData> allTypes = List.of(
                 new BTreeIndexData(List.of(), false),
-                new InvertedIndexData(Map.of(), false),
                 new BloomFilterIndexData(new byte[8], 3, 64),
                 new PrefixIndexData(List.of(), 3),
                 new NGramBloomIndexData(new byte[8], 3, 64, 3),
@@ -384,10 +350,7 @@ class IndexDataTest {
                 new HashIndexData(new byte[16], 0, 16),
                 new SparseIndexData(List.of(), 1024),
                 new RTreeIndexData(List.of(), 0),
-                new GinIndexData(Map.of(), false),
-                new VectorIndexData(
-                        VectorIndexData.VectorAlgorithmType.HNSW, 128, DistanceMetric.L2,
-                        0, new byte[0], Map.of())
+                new GinIndexData(Map.of(), false)
         );
         for (IndexData data : allTypes) {
             assertTrue(data.estimatedSizeInBytes() >= 0,

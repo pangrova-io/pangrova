@@ -15,17 +15,19 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class JdbcWorkerRegistryTest {
+
+    private static final String CANONICAL_INVENTORY =
+            "CjIIAhogRdVbleB2e7KyN0ENsyhXMAxZ2xaezSU0lUC4Od3Gd8giDGFpLW5hdGl2ZS1y"
+                    + "MigBMhZtZXRhZGF0YS1yZWdpc3RyeS10ZXN0";
 
     private DataSource dataSource;
     private JdbcWorkerRegistry registry;
 
     @BeforeEach
     void setUp() throws Exception {
-        assumeTrue(SharedPostgresContainer.isAvailable());
         dataSource = SharedPostgresContainer.dataSource();
 
         try (Connection conn = dataSource.getConnection();
@@ -37,8 +39,9 @@ class JdbcWorkerRegistryTest {
                     host VARCHAR(256) NOT NULL,
                     http_port INT NOT NULL,
                     transport_port INT NOT NULL,
-                    protocol_version INT NOT NULL DEFAULT 1,
-                    capabilities TEXT,
+                    result_server_port INT NOT NULL DEFAULT 0,
+                    protocol_version INT NOT NULL DEFAULT 2 CHECK (protocol_version = 2),
+                    capability_inventory_proto TEXT NOT NULL,
                     rack_id VARCHAR(128),
                     data_locality TEXT,
                     memory_pressure VARCHAR(32) NOT NULL DEFAULT 'NONE',
@@ -101,10 +104,12 @@ class JdbcWorkerRegistryTest {
     @Test
     void getActiveWorkersFiltersStale() {
         long now = System.currentTimeMillis();
-        WorkerSnapshot fresh = new WorkerSnapshot("w-fresh", "host1", 8080, 9090, 1,
-                List.of(), null, List.of(), "NONE", 0.1, 0, 1024, now, now);
-        WorkerSnapshot stale = new WorkerSnapshot("w-stale", "host2", 8080, 9090, 1,
-                List.of(), null, List.of(), "NONE", 0.1, 0, 1024, now - 120_000, now - 120_000);
+        WorkerSnapshot fresh = new WorkerSnapshot("w-fresh", "host1", 8080, 9090, 2,
+                null, List.of(), "NONE", 0.1, 0, 1024, now, now,
+                0, null, CANONICAL_INVENTORY);
+        WorkerSnapshot stale = new WorkerSnapshot("w-stale", "host2", 8080, 9090, 2,
+                null, List.of(), "NONE", 0.1, 0, 1024, now - 120_000, now - 120_000,
+                0, null, CANONICAL_INVENTORY);
 
         registry.register(fresh);
         registry.register(stale);
@@ -117,8 +122,9 @@ class JdbcWorkerRegistryTest {
     @Test
     void expireStaleRemovesOldWorkers() {
         long now = System.currentTimeMillis();
-        WorkerSnapshot stale = new WorkerSnapshot("w-stale", "host1", 8080, 9090, 1,
-                List.of(), null, List.of(), "NONE", 0.1, 0, 1024, now - 120_000, now - 120_000);
+        WorkerSnapshot stale = new WorkerSnapshot("w-stale", "host1", 8080, 9090, 2,
+                null, List.of(), "NONE", 0.1, 0, 1024, now - 120_000, now - 120_000,
+                0, null, CANONICAL_INVENTORY);
         registry.register(stale);
 
         int expired = registry.expireStale(Duration.ofSeconds(60));
@@ -128,7 +134,8 @@ class JdbcWorkerRegistryTest {
 
     private static WorkerSnapshot createWorker(String id, String host, int httpPort) {
         long now = System.currentTimeMillis();
-        return new WorkerSnapshot(id, host, httpPort, httpPort + 1000, 1,
-                List.of("COMPUTE"), null, List.of(), "NONE", 0.1, 0, 1024, now, now);
+        return new WorkerSnapshot(id, host, httpPort, httpPort + 1000, 2,
+                null, List.of(), "NONE", 0.1, 0, 1024, now, now,
+                0, null, CANONICAL_INVENTORY);
     }
 }

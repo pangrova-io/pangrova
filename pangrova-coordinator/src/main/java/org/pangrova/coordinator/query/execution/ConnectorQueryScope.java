@@ -1,8 +1,13 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.SessionContextConverter;
+import org.pangrova.planner.SplitSourceDescriptor;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.function.Consumer;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -22,30 +27,26 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  */
 public final class ConnectorQueryScope implements AutoCloseable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(ConnectorQueryScope.class);
-
-    private final String queryId;
-    private final CatalogRegistry catalogRegistry;
-
-    public ConnectorQueryScope(String queryId, CatalogRegistry catalogRegistry) {
-        this.queryId = checkNotNull(queryId, "queryId");
-        this.catalogRegistry = catalogRegistry;
-        notifyBeginQuery();
-    }
-
-    private void notifyBeginQuery() {
+    public ConnectorQueryScope(
+            CoordinatorSessionContext context, CatalogRegistry catalogRegistry,
+            List<SplitSourceDescriptor> sources, Consumer<ConnectorMetadata> registrar) {
+        checkNotNull(context, "context");
+        checkNotNull(registrar, "registrar");
         if (catalogRegistry == null) {
             return;
         }
-        for (String catalogName : catalogRegistry.listCatalogNames()) {
-            try {
-                var session = new org.pangrova.coordinator.query.statement.StatementConnectorSession(
-                        catalogName, "default");
-                catalogRegistry.getCatalog(catalogName).getMetadata(session).beginQuery(queryId);
-            } catch (Exception e) {
-                LOG.debug("event=connector_begin_query_failed catalog={} queryId={} error={}",
-                        catalogName, queryId, e.getMessage());
-            }
+        var catalogs = new LinkedHashMap<String, SplitSourceDescriptor>();
+        for (var source : sources) {
+            catalogs.putIfAbsent(source.catalogName(), source);
+        }
+        for (var source : catalogs.values()) {
+            var session = SessionContextConverter.toConnectorSession(
+                    context, source.catalogName(), source.schemaName());
+            var metadata = catalogRegistry.getCatalog(source.catalogName()).getMetadata(session);
+            // Register before beginning so a partially successful begin is cleaned
+            // with exactly this authenticated metadata instance on query failure.
+            registrar.accept(metadata);
+            metadata.beginQuery(context.queryId());
         }
     }
 
@@ -63,4 +64,3 @@ public final class ConnectorQueryScope implements AutoCloseable {
         // query execution, not just the dispatch phase.
     }
 }
-

@@ -37,7 +37,7 @@ public final class ShuffleRetryPolicyValidator {
                             + "committed partitions survive task failure, but the configured provider "
                             + "is " + capabilities.durability() + " (no task retry). Select a "
                             + "LOCAL_SPILL or DURABLE provider "
-                            + "(shuffle.manager=local-spill|object-store|celeborn) or disable "
+                            + "(shuffle.manager=local-spill|object-store) or disable "
                             + "task-level retry.");
         }
     }

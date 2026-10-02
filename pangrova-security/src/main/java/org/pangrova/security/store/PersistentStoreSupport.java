@@ -52,18 +52,24 @@ public abstract class PersistentStoreSupport {
         List<String> statements = loadSchemaStatements();
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
+            conn.setAutoCommit(false);
+            AuthorizationTransactionGate.lockMutation(conn);
             for (String ddl : statements) {
+                var savepoint = conn.setSavepoint();
                 try {
                     stmt.execute(ddl);
                 } catch (SQLException e) {
                     // CREATE INDEX may lack IF NOT EXISTS; tolerate "already exists".
                     if (isAlreadyExists(e)) {
+                        conn.rollback(savepoint);
                         LOG.debug("event=policy_schema_stmt_skipped reason=already_exists");
                     } else {
                         throw e;
                     }
                 }
             }
+            AuthorizationTransactionGate.initialize(conn);
+            conn.commit();
             LOG.info("event=policy_schema_initialized statements={}", statements.size());
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to initialize security policy schema", e);
@@ -71,7 +77,7 @@ public abstract class PersistentStoreSupport {
     }
 
     private static boolean isAlreadyExists(SQLException e) {
-        // Match PostgreSQL "already exists" / H2 "already exists" errors from CREATE INDEX.
+        // Match PostgreSQL "already exists" errors from CREATE INDEX.
         // Must NOT match "does not exist" errors (wrong type, missing relation, etc.).
         String msg = e.getMessage();
         if (msg == null) {

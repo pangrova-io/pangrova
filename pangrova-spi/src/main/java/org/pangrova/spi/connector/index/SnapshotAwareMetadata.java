@@ -3,6 +3,7 @@ package org.pangrova.spi.connector.index;
 import org.pangrova.spi.annotation.Experimental;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * SPI for connectors that support snapshot-diff based incremental indexing.
@@ -11,29 +12,37 @@ import java.util.List;
  * by providing the list of added/removed data files between two snapshots,
  * avoiding full table scans.</p>
  *
- * <p>If a connector does not support snapshot-diff (e.g., the snapshot has expired),
- * the indexing system falls back to CommitEvent-based incremental builds.</p>
+ * <p>Every operation is bound to an explicit immutable snapshot. Implementations
+ * must fail closed if the requested snapshot cannot be read completely.</p>
  */
 @Experimental
 public interface SnapshotAwareMetadata {
 
-    /**
-     * Lists data file paths added between two snapshots.
-     *
-     * @param fromSnapshotId the starting snapshot (exclusive); {@code null} means from the beginning
-     * @param toSnapshotId   the ending snapshot (inclusive)
-     * @return list of added data file paths; empty if no additions
-     * @throws SnapshotExpiredException if {@code fromSnapshotId} is no longer available
-     */
-    List<String> listAddedFilesBetween(String fromSnapshotId, String toSnapshotId);
+    /** Returns the connector's current immutable snapshot token, if one exists. */
+    Optional<String> currentSnapshotId();
 
     /**
-     * Lists data file paths removed between two snapshots.
+     * Lists the complete file set for an immutable snapshot.
+     *
+     * @param snapshotId immutable connector snapshot token
+     * @return complete file identities and statistics for the snapshot
+     * @throws SnapshotExpiredException if the snapshot is no longer available
+     */
+    List<SnapshotDataFile> listFilesAtSnapshot(String snapshotId);
+
+    /**
+     * Resolves the causal relationship between two snapshots without assuming
+     * that snapshot tokens are numeric or lexically ordered.
+     */
+    SnapshotRelation relation(String leftSnapshotId, String rightSnapshotId);
+
+    /**
+     * Computes one complete file delta between immutable snapshots.
      *
      * @param fromSnapshotId the starting snapshot (exclusive); {@code null} means from the beginning
      * @param toSnapshotId   the ending snapshot (inclusive)
-     * @return list of removed data file paths; empty if no removals
-     * @throws SnapshotExpiredException if {@code fromSnapshotId} is no longer available
+     * @return added file identities and removed file paths
+     * @throws SnapshotExpiredException if either snapshot is no longer available
      */
-    List<String> listRemovedFilesBetween(String fromSnapshotId, String toSnapshotId);
+    SnapshotFileDelta diffFiles(String fromSnapshotId, String toSnapshotId);
 }

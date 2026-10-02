@@ -285,7 +285,16 @@ public class MetadataSyncService {
         LOG.info("event=schema_evolution_detected catalog={} table={}.{} changes={}",
                 catalogName, ref.schema(), ref.table(), schemaChanges.size());
         eventDispatcher.dispatch(new MetadataEvent.SchemaEvolutionEvent(
-                catalogName, ref, schemaChanges));
+                catalogName, ref, schemaChanges, resolveTenantScope(catalogName)));
+    }
+
+    private MetadataEvent.TenantImpactScope resolveTenantScope(String catalogName) {
+        var descriptor = store.getCatalogDescriptor(catalogName)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Catalog descriptor is required for schema evolution: " + catalogName));
+        return descriptor.allowedTenants().isEmpty()
+                ? MetadataEvent.TenantImpactScope.global()
+                : MetadataEvent.TenantImpactScope.tenants(descriptor.allowedTenants());
     }
 
     /**

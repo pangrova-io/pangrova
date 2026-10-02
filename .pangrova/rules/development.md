@@ -66,7 +66,10 @@ ctest --test-dir pangrova-worker-native/build --output-on-failure
 Run AddressSanitizer validation for memory, ownership, JNI, or concurrency changes:
 
 ```bash
-cmake --preset dev-asan -S pangrova-worker-native
+VELOX_BUILD_DIR=/path/to/asan/velox/build \
+  cmake --preset dev-asan -S pangrova-worker-native \
+  -DPANGROVA_ASAN_PROTOBUF_LIB=/path/to/asan/libprotobuf.a \
+  -Dabsl_DIR=/path/to/asan/absl/lib/cmake/absl
 cmake --build pangrova-worker-native/build-asan --parallel
 ctest --test-dir pangrova-worker-native/build-asan --output-on-failure
 ```
@@ -80,7 +83,8 @@ and native validation:
 ./pangrova-worker-native/bin/package-native-lib.sh
 mvn -q -pl pangrova-worker -am test
 mvn -q -pl pangrova-testing/pangrova-test-e2e -am test
-mvn -q -pl pangrova-testing/pangrova-test-smoke -am test
+mvn -q -pl pangrova-testing/pangrova-test-e2e \
+  -Dtest=ActivationSmokeE2ETest test
 ```
 
 Run E2E and smoke suites when the changed path can affect startup, SQL
@@ -95,7 +99,7 @@ connectivity. They are not required for isolated documentation or tooling edits.
 | Property | `src/test/java/**/property` | jqwik |
 | Integration | Usually `*IntegrationTest` | JUnit 5, TestContainers |
 | E2E | `pangrova-testing/pangrova-test-e2e` | JUnit 5, TestContainers |
-| Smoke | `pangrova-testing/pangrova-test-smoke` | JUnit 5 |
+| Smoke | `pangrova-testing/pangrova-test-e2e/.../smoke/ActivationSmokeE2ETest` | JUnit 5, packaged JNI |
 | Native | `pangrova-worker-native/test` | GoogleTest, CTest |
 | Benchmark | `pangrova-testing/pangrova-test-benchmark` | JMH |
 

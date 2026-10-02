@@ -11,6 +11,8 @@
 #include "jni/command/StatusSerializer.h"
 
 #include <algorithm>
+#include <map>
+#include <stdexcept>
 #include <string>
 
 // Velox TaskStats for per-operator metrics.
@@ -28,52 +30,144 @@
 #include "executor/driver/PlanExecutionDriver.h"
 #include "velox/runner/VeloxTaskRunner.h"
 
-#include "pangrova/native/protocol/v1/task.pb.h"
-#include "pangrova/native/protocol/v1/cache.pb.h"
+#include "pangrova/protocol/v2/result.pb.h"
+#include "pangrova/protocol/v2/runtime.pb.h"
 
 namespace pangrova::jni {
 namespace {
 
 // Maps internal ExecutorState to proto TaskState enum.
-pangrova::native::protocol::v1::TaskState toProtoState(
+pangrova::protocol::v2::TaskState toProtoState(
     executor::ExecutorState state) {
   switch (state) {
     case executor::ExecutorState::PENDING:
-      return pangrova::native::protocol::v1::TASK_STATE_PENDING;
+      return pangrova::protocol::v2::TASK_STATE_PENDING;
     case executor::ExecutorState::RUNNING:
-      return pangrova::native::protocol::v1::TASK_STATE_RUNNING;
+      return pangrova::protocol::v2::TASK_STATE_RUNNING;
     case executor::ExecutorState::FLUSHING:
-      return pangrova::native::protocol::v1::TASK_STATE_FLUSHING;
+      return pangrova::protocol::v2::TASK_STATE_FLUSHING;
     case executor::ExecutorState::FINISHED:
-      return pangrova::native::protocol::v1::TASK_STATE_FINISHED;
+      return pangrova::protocol::v2::TASK_STATE_FINISHED;
     case executor::ExecutorState::FAILED:
-      return pangrova::native::protocol::v1::TASK_STATE_FAILED;
+      return pangrova::protocol::v2::TASK_STATE_FAILED;
     case executor::ExecutorState::CANCELLED:
-      return pangrova::native::protocol::v1::TASK_STATE_CANCELLED;
+      return pangrova::protocol::v2::TASK_STATE_CANCELLED;
   }
-  return pangrova::native::protocol::v1::TASK_STATE_PENDING;
+  return pangrova::protocol::v2::TASK_STATE_PENDING;
 }
 
 }  // namespace
 
 std::vector<uint8_t> serializeTaskStatus(
     executor::TaskExecutor& executor) {
-  pangrova::native::protocol::v1::TaskStatus status;
-  status.set_task_id(executor.taskId());
+  pangrova::protocol::v2::TaskReport status;
+  auto* attempt = status.mutable_attempt();
+  attempt->set_query_or_job_id(executor.queryId());
+  attempt->set_stage_id(executor.stageId());
+  attempt->set_partition_id(executor.partitionId());
+  attempt->set_plan_epoch(executor.planEpoch());
+  attempt->set_attempt_id(executor.attemptId());
+  attempt->set_fencing_token(executor.fencingToken());
+  attempt->set_task_id(executor.taskId());
+  attempt->set_control_epoch(executor.controlEpoch());
+  auto* owner = attempt->mutable_execution_owner();
+  owner->set_owner_id(executor.ownerId());
+  owner->set_owner_incarnation(executor.ownerIncarnation());
+  owner->set_fencing_token(executor.ownerFencingToken());
   status.set_state(toProtoState(executor.state()));
-  status.set_error_message(executor.errorMessage());
-  auto stack_trace = executor.nativeStackTrace();
-  if (!stack_trace.empty()) {
-    status.set_native_stack_trace(stack_trace);
+  status.set_report_origin(
+      pangrova::protocol::v2::TASK_REPORT_ORIGIN_NATIVE);
+  if (executor.hasFinalTaskStats()) {
+    const auto final_stats = executor.collectTaskStats();
+    if (!status.mutable_native_task_stats()->ParseFromArray(
+            final_stats.data(), static_cast<int>(final_stats.size()))) {
+      throw std::runtime_error("Actual native task statistics are malformed");
+    }
+  }
+  // The task-owned accumulator survives writer errors and destruction. No
+  // commit fragment is required to observe an allocation that already happened.
+  status.mutable_usage()->set_columnar_conversion_copied_bytes(
+      executor.metricsCollector().snapshot().columnar_conversion_copied_bytes);
+  auto* coverage = status.mutable_coverage();
+  const auto state = executor.state();
+  const uint64_t expected = std::max<uint64_t>(1, executor.splits().size());
+  const bool finished = state == executor::ExecutorState::FINISHED;
+  const bool unsuccessful = state == executor::ExecutorState::FAILED ||
+      state == executor::ExecutorState::CANCELLED;
+  coverage->set_expected_work_units(expected);
+  coverage->set_completed_work_units(finished ? expected : 0);
+  coverage->set_coverage_ratio(finished ? 1.0 : 0.0);
+  coverage->set_completion_state(
+      finished
+          ? pangrova::protocol::v2::COMPLETION_STATE_COMPLETE
+          : unsuccessful
+              ? pangrova::protocol::v2::COMPLETION_STATE_PARTIAL
+              : pangrova::protocol::v2::COMPLETION_STATE_UNSPECIFIED);
+  if (unsuccessful) {
+    if (executor.splits().empty()) {
+      coverage->add_failed_work_unit_ids(executor.taskId());
+    } else if (executor.splits().size() > 4096) {
+      coverage->set_all_work_units_failed(true);
+    } else {
+      for (const auto& split : executor.splits()) {
+        coverage->add_failed_work_unit_ids(split.split_id);
+      }
+    }
+  }
+
+  // A task may read several tables. Group by logical source and snapshot; never
+  // collapse this to one vector/index-specific freshness field.
+  std::map<std::pair<std::string, std::string>, uint64_t> source_counts;
+  for (const auto& split : executor.splits()) {
+    source_counts[{split.table_name, split.source_snapshot}]++;
+  }
+  for (const auto& [source, count] : source_counts) {
+    auto* report = coverage->add_source_snapshots();
+    report->set_source_id(source.first);
+    report->set_snapshot_id(source.second);
+    report->set_expected_work_units(count);
+    report->set_completed_work_units(finished ? count : 0);
+  }
+
+  // Read bindings are immutable generation pins. Their timestamps are optional
+  // until supplied by the manifest, but identity/snapshot are never fabricated.
+  for (const auto& [plan_node_id, binding] : executor.operatorBindings()) {
+    (void)plan_node_id;
+    for (const auto& artifact : binding.artifacts()) {
+      auto* report = coverage->add_artifacts();
+      report->set_artifact_id(artifact.artifact_id());
+      report->set_artifact_type(artifact.artifact_type());
+      report->set_generation(artifact.generation());
+      report->set_source_id(artifact.source_id());
+      report->set_source_snapshot(artifact.source_snapshot());
+      report->set_source_data_timestamp_ms(
+          artifact.source_data_timestamp_ms());
+      report->set_artifact_created_at_epoch_ms(
+          artifact.artifact_created_at_epoch_ms());
+    }
+  }
+  if (!executor.errorMessage().empty()) {
+    auto* error = status.mutable_error();
+    error->set_error_class(pangrova::protocol::v2::ERROR_CLASS_INTERNAL);
+    error->set_code("NATIVE_TASK_FAILED");
+    error->set_message(executor.errorMessage());
+    error->set_retryable(false);
+    error->set_failed_component("native-executor");
+  }
+  if (auto artifact_report = executor.artifactWorkReport();
+      artifact_report.has_value()) {
+    *status.mutable_artifact_work() = std::move(*artifact_report);
   }
   std::vector<uint8_t> buf(status.ByteSizeLong());
-  status.SerializeToArray(buf.data(), static_cast<int>(buf.size()));
+  if (!status.SerializeToArray(buf.data(), static_cast<int>(buf.size()))) {
+    throw std::runtime_error("Canonical task report serialization failed");
+  }
   return buf;
 }
 
 std::vector<uint8_t> serializeNativeTaskStats(
     const facebook::velox::exec::TaskStats& task_stats) {
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
 
 #if PANGROVA_HAS_VELOX_TASK_STATS
   // Total wall time from Velox task lifecycle.
@@ -148,7 +242,7 @@ std::vector<uint8_t> serializeTaskStats(
   // Primary path: collect from Velox TaskStats via VeloxTaskRunner.
   // This provides per-operator metrics (wall time, CPU time, rows, memory,
   // spill) directly from the Velox execution engine.
-  // Both paths serialize to the same pangrova.native.protocol.v1.TaskStats proto.
+  // Both paths serialize to the same canonical TaskStats proto.
   auto* runner = executor.veloxTaskRunner();
   if (runner) {
     auto veloxStats = runner->collectTaskStats();
@@ -161,7 +255,7 @@ std::vector<uint8_t> serializeTaskStats(
   // This path is used when VeloxTaskRunner is not yet started or has no stats.
   // Uses the same TaskStats proto schema as the primary path for consistency.
   auto snap = executor.metricsCollector().snapshot();
-  pangrova::native::protocol::v1::TaskStats stats;
+  pangrova::protocol::v2::NativeTaskStats stats;
   stats.set_rows_read(snap.rows_read);
   stats.set_bytes_read(snap.bytes_read);
   stats.set_cpu_time_ms(snap.cpu_time_ns / 1'000'000);
@@ -176,7 +270,7 @@ std::vector<uint8_t> serializeTaskStats(
 
 std::vector<uint8_t> serializeNativeCacheStats(
     const facebook::velox::cache::CacheStats& stats) {
-  pangrova::native::protocol::v1::CacheStats proto;
+  pangrova::protocol::v2::CacheMetrics proto;
 #if PANGROVA_HAS_VELOX_ASYNC_CACHE
   proto.set_ram_hits(stats.numHit);
   proto.set_ram_misses(stats.numNew);

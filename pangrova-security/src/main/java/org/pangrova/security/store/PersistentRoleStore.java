@@ -104,6 +104,11 @@ public final class PersistentRoleStore extends PersistentStoreSupport implements
             try {
                 int affected;
                 try (PreparedStatement ps = conn.prepareStatement(
+                        "DELETE FROM security_grants WHERE role_name = ?")) {
+                    ps.setString(1, roleName);
+                    ps.executeUpdate();
+                }
+                try (PreparedStatement ps = conn.prepareStatement(
                         "DELETE FROM pangrova_user_roles WHERE role_name = ?")) {
                     ps.setString(1, roleName);
                     ps.executeUpdate();
@@ -313,7 +318,6 @@ public final class PersistentRoleStore extends PersistentStoreSupport implements
 
     private static boolean isDuplicateKey(SQLException e) {
         // 23000 / 23505 are the SQL standard / PostgreSQL codes for unique violation.
-        // H2 reports 23505; MySQL reports 23000 with vendor code 1062.
         String state = e.getSQLState();
         if (state != null && state.startsWith("23")) {
             return true;

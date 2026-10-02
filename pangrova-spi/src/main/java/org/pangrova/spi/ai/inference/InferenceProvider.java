@@ -13,11 +13,16 @@
  */
 package org.pangrova.spi.ai.inference;
 
+import org.pangrova.spi.ai.Modality;
+
+import org.pangrova.spi.ai.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.annotation.Experimental;
 import org.pangrova.spi.annotation.ThreadSafe;
 
 import java.util.List;
 import java.util.Set;
+import java.time.Duration;
 
 /**
  * SPI contract for generative AI / LLM inference providers.
@@ -40,7 +45,7 @@ public interface InferenceProvider {
      *
      * @param prompt     the prompt text (must not be null)
      * @param parameters generation parameters controlling output behavior
-     * @return inference result including generated text and token usage (never null)
+     * @return generated text and the provider's actual request identity (never null)
      * @throws IllegalArgumentException if prompt is null
      */
     InferenceResult complete(String prompt, GenerationParameters parameters);
@@ -72,18 +77,92 @@ public interface InferenceProvider {
      */
     int maxBatchSize();
 
-    // ---- Multimodal extensions (default methods for backward compatibility) ----
+    /** Exact provider-visible model version used in invocation/audit records. */
+    default String modelVersion() {
+        return "unversioned";
+    }
+
+    /** Exact public model descriptor signature, or an empty array if unavailable. */
+    default byte[] modelSignatureSha256() {
+        return new byte[0];
+    }
+
+    /**
+     * Exact serving limits for this provider deployment. Implementations must
+     * override this unless they override {@link #capabilities()} with limits
+     * obtained from a governed model descriptor.
+     */
+    default AiCapabilityDescriptor.ResourceLimits resourceLimits() {
+        throw new IllegalStateException(
+                "Inference provider must declare exact resource limits");
+    }
+
+    /**
+     * Execution capabilities advertised by this provider. Providers with
+     * additional limits should override this method; callers reject operations
+     * not represented here.
+     */
+    default Set<AiCapabilityDescriptor> capabilities() {
+        Set<Modality> modalities = supportedModalities();
+        AiCapabilityDescriptor.RetryPolicy retryPolicy = new AiCapabilityDescriptor.RetryPolicy(
+                4,
+                Duration.ofMillis(500),
+                Duration.ofSeconds(4),
+                Set.of(
+                        AiInvocationException.Category.RATE_LIMIT,
+                        AiInvocationException.Category.TIMEOUT,
+                        AiInvocationException.Category.PROVIDER_UNAVAILABLE));
+        var text = new AiCapabilityDescriptor(
+                "inference:" + modelName(),
+                modelVersion(),
+                AiCapabilityDescriptor.Operation.TEXT_GENERATION,
+                List.of(new AiCapabilityDescriptor.Signature(
+                        "VARCHAR", List.of("VARCHAR"))),
+                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR,
+                        AiCapabilityDescriptor.ExecutionMode.BATCH,
+                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                modalities,
+                maxBatchSize(),
+                resourceLimits(),
+                false,
+                retryPolicy,
+                Set.of("AI_MODEL_USAGE"));
+        if (modalities.equals(Set.of(Modality.TEXT))) {
+            return Set.of(text);
+        }
+        var multimodal = new AiCapabilityDescriptor(
+                "multimodal-inference:" + modelName(),
+                modelVersion(),
+                AiCapabilityDescriptor.Operation.MULTIMODAL_GENERATION,
+                List.of(new AiCapabilityDescriptor.Signature(
+                        "VARCHAR", List.of("MULTIMODAL_PROMPT"))),
+                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR,
+                        AiCapabilityDescriptor.ExecutionMode.SYNC),
+                modalities,
+                1,
+                resourceLimits(),
+                false,
+                retryPolicy,
+                Set.of("AI_MODEL_USAGE"));
+        return Set.of(text, multimodal);
+    }
+
+    // ---- Multimodal capability ----
 
     /**
      * Generates a completion for a multimodal prompt containing mixed content (text + images/files).
-     * Default implementation falls back to text-only completion by extracting text content.
+     * Providers must override this method when they advertise non-text modalities.
+     * The default fails closed so binary content is never silently discarded.
      *
      * @param prompt     the multimodal prompt (must not be null)
      * @param parameters generation parameters
      * @return inference result (never null)
      */
     default InferenceResult completeMultimodal(MultimodalPrompt prompt, GenerationParameters parameters) {
-        return complete(prompt.textContent(), parameters);
+        throw new AiInvocationException(
+                AiInvocationException.Category.CAPABILITY_MISMATCH,
+                false,
+                "Inference provider '" + modelName() + "' does not support multimodal input");
     }
 
     /**

@@ -30,9 +30,9 @@ import java.util.Objects;
  *
  * <p>The DDL uses ANSI-compatible types ({@code VARCHAR}, {@code TIMESTAMP},
  * {@code BOOLEAN}, {@code BIGINT}, {@code TEXT}) and {@code CREATE TABLE IF NOT
- * EXISTS}; it has been validated against H2 and is intended to be portable to
- * MySQL/Postgres. The backend is selected at construction by injecting the
- * appropriate {@link DataSource} (see {@link AuditWriterFactory}).</p>
+ * EXISTS}; it is validated against PostgreSQL. The backend is selected at
+ * construction by injecting the appropriate {@link DataSource} (see
+ * {@link AuditWriterFactory}).</p>
  */
 public final class JdbcAuditEventWriter implements QueryableAuditEventWriter {
 

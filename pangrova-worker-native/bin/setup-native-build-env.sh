@@ -29,6 +29,7 @@ VELOX_DIR="${VELOX_HOME:-$PANGROVA_HOME/velox}"
 VELOX_REF="${VELOX_REF:-v2026.04.17.00}"
 SKIP_VELOX="${SKIP_VELOX:-0}"
 SKIP_DEPS="${SKIP_DEPS:-0}"
+PANGROVA_PRODUCTION_BUILD="${PANGROVA_PRODUCTION_BUILD:-OFF}"
 
 GRPC_VERSION="${GRPC_VERSION:-v1.65.0}"
 ABSEIL_VERSION="${ABSEIL_VERSION:-20240116.2}"
@@ -40,17 +41,51 @@ PROTOBUF_VERSION="${PROTOBUF_VERSION:-v25.3}"
 WORK_DIR="${PANGROVA_NATIVE_BUILD_DIR:-${TMPDIR:-/tmp}/pangrova-native-build}"
 OS="$(uname -s)"
 ARCH="$(uname -m)"
-NPROC="$(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+# A caller's explicit build limit must reach both our builds and Velox's
+# dependency installer. CPU count alone does not describe available memory.
+NPROC="${CMAKE_BUILD_PARALLEL_LEVEL:-${BUILD_THREADS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}}"
+if [[ ! "$NPROC" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'ERROR: build parallelism must be a positive integer\n' >&2
+  exit 1
+fi
+export CMAKE_BUILD_PARALLEL_LEVEL="$NPROC"
+export BUILD_THREADS="$NPROC"
 
 log()  { printf "\n=== %s ===\n" "$*"; }
 step() { printf -- "--- %s\n" "$*"; }
 die()  { printf "ERROR: %s\n" "$*" >&2; exit 1; }
 
+# Cache only a complete checkout at the requested revision. A failed network
+# transfer must not leave a directory that a subsequent build treats as source.
+checkout_dependency() {
+  local repository="$1" revision="$2" destination="$3"
+  if [[ ! -d "$destination" ]]; then
+    local attempt checkout
+    for attempt in 1 2 3; do
+      checkout="$(mktemp -d "$WORK_DIR/source-checkout.XXXXXX")"
+      if git -c http.version=HTTP/1.1 clone --depth 1 --branch "$revision" \
+          "$repository" "$checkout/repository"; then
+        mv "$checkout/repository" "$destination"
+        rmdir "$checkout"
+        break
+      fi
+      step "Dependency transfer failed (attempt $attempt/3); incomplete checkout retained at $checkout"
+      [[ "$attempt" == 3 ]] || sleep 2
+    done
+  fi
+  local expected actual
+  expected="$(git -C "$destination" rev-parse --verify "$revision^{commit}")" \
+    || die "Dependency cache does not contain pinned revision $revision: $destination"
+  actual="$(git -C "$destination" rev-parse --verify HEAD)"
+  [[ "$actual" == "$expected" ]] \
+    || die "Dependency cache revision differs from $revision: $destination"
+}
+
 check_prerequisites() {
   if [[ "$OS" == "Darwin" && -x "$PANGROVA_HOME/homebrew/bin/brew" ]]; then
     export PATH="$PANGROVA_HOME/homebrew/bin:$PANGROVA_HOME/homebrew/sbin:$PATH"
   fi
-  for cmd in cmake ninja git; do
+  for cmd in cmake ninja git cargo rustc; do
     command -v "$cmd" >/dev/null 2>&1 || die "$cmd not found. Install it first."
   done
   if [[ "$OS" == "Darwin" ]]; then
@@ -77,6 +112,8 @@ install_build_tools() {
 
 configure_compiler() {
   if [[ "$OS" != "Darwin" ]]; then
+    export CC="${CC:-gcc}"
+    export CXX="${CXX:-g++}"
     return
   fi
   local llvm_prefix
@@ -131,10 +168,7 @@ ensure_folly_compiler_abi() {
 build_abseil() {
   log "Building abseil-cpp $ABSEIL_VERSION"
   local src="$WORK_DIR/abseil-cpp"
-  if [[ ! -d "$src" ]]; then
-    git clone --depth 1 --branch "$ABSEIL_VERSION" \
-      https://github.com/abseil/abseil-cpp.git "$src"
-  fi
+  checkout_dependency https://github.com/abseil/abseil-cpp.git "$ABSEIL_VERSION" "$src"
   local arch_flags=()
   if [[ "$OS" == "Darwin" && "$ARCH" == "arm64" ]]; then
     arch_flags+=(-DCMAKE_OSX_ARCHITECTURES=arm64)
@@ -162,10 +196,7 @@ build_abseil() {
 build_protobuf() {
   log "Building protobuf $PROTOBUF_VERSION"
   local src="$WORK_DIR/protobuf"
-  if [[ ! -d "$src" ]]; then
-    git clone --depth 1 --branch "$PROTOBUF_VERSION" \
-      https://github.com/protocolbuffers/protobuf.git "$src"
-  fi
+  checkout_dependency https://github.com/protocolbuffers/protobuf.git "$PROTOBUF_VERSION" "$src"
   cmake -S "$src" -B "$src/build" -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$DEPS_PREFIX" \
@@ -188,18 +219,23 @@ build_grpc() {
   log "Building gRPC $GRPC_VERSION"
   local src="$WORK_DIR/grpc"
   local ssl_args=()
+  if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+    ssl_args+=(-DBUILD_SHARED_LIBS=OFF -DOPENSSL_USE_STATIC_LIBS=TRUE)
+    ssl_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a)
+  fi
   if [[ "$OS" == "Darwin" ]]; then
     ssl_args+=("-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
   fi
-  if [[ ! -d "$src" ]]; then
-    git clone --depth 1 --branch "$GRPC_VERSION" \
-      https://github.com/grpc/grpc.git "$src"
-  fi
+  checkout_dependency https://github.com/grpc/grpc.git "$GRPC_VERSION" "$src"
   # Package providers supply abseil, protobuf, and zlib. Only the providers
   # configured as modules need their gRPC submodules initialized.
-  git -C "$src" submodule update --init --depth 1 \
-    third_party/boringssl-with-bazel third_party/cares/cares third_party/re2
+  # SSL is a package provider (the same OpenSSL used by the other Native
+  # libraries). Fetching BoringSSL is unnecessary and adds an unrelated build
+  # dependency. Force HTTP/1.1 for Git transports that fail HTTP/2 framing.
+  git -c http.version=HTTP/1.1 -C "$src" submodule update --init --depth 1 \
+    third_party/cares/cares third_party/re2
   cmake -S "$src" -B "$src/_cmake_build" -GNinja \
+    -U CMAKE_CXX_FLAGS \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$DEPS_PREFIX" \
     -DCMAKE_PREFIX_PATH="$DEPS_PREFIX" \
@@ -207,7 +243,6 @@ build_grpc() {
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_CXX_STANDARD=17 \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-    -DCMAKE_CXX_FLAGS="-Wno-error=missing-template-arg-list-after-template-kw -Wno-error" \
     -Dabsl_DIR="$DEPS_PREFIX/lib/cmake/absl" \
     -DProtobuf_DIR="$DEPS_PREFIX/lib/cmake/protobuf" \
     -DgRPC_INSTALL=ON \
@@ -247,6 +282,7 @@ build_velox() {
       https://github.com/facebookincubator/velox.git "$VELOX_DIR"
   fi
   cd "$VELOX_DIR"
+  bash "$SCRIPT_DIR/apply-velox-patches.sh" apply "$VELOX_DIR"
   if [[ "$OS" == "Darwin" ]]; then
     export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-Y}"
     export CURL_OPTIONS="${CURL_OPTIONS:---retry 20 --retry-all-errors --connect-timeout 30}"
@@ -361,6 +397,10 @@ build_velox() {
     fi
   fi
   local velox_ssl_args=()
+  if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+    velox_ssl_args+=(-DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
+    velox_ssl_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a -DOPENSSL_USE_STATIC_LIBS=TRUE)
+  fi
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
     velox_ssl_args+=("-DOPENSSL_ROOT_DIR=$PANGROVA_HOME/homebrew/opt/openssl@3")
@@ -395,6 +435,8 @@ build_velox() {
     -DVELOX_ENABLE_TPCDS_CONNECTOR=OFF \
     -DVELOX_ENABLE_REMOTE_FUNCTIONS=OFF
   cmake --build _build/release -j "$NPROC"
+  bash "$SCRIPT_DIR/apply-velox-patches.sh" record "$VELOX_DIR" \
+    "$VELOX_DIR/_build/release/lib/libvelox.a"
   step "Velox built at $VELOX_DIR/_build/release"
 }
 
@@ -436,12 +478,22 @@ build_arrow_flight() {
   fi
 
   step "Building libarrow_flight from $arrow_src"
-  cmake -S "$arrow_src/cpp" -B "$WORK_DIR/arrow-flight-build" -GNinja \
+  local arrow_static=OFF arrow_shared=ON arrow_target=arrow_flight_shared arrow_parquet=OFF
+  local arrow_build="$WORK_DIR/arrow-flight-build"
+  if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+    arrow_static=ON
+    arrow_shared=OFF
+    arrow_target=arrow_flight_static
+    arrow_parquet=ON
+    arrow_build="$WORK_DIR/arrow-flight-production-build"
+  fi
+  cmake -S "$arrow_src/cpp" -B "$arrow_build" -GNinja \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_INSTALL_PREFIX="$DEPS_PREFIX" \
     -DCMAKE_PREFIX_PATH="$DEPS_PREFIX;$VELOX_DIR/deps-install" \
-    -DARROW_BUILD_STATIC=OFF \
-    -DARROW_BUILD_SHARED=ON \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DARROW_BUILD_STATIC="$arrow_static" \
+    -DARROW_BUILD_SHARED="$arrow_shared" \
     -DARROW_OPTIONAL_INSTALL=ON \
     -DARROW_FLIGHT=ON \
     -DARROW_IPC=ON \
@@ -450,7 +502,7 @@ build_arrow_flight() {
     -DARROW_DATASET=OFF \
     -DARROW_FILESYSTEM=OFF \
     -DARROW_JSON=OFF \
-    -DARROW_PARQUET=OFF \
+    -DARROW_PARQUET="$arrow_parquet" \
     -DARROW_WITH_RE2=OFF \
     -DARROW_WITH_UTF8PROC=OFF \
     -DARROW_WITH_SNAPPY=OFF \
@@ -463,8 +515,12 @@ build_arrow_flight() {
     -DARROW_PROTOBUF_USE_SHARED=OFF \
     -DProtobuf_SOURCE=SYSTEM \
     -DgRPC_SOURCE=SYSTEM
-  cmake --build "$WORK_DIR/arrow-flight-build" --target arrow_flight_shared -j "$NPROC"
-  cmake --install "$WORK_DIR/arrow-flight-build"
+  if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+    cmake --build "$arrow_build" -j "$NPROC"
+  else
+    cmake --build "$arrow_build" --target "$arrow_target" -j "$NPROC"
+  fi
+  cmake --install "$arrow_build"
   python3 "$SCRIPT_DIR/../patch_flight_types.py" --deps-prefix "$DEPS_PREFIX"
   step "Arrow Flight package installed to $DEPS_PREFIX"
 }
@@ -549,6 +605,11 @@ verify() {
 }
 
 main() {
+  case "$PANGROVA_PRODUCTION_BUILD" in
+    ON) [[ "$OS" == "Linux" ]] || die "Production Native setup currently requires Linux" ;;
+    OFF) ;;
+    *) die "PANGROVA_PRODUCTION_BUILD must be ON or OFF" ;;
+  esac
   log "Pangrova Native Build Environment Setup"
   printf "  Platform: %s %s | Deps: %s | Velox: %s | Jobs: %s\n" \
     "$OS" "$ARCH" "$DEPS_PREFIX" "$VELOX_DIR" "$NPROC"

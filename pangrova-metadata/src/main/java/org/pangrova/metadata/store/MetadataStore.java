@@ -26,6 +26,12 @@ public interface MetadataStore {
 
     Optional<CatalogDescriptor> getCatalogDescriptor(String name);
 
+    /** Exact immutable deployment snapshot; never substitute the current descriptor. */
+    default Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String name, String incarnationId, long revision) {
+        return Optional.empty();
+    }
+
     void deleteCatalogDescriptor(String name);
 
     List<CatalogDescriptor> listAllCatalogDescriptors();

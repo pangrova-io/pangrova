@@ -6,10 +6,9 @@ import java.util.Objects;
  * Immutable snapshot of a coordinator's registration state.
  *
  * <p>Captures the coordinator's identity, network endpoint, current role
- * within the HA cluster, and timing information. The {@code role} field
- * uses {@link String} rather than an enum so the SPI layer remains
- * independent of coordinator-internal types. Expected values are
- * {@code "LEADER"}, {@code "STANDBY"}, and {@code "STOPPED"}.
+ * for singleton control loops, and timing information. Query scheduling is
+ * active-active for both live roles. Expected values are {@code "LEADER"},
+ * {@code "STANDBY"}, and {@code "STOPPED"}.
  *
  * @param coordinatorId  unique coordinator identifier (required)
  * @param host           hostname or IP address (required)
@@ -37,9 +36,7 @@ public record CoordinatorSnapshot(
         Objects.requireNonNull(host, "host must not be null");
     }
 
-    /**
-     * Backward-compatible constructor without invalidation tracking.
-     */
+    /** Creates a snapshot before invalidation progress has been observed. */
     public CoordinatorSnapshot(String coordinatorId, String host, int httpPort,
                                 String role, long epoch,
                                 long lastHeartbeatMs, long registeredAtMs) {

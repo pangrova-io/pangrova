@@ -3,6 +3,9 @@ package org.pangrova.worker.jni.write;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.protocol.v2.TaskRequest;
+import java.util.List;
 
 /**
  * Resolves a catalog name to the connector resources needed for write operations.
@@ -11,10 +14,10 @@ import org.pangrova.spi.connector.metadata.ConnectorMetadata;
  * module's {@code CatalogRegistry}, allowing the worker module to remain
  * independent of metadata internals per the module dependency rules.</p>
  *
- * <p>The implementation is provided by the bootstrap layer that has access
- * to both the worker and metadata modules.</p>
+ * <p>The production implementation is a Worker-local connector runtime. It
+ * binds the exact catalog revision and Coordinator-allocated output handle
+ * before Native task creation; it never calls connector {@code begin*}.</p>
  */
-@FunctionalInterface
 public interface CatalogResourceResolver {
 
     /**
@@ -25,7 +28,13 @@ public interface CatalogResourceResolver {
      * @throws org.pangrova.common.exception.PangrovaException if the catalog
      *         is not found or is suspended
      */
-    CatalogResources resolve(String catalogName);
+    CatalogResources resolve(String taskId, String catalogName);
+
+    /** Validates and binds all connector resources required by a task. */
+    void bindTask(String taskId, TaskRequest request);
+
+    /** Releases the task's catalog revision lease and decoded handle. */
+    void releaseTask(String taskId);
 
     /**
      * Connector resources needed to execute write operations against a catalog.
@@ -37,7 +46,9 @@ public interface CatalogResourceResolver {
     record CatalogResources(
             ConnectorMetadata metadata,
             ConnectorPageSinkProvider pageSinkProvider,
-            ConnectorSession session) {
+            ConnectorSession session,
+            ConnectorOutputTableHandle outputHandle,
+            List<String> writeColumnNames) {
 
         public CatalogResources {
             if (metadata == null) {
@@ -48,6 +59,14 @@ public interface CatalogResourceResolver {
             }
             if (session == null) {
                 throw new NullPointerException("session must not be null");
+            }
+            if (outputHandle == null) {
+                throw new NullPointerException("outputHandle must not be null");
+            }
+            writeColumnNames = List.copyOf(writeColumnNames);
+            if (writeColumnNames.isEmpty()
+                    || writeColumnNames.stream().anyMatch(name -> name == null || name.isBlank())) {
+                throw new IllegalArgumentException("writeColumnNames must be nonempty and nonblank");
             }
         }
     }

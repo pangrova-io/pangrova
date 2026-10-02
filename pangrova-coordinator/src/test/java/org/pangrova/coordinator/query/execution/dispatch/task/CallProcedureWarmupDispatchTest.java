@@ -71,7 +71,8 @@ class CallProcedureWarmupDispatchTest {
                 Identifier.of(CATALOG, TableWarmupExecutor.PROCEDURE_NAME),
                 List.of(Literal.ofString("default"), Literal.ofString("orders")));
 
-        StatementResult result = task.execute(stmt, null);
+        StatementResult result = task.execute(stmt,
+                org.pangrova.coordinator.query.statement.StatementTestSessions.executionContext());
 
         assertThat(result.category()).isEqualTo(StatementCategory.MAINTENANCE);
         assertThat(result.columnNames())
@@ -93,7 +94,8 @@ class CallProcedureWarmupDispatchTest {
                 Identifier.of(CATALOG, "do_something_else"),
                 List.of(Literal.ofString("x")));
 
-        StatementResult result = task.execute(stmt, null);
+        StatementResult result = task.execute(stmt,
+                org.pangrova.coordinator.query.statement.StatementTestSessions.executionContext());
         assertThat(result.category()).isEqualTo(StatementCategory.MAINTENANCE);
         assertThat(metadataSpy.executeProcedureInvocations).isEqualTo(1);
         assertThat(metadataSpy.lastProcedure).isEqualTo("do_something_else");

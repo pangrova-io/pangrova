@@ -1,11 +1,11 @@
 package org.pangrova.testing.e2e.coordination;
 
 import org.pangrova.coordinator.index.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
 import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,15 +15,13 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
+import org.pangrova.spi.coordination.LeaseEntry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -53,9 +51,10 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
     private static final String CATALOG = "iceberg_catalog";
     private static final String SCHEMA = "default";
     private static final String FQN_PREFIX = CATALOG + "." + SCHEMA + ".";
-    private static final String LEASE_KEY = "index-maintenance";
+    private static final String LEASE_KEY = "maintenance-control";
 
     private DataSource leaseDs;
+    private TestLeaseNamespace leaseNamespace;
     private MaintenanceLeaderElection coordinator1;
     private MaintenanceLeaderElection coordinator2;
     private MaintenanceLeaderElection coordinator3;
@@ -76,24 +75,23 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
     void initLeaseInfra() throws Exception {
         leaseDs = MetadataSchemaInitializer.createDataSource(
                 mysqlJdbcUrl(), mysqlUsername(), mysqlPassword());
-        ensureDistributedLeaseTable(leaseDs);
-        truncateDistributedLeaseTable(leaseDs);
+        MetadataSchemaInitializer.createSchema(leaseDs);
+        leaseNamespace = new TestLeaseNamespace();
 
-        DistributedLease lease1 = new JdbcDistributedLease(leaseDs);
-        DistributedLease lease2 = new JdbcDistributedLease(leaseDs);
-        DistributedLease lease3 = new JdbcDistributedLease(leaseDs);
-        coordinator1 = new MaintenanceLeaderElection(lease1, "coordinator-1", new AtomicLong(0));
-        coordinator2 = new MaintenanceLeaderElection(lease2, "coordinator-2", new AtomicLong(0));
-        coordinator3 = new MaintenanceLeaderElection(lease3, "coordinator-3", new AtomicLong(0));
+        DistributedLease lease1 = leaseNamespace.jdbc(leaseDs);
+        DistributedLease lease2 = leaseNamespace.jdbc(leaseDs);
+        DistributedLease lease3 = leaseNamespace.jdbc(leaseDs);
+        coordinator1 = new MaintenanceLeaderElection(lease1, "coordinator-1");
+        coordinator2 = new MaintenanceLeaderElection(lease2, "coordinator-2");
+        coordinator3 = new MaintenanceLeaderElection(lease3, "coordinator-3");
     }
 
     @AfterEach
     void cleanupLeases() {
         try {
-            DistributedLease cleanupLease = new JdbcDistributedLease(leaseDs);
-            cleanupLease.release(LEASE_KEY, "coordinator-1");
-            cleanupLease.release(LEASE_KEY, "coordinator-2");
-            cleanupLease.release(LEASE_KEY, "coordinator-3");
+            coordinator1.release();
+            coordinator2.release();
+            coordinator3.release();
         } catch (Exception ignored) {
             // Best-effort cleanup
         }
@@ -171,8 +169,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
             assertThat(coordinator3.tryAcquireOrRenew()).isFalse();
 
             // Winner releases
-            DistributedLease releaseLease = new JdbcDistributedLease(leaseDs);
-            releaseLease.release(LEASE_KEY, "coordinator-1");
+            coordinator1.release();
 
             // One of the remaining two should acquire
             boolean c2Acquired = coordinator2.tryAcquireOrRenew();
@@ -194,12 +191,12 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
             // Round 1: coordinator-1 leads
             assertThat(coordinator1.tryAcquireOrRenew()).isTrue();
             leaderSequence.add("coordinator-1");
-            new JdbcDistributedLease(leaseDs).release(LEASE_KEY, "coordinator-1");
+            coordinator1.release();
 
             // Round 2: coordinator-2 leads
             assertThat(coordinator2.tryAcquireOrRenew()).isTrue();
             leaderSequence.add("coordinator-2");
-            new JdbcDistributedLease(leaseDs).release(LEASE_KEY, "coordinator-2");
+            coordinator2.release();
 
             // Round 3: coordinator-3 leads
             assertThat(coordinator3.tryAcquireOrRenew()).isTrue();
@@ -222,8 +219,6 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("c1 → release → c2 → release → c3: all transitions clean, no stale leader")
         void rapidFailoverCycleAllTransitionsClean() {
-            DistributedLease releaseLease = new JdbcDistributedLease(leaseDs);
-
             // Step 1: coordinator-1 acquires
             assertThat(coordinator1.tryAcquireOrRenew())
                     .as("coordinator-1 should acquire the lease")
@@ -233,7 +228,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
             assertThat(coordinator3.tryAcquireOrRenew()).isFalse();
 
             // Step 2: coordinator-1 releases → coordinator-2 acquires
-            releaseLease.release(LEASE_KEY, "coordinator-1");
+            coordinator1.release();
             assertThat(coordinator2.tryAcquireOrRenew())
                     .as("coordinator-2 should acquire after coordinator-1 releases")
                     .isTrue();
@@ -242,7 +237,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
             assertThat(coordinator3.tryAcquireOrRenew()).isFalse();
 
             // Step 3: coordinator-2 releases → coordinator-3 acquires
-            releaseLease.release(LEASE_KEY, "coordinator-2");
+            coordinator2.release();
             assertThat(coordinator3.tryAcquireOrRenew())
                     .as("coordinator-3 should acquire after coordinator-2 releases")
                     .isTrue();
@@ -251,7 +246,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
             assertThat(coordinator2.tryAcquireOrRenew()).isFalse();
 
             // Verify final state: only coordinator-3 holds the lease
-            DistributedLease verifyLease = new JdbcDistributedLease(leaseDs);
+            DistributedLease verifyLease = leaseNamespace.jdbc(leaseDs);
             assertThat(verifyLease.currentHolder(LEASE_KEY))
                     .isPresent()
                     .hasValueSatisfying(entry ->
@@ -261,20 +256,18 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("Rapid back-and-forth between two coordinators")
         void rapidBackAndForthBetweenTwo() {
-            DistributedLease releaseLease = new JdbcDistributedLease(leaseDs);
-
             for (int round = 0; round < 5; round++) {
                 // coordinator-1 acquires
                 assertThat(coordinator1.tryAcquireOrRenew())
                         .as("Round %d: coordinator-1 should acquire", round)
                         .isTrue();
-                releaseLease.release(LEASE_KEY, "coordinator-1");
+                coordinator1.release();
 
                 // coordinator-2 acquires
                 assertThat(coordinator2.tryAcquireOrRenew())
                         .as("Round %d: coordinator-2 should acquire", round)
                         .isTrue();
-                releaseLease.release(LEASE_KEY, "coordinator-2");
+                coordinator2.release();
             }
         }
     }
@@ -291,9 +284,9 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
         @DisplayName("Lease expires after TTL without renewal, allowing another coordinator to acquire")
         void leaseExpiresWithoutRenewalAllowingAcquisition() throws Exception {
             // Acquire with a short 2-second lease using raw DistributedLease
-            DistributedLease shortLease = new JdbcDistributedLease(leaseDs);
+            DistributedLease shortLease = leaseNamespace.jdbc(leaseDs);
             boolean acquired = shortLease.tryAcquire(
-                    LEASE_KEY, "coordinator-1", 1, Duration.ofSeconds(2));
+                    LEASE_KEY, "coordinator-1", Duration.ofSeconds(2)).isPresent();
             assertThat(acquired)
                     .as("coordinator-1 should acquire with short lease")
                     .isTrue();
@@ -313,7 +306,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
                     .until(coordinator2::tryAcquireOrRenew);
 
             // Verify coordinator-2 is now the holder
-            DistributedLease verifyLease = new JdbcDistributedLease(leaseDs);
+            DistributedLease verifyLease = leaseNamespace.jdbc(leaseDs);
             assertThat(verifyLease.currentHolder(LEASE_KEY))
                     .isPresent()
                     .hasValueSatisfying(entry ->
@@ -324,9 +317,10 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
         @DisplayName("Expired lease holder cannot renew after expiry")
         void expiredHolderCannotRenewAfterExpiry() throws Exception {
             // Acquire with a short 2-second lease
-            DistributedLease shortLease = new JdbcDistributedLease(leaseDs);
-            boolean acquired = shortLease.tryAcquire(
-                    LEASE_KEY, "coordinator-1", 1, Duration.ofSeconds(2));
+            DistributedLease shortLease = leaseNamespace.jdbc(leaseDs);
+            LeaseEntry acquiredLease = shortLease.tryAcquire(
+                    LEASE_KEY, "coordinator-1", Duration.ofSeconds(2)).orElseThrow();
+            boolean acquired = true;
             assertThat(acquired).isTrue();
 
             // F-E2E-04 fix: poll until coordinator-2 acquires (lease expired)
@@ -339,7 +333,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
 
             // coordinator-1 cannot renew its expired lease
             boolean renewed = shortLease.tryRenew(
-                    LEASE_KEY, "coordinator-1", Duration.ofSeconds(30));
+                    LEASE_KEY, "coordinator-1", acquiredLease.epoch(), Duration.ofSeconds(30));
             assertThat(renewed)
                     .as("Expired holder should not be able to renew")
                     .isFalse();
@@ -383,8 +377,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
             assertThat(totalPre).isEqualTo(1000L);
 
             // Release lease mid-operation (simulating leader transition)
-            DistributedLease releaseLease = new JdbcDistributedLease(leaseDs);
-            releaseLease.release(LEASE_KEY, "coordinator-1");
+            coordinator1.release();
 
             // Another coordinator takes over maintenance
             assertThat(coordinator2.tryAcquireOrRenew()).isTrue();
@@ -415,8 +408,7 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
             }
 
             // Release lease — no maintenance leader
-            DistributedLease releaseLease = new JdbcDistributedLease(leaseDs);
-            releaseLease.release(LEASE_KEY, "coordinator-1");
+            coordinator1.release();
 
             // coordinator-3 takes over
             assertThat(coordinator3.tryAcquireOrRenew()).isTrue();
@@ -445,8 +437,6 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("Insert and query work across multiple leader transitions")
         void insertAndQueryAcrossMultipleTransitions() {
-            DistributedLease releaseLease = new JdbcDistributedLease(leaseDs);
-
             String tableName = "t_multi_transition_" + System.nanoTime();
             String fqn = FQN_PREFIX + tableName;
             sqlRunner.executeDdl("CREATE TABLE " + fqn
@@ -460,13 +450,13 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
                     + " (id, leader, amount) VALUES (2, 'c1', 200)");
 
             // Transition to coordinator-2
-            releaseLease.release(LEASE_KEY, "coordinator-1");
+            coordinator1.release();
             assertThat(coordinator2.tryAcquireOrRenew()).isTrue();
             sqlRunner.execute("INSERT INTO " + fqn
                     + " (id, leader, amount) VALUES (3, 'c2', 300)");
 
             // Transition to coordinator-3
-            releaseLease.release(LEASE_KEY, "coordinator-2");
+            coordinator2.release();
             assertThat(coordinator3.tryAcquireOrRenew()).isTrue();
             sqlRunner.execute("INSERT INTO " + fqn
                     + " (id, leader, amount) VALUES (4, 'c3', 400)");
@@ -490,25 +480,4 @@ class MultiCoordinatorLeaderContE2ETest extends SqlE2ETestBase {
     // Schema setup helpers
     // -----------------------------------------------------------------------
 
-    private static void ensureDistributedLeaseTable(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS distributed_lease (
-                        lease_key   VARCHAR(255) PRIMARY KEY,
-                        holder_id   VARCHAR(255) NOT NULL,
-                        epoch       BIGINT       NOT NULL DEFAULT 0,
-                        acquired_at TIMESTAMP(3) NOT NULL,
-                        expires_at  TIMESTAMP(3) NOT NULL,
-                        version     BIGINT       NOT NULL DEFAULT 0
-                    )""");
-        }
-    }
-
-    private static void truncateDistributedLeaseTable(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DELETE FROM distributed_lease");
-        }
-    }
 }

@@ -1,15 +1,14 @@
 package org.pangrova.connector.paimon.handle;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.connector.paimon.type.PaimonTypeMapper;
-import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.protocol.GeneratedColumnMetadataCodec;
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.types.DataField;
+import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.utils.JsonSerdeUtil;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,10 +22,17 @@ import java.util.Optional;
  */
 public final class PaimonTableHandleFactory {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
     private PaimonTableHandleFactory() {
         // Utility class
+    }
+
+    /** Rejects generated writes until the SDK has a verified declaration-and-snapshot atomic gate. */
+    public static void requireWriteDeclarationSupported(Map<String, String> properties) {
+        if (GeneratedColumnMetadataCodec.decode(properties).getDefinitionsCount() != 0) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                    "Paimon generated writes require an atomic declaration-and-snapshot commit gate; "
+                            + "the SDK expiring catalog lock does not provide declaration fencing");
+        }
     }
 
     // ========== PaimonTableHandle Factory Methods ==========
@@ -59,7 +65,7 @@ public final class PaimonTableHandleFactory {
             Optional<Long> snapshotId) {
         String tableLocation = extractLocation(table);
         Map<String, String> properties = table.options();
-        String rowTypeJson = serializeRowType(table.rowType(), properties);
+        String rowTypeJson = JsonSerdeUtil.toFlatJson(table.rowType());
         List<String> primaryKeys = table.primaryKeys();
         List<String> partitionKeys = table.partitionKeys();
 
@@ -106,18 +112,39 @@ public final class PaimonTableHandleFactory {
             String schemaName,
             String tableName,
             Table table) {
+        return outputFromTable(schemaName, tableName, table, Map.of(), "INSERT");
+    }
+
+    public static PaimonOutputTableHandle outputFromTable(
+            String schemaName,
+            String tableName,
+            Table table,
+            String mode) {
+        return outputFromTable(schemaName, tableName, table, Map.of(), mode);
+    }
+
+    private static PaimonOutputTableHandle outputFromTable(
+            String schemaName,
+            String tableName,
+            Table table,
+            Map<String, String> overwritePartition,
+            String mode) {
+        requireWriteDeclarationSupported(table.options());
         String tableLocation = extractLocation(table);
-        String rowTypeJson = serializeRowType(table.rowType(), table.options());
+        String rowTypeJson = JsonSerdeUtil.toFlatJson(table.rowType());
         List<String> primaryKeys = table.primaryKeys();
         List<String> partitionKeys = table.partitionKeys();
+        Long latestSnapshot = table instanceof FileStoreTable fileStore
+                ? fileStore.snapshotManager().latestSnapshotId() : null;
 
         return new PaimonOutputTableHandle(
                 schemaName,
                 tableName,
                 tableLocation,
                 rowTypeJson,
-                primaryKeys,
-                partitionKeys);
+                new PaimonOutputTableHandle.Layout(primaryKeys, partitionKeys),
+                new PaimonOutputTableHandle.WriteSemantics(overwritePartition, mode,
+                        latestSnapshot == null ? -1L : latestSnapshot, Optional.empty()));
     }
 
     /**
@@ -134,19 +161,7 @@ public final class PaimonTableHandleFactory {
             String tableName,
             Table table,
             Map<String, String> overwritePartition) {
-        String tableLocation = extractLocation(table);
-        String rowTypeJson = serializeRowType(table.rowType(), table.options());
-        List<String> primaryKeys = table.primaryKeys();
-        List<String> partitionKeys = table.partitionKeys();
-
-        return new PaimonOutputTableHandle(
-                schemaName,
-                tableName,
-                tableLocation,
-                rowTypeJson,
-                primaryKeys,
-                partitionKeys,
-                overwritePartition);
+        return outputFromTable(schemaName, tableName, table, overwritePartition, "OVERWRITE");
     }
 
     // ========== RowType Parsing ==========
@@ -179,52 +194,20 @@ public final class PaimonTableHandleFactory {
      * Falls back to table name if location is not available.
      */
     private static String extractLocation(Table table) {
-        // Paimon Table doesn't have a direct location() method like Iceberg.
-        // We use the table name as identifier, and the actual location is
-        // managed by the catalog. For serialization purposes, we construct
-        // a logical path from the table's identity.
-        String name = table.name();
-        return name != null && !name.isBlank() ? name : "unknown";
-    }
-
-    /**
-     * Serializes a Paimon RowType to JSON string.
-     * Stores field metadata (id, name, type) as JSON array.
-     */
-    private static String serializeRowType(RowType rowType, Map<String, String> tableProperties) {
-        List<FieldInfo> fields = new ArrayList<>();
-        for (DataField field : rowType.getFields()) {
-            PangrovaType pangrovaType = PaimonTypeMapper.toPangrovaType(
-                    field.type(), field.name(), tableProperties);
-            fields.add(new FieldInfo(field.id(), field.name(), pangrovaType.name()));
+        if (!(table instanceof FileStoreTable fileStoreTable)) {
+            throw new IllegalArgumentException("Paimon table handle requires a physical FileStoreTable location");
         }
-        try {
-            return MAPPER.writeValueAsString(fields);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize RowType", e);
-        }
+        return fileStoreTable.location().toString();
     }
 
     /**
      * Deserializes a JSON string back to Paimon RowType.
      */
     private static RowType deserializeRowType(String rowTypeJson) {
-        try {
-            List<FieldInfo> fields = MAPPER.readValue(rowTypeJson, new TypeReference<>() {});
-            List<DataField> dataFields = new ArrayList<>();
-            for (FieldInfo info : fields) {
-                PangrovaType pangrovaType = PangrovaType.valueOf(info.typeName());
-                org.apache.paimon.types.DataType paimonType = PaimonTypeMapper.toPaimonType(pangrovaType);
-                dataFields.add(new DataField(info.id(), info.name(), paimonType));
-            }
-            return new RowType(dataFields);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to deserialize RowType: " + rowTypeJson, e);
+        DataType type = JsonSerdeUtil.fromJson(rowTypeJson, DataType.class);
+        if (!(type instanceof RowType row)) {
+            throw new IllegalArgumentException("Paimon table handle requires a complete SDK ROW schema");
         }
+        return row;
     }
-
-    /**
-     * Internal record for JSON serialization of field metadata.
-     */
-    private record FieldInfo(int id, String name, String typeName) {}
 }

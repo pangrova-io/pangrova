@@ -22,6 +22,20 @@ class QueryResultCacheTest {
     }
 
     @Test
+    void processShutdownClosesExternalStoreExactlyOnce() throws Exception {
+        var store = new CloseableMemoryStore();
+        var ownedCache = new QueryResultCache(store);
+        ownedCache.close();
+        ownedCache.close();
+        assertThat(store.closes).isEqualTo(1);
+    }
+
+    private static final class CloseableMemoryStore extends InMemoryL2CacheStore implements AutoCloseable {
+        private int closes;
+        @Override public void close() { closes++; }
+    }
+
+    @Test
     void l1HitReturnsCachedResult() {
         CacheKey key = cacheKey("SELECT 1", "t1", "alice");
         CachedResult result = new CachedResult(new byte[]{1, 2}, Instant.now());

@@ -23,7 +23,8 @@ class AdvertisedHostPropertyTest {
     @Property(tries = 10)
     void nonLoopbackHostIsNeverDetectedAsLoopback(
             @ForAll("nonLoopbackHosts") String host) {
-        TransportConfig config = new TransportConfig(0, 256L * 1024 * 1024, host);
+        TransportConfig config = new TransportConfig(
+                0, 256L * 1024 * 1024, host, null);
         assertThat(config.isLoopbackAdvertisedHost()).isFalse();
         assertThat(config.advertisedHost()).isEqualTo(host);
     }
@@ -31,24 +32,19 @@ class AdvertisedHostPropertyTest {
     @Property(tries = 10)
     void loopbackHostsAreAlwaysDetected(
             @ForAll("loopbackHosts") String host) {
-        TransportConfig config = new TransportConfig(0, 256L * 1024 * 1024, host);
+        TransportConfig config = new TransportConfig(
+                0, 256L * 1024 * 1024, host, null);
         assertThat(config.isLoopbackAdvertisedHost()).isTrue();
     }
 
     @Property(tries = 10)
     void advertisedHostPreservedInConfig(
             @ForAll("validHosts") String host) {
-        TransportConfig config = new TransportConfig(8080, 128L * 1024 * 1024, host);
+        TransportConfig config = new TransportConfig(
+                8080, 128L * 1024 * 1024, host, null);
         assertThat(config.advertisedHost()).isEqualTo(host);
         assertThat(config.port()).isEqualTo(8080);
         assertThat(config.allocatorLimitBytes()).isEqualTo(128L * 1024 * 1024);
-    }
-
-    @Property(tries = 10)
-    void twoArgConstructorDefaultsToLocalhost() {
-        TransportConfig config = new TransportConfig(0, 256L * 1024 * 1024);
-        assertThat(config.advertisedHost()).isEqualTo("localhost");
-        assertThat(config.isLoopbackAdvertisedHost()).isTrue();
     }
 
     @Property(tries = 10)
@@ -61,14 +57,16 @@ class AdvertisedHostPropertyTest {
     @Property(tries = 10)
     void blankAdvertisedHostRejected(
             @ForAll("blankStrings") String blank) {
-        assertThatThrownBy(() -> new TransportConfig(0, 256L * 1024 * 1024, blank))
+        assertThatThrownBy(() -> new TransportConfig(
+                0, 256L * 1024 * 1024, blank, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("advertisedHost");
     }
 
     @Property(tries = 10)
     void nullAdvertisedHostRejected() {
-        assertThatThrownBy(() -> new TransportConfig(0, 256L * 1024 * 1024, null))
+        assertThatThrownBy(() -> new TransportConfig(
+                0, 256L * 1024 * 1024, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

@@ -30,6 +30,7 @@
 // Forward declarations to avoid pulling heavy headers.
 namespace folly {
 class CPUThreadPoolExecutor;
+class IOThreadPoolExecutor;
 class Executor;
 }  // namespace folly
 
@@ -86,6 +87,7 @@ class NativeEngineLifecycle {
   pangrova::udf::NativeUdfRegistry* udfRegistry();
   pangrova::velox::TableFunctionRegistry* tableFunctionRegistry();
   std::shared_ptr<folly::Executor> executor();
+  std::shared_ptr<folly::Executor> ioExecutor();
 
  private:
   NativeEngineLifecycle() = default;
@@ -109,6 +111,9 @@ class NativeEngineLifecycle {
   std::unique_ptr<pangrova::udf::NativeUdfRegistry> udf_registry_;
   std::unique_ptr<pangrova::velox::TableFunctionRegistry> table_function_registry_;
   std::shared_ptr<folly::CPUThreadPoolExecutor> executor_;
+  // Dedicated blocking-I/O pool. Flight, filesystem and other potentially
+  // blocking data-plane operations must never consume Velox driver capacity.
+  std::shared_ptr<folly::IOThreadPoolExecutor> io_executor_;
 
   bool velox_connector_registered_ = false;
   bool dwio_factories_registered_ = false;

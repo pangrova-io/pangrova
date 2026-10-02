@@ -3,7 +3,9 @@ package org.pangrova.worker.jni;
 import java.util.List;
 import java.util.Objects;
 
-import org.pangrova.worker.jni.proto.NativeFunctionDescriptorProto;
+import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.v2.NativeFunctionDescriptor.Builder;
+import org.pangrova.protocol.v2.NativeFunctionKind;
 
 /**
  * Describes a user-defined function to register with the native execution engine.
@@ -54,12 +56,19 @@ public record NativeFunctionDescriptor(
      * </ul>
      */
     public byte[] toBytes() {
-        NativeFunctionDescriptorProto.Builder builder = NativeFunctionDescriptorProto.newBuilder()
+        Builder builder = org.pangrova.protocol.v2.NativeFunctionDescriptor.newBuilder()
                 .setName(name)
-                .setReturnType(returnType)
-                .addAllArgumentTypes(argumentTypes)
-                .setFunctionType(functionType.ordinal())
-                .setDeterministic(deterministic ? 1 : 0);
+                .setReturnType(logicalType(returnType))
+                .setFunctionKind(functionType == FunctionType.SCALAR
+                        ? NativeFunctionKind.NATIVE_FUNCTION_KIND_SCALAR
+                        : NativeFunctionKind.NATIVE_FUNCTION_KIND_AGGREGATE)
+                .setDeterministic(deterministic);
+        argumentTypes.stream().map(NativeFunctionDescriptor::logicalType)
+                .forEach(builder::addArgumentTypes);
         return builder.build().toByteArray();
+    }
+
+    private static LogicalType logicalType(String canonicalSql) {
+        return LogicalType.newBuilder().setCanonicalSql(canonicalSql).build();
     }
 }

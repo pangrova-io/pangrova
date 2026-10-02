@@ -60,7 +60,7 @@ TEST(FlightShuffleDemuxerLifetimeTest, ReaderSharedPtrOutlivesUnregister) {
   ASSERT_TRUE(queue.push(makeBatch(kPartition, 100), std::chrono::seconds(1)));
   ASSERT_TRUE(queue.push(makeBatch(kPartition, 200), std::chrono::seconds(1)));
   ASSERT_TRUE(queue.push(makeBatch(kPartition, 300), std::chrono::seconds(1)));
-  queue.close();
+  ASSERT_TRUE(queue.commit());
 
   auto demuxer = std::make_shared<PartitionDemuxer>(&queue);
   demuxer->start();
@@ -73,11 +73,9 @@ TEST(FlightShuffleDemuxerLifetimeTest, ReaderSharedPtrOutlivesUnregister) {
   ASSERT_TRUE(popWithin(*demuxer, kPartition, first, std::chrono::seconds(2)));
   EXPECT_EQ(first.row_count, 100);
 
-  // Simulate unregisterHandle(): stop the demuxer and drop the routing owner's
-  // reference. With the old unique_ptr ownership this freed the object while
-  // reader_ref's raw pointer still pointed at it (UAF). Now reader_ref keeps it
-  // alive.
-  demuxer->stop();
+  // Successful unregister quiesces and retains unconsumed data; forced stop
+  // instead cancels and releases it. Verify the real clean ownership boundary.
+  ASSERT_TRUE(demuxer->quiesce(std::chrono::seconds(2)));
   demuxer.reset();
 
   ASSERT_NE(reader_ref, nullptr);

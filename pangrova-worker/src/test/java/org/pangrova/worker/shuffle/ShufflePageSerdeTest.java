@@ -10,7 +10,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration test verifying the Java side can parse Presto Pages format
- * headers and that the full flow through ShuffleBufferSender works correctly.
+ * headers only. This retired format has no production transport consumer;
+ * canonical Arrow shuffle execution is validated by actual Native transport tests.
  *
  * <p>Since we cannot easily call ShuffleBatchSerializer from Java, we create
  * synthetic Presto Pages bytes matching the wire format documented in

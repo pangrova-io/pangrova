@@ -8,9 +8,9 @@ import java.util.Objects;
  * {@code invalidation_log} table. Each entry identifies a cache key and the type
  * of invalidation (table-level or catalog-level).
  *
- * <p>The {@code updatedAt} field serves as the high watermark for polling. Using
- * a timestamp instead of the PK {@code id} prevents out-of-order misses when
- * rows are committed in non-monotonic ID order.</p>
+ * <p>The database append gate makes {@code id} the commit-ordered polling
+ * watermark. {@code updatedAt} records server time for diagnostics only; it
+ * must not be used to exclude late committed transactions.</p>
  */
 public record InvalidationEntry(
         long id,

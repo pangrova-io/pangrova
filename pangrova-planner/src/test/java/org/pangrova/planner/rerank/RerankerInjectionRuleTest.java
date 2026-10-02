@@ -134,11 +134,64 @@ class RerankerInjectionRuleTest {
     }
 
     @Test
-    void noImplicitHybridWithOnlyMatchInWhere() {
+    void standaloneMatchIsNotIncorrectlyTruncatedIntoBoundedTopK() {
         var matchCall = matchFunction("content", "search query");
         Query query = buildQuery(List.of(), Optional.of(matchCall), Optional.empty());
 
         assertThat(RerankerInjectionRule.analyze(query, TABLE, 10)).isEmpty();
+    }
+
+    @Test
+    void bm25ScoreWithEquivalentMatchProducesBoundedRetrievalPlan() {
+        var matchCall = matchFunction("content", "search query");
+        var scoreCall = bm25ScoreFunction("content", "search query");
+        Query query = buildQuery(
+                List.of(new SortItem(scoreCall, Optional.of(SortItem.SortDirection.DESC))),
+                Optional.of(matchCall), Optional.empty());
+
+        Optional<RerankerPlanNode> result = RerankerInjectionRule.analyze(query, TABLE, 10);
+
+        assertThat(result).isPresent();
+        assertThat(result.get().isHybrid()).isFalse();
+        assertThat(result.get().sources()).singleElement().isInstanceOf(FullTextSource.class);
+        assertThat(result.get().queryText()).isEqualTo("search query");
+    }
+
+    @Test
+    void bm25ScoreWithoutMatchFailsClosed() {
+        var scoreCall = bm25ScoreFunction("content", "search query");
+        Query query = buildQuery(
+                List.of(new SortItem(scoreCall, Optional.of(SortItem.SortDirection.DESC))),
+                Optional.empty(), Optional.empty());
+
+        assertThatThrownBy(() -> RerankerInjectionRule.analyze(query, TABLE, 10))
+                .isInstanceOf(RerankerValidationException.class)
+                .hasMessageContaining("positive MATCH");
+    }
+
+    @Test
+    void bm25ScoreAndMatchMustDescribeTheSameSearch() {
+        var matchCall = matchFunction("content", "one query");
+        var scoreCall = bm25ScoreFunction("content", "another query");
+        Query query = buildQuery(
+                List.of(new SortItem(scoreCall, Optional.of(SortItem.SortDirection.DESC))),
+                Optional.of(matchCall), Optional.empty());
+
+        assertThatThrownBy(() -> RerankerInjectionRule.analyze(query, TABLE, 10))
+                .isInstanceOf(RerankerValidationException.class)
+                .hasMessageContaining("same column and query text");
+    }
+
+    @Test
+    void bm25ScoreRequiresDescendingOrder() {
+        var matchCall = matchFunction("content", "search query");
+        var scoreCall = bm25ScoreFunction("content", "search query");
+        Query query = buildQuery(
+                List.of(new SortItem(scoreCall)), Optional.of(matchCall), Optional.empty());
+
+        assertThatThrownBy(() -> RerankerInjectionRule.analyze(query, TABLE, 10))
+                .isInstanceOf(RerankerValidationException.class)
+                .hasMessageContaining("DESC");
     }
 
     @Test
@@ -267,6 +320,12 @@ class RerankerInjectionRuleTest {
     private static FunctionCall matchFunction(String column, String queryText) {
         return new FunctionCall(
                 Identifier.of("MATCH"),
+                List.of(Identifier.of(column), Literal.ofString(queryText)));
+    }
+
+    private static FunctionCall bm25ScoreFunction(String column, String queryText) {
+        return new FunctionCall(
+                Identifier.of("BM25_SCORE"),
                 List.of(Identifier.of(column), Literal.ofString(queryText)));
     }
 }

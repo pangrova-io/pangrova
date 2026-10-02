@@ -171,8 +171,9 @@ class WorkerHealthPropertyTest {
                     id, "localhost", 8080, 9090, 0,
                     state, MemoryPressure.NONE,
                     0.5, 0, 1024L * 1024 * 1024,
-                    now.minusSeconds(120), 1.0, null, 1, List.of(),
-                    null, List.of()));
+                    now.minusSeconds(120), 1.0, null, 2,
+                    null, List.of(), null,
+                    org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory()));
         });
 
         manager.removeDeadWorkers();

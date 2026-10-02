@@ -1,7 +1,5 @@
 package org.pangrova.security.authz;
 
-import org.pangrova.security.event.SecurityPolicyChangeEvent;
-import org.pangrova.security.event.SecurityPolicyEventPublisher;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
@@ -32,33 +30,68 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  *       name is denied unless an explicit group→role mapping exists.</li>
  *   <li>Direct user→role bindings work even when the user has no groups.</li>
  *   <li>Group→role mapping resolves through the role store.</li>
- *   <li>Dynamic GRANT/REVOKE of role membership takes effect via event invalidation.</li>
+ *   <li>Dynamic GRANT/REVOKE of role membership takes effect immediately.</li>
  *   <li>{@link Privilege#ALL} grants satisfy any privilege check on the bound scope.</li>
- *   <li>Two access-control instances sharing the same store converge after refresh.</li>
+ *   <li>Two access-control instances sharing the same store read current authorization on every check.</li>
  * </ul>
  */
 class RbacAccessControlRoleStoreTest {
 
     private MutableGrantStore grantStore;
     private InMemoryRoleStore roleStore;
-    private SecurityPolicyEventPublisher eventPublisher;
     private DynamicRbacAccessControl accessControl;
 
     @BeforeEach
     void setUp() {
         grantStore = new MutableGrantStore();
         roleStore = new InMemoryRoleStore();
-        eventPublisher = new SecurityPolicyEventPublisher();
         accessControl = new DynamicRbacAccessControl(
                 grantStore,
                 roleStore,
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
-                new ColumnMaskingProcessor(new EmptyColumnMaskStore()),
-                eventPublisher);
+                new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
     }
 
     private static UserIdentity userWithGroups(String principal, String... groups) {
         return new UserIdentity(principal, Set.of(groups), Map.of(), Instant.now());
+    }
+
+    @Test
+    void catalogReadAndTableOwnershipCannotAuthorizeCatalogMutation() {
+        roleStore.createRole(Role.of("reader"));
+        roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
+        grantStore.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "CATALOG", "lake", null, null, null));
+        grantStore.addGrant(PrivilegeGrant.of("reader", Privilege.ALL, "TABLE", "lake", "*", "*", null));
+
+        var alice = userWithGroups("alice");
+        assertThatCode(() -> accessControl.checkCanAccessCatalog(alice, "lake")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanCreateCatalog(alice, "lake"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> accessControl.checkCanDropCatalog(alice, "lake"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> accessControl.checkCanAlterCatalog(alice, "lake"))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void catalogMutationRequiresTheExactActionAndCatalog() {
+        roleStore.createRole(Role.of("creator"));
+        roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "creator"));
+        grantStore.addGrant(PrivilegeGrant.of(
+                "creator", Privilege.CREATE_CATALOG, "CATALOG", "lake", null, null, null));
+
+        var alice = userWithGroups("alice");
+        assertThatCode(() -> accessControl.checkCanCreateCatalog(alice, "lake")).doesNotThrowAnyException();
+        assertThatThrownBy(() -> accessControl.checkCanCreateCatalog(alice, "other"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> accessControl.checkCanDropCatalog(alice, "lake"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> accessControl.checkCanAlterCatalog(alice, "lake"))
+                .isInstanceOf(AccessDeniedException.class);
+        grantStore.addGrant(PrivilegeGrant.of("creator", Privilege.ALL, "CATALOG", "lake", null, null, null));
+
+        assertThatCode(() -> accessControl.checkCanDropCatalog(alice, "lake")).doesNotThrowAnyException();
+        assertThatCode(() -> accessControl.checkCanAlterCatalog(alice, "lake")).doesNotThrowAnyException();
     }
 
     @Test
@@ -68,7 +101,7 @@ class RbacAccessControlRoleStoreTest {
         roleStore.createRole(Role.of("analyst"));
         grantStore.addGrant(PrivilegeGrant.of(
                 "analyst", Privilege.SELECT, "TABLE", "iceberg", "default", "orders", null));
-        accessControl.refreshGrants();
+
 
         UserIdentity user = userWithGroups("alice", "analyst"); // group "analyst", no mapping
         assertThatThrownBy(() ->
@@ -82,7 +115,7 @@ class RbacAccessControlRoleStoreTest {
         roleStore.mapGroupToRole(GroupRoleMapping.of("ldap-analysts", "analyst"));
         grantStore.addGrant(PrivilegeGrant.of(
                 "analyst", Privilege.SELECT, "TABLE", "iceberg", "default", "orders", null));
-        accessControl.refreshGrants();
+
 
         UserIdentity user = userWithGroups("alice", "ldap-analysts");
         assertThatCode(() ->
@@ -96,7 +129,7 @@ class RbacAccessControlRoleStoreTest {
         roleStore.grantRoleToUser(UserRoleAssignment.of("bob", "data_engineer"));
         grantStore.addGrant(PrivilegeGrant.of(
                 "data_engineer", Privilege.INSERT, "TABLE", "iceberg", "default", "events", null));
-        accessControl.refreshGrants();
+
 
         UserIdentity user = new UserIdentity("bob", Set.of(), Map.of(), Instant.now());
         assertThatCode(() ->
@@ -110,7 +143,7 @@ class RbacAccessControlRoleStoreTest {
         roleStore.grantRoleToUser(UserRoleAssignment.of("root", "admin"));
         grantStore.addGrant(PrivilegeGrant.of(
                 "admin", Privilege.ALL, "TABLE", "*", "*", "*", null));
-        accessControl.refreshGrants();
+
 
         UserIdentity admin = new UserIdentity("root", Set.of(), Map.of(), Instant.now());
         assertThatCode(() -> {
@@ -122,22 +155,20 @@ class RbacAccessControlRoleStoreTest {
     }
 
     @Test
-    void dynamicRoleRevocationTakesEffectViaEvent() {
+    void dynamicRoleRevocationTakesEffectImmediately() {
         roleStore.createRole(Role.of("analyst"));
         roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
         grantStore.addGrant(PrivilegeGrant.of(
                 "analyst", Privilege.SELECT, "TABLE", "iceberg", "default", "orders", null));
-        accessControl.refreshGrants();
+
 
         UserIdentity alice = new UserIdentity("alice", Set.of(), Map.of(), Instant.now());
         assertThatCode(() ->
                 accessControl.checkCanSelectFromTable(alice, "iceberg", "default", "orders"))
                 .doesNotThrowAnyException();
 
-        // Revoke alice's role membership and signal the cache.
+        // Revoke the current assignment without an event or cache refresh.
         roleStore.revokeRoleFromUser("alice", "analyst");
-        eventPublisher.publish(new SecurityPolicyChangeEvent.RoleAssignmentChanged(
-                "alice", "analyst"));
 
         assertThatThrownBy(() ->
                 accessControl.checkCanSelectFromTable(alice, "iceberg", "default", "orders"))
@@ -159,32 +190,29 @@ class RbacAccessControlRoleStoreTest {
     }
 
     @Test
-    void crossCoordinatorViewIsConsistentAfterRefresh() {
+    void crossCoordinatorViewAndRevocationAreImmediatelyConsistent() {
         // Simulate two coordinators sharing the same stores (single source of truth).
-        SecurityPolicyEventPublisher pub2 = new SecurityPolicyEventPublisher();
         DynamicRbacAccessControl coord2 = new DynamicRbacAccessControl(
                 grantStore, roleStore,
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
-                new ColumnMaskingProcessor(new EmptyColumnMaskStore()),
-                pub2);
+                new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
 
         roleStore.createRole(Role.of("analyst"));
         roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
         grantStore.addGrant(PrivilegeGrant.of(
                 "analyst", Privilege.SELECT, "TABLE", "iceberg", "default", "orders", null));
 
-        // coord2 has not refreshed yet; the role lookup is live (not cached) but the grant
-        // cache is from construction-time and the new grant is invisible.
         UserIdentity alice = new UserIdentity("alice", Set.of(), Map.of(), Instant.now());
-        assertThatThrownBy(() ->
-                coord2.checkCanSelectFromTable(alice, "iceberg", "default", "orders"))
-                .isInstanceOf(AccessDeniedException.class);
-
-        // After refresh (a peer coordinator's poll tick), coord2 sees the same view.
-        coord2.refreshGrants();
         assertThatCode(() ->
                 coord2.checkCanSelectFromTable(alice, "iceberg", "default", "orders"))
                 .doesNotThrowAnyException();
+        grantStore.revokeGrants("analyst", Privilege.SELECT, "iceberg", "default", "orders");
+        assertThatThrownBy(() ->
+                coord2.checkCanSelectFromTable(alice, "iceberg", "default", "orders"))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() ->
+                accessControl.checkCanSelectFromTable(alice, "iceberg", "default", "orders"))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     /** Minimal mutable in-process GrantStore for the role-store semantic tests. */
@@ -217,10 +245,12 @@ class RbacAccessControlRoleStoreTest {
             int before = grants.size();
             grants.removeIf(g -> g.roleName().equals(roleName)
                     && g.privilege() == privilege
-                    && (catalog == null || "*".equals(catalog) || catalog.equals(g.catalog()))
-                    && (schema == null || "*".equals(schema) || schema.equals(g.schema()))
-                    && (table == null || "*".equals(table) || table.equals(g.table())));
+                    && matches(catalog, g.catalog()) && matches(schema, g.schema()) && matches(table, g.table()));
             return before - grants.size();
+        }
+
+        private static boolean matches(String pattern, String value) {
+            return pattern == null || "*".equals(pattern) || pattern.equals(value);
         }
     }
 }

@@ -32,9 +32,9 @@ public interface RecallEstimationHint {
     double HNSW_MAX_RECALL = 0.99;
     double HNSW_BASE_RECALL = 0.95;
     double HNSW_TOP_K_FACTOR = 0.01;
-    double IVFPQ_MIN_RECALL = 0.7;
-    double IVFPQ_BASE_RECALL = 0.85;
-    double IVFPQ_DIMENSION_FACTOR = 0.02;
+    double IVF_PQ_MIN_RECALL = 0.7;
+    double IVF_PQ_BASE_RECALL = 0.85;
+    double IVF_PQ_DIMENSION_FACTOR = 0.02;
     double DISK_ANN_MAX_RECALL = 0.98;
     double DISK_ANN_BASE_RECALL = 0.90;
     double DISK_ANN_TOP_K_FACTOR = 0.005;
@@ -44,7 +44,7 @@ public interface RecallEstimationHint {
      *
      * @param topK       requested number of nearest neighbors
      * @param dimension  vector dimensionality
-     * @param algorithm  index algorithm name (e.g., "HNSW", "IVFPQ", "DISK_ANN")
+     * @param algorithm  canonical index algorithm name ("HNSW", "IVF_PQ", or "DISK_ANN")
      * @param vectorCount approximate number of vectors in the index
      * @return estimated recall rate between 0.0 and 1.0
      */
@@ -53,7 +53,7 @@ public interface RecallEstimationHint {
     /**
      * Default estimation based on empirical formulas.
      * - HNSW: ~0.95 for typical parameters
-     * - IVFPQ: ~0.85 for typical parameters, degrades with high dimension
+     * - IVF_PQ: ~0.85 for typical parameters, degrades with high dimension
      * - DISK_ANN: ~0.90 for typical parameters
      */
     static RecallEstimationHint defaultEstimator() {
@@ -64,8 +64,9 @@ public interface RecallEstimationHint {
             return switch (algorithm.toUpperCase()) {
                 case "HNSW" -> Math.min(
                         HNSW_MAX_RECALL, HNSW_BASE_RECALL + HNSW_TOP_K_FACTOR * Math.log10(topK));
-                case "IVFPQ" -> Math.max(
-                        IVFPQ_MIN_RECALL, IVFPQ_BASE_RECALL - IVFPQ_DIMENSION_FACTOR * (dimension / 128.0));
+                case "IVF_PQ" -> Math.max(
+                        IVF_PQ_MIN_RECALL,
+                        IVF_PQ_BASE_RECALL - IVF_PQ_DIMENSION_FACTOR * (dimension / 128.0));
                 case "DISK_ANN" -> Math.min(
                         DISK_ANN_MAX_RECALL,
                         DISK_ANN_BASE_RECALL + DISK_ANN_TOP_K_FACTOR * Math.log10(topK));

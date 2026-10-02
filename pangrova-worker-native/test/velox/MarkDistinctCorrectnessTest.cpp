@@ -1,506 +1,236 @@
-// MarkDistinctCorrectnessTest: Parameterized tests for MarkDistinctNode
-// plan conversion correctness.
-//
-// Property 16: MarkDistinctNode Correctness
-//
-// TEST_P over distinct column counts (2, 3) × grouping key counts (0, 1, 2) ×
-// input sizes (10, 100, 500) × value distributions (unique, many-duplicates,
-// all-same).
-//
-// Verifies:
-//   - MarkDistinctNode chain is correctly inserted for multi-DISTINCT
-//     aggregation plans.
-//   - The number of MarkDistinctNodes matches the number of distinct columns.
-//   - AggregationNode is present with marker-masked aggregates.
-//   - Single-DISTINCT does NOT trigger MarkDistinctNode path.
-//   - Output schema contains grouping keys + aggregate columns (no markers).
-//
-// **Validates: Requirements 9.1, 9.2, 9.3**
-
+// Canonical proto -> production converter -> actual Task DISTINCT and FILTER.
 #include <gtest/gtest.h>
 
-#include <memory>
-#include <string>
-#include <vector>
+#include <algorithm>
+#include <map>
+#include <optional>
+#include <set>
 
 #include "../TestMemoryHelper.h"
-#include "velox/plan/VeloxPlanConverter.h"
-
-#include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
-
-#include "velox/core/PlanNode.h"
+#include "CanonicalTaskExecution.h"
+#include "velox/plan/CanonicalOrdinalIdentity.h"
+#include "velox/plan/VeloxPlanConverter.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox::test {
 namespace {
-
 using namespace facebook::velox;
-
-// ===========================================================================
-// Test parameters
-// ===========================================================================
-
+using Cell = std::optional<int64_t>;
+using Rows = std::vector<std::vector<Cell>>;
 enum class ValueDistribution { kUnique, kManyDuplicates, kAllSame };
-
-std::string distributionName(ValueDistribution dist) {
-  switch (dist) {
-    case ValueDistribution::kUnique: return "Unique";
-    case ValueDistribution::kManyDuplicates: return "ManyDuplicates";
-    case ValueDistribution::kAllSame: return "AllSame";
-  }
-  return "Unknown";
-}
+enum class FilterMode { kNone, kColumn, kFalse };
 
 struct MarkDistinctParam {
   std::string name;
-  int distinct_col_count;   // 2 or 3
-  int grouping_key_count;   // 0, 1, or 2
-  int input_size;           // 10, 100, or 500
+  int distinct_col_count;
+  int grouping_key_count;
+  int input_size;
   ValueDistribution distribution;
 };
 
-// ===========================================================================
-// Helpers
-// ===========================================================================
-
-void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
-  schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+substrait::Expression field(int ordinal) {
+  substrait::Expression result;
+  auto* reference = result.mutable_selection();
+  reference->mutable_root_reference();
+  reference->mutable_direct_reference()->mutable_struct_field()->set_field(ordinal);
+  return result;
 }
 
-void setFieldRef(substrait::Expression* expr, int field_index) {
-  auto* ref = expr->mutable_selection();
-  ref->mutable_direct_reference()->mutable_struct_field()->set_field(
-      field_index);
-}
-
-// Build a Substrait plan with an AggregateRel containing multiple DISTINCT
-// measures on different columns.
-//
-// Schema: [group_key_0, ..., group_key_{gk-1}, distinct_col_0, ...,
-//          distinct_col_{dc-1}]
-//
-// Measures: COUNT(DISTINCT distinct_col_i) for each i in [0, dc).
-//
-// The input_size and distribution parameters are encoded in the plan name
-// for traceability but do not affect plan structure (they would affect
-// runtime data generation in a full execution test).
-std::vector<uint8_t> buildMultiDistinctPlan(
-    int grouping_key_count,
-    int distinct_col_count) {
-  substrait::Plan plan;
-
-  // Register "count" function.
-  auto* ext = plan.add_extensions();
-  auto* ext_func = ext->mutable_extension_function();
-  ext_func->set_function_anchor(1);
-  ext_func->set_name("count:i64");
-
-  auto* plan_rel = plan.add_relations();
-  auto* root = plan_rel->mutable_root();
-  root->add_names("output");
-
-  auto* agg = root->mutable_input()->mutable_aggregate();
-
-  // Input: TableScan with grouping_key_count + distinct_col_count columns.
-  auto* input_read = agg->mutable_input()->mutable_read();
-  input_read->mutable_named_table()->add_names("data");
-  auto* schema = input_read->mutable_base_schema();
-
-  for (int i = 0; i < grouping_key_count; ++i) {
-    addI64Column(schema, "group_key_" + std::to_string(i));
-  }
-  for (int i = 0; i < distinct_col_count; ++i) {
-    addI64Column(schema, "distinct_col_" + std::to_string(i));
-  }
-
-  // Single grouping set with all grouping keys.
-  if (grouping_key_count > 0) {
-    auto* grouping = agg->add_groupings();
-    for (int i = 0; i < grouping_key_count; ++i) {
-      setFieldRef(grouping->add_grouping_expressions(), i);
+Rows inputRows(const MarkDistinctParam& parameter, int distinctCount) {
+  Rows rows;
+  for (int row = 0; row < parameter.input_size; ++row) {
+    std::vector<Cell> values;
+    for (int key = 0; key < parameter.grouping_key_count; ++key) {
+      values.push_back(key == 0 ? row % 3 : (row / 3) % 2);
     }
-  } else {
-    // Empty grouping (global aggregation).
-    agg->add_groupings();
-  }
-
-  // Measures: COUNT(DISTINCT distinct_col_i) for each distinct column.
-  for (int i = 0; i < distinct_col_count; ++i) {
-    auto* measure = agg->add_measures();
-    auto* agg_func = measure->mutable_measure();
-    agg_func->set_function_reference(1);
-    agg_func->set_invocation(
-        substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT);
-
-    // Argument: field reference to distinct_col_i.
-    auto* arg = agg_func->add_arguments();
-    setFieldRef(arg->mutable_value(), grouping_key_count + i);
-
-    agg_func->mutable_output_type()->mutable_i64();
-  }
-
-  std::string bytes;
-  plan.SerializeToString(&bytes);
-  return {bytes.begin(), bytes.end()};
-}
-
-// Build a single-DISTINCT plan (should NOT trigger MarkDistinctNode).
-std::vector<uint8_t> buildSingleDistinctPlan(int grouping_key_count) {
-  substrait::Plan plan;
-
-  auto* ext = plan.add_extensions();
-  auto* ext_func = ext->mutable_extension_function();
-  ext_func->set_function_anchor(1);
-  ext_func->set_name("count:i64");
-
-  auto* plan_rel = plan.add_relations();
-  auto* root = plan_rel->mutable_root();
-  root->add_names("output");
-
-  auto* agg = root->mutable_input()->mutable_aggregate();
-
-  auto* input_read = agg->mutable_input()->mutable_read();
-  input_read->mutable_named_table()->add_names("data");
-  auto* schema = input_read->mutable_base_schema();
-
-  for (int i = 0; i < grouping_key_count; ++i) {
-    addI64Column(schema, "group_key_" + std::to_string(i));
-  }
-  addI64Column(schema, "distinct_col_0");
-
-  if (grouping_key_count > 0) {
-    auto* grouping = agg->add_groupings();
-    for (int i = 0; i < grouping_key_count; ++i) {
-      setFieldRef(grouping->add_grouping_expressions(), i);
+    for (int column = 0; column < distinctCount; ++column) {
+      int64_t value = 7;
+      if (parameter.distribution == ValueDistribution::kUnique) value = row + column;
+      if (parameter.distribution == ValueDistribution::kManyDuplicates) value = (row / 2 + column) % 5;
+      values.push_back(row % 11 == 0 ? Cell{} : Cell{value});
     }
-  } else {
-    agg->add_groupings();
+    values.push_back(row % 9 == 0 ? Cell{} : Cell{row % 4 == 0 ? 0 : 1});
+    rows.push_back(std::move(values));
   }
-
-  // Single DISTINCT measure.
-  auto* measure = agg->add_measures();
-  auto* agg_func = measure->mutable_measure();
-  agg_func->set_function_reference(1);
-  agg_func->set_invocation(
-      substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT);
-  auto* arg = agg_func->add_arguments();
-  setFieldRef(arg->mutable_value(), grouping_key_count);
-  agg_func->mutable_output_type()->mutable_i64();
-
-  std::string bytes;
-  plan.SerializeToString(&bytes);
-  return {bytes.begin(), bytes.end()};
+  return rows;
 }
 
-// Find all nodes with a given name in the plan tree (DFS).
-void findAllNodes(
-    const std::shared_ptr<const core::PlanNode>& root,
-    const std::string& name,
-    std::vector<std::shared_ptr<const core::PlanNode>>& results) {
-  if (!root) return;
-  if (root->name() == name) {
-    results.push_back(root);
+Rows expectedRows(const MarkDistinctParam& parameter, const Rows& input,
+                  int distinctCount, FilterMode mode) {
+  std::map<std::vector<Cell>, std::vector<std::set<int64_t>>> groups;
+  for (const auto& row : input) {
+    std::vector<Cell> key(row.begin(), row.begin() + parameter.grouping_key_count);
+    auto [group, inserted] = groups.try_emplace(key, distinctCount);
+    (void)inserted;
+    if (mode == FilterMode::kFalse ||
+        (mode == FilterMode::kColumn && (!row.back() || *row.back() == 0))) continue;
+    for (int column = 0; column < distinctCount; ++column) {
+      const auto& value = row[parameter.grouping_key_count + column];
+      if (value) group->second[column].insert(*value);
+    }
   }
-  for (const auto& child : root->sources()) {
-    findAllNodes(child, name, results);
+  Rows result;
+  for (const auto& [key, values] : groups) {
+    auto row = key;
+    for (const auto& distinct : values) row.push_back(static_cast<int64_t>(distinct.size()));
+    result.push_back(std::move(row));
   }
+  return result;
 }
 
-// Find a single node by name in the plan tree (DFS).
-std::shared_ptr<const core::PlanNode> findNode(
-    const std::shared_ptr<const core::PlanNode>& root,
-    const std::string& name) {
-  if (!root) return nullptr;
-  if (root->name() == name) return root;
-  for (const auto& child : root->sources()) {
-    auto found = findNode(child, name);
-    if (found) return found;
+substrait::Plan aggregatePlan(const MarkDistinctParam& parameter, const Rows& rows,
+                             int distinctCount, FilterMode mode) {
+  substrait::Plan plan;
+  auto* function = plan.add_extensions()->mutable_extension_function();
+  function->set_function_anchor(1);
+  function->set_name("count:i64");
+  auto* root = plan.add_relations()->mutable_root();
+  for (int i = 0; i < parameter.grouping_key_count + distinctCount; ++i) root->add_names("result");
+  auto* aggregate = root->mutable_input()->mutable_aggregate();
+  auto* read = aggregate->mutable_input()->mutable_read();
+  auto* schema = read->mutable_base_schema();
+  schema->mutable_struct_();
+  const int arity = parameter.grouping_key_count + distinctCount + 1;
+  for (int column = 0; column < arity; ++column) {
+    schema->add_names("input");
+    auto* type = schema->mutable_struct_()->add_types();
+    if (column == arity - 1) type->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+    else type->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   }
-  return nullptr;
+  read->mutable_virtual_table();
+  for (const auto& row : rows) {
+    auto* record = read->mutable_virtual_table()->add_expressions();
+    for (int column = 0; column < arity; ++column) {
+      auto* literal = record->add_fields()->mutable_literal();
+      if (!row[column]) literal->mutable_null()->CopyFrom(schema->struct_().types(column));
+      else if (column == arity - 1) literal->set_boolean(*row[column] != 0);
+      else literal->set_i64(*row[column]);
+    }
+  }
+  auto* grouping = aggregate->add_groupings();
+  for (int key = 0; key < parameter.grouping_key_count; ++key) {
+    aggregate->add_grouping_expressions()->CopyFrom(field(key));
+    grouping->add_expression_references(key);
+  }
+  for (int column = 0; column < distinctCount; ++column) {
+    auto* measure = aggregate->add_measures();
+    auto* call = measure->mutable_measure();
+    call->set_function_reference(1);
+    call->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
+    call->set_invocation(substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT);
+    call->add_arguments()->mutable_value()->CopyFrom(field(parameter.grouping_key_count + column));
+    call->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+    if (mode == FilterMode::kColumn) measure->mutable_filter()->CopyFrom(field(arity - 1));
+    if (mode == FilterMode::kFalse) measure->mutable_filter()->mutable_literal()->set_boolean(false);
+  }
+  return plan;
 }
 
-// ===========================================================================
-// Test fixture
-// ===========================================================================
+void collectNodes(const core::PlanNodePtr& node, std::string_view name,
+                  std::vector<core::PlanNodePtr>& result) {
+  if (node->name() == name) result.push_back(node);
+  for (const auto& child : node->sources()) collectNodes(child, name, result);
+}
 
-class MarkDistinctCorrectnessTest
-    : public ::testing::TestWithParam<MarkDistinctParam> {
+class MarkDistinctCorrectnessTest : public ::testing::TestWithParam<MarkDistinctParam> {
  protected:
-  static void SetUpTestSuite() {
-    pangrova::test::testMemoryManager();
+  void SetUp() override { pangrova::test::testMemoryManager(); }
+
+  void verify(int distinctCount, FilterMode mode) {
+    const auto& parameter = GetParam();
+    const auto source = inputRows(parameter, distinctCount);
+    ASSERT_EQ(source.size(), parameter.input_size);
+    const auto encoded = aggregatePlan(parameter, source, distinctCount, mode).SerializeAsString();
+    VeloxPlanConverter converter;
+    const auto node = converter.convert({encoded.begin(), encoded.end()}, {});
+    ASSERT_NE(node, nullptr);
+    const auto arity = parameter.grouping_key_count + distinctCount;
+    ASSERT_EQ(node->outputType()->size(), arity);
+    EXPECT_EQ(converter.resultColumnLabels(), std::vector<std::string>(arity, "result"));
+    for (int i = 0; i < arity; ++i) {
+      EXPECT_EQ(node->outputType()->nameOf(i), physicalFieldAlias(i));
+      EXPECT_TRUE(node->outputType()->childAt(i)->isBigint());
+    }
+    std::vector<core::PlanNodePtr> aggregationNodes, markers, values;
+    collectNodes(node, "Aggregation", aggregationNodes);
+    collectNodes(node, "MarkDistinct", markers);
+    collectNodes(node, "Values", values);
+    ASSERT_EQ(aggregationNodes.size(), 1);
+    EXPECT_TRUE(markers.empty());
+    ASSERT_EQ(values.size(), 1);
+    const auto* aggregate = dynamic_cast<const core::AggregationNode*>(aggregationNodes.front().get());
+    ASSERT_NE(aggregate, nullptr);
+    EXPECT_EQ(aggregate->step(), core::AggregationNode::Step::kSingle);
+    ASSERT_EQ(aggregate->aggregates().size(), distinctCount);
+    EXPECT_EQ(aggregate->groupingKeys().size(), parameter.grouping_key_count);
+    for (const auto& measure : aggregate->aggregates()) {
+      EXPECT_TRUE(measure.distinct);
+      ASSERT_EQ(measure.call->inputs().size(), 1);
+      EXPECT_EQ(bool(measure.mask), mode != FilterMode::kNone);
+      if (measure.mask) EXPECT_TRUE(measure.mask->type()->isBoolean());
+    }
+    auto actual = execute(node);
+    EXPECT_EQ(actual, expectedRows(parameter, source, distinctCount, mode));
+  }
+
+  Rows execute(const core::PlanNodePtr& node) {
+    const auto execution = executeCanonicalTask(node);
+    Rows result;
+    for (const auto& batch : execution.batches) {
+      for (vector_size_t row = 0; row < batch->size(); ++row) {
+        std::vector<Cell> cells;
+        for (const auto& child : batch->children()) {
+          DecodedVector decoded(*child);
+          cells.push_back(decoded.isNullAt(row) ? Cell{} : Cell{decoded.valueAt<int64_t>(row)});
+        }
+        result.push_back(std::move(cells));
+      }
+    }
+    std::sort(result.begin(), result.end());
+    return result;
   }
 };
 
-// ===========================================================================
-// Property 16.1: MarkDistinctNode Chain Insertion
-//
-// For any AggregateRel with ≥2 DISTINCT measures on different columns,
-// the converted plan SHALL contain one MarkDistinctNode per distinct column,
-// chained before the AggregationNode.
-//
-// **Validates: Requirements 9.1, 9.2**
-// ===========================================================================
-
-TEST_P(MarkDistinctCorrectnessTest, MarkDistinctNodeChainInserted) {
-  const auto& param = GetParam();
-  auto plan_bytes = buildMultiDistinctPlan(
-      param.grouping_key_count, param.distinct_col_count);
-  ASSERT_FALSE(plan_bytes.empty());
-
-  VeloxPlanConverter converter;
-  auto result = converter.convert(plan_bytes, {});
-  ASSERT_NE(result, nullptr)
-      << "Plan conversion failed for " << param.name;
-
-  // Find all MarkDistinct nodes in the plan tree.
-  std::vector<std::shared_ptr<const core::PlanNode>> mark_nodes;
-  findAllNodes(result, "MarkDistinct", mark_nodes);
-
-  // Must have exactly one MarkDistinctNode per distinct column.
-  EXPECT_EQ(mark_nodes.size(), static_cast<size_t>(param.distinct_col_count))
-      << "Expected " << param.distinct_col_count
-      << " MarkDistinctNode(s) but found " << mark_nodes.size()
-      << " for " << param.name;
+TEST_P(MarkDistinctCorrectnessTest, DistinctMeasuresShareOneActualAggregation) {
+  verify(GetParam().distinct_col_count, FilterMode::kNone);
 }
-
-// ===========================================================================
-// Property 16.2: AggregationNode Present After MarkDistinct Chain
-//
-// The converted plan SHALL contain an AggregationNode that uses the
-// marker columns produced by MarkDistinctNodes as masks for DISTINCT
-// aggregates.
-//
-// **Validates: Requirements 9.2**
-// ===========================================================================
-
-TEST_P(MarkDistinctCorrectnessTest, AggregationNodePresent) {
-  const auto& param = GetParam();
-  auto plan_bytes = buildMultiDistinctPlan(
-      param.grouping_key_count, param.distinct_col_count);
-  ASSERT_FALSE(plan_bytes.empty());
-
-  VeloxPlanConverter converter;
-  auto result = converter.convert(plan_bytes, {});
-  ASSERT_NE(result, nullptr);
-
-  // AggregationNode must exist in the plan.
-  auto agg_node = findNode(result, "Aggregation");
-  ASSERT_NE(agg_node, nullptr)
-      << "AggregationNode not found in plan for " << param.name;
-
-  // The AggregationNode's input chain should include MarkDistinct nodes.
-  std::vector<std::shared_ptr<const core::PlanNode>> mark_nodes;
-  findAllNodes(agg_node, "MarkDistinct", mark_nodes);
-  EXPECT_EQ(mark_nodes.size(), static_cast<size_t>(param.distinct_col_count))
-      << "MarkDistinct chain not properly connected to AggregationNode for "
-      << param.name;
+TEST_P(MarkDistinctCorrectnessTest, AggregationConsumesActualNullableInput) {
+  verify(GetParam().distinct_col_count, FilterMode::kColumn);
 }
-
-// ===========================================================================
-// Property 16.3: Marker Columns in MarkDistinctNode Output
-//
-// Each MarkDistinctNode SHALL produce a boolean marker column named
-// "mark_distinct_N" (where N is the 0-based index) in its output schema.
-//
-// **Validates: Requirements 9.1, 9.2**
-// ===========================================================================
-
-TEST_P(MarkDistinctCorrectnessTest, MarkerColumnsInOutput) {
-  const auto& param = GetParam();
-  auto plan_bytes = buildMultiDistinctPlan(
-      param.grouping_key_count, param.distinct_col_count);
-  ASSERT_FALSE(plan_bytes.empty());
-
-  VeloxPlanConverter converter;
-  auto result = converter.convert(plan_bytes, {});
-  ASSERT_NE(result, nullptr);
-
-  // Find all MarkDistinct nodes.
-  std::vector<std::shared_ptr<const core::PlanNode>> mark_nodes;
-  findAllNodes(result, "MarkDistinct", mark_nodes);
-  ASSERT_EQ(mark_nodes.size(), static_cast<size_t>(param.distinct_col_count));
-
-  // The topmost MarkDistinctNode in the chain (closest to root, found first
-  // by DFS) has all marker columns: its own plus all markers from nodes
-  // below it in the chain. DFS from root finds the topmost first.
-  auto top_mark = mark_nodes.front();
-  auto last_output = top_mark->outputType();
-
-  for (int i = 0; i < param.distinct_col_count; ++i) {
-    std::string expected_marker = "mark_distinct_" + std::to_string(i);
-    auto idx = last_output->getChildIdxIfExists(expected_marker);
-    EXPECT_TRUE(idx.has_value())
-        << "Marker column '" << expected_marker
-        << "' not found in last MarkDistinctNode output for " << param.name;
-
-    if (idx.has_value()) {
-      // Marker column must be BOOLEAN type.
-      EXPECT_TRUE(last_output->childAt(idx.value())->equivalent(*BOOLEAN()))
-          << "Marker column '" << expected_marker
-          << "' is not BOOLEAN for " << param.name;
-    }
-  }
+TEST_P(MarkDistinctCorrectnessTest, MasksAreBooleanAndAppliedBeforeDistinct) {
+  verify(GetParam().distinct_col_count, FilterMode::kColumn);
 }
-
-// ===========================================================================
-// Property 16.4: Final Output Schema Correctness
-//
-// The final plan output SHALL contain grouping keys + aggregate columns
-// (no internal marker columns leaked to the output).
-//
-// **Validates: Requirements 9.1, 9.3**
-// ===========================================================================
-
-TEST_P(MarkDistinctCorrectnessTest, FinalOutputSchemaCorrect) {
-  const auto& param = GetParam();
-  auto plan_bytes = buildMultiDistinctPlan(
-      param.grouping_key_count, param.distinct_col_count);
-  ASSERT_FALSE(plan_bytes.empty());
-
-  VeloxPlanConverter converter;
-  auto result = converter.convert(plan_bytes, {});
-  ASSERT_NE(result, nullptr);
-
-  auto final_output = result->outputType();
-
-  // Output should have grouping_key_count + distinct_col_count columns
-  // (one aggregate per distinct column).
-  size_t expected_cols =
-      static_cast<size_t>(param.grouping_key_count + param.distinct_col_count);
-  EXPECT_EQ(final_output->size(), expected_cols)
-      << "Expected " << expected_cols << " output columns but got "
-      << final_output->size() << " for " << param.name;
-
-  // No marker columns should appear in the final output.
-  for (size_t i = 0; i < final_output->size(); ++i) {
-    EXPECT_FALSE(
-        final_output->nameOf(i).find("mark_distinct") != std::string::npos)
-        << "Internal marker column '" << final_output->nameOf(i)
-        << "' leaked to final output for " << param.name;
-  }
+TEST_P(MarkDistinctCorrectnessTest, FinalOutputHasOnlyKeysAndCounts) {
+  verify(GetParam().distinct_col_count, FilterMode::kNone);
 }
-
-// ===========================================================================
-// Property 16.5: MarkDistinct Chain Topology
-//
-// MarkDistinctNodes SHALL be chained linearly: each node's input is the
-// previous MarkDistinctNode (or the original input for the first one).
-// This ensures single-pass processing over the input data.
-//
-// **Validates: Requirements 9.1, 9.2**
-// ===========================================================================
-
-TEST_P(MarkDistinctCorrectnessTest, MarkDistinctChainTopology) {
-  const auto& param = GetParam();
-  auto plan_bytes = buildMultiDistinctPlan(
-      param.grouping_key_count, param.distinct_col_count);
-  ASSERT_FALSE(plan_bytes.empty());
-
-  VeloxPlanConverter converter;
-  auto result = converter.convert(plan_bytes, {});
-  ASSERT_NE(result, nullptr);
-
-  // Find the AggregationNode — its direct input should be the last
-  // MarkDistinctNode in the chain.
-  auto agg_node = findNode(result, "Aggregation");
-  ASSERT_NE(agg_node, nullptr);
-  ASSERT_GE(agg_node->sources().size(), 1u);
-
-  // Walk the chain from AggregationNode's input backward.
-  auto current = agg_node->sources()[0];
-  int mark_count = 0;
-  while (current && current->name() == "MarkDistinct") {
-    mark_count++;
-    ASSERT_EQ(current->sources().size(), 1u)
-        << "MarkDistinctNode should have exactly 1 source";
-    current = current->sources()[0];
-  }
-
-  EXPECT_EQ(mark_count, param.distinct_col_count)
-      << "Expected linear chain of " << param.distinct_col_count
-      << " MarkDistinctNodes but found " << mark_count
-      << " for " << param.name;
-
-  // The bottom of the chain should be a TableScan (the original input).
-  EXPECT_EQ(current->name(), "TableScan")
-      << "Bottom of MarkDistinct chain should be TableScan, got '"
-      << current->name() << "' for " << param.name;
+TEST_P(MarkDistinctCorrectnessTest, ConstantFalseMaskRetainsGroupsWithZeroCounts) {
+  verify(GetParam().distinct_col_count, FilterMode::kFalse);
 }
-
-// ===========================================================================
-// Property 16.6: Single-DISTINCT Does NOT Trigger MarkDistinctNode
-//
-// When only a single DISTINCT aggregate is present, the plan SHALL NOT
-// contain any MarkDistinctNode. The standard AggregationNode with distinct
-// flag is sufficient.
-//
-// **Validates: Requirements 9.4**
-// ===========================================================================
-
-TEST_P(MarkDistinctCorrectnessTest, SingleDistinctNoMarkDistinct) {
-  const auto& param = GetParam();
-  auto plan_bytes = buildSingleDistinctPlan(param.grouping_key_count);
-  ASSERT_FALSE(plan_bytes.empty());
-
-  VeloxPlanConverter converter;
-  auto result = converter.convert(plan_bytes, {});
-  ASSERT_NE(result, nullptr)
-      << "Single-DISTINCT plan conversion failed for " << param.name;
-
-  // No MarkDistinctNode should be present.
-  std::vector<std::shared_ptr<const core::PlanNode>> mark_nodes;
-  findAllNodes(result, "MarkDistinct", mark_nodes);
-  EXPECT_EQ(mark_nodes.size(), 0u)
-      << "Single-DISTINCT should NOT produce MarkDistinctNode for "
-      << param.name;
-
-  // AggregationNode should still be present.
-  auto agg_node = findNode(result, "Aggregation");
-  EXPECT_NE(agg_node, nullptr)
-      << "AggregationNode not found for single-DISTINCT plan in "
-      << param.name;
+TEST_P(MarkDistinctCorrectnessTest, SingleDistinctUsesSameNativeOperator) {
+  verify(1, FilterMode::kColumn);
 }
-
-// ===========================================================================
-// Parameterization: distinct_col_count × grouping_key_count × input_size ×
-//                   distribution
-// ===========================================================================
 
 std::vector<MarkDistinctParam> generateParams() {
-  std::vector<MarkDistinctParam> params;
-
-  std::vector<int> distinct_counts = {2, 3};
-  std::vector<int> grouping_counts = {0, 1, 2};
-  std::vector<int> input_sizes = {10, 100, 500};
-  std::vector<ValueDistribution> distributions = {
-      ValueDistribution::kUnique,
-      ValueDistribution::kManyDuplicates,
-      ValueDistribution::kAllSame};
-
-  for (int dc : distinct_counts) {
-    for (int gk : grouping_counts) {
-      for (int sz : input_sizes) {
-        for (auto dist : distributions) {
-          std::string name = "DC" + std::to_string(dc) +
-                             "_GK" + std::to_string(gk) +
-                             "_N" + std::to_string(sz) +
-                             "_" + distributionName(dist);
-          params.push_back({name, dc, gk, sz, dist});
+  std::vector<MarkDistinctParam> result;
+  for (int distinct : {2, 3}) {
+    for (int grouping : {0, 1, 2}) {
+      for (int size : {10, 100, 500}) {
+        for (auto distribution : {ValueDistribution::kUnique,
+                 ValueDistribution::kManyDuplicates, ValueDistribution::kAllSame}) {
+          const auto suffix = distribution == ValueDistribution::kUnique ? "Unique" :
+              distribution == ValueDistribution::kManyDuplicates ? "ManyDuplicates" : "AllSame";
+          result.push_back({"DC" + std::to_string(distinct) + "_GK" + std::to_string(grouping) +
+              "_N" + std::to_string(size) + "_" + suffix, distinct, grouping, size, distribution});
         }
       }
     }
   }
-  return params;
+  return result;
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    MarkDistinctCorrectness,
-    MarkDistinctCorrectnessTest,
+INSTANTIATE_TEST_SUITE_P(MarkDistinctCorrectness, MarkDistinctCorrectnessTest,
     ::testing::ValuesIn(generateParams()),
-    [](const ::testing::TestParamInfo<MarkDistinctParam>& info) {
-      return info.param.name;
-    });
-
+    [](const ::testing::TestParamInfo<MarkDistinctParam>& info) { return info.param.name; });
 }  // namespace
 }  // namespace pangrova::velox::test

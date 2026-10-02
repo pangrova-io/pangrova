@@ -15,11 +15,14 @@ import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexOver;
 import org.apache.calcite.rex.RexUtil;
+import org.apache.calcite.rel.type.RelDataType;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+
+import org.pangrova.planner.AiInvocationPlanHint;
 
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.slf4j.Logger;
@@ -45,17 +48,20 @@ final class ExpressionConverter {
     private final WindowFunctionConverter windowConverter;
     private final RexBuilder rexBuilder;
     private final LiteralConverter literalConverter;
-    private final ComparisonArgCoercer comparisonArgCoercer;
+    private final AiInvocationBinder aiInvocationBinder;
+    private final FunctionArgumentNormalizer argumentNormalizer;
     private int correlateOuterFieldOffset = 0;
 
     ExpressionConverter(TypeMapper typeMapper, FunctionMapper functionMapper,
-                     WindowFunctionConverter windowConverter, RexBuilder rexBuilder) {
+                     WindowFunctionConverter windowConverter, RexBuilder rexBuilder,
+                     LiteralConverter literalConverter, Consumer<AiInvocationPlanHint> aiInvocationSink) {
         this.typeMapper = typeMapper;
         this.functionMapper = functionMapper;
         this.windowConverter = windowConverter;
         this.rexBuilder = rexBuilder;
-        this.literalConverter = new LiteralConverter(typeMapper);
-        this.comparisonArgCoercer = new ComparisonArgCoercer(this::convert);
+        this.literalConverter = literalConverter;
+        this.aiInvocationBinder = new AiInvocationBinder(aiInvocationSink);
+        this.argumentNormalizer = new FunctionArgumentNormalizer(rexBuilder, literalConverter);
     }
 
     void setCorrelateOuterFieldOffset(int offset) {
@@ -67,6 +73,10 @@ final class ExpressionConverter {
         if (rexNode instanceof RexInputRef ref) return convertInputRef(ref);
         if (rexNode instanceof RexOver over) return windowConverter.convertOver(over, this::convert);
         return convertNonLeaf(rexNode);
+    }
+
+    Expression convertValuesLiteral(RexLiteral literal, RelDataType fieldType) {
+        return literalConverter.convert(literal, fieldType);
     }
 
     private Expression convertNonLeaf(RexNode rexNode) {
@@ -133,6 +143,7 @@ final class ExpressionConverter {
             case SEARCH -> convertSearch(call);
             case SINGLE_VALUE -> convert(call.getOperands().get(0));
             case ARRAY_VALUE_CONSTRUCTOR -> convertArrayConstructor(call);
+            case ROW -> convertStructConstructor(call, call.getType());
             case EXTRACT -> convertExtract(call);
             case TRIM -> convertTrim(call);
             case IS_TRUE, IS_NOT_TRUE, IS_FALSE, IS_NOT_FALSE -> convertIsTruthPredicate(call);
@@ -189,7 +200,9 @@ final class ExpressionConverter {
      */
     private Expression convertTrim(RexCall call) {
         RexLiteral flagLiteral = (RexLiteral) call.getOperands().get(0);
-        String flag = flagLiteral.getValue().toString();
+        var flagValue = flagLiteral.getValue();
+        if (flagValue == null) throw unsupported("TRIM requires a non-null flag");
+        String flag = flagValue.toString();
         String fnName = switch (flag) {
             case "LEADING" -> "ltrim";
             case "TRAILING" -> "rtrim";
@@ -229,7 +242,9 @@ final class ExpressionConverter {
      */
     private Expression convertExtract(RexCall call) {
         RexLiteral unitLiteral = (RexLiteral) call.getOperands().get(0);
-        String unitName = unitLiteral.getValue().toString();
+        var unitValue = unitLiteral.getValue();
+        if (unitValue == null) throw unsupported("EXTRACT requires a non-null unit");
+        String unitName = unitValue.toString();
         String substraitFnName = EXTRACT_UNIT_TO_FUNCTION.get(unitName);
         if (substraitFnName == null) {
             throw unsupported("EXTRACT time unit: " + unitName);
@@ -248,49 +263,57 @@ final class ExpressionConverter {
     /**
      * Converts Calcite ARRAY_VALUE_CONSTRUCTOR (e.g. ARRAY[1.0, 2.0, 3.0]) to a
      * Substrait ListLiteral. Each operand is converted to a Substrait expression.
-     * Literal DECIMAL elements are coerced to FP64 for native engine compatibility.
-     * Non-literal elements (column references) are not supported — callers must
-     * rewrite such expressions into a ScalarFunctionInvocation before reaching here.
+     * Every literal uses the array's declared component type, including precision
+     * and nullability, through the shared literal converter.
+     * Runtime elements use the canonical Nested.List constructor; no function
+     * name or implicit numeric coercion is invented for the wire contract.
      */
     private Expression convertArrayConstructor(RexCall call) {
+        return convertArrayConstructor(call, call.getType());
+    }
+
+    private Expression convertArrayConstructor(RexCall call, RelDataType arrayType) {
+        RelDataType componentType = arrayType.getComponentType();
+        if (componentType == null) throw unsupported("array constructor without a component type");
         List<Expression> elements = call.getOperands().stream()
-                .map(this::coerceToFp64IfDecimal)
+                .map(operand -> convertArrayElement(operand, componentType))
                 .toList();
-        List<Expression.Literal> literals = extractLiterals(elements);
+        if (elements.isEmpty()) {
+            return convertEmptyArray(arrayType);
+        }
+        if (!elements.stream().allMatch(element -> element instanceof Expression.Literal)) {
+            return ImmutableExpression.NestedList.builder().nullable(arrayType.isNullable()).values(elements).build();
+        }
         return ImmutableExpression.ListLiteral.builder()
-                .nullable(call.getType().isNullable())
-                .values(literals)
+                .nullable(arrayType.isNullable())
+                .values(elements.stream().map(element -> (Expression.Literal) element).toList())
                 .build();
     }
 
-    private static List<Expression.Literal> extractLiterals(List<Expression> elements) {
-        boolean allLiterals = elements.stream().allMatch(e -> e instanceof Expression.Literal);
-        if (!allLiterals) {
-            throw unsupported("array constructor with non-literal elements: "
-                    + "use ScalarFunctionInvocation for runtime arrays");
+    private Expression convertArrayElement(RexNode operand, RelDataType componentType) {
+        if (operand instanceof RexLiteral literal) return literalConverter.convert(literal, componentType);
+        if (operand instanceof RexCall nested && nested.getKind() == org.apache.calcite.sql.SqlKind.ARRAY_VALUE_CONSTRUCTOR) {
+            return convertArrayConstructor(nested, componentType);
         }
-        return elements.stream().map(e -> (Expression.Literal) e).toList();
+        if (operand instanceof RexCall row && row.getKind() == org.apache.calcite.sql.SqlKind.ROW) {
+            return convertStructConstructor(row, componentType);
+        }
+        Expression converted = convert(operand);
+        Type declared = typeMapper.map(componentType);
+        if (declared.equals(converted.getType())) return converted;
+        return ImmutableExpression.Cast.builder().input(converted).type(declared)
+                .failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION).build();
     }
 
-    /**
-     * Coerces a DECIMAL literal to FP64 for array elements and division operations.
-     * The native engine's divide() and C++ convertListLiteral only handle fp64/fp32/integer
-     * protobuf fields. Without this coercion, decimal values cause type mismatch.
-     *
-     * <p>Returns the original Expression unchanged for non-literal operands
-     * (e.g. column references in ARRAY[col1, col2]).</p>
-     */
-    private Expression coerceToFp64IfDecimal(RexNode op) {
-        Expression expr = convert(op);
-        if (op instanceof RexLiteral lit
-                && lit.getTypeName() == SqlTypeName.DECIMAL
-                && expr instanceof Expression.Literal) {
-            BigDecimal value = lit.getValueAs(BigDecimal.class);
-            if (value != null) {
-                return ExpressionCreator.fp64(lit.getType().isNullable(), value.doubleValue());
-            }
+    private Expression convertStructConstructor(RexCall call, RelDataType rowType) {
+        if (rowType.getSqlTypeName() != SqlTypeName.ROW || call.getOperands().size() != rowType.getFieldCount()) {
+            throw unsupported("ROW constructor differs from its declared field types");
         }
-        return expr;
+        List<Expression> fields = new ArrayList<>();
+        for (int field = 0; field < rowType.getFieldCount(); field++) {
+            fields.add(convertArrayElement(call.getOperands().get(field), rowType.getFieldList().get(field).getType()));
+        }
+        return ImmutableExpression.NestedStruct.builder().fields(fields).nullable(rowType.isNullable()).build();
     }
 
     private Expression convertScalarFunction(RexCall call) {
@@ -300,8 +323,9 @@ final class ExpressionConverter {
         }
         FunctionReference ref = functionMapper.map(call.getOperator());
         var variant = functionMapper.resolveScalarVariant(ref);
-        List<Expression> args = comparisonArgCoercer.convertComparisonArgs(call);
-        args = comparisonArgCoercer.coerceDecimalLiteralsToInteger(call.getOperands(), args);
+        List<Expression> args = call.getOperands().stream().map(this::convert).toList();
+        args = argumentNormalizer.normalize(ref, call, args);
+        args = aiInvocationBinder.bind(ref, call, opName, args);
         Type outputType = typeMapper.map(call.getType());
         return ImmutableExpression.ScalarFunctionInvocation.builder()
                 .declaration(variant)
@@ -344,20 +368,20 @@ final class ExpressionConverter {
         if (operandCount % 2 == 0) {
             throw unsupported("CASE expression with even operand count (missing ELSE): " + operandCount);
         }
-        SqlTypeName dominantType = findDominantBranchType(operands);
-        List<Expression.IfClause> clauses = buildIfClauses(operands, dominantType);
-        Expression elseExpr = convertCaseBranch(operands.get(operandCount - 1), dominantType);
+        RelDataType branchType = call.getType();
+        List<Expression.IfClause> clauses = buildIfClauses(operands, branchType);
+        Expression elseExpr = convertCaseBranch(operands.get(operandCount - 1), branchType);
         return ImmutableExpression.IfThen.builder()
                 .ifClauses(clauses)
                 .elseClause(elseExpr)
                 .build();
     }
 
-    private List<Expression.IfClause> buildIfClauses(List<RexNode> operands, SqlTypeName dominantType) {
+    private List<Expression.IfClause> buildIfClauses(List<RexNode> operands, RelDataType branchType) {
         List<Expression.IfClause> clauses = new ArrayList<>();
         for (int i = 0; i < operands.size() - 1; i += 2) {
             Expression condition = convert(operands.get(i));
-            Expression thenExpr = convertCaseBranch(operands.get(i + 1), dominantType);
+            Expression thenExpr = convertCaseBranch(operands.get(i + 1), branchType);
             clauses.add(ImmutableExpression.IfClause.builder()
                     .condition(condition)
                     .then(thenExpr)
@@ -366,54 +390,46 @@ final class ExpressionConverter {
         return clauses;
     }
 
-    /**
-     * Scans CASE then-branches to find the dominant non-literal type.
-     * If any then-branch is DOUBLE/FLOAT, returns that type so DECIMAL
-     * literals in other branches can be coerced. Falls back to the
-     * first then-branch type.
-     */
-    private static SqlTypeName findDominantBranchType(List<RexNode> operands) {
-        for (int i = 1; i < operands.size() - 1; i += 2) {
-            SqlTypeName t = operands.get(i).getType().getSqlTypeName();
-            if (t == SqlTypeName.DOUBLE || t == SqlTypeName.FLOAT) {
-                return t;
-            }
+    /** CASE branches use the validator's declared result type, never a guessed dominant branch. */
+    private Expression convertCaseBranch(RexNode node, RelDataType branchType) {
+        var target = rexBuilder.getTypeFactory().createTypeWithNullability(branchType, node.getType().isNullable());
+        if (node instanceof RexLiteral literal) {
+            return literalConverter.convert(literal, target);
         }
-        SqlTypeName elseType = operands.get(operands.size() - 1).getType().getSqlTypeName();
-        if (elseType == SqlTypeName.DOUBLE || elseType == SqlTypeName.FLOAT) {
-            return elseType;
-        }
-        return operands.get(1).getType().getSqlTypeName();
-    }
-
-    /**
-     * Converts a CASE branch (then/else) expression, coercing DECIMAL literals
-     * to DOUBLE/FLOAT when the dominant branch type requires it. The native engine requires
-     * all SWITCH branches to have identical types.
-     */
-    private Expression convertCaseBranch(RexNode node, SqlTypeName dominantType) {
-        if (node instanceof RexLiteral lit && !lit.isNull()) {
-            SqlTypeName branchType = lit.getType().getSqlTypeName();
-            if (branchType == SqlTypeName.DECIMAL
-                    && (dominantType == SqlTypeName.DOUBLE || dominantType == SqlTypeName.FLOAT)) {
-                boolean nullable = lit.getType().isNullable();
-                BigDecimal value = lit.getValueAs(BigDecimal.class);
-                return ExpressionCreator.fp64(nullable, value != null ? value.doubleValue() : 0.0);
-            }
-        }
-        return convert(node);
+        return convert(org.apache.calcite.sql.type.SqlTypeUtil.equalSansNullability(
+                rexBuilder.getTypeFactory(), node.getType(), target) ? node : rexBuilder.makeCast(target, node));
     }
 
     /**
      * Converts Calcite CAST to a Substrait Cast expression, preserving target type.
      */
     private Expression convertCast(RexCall call) {
+        RexNode operand = call.getOperands().get(0);
+        if (operand instanceof RexCall array
+                && array.getKind() == org.apache.calcite.sql.SqlKind.ARRAY_VALUE_CONSTRUCTOR
+                && array.getOperands().isEmpty()
+                && call.getType().getSqlTypeName() == SqlTypeName.ARRAY) {
+            return convertEmptyArray(call.getType());
+        }
         Expression input = convert(call.getOperands().get(0));
         Type targetType = typeMapper.map(call.getType());
         return ImmutableExpression.Cast.builder()
                 .input(input)
                 .type(targetType)
                 .failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION)
+                .build();
+    }
+
+    private Expression convertEmptyArray(RelDataType arrayType) {
+        RelDataType componentType = arrayType.getComponentType();
+        if (componentType == null
+                || componentType.getSqlTypeName() == SqlTypeName.NULL
+                || componentType.getSqlTypeName() == SqlTypeName.ANY) {
+            throw unsupported("empty array requires a typed element context");
+        }
+        return ImmutableExpression.EmptyListLiteral.builder()
+                .nullable(arrayType.isNullable())
+                .elementType(typeMapper.map(componentType))
                 .build();
     }
 

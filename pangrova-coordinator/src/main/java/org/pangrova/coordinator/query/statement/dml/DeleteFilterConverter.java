@@ -7,19 +7,31 @@ import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.LiteralValue;
 import org.pangrova.parser.ast.expression.BinaryExpression;
+import org.pangrova.parser.ast.expression.InExpression;
 import org.pangrova.parser.ast.expression.IsNullExpression;
 import org.pangrova.parser.ast.expression.NotExpression;
+import org.pangrova.parser.ast.expression.NotInExpression;
 import org.pangrova.spi.connector.metadata.DeleteFilter;
 
 import java.util.List;
 
 /**
  * Converts parser AST WHERE expressions to connector-agnostic DeleteFilter.
- * Covers common DELETE WHERE patterns: comparisons, AND/OR, NOT, IS NULL.
+ * Covers common DELETE WHERE patterns used by the optional metadata fast path.
+ * Unsupported expressions return {@code null}, so the caller can route the
+ * statement through the canonical Native DML plan instead.
  */
 public final class DeleteFilterConverter {
 
     private DeleteFilterConverter() {}
+
+    public static DeleteFilter tryConvert(Expression expr) {
+        try {
+            return convert(expr);
+        } catch (UnsupportedOperationException | IllegalArgumentException e) {
+            return null;
+        }
+    }
 
     public static DeleteFilter convert(Expression expr) {
         if (expr instanceof BinaryExpression bin) {
@@ -33,6 +45,12 @@ public final class DeleteFilterConverter {
         }
         if (expr instanceof NotExpression not) {
             return new DeleteFilter.Not(convert(not.expression()));
+        }
+        if (expr instanceof InExpression in) {
+            return inFilter(in.value(), in.list(), false);
+        }
+        if (expr instanceof NotInExpression notIn) {
+            return inFilter(notIn.value(), notIn.list(), true);
         }
         throw new UnsupportedOperationException(
                 "Unsupported DELETE WHERE expression: " + expr.getClass().getSimpleName());
@@ -55,9 +73,42 @@ public final class DeleteFilterConverter {
 
     private static DeleteFilter comparison(BinaryExpression bin,
                                            ComparisonFactory factory) {
-        String column = extractColumnName(bin.left());
-        Object value = extractLiteralValue(bin.right());
-        return factory.create(column, value);
+        if (bin.left() instanceof Identifier) {
+            return factory.create(extractColumnName(bin.left()), extractLiteralValue(bin.right()));
+        }
+        if (bin.right() instanceof Identifier) {
+            return reversedComparison(bin.operator(), extractColumnName(bin.right()),
+                    extractLiteralValue(bin.left()));
+        }
+        throw new UnsupportedOperationException("DELETE comparison requires one column reference");
+    }
+
+    private static DeleteFilter reversedComparison(
+            BinaryExpression.Operator operator, String column, Object value) {
+        return switch (operator) {
+            case EQUAL -> new DeleteFilter.Equal(column, value);
+            case NOT_EQUAL -> new DeleteFilter.NotEqual(column, value);
+            case LESS_THAN -> new DeleteFilter.GreaterThan(column, value);
+            case LESS_THAN_OR_EQUAL -> new DeleteFilter.GreaterThanOrEqual(column, value);
+            case GREATER_THAN -> new DeleteFilter.LessThan(column, value);
+            case GREATER_THAN_OR_EQUAL -> new DeleteFilter.LessThanOrEqual(column, value);
+            default -> throw new UnsupportedOperationException(
+                    "Unsupported reversed DELETE comparison: " + operator);
+        };
+    }
+
+    private static DeleteFilter inFilter(
+            Expression operand, List<Expression> expressions, boolean negated) {
+        String column = extractColumnName(operand);
+        List<Object> values = expressions.stream()
+                .map(DeleteFilterConverter::extractLiteralValue)
+                .toList();
+        if (values.contains(null)) {
+            throw new UnsupportedOperationException(
+                    "IN containing NULL requires Native SQL three-valued logic");
+        }
+        DeleteFilter result = new DeleteFilter.In(column, values);
+        return negated ? new DeleteFilter.Not(result) : result;
     }
 
     private static String extractColumnName(Expression expr) {

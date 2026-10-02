@@ -3,14 +3,14 @@ package org.pangrova.coordinator.metadata;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
+import org.pangrova.spi.connector.ConnectorSession;
 import org.apache.calcite.jdbc.CalciteSchema;
-import org.apache.calcite.schema.SchemaPlus;
 import org.apache.calcite.schema.impl.AbstractSchema;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Bridges MetadataService and CatalogRegistry to Calcite's schema mechanism.
@@ -18,8 +18,6 @@ import java.util.Map;
  * can resolve table references during SQL compilation.
  */
 public final class MetadataSchemaBuilder {
-
-    private static final Logger LOG = LoggerFactory.getLogger(MetadataSchemaBuilder.class);
 
     private final MetadataService metadataService;
     private final CatalogRegistry catalogRegistry;
@@ -44,38 +42,47 @@ public final class MetadataSchemaBuilder {
      * every table lookup delegates to {@link LazyMetadataSchema#getTableMap()} which
      * checks the DDL generation counter and refreshes when needed.</p>
      */
-    public CalciteSchema buildRootSchema() {
-        SchemaPlus rootSchema = CalciteSchema.createRootSchema(false, false).plus();
-        MetadataSessionContext session = buildSystemSession();
-        registerCatalogs(rootSchema, session);
-        return CalciteSchema.from(rootSchema);
-    }
-
-    private void registerCatalogs(SchemaPlus root, MetadataSessionContext session) {
-        List<String> catalogs = metadataService.listCatalogs(session);
-        for (String catalog : catalogs) {
-            registerCatalogSchemas(root, session, catalog);
-        }
-        LOG.info("event=calcite_schema_registered catalogCount={}", catalogs.size());
-    }
-
-    private void registerCatalogSchemas(SchemaPlus root, MetadataSessionContext session, String catalog) {
-        try {
-            List<String> schemas = metadataService.listSchemas(session, catalog);
-            SchemaPlus catalogSchema = root.add(catalog, new AbstractSchema() {});
-            for (String schema : schemas) {
-                catalogSchema.add(schema, new LazyMetadataSchema(catalogRegistry, catalog, schema));
+    public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession) {
+        ConnectorSession session = PlanningConnectorSession.bind(authenticatedSession,
+                authenticatedSession.getCatalog().orElse(null),
+                authenticatedSession.getSchema().orElse(null));
+        MetadataSessionContext metadataSession = new MetadataSessionContext(
+                session.getUser(), session.getCatalog().orElse(null), session.getSchema().orElse(null),
+                null, null, session.getProperties(), session.getProperties().get("tenant_id"), null, null);
+        Map<String, org.apache.calcite.schema.Schema> catalogSchemas = new ConcurrentHashMap<>();
+        AbstractSchema root = new AbstractSchema() {
+            @Override
+            protected Map<String, org.apache.calcite.schema.Schema> getSubSchemaMap() {
+                Map<String, org.apache.calcite.schema.Schema> visible = new LinkedHashMap<>();
+                for (String catalog : metadataService.listCatalogs(metadataSession)) {
+                    visible.put(catalog, catalogSchemas.computeIfAbsent(catalog,
+                            name -> catalogSchema(session, metadataSession, name)));
+                }
+                return visible;
             }
-        } catch (Exception e) {
-            LOG.warn("event=catalog_schema_load_failed catalog={} error={}",
-                    catalog, e.getMessage());
-            root.add(catalog, new AbstractSchema() {});
-        }
+        };
+        return CalciteSchema.createRootSchema(false, false, "", root);
     }
 
-    private static MetadataSessionContext buildSystemSession() {
-        return new MetadataSessionContext(
-                "system", null, null, null, null, Map.of(), null, null, null);
+    private AbstractSchema catalogSchema(ConnectorSession session, MetadataSessionContext metadataSession,
+                                 String catalog) {
+        Map<String, org.apache.calcite.schema.Schema> schemaInstances = new ConcurrentHashMap<>();
+        return new AbstractSchema() {
+            @Override
+            protected Map<String, org.apache.calcite.schema.Schema> getSubSchemaMap() {
+                ConnectorSession catalogSession = PlanningConnectorSession.bind(session, catalog, null);
+                List<String> names = catalogRegistry == null
+                        ? metadataService.listSchemas(metadataSession, catalog)
+                        : catalogRegistry.getCatalog(catalog).getMetadata(catalogSession)
+                                .listSchemaNames(catalogSession);
+                Map<String, org.apache.calcite.schema.Schema> visible = new LinkedHashMap<>();
+                for (String name : names) {
+                    visible.put(name, schemaInstances.computeIfAbsent(name,
+                            schema -> new LazyMetadataSchema(catalogRegistry, catalog, schema, session)));
+                }
+                return visible;
+            }
+        };
     }
 
     /**

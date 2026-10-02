@@ -27,8 +27,6 @@ import org.junit.jupiter.api.TestInfo;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -109,19 +107,11 @@ class AiConcurrentLoadE2ETest extends PangrovaE2ETestBase {
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
 
             int concurrency = 5;
-            java.util.concurrent.atomic.AtomicInteger successes =
-                    new java.util.concurrent.atomic.AtomicInteger(0);
             List<CompletableFuture<Void>> futures = new ArrayList<>();
 
             for (int q = 0; q < concurrency; q++) {
                 final int queryIdx = q;
                 futures.add(CompletableFuture.runAsync(() -> {
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(queryIdx * 200L);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
                     StringBuilder queryVec = new StringBuilder("ARRAY[");
                     for (int d = 0; d < 4; d++) {
                         if (d > 0) {
@@ -136,26 +126,17 @@ class AiConcurrentLoadE2ETest extends PangrovaE2ETestBase {
                             + ") AS dist FROM " + fqn()
                             + " ORDER BY l2_distance(embedding, " + queryVec
                             + ") ASC LIMIT 5";
-                    // Retry once on transient failure (resource contention under load)
-                    for (int attempt = 0; attempt < 2; attempt++) {
-                        E2ETestFramework.QueryResult result = framework.executeQuery(sql);
-                        if (result.success() && result.rows().size() == 5) {
-                            successes.incrementAndGet();
-                            return;
-                        }
-                        if (attempt == 0) {
-                            try { TimeUnit.SECONDS.sleep(2); } catch (InterruptedException ignored) {}
-                        }
-                    }
+                    E2ETestFramework.QueryResult result = framework.executeQuery(sql);
+                    assertThat(result.success())
+                            .as("Concurrent vector query %s failed: %s", queryIdx,
+                                    result.errorMessage())
+                            .isTrue();
+                    assertThat(result.rows()).hasSize(5);
                 }));
             }
 
             CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
                     .get(120, TimeUnit.SECONDS);
-
-            assertThat(successes.get())
-                    .as("Majority of concurrent vector queries should succeed")
-                    .isGreaterThanOrEqualTo(3);
 
             executeDdl("DROP INDEX idx_conc ON " + fqn());
             executeDdl("DROP TABLE " + fqn());
@@ -178,38 +159,31 @@ class AiConcurrentLoadE2ETest extends PangrovaE2ETestBase {
                 for (int i = 4; i <= 8; i++) {
                     executeDml("INSERT INTO " + fqn() + " VALUES ("
                             + i + ", ARRAY["
-                            + String.format("%.1f", Math.random())
+                            + String.format("%.1f", i * 0.1)
                             + ", "
-                            + String.format("%.1f", Math.random())
+                            + String.format("%.1f", i * 0.05)
                             + ", "
-                            + String.format("%.1f", Math.random())
+                            + String.format("%.1f", i * 0.025)
                             + ", 0.0])");
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(300);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
                 }
             });
 
-            // Wait for writer to complete first to avoid Velox memory pool collision
-            writer.get(120, TimeUnit.SECONDS);
-
-            // Then run reads sequentially
-            java.util.concurrent.atomic.AtomicInteger readSuccesses =
-                    new java.util.concurrent.atomic.AtomicInteger(0);
+            List<CompletableFuture<Void>> readers = new ArrayList<>();
             for (int q = 0; q < 3; q++) {
-                E2ETestFramework.QueryResult result = framework.executeQuery(
-                        "SELECT id FROM " + fqn());
-                if (result.success()) {
-                    readSuccesses.incrementAndGet();
-                }
+                readers.add(CompletableFuture.runAsync(() -> {
+                    E2ETestFramework.QueryResult result = framework.executeQuery(
+                            "SELECT id FROM " + fqn());
+                    assertThat(result.success())
+                            .as("Concurrent read failed: %s", result.errorMessage())
+                            .isTrue();
+                    assertThat(result.rows()).isNotEmpty();
+                }));
             }
 
-            assertThat(readSuccesses.get())
-                    .as("Reads after writes should succeed")
-                    .isGreaterThanOrEqualTo(2);
+            List<CompletableFuture<Void>> operations = new ArrayList<>(readers);
+            operations.add(writer);
+            CompletableFuture.allOf(operations.toArray(CompletableFuture[]::new))
+                    .get(120, TimeUnit.SECONDS);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -240,38 +214,25 @@ class AiConcurrentLoadE2ETest extends PangrovaE2ETestBase {
             executeDdl("CREATE INDEX idx_conc_ops ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
 
-            // Run queries with stagger to avoid Velox memory pool collision
             int concurrency = 5;
-            java.util.concurrent.atomic.AtomicInteger successes =
-                    new java.util.concurrent.atomic.AtomicInteger(0);
             List<CompletableFuture<Void>> futures = new ArrayList<>();
 
             for (int q = 0; q < concurrency; q++) {
-                final int idx = q;
                 futures.add(CompletableFuture.runAsync(() -> {
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(idx * 300L);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return;
-                    }
                     E2ETestFramework.QueryResult result = framework.executeQuery(
                             "SELECT id, l2_distance(embedding, ARRAY[0.5, 0.5, 0.5, 0.5]) AS dist"
                                     + " FROM " + fqn()
                                     + " ORDER BY l2_distance(embedding, ARRAY[0.5, 0.5, 0.5, 0.5]) ASC"
                                     + " LIMIT 5");
-                    if (result.success() && result.rows().size() == 5) {
-                        successes.incrementAndGet();
-                    }
+                    assertThat(result.success())
+                            .as("Concurrent indexed query failed: %s", result.errorMessage())
+                            .isTrue();
+                    assertThat(result.rows()).hasSize(5);
                 }));
             }
 
             CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
                     .get(120, TimeUnit.SECONDS);
-
-            assertThat(successes.get())
-                    .as("Majority of concurrent index queries should succeed")
-                    .isGreaterThanOrEqualTo(3);
 
             executeDdl("DROP INDEX idx_conc_ops ON " + fqn());
             executeDdl("DROP TABLE " + fqn());

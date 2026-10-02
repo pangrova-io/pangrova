@@ -15,8 +15,9 @@ package org.pangrova.coordinator.query.execution.dispatch.task;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
@@ -34,7 +35,8 @@ import org.pangrova.spi.security.UserIdentity;
 public final class ShowEmbeddingModelsTask implements MetadataTask<ShowEmbeddingModelsStatement> {
 
     private static final List<String> COLUMN_NAMES = List.of(
-            "name", "provider", "endpoint", "dimension", "max_batch_size", "version");
+            "name", "provider", "endpoint", "dimension", "max_batch_size", "version",
+            "deployment_version", "deployment_signature_sha256");
 
     private final EmbeddingModelRegistry registry;
 
@@ -47,8 +49,9 @@ public final class ShowEmbeddingModelsTask implements MetadataTask<ShowEmbedding
                                    StatementExecutionContext context) {
         UserIdentity user = context.session() != null ? context.session().userIdentity() : null;
         if (user == null) {
-            user = new UserIdentity("system", java.util.Set.of("admin", "users"),
-                    Map.of(), java.time.Instant.now());
+            throw new PangrovaException(
+                    PangrovaErrorCode.ACCESS_DENIED,
+                    "SHOW EMBEDDING MODELS requires an authenticated session");
         }
         List<EmbeddingModelDescriptor> models = registry.listAll(user);
         List<TypedRow> rows = new ArrayList<>(models.size());
@@ -60,6 +63,9 @@ public final class ShowEmbeddingModelsTask implements MetadataTask<ShowEmbedding
                     .putInt("dimension", model.dimension())
                     .putInt("max_batch_size", model.maxBatchSize())
                     .putInt("version", model.version())
+                    .putString("deployment_version", model.deploymentVersion())
+                    .putString("deployment_signature_sha256",
+                            model.deploymentSignatureSha256())
                     .build());
         }
         return new StatementResult(rows, COLUMN_NAMES, null, StatementCategory.SHOW);

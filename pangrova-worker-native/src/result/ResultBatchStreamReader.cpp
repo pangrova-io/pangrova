@@ -1,0 +1,213 @@
+#include "result/ResultBatchStreamReader.h"
+#include <arrow/util/key_value_metadata.h>
+
+#include <chrono>
+#include <algorithm>
+#include <cstring>
+#include <deque>
+#include <arrow/c/bridge.h>
+#include <folly/futures/Future.h>
+#include <folly/futures/Promise.h>
+#include <folly/io/IOBuf.h>
+#include <velox/exec/OutputBufferManager.h>
+#include <velox/vector/arrow/Bridge.h>
+#include <velox/vector/BaseVector.h>
+#include "columnar/CanonicalBatchStream.h"
+#include "result/ResultReadAuthority.h"
+
+namespace pangrova::result {
+namespace {
+int64_t nowMillis() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+arrow::Result<std::shared_ptr<arrow::Buffer>> copyPage(const uint8_t* data, int64_t length,
+    const std::shared_ptr<memory::ColumnarMemoryPool>& pool) {
+  if (!pool || !data || length <= 0 || length > columnar::kMaximumBatchStreamBytes) {
+    return arrow::Status::Invalid("Result stream has invalid ownership or wire size");
+  }
+  ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateBuffer(length, pool.get()));
+  std::memcpy(buffer->mutable_data(), data, static_cast<size_t>(length));
+  return memory::retainColumnarBuffer(std::shared_ptr<arrow::Buffer>(std::move(buffer)), pool);
+}
+
+arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> decodePage(
+    std::shared_ptr<arrow::Buffer> buffer,
+    const std::shared_ptr<arrow::Schema>& schema,
+    const std::shared_ptr<memory::ColumnarMemoryPool>& pool) {
+  ARROW_ASSIGN_OR_RAISE(auto batches, columnar::decodeBatchStream(std::move(buffer), pool));
+  for (const auto& batch : batches) {
+    if (!schema || !batch->schema()->Equals(*schema, true)) {
+      return arrow::Status::TypeError("Result storage schema differs from its admitted output");
+    }
+  }
+  return batches;
+}
+
+arrow::Result<std::shared_ptr<arrow::Buffer>> ownPage(std::unique_ptr<folly::IOBuf> page,
+    const std::shared_ptr<memory::ColumnarMemoryPool>& pool) {
+  if (page->isChained()) {
+    const auto length = page->computeChainDataLength();
+    if (length > static_cast<uint64_t>(columnar::kMaximumBatchStreamBytes)) {
+      return arrow::Status::CapacityError("Result page exceeds wire ceiling");
+    }
+    ARROW_ASSIGN_OR_RAISE(auto buffer, arrow::AllocateBuffer(static_cast<int64_t>(length), pool.get()));
+    auto* target = buffer->mutable_data();
+    for (const auto& range : *page) {
+      std::memcpy(target, range.data(), range.size());
+      target += range.size();
+    }
+    return memory::retainColumnarBuffer(std::shared_ptr<arrow::Buffer>(std::move(buffer)), pool);
+  }
+  struct Owner {
+    std::shared_ptr<memory::ColumnarMemoryPool> pool;
+    std::unique_ptr<folly::IOBuf> page;
+    arrow::Buffer buffer;
+    Owner(std::unique_ptr<folly::IOBuf> value, std::shared_ptr<memory::ColumnarMemoryPool> allocator)
+        : pool(std::move(allocator)), page(std::move(value)), buffer(page->data(), page->length()) {}
+  };
+  auto owner = std::make_shared<Owner>(std::move(page), pool);
+  return std::shared_ptr<arrow::Buffer>(owner, &owner->buffer);
+}
+
+struct FetchedPages {
+  std::vector<std::unique_ptr<folly::IOBuf>> pages;
+  int64_t sequence;
+};
+
+struct ReaderLease {
+  std::shared_ptr<ResultOwnershipState> state;
+  explicit ReaderLease(std::shared_ptr<ResultOwnershipState> value) : state(std::move(value)) {
+    state->acquireReader();
+  }
+  ~ReaderLease() { state->releaseReader(); }
+};
+
+class ResultBatchReader final : public arrow::RecordBatchReader {
+ public:
+  ResultBatchReader(FlightResultServer::TaskOutputInfo info, protocol::v2::ResultReadGrant grant,
+      std::shared_ptr<arrow::Schema> storage, std::shared_ptr<arrow::Schema> result,
+      int64_t maximumBytes, int64_t timeoutSeconds)
+      : info_(std::move(info)), lease_(std::make_shared<ReaderLease>(info_.ownership)),
+        grant_(std::move(grant)), storage_(std::move(storage)),
+        result_(std::move(result)), maximumBytes_(maximumBytes), timeoutSeconds_(timeoutSeconds) {}
+
+  ~ResultBatchReader() override {
+    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
+    if (buffers) {
+      buffers->deleteResults(taskId(), 0);
+      info_.ownership->revokeAndClearQueue();
+    }
+    FlightResultServer::unregisterTaskOutputType(taskId());
+  }
+
+  std::shared_ptr<arrow::Schema> schema() const override { return result_; }
+
+  arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override {
+    *out = nullptr;
+    const auto live = FlightResultServer::lookupTaskOutputInfo(taskId());
+    if (!live || grant_.expires_at_epoch_ms() <= static_cast<uint64_t>(nowMillis())) {
+      return arrow::Status::Cancelled("Result authority was revoked or expired");
+    }
+    ARROW_RETURN_NOT_OK(validateResultRead(grant_, live->authority));
+    while (pending_.empty() && !finished_) ARROW_RETURN_NOT_OK(fetchPages());
+    if (!pending_.empty()) {
+      *out = std::move(pending_.front());
+      pending_.pop_front();
+    }
+    return arrow::Status::OK();
+  }
+
+ private:
+  const std::string& taskId() const { return grant_.attempt().task_id(); }
+
+  arrow::Result<FetchedPages> fetch() {
+    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
+    if (!buffers) return arrow::Status::Invalid("Result producer buffer is unavailable");
+    auto promise = std::make_shared<folly::Promise<FetchedPages>>();
+    auto future = promise->getSemiFuture();
+    const bool found = buffers->getData(taskId(), 0, static_cast<uint64_t>(maximumBytes_), sequence_,
+        [promise](std::vector<std::unique_ptr<folly::IOBuf>> pages, int64_t sequence,
+            std::vector<int64_t>) { promise->setValue(FetchedPages{std::move(pages), sequence}); });
+    if (!found) return arrow::Status::IOError("Result producer disappeared before its committed EOF");
+    const int64_t deadlineMillis = static_cast<int64_t>(grant_.expires_at_epoch_ms()) - nowMillis();
+    const auto waitMillis = timeoutSeconds_ > 0
+        ? std::min(deadlineMillis, timeoutSeconds_ * 1000) : deadlineMillis;
+    if (waitMillis <= 0) return arrow::Status::Cancelled("Result authority expired");
+    try {
+      return std::move(future).within(std::chrono::milliseconds(waitMillis)).get();
+    } catch (const std::exception&) {
+      return arrow::Status::IOError("Result producer failed or timed out before its committed EOF");
+    }
+  }
+
+  arrow::Status fetchPages() {
+    ARROW_ASSIGN_OR_RAISE(auto fetched, fetch());
+    if (fetched.sequence != sequence_ || fetched.pages.empty()) {
+      return arrow::Status::SerializationError("Result sequence changed or EOF evidence is absent");
+    }
+    for (size_t i = 0; i < fetched.pages.size(); ++i) {
+      auto& page = fetched.pages[i];
+      if (!page) {
+        if (i + 1 != fetched.pages.size()) return arrow::Status::SerializationError("Result data follows EOF");
+        finished_ = true;
+        break;
+      }
+      ARROW_ASSIGN_OR_RAISE(auto buffer, ownPage(std::move(page), info_.pool));
+      ARROW_ASSIGN_OR_RAISE(auto batches, decodePage(std::move(buffer), storage_, info_.pool));
+      for (const auto& batch : batches) {
+        pending_.push_back(retainResultBatch(arrow::RecordBatch::Make(
+            result_, batch->num_rows(), batch->columns()), info_.ownership));
+      }
+      ++sequence_;
+    }
+    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
+    if (!buffers) return arrow::Status::IOError("Result producer was revoked");
+    buffers->acknowledge(taskId(), 0, sequence_);
+    if (finished_) buffers->deleteResults(taskId(), 0);
+    return arrow::Status::OK();
+  }
+
+  FlightResultServer::TaskOutputInfo info_;
+  std::shared_ptr<ReaderLease> lease_;
+  protocol::v2::ResultReadGrant grant_;
+  std::shared_ptr<arrow::Schema> storage_, result_;
+  int64_t maximumBytes_, timeoutSeconds_, sequence_ = 0;
+  bool finished_ = false;
+  std::deque<std::shared_ptr<arrow::RecordBatch>> pending_;
+};
+}  // namespace
+
+namespace detail {
+arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> parseArrowBatchFrames(
+    const std::shared_ptr<arrow::Schema>& schema, const uint8_t* data, int64_t length,
+    const std::shared_ptr<memory::ColumnarMemoryPool>& pool) {
+  ARROW_ASSIGN_OR_RAISE(auto copied, copyPage(data, length, pool));
+  return decodePage(std::move(copied), schema, pool);
+}
+}  // namespace detail
+
+arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> resultBatchStreamReader(
+    FlightResultServer::TaskOutputInfo info, protocol::v2::ResultReadGrant grant,
+    int64_t maximumResponseBytes, int64_t timeoutSeconds) {
+  if (!info.pool || !info.output_type || !info.ownership || maximumResponseBytes <= 0 ||
+      info.column_labels.size() != info.output_type->size()) {
+    return arrow::Status::Invalid("Result registration lacks its allocator, schema or exact ordinal labels");
+  }
+  ArrowSchema exported{};
+  facebook::velox::exportToArrow(facebook::velox::BaseVector::create(
+      info.output_type, 0, info.pool->source().get()), exported);
+  ARROW_ASSIGN_OR_RAISE(auto storage, arrow::ImportSchema(&exported));
+  ARROW_ASSIGN_OR_RAISE(auto typed, detail::withResultColumnTypes(storage, info.result_column_types));
+  auto fields = typed->fields();
+  for (size_t i = 0; i < fields.size(); ++i) {
+    auto metadata = fields[i]->metadata() ? fields[i]->metadata()->Copy() : std::make_shared<arrow::KeyValueMetadata>();
+    metadata->Append("pangrova:result:ordinal", std::to_string(i));
+    fields[i] = fields[i]->WithMetadata(metadata)->WithName(info.column_labels[i]);
+  }
+  auto result = arrow::schema(std::move(fields), typed->metadata());
+  return std::shared_ptr<arrow::RecordBatchReader>(std::make_shared<ResultBatchReader>(
+      std::move(info), std::move(grant), std::move(storage), std::move(result), maximumResponseBytes, timeoutSeconds));
+}
+}  // namespace pangrova::result

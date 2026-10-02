@@ -35,7 +35,8 @@ public record ShutdownContext(
             ResourceManager resourceManager,
             NativeMetricsPublisher nativeMetricsPublisher,
             TelemetryInitializer otelInitializer,
-            boolean nativeAvailable) {
+            boolean nativeAvailable,
+            org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease shuffleServiceMemoryLease) {
     }
 
     /**

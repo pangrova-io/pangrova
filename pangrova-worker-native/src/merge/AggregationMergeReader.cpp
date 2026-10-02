@@ -6,15 +6,23 @@
 #include <algorithm>
 #include <stdexcept>
 #include <type_traits>
+#include <limits>
 
 #include "velox/type/Type.h"
+#include "velox/type/DecimalUtil.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/FlatVector.h"
+#include "merge/SequenceNumberReader.h"
+#include "merge/MergeVersionGroup.h"
+#include "velox/vector/DecodedVector.h"
 #include "velox/vector/SimpleVector.h"
 
 namespace pangrova::merge {
 
 namespace {
+
+void validateComplexAggregateInput(const facebook::velox::VectorPtr& input,
+    facebook::velox::vector_size_t row, AggFunction function);
 
 // Convert string to uppercase for case-insensitive comparison.
 std::string toUpper(const std::string& s) {
@@ -34,18 +42,18 @@ void applySumTyped(
     const facebook::velox::VectorPtr& source,
     facebook::velox::vector_size_t source_row) {
   auto target_flat = target->asFlatVector<T>();
-  auto source_sv = source->as<facebook::velox::SimpleVector<T>>();
-  if (!source_sv || source_sv->isNullAt(source_row)) {
-    return;  // null or incompatible encoding contributes nothing to SUM
+  facebook::velox::DecodedVector decoded(*source);
+  if (decoded.isNullAt(source_row)) {
+    return;
   }
-  T src_val = source_sv->valueAt(source_row);
+  T src_val = decoded.valueAt<T>(source_row);
   if (target_flat->isNullAt(0)) {
     target_flat->setNull(0, false);
     target_flat->set(0, src_val);
   } else {
     T cur = target_flat->valueAt(0);
     T result;
-    if constexpr (std::is_integral_v<T>) {
+    if constexpr (std::is_integral_v<T> || std::is_same_v<T, facebook::velox::int128_t>) {
       if (__builtin_add_overflow(cur, src_val, &result)) {
         throw std::overflow_error(
             "AggregationMergeReader: integer SUM overflow detected");
@@ -65,11 +73,11 @@ void applyMaxTyped(
     const facebook::velox::VectorPtr& source,
     facebook::velox::vector_size_t source_row) {
   auto target_flat = target->asFlatVector<T>();
-  auto source_sv = source->as<facebook::velox::SimpleVector<T>>();
-  if (!source_sv || source_sv->isNullAt(source_row)) {
+  facebook::velox::DecodedVector decoded(*source);
+  if (decoded.isNullAt(source_row)) {
     return;
   }
-  T src_val = source_sv->valueAt(source_row);
+  T src_val = decoded.valueAt<T>(source_row);
   if (target_flat->isNullAt(0)) {
     target_flat->setNull(0, false);
     target_flat->set(0, src_val);
@@ -86,11 +94,11 @@ void applyMinTyped(
     const facebook::velox::VectorPtr& source,
     facebook::velox::vector_size_t source_row) {
   auto target_flat = target->asFlatVector<T>();
-  auto source_sv = source->as<facebook::velox::SimpleVector<T>>();
-  if (!source_sv || source_sv->isNullAt(source_row)) {
+  facebook::velox::DecodedVector decoded(*source);
+  if (decoded.isNullAt(source_row)) {
     return;
   }
-  T src_val = source_sv->valueAt(source_row);
+  T src_val = decoded.valueAt<T>(source_row);
   if (target_flat->isNullAt(0)) {
     target_flat->setNull(0, false);
     target_flat->set(0, src_val);
@@ -108,7 +116,6 @@ void applyMinTyped(
 AggFunction parseAggFunction(const std::string& name) {
   auto upper = toUpper(name);
   if (upper == "SUM") return AggFunction::SUM;
-  if (upper == "COUNT") return AggFunction::COUNT;
   if (upper == "MAX") return AggFunction::MAX;
   if (upper == "MIN") return AggFunction::MIN;
   if (upper == "LAST_VALUE") return AggFunction::LAST_VALUE;
@@ -119,6 +126,7 @@ AggFunction parseAggFunction(const std::string& name) {
   if (upper == "COLLECT") return AggFunction::COLLECT;
   if (upper == "MERGE_MAP") return AggFunction::MERGE_MAP;
   if (upper == "FIRST_VALUE") return AggFunction::FIRST_VALUE;
+  if (upper == "FIRST_NON_NULL_VALUE") return AggFunction::FIRST_NON_NULL_VALUE;
   if (upper == "PRODUCT") return AggFunction::PRODUCT;
   if (upper == "NESTED_UPDATE") return AggFunction::NESTED_UPDATE;
   throw std::invalid_argument(
@@ -133,10 +141,11 @@ AggregationMergeReader::AggregationMergeReader(
     std::vector<facebook::velox::column_index_t> primary_key_indices,
     facebook::velox::column_index_t sequence_column_index,
     facebook::velox::RowTypePtr output_type,
-    std::unordered_map<facebook::velox::column_index_t, AggFunction> agg_specs)
+    std::unordered_map<facebook::velox::column_index_t, AggFunction> agg_specs, MergeDeletePolicy delete_policy)
     : key_indices_(std::move(primary_key_indices)),
       sequence_index_(sequence_column_index),
       output_type_(std::move(output_type)),
+      delete_policy_(delete_policy),
       agg_specs_(std::move(agg_specs)) {
   if (key_indices_.empty()) {
     throw std::invalid_argument(
@@ -197,33 +206,38 @@ facebook::velox::RowVectorPtr AggregationMergeReader::next(
   output_rows.reserve(std::min(batch_size, static_cast<uint64_t>(1024)));
 
   while (!heap_->empty() && output_rows.size() < batch_size) {
-    auto winner = heap_->top();
-    heap_->pop();
-    stats_.input_rows++;
-
-    // Start with the latest version as the accumulated row.
-    auto accumulated = copyRow(winner, pool);
-
-    // Advance the winner's reader.
-    readers_[winner.reader_index].current_row = winner.row + 1;
-    advanceReader(winner.reader_index, pool);
-
-    // Consume all subsequent entries with the same primary key and
-    // aggregate their values into the accumulated row.
-    while (!heap_->empty() && keysEqual(winner, heap_->top())) {
-      auto older = heap_->top();
-      heap_->pop();
-      stats_.input_rows++;
-      stats_.merged_rows++;
-
-      aggregateRow(accumulated, older);
-
-      readers_[older.reader_index].current_row = older.row + 1;
-      advanceReader(older.reader_index, pool);
+    auto versions = collectKeyVersions(*heap_, stats_,
+        [&](const auto& first, const auto& second) { return keysEqual(first, second); },
+        [&](const auto& entry) {
+          readers_[entry.reader_index].current_row = entry.row + 1;
+          advanceReader(entry.reader_index, pool);
+        });
+    facebook::velox::RowVectorPtr accumulated;
+    bool deleted = false;
+    for (const auto& version : versions) {
+      for (uint32_t column = 0; column < output_type_->size(); ++column) {
+        if (!isKeyOrSequenceColumn(column)) {
+          validateComplexAggregateInput(version.batch->childAt(column), version.row, getAggFunction(column));
+        }
+      }
+      const auto kind = persistedValueKind(version);
+      deleted = delete_policy_.remove_record_on_delete && kind == 3;
+      if (deleted) accumulated = copyRow(version, pool);
+      else if (!accumulated && (kind == 0 || kind == 2)) accumulated = copyRow(version, pool);
+      else {
+        if (!accumulated) {
+          accumulated = copyRow(version, pool);
+          for (uint32_t col = 0; col < output_type_->size(); ++col) {
+            if (!isKeyOrSequenceColumn(col)) accumulated->childAt(col)->setNull(0, true);
+          }
+        }
+        aggregateRow(accumulated, version, kind == 1 || kind == 3);
+      }
     }
-
-    output_rows.push_back(std::move(accumulated));
-    stats_.output_rows++;
+    if (accumulated && !deleted) {
+      output_rows.push_back(std::move(accumulated));
+      stats_.output_rows++;
+    }
   }
 
   if (output_rows.empty()) {
@@ -314,6 +328,7 @@ void AggregationMergeReader::pushCurrentRow(int reader_index) {
   entry.reader_index = reader_index;
   entry.row = state.current_row;
   entry.batch = state.current_batch;
+  validatePrimaryKey(entry, key_indices_);
   entry.sequence_num = extractSequenceNumber(entry);
 
   heap_->push(std::move(entry));
@@ -344,41 +359,7 @@ int64_t AggregationMergeReader::extractSequenceNumber(
     // but consistent ordering ensures deterministic output.
     return static_cast<int64_t>(entry.reader_index);
   }
-  auto seq_vector = entry.batch->childAt(sequence_index_);
-  // P1-TC-10: Dispatch on typeKind for INTEGER/SMALLINT/TINYINT, widen to int64_t.
-  switch (seq_vector->typeKind()) {
-    case facebook::velox::TypeKind::BIGINT: {
-      auto flat = seq_vector->asFlatVector<int64_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return flat->valueAt(entry.row);
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::INTEGER: {
-      auto flat = seq_vector->asFlatVector<int32_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::SMALLINT: {
-      auto flat = seq_vector->asFlatVector<int16_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::TINYINT: {
-      auto flat = seq_vector->asFlatVector<int8_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    default:
-      break;
-  }
-  return std::numeric_limits<int64_t>::min();
+  return decodedSequenceNumber(entry.batch, sequence_index_, entry.row);
 }
 
 facebook::velox::RowVectorPtr AggregationMergeReader::copyRow(
@@ -402,7 +383,7 @@ facebook::velox::RowVectorPtr AggregationMergeReader::copyRow(
 
 void AggregationMergeReader::aggregateRow(
     const facebook::velox::RowVectorPtr& target,
-    const HeapEntry& source) const {
+    const HeapEntry& source, bool retract) const {
   auto num_children = target->childrenSize();
 
   for (decltype(num_children) col = 0; col < num_children; ++col) {
@@ -413,8 +394,8 @@ void AggregationMergeReader::aggregateRow(
     // L4-10: Materialize lazy payload column before aggregation access.
     source.batch->childAt(col)->loadedVector();
     auto func = getAggFunction(col);
-    applyAggFunction(
-        func, target->childAt(col), source.batch->childAt(col), source.row);
+    if (retract) applyRetractFunction(func, target->childAt(col), source.batch->childAt(col), source.row);
+    else applyAggFunction(func, target->childAt(col), source.batch->childAt(col), source.row);
   }
 }
 
@@ -431,6 +412,10 @@ void dispatchNumericAgg(
     const facebook::velox::VectorPtr& source,
     facebook::velox::vector_size_t source_row) {
   using namespace facebook::velox;
+  if (target->type()->isLongDecimal()) {
+    TypedOp<int128_t>::apply(target, source, source_row);
+    return;
+  }
   switch (target->typeKind()) {
     case TypeKind::BIGINT:
       TypedOp<int64_t>::apply(target, source, source_row);
@@ -452,7 +437,7 @@ void dispatchNumericAgg(
       TypedOp<float>::apply(target, source, source_row);
       break;
     default:
-      break;
+      throw std::invalid_argument("Paimon numeric aggregator received a non-numeric physical type");
   }
 }
 
@@ -483,17 +468,17 @@ void applyProductTyped(
     const facebook::velox::VectorPtr& source,
     facebook::velox::vector_size_t source_row) {
   auto target_flat = target->asFlatVector<T>();
-  auto source_sv = source->as<facebook::velox::SimpleVector<T>>();
-  if (!source_sv || source_sv->isNullAt(source_row)) {
-    return;  // null contributes nothing (identity element for multiplication)
+  facebook::velox::DecodedVector decoded(*source);
+  if (decoded.isNullAt(source_row)) {
+    return;
   }
-  T src_val = source_sv->valueAt(source_row);
+  T src_val = decoded.valueAt<T>(source_row);
   if (target_flat->isNullAt(0)) {
     target_flat->setNull(0, false);
     target_flat->set(0, src_val);
   } else {
     T cur = target_flat->valueAt(0);
-    if constexpr (std::is_integral_v<T>) {
+    if constexpr (std::is_integral_v<T> || std::is_same_v<T, facebook::velox::int128_t>) {
       T result;
       if (__builtin_mul_overflow(cur, src_val, &result)) {
         throw std::overflow_error(
@@ -513,31 +498,53 @@ struct ProductOp {
                     facebook::velox::vector_size_t r) { applyProductTyped<T>(t, s, r); }
 };
 
-void applyCountAgg(const facebook::velox::VectorPtr& target,
-                   const facebook::velox::VectorPtr& source,
-                   facebook::velox::vector_size_t source_row) {
-  auto target_flat = target->asFlatVector<int64_t>();
-  if (source->isNullAt(source_row)) return;
-  if (target_flat->isNullAt(0)) {
-    target_flat->setNull(0, false);
-    target_flat->set(0, static_cast<int64_t>(1));
-  } else {
-    target_flat->set(0, target_flat->valueAt(0) + 1);
+template <typename T, bool Product>
+struct RetractNumericOp {
+  static void apply(const facebook::velox::VectorPtr& target,
+      const facebook::velox::VectorPtr& source, facebook::velox::vector_size_t row) {
+    facebook::velox::DecodedVector decoded(*source);
+    if (decoded.isNullAt(row)) return;
+    auto* result = target->asFlatVector<T>();
+    const T input = decoded.valueAt<T>(row);
+    if constexpr (Product) {
+      if (result->isNullAt(0)) return;
+      if (input == 0) throw std::invalid_argument("Paimon PRODUCT retract divides by zero");
+      if constexpr (std::is_integral_v<T> || std::is_same_v<T, facebook::velox::int128_t>) {
+        if (input == -1 && result->valueAt(0) == std::numeric_limits<T>::min()) {
+          throw std::overflow_error("Paimon PRODUCT retract overflow");
+        }
+      }
+      result->set(0, result->valueAt(0) / input);
+    } else {
+      const T previous = result->isNullAt(0) ? 0 : result->valueAt(0);
+      T value;
+      if constexpr (std::is_integral_v<T> || std::is_same_v<T, facebook::velox::int128_t>) {
+        if (__builtin_sub_overflow(previous, input, &value)) throw std::overflow_error("Paimon SUM retract overflow");
+      } else value = previous - input;
+      result->setNull(0, false);
+      result->set(0, value);
+    }
   }
-}
+};
+
+template <typename T> using RetractSumOp = RetractNumericOp<T, false>;
+template <typename T> using RetractProductOp = RetractNumericOp<T, true>;
 
 void applyListaggAgg(const facebook::velox::VectorPtr& target,
                      const facebook::velox::VectorPtr& source,
                      facebook::velox::vector_size_t source_row) {
   using facebook::velox::StringView;
   auto target_flat = target->asFlatVector<StringView>();
-  auto source_sv = source->as<facebook::velox::SimpleVector<StringView>>();
-  if (!source_sv || source_sv->isNullAt(source_row)) return;
-  auto src_val = source_sv->valueAt(source_row).str();
+  facebook::velox::DecodedVector decoded(*source);
+  if (decoded.isNullAt(source_row)) return;
+  auto src_val = decoded.valueAt<StringView>(source_row).str();
+  if (src_val.empty() && !target_flat->isNullAt(0)) return;
   if (target_flat->isNullAt(0)) {
     target_flat->setNull(0, false);
     // P1-TC-13: Use set() with std::string to let FlatVector manage buffer
     // ownership, avoiding dangling pointer from temporary StringView.
+    target_flat->set(0, StringView(src_val));
+  } else if (target_flat->valueAt(0).empty()) {
     target_flat->set(0, StringView(src_val));
   } else {
     auto combined = target_flat->valueAt(0).str() + "," + src_val;
@@ -552,9 +559,9 @@ void applyBoolAgg(const facebook::velox::VectorPtr& target,
                   facebook::velox::vector_size_t source_row,
                   bool is_and) {
   auto target_flat = target->asFlatVector<bool>();
-  auto source_sv = source->as<facebook::velox::SimpleVector<bool>>();
-  if (!source_sv || source_sv->isNullAt(source_row)) return;
-  bool src_val = source_sv->valueAt(source_row);
+  facebook::velox::DecodedVector decoded(*source);
+  if (decoded.isNullAt(source_row)) return;
+  bool src_val = decoded.valueAt<bool>(source_row);
   if (target_flat->isNullAt(0)) {
     target_flat->setNull(0, false);
     target_flat->set(0, src_val);
@@ -562,6 +569,137 @@ void applyBoolAgg(const facebook::velox::VectorPtr& target,
     bool cur = target_flat->valueAt(0);
     target_flat->set(0, is_and ? (cur && src_val) : (cur || src_val));
   }
+}
+
+struct ElementReference {
+  facebook::velox::VectorPtr values;
+  facebook::velox::vector_size_t row;
+};
+
+void validateComplexAggregateInput(const facebook::velox::VectorPtr& input,
+    facebook::velox::vector_size_t row, AggFunction function) {
+  if (function != AggFunction::COLLECT && function != AggFunction::NESTED_UPDATE && function != AggFunction::MERGE_MAP) return;
+  facebook::velox::DecodedVector decoded(*input);
+  if (decoded.isNullAt(row)) return;
+  const auto* values = function == AggFunction::MERGE_MAP
+      ? static_cast<const facebook::velox::ArrayVectorBase*>(decoded.base()->as<facebook::velox::MapVector>())
+      : static_cast<const facebook::velox::ArrayVectorBase*>(decoded.base()->as<facebook::velox::ArrayVector>());
+  if (!values) throw std::invalid_argument("Paimon complex aggregate requires exact physical type");
+  if (values->sizeAt(decoded.index(row)) > 65536) throw std::runtime_error("Paimon complex aggregate input exceeds 65536 elements");
+}
+
+void validateDecimalAggregate(const facebook::velox::VectorPtr& value) {
+  if (!value->type()->isDecimal() || value->isNullAt(0)) return;
+  const auto [precision, scale] = facebook::velox::getDecimalPrecisionScale(*value->type());
+  (void)scale;
+  const auto number = value->type()->isShortDecimal() ? value->asFlatVector<int64_t>()->valueAt(0)
+      : value->asFlatVector<facebook::velox::int128_t>()->valueAt(0);
+  if (!facebook::velox::DecimalUtil::valueInPrecisionRange(number, precision)) {
+    throw std::overflow_error("Paimon decimal aggregate exceeds physical precision");
+  }
+}
+
+bool sameElement(const ElementReference& first, const ElementReference& second) {
+  const auto comparison = first.values->compare(second.values.get(), first.row, second.row,
+      facebook::velox::CompareFlags{});
+  if (!comparison) throw std::invalid_argument("Paimon complex aggregate requires exact element equality");
+  return *comparison == 0;
+}
+
+facebook::velox::BufferPtr singleOffset(facebook::velox::memory::MemoryPool* pool,
+    facebook::velox::vector_size_t value) {
+  auto buffer = facebook::velox::AlignedBuffer::allocate<facebook::velox::vector_size_t>(1, pool);
+  buffer->asMutable<facebook::velox::vector_size_t>()[0] = value;
+  return buffer;
+}
+
+void applyMapAgg(const facebook::velox::VectorPtr& target, const facebook::velox::VectorPtr& source,
+    facebook::velox::vector_size_t row, bool retract) {
+  using namespace facebook::velox;
+  if (target->typeKind() != TypeKind::MAP) throw std::invalid_argument("Paimon merge_map requires MAP");
+  DecodedVector input(*source);
+  if (input.isNullAt(row) || (retract && target->isNullAt(0))) return;
+  if (target->isNullAt(0)) {
+    target->copy(source.get(), 0, row, 1);
+    return;
+  }
+  auto* old = target->as<MapVector>();
+  auto* next = input.base()->as<MapVector>();
+  const auto input_row = input.index(row);
+  if (old->sizeAt(0) > 65536 || next->sizeAt(input_row) > 65536) {
+    throw std::runtime_error("Paimon merge_map input exceeds 65536 elements");
+  }
+  std::vector<std::pair<ElementReference, ElementReference>> entries;
+  for (vector_size_t i = old->offsetAt(0); i < old->offsetAt(0) + old->sizeAt(0); ++i) {
+    entries.push_back({{old->mapKeys(), i}, {old->mapValues(), i}});
+  }
+  for (vector_size_t i = next->offsetAt(input_row); i < next->offsetAt(input_row) + next->sizeAt(input_row); ++i) {
+    ElementReference key{next->mapKeys(), i};
+    auto existing = std::find_if(entries.begin(), entries.end(), [&](const auto& value) {
+      return sameElement(value.first, key);
+    });
+    if (retract) {
+      if (existing != entries.end()) entries.erase(existing);
+    } else if (existing != entries.end()) {
+      existing->second = {next->mapValues(), i};
+    } else {
+      if (entries.size() == 65536) throw std::runtime_error("Paimon merge_map exceeds 65536 elements");
+      entries.push_back({key, {next->mapValues(), i}});
+    }
+  }
+  auto keys = BaseVector::create(target->type()->childAt(0), entries.size(), target->pool());
+  auto values = BaseVector::create(target->type()->childAt(1), entries.size(), target->pool());
+  for (size_t i = 0; i < entries.size(); ++i) {
+    keys->copy(entries[i].first.values.get(), i, entries[i].first.row, 1);
+    values->copy(entries[i].second.values.get(), i, entries[i].second.row, 1);
+  }
+  auto merged = std::make_shared<MapVector>(target->pool(), target->type(), nullptr, 1,
+      singleOffset(target->pool(), 0), singleOffset(target->pool(), entries.size()), keys, values);
+  target->copy(merged.get(), 0, 0, 1);
+}
+
+void applyArrayAgg(const facebook::velox::VectorPtr& target, const facebook::velox::VectorPtr& source,
+    facebook::velox::vector_size_t row, bool retract, bool nested) {
+  using namespace facebook::velox;
+  if (target->typeKind() != TypeKind::ARRAY || (nested && target->type()->childAt(0)->kind() != TypeKind::ROW)) {
+    throw std::invalid_argument("Paimon collect/nested_update requires its exact ARRAY element type");
+  }
+  DecodedVector input(*source);
+  if (input.isNullAt(row) || (retract && target->isNullAt(0))) return;
+  if (target->isNullAt(0) && !nested) {
+    target->copy(source.get(), 0, row, 1);
+    return;
+  }
+  auto* next = input.base()->as<ArrayVector>();
+  const auto input_row = input.index(row);
+  std::vector<ElementReference> entries;
+  if (!target->isNullAt(0)) {
+    auto* old = target->as<ArrayVector>();
+    if (old->sizeAt(0) > 65536) throw std::runtime_error("Paimon array aggregate input exceeds 65536 elements");
+    for (vector_size_t i = old->offsetAt(0); i < old->offsetAt(0) + old->sizeAt(0); ++i) {
+      if (!nested || !old->elements()->isNullAt(i)) entries.push_back({old->elements(), i});
+    }
+  }
+  if (next->sizeAt(input_row) > 65536) throw std::runtime_error("Paimon array aggregate input exceeds 65536 elements");
+  for (vector_size_t i = next->offsetAt(input_row); i < next->offsetAt(input_row) + next->sizeAt(input_row); ++i) {
+    if (nested && next->elements()->isNullAt(i)) continue;
+    ElementReference element{next->elements(), i};
+    if (retract) {
+      auto matches = [&](const auto& value) { return sameElement(value, element); };
+      if (nested) entries.erase(std::remove_if(entries.begin(), entries.end(), matches), entries.end());
+      else if (auto found = std::find_if(entries.begin(), entries.end(), matches); found != entries.end()) {
+        entries.erase(found);
+      }
+    } else {
+      if (entries.size() == 65536) throw std::runtime_error("Paimon array aggregate exceeds 65536 elements");
+      entries.push_back(element);
+    }
+  }
+  auto elements = BaseVector::create(target->type()->childAt(0), entries.size(), target->pool());
+  for (size_t i = 0; i < entries.size(); ++i) elements->copy(entries[i].values.get(), i, entries[i].row, 1);
+  auto merged = std::make_shared<ArrayVector>(target->pool(), target->type(), nullptr, 1,
+      singleOffset(target->pool(), 0), singleOffset(target->pool(), entries.size()), elements);
+  target->copy(merged.get(), 0, 0, 1);
 }
 
 }  // namespace
@@ -575,9 +713,6 @@ void AggregationMergeReader::applyAggFunction(
     case AggFunction::SUM:
       dispatchNumericAgg<SumOp>(target, source, source_row);
       break;
-    case AggFunction::COUNT:
-      applyCountAgg(target, source, source_row);
-      break;
     case AggFunction::MAX:
       dispatchNumericAgg<MaxOp>(target, source, source_row);
       break;
@@ -585,12 +720,10 @@ void AggregationMergeReader::applyAggFunction(
       dispatchNumericAgg<MinOp>(target, source, source_row);
       break;
     case AggFunction::LAST_VALUE:
-      // Winner (target) is already the latest version — no-op.
-      // Older rows must NOT overwrite the winner's value.
+      target->copy(source.get(), 0, source_row, 1);
       break;
     case AggFunction::LAST_NON_NULL_VALUE:
-      // Only backfill from older row if the winner's column is null.
-      if (target->isNullAt(0) && !source->isNullAt(source_row)) {
+      if (!source->isNullAt(source_row)) {
         target->copy(source.get(), 0, source_row, 1);
       }
       break;
@@ -604,41 +737,42 @@ void AggregationMergeReader::applyAggFunction(
       applyBoolAgg(target, source, source_row, false);
       break;
     case AggFunction::COLLECT:
-      // Collect appends values into a comma-separated list (same as LISTAGG).
-      applyListaggAgg(target, source, source_row);
+      applyArrayAgg(target, source, source_row, false, false);
       break;
     case AggFunction::MERGE_MAP:
-      // Merge map: for MAP columns, newer entries overwrite older ones.
-      // The winner (target) already has the latest map; older maps backfill
-      // only when target is null.
-      if (target->isNullAt(0) && !source->isNullAt(source_row)) {
-        target->copy(source.get(), 0, source_row, 1);
-      }
+      applyMapAgg(target, source, source_row, false);
       break;
     case AggFunction::FIRST_VALUE:
-      // First value: keep the oldest (source) value, overwrite the winner.
-      // The heap pops newest first, so source is older — always overwrite
-      // target with source unless source is null.
-      if (!source->isNullAt(source_row)) {
-        target->copy(source.get(), 0, source_row, 1);
-      }
+      // The first chronological value, including NULL, remains authoritative.
+      break;
+    case AggFunction::FIRST_NON_NULL_VALUE:
+      if (target->isNullAt(0) && !source->isNullAt(source_row)) target->copy(source.get(), 0, source_row, 1);
       break;
     case AggFunction::PRODUCT:
       dispatchNumericAgg<ProductOp>(target, source, source_row);
       break;
     case AggFunction::NESTED_UPDATE:
-      // Nested update: for STRUCT/ROW columns, merge non-null fields from
-      // older rows into the target. At the flat vector level, backfill nulls.
-      if (target->isNullAt(0) && !source->isNullAt(source_row)) {
-        target->copy(source.get(), 0, source_row, 1);
-      }
+      applyArrayAgg(target, source, source_row, false, true);
       break;
   }
+  validateDecimalAggregate(target);
+}
+
+void AggregationMergeReader::applyRetractFunction(AggFunction func,
+    const facebook::velox::VectorPtr& target, const facebook::velox::VectorPtr& source,
+    facebook::velox::vector_size_t row) const {
+  if (func == AggFunction::SUM) dispatchNumericAgg<RetractSumOp>(target, source, row);
+  else if (func == AggFunction::PRODUCT) dispatchNumericAgg<RetractProductOp>(target, source, row);
+  else if (func == AggFunction::MERGE_MAP) applyMapAgg(target, source, row, true);
+  else if (func == AggFunction::COLLECT) applyArrayAgg(target, source, row, true, false);
+  else if (func == AggFunction::NESTED_UPDATE) applyArrayAgg(target, source, row, true, true);
+  else throw std::invalid_argument("Paimon aggregate function does not support retraction");
+  validateDecimalAggregate(target);
 }
 
 bool AggregationMergeReader::isKeyOrSequenceColumn(
     facebook::velox::column_index_t col) const {
-  if (col == sequence_index_) {
+  if (col == sequence_index_ || output_type_->nameOf(col) == "_VALUE_KIND") {
     return true;
   }
   return std::find(key_indices_.begin(), key_indices_.end(), col) !=
@@ -651,8 +785,8 @@ AggFunction AggregationMergeReader::getAggFunction(
   if (it != agg_specs_.end()) {
     return it->second;
   }
-  // Non-aggregated, non-key columns default to LAST_VALUE.
-  return AggFunction::LAST_VALUE;
+  // Paimon AggregateMergeFunction's final default is last_non_null_value.
+  return AggFunction::LAST_NON_NULL_VALUE;
 }
 
 facebook::velox::RowVectorPtr AggregationMergeReader::assembleOutput(

@@ -1,0 +1,375 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/capability.proto";
+import "pangrova/protocol/v2/common.proto";
+
+// Scope controls distribution and publication without exposing a
+// feature-specific artifact schema in the task protocol.
+enum ArtifactObjectScope {
+  ARTIFACT_OBJECT_SCOPE_UNSPECIFIED = 0;
+  ARTIFACT_OBJECT_SCOPE_SOURCE_OBJECT = 1;
+  ARTIFACT_OBJECT_SCOPE_WORK_UNIT = 2;
+  ARTIFACT_OBJECT_SCOPE_GENERATION = 3;
+}
+
+enum ArtifactWorkKind {
+  ARTIFACT_WORK_KIND_UNSPECIFIED = 0;
+  ARTIFACT_WORK_KIND_SOURCE_MAP = 1;
+  ARTIFACT_WORK_KIND_DEPENDENCY_REDUCE = 2;
+  ARTIFACT_WORK_KIND_GENERATION_FINALIZE = 3;
+  // Terminal partition of a generic relational stage graph. Inputs may cover
+  // many physical source objects or exchanges; output identity is WORK_UNIT,
+  // never a fabricated SOURCE_OBJECT row-position locator.
+  ARTIFACT_WORK_KIND_RELATIONAL_PARTITION = 4;
+}
+
+// Control-plane purpose of a generic artifact job. This is intentionally not
+// tied to a feature-specific artifact type.
+enum ArtifactExecutionKind {
+  ARTIFACT_EXECUTION_KIND_UNSPECIFIED = 0;
+  ARTIFACT_EXECUTION_KIND_BUILD = 1;
+  ARTIFACT_EXECUTION_KIND_EXPORT = 2;
+}
+
+// Zero-row publication is opt-in and still requires every format-defined
+// output object and checksum to be present.
+enum ArtifactEmptyPartitionPolicy {
+  ARTIFACT_EMPTY_PARTITION_POLICY_UNSPECIFIED = 0;
+  ARTIFACT_EMPTY_PARTITION_POLICY_FORBID = 1;
+  ARTIFACT_EMPTY_PARTITION_POLICY_ALLOW_ZERO_ROWS = 2;
+}
+
+// Version-pinned input identity. Every field must be non-blank canonical UTF-8
+// and must not contain Unicode C0/C1 controls (U+0000..U+001F,
+// U+007F..U+009F). Implementations order dependencies by kind, then id, then
+// version using unsigned UTF-8 byte lexicographic order; a shorter byte prefix
+// sorts first. The checksum input is each field's uint32 big-endian byte length
+// followed by its exact UTF-8 bytes, with no delimiter concatenation. A set
+// must not repeat the structural (kind, id) logical identity.
+message ArtifactDependency {
+  string kind = 1;
+  string id = 2;
+  string version = 3;
+}
+
+message ArtifactObject {
+  string object_id = 1;
+  string opaque_uri = 2;
+  uint64 size_bytes = 3;
+  Checksum checksum = 4;
+  string encryption_key_ref = 5;
+  // Roles and source identities are interpreted by the capability descriptor;
+  // the transport remains generic across index/model/cache artifact kinds.
+  string object_role = 6;
+  string source_object_id = 7;
+  uint64 row_count = 8;
+  uint32 ordinal = 9;
+  ArtifactObjectScope scope = 10;
+}
+
+message ArtifactBinding {
+  string artifact_id = 1;
+  string artifact_type = 2;
+  string generation = 3;
+  string source_id = 4;
+  string source_snapshot = 5;
+  uint64 source_data_timestamp_ms = 6;
+  uint64 artifact_created_at_epoch_ms = 7;
+  string read_epoch = 8;
+  string manifest_uri = 9;
+  Checksum manifest_checksum = 10;
+  repeated ArtifactObject split_objects = 11;
+  ArtifactFormatRef format = 12;
+  repeated NamedValue properties = 13;
+  Checksum binding_checksum = 14;
+  RowLocatorContract row_locator = 15;
+  repeated ArtifactDependency dependencies = 16;
+  Checksum dependency_set_checksum = 17;
+  ArtifactExecutionKind execution_kind = 18;
+  ArtifactEmptyPartitionPolicy empty_partition_policy = 19;
+}
+
+// Write target for an immutable artifact work page. Unlike ArtifactBinding,
+// this describes a not-yet-published staging target and therefore cannot carry
+// fabricated manifest/object checksums. Publication is allowed only after all
+// fenced work-page reports have been validated by the control plane.
+message ArtifactWriteBinding {
+  string artifact_id = 1;
+  string artifact_type = 2;
+  string generation = 3;
+  string source_id = 4;
+  string source_snapshot = 5;
+  string staging_uri = 6;
+  ArtifactFormatRef format = 7;
+  string encryption_key_ref = 8;
+  repeated string expected_source_object_ids = 9;
+  uint64 publication_fencing_token = 10;
+  string idempotency_key = 11;
+  repeated NamedValue properties = 12;
+  RowLocatorContract row_locator = 13;
+  // Stable logical page identity. task_id changes for every retry; this does
+  // not, allowing the durable store to fence attempts without re-keying work.
+  string work_unit_id = 14;
+  ArtifactWorkKind work_kind = 15;
+  // Stable scope identity for reduce/finalize outputs. Source-map pages use
+  // expected_source_object_ids instead.
+  string output_scope_id = 16;
+  ArtifactExecutionKind execution_kind = 17;
+  repeated ArtifactDependency dependencies = 18;
+  Checksum dependency_set_checksum = 19;
+  ArtifactEmptyPartitionPolicy empty_partition_policy = 20;
+}
+
+message ModelBinding {
+  VersionedRef model = 1;
+  string service_id = 2;
+  string credential_ref = 3;
+  string route_policy_version = 4;
+  // Exact result contract copied from the selected ModelAvailability. Native
+  // validates it before executing a governed callback and validates every
+  // returned value against it.
+  LogicalType output_type = 5;
+  ModelRequestLimits request_limits = 6;
+}
+
+// Per physical provider request constraints, not token usage or a task ledger.
+message ModelRequestLimits {
+  uint64 max_input_tokens = 1;
+  uint64 max_output_tokens = 2;
+  uint64 max_request_bytes = 3;
+  uint64 max_response_bytes = 4;
+}
+
+message PolicyBinding {
+  string policy_id = 1;
+  string version = 2;
+  bytes policy_sha256 = 3;
+}
+
+enum CoveragePolicy {
+  COVERAGE_POLICY_UNSPECIFIED = 0;
+  COVERAGE_POLICY_REQUIRE_COMPLETE = 1;
+  COVERAGE_POLICY_ALLOW_EXPLICIT_PARTIAL = 2;
+  COVERAGE_POLICY_REQUIRE_EXACT_FALLBACK = 3;
+}
+
+enum FallbackPolicy {
+  FALLBACK_POLICY_UNSPECIFIED = 0;
+  FALLBACK_POLICY_FORBID = 1;
+  FALLBACK_POLICY_EXACT_SAME_SNAPSHOT = 2;
+}
+
+message ApproximationProfile {
+  string profile_id = 1;
+  uint64 candidate_limit = 2;
+  uint64 exact_rescore_limit = 3;
+  double required_recall_at_k = 4;
+  uint32 recall_k = 5;
+}
+
+message ExecutionPolicy {
+  CoveragePolicy coverage_policy = 1;
+  FallbackPolicy fallback_policy = 2;
+  RetryClass retry_class = 3;
+  ApproximationProfile approximation = 4;
+  uint64 deadline_epoch_ms = 5;
+  string idempotency_key = 6;
+}
+
+message ExchangePartitionSource {
+  string source_task_id = 1;
+  // Shuffle output partition consumed by the downstream task.
+  int32 output_partition_id = 2;
+  uint64 plan_epoch = 3;
+  uint32 attempt_id = 4;
+  uint64 fencing_token = 5;
+  string host = 6;
+  uint32 port = 7;
+  string tls_identity = 8;
+  bytes signed_ticket = 9;
+  Checksum output_checksum = 10;
+  uint64 expected_rows = 11;
+  uint64 expected_bytes = 12;
+  // Stable logical producer identity. Retries/speculative task IDs change;
+  // these fields do not, allowing stale attempts to be fenced/replaced rather
+  // than counted as additional producers.
+  int32 source_stage_id = 13;
+  int32 source_partition_id = 14;
+  uint64 ticket_expires_at_epoch_ms = 15;
+}
+
+enum ExchangeReadMode {
+  EXCHANGE_READ_MODE_UNSPECIFIED = 0;
+  EXCHANGE_READ_MODE_STREAMING = 1;
+  EXCHANGE_READ_MODE_BLOCKING = 2;
+}
+
+message ExchangeInputBinding {
+  string plan_node_id = 1;
+  string exchange_id = 2;
+  uint32 expected_source_partitions = 3;
+  reserved 4;
+  bool no_more_sources = 5;
+  ExchangeReadMode read_mode = 6;
+  oneof transport {
+    DirectExchangeInput direct = 10;
+    ExternalShuffleInput external = 11;
+  }
+}
+
+// Worker-to-worker provider. Every source carries a producer-minted ticket;
+// the Coordinator binds metadata but never opens or relays the data stream.
+message DirectExchangeInput {
+  repeated ExchangePartitionSource sources = 1;
+}
+
+// External shuffle provider. Data is read by the consuming Worker directly
+// from the selected endpoint and never flows through the Coordinator.
+message ExternalShuffleInput {
+  string shuffle_id = 1;
+  repeated ShuffleServiceEndpoint endpoints = 2;
+  int32 output_partition_id = 3;
+  uint64 plan_epoch = 4;
+  ExecutionOwnerIdentity execution_owner = 5;
+  uint64 deadline_epoch_ms = 6;
+  uint32 partition_count = 7;
+  ShuffleAccessCapability read_capability = 8;
+  ShuffleServiceAddress commit_address = 9;
+  uint32 expected_producer_partitions = 10;
+  Checksum expected_producer_set_checksum = 11;
+}
+
+enum RuntimeFilterScope {
+  RUNTIME_FILTER_SCOPE_UNSPECIFIED = 0;
+  RUNTIME_FILTER_SCOPE_PARTITION_PRUNING = 1;
+  RUNTIME_FILTER_SCOPE_ROW_FILTER = 2;
+  RUNTIME_FILTER_SCOPE_BOTH = 3;
+}
+
+message RuntimeFilter {
+  string column_name = 1;
+  RuntimeFilterScope scope = 2;
+  oneof predicate {
+    InListFilter in_list = 10;
+    RangeFilter range = 11;
+    BloomFilter bloom = 12;
+  }
+}
+
+message InListFilter { repeated TypedValue values = 1; }
+
+message RangeFilter {
+  TypedValue lower = 1;
+  TypedValue upper = 2;
+  bool lower_inclusive = 3;
+  bool upper_inclusive = 4;
+}
+
+message BloomFilter {
+  string algorithm = 1;
+  bytes serialized_filter = 2;
+  LogicalType probe_type = 3;
+  ValueEncoding value_encoding = 4;
+}
+
+enum ValueEncoding {
+  VALUE_ENCODING_UNSPECIFIED = 0;
+  VALUE_ENCODING_UTF8 = 1;
+  VALUE_ENCODING_INT64_LE = 2;
+  VALUE_ENCODING_DOUBLE_LE = 3;
+  VALUE_ENCODING_DECIMAL_UNSCALED = 4;
+  VALUE_ENCODING_DECIMAL_TEXT = 5;
+}
+
+message RuntimeFilterBinding {
+  string plan_node_id = 1;
+  repeated RuntimeFilter filters = 2;
+}
+
+// Governed reuse policy for an operator result. The policy is deliberately
+// generic: any capability may opt in when its Native implementation can build
+// a stable key and materialize the typed value without routing data through
+// the control plane. Hard security/model/source identities remain in the
+// surrounding TaskRequest and OperatorBinding and are always part of the key.
+message ExecutionReusePolicy {
+  bool enabled = 1;
+  uint64 ttl_ms = 2;
+  uint64 max_entries = 3;
+  uint64 max_bytes = 4;
+  double similarity_threshold = 5;
+  uint32 key_dimension = 6;
+  bool require_complete = 7;
+}
+
+message OperatorBinding {
+  string plan_node_id = 1;
+  CapabilityRef capability = 2;
+  repeated ArtifactBinding artifacts = 3;
+  ModelBinding model = 4;
+  repeated PolicyBinding policies = 5;
+  ExecutionPolicy execution_policy = 6;
+  reserved 7;
+  ArtifactWriteBinding output_artifact = 8;
+  // Upper bounds required by this operator. The Coordinator may aggregate
+  // these numbers for admission, but the Native Worker is authoritative and
+  // rejects a task whose stage grant does not cover every dimension.
+  OperatorResourceRequirement resources = 9;
+  ExecutionReusePolicy reuse_policy = 10;
+}
+
+// Canonical persisted/transport-neutral set of bindings for one immutable
+// plan. Background plans may contain both governed model invocations and one
+// fenced artifact sink; keeping them in the same generic envelope avoids
+// feature-specific task payloads and makes the complete plan replayable after
+// control-plane failover.
+message OperatorBindingSet {
+  repeated OperatorBinding bindings = 1;
+}
+
+message OperatorResourceRequirement {
+  uint64 candidate_rows = 1;
+  uint64 candidate_bytes = 2;
+  uint64 fill_keys = 3;
+  uint32 provider_concurrency = 4;
+  reserved 5, 6, 10;
+  reserved "provider_input_tokens", "provider_output_tokens", "provider_invocations";
+  uint64 media_bytes = 7;
+  uint64 object_store_read_bytes = 8;
+  uint64 object_store_write_bytes = 9;
+  // Failed and retried physical attempts consume this bound too.
+  uint64 provider_attempts = 11;
+  // Actual encoded HTTP request/response body bytes, including failed attempts.
+  uint64 provider_request_bytes = 12;
+  uint64 provider_response_bytes = 13;
+  uint64 provider_items = 14;
+}
+
+message StageResourceGrant {
+  string grant_id = 1;
+  uint32 cpu_slots = 2;
+  uint64 jvm_heap_bytes = 3;
+  uint64 native_memory_bytes = 4;
+  uint64 shuffle_send_bytes = 5;
+  uint64 shuffle_receive_bytes = 6;
+  uint64 spill_bytes = 7;
+  uint64 object_store_read_bytes = 8;
+  uint64 candidate_rows = 9;
+  uint64 candidate_bytes = 10;
+  uint64 fill_keys = 11;
+  uint32 provider_concurrency = 12;
+  reserved 13, 14, 17;
+  reserved "provider_input_tokens", "provider_output_tokens", "provider_invocations";
+  uint64 media_bytes = 15;
+  uint64 object_store_write_bytes = 16;
+  // Maximum bytes simultaneously resident in the producer's serialized
+  // shuffle queue. This is a memory reservation, not cumulative wire usage.
+  uint64 shuffle_buffer_bytes = 18;
+  uint64 provider_attempts = 19;
+  uint64 provider_request_bytes = 20;
+  uint64 provider_response_bytes = 21;
+  uint64 provider_items = 22;
+}

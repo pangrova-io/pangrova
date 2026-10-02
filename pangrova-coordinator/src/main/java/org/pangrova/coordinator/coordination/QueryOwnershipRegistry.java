@@ -1,147 +1,191 @@
 package org.pangrova.coordinator.coordination;
 
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.OwnershipEntry;
+import org.pangrova.spi.coordination.ExecutionAnchor;
+import org.pangrova.spi.coordination.ExecutionAnchorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
- * Tracks which coordinator owns which in-flight query, at which leader epoch.
+ * Caches the exact durable execution anchors owned by this Coordinator process.
  *
- * <p>Extracted from {@link HighAvailabilityCoordinationService} to keep that class within the
- * project class-size budget. The epoch is supplied by the caller rather than owned here, because
- * it is leader-election state: this registry only stamps and compares it.</p>
- *
- * <p>On demotion or shutdown the owned queries are persisted as orphans so the incoming leader
- * can reclaim them; the map is only cleared afterwards.</p>
+ * <p>The cache is never authoritative. Acquisition, renewal, completion and
+ * takeover are committed by {@link ExecutionAnchorStore}; the cache only avoids
+ * coordination-store reads while stamping task-control messages. No result rows,
+ * vector candidates, Top-K state or data-plane buffers are held here.</p>
  */
 @ThreadSafe
 final class QueryOwnershipRegistry {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryOwnershipRegistry.class);
-
-    /**
-     * Operational alarms are emitted under the {@link HighAvailabilityCoordinationService} logger.
-     * This registry is an internal collaborator of that service, and the alarms describe HA
-     * failover health rather than registry internals — operator alert rules and tests key on the
-     * owning service's logger name, so extracting this class must not move them elsewhere.
-     */
     private static final Logger ALARM_LOG =
             LoggerFactory.getLogger(HighAvailabilityCoordinationService.class);
 
-    private final ConcurrentHashMap<String, OwnershipEntry> ownership = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ExecutionAnchor> ownership =
+            new ConcurrentHashMap<>();
     private final int maxEntries;
+    private final Duration leaseDuration;
+    private volatile ExecutionAnchorStore store;
 
-    private volatile OrphanQueryReclaimer reclaimer;
-
-    QueryOwnershipRegistry(int maxEntries) {
+    QueryOwnershipRegistry(
+            int maxEntries,
+            Duration leaseDuration,
+            ExecutionAnchorStore store) {
         this.maxEntries = maxEntries;
+        this.leaseDuration = leaseDuration;
+        this.store = store;
     }
 
-    void setReclaimer(OrphanQueryReclaimer reclaimer) {
-        this.reclaimer = reclaimer;
+    void setStore(ExecutionAnchorStore replacement) {
+        if (!ownership.isEmpty()) {
+            throw new IllegalStateException(
+                    "execution-anchor store cannot change while queries are owned");
+        }
+        this.store = replacement;
     }
 
-    /**
-     * Claims ownership of a query at the current leader epoch.
-     *
-     * <p>BUG-D01: the epoch must be the leader term as-is, never incremented per query. Incrementing
-     * on every ownership call inflated the counter and broke epoch fencing, letting a standby use
-     * the inflated epoch to force-replace an active leader's lease.</p>
-     *
-     * @return {@code false} when the query is already owned, or the registry is at capacity
-     */
-    boolean acquire(String queryId, String coordinatorId, long epoch) {
+    boolean acquire(String queryId, String coordinatorId, String incarnation) {
+        ExecutionAnchor cached = ownership.get(queryId);
+        if (cached != null) {
+            if (!cached.ownerId().equals(coordinatorId) || !cached.ownerIncarnation().equals(incarnation)) {
+                return false;
+            }
+            var current = store.current(queryId);
+            if (current.filter(anchor -> sameOwner(anchor, cached)).isPresent()) {
+                return true;
+            }
+            ownership.remove(queryId, cached);
+        }
         if (ownership.size() >= maxEntries) {
-            // A-OWN-01: capacity exhaustion is fail-closed (reject to protect the coordinator), but it
-            // is also an operational emergency — new queries cannot be tracked/recovered and it usually
-            // signals an ownership leak. Raise a CRITICAL alarm instead of a quiet warning.
-            ALARM_LOG.error("event=coordinator_alarm severity=CRITICAL component=ha_query_ownership "
-                    + "message=\"query-ownership map at capacity; rejecting new ownership (possible "
-                    + "ownership leak)\" size={} maxEntries={} queryId={}",
+            ALARM_LOG.error("event=coordinator_alarm severity=CRITICAL "
+                            + "component=query_execution_anchor "
+                            + "message=\"local execution-anchor cache at capacity\" "
+                            + "size={} maxEntries={} queryId={}",
                     ownership.size(), maxEntries, queryId);
             return false;
         }
-        boolean acquired = ownership.putIfAbsent(queryId, new OwnershipEntry(coordinatorId, epoch)) == null;
-        if (acquired) {
-            LOG.debug("event=query_ownership_acquired queryId={} coordinator={} epoch={}",
-                    queryId, coordinatorId, epoch);
+        Optional<ExecutionAnchor> acquired = store.tryAcquire(
+                queryId, coordinatorId, incarnation, leaseDuration);
+        if (acquired.isEmpty()) {
+            acquired = store.current(queryId).filter(anchor -> anchor.ownerId().equals(coordinatorId)
+                    && anchor.ownerIncarnation().equals(incarnation));
+            if (acquired.isEmpty()) return false;
         }
-        return acquired;
+        ExecutionAnchor anchor = acquired.orElseThrow();
+        ExecutionAnchor existing = ownership.putIfAbsent(queryId, anchor);
+        if (existing != null) {
+            if (sameOwner(existing, anchor)) {
+                return true;
+            }
+            return anchor.fencingToken() > existing.fencingToken()
+                    && ownership.replace(queryId, existing, anchor);
+        }
+        LOG.debug("event=execution_anchor_acquired queryId={} coordinatorId={} "
+                        + "incarnation={} fencingToken={}",
+                queryId, coordinatorId, incarnation, anchor.fencingToken());
+        return true;
     }
 
-    /** Releases ownership only if {@code coordinatorId} is the recorded owner. */
-    boolean release(String queryId, String coordinatorId) {
-        OwnershipEntry entry = ownership.get(queryId);
-        if (entry == null || !entry.coordinatorId().equals(coordinatorId)) {
+    private static boolean sameOwner(ExecutionAnchor first, ExecutionAnchor second) {
+        return first.executionId().equals(second.executionId()) && first.ownerId().equals(second.ownerId())
+                && first.ownerIncarnation().equals(second.ownerIncarnation())
+                && first.fencingToken() == second.fencingToken();
+    }
+
+    boolean release(String queryId, String coordinatorId, String incarnation) {
+        ExecutionAnchor anchor = ownership.get(queryId);
+        if (anchor == null || !anchor.ownerId().equals(coordinatorId)
+                || !anchor.ownerIncarnation().equals(incarnation)) {
             return false;
         }
-        boolean released = ownership.remove(queryId, entry);
+        boolean released = store.release(anchor);
+        ownership.remove(queryId, anchor);
         if (released) {
-            LOG.debug("event=query_ownership_released queryId={} coordinator={}", queryId, coordinatorId);
+            LOG.debug("event=execution_anchor_released queryId={} coordinatorId={} "
+                            + "fencingToken={}",
+                    queryId, coordinatorId, anchor.fencingToken());
         }
         return released;
     }
 
-    /**
-     * Re-stamps every query owned by {@code from} to {@code to} at {@code newEpoch}.
-     *
-     * @return the number of entries actually transferred
-     */
-    int transfer(String from, String to, long newEpoch) {
-        int transferred = 0;
-        for (Map.Entry<String, OwnershipEntry> e : ownership.entrySet()) {
-            if (e.getValue().coordinatorId().equals(from)
-                    && ownership.replace(e.getKey(), e.getValue(), new OwnershipEntry(to, newEpoch))) {
-                transferred++;
-            }
-        }
-        if (transferred > 0) {
-            LOG.info("event=ownership_transferred from={} to={} count={} epoch={}",
-                    from, to, transferred, newEpoch);
-        }
-        return transferred;
+    Optional<ExecutionAnchor> localAnchor(String executionId) {
+        return Optional.ofNullable(ownership.get(executionId));
     }
 
-    /** Zombie fencing: a claim is valid only at the epoch the ownership was stamped with. */
-    boolean isCurrentEpoch(String queryId, long queryEpoch) {
-        OwnershipEntry entry = ownership.get(queryId);
-        return entry != null && queryEpoch == entry.epoch();
+    boolean isCurrentToken(String executionId, long fencingToken) {
+        ExecutionAnchor anchor = ownership.get(executionId);
+        return anchor != null && anchor.fencingToken() == fencingToken;
     }
 
-    /**
-     * Persists all currently owned queries as orphans so a new leader can reclaim them. A no-op
-     * without a reclaimer or with nothing owned. Must be called before {@link #clear()}.
-     */
-    void persistOrphans(String coordinatorId) {
-        OrphanQueryReclaimer target = this.reclaimer;
-        if (target == null || ownership.isEmpty()) {
-            return;
+    boolean isDurablyCurrent(String executionId, long fencingToken) {
+        return store.current(executionId)
+                .filter(anchor -> anchor.fencingToken() == fencingToken)
+                .isPresent();
+    }
+
+    boolean renewOwned(String ownerId, String ownerIncarnation) {
+        long expected = ownership.values().stream()
+                .filter(anchor -> anchor.ownerId().equals(ownerId)
+                        && anchor.ownerIncarnation().equals(ownerIncarnation))
+                .count();
+        if (expected == 0) {
+            return true;
         }
-        try {
-            // Persist ALL owned queries — each entry carries its own coordinatorId. On graceful
-            // shutdown we want everything this node owns, regardless of whether localNodeId was set.
-            List<OrphanQueryReclaimer.OrphanedQuery> orphans = ownership.entrySet().stream()
-                    .map(e -> new OrphanQueryReclaimer.OrphanedQuery(
-                            e.getKey(), e.getValue().coordinatorId(), null, null, 0))
-                    .toList();
-            String effectiveId = coordinatorId != null ? coordinatorId : "unknown";
-            target.releaseQueries(effectiveId, orphans);
-            LOG.info("event=orphaned_queries_persisted coordinator={} count={}",
-                    effectiveId, orphans.size());
-        } catch (Exception e) {
-            // NEW-COORD-02: persisting orphaned queries is data-safety critical — if it fails, the
-            // in-flight queries this coordinator owns will NOT be reclaimed by the new leader and
-            // are effectively lost. Raise a CRITICAL alarm so the failure cannot pass unnoticed.
-            ALARM_LOG.error("event=coordinator_alarm severity=CRITICAL component=ha_failover "
-                    + "message=\"failed to persist orphaned queries; in-flight queries owned by "
-                    + "coordinator may be lost and not reclaimed on failover\" coordinator={} error={}",
-                    coordinatorId, e.getMessage(), e);
+        int renewed = store.renewOwned(ownerId, ownerIncarnation, leaseDuration);
+        if (renewed == expected) {
+            return true;
         }
+        ownership.entrySet().removeIf(entry -> {
+            ExecutionAnchor anchor = entry.getValue();
+            return anchor.ownerId().equals(ownerId)
+                    && anchor.ownerIncarnation().equals(ownerIncarnation)
+                    && store.current(anchor.executionId())
+                            .filter(current -> current.fencingToken()
+                                    == anchor.fencingToken())
+                            .isEmpty();
+        });
+        ALARM_LOG.error("event=coordinator_alarm severity=CRITICAL "
+                        + "component=query_execution_anchor "
+                        + "message=\"execution-anchor renewal lost ownership\" "
+                        + "ownerId={} incarnation={} expected={} renewed={}",
+                ownerId, ownerIncarnation, expected, renewed);
+        return false;
+    }
+
+    List<ExecutionAnchor> claimExpired(
+            String newOwnerId, String newOwnerIncarnation, int maxBatchSize) {
+        int available = Math.max(0, maxEntries - ownership.size());
+        if (available == 0) {
+            return List.of();
+        }
+        List<ExecutionAnchor> claimed = store.claimExpired(
+                newOwnerId, newOwnerIncarnation, leaseDuration,
+                Math.min(available, maxBatchSize));
+        for (ExecutionAnchor anchor : claimed) {
+            ownership.put(anchor.executionId(), anchor);
+        }
+        return claimed;
+    }
+
+    boolean yield(ExecutionAnchor anchor) {
+        boolean yielded = store.yield(anchor);
+        ownership.remove(anchor.executionId(), anchor);
+        return yielded;
+    }
+
+    int yieldOwned(String ownerId, String ownerIncarnation) {
+        int yielded = store.yieldOwned(ownerId, ownerIncarnation);
+        ownership.entrySet().removeIf(entry -> {
+            ExecutionAnchor anchor = entry.getValue();
+            return anchor.ownerId().equals(ownerId)
+                    && anchor.ownerIncarnation().equals(ownerIncarnation);
+        });
+        return yielded;
     }
 
     void clear() {

@@ -10,6 +10,16 @@ sidebar_label: "Streaming & CDC"
 > than implemented support. For current behavior, code wiring and end-to-end tests
 > take precedence.
 
+> **Current CDC boundary.** Sections 2.4–2.7 retain historical `TableWriter`
+> design sketches, not the running write path. The running pipeline uses
+> `CdcPipelineLoop` → `CdcTwoPhaseCommitter` → `ConnectorPageSinkCdcWriter` on the
+> Coordinator. The source offset and Iceberg/Paimon catalog do not share an
+> atomic transaction. `COMMITTING` is now quarantined on ambiguous failure;
+> Paimon rejects the context-free CDC commit, and UPDATE phases are not one
+> snapshot. See [distributed writes](./distributed-writes.md#cdc-repair-contract-proposed-not-implemented)
+> for the required durable Native design and its acceptance criteria. No
+> exactly-once/effectively-once production guarantee is currently claimed.
+
 > **Summary.** CDC ingestion, incremental queries, streaming writes, and watermark tracking.
 
 ## 0. Product Positioning

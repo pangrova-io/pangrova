@@ -11,8 +11,8 @@ import java.util.function.Consumer;
  * and exchange client. Extracted from {@link TaskLifecycleManager} to keep
  * lifecycle orchestration focused on state transitions.
  *
- * <p>Executor release uses CAS on the {@link TaskInfo} handle so concurrent
- * completion/error paths never double-release the native handle.</p>
+ * <p>Concurrent completion/error paths share one release future. Memory is
+ * released only after the Native release call has joined the driver.</p>
  */
 final class TaskResourceReleaser {
 
@@ -40,11 +40,23 @@ final class TaskResourceReleaser {
      * Releases all resources for a task: shuffle server, native executor,
      * memory, and exchange client.
      */
-    void releaseAllResources(TaskInfo info, String taskId) {
-        stopShuffleServerIfNeeded(info);
-        releaseExecutorIfNeeded(info);
-        memoryReleaser.accept(info);
-        destroyExchangeClientIfNeeded(taskId);
+    void releaseAllResources(TaskInfo info, String taskId, Runnable afterRelease) {
+        var candidate = new java.util.concurrent.CompletableFuture<Void>();
+        var release = info.claimResourcesRelease(candidate);
+        if (release != candidate) {
+            release.join();
+            return;
+        }
+        try {
+            stopShuffleServerIfNeeded(info);
+            releaseExecutorIfNeeded(info);
+            afterRelease.run();
+            memoryReleaser.accept(info);
+            release.complete(null);
+        } catch (RuntimeException | Error failure) {
+            release.completeExceptionally(failure);
+            throw failure;
+        }
     }
 
     /**
@@ -62,35 +74,52 @@ final class TaskResourceReleaser {
     }
 
     /**
-     * Cleanup hook for exchange resources on task completion/failure.
-     * With native transport, exchange lifecycle is managed in C++.
-     */
-    void destroyExchangeClientIfNeeded(String taskId) {
-        // No-op: native exchange manages connections in C++
-    }
-
-    /**
-     * Releases the native executor handle using CAS to prevent concurrent double-release (R7.8).
-     * Only the thread that successfully claims the handle via {@code compareAndSet(handle, 0)}
-     * will call {@code releaseTask}, eliminating the race between onTaskCompleted and onTaskError.
+     * Releases the Native executor once, allowing concurrent callers to wait
+     * for the same join outcome before releasing task memory.
      */
     void releaseExecutorIfNeeded(TaskInfo info) {
-        long handle = info.executorHandle();
-        if (handle == 0 || deps == null) {
+        var candidate = new java.util.concurrent.CompletableFuture<byte[]>();
+        var release = info.claimExecutorRelease(candidate);
+        if (release != candidate) {
+            release.join();
             return;
         }
-        // CAS: only the winner releases the native handle
-        if (!info.compareAndSetExecutorHandle(handle, 0)) {
-            LOG.debug("event=executor_release_skipped taskId={} reason=cas_lost handle={}",
-                    info.taskId(), handle);
+        long handle = info.executorHandle();
+        if (handle == 0) {
+            release.complete(null);
             return;
         }
         try {
-            deps.taskExecutor().releaseTask(handle);
+            if (deps == null || deps.taskExecutor() == null) {
+                throw new IllegalStateException("Task executor is unavailable during release");
+            }
+            if (deps.exchangeTransport() != null) {
+                deps.exchangeTransport().releaseInputs(handle);
+            }
+            byte[] receipt = deps.taskExecutor().releaseTask(handle).orElseThrow(() ->
+                    new IllegalStateException("Native task release returned no final report: " + info.taskId()));
+            var report = TaskCompletionMonitor.requireCanonicalTaskReport(info.request().taskRequest(), receipt);
+            if (report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                    && !report.hasNativeTaskStats()) {
+                throw new IllegalStateException("Finished Native task release returned no final statistics: " + info.taskId());
+            }
+            if (report.hasNativeTaskStats()
+                    && !report.getNativeTaskStats().getUnknownFields().asMap().isEmpty()) {
+                throw new IllegalStateException("Released Native task statistics contain unknown fields: " + info.taskId());
+            }
+            info.setReleasedTaskStats(report.hasNativeTaskStats()
+                    ? report.getNativeTaskStats().toByteArray() : null);
+            if (!info.compareAndSetExecutorHandle(handle, 0)) {
+                throw new IllegalStateException(
+                        "Native executor handle changed during release: task=" + info.taskId());
+            }
+            release.complete(receipt.clone());
             LOG.debug("event=executor_released taskId={} handle={}", info.taskId(), handle);
-        } catch (Exception e) {
-            LOG.warn("event=executor_release_failed taskId={} handle={} error={}",
-                    info.taskId(), handle, e.getMessage());
+        } catch (RuntimeException | Error failure) {
+            release.completeExceptionally(failure);
+            LOG.error("event=executor_release_failed taskId={} handle={}",
+                    info.taskId(), handle, failure);
+            throw failure;
         }
     }
 }

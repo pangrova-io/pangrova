@@ -2,9 +2,9 @@ package org.pangrova.protocol.rest;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.protocol.rest.task.ExchangeSourceDescriptor;
-import org.pangrova.protocol.rest.task.UpdateExchangeSourcesRequest;
+import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.protocol.CanonicalCapabilityInventoryTestFixture;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.pangrova.protocol.rest.task.ProtocolTestFixtures.exchangeSource;
 
 /**
  * Verifies field completeness and consistency across cross-node communication DTOs:
@@ -35,22 +36,19 @@ class CrossNodeProtocolTest {
      */
     private static final Set<String> WORKER_REGISTRATION_REQUIRED_FIELDS = Set.of(
             "workerId", "httpHost", "httpPort", "transportPort",
-            "resultServerPort", "protocolVersion", "capabilities");
+            "resultServerPort", "protocolVersion",
+            "capabilityInventory");
 
     /**
      * Fields that ExchangeSourceDescriptor must carry for Worker exchange client
      * to establish upstream shuffle data connections.
      */
     private static final Set<String> EXCHANGE_SOURCE_REQUIRED_FIELDS = Set.of(
-            "sourceTaskId", "host", "transportPort", "partitionId",
-            "exchangeType", "sequenceId");
-
-    /**
-     * Fields that UpdateExchangeSourcesRequest must carry for Worker
-     * to update exchange connections for a running task.
-     */
-    private static final Set<String> UPDATE_EXCHANGE_SOURCES_REQUIRED_FIELDS = Set.of(
-            "taskId", "queryId", "exchangeSources", "reason");
+            "planNodeId", "exchangeId", "expectedSourcePartitions",
+            "sourceTaskId", "sourceStageId", "sourcePartitionId",
+            "outputPartitionId", "planEpoch", "attemptId", "fencingToken",
+            "host", "transportPort", "tlsIdentity", "signedTicket",
+            "ticketExpiresAtEpochMs", "expectedRows", "expectedBytes", "readMode");
 
     // ========================================================================
     // WorkerRegistrationRequest completeness
@@ -63,13 +61,15 @@ class CrossNodeProtocolTest {
         void containsAllRequiredFields() {
             Set<String> actual = recordFieldNames(WorkerRegistrationRequest.class);
             assertThat(actual).containsAll(WORKER_REGISTRATION_REQUIRED_FIELDS);
+            assertThat(actual).doesNotContain("capabilities");
         }
 
         @Test
         void roundTripPreservesAllFields() throws Exception {
             WorkerRegistrationRequest original = new WorkerRegistrationRequest(
-                    "worker-1", "10.0.0.1", 8080, 9090, 0, 2, List.of("shuffle", "spill"),
-                    null, null, null);
+                    "worker-1", "10.0.0.1", 8080, 9090, 0, 2,
+                    null, null, null,
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory());
             byte[] bytes = mapper.writeValueAsBytes(original);
             WorkerRegistrationRequest restored = mapper.readValue(bytes, WorkerRegistrationRequest.class);
 
@@ -78,13 +78,15 @@ class CrossNodeProtocolTest {
             assertThat(restored.httpPort()).isEqualTo(original.httpPort());
             assertThat(restored.transportPort()).isEqualTo(original.transportPort());
             assertThat(restored.protocolVersion()).isEqualTo(original.protocolVersion());
-            assertThat(restored.capabilities()).isEqualTo(original.capabilities());
+            assertThat(restored.capabilityInventory())
+                    .isEqualTo(original.capabilityInventory());
         }
 
         @Test
         void rejectsBlankWorkerId() {
             assertThatThrownBy(() -> new WorkerRegistrationRequest(
-                    "", "host", 8080, 9090, 0, 1, List.of(), null, null, null))
+                    "", "host", 8080, 9090, 0, 2, null, null, null,
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory()))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("workerId");
         }
@@ -92,23 +94,29 @@ class CrossNodeProtocolTest {
         @Test
         void rejectsBlankHost() {
             assertThatThrownBy(() -> new WorkerRegistrationRequest(
-                    "w-1", "", 8080, 9090, 0, 1, List.of(), null, null, null))
+                    "w-1", "", 8080, 9090, 0, 2, null, null, null,
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory()))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("httpHost");
         }
 
         @Test
-        void defaultsProtocolVersionToOneWhenZero() {
-            WorkerRegistrationRequest req = new WorkerRegistrationRequest(
-                    "w-1", "host", 8080, 9090, 0, 0, List.of(), null, null, null);
-            assertThat(req.protocolVersion()).isEqualTo(1);
+        void rejectsProtocolVersionZero() {
+            assertThatThrownBy(() -> new WorkerRegistrationRequest(
+                    "w-1", "host", 8080, 9090, 0, 0,
+                    null, null, null,
+                    CanonicalCapabilityInventoryTestFixture.encodedInventory()))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("protocolVersion");
         }
 
         @Test
-        void defaultsNullCapabilitiesToEmptyList() {
-            WorkerRegistrationRequest req = new WorkerRegistrationRequest(
-                    "w-1", "host", 8080, 9090, 0, 1, null, null, null, null);
-            assertThat(req.capabilities()).isEmpty();
+        void rejectsBlankCanonicalInventory() {
+            assertThatThrownBy(() -> new WorkerRegistrationRequest(
+                    "w-1", "host", 8080, 9090, 0, 2,
+                    null, null, null, ""))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("capabilityInventory");
         }
     }
 
@@ -127,117 +135,72 @@ class CrossNodeProtocolTest {
 
         @Test
         void roundTripPreservesAllFields() throws Exception {
-            ExchangeSourceDescriptor original = new ExchangeSourceDescriptor(
-                    "task-upstream-1", "worker-host-2", 9090, 3, "BROADCAST", 42L);
+            ExchangeSourceDescriptor original = exchangeSource(
+                    "task-upstream-1", "worker-host-2", 9090, 3, "STREAMING", 42L);
             byte[] bytes = mapper.writeValueAsBytes(original);
             ExchangeSourceDescriptor restored = mapper.readValue(bytes, ExchangeSourceDescriptor.class);
 
             assertThat(restored.sourceTaskId()).isEqualTo(original.sourceTaskId());
             assertThat(restored.host()).isEqualTo(original.host());
             assertThat(restored.transportPort()).isEqualTo(original.transportPort());
-            assertThat(restored.partitionId()).isEqualTo(original.partitionId());
-            assertThat(restored.exchangeType()).isEqualTo(original.exchangeType());
-            assertThat(restored.sequenceId()).isEqualTo(original.sequenceId());
+            assertThat(restored.planNodeId()).isEqualTo(original.planNodeId());
+            assertThat(restored.exchangeId()).isEqualTo(original.exchangeId());
+            assertThat(restored.sourceStageId()).isEqualTo(original.sourceStageId());
+            assertThat(restored.sourcePartitionId()).isEqualTo(original.sourcePartitionId());
+            assertThat(restored.outputPartitionId()).isEqualTo(original.outputPartitionId());
+            assertThat(restored.planEpoch()).isEqualTo(original.planEpoch());
+            assertThat(restored.fencingToken()).isEqualTo(original.fencingToken());
+            assertThat(restored.signedTicket()).isEqualTo(original.signedTicket());
+            assertThat(restored.ticketExpiresAtEpochMs())
+                    .isEqualTo(original.ticketExpiresAtEpochMs());
         }
 
         @Test
         void jsonUsesSnakeCaseFieldNames() throws Exception {
-            ExchangeSourceDescriptor src = new ExchangeSourceDescriptor(
-                    "t-1", "host-1", 9090, 0, "HASH_PARTITION", 1L);
+            ExchangeSourceDescriptor src = exchangeSource(
+                    "t-1", "host-1", 9090, 0, "BLOCKING", 1L);
             JsonNode node = mapper.valueToTree(src);
 
             assertThat(node.has("source_task_id")).isTrue();
             assertThat(node.has("host")).isTrue();
             assertThat(node.has("transport_port")).isTrue();
-            assertThat(node.has("partition_id")).isTrue();
-            assertThat(node.has("exchange_type")).isTrue();
-            assertThat(node.has("sequence_id")).isTrue();
+            assertThat(node.has("source_partition_id")).isTrue();
+            assertThat(node.has("output_partition_id")).isTrue();
+            assertThat(node.has("plan_epoch")).isTrue();
+            assertThat(node.has("fencing_token")).isTrue();
+            assertThat(node.has("signed_ticket")).isTrue();
         }
 
         @Test
         void rejectsBlankSourceTaskId() {
-            assertThatThrownBy(() -> new ExchangeSourceDescriptor(
-                    "", "host", 9090, 0, "HASH", 1L))
+            assertThatThrownBy(() -> exchangeSource(
+                    "", "host", 9090, 0, "BLOCKING", 1L))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("sourceTaskId");
         }
 
         @Test
         void rejectsBlankHost() {
-            assertThatThrownBy(() -> new ExchangeSourceDescriptor(
-                    "t-1", "", 9090, 0, "HASH", 1L))
+            assertThatThrownBy(() -> exchangeSource(
+                    "t-1", "", 9090, 0, "BLOCKING", 1L))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("host");
         }
 
         @Test
         void rejectsZeroTransportPort() {
-            assertThatThrownBy(() -> new ExchangeSourceDescriptor(
-                    "t-1", "host", 0, 0, "HASH", 1L))
+            assertThatThrownBy(() -> exchangeSource(
+                    "t-1", "host", 0, 0, "BLOCKING", 1L))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("transportPort");
         }
 
         @Test
         void rejectsNegativeTransportPort() {
-            assertThatThrownBy(() -> new ExchangeSourceDescriptor(
-                    "t-1", "host", -1, 0, "HASH", 1L))
+            assertThatThrownBy(() -> exchangeSource(
+                    "t-1", "host", -1, 0, "BLOCKING", 1L))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("transportPort");
-        }
-    }
-
-    // ========================================================================
-    // UpdateExchangeSourcesRequest completeness
-    // ========================================================================
-
-    @Nested
-    class UpdateExchangeSourcesRequestTests {
-
-        @Test
-        void containsAllRequiredFields() {
-            Set<String> actual = recordFieldNames(UpdateExchangeSourcesRequest.class);
-            assertThat(actual).containsAll(UPDATE_EXCHANGE_SOURCES_REQUIRED_FIELDS);
-        }
-
-        @Test
-        void roundTripPreservesAllFields() throws Exception {
-            ExchangeSourceDescriptor src = new ExchangeSourceDescriptor(
-                    "upstream-1", "worker-3", 9090, 0, "HASH_PARTITION", 5L);
-            UpdateExchangeSourcesRequest original = new UpdateExchangeSourcesRequest(
-                    "task-42", "query-7", List.of(src), "stage-2-ready");
-            byte[] bytes = mapper.writeValueAsBytes(original);
-            UpdateExchangeSourcesRequest restored = mapper.readValue(
-                    bytes, UpdateExchangeSourcesRequest.class);
-
-            assertThat(restored.taskId()).isEqualTo(original.taskId());
-            assertThat(restored.queryId()).isEqualTo(original.queryId());
-            assertThat(restored.reason()).isEqualTo(original.reason());
-            assertThat(restored.exchangeSources()).hasSize(1);
-            assertThat(restored.exchangeSources().get(0).sourceTaskId()).isEqualTo("upstream-1");
-        }
-
-        @Test
-        void rejectsBlankTaskId() {
-            assertThatThrownBy(() -> new UpdateExchangeSourcesRequest(
-                    "", "q-1", List.of(), "reason"))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("taskId");
-        }
-
-        @Test
-        void rejectsBlankQueryId() {
-            assertThatThrownBy(() -> new UpdateExchangeSourcesRequest(
-                    "t-1", "", List.of(), "reason"))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("queryId");
-        }
-
-        @Test
-        void nullExchangeSourcesDefaultsToEmptyList() {
-            UpdateExchangeSourcesRequest req = new UpdateExchangeSourcesRequest(
-                    "t-1", "q-1", null, "reason");
-            assertThat(req.exchangeSources()).isEmpty();
         }
     }
 
@@ -257,7 +220,7 @@ class CrossNodeProtocolTest {
         /**
          * ExchangeSourceDescriptor fields must align with what ExchangeClient needs:
          * host + transportPort for transport connection, sourceTaskId for ticket,
-         * partitionId for partition routing, sequenceId for stale rejection.
+         * logical producer identity and fence for stale-attempt rejection.
          */
         @Test
         void exchangeSourceFieldsAlignWithClientNeeds() {
@@ -265,32 +228,24 @@ class CrossNodeProtocolTest {
             // Connection establishment
             assertThat(fields).contains("host", "transportPort");
             // Ticket construction
-            assertThat(fields).contains("sourceTaskId", "partitionId");
+            assertThat(fields).contains(
+                    "sourceTaskId", "sourceStageId", "sourcePartitionId",
+                    "outputPartitionId", "signedTicket");
             // Stale message rejection
-            assertThat(fields).contains("sequenceId");
-            // Exchange strategy
-            assertThat(fields).contains("exchangeType");
-        }
-
-        @Test
-        void updateRequestCarriesRoutingIdentifiers() {
-            Set<String> fields = recordFieldNames(UpdateExchangeSourcesRequest.class);
-            assertThat(fields).contains("taskId", "queryId");
+            assertThat(fields).contains("planEpoch", "attemptId", "fencingToken");
         }
 
         @Test
         void allCrossNodeDtosAreRecords() {
             assertThat(WorkerRegistrationRequest.class.isRecord()).isTrue();
             assertThat(ExchangeSourceDescriptor.class.isRecord()).isTrue();
-            assertThat(UpdateExchangeSourcesRequest.class.isRecord()).isTrue();
         }
 
         @Test
         void noCrossNodeDtoUsesWeakTypes() {
             for (Class<? extends Record> dtoClass : List.of(
                     WorkerRegistrationRequest.class,
-                    ExchangeSourceDescriptor.class,
-                    UpdateExchangeSourcesRequest.class)) {
+                    ExchangeSourceDescriptor.class)) {
                 for (RecordComponent component : dtoClass.getRecordComponents()) {
                     assertThat(component.getType())
                             .as("Field '%s' in %s must not be Object",

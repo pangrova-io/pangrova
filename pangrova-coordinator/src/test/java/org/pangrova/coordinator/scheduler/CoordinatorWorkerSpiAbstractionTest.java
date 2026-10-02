@@ -45,10 +45,10 @@ class CoordinatorWorkerSpiAbstractionTest {
     void submitTaskRequestConverter_isSelfContained() {
         // Verify the converter does not delegate to worker's TaskRequestConverter
         // by checking it can convert without any worker dependency at runtime
-        var request = new org.pangrova.protocol.rest.task.SubmitTaskRequest(
-                "t-1", "q-1", 0, 0, "COMPUTE",
-                "cGxhbg==", List.of(), List.of(), null, null, null, null,
-                null, null, null, null, null, null, null);
+        var request = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                "t-1", "q-1", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
         var descriptor = SubmitTaskRequestConverter.toTaskDescriptor(request);
 

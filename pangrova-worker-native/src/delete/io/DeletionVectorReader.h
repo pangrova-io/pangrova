@@ -27,7 +27,7 @@ struct PuffinConstants {
 // Two formats are supported:
 //   1. Iceberg v3 Puffin: magic("PUF1") → blobs → footer → magic("PUF1")
 //      The first blob payload contains the serialized Roaring Bitmap.
-//   2. Paimon raw: file contains serialized Roaring Bitmap bytes directly.
+//   2. A raw portable bitmap payload (not a Paimon DeletionFile container).
 //
 // Thread-safety: all methods are stateless and thread-safe.
 class DeletionVectorReader {
@@ -41,11 +41,12 @@ class DeletionVectorReader {
   // Throws std::runtime_error on I/O failure or invalid Puffin format.
   static roaring::Roaring readIcebergDV(const std::string& filePath);
 
-  // Read a Paimon deletion vector file (raw Roaring Bitmap bytes).
+  // Read a generic raw portable Roaring Bitmap payload.
+  // Paimon snapshot deletion containers use PaimonSnapshotDeletionFilter.
   // The entire file content is deserialized as a Roaring Bitmap.
   //
   // Throws std::runtime_error on I/O failure or invalid bitmap data.
-  static roaring::Roaring readPaimonDV(const std::string& filePath);
+  static roaring::Roaring readRawRoaringBitmap(const std::string& filePath);
 
  private:
   // Read entire file content via Velox FileSystem API.

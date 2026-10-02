@@ -1,9 +1,12 @@
 package org.pangrova.worker.bootstrap.phase;
 
 import org.pangrova.spi.execution.TaskExecutor;
+import org.pangrova.config.ShuffleMode;
 import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.WorkerComponentRefs;
 import org.pangrova.worker.execution.NativeTaskExecutor;
+import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
+import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
 import org.pangrova.worker.shuffle.NativeShuffleTransport;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
@@ -46,22 +49,28 @@ public final class WorkerTaskBootstrap {
     public static void startTaskManager(WorkerBootstrapConfig config,
                                         WorkerComponentRefs refs,
                                         WorkerObservabilitySetup observability) {
-        TaskExecutor executor = createTaskExecutor(refs.nativeAvailable());
-        registerNativeWriter(refs);
+        TaskExecutor executor = createTaskExecutor(refs.nativeAvailable(), config);
+        if (executor instanceof NativeTaskExecutor nativeExecutor
+                && refs.catalogResourceResolver() instanceof org.pangrova.worker.jni.write.WorkerCatalogRuntime catalogs) {
+            nativeExecutor.setCatalogRuntime(catalogs);
+        }
         injectShuffleHmacKey(refs);
         RemoteTaskStatusReporter reporter = createStatusReporter(config, observability);
         MemoryRefs memoryDeps = new MemoryRefs(
                 refs.resourceManager(), refs.nodeMemoryPool(),
                 observability.tracingProvider());
-        TransportRefs transportDeps = refs.nativeAvailable()
-                ? createTransportRefs(executor, config)
-                : TransportRefs.empty();
+        TransportRefs transportDeps = createTransportRefs(executor, config);
         refs.setResultServerPort(extractResultServerPort(transportDeps));
         refs.setExchangeTransport(transportDeps.exchangeTransport());
         TaskManagerContext deps = new TaskManagerContext(
                 reporter, executor, memoryDeps, transportDeps,
                 createOrchestrationExecutor(config));
         TaskManager tm = new TaskManager(deps, config.workerId(), 0.0);
+        if (config.coordinatorUrl() != null && !config.coordinatorUrl().isBlank()) {
+            // The task endpoint may become reachable before the first control
+            // handshake completes; reject every task during that window.
+            tm.requireControlEpochHandshake();
+        }
         // F-CHAIN-CACHE-02: wire the recent-file-access tracker so every task
         // submission feeds split paths into the heartbeat-reported sample.
         // Reuse via refs so the heartbeat phase reads the same tracker.
@@ -96,6 +105,7 @@ public final class WorkerTaskBootstrap {
         tm.startPeriodicCleanup(cleanupExecutor,
                 java.time.Duration.ofMinutes(TASK_CLEANUP_INTERVAL_MINUTES), java.time.Duration.ofMinutes(1));
         refs.setTaskManager(tm);
+        registerNativeWriter(refs);
         LOG.info("event=task_manager_initialized transport=native");
     }
 
@@ -138,10 +148,16 @@ public final class WorkerTaskBootstrap {
     static TransportRefs createTransportRefs(TaskExecutor executor,
                                              WorkerBootstrapConfig config) {
         String workerHost = WorkerHttpBootstrap.resolveAdvertisedHost(config);
-        var shuffleTransport = new NativeShuffleTransport(executor, workerHost);
+        String tlsIdentity = config.transportSecurityConfig().enabled()
+                ? config.transportSecurityConfig().tlsIdentity()
+                : "";
+        var shuffleTransport = new NativeShuffleTransport(executor, workerHost, tlsIdentity);
         var resultTransport = new NativeResultTransport(executor, workerHost);
         resultTransport.startServer(0);
-        var exchangeTransport = new NativeExchangeTransport(executor);
+        var exchangeTransport = config.shuffleMode() == ShuffleMode.REMOTE
+                ? new NativeExchangeTransport(
+                        executor, createRemoteShuffleClientPool(config))
+                : new NativeExchangeTransport(executor);
         LOG.info("event=transport_spi_selected shuffle=native result=native exchange=native resultPort={}",
                 resultTransport.boundPort());
         return new TransportRefs(shuffleTransport, resultTransport, exchangeTransport);
@@ -157,8 +173,14 @@ public final class WorkerTaskBootstrap {
         return -1;
     }
 
-    static TaskExecutor createTaskExecutor(boolean nativeAvailable) {
+    static TaskExecutor createTaskExecutor(
+            boolean nativeAvailable, WorkerBootstrapConfig config) {
         if (nativeAvailable) {
+            if (config.shuffleMode() == ShuffleMode.REMOTE) {
+                RemoteShuffleByteEgress egress = createRemoteShuffleEgress(config);
+                org.pangrova.worker.jni.NativeRuntime.nativeRegisterEgress(egress);
+                return new NativeTaskExecutor(egress);
+            }
             return new NativeTaskExecutor();
         }
         throw new org.pangrova.operations.bootstrap.BootstrapFailedException(
@@ -167,10 +189,38 @@ public final class WorkerTaskBootstrap {
                         "Native library unavailable — worker cannot execute queries without native engine"));
     }
 
+    private static RemoteShuffleByteEgress createRemoteShuffleEgress(
+            WorkerBootstrapConfig config) {
+        return new RemoteShuffleByteEgress(createRemoteShuffleClientPool(config));
+    }
+
+    private static RemoteShuffleClientPool createRemoteShuffleClientPool(
+            WorkerBootstrapConfig config) {
+        final long writeTimeoutMillis = 30_000L;
+        final long readTimeoutMillis = 30_000L;
+        final int maxConnectionsPerServer = 8;
+        RemoteShuffleClientPool pool;
+        var transportSecurity = config.transportSecurityConfig();
+        if (transportSecurity.enabled()) {
+            var pem = new RemoteShuffleClientPool.PemTlsConfig(
+                    java.nio.file.Path.of(transportSecurity.certificateChainPath()),
+                    java.nio.file.Path.of(transportSecurity.privateKeyPath()),
+                    java.nio.file.Path.of(transportSecurity.rootCaPath()));
+            pool = new RemoteShuffleClientPool(
+                    writeTimeoutMillis, readTimeoutMillis,
+                    maxConnectionsPerServer, pem);
+        } else {
+            pool = new RemoteShuffleClientPool(
+                    writeTimeoutMillis, readTimeoutMillis,
+                    maxConnectionsPerServer);
+        }
+        return pool;
+    }
+
     /**
      * Registers the native write executor with the C++ runtime via JNI.
      * Enables native write tasks to call back into Java for connector page sink operations.
-     * Skipped if native is unavailable or no catalog resolver was injected.
+     * Native-capable startup fails closed if no catalog resolver was injected.
      */
     static void registerNativeWriter(WorkerComponentRefs refs) {
         if (!refs.nativeAvailable()) {
@@ -179,8 +229,9 @@ public final class WorkerTaskBootstrap {
         }
         var catalogResolver = refs.catalogResourceResolver();
         if (catalogResolver == null) {
-            LOG.warn("event=phase_skipped phase=native_writer reason=no_catalog_resolver_injected");
-            return;
+            throw new org.pangrova.operations.bootstrap.BootstrapFailedException(
+                    "NativeWriter",
+                    new IllegalStateException("Worker catalog runtime is not configured"));
         }
         var writer = new org.pangrova.worker.jni.write.NativeWriteExecutor(catalogResolver);
         org.pangrova.worker.jni.NativeRuntime.nativeRegisterWriter(writer);
@@ -193,25 +244,62 @@ public final class WorkerTaskBootstrap {
 
     /**
      * Injects HMAC key(s) for shuffle ticket verification into the native side.
-     * Called once during startup after worker registration provides the key.
-     * Skipped if native is unavailable or no HMAC key was provided.
+     * A process-local 256-bit key is generated when no externally managed key
+     * was supplied. Tickets are minted and verified by the same producer
+     * process, so sharing this secret with the Coordinator or consumers is
+     * unnecessary and would enlarge the trust boundary.
      */
     static void injectShuffleHmacKey(WorkerComponentRefs refs) {
         if (!refs.nativeAvailable()) {
             LOG.info("event=phase_skipped phase=shuffle_hmac_key reason=native_unavailable");
             return;
         }
-        byte[] currentKey = refs.shuffleHmacCurrentKey();
-        if (currentKey == null || currentKey.length == 0) {
-            LOG.info("event=phase_skipped phase=shuffle_hmac_key reason=no_key_configured");
-            return;
+        ShuffleHmacKeys keys = resolveShuffleHmacKeys(
+                refs.shuffleHmacCurrentKey(), refs.shuffleHmacPreviousKey());
+        if (refs.shuffleHmacCurrentKey() == null
+                || refs.shuffleHmacCurrentKey().length == 0) {
+            LOG.info("event=shuffle_hmac_key_generated scope=worker_process keyLength={}",
+                    keys.current().length);
         }
-        byte[] previousKey = refs.shuffleHmacPreviousKey();
-        if (previousKey == null) {
-            previousKey = new byte[0];
+        refs.setShuffleHmacCurrentKey(keys.current());
+        refs.setShuffleHmacPreviousKey(keys.previous());
+        org.pangrova.worker.jni.NativeRuntime.nativeSetHmacKey(
+                keys.current(), keys.previous());
+        LOG.info("event=shuffle_hmac_key_injected keyLength={}", keys.current().length);
+    }
+
+    static ShuffleHmacKeys resolveShuffleHmacKeys(byte[] currentKey, byte[] previousKey) {
+        byte[] resolvedCurrent = currentKey;
+        if (resolvedCurrent == null || resolvedCurrent.length == 0) {
+            resolvedCurrent = new byte[32];
+            new java.security.SecureRandom().nextBytes(resolvedCurrent);
+        } else if (resolvedCurrent.length < 32) {
+            throw new IllegalArgumentException(
+                    "shuffle HMAC key must contain at least 32 bytes");
         }
-        org.pangrova.worker.jni.NativeRuntime.nativeSetHmacKey(currentKey, previousKey);
-        LOG.info("event=shuffle_hmac_key_injected keyLength={}", currentKey.length);
+        byte[] resolvedPrevious = previousKey == null ? new byte[0] : previousKey;
+        if (resolvedPrevious.length > 0 && resolvedPrevious.length < 32) {
+            throw new IllegalArgumentException(
+                    "previous shuffle HMAC key must contain at least 32 bytes");
+        }
+        return new ShuffleHmacKeys(resolvedCurrent, resolvedPrevious);
+    }
+
+    record ShuffleHmacKeys(byte[] current, byte[] previous) {
+        ShuffleHmacKeys {
+            current = current.clone();
+            previous = previous.clone();
+        }
+
+        @Override
+        public byte[] current() {
+            return current.clone();
+        }
+
+        @Override
+        public byte[] previous() {
+            return previous.clone();
+        }
     }
 
     static RemoteTaskStatusReporter createStatusReporter(WorkerBootstrapConfig config,
@@ -225,7 +313,8 @@ public final class WorkerTaskBootstrap {
                             + "set worker.coordinator-url in config YAML or PANGROVA_WORKER_COORDINATOR_URL env var"));
         }
         warnIfSingleHostUrl(coordinatorUrl);
-        return parseReporterFromUrl(coordinatorUrl, observability);
+        return parseReporterFromUrl(
+                coordinatorUrl, observability, config.internalAuthSecret());
     }
 
     static void warnIfSingleHostUrl(String coordinatorUrl) {
@@ -260,11 +349,13 @@ public final class WorkerTaskBootstrap {
         return false;
     }
 
-    private static RemoteTaskStatusReporter parseReporterFromUrl(String url,
-                                                                WorkerObservabilitySetup observability) {
+    private static RemoteTaskStatusReporter parseReporterFromUrl(
+            String url,
+            WorkerObservabilitySetup observability,
+            String internalAuthSecret) {
         try {
             return new RemoteTaskStatusReporter(url,
-                    observability.tracingProvider());
+                    observability.tracingProvider(), internalAuthSecret);
         } catch (org.pangrova.operations.bootstrap.BootstrapFailedException e) {
             throw e;
         } catch (Exception e) {

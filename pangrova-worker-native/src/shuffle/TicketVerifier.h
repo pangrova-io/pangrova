@@ -73,6 +73,9 @@ class TicketVerifier {
   // current. Thread-safe (acquires mu_).
   void rotateKey(std::string_view newCurrentKey);
 
+  // Atomically replaces the current and previous rotation-window keys.
+  void setKeys(std::string_view currentKey, std::string_view previousKey);
+
  private:
   // Computes HMAC-SHA256 of message using the given key.
   // Returns lowercase hex string of the digest.

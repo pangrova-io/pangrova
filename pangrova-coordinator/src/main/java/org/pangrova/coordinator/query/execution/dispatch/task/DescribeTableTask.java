@@ -23,7 +23,7 @@ public final class DescribeTableTask implements MetadataTask<DescribeTableStatem
 
     @Override
     public StatementResult execute(DescribeTableStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeDescribeTable(statement);
+        List<TypedRow> rows = executor.executeDescribeTable(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
     }
 

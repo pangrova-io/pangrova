@@ -75,6 +75,13 @@ class SystemTableReferenceParserTest {
     }
 
     @Test
+    void quotedDollarTableNameFailsClosedInsteadOfResolvingSystemTable() {
+        assertThatThrownBy(() -> parser.parse("SELECT * FROM \"orders$snapshots\""))
+                .isInstanceOf(ParseException.class)
+                .hasMessageContaining("Quoted table names containing '$' are not supported");
+    }
+
+    @Test
     void roundTripSimpleSystemTable() {
         String sql = "SELECT * FROM orders$snapshots";
         Statement stmt = parser.parse(sql);

@@ -170,7 +170,7 @@ TEST(DeletionVectorReaderTest, ReadPaimonDV_BasicBitmap) {
   auto rawContent = buildPaimonDVFile(expected);
   TempFile tmpFile(rawContent);
 
-  auto result = DeletionVectorReader::readPaimonDV(tmpFile.path());
+  auto result = DeletionVectorReader::readRawRoaringBitmap(tmpFile.path());
 
   EXPECT_EQ(result.cardinality(), 4);
   EXPECT_TRUE(result.contains(0));
@@ -185,7 +185,7 @@ TEST(DeletionVectorReaderTest, ReadPaimonDV_EmptyBitmap) {
   auto rawContent = buildPaimonDVFile(expected);
   TempFile tmpFile(rawContent);
 
-  auto result = DeletionVectorReader::readPaimonDV(tmpFile.path());
+  auto result = DeletionVectorReader::readRawRoaringBitmap(tmpFile.path());
 
   EXPECT_TRUE(result.isEmpty());
 }
@@ -199,7 +199,7 @@ TEST(DeletionVectorReaderTest, ReadPaimonDV_LargeBitmap) {
   auto rawContent = buildPaimonDVFile(expected);
   TempFile tmpFile(rawContent);
 
-  auto result = DeletionVectorReader::readPaimonDV(tmpFile.path());
+  auto result = DeletionVectorReader::readRawRoaringBitmap(tmpFile.path());
 
   EXPECT_EQ(result.cardinality(), expected.cardinality());
   EXPECT_TRUE(result == expected);
@@ -207,7 +207,7 @@ TEST(DeletionVectorReaderTest, ReadPaimonDV_LargeBitmap) {
 
 TEST(DeletionVectorReaderTest, ReadPaimonDV_NonExistentFile) {
   EXPECT_THROW(
-      DeletionVectorReader::readPaimonDV("/nonexistent/path/dv.bin"),
+      DeletionVectorReader::readRawRoaringBitmap("/nonexistent/path/dv.bin"),
       std::runtime_error);
 }
 
@@ -230,7 +230,7 @@ TEST(DeletionVectorReaderTest, IcebergAndPaimonProduceSameBitmap) {
   TempFile paimonFile(rawContent);
 
   auto icebergResult = DeletionVectorReader::readIcebergDV(icebergFile.path());
-  auto paimonResult = DeletionVectorReader::readPaimonDV(paimonFile.path());
+  auto paimonResult = DeletionVectorReader::readRawRoaringBitmap(paimonFile.path());
 
   EXPECT_TRUE(icebergResult == paimonResult);
   EXPECT_EQ(icebergResult.cardinality(), expected.cardinality());

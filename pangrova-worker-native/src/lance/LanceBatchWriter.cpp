@@ -11,10 +11,9 @@
 
 #include "lance/LanceBatchWriter.h"
 
-#if PANGROVA_LANCE_AVAILABLE
-
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 #include <arrow/c/abi.h>
 
@@ -22,6 +21,8 @@
 #include "velox/vector/arrow/Bridge.h"
 
 #include "lance_c_ffi.h"
+#include "lance/LanceStorageContext.h"
+#include "observability/PangrovaLog.h"
 
 namespace pangrova::lance {
 
@@ -39,13 +40,27 @@ void materializeLazyChildren(const facebook::velox::RowVectorPtr& row) {
   }
 }
 
+struct ExportedBatch {
+  ArrowArray array{};
+  ArrowSchema schema{};
+  ~ExportedBatch() {
+    if (array.release) array.release(&array);
+    if (schema.release) schema.release(&schema);
+  }
+};
+
+struct ReturnedFragment {
+  LanceCBuffer value{};
+  ~ReturnedFragment() { lance_ffi_buffer_free(value); }
+};
+
 }  // namespace
 
 LanceBatchWriter::LanceBatchWriter(
-    facebook::velox::memory::MemoryPool* pool,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> pool,
     const facebook::velox::RowTypePtr& outputType,
     const LanceWriterConfig& config)
-    : pool_(pool),
+    : pool_(std::move(pool)),
       output_type_(outputType),
       config_(config),
       writer_handle_(nullptr) {
@@ -61,34 +76,99 @@ LanceBatchWriter::LanceBatchWriter(
     throw std::runtime_error(
         "LanceBatchWriter: output path must not be empty");
   }
+  if (config_.writeId.empty()) {
+    throw std::runtime_error("LanceBatchWriter: writeId must not be empty");
+  }
+  if (config_.tenantId.empty() || config_.generation.empty() ||
+      config_.transactionStagingPrefix.empty()) {
+    throw std::runtime_error(
+        "LanceBatchWriter: tenant, generation, and transaction staging prefix are required");
+  }
+  if (config_.taskAttempt.empty()) {
+    throw std::runtime_error("LanceBatchWriter: taskAttempt must not be empty");
+  }
+  if ((config_.operation == LanceWriteOperation::kCreate &&
+       config_.expectedReadVersion != 0) ||
+      (config_.operation != LanceWriteOperation::kCreate &&
+       config_.expectedReadVersion == 0)) {
+    throw std::runtime_error(
+        "LanceBatchWriter: CREATE requires version 0 and APPEND/OVERWRITE require a non-zero version");
+  }
 
   exportSchemaToArrow();
 }
 
 LanceBatchWriter::~LanceBatchWriter() {
   if (writer_handle_) {
-    lance_ffi_writer_close(static_cast<LanceCWriter*>(writer_handle_));
-    writer_handle_ = nullptr;
+    try { close(); }
+    catch (const std::exception& error) {
+      PANGROVA_LOG(ERROR) << "event=dataset_write_cleanup_failed error=" << error.what();
+      if (isDrainedAndCleaned()) {
+        try { releaseDrained(); }
+        catch (const std::exception& release_error) {
+          PANGROVA_LOG(ERROR) << "event=dataset_write_owner_release_failed error=" << release_error.what();
+        }
+      }
+    }
   }
 }
 
+void LanceBatchWriter::close() {
+  if (!writer_handle_) return;
+  LanceCWriteDrainEvidence evidence{};
+  auto* handle = static_cast<LanceCWriter*>(writer_handle_);
+  const auto status = lance_ffi_writer_drain(handle, &evidence);
+  encoders_joined_ = evidence.encoders_and_uploads_joined == 1;
+  private_stage_cleaned_ = evidence.private_stage_cleaned == 1;
+  if (status != 0) {
+    const auto* error = lance_ffi_last_error();
+    throw std::runtime_error(std::string("Dataset writer drain: ") + (error ? error : "missing FFI diagnostic"));
+  }
+  releaseDrained();
+}
+
+void LanceBatchWriter::releaseDrained() {
+  if (!writer_handle_) return;
+  if (!isDrainedAndCleaned()) throw std::runtime_error("Dataset writer owners have not actually drained");
+  if (lance_ffi_writer_destroy(static_cast<LanceCWriter*>(writer_handle_)) != 0) {
+    const auto* error = lance_ffi_last_error();
+    throw std::runtime_error(std::string("Dataset writer destroy: ") + (error ? error : "missing FFI diagnostic"));
+  }
+  writer_handle_ = nullptr;
+}
+
 void LanceBatchWriter::exportSchemaToArrow() {
+  if (lance_ffi_abi_version() != PANGROVA_LANCE_C_FFI_ABI_VERSION) {
+    throw std::runtime_error("Lance C FFI ABI version mismatch");
+  }
+  if (lance_ffi_runtime_init() != 0) {
+    const char* error = lance_ffi_last_error();
+    throw std::runtime_error(
+        std::string("Lance FFI runtime initialization failed") +
+        (error == nullptr ? "" : std::string(": ") + error));
+  }
+
   // Create an empty vector with the output schema to export the ArrowSchema.
   auto emptyVector =
-      facebook::velox::BaseVector::create(output_type_, 0, pool_);
+      facebook::velox::BaseVector::create(output_type_, 0, pool_.get());
 
-  ArrowSchema arrowSchema;
-  facebook::velox::exportToArrow(emptyVector, arrowSchema);
+  ExportedBatch exported;
+  facebook::velox::exportToArrow(emptyVector, exported.schema);
 
-  auto* writer = lance_ffi_writer_open(
+  LanceStorageContext storage(config_.storageBinding);
+  auto* writer = lance_ffi_writer_open(storage.get(),
       config_.outputPath.c_str(),
-      &arrowSchema,
-      config_.append ? 1 : 0);
-
-  // Release the schema — lance_ffi_writer_open does not take ownership.
-  if (arrowSchema.release) {
-    arrowSchema.release(&arrowSchema);
-  }
+      &exported.schema,
+      static_cast<int32_t>(config_.operation),
+      config_.expectedReadVersion,
+      config_.schemaFenceSha256.data(),
+      config_.schemaFenceSha256.size(),
+      config_.writeId.c_str(),
+      config_.tenantId.c_str(),
+      config_.generation.c_str(),
+      config_.transactionStagingPrefix.c_str(),
+      config_.taskAttempt.data(),
+      config_.taskAttempt.size());
 
   if (!writer) {
     const char* err = lance_ffi_last_error();
@@ -120,8 +200,7 @@ void LanceBatchWriter::writeBatch(const facebook::velox::RowVectorPtr& batch) {
 
   materializeLazyChildren(batch);
 
-  ArrowArray arrowArray;
-  ArrowSchema arrowSchema;
+  ExportedBatch exported;
 
   // Export Velox RowVector to Arrow C Data Interface.
   // flattenDictionary/flattenConstant ensures Lance receives plain arrays
@@ -129,20 +208,15 @@ void LanceBatchWriter::writeBatch(const facebook::velox::RowVectorPtr& batch) {
   ArrowOptions arrowOpts;
   arrowOpts.flattenDictionary = true;
   arrowOpts.flattenConstant = true;
-  facebook::velox::exportToArrow(batch, arrowArray, pool_, arrowOpts);
-  facebook::velox::exportToArrow(batch, arrowSchema, arrowOpts);
+  facebook::velox::exportToArrow(batch, exported.array, pool_.get(), arrowOpts);
+  facebook::velox::exportToArrow(batch, exported.schema, arrowOpts);
 
   // lance_ffi_writer_write_batch takes ownership of arrowArray data.
-  // Caller must not release arrowArray after this call.
+  // The FFI clears its ownership slot on both success and failure.
   int32_t rc = lance_ffi_writer_write_batch(
       static_cast<LanceCWriter*>(writer_handle_),
-      &arrowArray,
-      &arrowSchema);
-
-  // Release the schema (writer does not take ownership of schema).
-  if (arrowSchema.release) {
-    arrowSchema.release(&arrowSchema);
-  }
+      &exported.array,
+      &exported.schema);
 
   if (rc != 0) {
     const char* err = lance_ffi_last_error();
@@ -155,10 +229,11 @@ void LanceBatchWriter::writeBatch(const facebook::velox::RowVectorPtr& batch) {
   }
 
   stats_.rowsWritten += batch->size();
+  stats_.bytesWritten += batch->estimateFlatSize();
   stats_.batchesWritten++;
 }
 
-void LanceBatchWriter::finish() {
+std::vector<uint8_t> LanceBatchWriter::finish() {
   if (!writer_handle_) {
     throw std::runtime_error(
         "LanceBatchWriter::finish: writer is not open");
@@ -168,8 +243,9 @@ void LanceBatchWriter::finish() {
         "LanceBatchWriter::finish: writer already finished");
   }
 
+  ReturnedFragment returned;
   int32_t rc = lance_ffi_writer_finish(
-      static_cast<LanceCWriter*>(writer_handle_));
+      static_cast<LanceCWriter*>(writer_handle_), &returned.value);
 
   if (rc != 0) {
     const char* err = lance_ffi_last_error();
@@ -181,9 +257,15 @@ void LanceBatchWriter::finish() {
     throw std::runtime_error(msg);
   }
 
+  const auto& fragment = returned.value;
+  if (fragment.data == nullptr || fragment.len == 0) {
+    throw std::runtime_error(
+        "LanceBatchWriter::finish: empty commit metadata");
+  }
+  std::vector<uint8_t> metadata(fragment.data, fragment.data + fragment.len);
   finished_ = true;
+  close();
+  return metadata;
 }
 
 }  // namespace pangrova::lance
-
-#endif  // PANGROVA_LANCE_AVAILABLE

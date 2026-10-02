@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Initializes the JNI native runtime to the C++ execution engine.
- * Gracefully degrades to no-native mode if the native library is unavailable.
+ * Native execution is mandatory; initialization failures abort Worker startup.
  */
 public final class NativeRuntimeBootstrap {
 
@@ -34,33 +34,34 @@ public final class NativeRuntimeBootstrap {
      */
     public static void initialize(WorkerBootstrapConfig config, WorkerComponentRefs refs,
                                   NativeCacheConfig cacheConfig) {
-        try {
-            byte[] configBytes = buildNativeInitConfigBytes(config, cacheConfig);
-            // Task 148: use the shared MemoryArbitrator from refs so native and
-            // Java memory accounting share a single unified budget.
-            org.pangrova.resource.memory.MemoryArbitrator sharedArbitrator = refs.memoryArbitrator();
-            var listener = sharedArbitrator != null
-                    ? new org.pangrova.worker.memory.NativeMemoryCoordinator(
-                            config.resourceConfig().memoryBudgetBytes(), sharedArbitrator)
-                    : new org.pangrova.worker.memory.NativeMemoryCoordinator(
-                            config.resourceConfig().memoryBudgetBytes());
-            NativeRuntime.initNativeRuntime(configBytes, listener);
-            refs.setNativeAvailable(true);
-            LOG.info("event=native_runtime_initialized");
-        } catch (UnsatisfiedLinkError | ExceptionInInitializerError | Exception e) {
-            refs.setNativeAvailable(false);
-            LOG.warn("event=native_runtime_unavailable reason={}", e.getMessage());
-        } catch (NoClassDefFoundError e) {
-            refs.setNativeAvailable(false);
-            LOG.warn("event=native_runtime_unavailable reason=class_init_failed");
-        }
+        byte[] configBytes = buildNativeInitConfigBytes(config, cacheConfig);
+        // Task 148: use the shared MemoryArbitrator from refs so native and
+        // Java memory accounting share a single unified budget.
+        org.pangrova.resource.memory.MemoryArbitrator sharedArbitrator = refs.memoryArbitrator();
+        var listener = sharedArbitrator != null
+                ? new org.pangrova.worker.memory.NativeMemoryCoordinator(
+                        config.resourceConfig().memoryBudgetBytes(), sharedArbitrator,
+                        refs.nodeMemoryPool(), null)
+                : new org.pangrova.worker.memory.NativeMemoryCoordinator(
+                        config.resourceConfig().memoryBudgetBytes());
+        NativeRuntime.initNativeRuntime(configBytes, listener);
+        refs.setNativeAvailable(true);
+        LOG.info("event=native_runtime_initialized");
     }
 
     static byte[] buildNativeInitConfigBytes(WorkerBootstrapConfig config,
                                              NativeCacheConfig cacheConfig) {
         var rc = config.resourceConfig();
+        var security = config.transportSecurityConfig();
         String spillDirectory = rc.spillDirectory() == null ? "" : rc.spillDirectory().trim();
-        return org.pangrova.protocol.v1.NativeInitConfig.newBuilder()
+        var transportSecurity = org.pangrova.protocol.v2.TransportSecurityConfig.newBuilder()
+                .setTlsEnabled(security.enabled())
+                .setCertificateChainPath(security.certificateChainPath())
+                .setPrivateKeyPath(security.privateKeyPath())
+                .setRootCaPath(security.rootCaPath())
+                .setTlsIdentity(security.tlsIdentity())
+                .build();
+        return org.pangrova.protocol.v2.RuntimeInitConfig.newBuilder()
                 .setMaxMemoryBytes(rc.memoryBudgetBytes())
                 .setIoThreadCount(rc.ioThreads())
                 .setCacheEnabled(cacheConfig.enabled())
@@ -69,6 +70,9 @@ public final class NativeRuntimeBootstrap {
                 .setSsdCachePath(cacheConfig.ssdCachePath())
                 .setSsdShards(cacheConfig.ssdShards())
                 .setCheckpointIntervalBytes(cacheConfig.checkpointIntervalBytes())
+                .setArtifactCachePath(cacheConfig.artifactCachePath())
+                .setArtifactCacheBytes(cacheConfig.artifactCacheBytes())
+                .setArtifactIndexMemoryBytes(cacheConfig.artifactIndexMemoryBytes())
                 .setMemoryPressureThresholdLow(rc.pressureThresholdLow())
                 .setMemoryPressureThresholdMedium(rc.pressureThresholdMedium())
                 .setMemoryPressureThresholdHigh(rc.pressureThresholdHigh())
@@ -78,6 +82,13 @@ public final class NativeRuntimeBootstrap {
                 // side from ever seeing spill_enabled with nowhere to spill to.
                 .setSpillDirectory(spillDirectory)
                 .setSpillEnabled(!spillDirectory.isEmpty())
+                .setShuffleRetentionBytes(rc.shuffleRetentionBytes())
+                .setShuffleTransitBytes(rc.shuffleTransitBytes())
+                .setShuffleSpillBytes(rc.shuffleSpillBytes())
+                .setShuffleSpillFiles(rc.shuffleSpillFiles())
+                .setShuffleSpillDirectory(rc.shuffleSpillDirectory() == null
+                        ? "" : rc.shuffleSpillDirectory().trim())
+                .setTransportSecurity(transportSecurity)
                 .build()
                 .toByteArray();
     }

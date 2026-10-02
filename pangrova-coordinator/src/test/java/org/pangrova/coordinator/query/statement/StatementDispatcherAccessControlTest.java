@@ -75,6 +75,9 @@ class StatementDispatcherAccessControlTest {
     }
 
     private static final class DenyAllAccessControl implements AccessControl {
+        @Override public void checkCanUpdateTable(UserIdentity u, String c, String s, String t) {
+            throw new AccessDeniedException("denied");
+        }
         @Override public void checkCanAccessCatalog(UserIdentity u, String c) {
             throw new AccessDeniedException("denied");
         }

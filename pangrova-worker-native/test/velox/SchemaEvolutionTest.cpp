@@ -5,11 +5,13 @@
 
 #include "../TestMemoryHelper.h"
 #include "velox/connector/SchemaEvolution.h"
+#include "velox/connector/PhysicalFileSchema.h"
 
 #include "velox/type/Type.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox {
 namespace {
@@ -427,6 +429,37 @@ TEST_F(VeloxSchemaEvolutionTest, MultipleColumnPromotions) {
   EXPECT_TRUE(result->childAt(1)->type()->equivalent(*DOUBLE()));
   // col_c should remain BIGINT.
   EXPECT_TRUE(result->childAt(2)->type()->equivalent(*BIGINT()));
+}
+
+TEST_F(VeloxSchemaEvolutionTest, PhysicalFileIdentityPreventsReusedNameFromReadingAnOlderField) {
+  auto target = ROW({"id", "renamed", "old"}, {BIGINT(), BIGINT(), BIGINT()});
+  PhysicalFileSchema schema(target,
+      {{0, 0, "id", "id"}, {1, 1, "old", "renamed"}, {-1, 2, "old", "old"}},
+      {{0, "integer", "bigint", "id"}});
+  EXPECT_EQ(schema.physicalType()->names(), (std::vector<std::string>{"id", "old"}));
+  auto indices = allocateIndices(1, pool());
+  indices->asMutable<vector_size_t>()[0] = 1;
+  auto id = BaseVector::wrapInDictionary(nullptr, indices, 1, makeFlatVector<int32_t>(pool(), {4, 7}));
+  auto old = BaseVector::wrapInDictionary(nullptr, indices, 1, makeFlatVector<int64_t>(pool(), {40, 70}));
+  auto result = schema.apply(makeRowVector(pool(), {"id", "old"}, {id, old}), pool());
+  EXPECT_EQ(result->childAt(0)->asFlatVector<int64_t>()->valueAt(0), 7);
+  DecodedVector renamed(*result->childAt(1));
+  EXPECT_EQ(renamed.valueAt<int64_t>(0), 70);
+  EXPECT_TRUE(result->childAt(2)->isNullAt(0));
+}
+
+TEST_F(VeloxSchemaEvolutionTest, ExactDecimalEvolutionCrossesShortAndLongStorageWithoutRounding) {
+  auto input_type = DECIMAL(10, 2);
+  auto values = BaseVector::create(input_type, 2, pool());
+  values->asFlatVector<int64_t>()->set(0, 12345);
+  values->setNull(1, true);
+  auto row = makeRowVector(pool(), {"amount"}, {values});
+  auto result = applyTypePromotion(row, {{0, "decimal(10,2)", "decimal(25,4)", "amount"}}, pool());
+  EXPECT_TRUE(result->childAt(0)->type()->equivalent(*DECIMAL(25, 4)));
+  EXPECT_EQ(result->childAt(0)->asFlatVector<int128_t>()->valueAt(0), 1234500);
+  EXPECT_TRUE(result->childAt(0)->isNullAt(1));
+  EXPECT_THROW(applyTypePromotion(row, {{0, "decimal(10,2)", "decimal(10,1)", "amount"}}, pool()),
+      std::invalid_argument);
 }
 
 }  // namespace

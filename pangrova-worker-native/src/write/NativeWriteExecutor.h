@@ -66,21 +66,8 @@ class NativeWriteExecutor {
   // Throws std::runtime_error if the Java side throws (e.g. table not found).
   int64_t beginWrite(const WriteDescriptor& descriptor);
 
-  // Appends a batch of rows via Arrow C Data Interface pointers.
-  // The caller retains ownership of the ArrowArray/ArrowSchema structs.
-  // Throws std::runtime_error on Java-side failure.
-  // DEPRECATED: Use appendBatchData with pre-serialized Arrow IPC bytes instead.
-  void appendBatch(int64_t handle, const void* arrowArray, const void* arrowSchema);
-
-  // Appends a pre-serialized Arrow IPC batch (byte[]) to the write session.
-  // Used by drainOutputToWriter to avoid nested JNI callbacks that deadlock
-  // on Velox memory pool operations.
-  // Throws std::runtime_error on Java-side failure.
-  void appendSerializedBatch(int64_t handle, jbyteArray data, int32_t rowCount, int32_t colCount);
-
   // Appends a pre-serialized Arrow IPC batch from raw memory to the write session.
-  // Creates the JNI byte array internally — callers do not need JNIEnv access.
-  // This is the primary write path, consistent with the read path.
+  // Borrows the backing bytes through one direct ByteBuffer JNI call.
   // Throws std::runtime_error on failure.
   void appendBatchData(int64_t handle, const uint8_t* data, int64_t size,
                        int32_t rowCount, int32_t colCount);
@@ -88,6 +75,12 @@ class NativeWriteExecutor {
   // Commits the write session, returning summary statistics.
   // Throws std::runtime_error on Java-side failure.
   WriteCommitResult commitWrite(int64_t handle);
+
+  // Publishes connector commit metadata produced directly by a Native format
+  // writer into the existing task-scoped Java result channel.
+  void publishCommitMetadataForTask(
+      const std::string& taskId,
+      const std::vector<uint8_t>& metadata);
 
   // Aborts the write session, rolling back partial writes.
   // Does not throw — logs and swallows Java-side abort failures to
@@ -110,11 +103,10 @@ class NativeWriteExecutor {
 
   // Cached method IDs — looked up once at construction.
   jmethodID beginWriteId_;
-  jmethodID appendBatchId_;
-  jmethodID appendSerializedBatchId_;
-  jmethodID appendDirectBatchId_;  // L4-3A: zero-copy DirectByteBuffer path
+  jmethodID appendDirectBatchId_;
   jmethodID commitWriteId_;
   jmethodID abortWriteId_;
+  jmethodID publishCommitMetadataForTaskId_;
 
   // Cached class/method IDs for WriteDescriptor construction on Java side.
   jclass descriptorClass_;       // GlobalRef

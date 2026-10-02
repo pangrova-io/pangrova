@@ -20,6 +20,7 @@ struct DiskAnnSearchConfig {
   int64_t topK = 10;
   int64_t beamWidth = 4;
   int64_t rerankMultiplier = 10;
+  int64_t searchListSize = 100;
 
   // L4-11D: Pre-filter bitset (raw bit-packed bytes).
   // When non-empty, only nodes whose bit is set are considered for reranking.

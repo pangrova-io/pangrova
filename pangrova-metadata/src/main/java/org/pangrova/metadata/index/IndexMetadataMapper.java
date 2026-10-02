@@ -14,10 +14,14 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import static org.pangrova.metadata.store.JdbcSupport.getInstant;
+import static org.pangrova.metadata.store.JdbcSupport.setInstant;
 
 /**
  * Handles JDBC ↔ domain object mapping for index metadata.
@@ -37,29 +41,31 @@ public final class IndexMetadataMapper {
     private static final int DESCRIPTOR_LAST_INDEXED_SNAPSHOT_ID_PARAM = 13;
     private static final int DESCRIPTOR_CREATED_AT_PARAM = 14;
     private static final int DESCRIPTOR_UPDATED_AT_PARAM = 15;
+    private static final int DESCRIPTOR_TENANT_ID_PARAM = 16;
     private static final int MAPPING_CREATED_AT_PARAM = 11;
 
     private IndexMetadataMapper() {}
 
     // --- Bind helpers ---
 
-    /** Binds an {@link IndexDescriptor} to statement parameters 1–15. */
+    /** Binds an {@link IndexDescriptor} to statement parameters 1–16. */
     public static void bindDescriptor(PreparedStatement ps, IndexDescriptor d) throws SQLException {
         ps.setString(1, d.indexId());
         ps.setString(2, d.indexName());
         ps.setString(3, d.catalogName());
         ps.setString(4, d.schemaName());
         ps.setString(5, d.tableName());
-        ps.setString(6, toJson(d.columnNames()));
+        setJson(ps, 6, toJson(d.columnNames()));
         ps.setString(7, d.indexType().name());
-        ps.setString(8, toJsonMap(d.properties()));
+        setJson(ps, 8, toJsonMap(d.properties()));
         ps.setString(9, d.state().name());
         ps.setString(10, d.staleReason());
         ps.setInt(DESCRIPTOR_GENERATION_PARAM, d.generation());
         ps.setString(DESCRIPTOR_BUILD_SNAPSHOT_ID_PARAM, d.buildSnapshotId());
         ps.setString(DESCRIPTOR_LAST_INDEXED_SNAPSHOT_ID_PARAM, d.lastIndexedSnapshotId());
-        ps.setTimestamp(DESCRIPTOR_CREATED_AT_PARAM, Timestamp.from(d.createdAt()));
-        ps.setTimestamp(DESCRIPTOR_UPDATED_AT_PARAM, Timestamp.from(d.updatedAt()));
+        setInstant(ps, DESCRIPTOR_CREATED_AT_PARAM, d.createdAt());
+        setInstant(ps, DESCRIPTOR_UPDATED_AT_PARAM, d.updatedAt());
+        ps.setString(DESCRIPTOR_TENANT_ID_PARAM, d.tenantId());
     }
 
     /** Binds an {@link IndexFileMapping} to statement parameters 1–11. */
@@ -73,9 +79,9 @@ public final class IndexMetadataMapper {
         ps.setInt(7, m.generation());
         String token = m.snapshotToken();
         if (token == null || token.isEmpty()) {
-            ps.setLong(8, 0L);
+            ps.setString(8, "");
         } else {
-            ps.setLong(8, Long.parseLong(token));
+            ps.setString(8, token);
         }
         ps.setLong(9, m.sequenceNum());
         ps.setLong(10, m.lastVerifiedAt());
@@ -86,7 +92,6 @@ public final class IndexMetadataMapper {
 
     /** Maps the current row of the result set to an {@link IndexDescriptor}. */
     public static IndexDescriptor mapDescriptor(ResultSet rs) throws SQLException {
-        String tenantId = readOptionalColumn(rs, "tenant_id");
         String buildSnapshotId = readOptionalColumn(rs, "build_snapshot_id");
         return new IndexDescriptor(
                 rs.getString("index_id"),
@@ -102,9 +107,9 @@ public final class IndexMetadataMapper {
                 rs.getInt("generation"),
                 buildSnapshotId,
                 rs.getString("last_indexed_snapshot_id"),
-                rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("updated_at").toInstant(),
-                tenantId);
+                getInstant(rs, "created_at"),
+                getInstant(rs, "updated_at"),
+                rs.getString("tenant_id"));
     }
 
     private static String readOptionalColumn(ResultSet rs, String columnName) throws SQLException {
@@ -169,6 +174,12 @@ public final class IndexMetadataMapper {
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON serialization failed", e);
         }
+    }
+
+    /** Binds canonical PostgreSQL JSON/JSONB text without relying on implicit VARCHAR casts. */
+    public static void setJson(PreparedStatement statement, int index, String json)
+            throws SQLException {
+        statement.setObject(index, json, Types.OTHER);
     }
 
     /** Deserializes a JSON array into a string list; null or blank input yields an empty list. */

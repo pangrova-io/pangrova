@@ -3,13 +3,18 @@ package org.pangrova.testing.e2e.tpch;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.E2ETestFramework;
+import org.pangrova.testing.e2e.SharedTestContainers;
+import org.pangrova.testing.e2e.runner.SqlTestRunner;
+import org.pangrova.testing.e2e.setup.TestDataSetup;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
+import java.sql.DriverManager;
 
 /**
  * Shared base for TPC-H correctness tests.
@@ -37,27 +42,43 @@ abstract class TpcHTestBase extends SqlE2ETestBase {
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString()));
     }
 
-    private static volatile boolean tpcHDataLoaded = false;
+    private static TpcHReferenceOracle reference;
 
     @BeforeAll
-    static void loadTpcHData() {
-        if (tpcHDataLoaded) return;
-        if (!isDockerReady()) return;
+    static void loadTpcHData() throws Exception {
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
-        dataSetup.loadTpcHData(CATALOG, SCHEMA, 1);
-        tpcHDataLoaded = true;
+        var pg = SharedTestContainers.POSTGRES;
+        reference = new TpcHReferenceOracle(DriverManager.getConnection(
+                pg.getJdbcUrl(), pg.getUsername(), pg.getPassword()));
+        for (String table : TPCH_TABLES) {
+            sqlRunner.executeDdl("DROP TABLE IF EXISTS " + TABLE_PREFIX + table);
+        }
+        var dualRunner = new SqlTestRunner(new E2ETestFramework(testCluster, sql -> {
+            List<TypedRow> rows = sqlRunner.execute(sql);
+            reference.executeInput(sql.replace(TABLE_PREFIX, ""));
+            return rows;
+        }));
+        new TestDataSetup(dualRunner).loadTpcHData(CATALOG, SCHEMA, 1);
+    }
+
+    @AfterAll
+    static void closeReference() throws Exception {
+        if (reference != null) {
+            reference.close();
+            reference = null;
+        }
     }
 
     /** Load SQL from resource, qualify table names, execute via real pipeline. */
     List<TypedRow> executeQuery(String filename) {
-        try {
-            return sqlRunner.execute(loadAndPrefixQuery(filename));
-        } catch (RuntimeException e) {
-            // Velox may not support all TPC-H query patterns (e.g., correlated subqueries,
-            // complex field references). Return empty to let assertMatchesReference handle it.
-            return List.of();
-        }
+        return sqlRunner.execute(loadAndPrefixQuery(filename));
+    }
+
+    void assertMatchesReference(List<TypedRow> actual, String filename, String... columns) {
+        TpcHTestSupport.assertMatchesReference(
+                actual, reference.query(loadQueryResource(filename)), filename, columns);
     }
 
     private String loadAndPrefixQuery(String filename) {

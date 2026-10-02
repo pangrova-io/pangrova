@@ -1,11 +1,15 @@
 package org.pangrova.planner.vector;
 
+import org.pangrova.planner.PlanTable;
+
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.index.IndexType;
 import org.pangrova.spi.index.vector.DistanceMetric;
 import org.pangrova.spi.index.vector.RecallEstimationHint;
 import org.pangrova.spi.index.vector.VectorHybridSearchStrategy;
+import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.v2.CapabilityRef;
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalFilter;
@@ -88,6 +92,8 @@ public final class VectorSearchRewriter {
         List<String> preFilters = extractPreFilters(sortNode.getInput());
         VectorHybridSearchStrategy strategy;
         String algorithm = matchingIndex.properties().getOrDefault("algorithm", "HNSW");
+        CapabilityRef retrievalCapability =
+                BuiltInCapabilityCatalog.vectorRetrievalPlanRef(algorithm);
         int dimension = Integer.parseInt(matchingIndex.properties().getOrDefault("dimension", "128"));
         double estimatedRecall = RECALL_ESTIMATOR.estimateRecall(
                 candidate.topK, dimension, algorithm, 0);
@@ -112,9 +118,53 @@ public final class VectorSearchRewriter {
                 tableName, candidate.call.column, candidate.call.queryVector,
                 candidate.topK, candidate.call.metric,
                 matchingIndex.indexId(),
+                retrievalCapability,
+                searchBudget(matchingIndex, retrievalCapability, strategy.effectiveK()),
                 preFilters,
                 strategy,
-                matchingIndex.generation()));
+                matchingIndex.generation(),
+                "",
+                "",
+                0));
+    }
+
+    private static int searchBudget(
+            IndexDescriptor descriptor, CapabilityRef retrievalCapability, int effectiveK) {
+        Map<String, String> properties = descriptor.properties();
+        int dynamic = (int) Math.min(
+                100_000L, Math.max(64L, Math.multiplyExact((long) effectiveK, 4L)));
+        String capabilityId = retrievalCapability.getCapabilityId();
+        if (BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
+            return boundedProperty(
+                    properties, "ef_search", dynamic, effectiveK, 100_000);
+        }
+        if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
+            int clusters = boundedProperty(
+                    properties, "coarse_clusters", 64, 1, 4_096);
+            return boundedProperty(
+                    properties, "nprobes", Math.min(8, clusters), 1, clusters);
+        }
+        if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+            return boundedProperty(
+                    properties, "search_list_size", dynamic, effectiveK, 100_000);
+        }
+        throw new IllegalArgumentException(
+                "Unsupported Native vector retrieval capability: " + capabilityId);
+    }
+
+    private static int boundedProperty(
+            Map<String, String> properties, String key,
+            int defaultValue, int minimum, int maximum) {
+        final int value;
+        try {
+            value = Integer.parseInt(properties.getOrDefault(key, Integer.toString(defaultValue)));
+        } catch (NumberFormatException failure) {
+            throw new IllegalArgumentException(key + " must be an integer", failure);
+        }
+        if (value < minimum || value > maximum) {
+            throw new IllegalArgumentException(key + " is outside the bounded range");
+        }
+        return value;
     }
 
     /**
@@ -207,6 +257,10 @@ public final class VectorSearchRewriter {
      * The real column name must be resolved from the input's row type using the field index.</p>
      */
     private static String extractColumnName(RexNode node, RelNode input) {
+        if (node instanceof RexCall cast && cast.getKind() == org.apache.calcite.sql.SqlKind.CAST
+                && samePhysicalArrayElement(cast.getType(), cast.getOperands().get(0).getType())) {
+            return extractColumnName(cast.getOperands().get(0), input);
+        }
         if (node instanceof org.apache.calcite.rex.RexInputRef ref) {
             int fieldIndex = ref.getIndex();
             // Resolve from the underlying input's row type (e.g., LogicalProject or TableScan)
@@ -224,6 +278,10 @@ public final class VectorSearchRewriter {
     }
 
     private static float[] extractVectorLiteral(RexNode node) {
+        if (node instanceof RexCall cast && cast.getKind() == org.apache.calcite.sql.SqlKind.CAST
+                && floatingArray(cast.getType())) {
+            return extractVectorLiteral(cast.getOperands().get(0));
+        }
         if (node instanceof RexCall call && "ARRAY".equalsIgnoreCase(call.getOperator().getName())) {
             return extractFromArrayCall(call);
         }
@@ -231,6 +289,23 @@ public final class VectorSearchRewriter {
             return extractFromListLiteral(literal);
         }
         return null;
+    }
+
+    private static boolean samePhysicalArrayElement(org.apache.calcite.rel.type.RelDataType left,
+            org.apache.calcite.rel.type.RelDataType right) {
+        if (!floatingArray(left) || !floatingArray(right)) return false;
+        return (left.getComponentType().getSqlTypeName() == org.apache.calcite.sql.type.SqlTypeName.DOUBLE)
+                == (right.getComponentType().getSqlTypeName() == org.apache.calcite.sql.type.SqlTypeName.DOUBLE);
+    }
+
+    private static boolean floatingArray(org.apache.calcite.rel.type.RelDataType type) {
+        if (type.getSqlTypeName() != org.apache.calcite.sql.type.SqlTypeName.ARRAY) return false;
+        var component = type.getComponentType();
+        if (component == null) return false;
+        return switch (component.getSqlTypeName()) {
+            case FLOAT, REAL, DOUBLE -> true;
+            default -> false;
+        };
     }
 
     private static float[] extractFromArrayCall(RexCall call) {
@@ -268,7 +343,8 @@ public final class VectorSearchRewriter {
         RelNode current = input;
         while (current != null) {
             if (current instanceof org.apache.calcite.rel.logical.LogicalTableScan scan) {
-                return String.join(".", scan.getTable().getQualifiedName());
+                return String.join(".", PlanTable.require(scan)
+                        .getQualifiedName());
             }
             if (current.getInputs().isEmpty()) {
                 break;

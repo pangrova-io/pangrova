@@ -42,28 +42,13 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 
-/**
- * Wires optional modules (streaming, governance, resilience, tenant, operations)
- * into the Coordinator lifecycle. Each module is guarded by a feature flag.
- *
- * <p>Implements {@link MaintenanceLeaderAware} to provide a single entry point
- * for leader lifecycle transitions. On leader elected/lost, delegates to
- * {@link IndexingBootstrap}, {@link StreamingBootstrap}, and any other
- * leader-aware subsystems.</p>
- */
+/** Wires optional modules into the coordinator lifecycle. */
 final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(ModuleIntegrationBootstrap.class);
 
     private volatile boolean closed;
 
-    /**
-     * Live maintenance-leader flag driven by {@link #onLeaderElected()} /
-     * {@link #onLeadershipLost()}. Leader-gated schedulers (e.g. governance quality
-     * cron) read this so exactly one coordinator runs periodic maintenance in an
-     * Active-Active cluster. Single-node deployments elect themselves leader at
-     * startup via the InMemory lease, so this becomes true immediately (F-GOV-CRON).
-     */
     private volatile boolean maintenanceLeader;
 
     // Streaming
@@ -93,6 +78,9 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     // Streaming bootstrap (set externally after build)
     private StreamingBootstrap streamingBootstrap;
 
+    // AI infrastructure maintenance
+    private org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask branchTtlCleanupTask;
+
     // Metadata sync (leader-gated periodic sync for federation catalogs)
     private org.pangrova.metadata.sync.MetadataSyncService metadataSyncService;
     private org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry;
@@ -108,12 +96,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     private static final long METADATA_SYNC_INTERVAL_SECONDS = 60;
 
-    // ── Unified leader lifecycle (MaintenanceLeaderAware) ───────────
-
-    /**
-     * Called when this node becomes the maintenance leader.
-     * Delegates to all leader-aware subsystems: indexing, streaming, metadata sync.
-     */
     @Override
     public void onLeaderElected() {
         maintenanceLeader = true;
@@ -123,15 +105,14 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         if (streamingBootstrap != null) {
             streamingBootstrap.onLeaderElected();
         }
+        if (branchTtlCleanupTask != null) {
+            branchTtlCleanupTask.start();
+        }
         startMetadataSyncSchedule();
         startInvalidationCleanupSchedule();
         LOG.info("event=unified_leader_elected");
     }
 
-    /**
-     * Called when this node loses maintenance leadership.
-     * Delegates to all leader-aware subsystems: indexing, streaming, metadata sync.
-     */
     @Override
     public void onLeadershipLost() {
         maintenanceLeader = false;
@@ -141,20 +122,18 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         if (streamingBootstrap != null) {
             streamingBootstrap.onLeadershipLost();
         }
+        if (branchTtlCleanupTask != null) {
+            branchTtlCleanupTask.stop();
+        }
         stopMetadataSyncSchedule();
         stopInvalidationCleanupSchedule();
         LOG.info("event=unified_leadership_lost");
     }
 
-    /** Returns whether this coordinator currently holds maintenance leadership. */
     private boolean isMaintenanceLeader() {
         return maintenanceLeader;
     }
 
-    /**
-     * Configures the metadata sync service and catalog registry for leader-gated periodic sync.
-     * Must be called during bootstrap after MetadataBootstrap is initialized.
-     */
     void setMetadataSyncDeps(org.pangrova.metadata.sync.MetadataSyncService syncService,
                              org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry) {
         this.metadataSyncService = syncService;
@@ -192,8 +171,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     private void runMetadataSync() {
-        // F-META-01: Periodic catalog membership reconciliation ensures catalogs
-        // added/dropped by other coordinators are detected even without failover.
         try {
             org.pangrova.metadata.catalog.CatalogRegistry.DivergenceReport report =
                     catalogRegistry.reconcileFromStore();
@@ -254,6 +231,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.streamingBootstrap = streamingBootstrap;
     }
 
+    void setBranchTtlCleanupTask(
+            org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask cleanupTask) {
+        this.branchTtlCleanupTask = cleanupTask;
+    }
+
     StreamingBootstrap getStreamingBootstrap() {
         return streamingBootstrap;
     }
@@ -271,8 +253,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         streamingModule = new StreamingContext(scheduler, tracker);
         CdcRegistrationStore cdcStore = createCdcRegistrationStore(dataSource);
         cdcRegistrationHandler = new CdcRegistrationHandler(cdcStore);
-        // Activate periodic maintenance scan. The table source returns an empty list
-        // initially; connectors register their managed tables as catalogs are mounted.
         scheduler.startPeriodicScan(java.util.Collections::emptyList);
         LOG.info("Phase: streaming — initialized (watermarkStore={} cdcRegistrationStore={} periodicScanStarted=true)",
                 watermarkStore.getClass().getSimpleName(), cdcStore.getClass().getSimpleName());
@@ -293,9 +273,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             return;
         }
         lineageEmitter = new LineageEventEmitter(new LogLineageBackend());
-        // F-GOV-CRON: persist quality rules so they survive restart and are visible
-        // across all coordinators. Without a datasource we fall back to in-memory
-        // (single-node/test only) and warn, mirroring the tenant store policy.
         QualityRuleStore ruleStore;
         if (dataSource != null) {
             ruleStore = new JdbcQualityRuleStore(dataSource);
@@ -311,10 +288,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
         GovernanceStatementHandler handler = new GovernanceStatementHandler(
                 ruleStore, new DefaultQualityRuleExecutor(), alerter);
-        // F-GOV-CRON: leader-gated cron so scheduled quality checks run on exactly
-        // one coordinator per interval (prevents duplicate execution/alerts in a
-        // multi-coordinator Active-Active cluster). leaderCheck reads the live
-        // maintenance-leader flag maintained by onLeaderElected/onLeadershipLost.
         CronScheduler cronScheduler = new CronScheduler(handler, this::isMaintenanceLeader, null);
         TagBasedSecurityPolicy securityPolicy = new TagBasedSecurityPolicy(
                 new InMemoryColumnMaskStore(), new InMemoryAuditConfigStore());
@@ -343,9 +316,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             LOG.info("Phase skipped: tenant not enabled");
             return;
         }
-        // F-SEC-02: Wire JdbcTenantStore when a datasource is available for
-        // production persistence. InMemoryTenantStore is only acceptable for
-        // single-node/test mode where cross-coordinator consistency is not needed.
         if (dataSource != null) {
             tenantStore = new org.pangrova.metadata.tenant.JdbcTenantStore(dataSource);
             LOG.info("Phase: tenant — using JDBC-backed tenant store");
@@ -360,7 +330,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         LOG.info("Phase: tenant — initialized");
     }
 
-    /** Returns the tenant store (JDBC or in-memory) for cluster admission wiring. */
     public org.pangrova.security.tenant.store.TenantStore getTenantStore() {
         return tenantStore;
     }
@@ -374,8 +343,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         RecoveryActions.registerAll(recoveryPlaybook);
         LOG.info("Phase: operations — initialized (RecoveryPlaybookFramework with 3 actions)");
     }
-
-    // -- Accessors --
 
     CdcLifecycleManager getCdcLifecycleManager() { return cdcRegistrationHandler; }
     MaintenanceScheduler getMaintenanceScheduler() { return maintenanceScheduler; }
@@ -412,8 +379,47 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.spi.coordination.DistributedLease distributedLease) {
+        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
+                baseIndexPath, distributedLease, null);
+    }
+
+    void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.spi.coordination.DistributedLease distributedLease,
+                       org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore) {
+        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
+                baseIndexPath, distributedLease, artifactBuildStore, null);
+    }
+
+    void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.spi.coordination.DistributedLease distributedLease,
+                       org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
+                       org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore) {
+        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
+                baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, null);
+    }
+
+    void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.spi.coordination.DistributedLease distributedLease,
+                       org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
+                       org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore,
+                       org.pangrova.coordinator.index.lifecycle.MaintenanceLeaderElection leaderElection) {
         try {
-            indexingBootstrap = new IndexingBootstrap(baseIndexPath, distributedLease);
+            indexingBootstrap = new IndexingBootstrap(
+                    baseIndexPath, distributedLease, artifactBuildStore,
+                    artifactPublicationStore, leaderElection);
             indexingBootstrap.start(metadataStore, catalogRegistry, metricsProvider, accessControl);
             LOG.info("Phase: indexing — initialized");
         } catch (Exception e) {
@@ -441,6 +447,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         if (invalidationCleanupScheduler != null) {
             invalidationCleanupScheduler.shutdownNow();
         }
+        closeModule(invalidationPoller, "metadata_invalidation");
         closeOperations();
         closeTenant();
         closeResilience();

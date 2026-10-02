@@ -77,6 +77,11 @@ public final class SpeculativeStageHandler {
         String originalWorkerId = taskTracker.getWorkerForTask(stragglerTaskId);
         String excludeWorkerId = originalWorkerId != null ? originalWorkerId : "";
         String specTaskId = launcher.launchSpeculative(stragglerTaskId, excludeWorkerId, queryId);
+        if (specTaskId == null) {
+            LOG.info("event=speculative_launch_skipped queryId={} originalTaskId={}"
+                    + " reason=no_dispatched_copy", queryId, stragglerTaskId);
+            return;
+        }
         LOG.info("event=speculative_launch queryId={} originalTaskId={} "
                 + "speculativeTaskId={} excludeWorkerId={}",
                 queryId, stragglerTaskId, specTaskId, excludeWorkerId);

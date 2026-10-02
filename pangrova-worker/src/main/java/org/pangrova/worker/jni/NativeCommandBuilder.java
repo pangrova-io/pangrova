@@ -1,142 +1,214 @@
 package org.pangrova.worker.jni;
 
-import com.google.protobuf.ByteString;
-import org.pangrova.worker.jni.proto.ConnectExchangeSourcePayload;
-import org.pangrova.worker.jni.proto.EvictCachePayload;
-import org.pangrova.worker.jni.proto.InjectDynamicFilterPayload;
-import org.pangrova.worker.jni.proto.NativeCommand;
-import org.pangrova.worker.jni.proto.NativeCommandResponse;
-import org.pangrova.worker.jni.proto.UpdateMemoryLimitPayload;
+import com.google.protobuf.Any;
+import com.google.protobuf.Message;
+import org.pangrova.protocol.v2.EvictCacheRequest;
+import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
+import org.pangrova.protocol.v2.ProtocolVersion;
+import org.pangrova.protocol.v2.RuntimeCommand;
+import org.pangrova.protocol.v2.RuntimeCommandResponse;
+import org.pangrova.protocol.v2.RuntimeCommandType;
+import org.pangrova.protocol.v2.StageResourceGrant;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.UpdateResourceGrantRequest;
 
-/**
- * Builds serialized NativeCommand proto bytes for the unified command channel.
- * Uses protobuf-generated Java classes from {@code command.proto}.
- *
- * <p>This class replaces the former hand-written wire-format encoding with
- * type-safe generated builders, eliminating manual field number/wire type management.</p>
- */
+/** Builds the canonical v2 JVM-to-Native control protocol. */
 public final class NativeCommandBuilder {
+
+    private static final ProtocolVersion PROTOCOL = ProtocolVersion.newBuilder()
+            .setMajor(2)
+            .setMinor(0)
+            .setRolloutEpoch("ai-native-r2")
+            .build();
 
     private NativeCommandBuilder() {}
 
-    /**
-     * Builds a NativeCommand proto for UPDATE_MEMORY_LIMIT.
-     */
-    public static byte[] updateMemoryLimit(long executorHandle, long newLimitBytes) {
-        byte[] payload = UpdateMemoryLimitPayload.newBuilder()
-                .setNewLimitBytes(newLimitBytes)
-                .build()
-                .toByteArray();
-        return buildCommand(executorHandle, NativeCommandType.UPDATE_MEMORY_LIMIT, payload);
-    }
-
-    /**
-     * Builds a NativeCommand proto for GET_METRICS (global, handle=0).
-     */
-    public static byte[] getMetrics() {
-        return buildCommand(0, NativeCommandType.GET_METRICS, null);
-    }
-
-    /**
-     * Builds a NativeCommand proto for GET_CACHE_STATS (global, handle=0).
-     */
-    public static byte[] getCacheStats() {
-        return buildCommand(0, NativeCommandType.GET_CACHE_STATS, null);
-    }
-
-    /**
-     * Builds a NativeCommand proto for GET_CAPABILITIES (global, handle=0).
-     */
-    public static byte[] buildGetCapabilities() {
-        return buildCommand(0, NativeCommandType.GET_CAPABILITIES, null);
-    }
-
-    /**
-     * Builds a NativeCommand proto for PREFETCH_SPLITS (global, handle=0).
-     */
-    public static byte[] prefetchSplits(byte[] splitInfosProto) {
-        return buildCommand(0, NativeCommandType.PREFETCH_SPLITS, splitInfosProto);
-    }
-
-    /**
-     * Builds a NativeCommand proto for EVICT_CACHE (global, handle=0).
-     */
-    public static byte[] evictCache(String pattern) {
-        byte[] payload = EvictCachePayload.newBuilder()
-                .setPattern(pattern)
-                .build()
-                .toByteArray();
-        return buildCommand(0, NativeCommandType.EVICT_CACHE, payload);
-    }
-
-    /**
-     * Builds a NativeCommand proto for INJECT_DYNAMIC_FILTER.
-     */
-    public static byte[] injectDynamicFilter(long executorHandle,
-                                             String planNodeId,
-                                             byte[] filterProto) {
-        InjectDynamicFilterPayload.Builder builder = InjectDynamicFilterPayload.newBuilder()
-                .setPlanNodeId(planNodeId);
-        if (filterProto != null && filterProto.length > 0) {
-            builder.setFilterProto(ByteString.copyFrom(filterProto));
+    /** Builds a resource-grant update for the native runtime. */
+    public static byte[] updateMemoryLimit(long newLimitBytes) {
+        if (newLimitBytes <= 0) {
+            throw new IllegalArgumentException("newLimitBytes must be positive");
         }
-        byte[] payload = builder.build().toByteArray();
-        return buildCommand(executorHandle, NativeCommandType.INJECT_DYNAMIC_FILTER, payload);
+        UpdateResourceGrantRequest payload = UpdateResourceGrantRequest.newBuilder()
+                .setResourceGrant(StageResourceGrant.newBuilder()
+                        .setNativeMemoryBytes(newLimitBytes))
+                .build();
+        return buildCommand(
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_UPDATE_RESOURCE_GRANT,
+                payload);
     }
 
-    /**
-     * Extracts the result_payload field (field 3) from a NativeCommandResponse.
-     * Returns null if the field is not present or empty.
-     */
+    /** Builds a metrics snapshot request. */
+    public static byte[] getMetrics() {
+        return buildCommand(RuntimeCommandType.RUNTIME_COMMAND_TYPE_GET_METRICS, null);
+    }
+
+    /** Builds a native capability inventory request. */
+    public static byte[] buildGetCapabilities() {
+        return buildCommand(
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_GET_CAPABILITIES, null);
+    }
+
+    /** Builds an artifact prefetch command from a validated request. */
+    public static byte[] prefetchArtifacts(PrefetchArtifactsRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request must not be null");
+        }
+        return buildCommand(
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREFETCH_ARTIFACTS,
+                request);
+    }
+
+    /** Builds a cache eviction command for one non-blank pattern. */
+    public static byte[] evictCache(String pattern) {
+        if (pattern == null || pattern.isBlank()) {
+            throw new IllegalArgumentException("pattern must not be blank");
+        }
+        return buildCommand(
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_EVICT_CACHE,
+                EvictCacheRequest.newBuilder().setPattern(pattern).build());
+    }
+
+    /** Builds a runtime-filter injection command after decoding its canonical payload. */
+    public static byte[] injectRuntimeFilter(
+            String planNodeId, byte[] filterProto) {
+        requireRuntimeFilterPayload(planNodeId, filterProto);
+        final InjectRuntimeFilterRequest decoded = parseRuntimeFilter(filterProto);
+        validateRuntimeFilter(planNodeId, decoded);
+        return buildCommand(
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER,
+                decoded.toBuilder().setPlanNodeId(planNodeId).build());
+    }
+
+    private static void requireRuntimeFilterPayload(String planNodeId, byte[] filterProto) {
+        if (planNodeId == null || planNodeId.isBlank()) {
+            throw new IllegalArgumentException("planNodeId must not be blank");
+        }
+        if (filterProto == null || filterProto.length == 0) {
+            throw new IllegalArgumentException(
+                    "filterProto must contain an InjectRuntimeFilterRequest");
+        }
+    }
+
+    private static InjectRuntimeFilterRequest parseRuntimeFilter(byte[] filterProto) {
+        try {
+            return InjectRuntimeFilterRequest.parseFrom(filterProto);
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException(
+                    "filterProto is not a canonical v2 runtime filter", e);
+        }
+    }
+
+    private static void validateRuntimeFilter(
+            String planNodeId, InjectRuntimeFilterRequest decoded) {
+        if (decoded.getFiltersCount() == 0) {
+            throw new IllegalArgumentException(
+                    "runtime filter request must contain at least one filter");
+        }
+        if (!decoded.getPlanNodeId().isEmpty()
+                && !decoded.getPlanNodeId().equals(planNodeId)) {
+            throw new IllegalArgumentException(
+                    "runtime filter plan node mismatch: request=" + planNodeId
+                            + " payload=" + decoded.getPlanNodeId());
+        }
+    }
+
+    /** Returns the serialized concrete message carried by response.payload. */
     public static byte[] extractResultPayload(byte[] responseBytes) {
+        RuntimeCommandResponse response = requireSuccess(responseBytes, "native command");
+        return response.hasPayload()
+                ? response.getPayload().getValue().toByteArray()
+                : null;
+    }
+
+    /** Parses a command response and fails closed on malformed/negative acknowledgements. */
+    public static RuntimeCommandResponse requireSuccess(
+            byte[] responseBytes, String operation) {
         if (responseBytes == null || responseBytes.length == 0) {
-            return null;
+            throw new IllegalStateException(
+                    operation + " returned an empty RuntimeCommandResponse");
         }
         try {
-            NativeCommandResponse response = NativeCommandResponse.parseFrom(responseBytes);
-            ByteString resultPayload = response.getResultPayload();
-            if (resultPayload.isEmpty()) {
-                return null;
+            RuntimeCommandResponse response =
+                    RuntimeCommandResponse.parseFrom(responseBytes);
+            if (!response.getSuccess()) {
+                String message = response.hasError()
+                        ? response.getError().getMessage()
+                        : "unspecified Native command failure";
+                throw new IllegalStateException(operation + " failed: " + message);
             }
-            return resultPayload.toByteArray();
+            return response;
         } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            throw new IllegalStateException("Failed to parse NativeCommandResponse", e);
+            throw new IllegalStateException(
+                    operation + " returned a malformed RuntimeCommandResponse", e);
         }
     }
 
-    // --- Command envelope builder ---
+    /** Builds a v2 envelope with a type-safe protobuf Any payload. */
+    public static byte[] buildCommand(
+            RuntimeCommandType commandType, Message payload) {
+        validateCommandType(commandType);
+        if (requiresAttempt(commandType)) {
+            throw new IllegalArgumentException(
+                    "task-scoped command requires an attempt identity: " + commandType);
+        }
+        return buildEnvelope(commandType, null, payload);
+    }
 
-    /**
-     * Builds a NativeCommand proto envelope wrapping an optional payload.
-     * Public for reuse by transport classes.
-     */
-    public static byte[] buildCommand(long executorHandle, int commandType,
-                                       byte[] payload) {
-        NativeCommand.Builder builder = NativeCommand.newBuilder()
-                .setExecutorHandle(executorHandle)
-                .setCommandTypeValue(commandType);
-        if (payload != null && payload.length > 0) {
-            builder.setPayload(ByteString.copyFrom(payload));
+    /** Builds a task-scoped v2 envelope with an exact fenced attempt identity. */
+    public static byte[] buildCommand(
+            RuntimeCommandType commandType,
+            TaskAttemptId attempt,
+            Message payload) {
+        validateCommandType(commandType);
+        requireAttempt(attempt);
+        return buildEnvelope(commandType, attempt, payload);
+    }
+
+    private static byte[] buildEnvelope(
+            RuntimeCommandType commandType,
+            TaskAttemptId attempt,
+            Message payload) {
+        RuntimeCommand.Builder builder = RuntimeCommand.newBuilder()
+                .setProtocol(PROTOCOL)
+                .setCommandType(commandType);
+        if (attempt != null) {
+            builder.setAttempt(attempt);
+        }
+        if (payload != null) {
+            builder.setPayload(Any.pack(payload));
         }
         return builder.build().toByteArray();
     }
 
-    // --- Payload builders for transport classes (public API preserved) ---
+    private static void validateCommandType(RuntimeCommandType commandType) {
+        if (commandType == null
+                || commandType == RuntimeCommandType.RUNTIME_COMMAND_TYPE_UNSPECIFIED
+                || commandType == RuntimeCommandType.UNRECOGNIZED) {
+            throw new IllegalArgumentException(
+                    "commandType must be a recognized non-zero v2 command");
+        }
+    }
 
-    /**
-     * Builds a ConnectExchangeSourcePayload proto.
-     */
-    public static byte[] buildConnectExchangeSourcePayload(
-            String sourceId, String host, int port,
-            String queryId, int stageId, int partitionId) {
-        return ConnectExchangeSourcePayload.newBuilder()
-                .setSourceId(sourceId)
-                .setHost(host)
-                .setPort(port)
-                .setQueryId(queryId)
-                .setStageId(stageId)
-                .setPartitionId(partitionId)
-                .build()
-                .toByteArray();
+    private static boolean requiresAttempt(RuntimeCommandType type) {
+        return type == RuntimeCommandType.RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE
+                || type == RuntimeCommandType.RUNTIME_COMMAND_TYPE_NO_MORE_EXCHANGE_SOURCES
+                || type == RuntimeCommandType.RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH
+                || type == RuntimeCommandType.RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE
+                || type == RuntimeCommandType.RUNTIME_COMMAND_TYPE_GET_RESOURCE_DRAIN_EVIDENCE
+                || type == RuntimeCommandType.RUNTIME_COMMAND_TYPE_CANCEL_ATTEMPT;
+    }
+
+    private static void requireAttempt(TaskAttemptId attempt) {
+        if (attempt == null
+                || attempt.getQueryOrJobId().isBlank()
+                || attempt.getTaskId().isBlank()
+                || attempt.getPlanEpoch() == 0
+                || attempt.getFencingToken() == 0
+                || attempt.getControlEpoch() == 0
+                || !attempt.hasExecutionOwner()) {
+            throw new IllegalArgumentException(
+                    "task-scoped command attempt identity is incomplete");
+        }
     }
 }

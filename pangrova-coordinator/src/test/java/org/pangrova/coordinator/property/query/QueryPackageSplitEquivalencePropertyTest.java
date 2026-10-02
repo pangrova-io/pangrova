@@ -57,7 +57,7 @@ class QueryPackageSplitEquivalencePropertyTest {
                     "ShowDescribeExecutor.java",
                     "StatementClassifier.java"),
             "statement/dml", Set.of(
-                    "DmlExecutor.java"),
+                    "DeleteFilterConverter.java"),
             "audit", Set.of(
                     "QueryAuditEmitter.java"),
             "security", Set.of(

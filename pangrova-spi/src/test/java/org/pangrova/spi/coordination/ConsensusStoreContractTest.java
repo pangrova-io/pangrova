@@ -67,9 +67,11 @@ class ConsensusStoreContractTest {
     void leaseFromStoreCanAcquireAndRelease() {
         ConsensusStore store = buildInMemoryStore();
         DistributedLease lease = store.lease();
-        boolean acquired = lease.tryAcquire("test-key", "node-1", 1, Duration.ofSeconds(30));
-        assertThat(acquired).isTrue();
-        boolean released = lease.release("test-key", "node-1");
+        LeaseEntry acquired = lease.tryAcquire(
+                "test-key", "node-1", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(acquired.epoch()).isEqualTo(1);
+        boolean released = lease.release(
+                "test-key", "node-1", acquired.epoch());
         assertThat(released).isTrue();
     }
 
@@ -121,25 +123,26 @@ class ConsensusStoreContractTest {
     /** Minimal in-memory lease for testing. */
     private static final class InMemoryLease implements DistributedLease {
         private volatile LeaseEntry holder;
+        private long epochHighWatermark;
 
         @Override
-        public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
-            if (holder == null || holder.holderId().equals(holderId)) {
-                holder = new LeaseEntry(leaseKey, holderId, epoch,
-                        Instant.now(), Instant.now().plus(duration));
-                return true;
+        public synchronized Optional<LeaseEntry> tryAcquire(
+                String leaseKey, String holderId, Duration duration) {
+            if (holder != null && !holder.isExpired()) {
+                return holder.holderId().equals(holderId)
+                        ? Optional.of(holder) : Optional.empty();
             }
-            if (holder.isExpired()) {
-                holder = new LeaseEntry(leaseKey, holderId, epoch,
-                        Instant.now(), Instant.now().plus(duration));
-                return true;
-            }
-            return false;
+            epochHighWatermark++;
+            holder = new LeaseEntry(leaseKey, holderId, epochHighWatermark,
+                    Instant.now(), Instant.now().plus(duration));
+            return Optional.of(holder);
         }
 
         @Override
-        public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
-            if (holder != null && holder.holderId().equals(holderId)) {
+        public synchronized boolean tryRenew(
+                String leaseKey, String holderId, long epoch, Duration duration) {
+            if (holder != null && !holder.isExpired()
+                    && holder.holderId().equals(holderId) && holder.epoch() == epoch) {
                 holder = new LeaseEntry(leaseKey, holderId, holder.epoch(),
                         holder.acquiredAt(), Instant.now().plus(duration));
                 return true;
@@ -148,9 +151,11 @@ class ConsensusStoreContractTest {
         }
 
         @Override
-        public boolean release(String leaseKey, String holderId) {
-            if (holder != null && holder.holderId().equals(holderId)) {
-                holder = null;
+        public synchronized boolean release(String leaseKey, String holderId, long epoch) {
+            if (holder != null && !holder.isExpired()
+                    && holder.holderId().equals(holderId) && holder.epoch() == epoch) {
+                holder = new LeaseEntry(leaseKey, holderId, epoch,
+                        holder.acquiredAt(), Instant.now());
                 return true;
             }
             return false;
@@ -158,12 +163,8 @@ class ConsensusStoreContractTest {
 
         @Override
         public Optional<LeaseEntry> currentHolder(String leaseKey) {
-            return Optional.ofNullable(holder);
-        }
-
-        @Override
-        public int expireStale() {
-            return 0;
+            return holder == null || holder.isExpired()
+                    ? Optional.empty() : Optional.of(holder);
         }
     }
 

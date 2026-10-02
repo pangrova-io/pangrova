@@ -14,6 +14,8 @@ import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerManager.HeartbeatData;
+import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.resource.MemoryPressure;
@@ -22,13 +24,14 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.function.LongSupplier;
 
 /**
  * JAX-RS resource for worker heartbeat and registration.
  * Delegates to {@link WorkerManager}.
  *
- * <p>R10.4: Validates worker protocol version on registration using a supported
- * version range. Incompatible workers are rejected with HTTP 409.</p>
+ * <p>Worker registration accepts only the exact canonical v2 protocol identity.
+ * Incompatible workers are rejected with HTTP 409.</p>
  */
 @Path("/v1")
 @Produces(MediaType.APPLICATION_JSON)
@@ -42,21 +45,26 @@ public final class WorkerResource {
     /** Maximum allowed length of a worker hostname (RFC 1035 limit). */
     private static final int MAX_WORKER_HOST_LENGTH = 253;
 
-    /** Minimum supported worker protocol version (inclusive). */
-    static final int MIN_SUPPORTED_PROTOCOL_VERSION = 1;
-    /** Maximum supported worker protocol version (inclusive). */
-    static final int MAX_SUPPORTED_PROTOCOL_VERSION = 2;
+    static final int CANONICAL_PROTOCOL_VERSION = CanonicalTaskRequests.PROTOCOL_MAJOR;
 
     private final WorkerManager workerManager;
     private final String coordinatorShuffleMode;
+    private final LongSupplier coordinatorEpochSupplier;
 
     public WorkerResource(WorkerManager workerManager) {
-        this(workerManager, null);
+        this(workerManager, null, () -> 1L);
     }
 
     public WorkerResource(WorkerManager workerManager, String coordinatorShuffleMode) {
+        this(workerManager, coordinatorShuffleMode, () -> 1L);
+    }
+
+    public WorkerResource(WorkerManager workerManager, String coordinatorShuffleMode,
+                          LongSupplier coordinatorEpochSupplier) {
         this.workerManager = checkNotNull(workerManager, "workerManager must not be null");
         this.coordinatorShuffleMode = coordinatorShuffleMode;
+        this.coordinatorEpochSupplier = checkNotNull(
+                coordinatorEpochSupplier, "coordinatorEpochSupplier must not be null");
     }
 
     /** Processes a worker heartbeat, recovering unregistered workers from the registry when possible. */
@@ -81,7 +89,7 @@ public final class WorkerResource {
         }
         HeartbeatData data = toHeartbeatData(request);
         workerManager.onHeartbeat(request.workerId(), data);
-        return Response.ok(Map.of("status", "ok")).build();
+        return Response.ok(controlResponse("ok")).build();
     }
 
     /**
@@ -109,8 +117,22 @@ public final class WorkerResource {
     }
 
     private Response doRegister(WorkerRegistrationRequest request) {
-        if (!isProtocolVersionCompatible(request.protocolVersion())) {
+        if (!isCanonicalProtocolVersion(request.protocolVersion())) {
             return rejectIncompatibleProtocol(request);
+        }
+        final org.pangrova.protocol.v2.CapabilityInventory capabilityInventory;
+        try {
+            capabilityInventory = CapabilityInventoryCodec.decode(
+                    request.capabilityInventory());
+        } catch (IllegalArgumentException failure) {
+            LOG.warn("event=worker_registration_rejected workerId={} reason=invalid_capability_inventory error={}",
+                    request.workerId(), failure.getMessage());
+            return Response.status(HTTP_STATUS_BAD_REQUEST)
+                    .entity(Map.of(
+                            "status", "error",
+                            "message", "Invalid canonical capability inventory: "
+                                    + failure.getMessage()))
+                    .build();
         }
         String host = request.httpHost();
         if (!isValidWorkerHost(host)) {
@@ -120,42 +142,47 @@ public final class WorkerResource {
                     .entity(Map.of("status", "error", "message", "Invalid worker host: " + host))
                     .build();
         }
-        WorkerInfo info = toWorkerInfo(request);
+        WorkerInfo info = toWorkerInfo(request, capabilityInventory);
         workerManager.registerWorker(info);
         warnIfShuffleModeMismatch(request);
         LOG.info("event=worker_registered workerId={} host={}:{} transportPort={} resultServerPort={} "
-                        + "protocolVersion={} capabilities={}",
+                        + "protocolVersion={} capabilityCount={} modelCount={}",
                 request.workerId(), request.httpHost(),
                 request.httpPort(), request.transportPort(),
                 request.resultServerPort(),
-                request.protocolVersion(), request.capabilities());
-        return Response.ok(Map.of("status", "registered")).build();
+                request.protocolVersion(), capabilityInventory.getCapabilitiesCount(),
+                capabilityInventory.getModelsCount());
+        return Response.ok(controlResponse("registered")).build();
+    }
+
+    private org.pangrova.protocol.rest.worker.WorkerControlResponse controlResponse(
+            String status) {
+        long epoch = coordinatorEpochSupplier.getAsLong();
+        if (epoch <= 0) {
+            throw new IllegalStateException(
+                    "Coordinator HA epoch is not initialized: " + epoch);
+        }
+        return new org.pangrova.protocol.rest.worker.WorkerControlResponse(
+                status, null, null, epoch);
     }
 
     private static Response rejectIncompatibleProtocol(WorkerRegistrationRequest request) {
         LOG.warn("event=worker_registration_rejected workerId={} protocolVersion={} "
-                + "minSupported={} maxSupported={} reason=incompatible_protocol_version",
+                + "requiredVersion={} reason=incompatible_protocol_version",
                 request.workerId(), request.protocolVersion(),
-                MIN_SUPPORTED_PROTOCOL_VERSION, MAX_SUPPORTED_PROTOCOL_VERSION);
+                CANONICAL_PROTOCOL_VERSION);
         return Response.status(HTTP_STATUS_CONFLICT)
                 .entity(Map.of(
                         "status", "error",
                         "message", "Incompatible protocol version: " + request.protocolVersion()
-                                + ". Supported range: [" + MIN_SUPPORTED_PROTOCOL_VERSION
-                                + ", " + MAX_SUPPORTED_PROTOCOL_VERSION + "]",
-                        "minSupportedVersion", MIN_SUPPORTED_PROTOCOL_VERSION,
-                        "maxSupportedVersion", MAX_SUPPORTED_PROTOCOL_VERSION))
+                                + ". Required version: " + CANONICAL_PROTOCOL_VERSION,
+                        "requiredProtocolVersion", CANONICAL_PROTOCOL_VERSION))
                 .build();
     }
 
-    /**
-     * Checks whether the worker's protocol version is within the supported range.
-     * R10.4: Uses simple range check — version must be between
-     * {@link #MIN_SUPPORTED_PROTOCOL_VERSION} and {@link #MAX_SUPPORTED_PROTOCOL_VERSION} inclusive.
-     */
-    static boolean isProtocolVersionCompatible(int protocolVersion) {
-        return protocolVersion >= MIN_SUPPORTED_PROTOCOL_VERSION
-                && protocolVersion <= MAX_SUPPORTED_PROTOCOL_VERSION;
+    /** Returns true only for the exact canonical Worker protocol major. */
+    static boolean isCanonicalProtocolVersion(int protocolVersion) {
+        return protocolVersion == CANONICAL_PROTOCOL_VERSION;
     }
 
     private static HeartbeatData toHeartbeatData(HeartbeatRequest request) {
@@ -250,14 +277,16 @@ public final class WorkerResource {
         }
     }
 
-    private static WorkerInfo toWorkerInfo(WorkerRegistrationRequest req) {
+    private static WorkerInfo toWorkerInfo(
+            WorkerRegistrationRequest req,
+            org.pangrova.protocol.v2.CapabilityInventory capabilityInventory) {
         return new WorkerInfo(
                 req.workerId(), req.httpHost(), req.httpPort(), req.transportPort(),
                 req.resultServerPort(),
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 0L, Instant.now(), 0.0, null,
-                req.protocolVersion(), req.capabilities(),
-                req.rackId(), req.dataLocality());
+                req.protocolVersion(),
+                req.rackId(), req.dataLocality(), null, capabilityInventory);
     }
 
     private static final java.util.regex.Pattern VALID_HOST_PATTERN =

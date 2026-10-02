@@ -6,13 +6,7 @@
 #include <iostream>
 #include <stdexcept>
 
-// Velox function registration APIs — guarded for graceful degradation.
-#if __has_include("velox/functions/FunctionRegistry.h")
 #include "velox/functions/FunctionRegistry.h"
-#define PANGROVA_HAS_VELOX_FUNC_REGISTRY 1
-#else
-#define PANGROVA_HAS_VELOX_FUNC_REGISTRY 0
-#endif
 
 namespace pangrova::udf {
 
@@ -49,35 +43,90 @@ void validateTypes(
   }
 }
 
+// Velox Type::toString() is a display format (for example, ROW<a:VARCHAR>
+// and ARRAY<REAL>), not the FunctionSignatureBuilder grammar. Build the
+// positional signature from the type tree so FILE/ROW and VECTOR/ARRAY UDFs
+// can be registered without dropping their concrete argument types.
+std::string signatureType(const TypePtr& type) {
+  switch (type->kind()) {
+    case facebook::velox::TypeKind::ARRAY:
+      return "array(" + signatureType(type->childAt(0)) + ")";
+    case facebook::velox::TypeKind::MAP:
+      return "map(" + signatureType(type->childAt(0)) + "," +
+          signatureType(type->childAt(1)) + ")";
+    case facebook::velox::TypeKind::ROW: {
+      std::string result = "row(";
+      for (uint32_t i = 0; i < type->size(); ++i) {
+        if (i != 0) {
+          result += ",";
+        }
+        result += signatureType(type->childAt(i));
+      }
+      return result + ")";
+    }
+    default:
+      return type->toString();
+  }
+}
+
+bool sameInputTypes(
+    const std::vector<TypePtr>& expected,
+    const std::vector<TypePtr>& actual) {
+  if (expected.size() != actual.size()) {
+    return false;
+  }
+  for (size_t i = 0; i < expected.size(); ++i) {
+    if (!expected[i] || !actual[i] ||
+        !expected[i]->equivalent(*actual[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 }  // namespace
 
 void NativeUdfRegistry::registerScalar(const ScalarUdfSpec& spec) {
   validateName(spec.name, "scalar");
   validateTypes(spec.name, spec.inputTypes, spec.outputType);
 
-  // P2-UDF-2: Reject registration after finalization.
   if (finalized_) {
     throw std::runtime_error(
         "UDF registration failed for '" + spec.name +
         "': registry is finalized, registerAllWithVelox() already called");
   }
 
-#if PANGROVA_HAS_VELOX_VECTOR_FUNC
   if (!spec.vectorFunctionFactory) {
     throw std::runtime_error(
         "UDF registration failed for '" + spec.name +
         "': vectorFunctionFactory must not be null");
   }
-#endif
 
-  scalarUdfs_[spec.name] = spec;
+  auto& overloads = scalarUdfs_[spec.name];
+  for (const auto& existing : overloads) {
+    if (sameInputTypes(existing.inputTypes, spec.inputTypes)) {
+      throw std::runtime_error(
+          "UDF registration failed for '" + spec.name +
+          "': duplicate scalar signature");
+    }
+    if (!existing.outputType->equivalent(*spec.outputType)) {
+      throw std::runtime_error(
+          "UDF registration failed for '" + spec.name +
+          "': overload return types must be identical");
+    }
+    if (existing.stateful != spec.stateful) {
+      throw std::runtime_error(
+          "UDF registration failed for '" + spec.name +
+          "': overload statefulness must be identical");
+    }
+  }
+  overloads.push_back(spec);
 }
 
 void NativeUdfRegistry::registerAggregate(const AggregateUdfSpec& spec) {
   validateName(spec.name, "aggregate");
   validateTypes(spec.name, spec.inputTypes, spec.outputType);
 
-  // P2-UDF-2: Reject registration after finalization.
   if (finalized_) {
     throw std::runtime_error(
         "UDF registration failed for '" + spec.name +
@@ -90,49 +139,70 @@ void NativeUdfRegistry::registerAggregate(const AggregateUdfSpec& spec) {
         "': intermediate type is null");
   }
 
-#if PANGROVA_HAS_VELOX_AGGREGATE
   if (!spec.aggregateFactory) {
     throw std::runtime_error(
         "UDF registration failed for '" + spec.name +
         "': aggregateFactory must not be null");
   }
-#endif
 
   aggregateUdfs_[spec.name] = spec;
 }
 
 void NativeUdfRegistry::registerAllWithVelox() {
-#if PANGROVA_HAS_VELOX_VECTOR_FUNC
-  for (const auto& [name, spec] : scalarUdfs_) {
+  for (const auto& [name, overloads] : scalarUdfs_) {
     try {
+      if (overloads.empty()) {
+        throw std::runtime_error("scalar overload set must not be empty");
+      }
+      const auto& spec = overloads.front();
       // Build the function signature from spec types.
       std::vector<facebook::velox::exec::FunctionSignaturePtr> signatures;
-      {
+      for (const auto& overload : overloads) {
         auto builder = facebook::velox::exec::FunctionSignatureBuilder();
-        for (size_t i = 0; i < spec.inputTypes.size(); ++i) {
-          builder.argumentType(spec.inputTypes[i]->toString());
+        for (const auto& inputType : overload.inputTypes) {
+          builder.argumentType(signatureType(inputType));
         }
-        builder.returnType(spec.outputType->toString());
+        builder.returnType(signatureType(overload.outputType));
         signatures.push_back(builder.build());
       }
 
-      if (spec.stateful) {
-        // Stateful scalar UDF — registerStatefulVectorFunction.
+      if (spec.stateful || overloads.size() > 1) {
+        // Overloads may have distinct factories. The Velox registry accepts
+        // one factory per name, so resolve the exact overload from the bound
+        // argument types instead of silently using the first implementation.
         facebook::velox::exec::registerStatefulVectorFunction(
             name,
             signatures,
-            [factory = spec.vectorFunctionFactory](
+            [registered = overloads](
                 const std::string& funcName,
                 const std::vector<facebook::velox::exec::VectorFunctionArg>&
                     inputArgs,
                 const facebook::velox::core::QueryConfig& /*config*/)
                 -> std::unique_ptr<facebook::velox::exec::VectorFunction> {
-              return factory(funcName, inputArgs);
+              std::vector<TypePtr> actualTypes;
+              actualTypes.reserve(inputArgs.size());
+              for (const auto& arg : inputArgs) {
+                actualTypes.push_back(arg.type);
+              }
+              const ScalarUdfSpec* match = nullptr;
+              for (const auto& candidate : registered) {
+                if (sameInputTypes(candidate.inputTypes, actualTypes)) {
+                  if (match != nullptr) {
+                    throw std::runtime_error(
+                        "Ambiguous UDF overload: " + funcName);
+                  }
+                  match = &candidate;
+                }
+              }
+              if (match == nullptr) {
+                throw std::runtime_error(
+                    "No UDF overload matches bound argument types: " +
+                    funcName);
+              }
+              return match->vectorFunctionFactory(funcName, inputArgs);
             });
       } else {
-        // P1-UDF-1: Stateless scalar UDF — use registerVectorFunction()
-        // which avoids per-batch factory overhead for functions that don't
-        // need QueryConfig or session state.
+        // Stateless scalar functions avoid per-batch factory overhead.
         facebook::velox::exec::registerVectorFunction(
             name,
             signatures,
@@ -142,6 +212,7 @@ void NativeUdfRegistry::registerAllWithVelox() {
       std::cerr << "level=INFO event=udf_registered"
                 << " type=scalar"
                 << " name=" << name
+                << " overloads=" << overloads.size()
                 << " stateful=" << (spec.stateful ? "true" : "false")
                 << std::endl;
     } catch (const std::exception& e) {
@@ -149,9 +220,7 @@ void NativeUdfRegistry::registerAllWithVelox() {
           "UDF registration failed for scalar '" + name + "': " + e.what());
     }
   }
-#endif
 
-#if PANGROVA_HAS_VELOX_AGGREGATE
   for (const auto& [name, spec] : aggregateUdfs_) {
     try {
       // Build the aggregate function signature.
@@ -161,10 +230,10 @@ void NativeUdfRegistry::registerAllWithVelox() {
         auto builder =
             facebook::velox::exec::AggregateFunctionSignatureBuilder();
         for (size_t i = 0; i < spec.inputTypes.size(); ++i) {
-          builder.argumentType(spec.inputTypes[i]->toString());
+          builder.argumentType(signatureType(spec.inputTypes[i]));
         }
-        builder.intermediateType(spec.intermediateType->toString());
-        builder.returnType(spec.outputType->toString());
+        builder.intermediateType(signatureType(spec.intermediateType));
+        builder.returnType(signatureType(spec.outputType));
         signatures.push_back(builder.build());
       }
 
@@ -192,24 +261,22 @@ void NativeUdfRegistry::registerAllWithVelox() {
           e.what());
     }
   }
-#endif
 
   std::cerr << "level=INFO event=udf_registration_complete"
             << " scalar_count=" << scalarUdfs_.size()
             << " aggregate_count=" << aggregateUdfs_.size()
             << std::endl;
 
-  // P2-UDF-2: Mark registry as finalized — no further registrations allowed.
   finalized_ = true;
 }
 
 std::optional<ScalarUdfSpec> NativeUdfRegistry::findScalar(
     const std::string& name) const {
   auto it = scalarUdfs_.find(name);
-  if (it == scalarUdfs_.end()) {
+  if (it == scalarUdfs_.end() || it->second.empty()) {
     return std::nullopt;
   }
-  return it->second;
+  return it->second.front();
 }
 
 std::optional<AggregateUdfSpec> NativeUdfRegistry::findAggregate(

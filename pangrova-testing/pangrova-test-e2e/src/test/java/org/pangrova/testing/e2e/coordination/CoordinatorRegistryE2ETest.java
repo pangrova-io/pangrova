@@ -3,17 +3,17 @@ package org.pangrova.testing.e2e.coordination;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
 import org.pangrova.metadata.coordination.JdbcCoordinatorRegistry;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
 import org.pangrova.metadata.store.EmbeddedDataSource;
 import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.testing.ContainerTestBase;
 import org.pangrova.testing.e2e.fixture.RegistryTestSchemaHelper;
+import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
+import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.pangrova.testing.e2e.SharedTestContainers;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
@@ -47,18 +47,13 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-                SharedTestContainers.AVAILABLE && SharedTestContainers.POSTGRES.isRunning(),
-                "Docker/PostgreSQL is not available — skipping container-based tests");
-        var pg = SharedTestContainers.POSTGRES;
+        var pg = RegistryTestSchemaHelper.requirePostgres();
         dataSource = new EmbeddedDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
-        RegistryTestSchemaHelper.createCoordinatorRegistryTable(dataSource);
-        RegistryTestSchemaHelper.createDistributedLeaseTable(dataSource);
-        RegistryTestSchemaHelper.truncateAll(dataSource,
-                "coordinator_registry", "distributed_lease");
+        MetadataSchemaInitializer.createSchema(dataSource);
+        RegistryTestSchemaHelper.truncateAll(dataSource, "coordinator_registry");
         registry = new JdbcCoordinatorRegistry(dataSource);
-        lease = new JdbcDistributedLease(dataSource);
+        lease = new TestLeaseNamespace().jdbc(dataSource);
     }
 
     // -----------------------------------------------------------------------
@@ -185,9 +180,11 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
             haA.start("coordinator-a");
             assertThat(registry.getLeader()).isPresent();
             assertThat(registry.getLeader().get().coordinatorId()).isEqualTo("coordinator-a");
+            long previousEpoch = haA.getCurrentEpoch();
 
             // Coordinator-A stops (close → unregister)
             haA.close();
+            assertThat(lease.currentHolder("coordinator_leader")).isEmpty();
 
             // Coordinator-B starts and takes over
             HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config);
@@ -196,6 +193,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
                 haB.start("coordinator-b");
 
                 assertThat(haB.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                assertThat(haB.getCurrentEpoch()).isGreaterThan(previousEpoch);
 
                 Optional<CoordinatorSnapshot> leader = registry.getLeader();
                 assertThat(leader).isPresent();
@@ -225,9 +223,11 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
             try {
                 haA.start("coordinator-a");
                 assertThat(haA.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                long previousEpoch = haA.getCurrentEpoch();
 
                 // Step down — releases lease and updates role to STANDBY
                 haA.stepDown("coordinator-a");
+                assertThat(lease.currentHolder("coordinator_leader")).isEmpty();
 
                 // Verify role updated to STANDBY in registry
                 Optional<CoordinatorSnapshot> snapshot = registry.getCoordinator("coordinator-a");
@@ -246,6 +246,7 @@ class CoordinatorRegistryE2ETest extends ContainerTestBase {
                 try {
                     haB.start("coordinator-b");
                     assertThat(haB.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                    assertThat(haB.getCurrentEpoch()).isGreaterThan(previousEpoch);
 
                     Optional<CoordinatorSnapshot> newLeader = registry.getLeader();
                     assertThat(newLeader).isPresent();

@@ -9,13 +9,21 @@ import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
+import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
+import org.pangrova.coordinator.task.TaskStateMachine;
+import org.pangrova.coordinator.worker.HealthState;
+import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
+import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +45,7 @@ class SpeculativeExecutionSchedulerTest {
     private SpeculativeStageHandler stageHandler;
     private QueryManager queryManager;
     private SpeculativeExecutionScheduler scheduler;
+    private WorkerManager workerManager;
 
     @BeforeEach
     void setUp() {
@@ -45,6 +54,13 @@ class SpeculativeExecutionSchedulerTest {
         stageHandler = new SpeculativeStageHandler(
                 new SpeculationConfig(true, SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS),
                 new StragglerDetector(), launcher, taskTracker);
+        workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        workerManager.registerWorker(worker("worker-a", "host-a"));
+        workerManager.registerWorker(worker("worker-b", "host-b"));
+        launcher.setDispatchDependencies((request, worker) -> new DispatchResult(
+                worker.host(), request.taskRequest().getAttempt().getTaskId(),
+                new ResultEndpoint(worker.host(), worker.httpPort(), "result", "grpc")),
+                workerManager, taskTracker);
         queryManager = buildMinimalQueryManager();
     }
 
@@ -83,6 +99,10 @@ class SpeculativeExecutionSchedulerTest {
         taskTracker.recordTaskStart("ts", STAGE_ID, slowStart);
         taskTracker.assignWorker("ts", "worker-a");
         taskTracker.setDeadline("ts", Instant.now().plusSeconds(300));
+        taskTracker.registerTaskRequest("ts",
+                org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                        "ts", QUERY_ID, 1, 0, TaskKind.TASK_KIND_READ,
+                        "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 
         // Start the scheduler with a short interval (100ms for test speed)
         scheduler = new SpeculativeExecutionScheduler(
@@ -97,6 +117,10 @@ class SpeculativeExecutionSchedulerTest {
                 .as("Periodic scheduler should detect straggler and launch speculative copy within 10s")
                 .isTrue();
         assertThat(launcher.getOriginalTasksWithCopies()).contains("ts");
+        String copyId = launcher.getSpeculativeTaskId("ts").orElseThrow();
+        assertThat(taskTracker.getTaskState(QUERY_ID, copyId))
+                .isEqualTo(TaskStateMachine.State.RUNNING);
+        assertThat(taskTracker.getWorkerForTask(copyId)).isEqualTo("worker-b");
     }
 
     @Test
@@ -135,12 +159,18 @@ class SpeculativeExecutionSchedulerTest {
     private QueryManager buildMinimalQueryManager() {
         var scorer = new WorkerPerformanceScorer();
         var taskScheduler = new TaskScheduler(scorer);
-        var wm = new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         var rtd = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
         var ctx = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, rtd, taskScheduler,
-                wm, taskTracker, null, null, null, null, 0L);
+                workerManager, taskTracker, null, null, null, 0L);
         var dispatcher = new QueryDispatcher(ctx, null, null);
         return new QueryManager(QueryManagerContext.minimal(dispatcher, new NoOpTracingProvider()));
+    }
+
+    private static WorkerInfo worker(String id, String host) {
+        return new WorkerInfo(id, host, 8080, 8081, 0, HealthState.ACTIVE,
+                MemoryPressure.NONE, 0.5, 0, 1024L * 1024 * 1024,
+                Instant.now(), 1.0, null, 2, null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

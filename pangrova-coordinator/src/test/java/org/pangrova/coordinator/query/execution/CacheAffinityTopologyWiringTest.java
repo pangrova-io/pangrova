@@ -103,6 +103,7 @@ class CacheAffinityTopologyWiringTest {
                 workerId, "localhost", 8080, 9090, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.1, 0, 1_000_000_000L, Instant.now(),
-                1.0, null, 1, List.of(), null, List.of());
+                1.0, null, 2, null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

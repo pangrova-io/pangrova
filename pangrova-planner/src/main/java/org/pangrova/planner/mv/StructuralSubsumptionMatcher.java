@@ -1,5 +1,7 @@
 package org.pangrova.planner.mv;
 
+import org.pangrova.planner.PlanTable;
+
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Filter;
@@ -138,7 +140,7 @@ public final class StructuralSubsumptionMatcher {
             Set<String> groupByColumns) {
 
         if (node instanceof TableScan scan) {
-            List<String> qualifiedName = scan.getTable().getQualifiedName();
+            List<String> qualifiedName = PlanTable.require(scan).getQualifiedName();
             baseTables.add(String.join(".", qualifiedName));
             for (RelDataTypeField field : scan.getRowType().getFieldList()) {
                 referencedColumns.add(field.getName().toLowerCase());

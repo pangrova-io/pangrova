@@ -200,7 +200,8 @@ public final class CdcPipelineLoop implements Runnable {
             return;
         }
         // When no explicit initial offsets and a commit coordinator is available,
-        // restore from the JDBC state store (authoritative for exactly-once).
+        // restore from the JDBC state store. Ambiguous catalog publications
+        // must have been reconciled before this path is reached.
         CdcCommitCoordinator coordinator = deps.commitCoordinator();
         if (coordinator != null) {
             SourceId source = new SourceId(config.streamName());

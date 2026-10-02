@@ -22,6 +22,7 @@ public enum ShuffleType {
     BROADCAST,
     HASH,
     RANGE,
+    ROUND_ROBIN,
     SINGLETON,
     ANY
 }

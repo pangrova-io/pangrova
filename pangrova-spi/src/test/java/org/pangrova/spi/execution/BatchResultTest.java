@@ -46,41 +46,4 @@ class BatchResultTest {
         assertThat(result.errorMessage()).isEqualTo("OOM in Velox");
     }
 
-    @Test
-    void getNextBatchResultReturnsData() {
-        TaskExecutor executor = new TaskExecutor() {
-            @Override public long createTask(byte[] b) { return 1; }
-            @Override public void startTask(long h) {}
-            @Override public void releaseTask(long h) {}
-            @Override public void cancelTask(long h) {}
-
-            @Override
-            public BatchResult getNextBatchResult(long executorHandle) {
-                return BatchResult.data(new byte[]{0x42});
-            }
-        };
-
-        BatchResult result = executor.getNextBatchResult(1L);
-        assertThat(result.status()).isEqualTo(BatchResult.Status.DATA);
-        assertThat(result.data()).isEqualTo(new byte[]{0x42});
-    }
-
-    @Test
-    void getNextBatchResultReturnsEof() {
-        TaskExecutor executor = new TaskExecutor() {
-            @Override public long createTask(byte[] b) { return 1; }
-            @Override public void startTask(long h) {}
-            @Override public void releaseTask(long h) {}
-            @Override public void cancelTask(long h) {}
-
-            @Override
-            public BatchResult getNextBatchResult(long executorHandle) {
-                return BatchResult.eof();
-            }
-        };
-
-        BatchResult result = executor.getNextBatchResult(1L);
-        assertThat(result.status()).isEqualTo(BatchResult.Status.EOF);
-        assertThat(result.data()).isNull();
-    }
 }

@@ -3,9 +3,9 @@ package org.pangrova.coordinator.query.security;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.planner.security.SecurityExpressionCache;
 import org.pangrova.security.authz.DefaultAccessControl;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMask;
 import org.pangrova.security.mask.EnrichedColumnMaskStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
@@ -24,11 +24,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedRoles;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies security components wire AccessControl for column masking and row filtering.
- * Uses real RbacAccessControl with in-memory policy stores — no mocks.
+ * Uses real DynamicRbacAccessControl with in-memory policy stores — no mocks.
  * Validates: Requirements 41.1, 41.2, 41.3.
  */
 class SecurityComponentWiringTest {
@@ -39,7 +41,7 @@ class SecurityComponentWiringTest {
     void emptyPolicyStoresProduceNoOpBehavior() {
         AccessControl ac = buildAccessControlWithEmptyPolicies();
         ColumnMaskApplier maskApplier = new ColumnMaskApplier(ac);
-        RowFilterApplier filterApplier = new RowFilterApplier(ac, new SecurityExpressionCache());
+        RowFilterApplier filterApplier = new RowFilterApplier(ac);
         RelNode plan = COMPILER.compileToRelNode("SELECT 1");
         UserIdentity user = testUser("alice");
 
@@ -63,7 +65,7 @@ class SecurityComponentWiringTest {
     @Test
     void rowFilterPolicyOnConstantQueryIsNoOp() {
         RowFilterApplier filterApplier = new RowFilterApplier(
-                buildAccessControlWithPolicyStore(buildPolicyStore("region = 'US'")), new SecurityExpressionCache());
+                buildAccessControlWithPolicyStore(buildPolicyStore("region = 'US'")));
         RelNode plan = COMPILER.compileToRelNode("SELECT 1");
         UserIdentity user = testUser("carol");
 
@@ -79,22 +81,25 @@ class SecurityComponentWiringTest {
     }
 
     private static AccessControl buildAccessControlWithEmptyPolicies() {
-        return new RbacAccessControl(
-                List.of(),
+        return new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("users", "users"))),
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
                 new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
     }
 
     private static AccessControl buildAccessControlWithMaskStore(EnrichedColumnMaskStore store) {
-        return new RbacAccessControl(
-                List.of(),
+        return new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("users", "users"))),
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
                 new ColumnMaskingProcessor(store));
     }
 
     private static AccessControl buildAccessControlWithPolicyStore(RowPolicyStore store) {
-        return new RbacAccessControl(
-                List.of(),
+        return new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("users", "users"))),
                 new RowLevelSecurityFilter(store),
                 new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
     }

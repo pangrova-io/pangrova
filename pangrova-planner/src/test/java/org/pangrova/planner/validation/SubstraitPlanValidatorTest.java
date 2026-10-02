@@ -1,10 +1,12 @@
 package org.pangrova.planner.validation;
 
+import com.google.protobuf.Any;
 import io.substrait.expression.Expression;
 import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.ImmutableExpression;
 import io.substrait.expression.FieldReference;
 import io.substrait.plan.ImmutablePlan;
+import io.substrait.plan.ImmutableExecutionBehavior;
 import io.substrait.plan.ImmutableRoot;
 import io.substrait.plan.Plan;
 import io.substrait.relation.ImmutableAggregate;
@@ -13,8 +15,12 @@ import io.substrait.relation.ImmutableGrouping;
 import io.substrait.relation.ImmutableNamedScan;
 import io.substrait.relation.ImmutableProject;
 import io.substrait.relation.ImmutableSort;
+import io.substrait.relation.Extension;
+import io.substrait.relation.ExtensionLeaf;
 import io.substrait.relation.Rel;
+import io.substrait.relation.RelProtoConverter;
 import io.substrait.type.NamedStruct;
+import io.substrait.type.NamedFieldCountingTypeVisitor;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +28,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -50,6 +57,25 @@ class SubstraitPlanValidatorTest {
 
         assertThat(result.status()).isEqualTo(ValidationStatus.FULLY_NATIVE);
         assertThat(result.unsupportedNodes()).isEmpty();
+    }
+
+    @Test
+    void unknownExtensionLeafDetailRemainsUnsupported() {
+        Type.Struct rowType = NULLABLE.struct(NULLABLE.I64);
+        Extension.LeafRelDetail unknownDetail = new Extension.LeafRelDetail() {
+            @Override public Type.Struct deriveRecordType() { return rowType; }
+            @Override public Any toProto(RelProtoConverter converter) {
+                return Any.getDefaultInstance();
+            }
+        };
+        PlanValidationResult result = validator.validate(planOf(
+                ExtensionLeaf.from(unknownDetail).build()));
+
+        assertThat(result.status()).isEqualTo(ValidationStatus.JAVA_ONLY);
+        assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
+            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.RELATION);
+            assertThat(node.reason()).contains("detail not supported");
+        });
     }
 
     @Test
@@ -262,12 +288,19 @@ class SubstraitPlanValidatorTest {
     }
 
     private static Plan planOf(Rel rel) {
+        int outputNameCount = NamedFieldCountingTypeVisitor.countNames(rel.getRecordType());
         Plan.Root root = ImmutableRoot.builder()
                 .input(rel)
-                .addNames("out")
+                .addAllNames(IntStream.range(0, outputNameCount)
+                        .mapToObj(index -> "out_" + index)
+                        .toList())
                 .build();
         return ImmutablePlan.builder()
                 .addRoots(root)
+                .executionBehavior(ImmutableExecutionBehavior.builder()
+                        .variableEvaluationMode(
+                                Plan.ExecutionBehavior.VariableEvaluationMode.PER_PLAN)
+                        .build())
                 .build();
     }
 }

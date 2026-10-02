@@ -473,7 +473,10 @@ final class AstExtendedDdlBuilder extends PangrovaSqlBaseVisitor<Object> {
             String value = prop.value.getType() == PangrovaSqlParser.STRING_LITERAL
                     ? AstDdlDmlBuilder.stripQuotes(prop.value.getText())
                     : prop.value.getText();
-            props.put(key, value);
+            if (props.putIfAbsent(key, value) != null) {
+                throw new IllegalArgumentException(
+                        "Duplicate embedding model property: " + key);
+            }
         }
         return props;
     }

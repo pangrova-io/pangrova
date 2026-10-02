@@ -40,7 +40,7 @@ public interface WorkerRegistry {
      *
      * <p>Only the fields carried by {@link HeartbeatSnapshot} and the
      * last-heartbeat timestamp are updated; static identity fields
-     * (host, ports, capabilities) remain unchanged.</p>
+     * (host, ports, canonical capability inventory) remain unchanged.</p>
      *
      * <p>If the given {@code workerId} is not currently registered, the
      * behavior is implementation-defined (implementations may silently

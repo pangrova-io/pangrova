@@ -26,8 +26,9 @@ import javax.sql.DataSource;
  * JDBC-backed persistence for CDC two-phase commit state.
  *
  * <p>Stores transaction state in the {@code cdc_commit_state} table, enabling
- * crash recovery and idempotent deduplication based on the
- * (source_id, partition, start_offset, end_offset) tuple.</p>
+ * crash recovery and idempotent deduplication based on the source-scoped
+ * full-batch key. The legacy representative range is not a complete
+ * multi-topic/multi-partition offset checkpoint.</p>
  *
  * <p>Thread-safe: each operation acquires its own connection from the pool.</p>
  */
@@ -43,6 +44,9 @@ public final class JdbcCdcCommitStateStore {
 
     private static final String SQL_UPDATE_STATE = """
             UPDATE cdc_commit_state SET state = ? WHERE id = ?""";
+
+    private static final String SQL_COMPARE_AND_SET_STATE = """
+            UPDATE cdc_commit_state SET state = ? WHERE id = ? AND state = ?""";
 
     private static final String SQL_FIND_BY_ID = """
             SELECT * FROM cdc_commit_state WHERE id = ?""";
@@ -69,8 +73,8 @@ public final class JdbcCdcCommitStateStore {
     }
 
     /**
-     * Persists a new commit state row. Returns false if a duplicate
-     * (source_id, partition, start_offset, end_offset) already exists.
+     * Persists a single-range commit state row. Returns false if an active or
+     * committed record with the same source-scoped range key already exists.
      */
     public boolean insert(PrepareToken token, CdcCommitState state) {
         return insert(token, state, dedupKeyForRange(token.range()));
@@ -140,6 +144,24 @@ public final class JdbcCdcCommitStateStore {
         } catch (SQLException e) {
             throw new PangrovaException(PangrovaErrorCode.STREAMING_CDC_PARSE_ERROR,
                     "Failed to update CDC commit state id=" + id, e);
+        }
+    }
+
+    /** Atomically claims one state transition across coordinator processes. */
+    public boolean compareAndSetState(
+            UUID id, CdcCommitState expected, CdcCommitState next) {
+        Objects.requireNonNull(id, "id must not be null");
+        Objects.requireNonNull(expected, "expected must not be null");
+        Objects.requireNonNull(next, "next must not be null");
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(SQL_COMPARE_AND_SET_STATE)) {
+            ps.setString(1, next.name());
+            ps.setString(2, id.toString());
+            ps.setString(3, expected.name());
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new PangrovaException(PangrovaErrorCode.STREAMING_CDC_PARSE_ERROR,
+                    "Failed to claim CDC commit state id=" + id, e);
         }
     }
 

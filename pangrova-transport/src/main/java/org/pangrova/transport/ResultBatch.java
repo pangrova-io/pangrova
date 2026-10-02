@@ -19,9 +19,9 @@ import java.util.List;
  * Type-erased result batch carrying column metadata and decoded row data.
  * Produced by {@link ArrowBatchDecoder}; contains no Arrow types.
  *
- * <p>Row values are Java primitives or {@code String}:
- * INTEGER→Integer, BIGINT→Long, FLOAT/DOUBLE→Double, VARCHAR→String, BOOLEAN→Boolean,
- * NULL→null, other→Object from Arrow {@code getObject()}.
+ * <p>Row values are decoded Java values: INTEGER→Integer, BIGINT→Long,
+ * FLOAT/DOUBLE→Double, VARCHAR→String, BOOLEAN→Boolean, Pangrova VECTOR→float[],
+ * NULL→null, and other complex values from Arrow {@code getObject()}.
  *
  * @param columns ordered column descriptors
  * @param rows    decoded rows; each element is an Object[] aligned with columns

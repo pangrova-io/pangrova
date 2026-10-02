@@ -88,7 +88,7 @@ class RefreshStateRecoveryLockTest {
         stateStore.saveState(activeState("dt_free", "t1"));
 
         // Pre-acquire lock for dt_locked by another coordinator
-        lockManager.tryAcquire("dt_locked", "coord-other", 1, Duration.ofMinutes(5));
+        lockManager.tryAcquire("dt_locked", "coord-other", Duration.ofMinutes(5));
 
         RefreshStateRecovery recovery = new RefreshStateRecovery(
                 stateStore, dagManager, scheduler, schemaChecker,
@@ -115,8 +115,8 @@ class RefreshStateRecoveryLockTest {
         recovery.recover(noSchemaChange(), noDependencies());
 
         // Lock should be released — another coordinator should be able to acquire it
-        boolean acquired = lockManager.tryAcquire("dt1", "coord-other", 1, Duration.ofMinutes(1));
-        assertThat(acquired).isTrue();
+        assertThat(lockManager.tryAcquire(
+                "dt1", "coord-other", Duration.ofMinutes(1))).isPresent();
     }
 
     @Test

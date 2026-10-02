@@ -52,14 +52,14 @@ class ResultExpirationBootstrapTest {
 
     @Test
     void bootstrapWiresResultExpirationScheduler() {
-        bootstrap = new WorkerBootstrap(new WorkerBootstrapConfig(
+        bootstrap = TestWorkerBootstrap.create(new WorkerBootstrapConfig(
                 "expire-wire-test", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, WorkerBootstrapConfig.ResourceConfig.defaults(),
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null));
+                null, null, null));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -99,7 +99,9 @@ class ResultExpirationBootstrapTest {
         scheduler.scheduleExpiration("q-cancel-1");
         scheduler.cancelExpiration("q-cancel-1");
 
-        Thread.sleep(400);
+        org.awaitility.Awaitility.await().during(Duration.ofMillis(400))
+                .atMost(Duration.ofSeconds(2))
+                .untilAsserted(() -> assertThat(expired.get()).isFalse());
         assertThat(scheduler.isExpired("q-cancel-1")).isFalse();
         assertThat(expired.get()).isFalse();
     }
@@ -113,8 +115,8 @@ class ResultExpirationBootstrapTest {
                 WorkerBootstrapConfig.ResourceConfig.defaults(),
                 60, false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink;
+
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -39,7 +41,28 @@ public record TaskStatusReceiverContext(
         NativeWriteCommitTracker writeCommitTracker,
         StageCompletionCallback stageCompletionCallback,
         LineageEventEmitter lineageEmitter,
-        WriteCommitJournal writeCommitJournal) {
+        WriteCommitJournal writeCommitJournal,
+        ArtifactWorkReportSink artifactWorkReportSink) {
+
+    /** Compatibility constructor for callers that cannot dispatch background artifact work. */
+    public TaskStatusReceiverContext(
+            QueryManager queryManager,
+            CoordinatorTaskTracker taskTracker,
+            WorkerManager workerManager,
+            SpeculativeTaskLauncher speculativeLauncher,
+            DuplicateTaskResolver duplicateResolver,
+            TaskDispatcher taskDispatcher,
+            QueryStateJournal stateJournal,
+            CatalogRegistry catalogRegistry,
+            NativeWriteCommitTracker writeCommitTracker,
+            StageCompletionCallback stageCompletionCallback,
+            LineageEventEmitter lineageEmitter,
+            WriteCommitJournal writeCommitJournal) {
+        this(queryManager, taskTracker, workerManager, speculativeLauncher,
+                duplicateResolver, taskDispatcher, stateJournal, catalogRegistry,
+                writeCommitTracker, stageCompletionCallback, lineageEmitter,
+                writeCommitJournal, ArtifactWorkReportSink.rejecting());
+    }
 
     public TaskStatusReceiverContext {
         checkNotNull(queryManager, "queryManager must not be null");
@@ -54,6 +77,8 @@ public record TaskStatusReceiverContext(
         // stageCompletionCallback is nullable — DAG bridge disabled when null
         // lineageEmitter is nullable — lineage disabled when null
         // writeCommitJournal is nullable — defaults to InMemoryWriteCommitJournal
+        artifactWorkReportSink = artifactWorkReportSink == null
+                ? ArtifactWorkReportSink.rejecting() : artifactWorkReportSink;
     }
 
     /** Factory for non-speculative mode (core dependencies only). */
@@ -63,6 +88,7 @@ public record TaskStatusReceiverContext(
             WorkerManager workerManager) {
         return new TaskStatusReceiverContext(
                 queryManager, taskTracker, workerManager, null, null, null,
-                InMemoryQueryStateJournal.INSTANCE, null, null, null, null, null);
+                InMemoryQueryStateJournal.INSTANCE, null, null, null, null, null,
+                ArtifactWorkReportSink.rejecting());
     }
 }

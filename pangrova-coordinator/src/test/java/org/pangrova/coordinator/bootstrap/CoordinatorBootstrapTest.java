@@ -1,11 +1,14 @@
 package org.pangrova.coordinator.bootstrap;
 
+
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -15,12 +18,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Integration tests for CoordinatorBootstrap lifecycle.
  * Uses real components — no mocks.
  */
-class CoordinatorBootstrapTest {
+class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     @Test
     void startCompletesWithMinimalConfig() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-1", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
 
         bootstrap.start();
 
@@ -35,7 +38,7 @@ class CoordinatorBootstrapTest {
     @Test
     void shutdownCompletesWithoutError() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-2", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();
@@ -45,7 +48,7 @@ class CoordinatorBootstrapTest {
     @Test
     void startThenShutdownIsIdempotent() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-3", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
 
         bootstrap.start();
         bootstrap.shutdown();
@@ -58,7 +61,7 @@ class CoordinatorBootstrapTest {
     @Test
     void doubleStartThrowsIllegalState() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-4", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         try {
@@ -92,7 +95,7 @@ class CoordinatorBootstrapTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
 
         bootstrap.start();
         try {
@@ -101,6 +104,34 @@ class CoordinatorBootstrapTest {
         } finally {
             bootstrap.shutdown();
         }
+    }
+
+    @Test
+    void programmaticTenantBootstrapRejectsMissingAuthentication() {
+        var defaults = CoordinatorBootstrapConfig.withDefaults("coord-tenant-guard", 0);
+        var flags = new CoordinatorBootstrapConfig.FeatureFlags(
+                false, false, false, false, false, false, true, false);
+        var config = new CoordinatorBootstrapConfig(
+                defaults.core(), flags, defaults.query(), defaults.transport(),
+                defaults.workerHealth(), null, null, null);
+
+        assertThatThrownBy(() -> new CoordinatorBootstrap(withAuthority(config)).start())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Tenant isolation requires");
+    }
+
+    @Test
+    void programmaticTenantBootstrapRejectsNoOpAuthentication() {
+        var defaults = CoordinatorBootstrapConfig.withDefaults("coord-tenant-noop", 0);
+        var flags = new CoordinatorBootstrapConfig.FeatureFlags(
+                false, true, false, false, false, false, true, false);
+        var config = new CoordinatorBootstrapConfig(
+                defaults.core(), flags, defaults.query(), defaults.transport(),
+                defaults.workerHealth(), null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
+
+        assertThatThrownBy(() -> new CoordinatorBootstrap(withAuthority(config)).start())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Tenant isolation requires");
     }
 
     @Test
@@ -116,8 +147,8 @@ class CoordinatorBootstrapTest {
                 null,
                 new CoordinatorBootstrapConfig.SecurityConfig(
                         CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
-                        java.util.List.of(), "test-internal-secret"), null);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+                        "test-internal-secret", java.util.Map.of("issuerUri", issuerUri())), null);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         try {
@@ -137,7 +168,28 @@ class CoordinatorBootstrapTest {
     }
 
     @Test
-    void securityEnabledNoOpAllowsQuerySubmit() throws Exception {
+    void failedSecurityAdmissionClosesTheRealMetadataPoolAndDoesNotStartHttp() {
+        var defaults = CoordinatorBootstrapConfig.withDefaults("coord-failed-auth", 0);
+        var config = new CoordinatorBootstrapConfig(defaults.core(),
+                new CoordinatorBootstrapConfig.FeatureFlags(false, true, false, false, false, false, false, false),
+                defaults.query(), defaults.transport(), defaults.workerHealth(), null,
+                new CoordinatorBootstrapConfig.SecurityConfig(
+                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                        null, java.util.Map.of("issuerUri", issuerUri())), null);
+        var bootstrap = new CoordinatorBootstrap(withAuthority(config));
+
+        assertThatThrownBy(bootstrap::start).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("internalAuthSecret is required");
+        assertThat(bootstrap.isStarted()).isFalse();
+        assertThat(bootstrap.getHttpPort()).isEqualTo(-1);
+        assertThat(bootstrap.metadataDataSource()).isNotNull();
+        assertThatThrownBy(() -> bootstrap.metadataDataSource().getConnection())
+                .isInstanceOf(java.sql.SQLException.class).hasMessageContaining("closed");
+        assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();
+    }
+
+    @Test
+    void securityEnabledNoOpAdmitsRequestButRequiresWorker() throws Exception {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-sec-3", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
@@ -147,7 +199,7 @@ class CoordinatorBootstrapTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         try {
@@ -159,8 +211,12 @@ class CoordinatorBootstrapTest {
                             .header("Content-Type", "application/json")
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
-            // NoOp authenticator accepts all requests — query should proceed (200)
-            assertThat(resp.statusCode()).isEqualTo(200);
+            // NOOP admits the request; constant SELECT still needs a Native Worker.
+            assertThat(resp.statusCode()).isEqualTo(503);
+            assertThat(resp.body()).contains("COORDINATOR-0001");
+            // Terminal state publication can precede asynchronous admission cleanup.
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5))
+                    .untilAsserted(() -> assertThat(bootstrap.getQueryManager().getActiveQueryCount()).isZero());
         } finally {
             bootstrap.shutdown();
         }

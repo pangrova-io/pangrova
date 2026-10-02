@@ -77,14 +77,9 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
 
             String sql = "SELECT id, dept, salary FROM " + fqn()
                     + " QUALIFY ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) <= 2";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                // Top-2 per dept: eng(2,5), sales(4,3) = 4 rows
-                assertThat(rows).hasSize(4);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            // Top-2 per dept: eng(2,5), sales(4,3) = 4 rows
+            assertThat(rows).hasSize(4);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -99,13 +94,8 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
 
             String sql = "SELECT id, category, ts FROM " + fqn()
                     + " QUALIFY RANK() OVER (PARTITION BY category ORDER BY ts DESC) = 1";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).hasSize(2);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).hasSize(2);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -128,14 +118,9 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
                     + "(6,'f'),(7,'g'),(8,'h'),(9,'i'),(10,'j')");
 
             String sql = "SELECT * FROM " + fqn() + " TABLESAMPLE BERNOULLI(50)";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                // Probabilistic — just verify it returns some subset
-                assertThat(rows.size()).isLessThanOrEqualTo(10);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            // Probabilistic — just verify it returns some subset
+            assertThat(rows.size()).isLessThanOrEqualTo(10);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -147,13 +132,8 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (1),(2),(3),(4),(5)");
 
             String sql = "SELECT * FROM " + fqn() + " TABLESAMPLE SYSTEM(30)";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).isNotNull();
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -178,13 +158,8 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
 
             String sql = "SELECT * FROM " + fqn()
                     + " PIVOT (SUM(revenue) FOR quarter IN ('Q1', 'Q2'))";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotEmpty();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).isNotEmpty();
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -199,13 +174,8 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
 
             String sql = "SELECT * FROM " + fqn()
                     + " UNPIVOT (revenue FOR quarter IN (q1_rev, q2_rev))";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).hasSize(4);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).hasSize(4);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -272,13 +242,8 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
                     + " UNION ALL"
                     + " SELECT n + 1 FROM seq WHERE n < 5"
                     + ") SELECT n FROM seq";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).hasSize(5);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).hasSize(5);
         }
 
         @Test
@@ -296,13 +261,8 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
                     + " SELECT t.id, t.name, tree.lvl + 1"
                     + " FROM " + fqn() + " t JOIN tree ON t.parent_id = tree.id"
                     + ") SELECT * FROM tree";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).hasSize(4);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).hasSize(4);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -320,27 +280,17 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
         @DisplayName("GENERATE_SERIES as table function")
         void generateSeries() {
             String sql = "SELECT * FROM GENERATE_SERIES(1, 10)";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).hasSize(10);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).hasSize(10);
         }
 
         @Test
         @DisplayName("GENERATE_SERIES with step")
         void generateSeriesWithStep() {
             String sql = "SELECT * FROM GENERATE_SERIES(0, 20, 5)";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                // 0, 5, 10, 15, 20 = 5 rows
-                assertThat(rows).hasSize(5);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            // 0, 5, 10, 15, 20 = 5 rows
+            assertThat(rows).hasSize(5);
         }
     }
 }

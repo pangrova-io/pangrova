@@ -1,25 +1,16 @@
 package org.pangrova.coordinator.coordination;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.time.Duration;
-
+import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.spi.coordination.LeaseEntry;
-import org.junit.jupiter.api.Test;
 
-/**
- * Regression tests for lease epoch semantics in {@link InMemoryDistributedLease}.
- *
- * <p>Validates that:
- * <ul>
- *   <li>Epoch is set on acquisition and incremented on each renewal (fencing)</li>
- *   <li>Renewals only succeed for the current holder</li>
- *   <li>Higher-epoch acquisitions supersede lower-epoch leases</li>
- *   <li>Released/expired leases can be re-acquired</li>
- *   <li>Epoch monotonicity is maintained across holder cycles</li>
- * </ul>
- */
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
 class LeaseEpochRenewalTest {
 
     private static final String LEASE_KEY = "test_leader";
@@ -28,165 +19,139 @@ class LeaseEpochRenewalTest {
     private static final Duration LEASE_TTL = Duration.ofSeconds(30);
 
     @Test
-    void epochIsSetOnAcquisition() {
+    void backendIssuesFirstEpoch() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 0, LEASE_TTL)).isTrue();
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.epoch()).isEqualTo(0);
+
+        LeaseEntry entry = lease.tryAcquire(
+                LEASE_KEY, HOLDER_A, LEASE_TTL).orElseThrow();
+
+        assertThat(entry.epoch()).isEqualTo(1);
     }
 
     @Test
-    void epochIncrementsOnRenewal() {
+    void renewalPreservesEpoch() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 5, LEASE_TTL)).isTrue();
+        LeaseEntry entry = lease.tryAcquire(
+                LEASE_KEY, HOLDER_A, LEASE_TTL).orElseThrow();
 
-        // Renewal increments epoch for fencing
-        assertThat(lease.tryRenew(LEASE_KEY, HOLDER_A, LEASE_TTL)).isTrue();
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.epoch()).isEqualTo(6);
-        assertThat(entry.holderId()).isEqualTo(HOLDER_A);
+        assertThat(lease.tryRenew(
+                LEASE_KEY, HOLDER_A, entry.epoch(), LEASE_TTL)).isTrue();
+        assertThat(lease.currentHolder(LEASE_KEY).orElseThrow().epoch())
+                .isEqualTo(entry.epoch());
     }
 
     @Test
-    void renewalRejectedForWrongHolder() {
+    void wrongOwnerOrEpochCannotRenew() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 3, LEASE_TTL)).isTrue();
+        LeaseEntry entry = lease.tryAcquire(
+                LEASE_KEY, HOLDER_A, LEASE_TTL).orElseThrow();
 
-        // Different holder cannot renew
-        assertThat(lease.tryRenew(LEASE_KEY, HOLDER_B, LEASE_TTL)).isFalse();
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.epoch()).isEqualTo(3);
-        assertThat(entry.holderId()).isEqualTo(HOLDER_A);
+        assertThat(lease.tryRenew(
+                LEASE_KEY, HOLDER_B, entry.epoch(), LEASE_TTL)).isFalse();
+        assertThat(lease.tryRenew(
+                LEASE_KEY, HOLDER_A, entry.epoch() + 1, LEASE_TTL)).isFalse();
     }
 
     @Test
-    void higherEpochAcquisitionSupersedesLowerEpoch() {
+    void activeLeaseCannotBePreempted() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 3, LEASE_TTL)).isTrue();
+        LeaseEntry first = lease.tryAcquire(
+                LEASE_KEY, HOLDER_A, LEASE_TTL).orElseThrow();
 
-        // Holder B can acquire with higher epoch
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_B, 10, LEASE_TTL)).isTrue();
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.holderId()).isEqualTo(HOLDER_B);
-        assertThat(entry.epoch()).isEqualTo(10);
+        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_B, LEASE_TTL)).isEmpty();
+        assertThat(lease.currentHolder(LEASE_KEY)).contains(first);
     }
 
     @Test
-    void lowerEpochAcquisitionRejected() {
+    void reentrantAcquisitionReturnsSameTokenWithoutExtendingTenure() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 10, LEASE_TTL)).isTrue();
+        LeaseEntry first = lease.tryAcquire(
+                LEASE_KEY, HOLDER_A, LEASE_TTL).orElseThrow();
 
-        // Holder B cannot acquire with lower epoch
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_B, 5, LEASE_TTL)).isFalse();
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.holderId()).isEqualTo(HOLDER_A);
-        assertThat(entry.epoch()).isEqualTo(10);
+        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, LEASE_TTL)).contains(first);
     }
 
     @Test
-    void releaseAndReacquire() {
+    void releaseRetainsHighWatermarkAndFencesOldToken() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 3, LEASE_TTL)).isTrue();
+        LeaseEntry first = lease.tryAcquire(
+                LEASE_KEY, HOLDER_A, LEASE_TTL).orElseThrow();
+        assertThat(lease.release(
+                LEASE_KEY, HOLDER_A, first.epoch())).isTrue();
 
-        // Release the lease
-        assertThat(lease.release(LEASE_KEY, HOLDER_A)).isTrue();
-        assertThat(lease.currentHolder(LEASE_KEY)).isEmpty();
-
-        // Holder B acquires — since entry is removed, any epoch works
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_B, 0, LEASE_TTL)).isTrue();
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.holderId()).isEqualTo(HOLDER_B);
+        LeaseEntry second = lease.tryAcquire(
+                LEASE_KEY, HOLDER_B, LEASE_TTL).orElseThrow();
+        assertThat(second.epoch()).isEqualTo(first.epoch() + 1);
+        assertThat(lease.tryRenew(
+                LEASE_KEY, HOLDER_A, first.epoch(), LEASE_TTL)).isFalse();
+        assertThat(lease.release(
+                LEASE_KEY, HOLDER_A, first.epoch())).isFalse();
     }
 
     @Test
-    void sameHolderReacquisitionWithHigherEpoch() {
-        InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 0, LEASE_TTL)).isTrue();
+    void expiryRetainsHighWatermark() {
+        MutableClock clock = new MutableClock();
+        InMemoryDistributedLease lease = new InMemoryDistributedLease(clock);
+        LeaseEntry first = lease.tryAcquire(
+                LEASE_KEY, HOLDER_A, Duration.ofMillis(10)).orElseThrow();
+        clock.advance(Duration.ofMillis(30));
 
-        // Same holder re-acquires with higher epoch
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 5, LEASE_TTL)).isTrue();
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.epoch()).isEqualTo(5);
+        LeaseEntry second = lease.tryAcquire(
+                LEASE_KEY, HOLDER_B, LEASE_TTL).orElseThrow();
+        assertThat(second.epoch()).isEqualTo(first.epoch() + 1);
     }
 
-    @Test
-    void multipleRenewalsExtendLease() {
-        InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 0, LEASE_TTL)).isTrue();
+    private static final class MutableClock extends Clock {
+        private Instant instant = Instant.parse("2026-09-19T00:00:00Z");
 
-        // Multiple renewals should all succeed, each incrementing epoch
-        for (int i = 0; i < 10; i++) {
-            assertThat(lease.tryRenew(LEASE_KEY, HOLDER_A, LEASE_TTL)).isTrue();
+        private void advance(Duration duration) {
+            instant = instant.plus(duration);
         }
 
-        LeaseEntry entry = lease.getLease(LEASE_KEY);
-        assertThat(entry.holderId()).isEqualTo(HOLDER_A);
-        assertThat(entry.epoch()).isEqualTo(10);
-    }
+        @Override
+        public ZoneId getZone() {
+            return ZoneId.of("UTC");
+        }
 
-    @Test
-    void expireStaleRemovesExpiredEntries() {
-        InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        // Acquire with 0-duration lease (expires immediately)
-        assertThat(lease.tryAcquire(LEASE_KEY, HOLDER_A, 0, Duration.ZERO)).isTrue();
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
 
-        // Entry should be expired
-        assertThat(lease.currentHolder(LEASE_KEY)).isEmpty();
-
-        // expireStale removes it
-        int expired = lease.expireStale();
-        assertThat(expired).isEqualTo(1);
-        assertThat(lease.getLease(LEASE_KEY)).isNull();
-    }
-
-    @Test
-    void haServiceEpochSyncsAfterRenewal() {
-        InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        var haService = new HighAvailabilityCoordinationService(
-                lease,
-                new HighAvailabilityCoordinationService.CoordinationConfig(30_000, 10_000));
-        try {
-            // Acquire leadership
-            assertThat(haService.tryBecomeLeader(HOLDER_A)).isTrue();
-            long epochAfterAcquire = haService.getCurrentEpoch();
-            assertThat(epochAfterAcquire).isGreaterThanOrEqualTo(1);
-
-            // Renewal should succeed
-            assertThat(haService.renewLease(HOLDER_A)).isTrue();
-
-            // Epoch should be at least as high as after acquire
-            assertThat(haService.getCurrentEpoch()).isGreaterThanOrEqualTo(epochAfterAcquire);
-        } finally {
-            haService.close();
+        @Override
+        public Instant instant() {
+            return instant;
         }
     }
 
     @Test
-    void leaseCountTracksActiveLeases() {
+    void activeAndRetainedLeaseCountsAreDistinct() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.leaseCount()).isEqualTo(0);
+        LeaseEntry first = lease.tryAcquire(
+                "key1", HOLDER_A, LEASE_TTL).orElseThrow();
+        lease.tryAcquire("key2", HOLDER_B, LEASE_TTL);
 
-        lease.tryAcquire("key1", HOLDER_A, 0, LEASE_TTL);
-        assertThat(lease.leaseCount()).isEqualTo(1);
-
-        lease.tryAcquire("key2", HOLDER_B, 0, LEASE_TTL);
         assertThat(lease.leaseCount()).isEqualTo(2);
-
-        lease.release("key1", HOLDER_A);
-        assertThat(lease.leaseCount()).isEqualTo(1);
+        assertThat(lease.activeLeaseCount()).isEqualTo(2);
+        lease.release("key1", HOLDER_A, first.epoch());
+        assertThat(lease.leaseCount()).isEqualTo(2);
+        assertThat(lease.activeLeaseCount()).isEqualTo(1);
     }
 
     @Test
-    void renewalFailsForNonexistentLease() {
+    void highAvailabilityServiceUsesIssuedEpoch() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        assertThat(lease.tryRenew(LEASE_KEY, HOLDER_A, LEASE_TTL)).isFalse();
-    }
-
-    @Test
-    void releaseFailsForWrongHolder() {
-        InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        lease.tryAcquire(LEASE_KEY, HOLDER_A, 0, LEASE_TTL);
-        assertThat(lease.release(LEASE_KEY, HOLDER_B)).isFalse();
-        assertThat(lease.getLease(LEASE_KEY).holderId()).isEqualTo(HOLDER_A);
+        var service = new HighAvailabilityCoordinationService(
+                lease,
+                new HighAvailabilityCoordinationService.CoordinationConfig(
+                        30_000, 10_000));
+        try {
+            assertThat(service.tryBecomeLeader(HOLDER_A)).isTrue();
+            assertThat(service.getCurrentEpoch()).isEqualTo(1);
+            assertThat(service.renewLease(HOLDER_A)).isTrue();
+            assertThat(service.getCurrentEpoch()).isEqualTo(1);
+        } finally {
+            service.close();
+        }
     }
 }

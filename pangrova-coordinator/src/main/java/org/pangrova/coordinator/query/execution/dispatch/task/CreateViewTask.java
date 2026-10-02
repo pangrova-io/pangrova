@@ -32,8 +32,8 @@ public final class CreateViewTask implements MetadataTask<CreateViewStatement> {
 
     @Override
     public StatementResult execute(CreateViewStatement statement, StatementExecutionContext context) {
-        QualifiedTableName ref = TableResolver.resolveTableRef(statement.viewName().parts());
-        ConnectorSession session = TableResolver.buildSession(ref.catalog());
+        QualifiedTableName ref = TableResolver.resolveTableRef(statement.viewName().parts(), context.session());
+        ConnectorSession session = TableResolver.buildSession(context.session(), ref.catalog(), ref.schema());
         ConnectorMetadata metadata = catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
         SchemaTableName viewName = new SchemaTableName(ref.schema(), ref.table());
 

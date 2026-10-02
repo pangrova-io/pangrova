@@ -10,13 +10,16 @@ import org.pangrova.worker.task.TaskInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.OptionalLong;
+
 /**
  * Handles memory allocation and release for worker tasks via MemoryArbitrator,
  * with hierarchical budget enforcement through {@link NodeMemoryPool}.
  *
- * <p>When a {@link NodeMemoryPool} is configured, every task memory reservation
- * is checked against the per-node budget before the arbitrator allocation. This
- * prevents queries from collectively exceeding the node's physical memory capacity.</p>
+ * <p>Descriptor-only tasks reserve their memory through both budgets. For
+ * canonical tasks, Native memory is a growth limit; the Native allocation
+ * callback accounts for actual bytes through both budgets. Serialized buffers
+ * are still exact up-front reservations.</p>
  */
 public final class TaskMemoryRequestor {
 
@@ -47,10 +50,19 @@ public final class TaskMemoryRequestor {
         this.nodeMemoryPool = pool;
     }
 
-    /** Reserves task memory from the arbitrator with node-pool budget enforcement. */
+    /** Reserves descriptor-only memory; canonical Native capacity grows on demand. */
     public void requestMemoryForTask(TaskInfo info) {
         long requested = resolveMemoryLimit(info);
         if (requested <= 0) {
+            return;
+        }
+
+        // A canonical Native grant is a per-task *maximum*, not resident memory.
+        // NativeMemoryCoordinator charges actual Velox growth through this same
+        // arbitrator. Pre-reserving the maximum here charges every Native byte
+        // twice and makes a single task monopolize the node before it allocates.
+        // Serialized transport buffers remain exact admission reservations.
+        if (info.request() != null) {
             return;
         }
 
@@ -99,28 +111,28 @@ public final class TaskMemoryRequestor {
         return allocated;
     }
 
-    /** Reserves shuffle buffer memory from the arbitrator with node-pool budget enforcement. */
+    /** Reserves the exact canonical transport-buffer grant through both memory budgets. */
     public void requestBufferMemory(TaskInfo info) {
-        long requested = resolveBufferMemoryLimit(info);
+        boolean shuffleTask = isShuffleTask(info);
+        boolean canonicalTask = info.request() != null;
+        long requested = canonicalTask
+                ? info.request().taskRequest().getResourceGrant().getShuffleBufferBytes()
+                : resolveBufferMemoryLimit(info);
+        if (shuffleTask && requested <= 0) {
+            throw new PangrovaException(PangrovaErrorCode.RESOURCE_MEMORY_EXCEEDED,
+                    "Shuffle task requires a positive serialized-buffer grant: " + info.taskId());
+        }
         if (requested <= 0) {
             return;
         }
 
         // Enforce node-level budget for buffer memory
         NodeMemoryPool nodePool = this.nodeMemoryPool;
-        long nodeReserved = 0;
-        if (nodePool != null) {
-            nodeReserved = nodePool.tryReserve(requested);
-            if (nodeReserved < requested) {
-                if (nodeReserved > 0) {
-                    nodePool.free(nodeReserved);
-                }
-                // Buffer memory is non-critical — log and degrade gracefully
-                LOG.warn("event=buffer_memory_node_pool_insufficient taskId={} requested={} available={}",
-                        info.taskId(), requested, nodePool.getFreeBytes());
-                return;
-            }
+        OptionalLong nodeReservation = reserveBufferFromNodePool(nodePool, info, requested, canonicalTask);
+        if (nodeReservation.isEmpty()) {
+            return;
         }
+        long nodeReserved = nodeReservation.getAsLong();
 
         String bufferKey = "buffer:" + info.taskId();
         long allocated;
@@ -131,6 +143,15 @@ public final class TaskMemoryRequestor {
             throw e;
         }
 
+        if (canonicalTask && allocated != requested) {
+            if (allocated > 0) {
+                arbitrator.release(bufferKey, allocated);
+            }
+            releaseNodePool(nodePool, nodeReserved);
+            throw new PangrovaException(PangrovaErrorCode.RESOURCE_MEMORY_EXCEEDED,
+                    "Canonical task requires its complete buffer grant: " + info.taskId());
+        }
+
         // Reconcile node pool with actual allocation
         if (allocated < nodeReserved && nodePool != null) {
             nodePool.free(nodeReserved - allocated);
@@ -139,6 +160,32 @@ public final class TaskMemoryRequestor {
         info.setAllocatedBufferMemory(allocated);
         LOG.debug("event=buffer_memory_allocated taskId={} allocated={} requested={}",
                 info.taskId(), allocated, requested);
+    }
+
+    private static OptionalLong reserveBufferFromNodePool(
+            NodeMemoryPool nodePool, TaskInfo info, long requested, boolean canonicalTask) {
+        if (nodePool == null) {
+            return OptionalLong.of(0);
+        }
+        long reserved = nodePool.tryReserve(requested);
+        if (reserved == requested) {
+            return OptionalLong.of(reserved);
+        }
+        releaseNodePool(nodePool, reserved);
+        if (canonicalTask) {
+            throw new PangrovaException(PangrovaErrorCode.RESOURCE_MEMORY_EXCEEDED,
+                    "Canonical task has insufficient node buffer budget: " + info.taskId());
+        }
+        // Non-shuffle buffer memory is optional.
+        LOG.warn("event=buffer_memory_node_pool_insufficient taskId={} requested={} available={}",
+                info.taskId(), requested, nodePool.getFreeBytes());
+        return OptionalLong.empty();
+    }
+
+    private static boolean isShuffleTask(TaskInfo info) {
+        return info.request() != null
+                && info.request().taskRequest().hasExecutionOptions()
+                && info.request().taskRequest().getExecutionOptions().hasShuffle();
     }
 
     /** Releases the task memory previously reserved for the given task. */
@@ -226,8 +273,11 @@ public final class TaskMemoryRequestor {
         return DEFAULT_BUFFER_MEMORY;
     }
 
-    /** Resolves the configured memory limit in bytes for the task, or 0 when unset. */
+    /** Resolves the canonical grant first; descriptor-only tasks are test wiring. */
     public static long resolveMemoryLimit(TaskInfo info) {
+        if (info.request() != null) {
+            return info.request().taskRequest().getResourceGrant().getNativeMemoryBytes();
+        }
         TaskDescriptor desc = info.descriptor();
         if (desc == null) {
             return 0;

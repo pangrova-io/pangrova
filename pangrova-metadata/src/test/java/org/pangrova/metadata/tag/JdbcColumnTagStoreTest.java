@@ -16,18 +16,18 @@ package org.pangrova.metadata.tag;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
-import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 
 import javax.sql.DataSource;
 
-import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 
 /**
  * Validates P2-3: {@link JdbcColumnTagStore} durably persists column tags so
- * they survive restarts, closing the in-memory-only tag-store gap. Uses in-memory
- * H2 so no external infrastructure is required.
+ * they survive restarts, closing the in-memory-only tag-store gap.
  */
 class JdbcColumnTagStoreTest {
 
@@ -37,12 +37,8 @@ class JdbcColumnTagStoreTest {
     private JdbcColumnTagStore store;
 
     @BeforeEach
-    void setUp() {
-        JdbcDataSource h2 = new JdbcDataSource();
-        h2.setUrl("jdbc:h2:mem:tags_" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL");
-        h2.setUser("sa");
-        h2.setPassword("");
-        ds = h2;
+    void setUp() throws Exception {
+        ds = SharedPostgresContainer.isolatedDataSource("column_tags");
         store = new JdbcColumnTagStore(ds);
     }
 
@@ -84,5 +80,32 @@ class JdbcColumnTagStoreTest {
     @Test
     void unknownKeyListsEmpty() {
         assertThat(store.list("cat|sch|nope|col")).isEmpty();
+    }
+
+    @Test
+    void concurrentCreationIsSerializedAcrossStoreInstances() throws Exception {
+        JdbcColumnTagStore peer = new JdbcColumnTagStore(ds);
+        CountDownLatch start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> {
+                start.await();
+                return store.put(KEY, "owner", "alpha");
+            });
+            var second = executor.submit(() -> {
+                start.await();
+                return peer.put(KEY, "owner", "beta");
+            });
+            start.countDown();
+
+            String firstPrevious = first.get();
+            String secondPrevious = second.get();
+            assertThat((firstPrevious == null) ^ (secondPrevious == null)).isTrue();
+            assertThat(firstPrevious == null ? secondPrevious : firstPrevious)
+                    .isIn("alpha", "beta");
+            assertThat(store.list(KEY).get("owner")).isIn("alpha", "beta");
+        } finally {
+            executor.shutdownNow();
+        }
     }
 }

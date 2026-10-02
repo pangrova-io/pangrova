@@ -48,22 +48,29 @@ final class PlannerWiring {
      * falls back to a bare planner that can still parse and convert but cannot resolve tables.
      */
     SqlCompiler buildSqlCompiler(RuntimeFilterRegistry reg) {
-        PangrovaPlanner planner = metadataBootstrap == null
-                ? new PangrovaPlanner()
-                : buildMetadataAwarePlanner(reg);
-        return new SqlCompiler(planner,
+        SqlCompiler compiler = new SqlCompiler(new PangrovaPlanner(),
                 new org.pangrova.planner.substrait.SubstraitConverter(),
                 new org.pangrova.planner.substrait.SubstraitPlanSerializer());
+        if (metadataBootstrap == null) {
+            return compiler;
+        }
+        var mvRegistry = buildMaterializedViewRegistry();
+        var cache = new QueryResultCache(buildL2CacheStore());
+        return compiler.withQueryResultCache(cache).withSessionPlanner(
+                session -> buildMetadataAwarePlanner(reg, session, mvRegistry, cache));
     }
 
-    private PangrovaPlanner buildMetadataAwarePlanner(RuntimeFilterRegistry reg) {
-        var rootSchema = metadataBootstrap.buildCalciteSchema();
+    private PangrovaPlanner buildMetadataAwarePlanner(RuntimeFilterRegistry reg,
+            org.pangrova.spi.connector.ConnectorSession session, MaterializedViewRegistry mvRegistry,
+            QueryResultCache cache) {
+        var rootSchema = metadataBootstrap.buildCalciteSchema(session);
         var stats = new StatisticsCollector(
-                new CatalogStatisticsProvider(metadataBootstrap.catalogRegistry()));
+                new CatalogStatisticsProvider(metadataBootstrap.catalogRegistry(), session));
         var mvRewriter = new MaterializedViewQueryRewriter(
-                buildMaterializedViewRegistry(), MV_FRESHNESS_WINDOW);
-        var cache = new QueryResultCache(buildL2CacheStore());
-        return new PangrovaPlanner(rootSchema, List.of(""),
+                mvRegistry, MV_FRESHNESS_WINDOW);
+        var path = session.getCatalog().map(catalog -> session.getSchema()
+                .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));
+        return new PangrovaPlanner(rootSchema, path,
                 new PlannerContext(stats, mvRewriter, cache,
                         DynamicPartitionPruningConfig.DEFAULT, reg,
                         null, null, CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT));

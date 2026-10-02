@@ -13,9 +13,10 @@
  */
 package org.pangrova.coordinator.ai.index.lifecycle;
 
+import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexType;
-import org.pangrova.spi.index.data.vector.VectorIndexData.VectorAlgorithmType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +31,7 @@ import java.util.Optional;
  * <p>Algorithm routing:
  * <ul>
  *   <li>&lt;1M vectors, fits in memory: HNSW (best recall, simplest lifecycle)</li>
- *   <li>1M–100M vectors: IVFPQ (good recall/memory tradeoff)</li>
+ *   <li>1M–100M vectors: IVF_PQ (good recall/memory tradeoff)</li>
  *   <li>&gt;100M vectors or constrained memory: DISK_ANN (SSD-resident, minimal memory)</li>
  * </ul></p>
  */
@@ -58,30 +59,31 @@ public final class IndexRecommendationEngine {
         long hnswMemory = estimateHnswMemory(vectorCount, dimension);
         long ivfpqMemory = estimateIvfpqMemory(vectorCount, dimension);
 
-        VectorAlgorithmType recommended;
+        CapabilityRef recommended;
         String reason;
 
         if (vectorCount <= HNSW_UPPER_BOUND && hnswMemory <= availableMemory) {
-            recommended = VectorAlgorithmType.HNSW;
+            recommended = BuiltInCapabilityCatalog.hnswRetrievalPlanRef();
             reason = String.format("vectorCount=%d within HNSW range and memory fits (%d/%d bytes)",
                     vectorCount, hnswMemory, availableMemory);
         } else if (ivfpqMemory <= availableMemory) {
-            recommended = VectorAlgorithmType.IVFPQ;
-            reason = String.format("vectorCount=%d; IVFPQ fits memory budget (%d/%d bytes)",
+            recommended = BuiltInCapabilityCatalog.ivfPqRetrievalPlanRef();
+            reason = String.format("vectorCount=%d; IVF_PQ fits memory budget (%d/%d bytes)",
                     vectorCount, ivfpqMemory, availableMemory);
         } else {
             // DiskANN is ideal for large-scale or memory-constrained datasets:
             // - Graph + PQ codes reside on SSD, only medoid in memory
             // - 10x memory reduction vs HNSW with ~95% recall@10
-            recommended = VectorAlgorithmType.DISK_ANN;
+            recommended = BuiltInCapabilityCatalog.diskAnnRetrievalPlanRef();
             reason = String.format("vectorCount=%d exceeds in-memory budget "
-                    + "(HNSW=%d, IVFPQ=%d, budget=%d bytes); recommending DISK_ANN for SSD-based ANN",
+                    + "(HNSW=%d, IVF_PQ=%d, budget=%d bytes); recommending DISK_ANN for SSD-based ANN",
                     vectorCount, hnswMemory, ivfpqMemory, availableMemory);
         }
 
         LOG.info("event=algorithm_recommendation vectorCount={} dimension={} "
                         + "availableMemory={} recommended={} reason={}",
-                vectorCount, dimension, availableMemory, recommended, reason);
+                vectorCount, dimension, availableMemory,
+                recommended.getCapabilityId(), reason);
 
         return Optional.of(new AlgorithmRecommendation(recommended, reason,
                 hnswMemory, ivfpqMemory, vectorCount, dimension));
@@ -103,24 +105,21 @@ public final class IndexRecommendationEngine {
             return Optional.empty();
         }
         String currentAlgo = descriptor.properties().getOrDefault("algorithm", "HNSW");
-        VectorAlgorithmType current;
-        try {
-            current = VectorAlgorithmType.valueOf(currentAlgo.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            current = VectorAlgorithmType.HNSW;
-        }
+        CapabilityRef current =
+                BuiltInCapabilityCatalog.vectorRetrievalPlanRef(currentAlgo);
 
         Optional<AlgorithmRecommendation> recommendation = recommend(currentCount, dimension, availableMemory);
         if (recommendation.isEmpty()) {
             return Optional.empty();
         }
 
-        if (recommendation.get().algorithm() == current) {
+        if (recommendation.get().algorithm().equals(current)) {
             return Optional.empty();
         }
 
         LOG.info("event=algorithm_change_recommended indexId={} current={} recommended={} reason={}",
-                descriptor.indexId(), current, recommendation.get().algorithm(),
+                descriptor.indexId(), current.getCapabilityId(),
+                recommendation.get().algorithm().getCapabilityId(),
                 recommendation.get().reason());
 
         return recommendation;
@@ -147,12 +146,12 @@ public final class IndexRecommendationEngine {
      * @param algorithm         recommended algorithm
      * @param reason            human-readable explanation
      * @param estimatedHnswBytes  estimated HNSW memory requirement
-     * @param estimatedIvfpqBytes estimated IVFPQ memory requirement
+     * @param estimatedIvfpqBytes estimated IVF_PQ memory requirement
      * @param vectorCount       dataset vector count
      * @param dimension         vector dimensionality
      */
     public record AlgorithmRecommendation(
-            VectorAlgorithmType algorithm,
+            CapabilityRef algorithm,
             String reason,
             long estimatedHnswBytes,
             long estimatedIvfpqBytes,

@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# TPC-H SF=10 Performance Regression Check
+# TPC-H Performance Regression Check
 #
 # Compares all 22 TPC-H query execution times against the version-controlled baseline.
 # Fails if any query regresses more than 15% from baseline P99.
+# Requires matching explicit scale factors, successful queries and positive finite timings.
+# Missing/zero baselines require real calibration; they never pass the gate.
 # Optionally generates a monthly report with trend charts.
 #
 # Usage: ./tpch-regression-check.sh <results-json> [baseline-json] [options]
@@ -17,7 +19,7 @@
 # Exit codes:
 #   0 - all queries within 15% threshold
 #   1 - one or more queries regressed beyond threshold
-#   2 - script error (missing files, parse error)
+#   2 - invalid/incomplete measurements, scale mismatch, uncalibrated baseline or script error
 #
 # Examples:
 #   # Basic regression check
@@ -50,17 +52,17 @@ if [[ -z "$RESULTS_FILE" ]]; then
 fi
 
 if [[ ! -f "$RESULTS_FILE" ]]; then
-    echo "ERROR: Results file not found: $RESULTS_FILE"
+    echo "ERROR: INVALID_RESULTS: file not found: $RESULTS_FILE; run the complete benchmark first" >&2
     exit 2
 fi
 
 if [[ ! -f "$BASELINE_FILE" ]]; then
-    echo "ERROR: Baseline file not found: $BASELINE_FILE"
+    echo "ERROR: UNCALIBRATED_BASELINE: file not found: $BASELINE_FILE; supply a calibrated matching-scale baseline" >&2
     exit 2
 fi
 
 echo "============================================"
-echo "  TPC-H SF=10 Performance Regression Check"
+echo "  TPC-H Performance Regression Check"
 echo "============================================"
 echo "  Baseline: $BASELINE_FILE"
 echo "  Results:  $RESULTS_FILE"

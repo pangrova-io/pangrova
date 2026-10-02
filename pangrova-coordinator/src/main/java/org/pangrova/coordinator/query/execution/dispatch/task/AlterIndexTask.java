@@ -24,8 +24,9 @@ public final class AlterIndexTask implements MetadataTask<AlterIndexStatement> {
 
     @Override
     public StatementResult execute(AlterIndexStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeAlterIndex(statement);
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeAlterIndex(
+                statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
     }
 

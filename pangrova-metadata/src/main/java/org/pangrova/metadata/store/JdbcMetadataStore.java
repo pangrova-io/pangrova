@@ -25,6 +25,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.pangrova.metadata.store.JdbcSupport.setJson;
+
 /**
  * JDBC-backed MetadataStore for PostgreSQL persistence.
  */
@@ -95,19 +97,65 @@ public class JdbcMetadataStore implements MetadataStore {
     @Override
     public void saveCatalogDescriptor(CatalogDescriptor descriptor) {
         String sql = "INSERT INTO catalog_definitions (name, type, provider, state, properties, "
-                + "comment, allowed_tenants) VALUES (?,?,?,?,?,?,?) "
+                + "comment, allowed_tenants, incarnation_id, revision) VALUES (?,?,?,?,?,?,?,?,?) "
                 + "ON CONFLICT (name) DO UPDATE SET type=EXCLUDED.type, provider=EXCLUDED.provider, "
                 + "state=EXCLUDED.state, properties=EXCLUDED.properties, "
-                + "comment=EXCLUDED.comment, allowed_tenants=EXCLUDED.allowed_tenants";
-        executeUpdate(sql, ps -> bindSaveCatalog(ps, descriptor));
+                + "comment=EXCLUDED.comment, allowed_tenants=EXCLUDED.allowed_tenants, "
+                + "revision=EXCLUDED.revision "
+                + "WHERE catalog_definitions.incarnation_id=EXCLUDED.incarnation_id "
+                + "AND EXCLUDED.revision=catalog_definitions.revision+1";
+        String historySql = "INSERT INTO catalog_descriptor_revisions "
+                + "(name, type, provider, state, properties, comment, allowed_tenants, "
+                + "incarnation_id, revision) VALUES (?,?,?,?,?,?,?,?,?)";
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement current = conn.prepareStatement(sql);
+                    PreparedStatement history = conn.prepareStatement(historySql)) {
+                bindSaveCatalog(current, descriptor);
+                if (current.executeUpdate() != 1) {
+                    throw new MetastoreException(
+                            "Catalog revision fence rejected save: " + descriptor.name());
+                }
+                bindSaveCatalog(history, descriptor);
+                history.executeUpdate();
+                conn.commit();
+            } catch (SQLException | RuntimeException e) {
+                try {
+                    conn.rollback();
+                } catch (SQLException rollbackFailure) {
+                    e.addSuppressed(rollbackFailure);
+                }
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw new MetastoreException("Catalog descriptor save failed: " + descriptor.name(), e);
+        }
     }
 
     @Override
     public Optional<CatalogDescriptor> getCatalogDescriptor(String name) {
-        String sql = "SELECT name, type, provider, state, properties, comment, allowed_tenants "
+        String sql = "SELECT name, type, provider, state, properties, comment, allowed_tenants, "
+                + "incarnation_id, revision "
                 + "FROM catalog_definitions WHERE name=?";
         return executeQuery(sql, ps -> ps.setString(1, name),
                 rs -> rs.next() ? Optional.of(mapCatalogDescriptor(rs)) : Optional.empty());
+    }
+
+    @Override
+    public Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String name, String incarnationId, long revision) {
+        if (name == null || name.isBlank() || incarnationId == null
+                || incarnationId.isBlank() || revision <= 0) {
+            return Optional.empty();
+        }
+        String sql = "SELECT name, type, provider, state, properties, comment, allowed_tenants, "
+                + "incarnation_id, revision FROM catalog_descriptor_revisions "
+                + "WHERE name=? AND incarnation_id=? AND revision=?";
+        return executeQuery(sql, ps -> {
+            ps.setString(1, name);
+            ps.setString(2, incarnationId);
+            ps.setLong(3, revision);
+        }, rs -> rs.next() ? Optional.of(mapCatalogDescriptor(rs)) : Optional.empty());
     }
 
     @Override
@@ -117,7 +165,8 @@ public class JdbcMetadataStore implements MetadataStore {
 
     @Override
     public List<CatalogDescriptor> listAllCatalogDescriptors() {
-        String sql = "SELECT name, type, provider, state, properties, comment, allowed_tenants "
+        String sql = "SELECT name, type, provider, state, properties, comment, allowed_tenants, "
+                + "incarnation_id, revision "
                 + "FROM catalog_definitions";
         return executeQuery(sql, ps -> { }, this::mapCatalogDescriptors);
     }
@@ -179,10 +228,14 @@ public class JdbcMetadataStore implements MetadataStore {
     }
 
     private void executeUpdate(String sql, JdbcSupport.SqlConsumer binder) {
+        executeUpdateCount(sql, binder);
+    }
+
+    private int executeUpdateCount(String sql, JdbcSupport.SqlConsumer binder) {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             binder.accept(ps);
-            ps.executeUpdate();
+            return ps.executeUpdate();
         } catch (SQLException e) {
             throw new MetastoreException("Update failed: " + sql, e);
         }
@@ -194,10 +247,10 @@ public class JdbcMetadataStore implements MetadataStore {
         ps.setString(1, m.catalog());
         ps.setString(2, m.schema());
         ps.setString(3, m.table());
-        ps.setString(4, serializer.serialize(m));
-        ps.setString(5, toJson(m.partitionSpec()));
-        ps.setString(6, toJson(m.sortOrder()));
-        ps.setString(7, toJson(m.properties()));
+        setJson(ps, 4, serializer.serialize(m));
+        setJson(ps, 5, toJson(m.partitionSpec()));
+        setJson(ps, 6, toJson(m.sortOrder()));
+        setJson(ps, 7, toJson(m.properties()));
         ps.setTimestamp(8, toTimestamp(m.createdAt()));
         ps.setTimestamp(9, toTimestamp(m.updatedAt()));
         ps.setTimestamp(10, Timestamp.from(Instant.now()));
@@ -208,9 +261,11 @@ public class JdbcMetadataStore implements MetadataStore {
         ps.setString(2, d.type().name());
         ps.setString(3, d.provider());
         ps.setString(4, d.state().name());
-        ps.setString(5, toJson(d.properties()));
+        setJson(ps, 5, toJson(d.properties()));
         ps.setString(6, d.comment());
-        ps.setString(7, toJson(d.allowedTenants()));
+        setJson(ps, 7, toJson(d.allowedTenants()));
+        ps.setString(8, d.incarnationId());
+        ps.setLong(9, d.revision());
     }
 
     private void bindSyncHistory(PreparedStatement ps, SyncResult r) throws SQLException {
@@ -219,7 +274,7 @@ public class JdbcMetadataStore implements MetadataStore {
         ps.setTimestamp(3, Timestamp.from(r.syncTime()));
         ps.setInt(4, r.changesApplied());
         ps.setInt(5, r.errors());
-        ps.setString(6, toJson(r.errorMessages()));
+        setJson(ps, 6, toJson(r.errorMessages()));
         ps.setLong(7, r.durationMs());
     }
 
@@ -251,7 +306,9 @@ public class JdbcMetadataStore implements MetadataStore {
                 CatalogState.valueOf(rs.getString("state")),
                 fromJsonMap(rs.getString("properties")),
                 rs.getString("comment"),
-                fromJsonSet(rs.getString("allowed_tenants")));
+                fromJsonSet(rs.getString("allowed_tenants")),
+                rs.getString("incarnation_id"),
+                rs.getLong("revision"));
     }
 
     private List<CatalogDescriptor> mapCatalogDescriptors(ResultSet rs) throws SQLException {

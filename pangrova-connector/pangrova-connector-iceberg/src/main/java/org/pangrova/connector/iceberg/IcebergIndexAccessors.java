@@ -5,13 +5,13 @@ import org.pangrova.connector.iceberg.fs.IcebergFileSystemAccessor;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
 import org.pangrova.connector.iceberg.index.IcebergSnapshotAwareMetadata;
 import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.CommitListener;
 import org.pangrova.spi.connector.index.ConnectorIndexSupport;
 import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.pangrova.spi.connector.index.NativeIndexCapability;
 import org.pangrova.spi.connector.index.NativeIndexEvaluator;
 import org.pangrova.spi.connector.index.NativeIndexType;
 import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
+import org.pangrova.spi.connector.index.SnapshotDataFile;
 import org.pangrova.spi.index.statistics.DataFileStatistics;
 import org.pangrova.spi.index.statistics.FileColumnStatistics;
 import org.apache.iceberg.DataFile;
@@ -78,11 +78,6 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
     }
 
     @Override
-    public void registerCommitListener(CommitListener listener) {
-        notifier.registerCommitListener(listener);
-    }
-
-    @Override
     public List<NativeIndexCapability> nativeIndexCapabilities() {
         // Iceberg provides MIN_MAX for all columns (manifest bounds + Parquet footer)
         // and BLOOM_FILTER for configured columns
@@ -112,23 +107,18 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
     @Override
     public List<String> listDataFiles(String catalogName, String schemaName, String tableName) {
         try {
-            TableIdentifier tableId = TableIdentifier.of(schemaName, tableName);
-            Table table = catalog.loadTable(tableId);
-            Snapshot snapshot = table.currentSnapshot();
-            if (snapshot == null) {
-                return List.of();
-            }
-            List<String> files = new ArrayList<>();
-            try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
-                for (FileScanTask task : tasks) {
-                    files.add(task.file().path().toString());
-                }
-            }
-            return files;
+            IcebergSnapshotAwareMetadata metadata =
+                    new IcebergSnapshotAwareMetadata(catalog, schemaName, tableName);
+            Optional<String> snapshot = metadata.currentSnapshotId();
+            return snapshot.isEmpty()
+                    ? List.of()
+                    : metadata.listFilesAtSnapshot(snapshot.get()).stream()
+                            .map(SnapshotDataFile::path)
+                            .toList();
         } catch (Exception e) {
-            LOG.warn("action=list_data_files_failed schema={} table={} error={}",
-                    schemaName, tableName, e.getMessage());
-            return List.of();
+            throw new IllegalStateException(
+                    "Failed to list complete Iceberg data files for "
+                            + schemaName + "." + tableName, e);
         }
     }
 

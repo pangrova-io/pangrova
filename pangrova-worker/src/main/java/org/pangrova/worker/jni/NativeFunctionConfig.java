@@ -27,7 +27,21 @@ public record NativeFunctionConfig(
             new NativeFunctionConfig(false, Map.of());
 
     public NativeFunctionConfig {
-        pluginConfigs = pluginConfigs == null ? Map.of() : Map.copyOf(pluginConfigs);
+        if (pluginConfigs == null || pluginConfigs.isEmpty()) {
+            pluginConfigs = Map.of();
+        } else {
+            java.util.Map<String, Map<String, String>> copy = new java.util.LinkedHashMap<>();
+            for (Map.Entry<String, Map<String, String>> entry : pluginConfigs.entrySet()) {
+                if (entry.getKey() == null || entry.getKey().isBlank()) {
+                    throw new IllegalArgumentException("plugin name must not be blank");
+                }
+                Map<String, String> values = entry.getValue() == null
+                        ? Map.of()
+                        : Map.copyOf(entry.getValue());
+                copy.put(entry.getKey(), values);
+            }
+            pluginConfigs = Map.copyOf(copy);
+        }
     }
 
     /**

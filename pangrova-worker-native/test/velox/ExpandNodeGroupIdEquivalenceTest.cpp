@@ -173,6 +173,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
   auto* ref = expr->mutable_selection();
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
 }
@@ -193,7 +194,16 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
 
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
-  root->add_names("output");
+  std::set<int> referenced;
+  for (const auto& grouping : grouping_sets) referenced.insert(grouping.begin(), grouping.end());
+  std::vector<int> groupingOrdinals(column_count, -1);
+  int groupingOrdinal = 0;
+  for (const auto column : referenced) {
+    groupingOrdinals.at(column) = groupingOrdinal++;
+    root->add_names("col_" + std::to_string(column));
+  }
+  root->add_names("sum");
+  if (grouping_sets.size() > 1) root->add_names("grouping_set_index");
 
   auto* agg = root->mutable_input()->mutable_aggregate();
 
@@ -206,11 +216,15 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
   }
   addI64Column(schema, "agg_col");
 
+  for (const auto column : referenced) {
+    setFieldRef(agg->add_grouping_expressions(), column);
+  }
+
   // Add grouping sets.
   for (const auto& gs : grouping_sets) {
     auto* grouping = agg->add_groupings();
     for (int col_idx : gs) {
-      setFieldRef(grouping->add_grouping_expressions(), col_idx);
+      grouping->add_expression_references(groupingOrdinals.at(col_idx));
     }
   }
 
@@ -218,6 +232,7 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
   auto* measure = agg->add_measures();
   auto* agg_func = measure->mutable_measure();
   agg_func->set_function_reference(1);
+  agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   auto* arg = agg_func->add_arguments();
   setFieldRef(arg->mutable_value(), column_count);
   agg_func->mutable_output_type()->mutable_i64();
@@ -376,6 +391,10 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, GroupIdStrippedFromFinalOutput) {
   auto final_output = result->outputType();
   EXPECT_FALSE(hasColumn(final_output, "groupId"))
       << "Final output should not contain 'groupId' column for " << param.name;
+  ASSERT_GT(final_output->size(), 0);
+  EXPECT_TRUE(final_output->childAt(final_output->size() - 1)->isInteger());
+  ASSERT_EQ(converter.resultColumnLabels().size(), final_output->size());
+  EXPECT_EQ(converter.resultColumnLabels().back(), "grouping_set_index");
 }
 
 // ===========================================================================
@@ -402,10 +421,14 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, GroupIdNodeOutputHasGroupIdColumn) {
   auto gid_node = findNode(result, "GroupId");
   ASSERT_NE(gid_node, nullptr);
 
-  // GroupIdNode output must contain 'groupId' column.
+  // Inspect the actual declared discriminator, independent of physical alias.
+  auto group_id = std::dynamic_pointer_cast<const core::GroupIdNode>(gid_node);
+  ASSERT_NE(group_id, nullptr);
   auto gid_output = gid_node->outputType();
-  EXPECT_TRUE(hasColumn(gid_output, "groupId"))
-      << "GroupIdNode output missing 'groupId' column for " << param.name;
+  ASSERT_GT(gid_output->size(), 0);
+  EXPECT_TRUE(hasColumn(gid_output, group_id->groupIdName()));
+  EXPECT_EQ(gid_output->nameOf(gid_output->size() - 1), group_id->groupIdName());
+  EXPECT_TRUE(gid_output->childAt(gid_output->size() - 1)->isBigint());
 }
 
 // ===========================================================================
@@ -445,6 +468,14 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, OutputSchemaCorrect) {
       << "Expected at least " << expected_min_cols
       << " columns in output for " << param.name
       << " but got " << final_output->size();
+  ASSERT_EQ(final_output->size(), referenced_cols.size() + 2);
+  ASSERT_EQ(converter.resultColumnLabels().size(), final_output->size());
+  size_t ordinal = 0;
+  for (const auto column : referenced_cols) {
+    EXPECT_EQ(converter.resultColumnLabels()[ordinal++], "col_" + std::to_string(column));
+  }
+  EXPECT_EQ(converter.resultColumnLabels()[ordinal++], "sum");
+  EXPECT_EQ(converter.resultColumnLabels()[ordinal], "grouping_set_index");
 }
 
 // ===========================================================================

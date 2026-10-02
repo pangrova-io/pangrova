@@ -11,6 +11,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Collections;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +32,36 @@ class TaskSchedulerFairSchedulingTest {
         Optional<WorkerInfo> selected = scheduler.selectWorker(0L, candidates, "pool-a");
 
         assertThat(selected).isPresent();
+    }
+
+    @Test
+    void equalScoreWorkersShareConcurrentSelections() {
+        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        List<WorkerInfo> candidates = List.of(
+                worker("w2", "pool-a", MemoryPressure.NONE),
+                worker("w1", "pool-a", MemoryPressure.NONE));
+
+        List<String> placements = IntStream.range(0, 1_000).parallel()
+                .mapToObj(index -> scheduler.selectWorker(0L, candidates, "pool-a")
+                        .orElseThrow().workerId())
+                .toList();
+
+        assertThat(Collections.frequency(placements, "w1")).isEqualTo(500);
+        assertThat(Collections.frequency(placements, "w2")).isEqualTo(500);
+    }
+
+    @Test
+    void equalScoreFairShareWorkersAlsoRotate() {
+        TaskScheduler scheduler = new TaskScheduler(
+                new WorkerPerformanceScorer(), new WeightedFairScheduler());
+        List<WorkerInfo> candidates = List.of(
+                worker("w2", "pool-a", MemoryPressure.NONE),
+                worker("w1", "pool-a", MemoryPressure.NONE));
+
+        assertThat(scheduler.selectWorker(0L, candidates, "pool-a")
+                .orElseThrow().workerId()).isEqualTo("w1");
+        assertThat(scheduler.selectWorker(0L, candidates, "pool-a")
+                .orElseThrow().workerId()).isEqualTo("w2");
     }
 
     @Test
@@ -100,7 +132,8 @@ class TaskSchedulerFairSchedulingTest {
                 id, "host-" + id, 8080, 9090, 0,
                 HealthState.ACTIVE, pressure,
                 0.1, 0, 8L * 1024 * 1024 * 1024,
-                Instant.now(), 1.0, resourcePoolId, 1, List.of(),
-                null, List.of());
+                Instant.now(), 1.0, resourcePoolId, 2,
+                null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

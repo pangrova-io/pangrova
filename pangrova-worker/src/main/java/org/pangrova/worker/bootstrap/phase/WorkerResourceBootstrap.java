@@ -74,11 +74,22 @@ public final class WorkerResourceBootstrap {
                 pool -> LOG.warn("event=oom_kill_query pool={} usedBytes={}", pool.getName(), pool.getUsedBytes()));
         refs.setResourceManager(new ResourceManager(arbitrator, threadPool, spillManager, pressureHandler));
         refs.setNodeMemoryPool(nodePool);
+        if (refs.nativeAvailable()) {
+            startShuffleServiceLease(config, refs);
+        }
         LOG.info("event=phase_started phase=resources memoryMB={} nodePoolMB={} queryThreads={} "
                         + "ioThreads={} schedulerThreads={} tenantQuotaEnabled=true",
                 rc.memoryBudgetBytes() / (1024 * 1024),
                 rc.nodeMemoryBytes() / (1024 * 1024),
                 rc.queryThreads(), rc.ioThreads(), rc.schedulerThreads());
+    }
+
+    /** Reserves process-lifetime Flight service memory after Native initialization. */
+    public static void startShuffleServiceLease(WorkerBootstrapConfig config, WorkerComponentRefs refs) {
+        var rc = config.resourceConfig();
+        refs.setShuffleServiceMemoryLease(ShuffleServiceMemoryLease.reserve(
+                config.workerId(), rc.shuffleRetentionBytes(), rc.shuffleTransitBytes(),
+                refs.nodeMemoryPool(), refs.memoryArbitrator()));
     }
 
     /**
@@ -127,7 +138,8 @@ public final class WorkerResourceBootstrap {
                         null, null, refs.metricsExecutor()),
                 new ShutdownContext.ResourceRefs(
                         refs.resourceManager(), refs.nativeMetricsPublisher(),
-                        observability.otelInitializer(), refs.nativeAvailable()),
+                        observability.otelInitializer(), refs.nativeAvailable(),
+                        refs.shuffleServiceMemoryLease()),
                 new ShutdownContext.BufferRefs(null, refs.shuffleBufferManager()));
         WorkerShutdownSequence.releaseResources(ctx);
     }

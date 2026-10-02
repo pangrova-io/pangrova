@@ -2,10 +2,9 @@ package org.pangrova.metadata.index.jdbc;
 
 import javax.sql.DataSource;
 
-import org.pangrova.metadata.index.CommitEventRequest;
+import org.pangrova.metadata.index.IndexMetadataMapper;
 import org.pangrova.metadata.index.model.BreakerState;
 import org.pangrova.metadata.index.model.CacheEvent;
-import org.pangrova.metadata.index.model.CommitLogEntry;
 import org.pangrova.metadata.index.model.IndexFileMapping;
 
 import java.sql.Timestamp;
@@ -15,11 +14,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.pangrova.metadata.index.IndexMetadataMapper.placeholders;
-import org.pangrova.metadata.index.IndexMetadataMapper;
 
 /**
  * JDBC operations for GC-related queries: orphan marking, stale file mappings,
- * commit log, cache events, and circuit breaker state.
+ * cache events, and circuit breaker state.
  */
 final class JdbcIndexGcStore extends JdbcStoreSupport {
 
@@ -63,52 +61,6 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
             ps.setLong(1, olderThanMillis);
             ps.setTimestamp(2, Timestamp.from(createdBefore));
         }, IndexMetadataMapper::mapMappingList);
-    }
-
-    // --- Commit log ---
-
-    void recordCommitEvent(CommitEventRequest request) {
-        String sql = "INSERT INTO index_commit_log "
-                + "(catalog_name, schema_name, table_name, snapshot_id, "
-                + "added_files, removed_files, event_type, processed, created_at) "
-                + "VALUES (?,?,?,?,?,?,?,FALSE,?)";
-        executeUpdate(sql, ps -> {
-            ps.setString(1, request.catalogName());
-            ps.setString(2, request.schemaName());
-            ps.setString(3, request.tableName());
-            ps.setString(4, request.snapshotId());
-            ps.setString(5, request.addedFilesJson());
-            ps.setString(6, request.removedFilesJson());
-            ps.setString(7, request.eventType());
-            ps.setTimestamp(8, Timestamp.from(request.createdAt()));
-        });
-    }
-
-    List<CommitLogEntry> pollUnprocessedCommitEvents(int limit) {
-        String sql = "SELECT event_id, catalog_name, schema_name, table_name, snapshot_id, "
-                + "added_files, removed_files, event_type, created_at "
-                + "FROM index_commit_log WHERE processed=FALSE ORDER BY created_at LIMIT ?";
-        return executeQuery(sql, ps -> ps.setInt(1, limit), rs -> {
-            List<CommitLogEntry> entries = new ArrayList<>();
-            while (rs.next()) {
-                entries.add(new CommitLogEntry(
-                        rs.getLong("event_id"),
-                        rs.getString("catalog_name"),
-                        rs.getString("schema_name"),
-                        rs.getString("table_name"),
-                        rs.getString("snapshot_id"),
-                        rs.getString("added_files"),
-                        rs.getString("removed_files"),
-                        rs.getString("event_type"),
-                        rs.getTimestamp("created_at").toInstant()));
-            }
-            return entries;
-        });
-    }
-
-    void markCommitEventProcessed(long eventId) {
-        executeUpdate("UPDATE index_commit_log SET processed=TRUE WHERE event_id=?",
-                ps -> ps.setLong(1, eventId));
     }
 
     // --- Cache events ---

@@ -40,7 +40,7 @@ class TpcDsCorrectnessTest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         seedTpcDsTables();
@@ -184,35 +184,27 @@ class TpcDsCorrectnessTest extends SqlE2ETestBase {
         @Test
         @DisplayName("correlated subquery - above average sales")
         void correlatedSubqueryAboveAverage() {
-            try {
-                List<TypedRow> rows = sqlRunner.execute(
-                        "SELECT ss_item_sk, ss_sales_price "
-                        + "FROM " + FQN_PREFIX + "store_sales ss "
-                        + "WHERE ss_sales_price > ("
-                        + "  SELECT AVG(ss2.ss_sales_price) "
-                        + "  FROM " + FQN_PREFIX + "store_sales ss2"
-                        + ")");
-                assertThat(rows).isNotEmpty();
-            } catch (AssertionError | RuntimeException e) {
-                // Correlated subquery decorrelation may not be fully supported
-            }
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT ss_item_sk, ss_sales_price "
+                    + "FROM " + FQN_PREFIX + "store_sales ss "
+                    + "WHERE ss_sales_price > ("
+                    + "  SELECT AVG(ss2.ss_sales_price) "
+                    + "  FROM " + FQN_PREFIX + "store_sales ss2"
+                    + ")");
+            assertThat(rows).isNotEmpty();
         }
 
         @Test
         @DisplayName("EXISTS subquery - stores with high-value transactions")
         void existsSubquery() {
-            try {
-                List<TypedRow> rows = sqlRunner.execute(
-                        "SELECT s_store_name FROM " + FQN_PREFIX + "store s "
-                        + "WHERE EXISTS ("
-                        + "  SELECT 1 FROM " + FQN_PREFIX + "store_sales ss "
-                        + "  WHERE ss.ss_store_sk = s.s_store_sk "
-                        + "  AND ss.ss_sales_price > 500"
-                        + ")");
-                assertThat(rows).isNotEmpty();
-            } catch (AssertionError | RuntimeException e) {
-                // Correlated EXISTS subquery may not be fully supported in native execution
-            }
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT s_store_name FROM " + FQN_PREFIX + "store s "
+                    + "WHERE EXISTS ("
+                    + "  SELECT 1 FROM " + FQN_PREFIX + "store_sales ss "
+                    + "  WHERE ss.ss_store_sk = s.s_store_sk "
+                    + "  AND ss.ss_sales_price > 500"
+                    + ")");
+            assertThat(rows).isNotEmpty();
         }
     }
 }

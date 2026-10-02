@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
+import org.pangrova.coordinator.coordination.inmemory.InMemoryExecutionAnchorStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,17 @@ class HighAvailabilityCoordinationServiceTest {
     }
 
     @Test
+    void repeatedAcquisitionRetainsTheLiveBackendTokenAndDoesNotYieldItself() {
+        assertThat(haService.acquireQueryOwnership("same-execution", "node-1")).isTrue();
+        var first = haService.requireExecutionAnchor("same-execution");
+        assertThat(haService.acquireQueryOwnership("same-execution", "node-1")).isTrue();
+        assertThat(haService.requireExecutionAnchor("same-execution").fencingToken()).isEqualTo(first.fencingToken());
+        assertThat(haService.validateDurableExecutionToken("same-execution", first.fencingToken())).isTrue();
+        assertThat(haService.acquireQueryOwnership("same-execution", "node-2")).isFalse();
+        assertThat(haService.releaseQueryOwnership("same-execution", "node-1")).isTrue();
+    }
+
+    @Test
     void coordinationConfig_rejectsNonPositiveCap() {
         // A-OWN-01: an invalid (non-positive) cap is rejected at construction.
         assertThatThrownBy(() ->
@@ -120,6 +132,43 @@ class HighAvailabilityCoordinationServiceTest {
     }
 
     @Test
+    void standbyCoordinatorUsesClusterTermAndOwnsQueriesActiveActive() {
+        InMemoryDistributedLease sharedLease = new InMemoryDistributedLease();
+        var config = new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000);
+        var controlLeader = new HighAvailabilityCoordinationService(sharedLease, config);
+        var queryPeer = new HighAvailabilityCoordinationService(sharedLease, config);
+        try {
+            controlLeader.start("node-1");
+            queryPeer.start("node-2");
+
+            assertThat(queryPeer.getRole())
+                    .isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+            assertThat(queryPeer.getCurrentEpoch())
+                    .isPositive()
+                    .isEqualTo(controlLeader.getCurrentEpoch());
+            assertThat(queryPeer.acquireQueryOwnership("q-on-peer", "node-2")).isTrue();
+            long token = queryPeer.requireExecutionAnchor("q-on-peer").fencingToken();
+            assertThat(queryPeer.validateExecutionToken("q-on-peer", token)).isTrue();
+            assertThat(queryPeer.isCurrentControlTerm()).isTrue();
+        } finally {
+            controlLeader.close();
+            queryPeer.close();
+        }
+    }
+
+    @Test
+    void controlLeaderStepDownDoesNotDiscardLocalQueries() {
+        haService.tryBecomeLeader("node-1");
+        assertThat(haService.acquireQueryOwnership("q-1", "node-1")).isTrue();
+        long token = haService.requireExecutionAnchor("q-1").fencingToken();
+
+        assertThat(haService.stepDown("node-1")).isTrue();
+
+        assertThat(haService.validateExecutionToken("q-1", token)).isTrue();
+        assertThat(haService.releaseQueryOwnership("q-1", "node-1")).isTrue();
+    }
+
+    @Test
     void nonLeader_cannotStepDown() {
         haService.tryBecomeLeader("node-1");
         assertThat(haService.stepDown("node-2")).isFalse();
@@ -153,33 +202,38 @@ class HighAvailabilityCoordinationServiceTest {
     }
 
     @Test
-    void transferOwnership_movesQueriesBetweenNodes() {
-        haService.acquireQueryOwnership("q-1", "node-1");
-        haService.acquireQueryOwnership("q-2", "node-1");
-        haService.acquireQueryOwnership("q-3", "node-2");
+    void yieldedExecutionIsClaimedWithHigherToken() {
+        var sharedStore = new InMemoryExecutionAnchorStore();
+        var first = new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
+        var second = new HighAvailabilityCoordinationService(new InMemoryDistributedLease());
+        first.setExecutionAnchorStore(sharedStore);
+        second.setExecutionAnchorStore(sharedStore);
+        try {
+            first.start("node-1");
+            second.start("node-2");
+            assertThat(first.acquireQueryOwnership("q-1", "node-1")).isTrue();
+            long oldToken = first.requireExecutionAnchor("q-1").fencingToken();
 
-        int transferred = haService.transferOwnership("node-1", "node-2");
-        assertThat(transferred).isEqualTo(2);
+            assertThat(first.yieldLocalExecutions()).isEqualTo(1);
+            var claimed = second.claimExpiredExecutions(10);
 
-        // node-2 now owns q-1 and q-2
-        assertThat(haService.releaseQueryOwnership("q-1", "node-2")).isTrue();
-        assertThat(haService.releaseQueryOwnership("q-2", "node-2")).isTrue();
+            assertThat(claimed).hasSize(1);
+            assertThat(claimed.get(0).fencingToken()).isGreaterThan(oldToken);
+            assertThat(second.validateDurableExecutionToken(
+                    "q-1", claimed.get(0).fencingToken())).isTrue();
+        } finally {
+            first.close();
+            second.close();
+        }
     }
 
     @Test
-    void epochValidation_rejectsStaleEpoch() {
-        // First become leader to bump epoch above 0
-        haService.tryBecomeLeader("node-1");
-        long leaderEpoch = haService.getCurrentEpoch();
-        assertThat(leaderEpoch).isGreaterThan(0);
-
+    void executionTokenValidation_rejectsStaleToken() {
         haService.acquireQueryOwnership("q-1", "node-1");
+        long token = haService.requireExecutionAnchor("q-1").fencingToken();
 
-        // Valid epoch (current leader epoch)
-        assertThat(haService.validateEpoch("q-1", leaderEpoch)).isTrue();
-
-        // Stale epoch (before leader election)
-        assertThat(haService.validateEpoch("q-1", 0)).isFalse();
+        assertThat(haService.validateExecutionToken("q-1", token)).isTrue();
+        assertThat(haService.validateExecutionToken("q-1", token + 1)).isFalse();
     }
 
     @Test

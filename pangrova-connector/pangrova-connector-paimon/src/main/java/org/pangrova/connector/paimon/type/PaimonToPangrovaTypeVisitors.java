@@ -125,7 +125,9 @@ final class PaimonToPangrovaTypeVisitors {
         }
         @Override
         public PangrovaType visit(org.apache.paimon.types.VectorType vectorType) {
-            return PangrovaType.ARRAY;
+            return vectorType.getElementType() instanceof FloatType
+                    || vectorType.getElementType() instanceof DoubleType
+                    ? PangrovaType.VECTOR : PangrovaType.ARRAY;
         }
         @Override
         public PangrovaType visit(org.apache.paimon.types.BlobType blobType) {
@@ -261,8 +263,15 @@ final class PaimonToPangrovaTypeVisitors {
 
         @Override
         public org.pangrova.spi.connector.data.type.Type visit(org.apache.paimon.types.VectorType vectorType) {
+            if (vectorType.getElementType() instanceof FloatType
+                    || vectorType.getElementType() instanceof DoubleType) {
+                return new org.pangrova.spi.connector.data.type.VectorType(vectorType.getLength(),
+                        vectorType.getElementType() instanceof DoubleType
+                                ? org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE
+                                : org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT);
+            }
             return new org.pangrova.spi.connector.data.type.ArrayType(
-                    PangrovaTypeMapping.toType(PangrovaType.FLOAT));
+                    vectorType.getElementType().accept(this));
         }
 
         @Override

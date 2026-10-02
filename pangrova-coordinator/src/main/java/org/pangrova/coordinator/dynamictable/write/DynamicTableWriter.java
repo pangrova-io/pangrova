@@ -35,16 +35,22 @@ public final class DynamicTableWriter {
     private final TableWriter tableWriter;
     private final QueryResultCache queryCache;
     private final CommitListener commitListener;
+    private final String tenantId;
 
     public DynamicTableWriter(TableWriter tableWriter, QueryResultCache queryCache) {
-        this(tableWriter, queryCache, null);
+        this(tableWriter, queryCache, null, null);
     }
 
     public DynamicTableWriter(TableWriter tableWriter, QueryResultCache queryCache,
-                              CommitListener commitListener) {
+                              CommitListener commitListener, String tenantId) {
         this.tableWriter = Objects.requireNonNull(tableWriter, "tableWriter must not be null");
         this.queryCache = Objects.requireNonNull(queryCache, "queryCache must not be null");
         this.commitListener = commitListener;
+        if (commitListener != null && (tenantId == null || tenantId.isBlank())) {
+            throw new IllegalArgumentException(
+                    "tenantId is required when commit notification is enabled");
+        }
+        this.tenantId = tenantId;
     }
 
     /**
@@ -146,12 +152,12 @@ public final class DynamicTableWriter {
         }
         try {
             CommitEvent event = new CommitEvent(
-                    "default", "default", targetTable,
+                    tenantId, "default", "default", targetTable,
                     List.of(targetTable + "/" + spiResult.commitTime().toEpochMilli()),
                     List.of(),
                     spiResult.commitTime(),
                     String.valueOf(spiResult.commitTime().toEpochMilli()),
-                    CommitEventType.APPEND);
+                    CommitEventType.APPEND, null);
             commitListener.onCommit(event);
         } catch (Exception e) {
             LOG.warn("event=dt_commit_listener_failed targetTable={} error={}",

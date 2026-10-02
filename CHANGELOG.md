@@ -29,11 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive testing: E2E with TestContainers, property-based tests with jqwik, TPC-H/DS benchmarks
 
 ### Changed
-- **BREAKING** `celeborn.master.endpoints` no longer defaults to `localhost:9097`; the
-  Celeborn shuffle provider now fails fast with `IllegalArgumentException` when the
-  property is unset or blank. The silent default turned a misconfiguration into a
-  connection timeout raised far from its cause. Set the property explicitly, e.g.
-  `celeborn.master.endpoints=host1:9097` or `host1:9097,host2:9097`.
+- Generated-value sidecars now use one nullable segment-v2 contract and matching
+  Java/Native build/overlay capability version 2.0.0. Readers reject old formats;
+  sidecars must be rebuilt, not silently reinterpreted. Final SQL/distributed
+  acceptance is tracked in `docs/internal/ai-native-roadmap.md`.
 - **BREAKING** `SecurityStatementHandler.executeGrant` / `executeRevoke` now take a
   `SecurityStatementHandler.GrantTarget` record instead of four positional
   `objectType/catalog/schema/table` strings. The four values always travel together and are
@@ -60,7 +59,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file counts via `TRACKED_OVERSIZE_PACKAGES` rather than exempted, so they cannot grow further
   without a deliberate decision.
 
+### Removed
+- Removed the incomplete Celeborn adapter, its reflective coordinator factory, ServiceLoader
+  registration, and container test. The adapter had no Worker-side production wiring and the test
+  did not prove that query data traversed Celeborn. The generic shuffle SPI and canonical external
+  shuffle protocol remain available for a fully wired implementation.
+
 ### Fixed
+- Close the Coordinator-owned metadata invalidation poller before its JDBC pool,
+  including startup-failure cleanup, instead of leaving its scheduler alive.
+- Preserve the submitting principal and resolved tenant on Coordinator query
+  completion/failure audit events without retaining tokens or session-property maps.
+- Classify Coordinator tenant quota rejection as HTTP 429 (`TENANT-0001`,
+  `USER_ERROR`) rather than an internal HTTP 500, without fabricating a reset time.
+- Preserve generated-value NULL validity and exact physical row locators through
+  Native immutable publication and scan overlay; enforce dense materialization
+  grants before allocating the output rather than exposing a zero embedding.
 - Checkstyle gate was silently dead and is now enforced. The config referenced a `Header`
   module whose `headerFile` did not exist, so every module aborted during config
   initialization and CI's `mvn checkstyle:check` step failed for a reason unrelated to code

@@ -39,9 +39,8 @@ void evaluateIntegerFilter(
   });
 }
 
-// Evaluate a dynamic filter on a DOUBLE column.
-// Uses ordered-int bit-pattern encoding consistent with
-// DynamicFilterConverter::doubleToOrderedInt.
+// Evaluate a dynamic filter on a DOUBLE column using the filter's typed
+// floating-point predicate. No bit-pattern reinterpretation is permitted.
 void evaluateDoubleFilter(
     facebook::velox::DecodedVector& decoded,
     const std::shared_ptr<facebook::velox::common::Filter>& filter,
@@ -52,13 +51,7 @@ void evaluateDoubleFilter(
         rows.setValid(r, false);
       }
     } else {
-      double val = decoded.valueAt<double>(r);
-      int64_t bits;
-      std::memcpy(&bits, &val, sizeof(int64_t));
-      if (bits < 0) {
-        bits ^= INT64_C(0x7FFFFFFFFFFFFFFF);
-      }
-      if (!filter->testInt64(bits)) {
+      if (!filter->testDouble(decoded.valueAt<double>(r))) {
         rows.setValid(r, false);
       }
     }
@@ -66,8 +59,7 @@ void evaluateDoubleFilter(
 }
 
 // Evaluate a dynamic filter on a REAL (float) column.
-// Widens to double, then applies ordered-int encoding consistent with
-// DynamicFilterConverter.
+// Widens to double and uses the same typed predicate as DOUBLE.
 void evaluateRealFilter(
     facebook::velox::DecodedVector& decoded,
     const std::shared_ptr<facebook::velox::common::Filter>& filter,
@@ -78,13 +70,8 @@ void evaluateRealFilter(
         rows.setValid(r, false);
       }
     } else {
-      double val = static_cast<double>(decoded.valueAt<float>(r));
-      int64_t bits;
-      std::memcpy(&bits, &val, sizeof(int64_t));
-      if (bits < 0) {
-        bits ^= INT64_C(0x7FFFFFFFFFFFFFFF);
-      }
-      if (!filter->testInt64(bits)) {
+      if (!filter->testDouble(
+              static_cast<double>(decoded.valueAt<float>(r)))) {
         rows.setValid(r, false);
       }
     }

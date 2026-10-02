@@ -2,12 +2,13 @@ package org.pangrova.worker.result;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
+import com.google.protobuf.Message;
 import org.pangrova.spi.execution.ResultTransport;
 import org.pangrova.spi.execution.TaskExecutor;
 import org.pangrova.worker.jni.NativeCommandBuilder;
-import org.pangrova.worker.jni.NativeCommandType;
-import org.pangrova.worker.jni.proto.StartResultServerPayload;
-import org.pangrova.worker.jni.proto.StartResultServerResponsePayload;
+import org.pangrova.protocol.v2.RuntimeCommandType;
+import org.pangrova.protocol.v2.StartResultServerRequest;
+import org.pangrova.protocol.v2.StartResultServerResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,19 +16,24 @@ import org.slf4j.LoggerFactory;
  * Native result transport delegating to C++ NativeResultServer via JNI.
  *
  * <p>Result data flows entirely within C++: the native engine's PartitionedOutputNode serializes
- * via PrestoVectorSerde into OutputBufferManager, NativeResultServer pulls
- * pre-serialized pages via getData(), and the coordinator fetches via data exchange
- * protocol. Java only issues lifecycle control commands (start/stop server).</p>
+ * into canonical typed batch streams held by its output buffer. The Native server pulls
+ * the owned bytes, and the client-facing data-plane endpoint
+ * fetches them directly. JVM components only issue lifecycle control commands and
+ * publish the signed Native endpoint; they never relay result pages.</p>
  *
  *
  * @see ResultTransport
  */
 public final class NativeResultTransport implements ResultTransport {
 
+    private static final int MAX_PORT = 65_535;
+
     private static final Logger LOG = LoggerFactory.getLogger(NativeResultTransport.class);
 
-    public static final int CMD_START_RESULT_SERVER = NativeCommandType.START_RESULT_SERVER;
-    static final int CMD_STOP_RESULT_SERVER = NativeCommandType.STOP_RESULT_SERVER;
+    public static final RuntimeCommandType CMD_START_RESULT_SERVER =
+            RuntimeCommandType.RUNTIME_COMMAND_TYPE_START_RESULT_SERVER;
+    static final RuntimeCommandType CMD_STOP_RESULT_SERVER =
+            RuntimeCommandType.RUNTIME_COMMAND_TYPE_STOP_RESULT_SERVER;
 
     private final TaskExecutor taskExecutor;
     private final String localHost;
@@ -47,7 +53,8 @@ public final class NativeResultTransport implements ResultTransport {
      *
      * <p>The native side creates a NativeResultServer that pulls pre-serialized
      * pages from the native OutputBufferManager and serves them via the data exchange protocol.
-     * The bound port is returned so the coordinator knows where to fetch results.</p>
+     * The bound port is returned so the control plane can publish a signed Native
+     * result endpoint to the authorized client-facing data-plane consumer.</p>
      *
      * <p><b>Handle convention:</b> Uses {@code executorHandle=0} because this is a
      * global (per-worker) command, not scoped to a specific task executor. The
@@ -60,8 +67,8 @@ public final class NativeResultTransport implements ResultTransport {
      * @throws IllegalStateException if the native command returns an invalid response
      */
     public int startServer(int preferredPort) {
-        byte[] commandPayload = buildStartResultServerPayload(preferredPort);
-        byte[] command = buildCommand(0, CMD_START_RESULT_SERVER, commandPayload);
+        StartResultServerRequest commandPayload = buildStartResultServerPayload(preferredPort);
+        byte[] command = buildCommand(CMD_START_RESULT_SERVER, commandPayload);
         byte[] response = taskExecutor.executeCommand(0, command);
 
         int port = extractBoundPort(response);
@@ -82,7 +89,7 @@ public final class NativeResultTransport implements ResultTransport {
             LOG.debug("event=native_result_server_stop_skipped reason=not_started");
             return;
         }
-        byte[] command = buildCommand(0, CMD_STOP_RESULT_SERVER, null);
+        byte[] command = buildCommand(CMD_STOP_RESULT_SERVER, null);
         taskExecutor.executeCommand(0, command);
         boundPort = -1;
         LOG.info("event=native_result_server_stopped");
@@ -115,25 +122,23 @@ public final class NativeResultTransport implements ResultTransport {
 
     /**
      * Builds StartResultServerCommand payload using generated proto.
-     * Note: proto3 omits fields at default value (0), so we encode explicitly
-     * for port=0 to guarantee non-empty wire format on the native side.
+     * Port zero intentionally requests automatic port allocation.
      */
-    public static byte[] buildStartResultServerPayload(int preferredPort) {
-        if (preferredPort == 0) {
-            // field 1 (preferred_port), wire type 0 (varint): tag=0x08, value=0x00
-            return new byte[]{0x08, 0x00};
+    public static StartResultServerRequest buildStartResultServerPayload(int preferredPort) {
+        if (preferredPort < 0 || preferredPort > MAX_PORT) {
+            throw new IllegalArgumentException("preferredPort must be in [0, 65535]");
         }
-        return StartResultServerPayload.newBuilder()
+        return StartResultServerRequest.newBuilder()
                 .setPreferredPort(preferredPort)
-                .build()
-                .toByteArray();
+                .build();
     }
 
     /**
      * Builds a NativeCommand proto envelope.
      */
-    public static byte[] buildCommand(long executorHandle, int commandType, byte[] payload) {
-        return NativeCommandBuilder.buildCommand(executorHandle, commandType, payload);
+    public static byte[] buildCommand(
+            RuntimeCommandType commandType, Message payload) {
+        return NativeCommandBuilder.buildCommand(commandType, payload);
     }
 
     /**
@@ -146,7 +151,7 @@ public final class NativeResultTransport implements ResultTransport {
                     "START_RESULT_SERVER command returned empty response");
         }
         try {
-            return StartResultServerResponsePayload.parseFrom(payload).getBoundPort();
+            return StartResultServerResponse.parseFrom(payload).getBoundPort();
         } catch (com.google.protobuf.InvalidProtocolBufferException e) {
             throw new IllegalStateException("Failed to parse StartResultServerResponse", e);
         }

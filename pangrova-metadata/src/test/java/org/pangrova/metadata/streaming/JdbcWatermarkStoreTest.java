@@ -12,7 +12,6 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class JdbcWatermarkStoreTest {
@@ -22,7 +21,6 @@ class JdbcWatermarkStoreTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        assumeTrue(SharedPostgresContainer.isAvailable());
         dataSource = SharedPostgresContainer.dataSource();
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {

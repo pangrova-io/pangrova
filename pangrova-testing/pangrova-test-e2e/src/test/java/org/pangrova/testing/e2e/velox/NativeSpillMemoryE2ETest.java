@@ -7,7 +7,6 @@ import org.pangrova.testing.e2e.setup.TestConnectorFactory;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -50,7 +49,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.loadTpcHDataViaConnector(
@@ -103,7 +102,6 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @Tag("multi-worker")
         @DisplayName("Multi-stage aggregation with sort completes under memory pressure")
         void multiStageAggregationWithSortCompletes() {
             // Complex query combining join + aggregation + sort to stress memory
@@ -253,7 +251,6 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @Tag("multi-worker")
         @DisplayName("TaskStats operator-level stats include spill metrics after join + aggregation")
         void operatorStatsIncludeSpillMetrics() {
             List<TypedRow> rows = sqlRunner.execute(
@@ -385,7 +382,6 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @Tag("multi-worker")
         @DisplayName("Heavy join query completes — task pool participates in arbitration")
         void heavyJoinQueryCompletesUnderArbitration() {
             List<TypedRow> rows = sqlRunner.execute(
@@ -412,7 +408,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
      */
     private static void issueUpdateMemoryLimit(long newLimitBytes) {
         try {
-            byte[] cmd = NativeCommandBuilder.updateMemoryLimit(0, newLimitBytes);
+            byte[] cmd = NativeCommandBuilder.updateMemoryLimit(newLimitBytes);
             NativeRuntime.nativeCommand(0, cmd);
         } catch (Exception e) {
             // Command channel may not be fully wired in test environment;
@@ -437,7 +433,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
      * Parses a serialized MemorySnapshot proto using manual wire-format decoding.
      * Extracts key fields: current_used_bytes, peak_used_bytes, spill_bytes.
      *
-     * <p>Field layout (from pangrova_native_protocol.proto):
+     * <p>Field layout (from canonical runtime.proto):
      * <pre>
      *   int64 current_used_bytes = 1;
      *   int64 peak_used_bytes = 2;

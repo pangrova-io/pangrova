@@ -4,6 +4,7 @@ import org.pangrova.resource.memory.RootMemoryPool;
 import org.pangrova.resource.memory.NodeMemoryPool;
 import org.pangrova.resource.memory.QueryMemoryPool;
 import org.pangrova.resource.memory.TaskMemoryPool;
+import org.pangrova.worker.jni.write.TestCatalogResourceResolver;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -134,14 +135,18 @@ class MemoryPoolAssemblyVerificationTest {
         long customNodeMemory = 256L * 1024 * 1024;
         WorkerBootstrapConfig.ResourceConfig rc = new WorkerBootstrapConfig.ResourceConfig(
                 512L * 1024 * 1024, 64L * 1024 * 1024, 4, 2, 1, null, customNodeMemory,
-                50.0, 70.0, 85.0, 95.0);
+                50.0, 70.0, 85.0, 95.0,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_RETENTION,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_TRANSIT,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL_FILES, null);
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "mem-pool-config", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, rc, 0, false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        bootstrap = configuredBootstrap(config);
         bootstrap.start();
 
         NodeMemoryPool nodePool = bootstrap.getNodeMemoryPool();
@@ -151,8 +156,16 @@ class MemoryPoolAssemblyVerificationTest {
     // -- Helpers --
 
     private void startWorker(String workerId) {
-        bootstrap = new WorkerBootstrap(configWithDefaults(workerId));
+        bootstrap = configuredBootstrap(configWithDefaults(workerId));
         bootstrap.start();
+    }
+
+    private static WorkerBootstrap configuredBootstrap(WorkerBootstrapConfig config) {
+        WorkerBootstrap worker = new WorkerBootstrap(TestShuffleServiceConfig.config(config));
+        worker.setCatalogResourceResolver(new TestCatalogResourceResolver((taskId, catalogName) -> {
+            throw new AssertionError("Memory pool assembly must not resolve a catalog");
+        }));
+        return worker;
     }
 
     private static WorkerBootstrapConfig configWithDefaults(String workerId) {
@@ -163,7 +176,7 @@ class MemoryPoolAssemblyVerificationTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
+                null, null, null);
     }
 
     private RootMemoryPool getRootPool() throws Exception {

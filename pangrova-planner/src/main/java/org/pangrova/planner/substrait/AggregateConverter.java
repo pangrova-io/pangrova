@@ -4,7 +4,6 @@ import io.substrait.expression.Expression;
 import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableAggregateFunctionInvocation;
-import io.substrait.extension.ImmutableAdvancedExtension;
 import io.substrait.relation.Aggregate;
 import io.substrait.relation.ImmutableAggregate;
 import io.substrait.relation.ImmutableGrouping;
@@ -20,7 +19,6 @@ import org.apache.calcite.sql.SqlKind;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -53,29 +51,6 @@ final class AggregateConverter {
         var builder = ImmutableAggregate.builder()
                 .input(input).groupings(groupings).measures(measures);
 
-        List<MultiDistinctHint.DistinctColumn> distinctColumns = detectMultiDistinct(agg);
-        if (!distinctColumns.isEmpty()) {
-            // Multi-distinct executes via MarkDistinctNode marker masking; a FILTER
-            // clause on a DISTINCT measure would need to compose two masks on the
-            // same aggregate, which the marker rewrite does not support. Fail loud
-            // with a rewrite suggestion instead of silently dropping the filter.
-            for (MultiDistinctHint.DistinctColumn dc : distinctColumns) {
-                AggregateCall distinctCall = agg.getAggCallList().get(dc.measureIndex());
-                if (distinctCall.filterArg >= 0) {
-                    throw new SubstraitConversionException(
-                            PangrovaErrorCode.SUBSTRAIT_UNSUPPORTED_PLAN_NODE,
-                            "FILTER (WHERE ...) on a DISTINCT aggregate is not supported when "
-                                    + "multiple DISTINCT aggregates are present. Rewrite the "
-                                    + "filtered DISTINCT aggregate using CASE WHEN inside the "
-                                    + "aggregate argument, e.g. COUNT(DISTINCT CASE WHEN cond "
-                                    + "THEN col END).");
-                }
-            }
-            var hint = new MultiDistinctHint(distinctColumns);
-            var extension = ImmutableAdvancedExtension.builder().optimization(hint).build();
-            builder.extension(extension);
-        }
-
         return builder.build();
     }
 
@@ -100,6 +75,7 @@ final class AggregateConverter {
                 .toList();
         return ImmutableAggregate.builder()
                 .input(aggInput).groupings(groupings).measures(measures)
+                .remap(Rel.Remap.offset(0, agg.getRowType().getFieldCount()))
                 .build();
     }
 
@@ -142,7 +118,8 @@ final class AggregateConverter {
                     return (Expression) FieldReference.newRootStructReference(idx, type);
                 })
                 .toList();
-        return ImmutableProject.builder().input(input).expressions(projections).build();
+        return ImmutableProject.builder().input(input).expressions(projections)
+                .remap(Rel.Remap.offset(input.getRecordType().fields().size(), projections.size())).build();
     }
 
     private List<Aggregate.Grouping> buildCompactedGroupings(LogicalAggregate agg,
@@ -202,37 +179,6 @@ final class AggregateConverter {
                     FieldReference.newRootStructReference(compactFilterIdx, filterType));
         }
         return measureBuilder.build();
-    }
-
-    /**
-     * Detects multiple DISTINCT aggregates on different columns.
-     *
-     * <p>Returns a non-empty list when ≥2 DISTINCT measures operate on different
-     * input columns. Single-DISTINCT is handled natively by the native engine's AggregationNode
-     * and does not need MarkDistinctNode, so this returns empty in that case.</p>
-     */
-    private List<MultiDistinctHint.DistinctColumn> detectMultiDistinct(LogicalAggregate agg) {
-        List<AggregateCall> calls = agg.getAggCallList();
-        Set<Integer> distinctColumnIndices = new HashSet<>();
-        List<MultiDistinctHint.DistinctColumn> candidates = new ArrayList<>();
-
-        for (int i = 0; i < calls.size(); i++) {
-            AggregateCall call = calls.get(i);
-            if (!call.isDistinct() || call.getArgList().isEmpty()) {
-                continue;
-            }
-            int columnIndex = call.getArgList().get(0);
-            if (distinctColumnIndices.add(columnIndex)) {
-                String markerName = "mark_distinct_" + candidates.size();
-                candidates.add(new MultiDistinctHint.DistinctColumn(i, columnIndex, markerName));
-            }
-        }
-
-        // Only emit hint when ≥2 distinct columns exist on different input columns
-        if (distinctColumnIndices.size() < 2) {
-            return List.of();
-        }
-        return List.copyOf(candidates);
     }
 
     /**

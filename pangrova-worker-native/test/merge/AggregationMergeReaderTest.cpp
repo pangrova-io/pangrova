@@ -268,7 +268,6 @@ class AggregationMergeReaderTest : public ::testing::Test {
 TEST_F(AggregationMergeReaderTest, ParseAggFunctionValid) {
   EXPECT_EQ(parseAggFunction("SUM"), AggFunction::SUM);
   EXPECT_EQ(parseAggFunction("sum"), AggFunction::SUM);
-  EXPECT_EQ(parseAggFunction("Count"), AggFunction::COUNT);
   EXPECT_EQ(parseAggFunction("MAX"), AggFunction::MAX);
   EXPECT_EQ(parseAggFunction("min"), AggFunction::MIN);
   EXPECT_EQ(parseAggFunction("LAST_VALUE"), AggFunction::LAST_VALUE);
@@ -308,7 +307,7 @@ TEST_F(AggregationMergeReaderTest, SumAggregation) {
   agg_specs[2] = AggFunction::SUM;  // amount → SUM
   agg_specs[3] = AggFunction::SUM;  // count → SUM
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -345,7 +344,7 @@ TEST_F(AggregationMergeReaderTest, MaxMinAggregation) {
   agg_specs[2] = AggFunction::MAX;
   agg_specs[3] = AggFunction::MIN;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -364,42 +363,12 @@ TEST_F(AggregationMergeReaderTest, MaxMinAggregation) {
 }
 
 // =============================================================================
-// AGGREGATION: COUNT — increments for each non-null value
+// Paimon SDK has no COUNT field aggregator; do not invent an accumulator.
 // =============================================================================
 
-TEST_F(AggregationMergeReaderTest, CountAggregation) {
-  auto type = makeSimpleSchema();
-  // value at index 2 → COUNT
-
-  auto b0 = makeSimpleBatch(type, {1}, {1}, {100});
-  auto b1 = makeSimpleBatch(type, {1}, {2}, {200});
-  auto b2 = makeSimpleBatch(type, {1}, {3}, {300});
-
-  std::vector<std::unique_ptr<RowReaderWrapper>> readers;
-  readers.push_back(std::make_unique<TestRowReaderWrapper>(
-      std::vector<RowVectorPtr>{b0}));
-  readers.push_back(std::make_unique<TestRowReaderWrapper>(
-      std::vector<RowVectorPtr>{b1}));
-  readers.push_back(std::make_unique<TestRowReaderWrapper>(
-      std::vector<RowVectorPtr>{b2}));
-
-  std::unordered_map<column_index_t, AggFunction> agg_specs;
-  agg_specs[2] = AggFunction::COUNT;
-
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
-  merger.initialize(std::move(readers));
-
-  auto result = drainAll(merger);
-  ASSERT_NE(result, nullptr);
-  EXPECT_EQ(result->size(), 1);
-
-  // The winner (seq=3, val=300) is the initial value.
-  // Then two older rows are aggregated: COUNT increments by 1 each.
-  // Initial value from winner is kept as-is (300), then +1, +1 = 302?
-  // No — COUNT semantics: the winner's value is the starting accumulator,
-  // then each older row increments by 1. So: 300 + 1 + 1 = 302.
-  auto vals = result->childAt(2)->asFlatVector<int64_t>();
-  EXPECT_EQ(vals->valueAt(0), 302);
+TEST_F(AggregationMergeReaderTest, RejectsCountAsAnUnsupportedSdkFieldAggregator) {
+  EXPECT_THROW(parseAggFunction("COUNT"), std::invalid_argument);
+  EXPECT_THROW(parseAggFunction("count"), std::invalid_argument);
 }
 
 // =============================================================================
@@ -425,7 +394,7 @@ TEST_F(AggregationMergeReaderTest, BoolAndAggregation) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::BOOL_AND;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -455,7 +424,7 @@ TEST_F(AggregationMergeReaderTest, BoolOrAggregation) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::BOOL_OR;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -489,7 +458,7 @@ TEST_F(AggregationMergeReaderTest, ListaggAggregation) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::LISTAGG;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -497,9 +466,23 @@ TEST_F(AggregationMergeReaderTest, ListaggAggregation) {
   EXPECT_EQ(result->size(), 1);
 
   auto names = result->childAt(2)->asFlatVector<StringView>();
-  // Winner is seq=3 ("charlie"), then seq=2 ("bob"), then seq=1 ("alice")
-  // LISTAGG: "charlie,bob,alice"
-  EXPECT_EQ(names->valueAt(0).str(), "charlie,bob,alice");
+  // SDK AggregateMergeFunction applies ascending persisted sequence numbers;
+  // FieldListaggAgg appends each input after the preceding accumulator.
+  // The matching real SDK fixture asserts the same chronological result.
+  EXPECT_EQ(names->valueAt(0).str(), "alice,bob,charlie");
+}
+
+TEST_F(AggregationMergeReaderTest, ListaggSkipsEmptyInputsLikeTheSdkAccumulator) {
+  auto type = makeStringSchema();
+  auto batch = makeStringBatch(type, {1, 1, 1, 1, 1}, {1, 2, 3, 4, 5}, {"", "alice", "", "bob", "charlie"});
+  std::vector<std::unique_ptr<RowReaderWrapper>> readers;
+  readers.push_back(std::make_unique<TestRowReaderWrapper>(std::vector<RowVectorPtr>{batch}));
+  AggregationMergeReader merger({0}, 1, type, {{2, AggFunction::LISTAGG}}, MergeDeletePolicy{});
+  merger.initialize(std::move(readers));
+  auto result = drainAll(merger);
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1);
+  EXPECT_EQ(result->childAt(2)->asFlatVector<StringView>()->valueAt(0).str(), "alice,bob,charlie");
 }
 
 // =============================================================================
@@ -523,7 +506,7 @@ TEST_F(AggregationMergeReaderTest, LastValueDefaultForNonAggColumn) {
   agg_specs[2] = AggFunction::SUM;
   // index 3 has no spec → defaults to LAST_VALUE
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -563,7 +546,7 @@ TEST_F(AggregationMergeReaderTest, LastNonNullValueAggregation) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::LAST_NON_NULL_VALUE;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -595,7 +578,7 @@ TEST_F(AggregationMergeReaderTest, SumDoubleAggregation) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::SUM;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -628,7 +611,7 @@ TEST_F(AggregationMergeReaderTest, MultipleKeysWithAggregation) {
   agg_specs[2] = AggFunction::SUM;
   agg_specs[3] = AggFunction::MAX;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -674,7 +657,7 @@ TEST_F(AggregationMergeReaderTest, SumWithNullValues) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::SUM;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -696,7 +679,7 @@ TEST_F(AggregationMergeReaderTest, EmptyReaders) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::SUM;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   merger.initialize(std::move(readers));
   EXPECT_FALSE(merger.hasNext());
@@ -723,7 +706,7 @@ TEST_F(AggregationMergeReaderTest, StatsTracking) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::SUM;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
   drainAll(merger);
 
@@ -740,7 +723,7 @@ TEST_F(AggregationMergeReaderTest, StatsTracking) {
 TEST_F(AggregationMergeReaderTest, CloseIsIdempotent) {
   auto type = makeSimpleSchema();
   std::unordered_map<column_index_t, AggFunction> agg_specs;
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   merger.initialize(std::move(readers));
 
@@ -757,7 +740,7 @@ TEST_F(AggregationMergeReaderTest, RejectsEmptyKeyIndices) {
   auto type = makeSimpleSchema();
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   EXPECT_THROW(
-      AggregationMergeReader({}, 1, type, agg_specs),
+      AggregationMergeReader({}, 1, type, agg_specs, MergeDeletePolicy{}),
       std::invalid_argument);
 }
 
@@ -780,7 +763,7 @@ TEST_F(AggregationMergeReaderTest, OutputIsSortedByPrimaryKey) {
   std::unordered_map<column_index_t, AggFunction> agg_specs;
   agg_specs[2] = AggFunction::SUM;
 
-  AggregationMergeReader merger({0}, 1, type, agg_specs);
+  AggregationMergeReader merger({0}, 1, type, agg_specs, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -792,6 +775,96 @@ TEST_F(AggregationMergeReaderTest, OutputIsSortedByPrimaryKey) {
   EXPECT_EQ(keys->valueAt(1), 2);
   EXPECT_EQ(keys->valueAt(2), 3);
   EXPECT_EQ(keys->valueAt(3), 4);
+}
+
+TEST_F(AggregationMergeReaderTest, PersistedSumRetractionAndDeleteResetAreChronological) {
+  auto type = ROW({"key", "seq", "value", "_VALUE_KIND"}, {BIGINT(), BIGINT(), BIGINT(), TINYINT()});
+  auto batch = std::make_shared<RowVector>(pool_.get(), type, nullptr, 5, std::vector<VectorPtr>{
+      makeFlatVector<int64_t>({1, 1, 2, 2, 2}), makeFlatVector<int64_t>({1, 2, 1, 2, 3}),
+      makeFlatVector<int64_t>({10, 3, 100, 0, 7}), makeFlatVector<int8_t>({0, 1, 0, 3, 0})});
+  std::vector<std::unique_ptr<RowReaderWrapper>> readers;
+  readers.push_back(std::make_unique<TestRowReaderWrapper>(std::vector<RowVectorPtr>{batch}));
+  AggregationMergeReader merger({0}, 1, type, {{2, AggFunction::SUM}}, MergeDeletePolicy{false, true});
+  merger.initialize(std::move(readers));
+  auto result = drainAll(merger);
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 2);
+  EXPECT_EQ(result->childAt(2)->asFlatVector<int64_t>()->valueAt(0), 7);
+  EXPECT_EQ(result->childAt(2)->asFlatVector<int64_t>()->valueAt(1), 7);
+}
+
+TEST_F(AggregationMergeReaderTest, DefaultLastNonNullAndDictionarySumUseEveryVersion) {
+  auto type = makeSumCountSchema();
+  auto batch = makeBatch(type, {1, 1, 1}, {1, 2, 3}, {5, 6, 7}, {10, 20, 30});
+  batch->childAt(3)->setNull(2, true);
+  auto indices = AlignedBuffer::allocate<vector_size_t>(3, pool_.get());
+  for (vector_size_t row = 0; row < 3; ++row) indices->asMutable<vector_size_t>()[row] = row;
+  batch->childAt(2) = BaseVector::wrapInDictionary(nullptr, indices, 3, batch->childAt(2));
+  std::vector<std::unique_ptr<RowReaderWrapper>> readers;
+  readers.push_back(std::make_unique<TestRowReaderWrapper>(std::vector<RowVectorPtr>{batch}));
+  AggregationMergeReader merger({0}, 1, type, {{2, AggFunction::SUM}}, MergeDeletePolicy{});
+  merger.initialize(std::move(readers));
+  auto result = drainAll(merger);
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1);
+  EXPECT_EQ(result->childAt(2)->asFlatVector<int64_t>()->valueAt(0), 18);
+  EXPECT_EQ(result->childAt(3)->asFlatVector<int64_t>()->valueAt(0), 20);
+}
+
+TEST_F(AggregationMergeReaderTest, MergeMapOverridesKeysAndRetractsExactKeys) {
+  auto type = ROW({"key", "seq", "value", "_VALUE_KIND"},
+      {BIGINT(), BIGINT(), MAP(BIGINT(), BIGINT()), TINYINT()});
+  auto offsets = AlignedBuffer::allocate<vector_size_t>(3, pool_.get());
+  auto sizes = AlignedBuffer::allocate<vector_size_t>(3, pool_.get());
+  for (vector_size_t row = 0; row < 3; ++row) {
+    offsets->asMutable<vector_size_t>()[row] = row * 2;
+    sizes->asMutable<vector_size_t>()[row] = 2;
+  }
+  auto values = std::make_shared<MapVector>(pool_.get(), type->childAt(2), nullptr, 3, offsets, sizes,
+      makeFlatVector<int64_t>({1, 2, 2, 3, 1, 3}), makeFlatVector<int64_t>({10, 20, 200, 30, 0, 0}));
+  auto batch = std::make_shared<RowVector>(pool_.get(), type, nullptr, 3, std::vector<VectorPtr>{
+      makeFlatVector<int64_t>({1, 1, 1}), makeFlatVector<int64_t>({1, 2, 3}), values,
+      makeFlatVector<int8_t>({0, 0, 1})});
+  std::vector<std::unique_ptr<RowReaderWrapper>> readers;
+  readers.push_back(std::make_unique<TestRowReaderWrapper>(std::vector<RowVectorPtr>{batch}));
+  AggregationMergeReader merger({0}, 1, type, {{2, AggFunction::MERGE_MAP}}, MergeDeletePolicy{});
+  merger.initialize(std::move(readers));
+  auto result = drainAll(merger);
+  ASSERT_NE(result, nullptr);
+  auto* map = result->childAt(2)->as<MapVector>();
+  ASSERT_EQ(map->sizeAt(0), 1);
+  EXPECT_EQ(map->mapKeys()->asFlatVector<int64_t>()->valueAt(map->offsetAt(0)), 2);
+  EXPECT_EQ(map->mapValues()->asFlatVector<int64_t>()->valueAt(map->offsetAt(0)), 200);
+}
+
+TEST_F(AggregationMergeReaderTest, CollectRetractsOneMatchingElementNotEveryDuplicate) {
+  auto type = ROW({"key", "seq", "value", "_VALUE_KIND"},
+      {BIGINT(), BIGINT(), ARRAY(BIGINT()), TINYINT()});
+  auto offsets = AlignedBuffer::allocate<vector_size_t>(3, pool_.get());
+  auto sizes = AlignedBuffer::allocate<vector_size_t>(3, pool_.get());
+  offsets->asMutable<vector_size_t>()[0] = 0;
+  offsets->asMutable<vector_size_t>()[1] = 2;
+  offsets->asMutable<vector_size_t>()[2] = 4;
+  sizes->asMutable<vector_size_t>()[0] = 2;
+  sizes->asMutable<vector_size_t>()[1] = 2;
+  sizes->asMutable<vector_size_t>()[2] = 1;
+  auto values = std::make_shared<ArrayVector>(pool_.get(), type->childAt(2), nullptr, 3, offsets, sizes,
+      makeFlatVector<int64_t>({1, 2, 2, 3, 2}));
+  auto batch = std::make_shared<RowVector>(pool_.get(), type, nullptr, 3, std::vector<VectorPtr>{
+      makeFlatVector<int64_t>({1, 1, 1}), makeFlatVector<int64_t>({1, 2, 3}), values,
+      makeFlatVector<int8_t>({0, 0, 1})});
+  std::vector<std::unique_ptr<RowReaderWrapper>> readers;
+  readers.push_back(std::make_unique<TestRowReaderWrapper>(std::vector<RowVectorPtr>{batch}));
+  AggregationMergeReader merger({0}, 1, type, {{2, AggFunction::COLLECT}}, MergeDeletePolicy{});
+  merger.initialize(std::move(readers));
+  auto result = drainAll(merger);
+  ASSERT_NE(result, nullptr);
+  auto* array = result->childAt(2)->as<ArrayVector>();
+  ASSERT_EQ(array->sizeAt(0), 3);
+  auto* elements = array->elements()->asFlatVector<int64_t>();
+  EXPECT_EQ(elements->valueAt(array->offsetAt(0)), 1);
+  EXPECT_EQ(elements->valueAt(array->offsetAt(0) + 1), 2);
+  EXPECT_EQ(elements->valueAt(array->offsetAt(0) + 2), 3);
 }
 
 }  // namespace

@@ -5,15 +5,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 
@@ -44,9 +45,42 @@ public class QueryStateMachine {
     private final AtomicReference<State> state = new AtomicReference<>(State.QUEUED);
     private final Instant createdAt = Instant.now();
     private volatile String tenantId;
+    private final String auditPrincipal;
     private final AtomicReference<ErrorDetail> error = new AtomicReference<>();
     private volatile ResultEndpoint resultEndpoint;
+    private final CompletableFuture<ResultEndpoint> resultEndpointReady =
+            new CompletableFuture<>();
+    private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
     private final List<QueryStateChangeListener> listeners = new CopyOnWriteArrayList<>();
+    private volatile Runnable beforeTerminalTransition = () -> { };
+    private final CompletableFuture<Boolean> ownershipReady;
+    /** A reserved terminal transition; waiters join only after leaving this monitor. */
+    @javax.annotation.concurrent.GuardedBy("this")
+    private CompletableFuture<Void> terminalTransitionPending;
+
+    /** Creates a state machine whose ownership has already been established externally. */
+    public QueryStateMachine() {
+        this(false);
+    }
+
+    QueryStateMachine(boolean ownershipPending) {
+        this(ownershipPending, null);
+    }
+
+    QueryStateMachine(boolean ownershipPending, CoordinatorSessionContext session) {
+        auditPrincipal = session != null && session.userIdentity() != null
+                ? session.userIdentity().principal() : "anonymous";
+        ownershipReady = ownershipPending
+                ? new CompletableFuture<>() : CompletableFuture.completedFuture(true);
+    }
+
+    void resolveOwnership(boolean acquired) {
+        ownershipReady.complete(acquired);
+    }
+
+    boolean awaitOwnership() {
+        return ownershipReady.join();
+    }
 
     /** Stage state aggregation: stageId → current StageStateMachine.State. */
     private final ConcurrentHashMap<String, StageStateMachine.State> stageStates =
@@ -68,16 +102,80 @@ public class QueryStateMachine {
 
     /** Attempts an atomic transition to the target state; returns false when not allowed. */
     public boolean tryTransition(State target) {
-        while (true) {
-            State current = state.get();
-            if (!TRANSITIONS.getOrDefault(current, Set.of()).contains(target)) {
-                return false;
-            }
-            if (state.compareAndSet(current, target)) {
-                notifyListeners(current, target);
-                return true;
-            }
+        return tryTransition(target, null);
+    }
+
+    /** Publishes the winning failure's error with its terminal state. */
+    boolean tryTransitionToFailed(ErrorDetail failureError) {
+        return tryTransition(State.FAILED, failureError);
+    }
+
+    private boolean tryTransition(State target, ErrorDetail failureError) {
+        if (!TRANSITIONS.getOrDefault(state.get(), Set.of()).contains(target)) {
+            return false;
         }
+        boolean terminal = TRANSITIONS.getOrDefault(target, Set.of()).isEmpty();
+        if (terminal && !awaitOwnership()) {
+            return false;
+        }
+        while (true) {
+            State current = null;
+            CompletableFuture<Void> pending;
+            Runnable recorder = null;
+            synchronized (this) {
+                pending = terminalTransitionPending;
+                if (pending == null) {
+                    current = state.get();
+                    if (!TRANSITIONS.getOrDefault(current, Set.of()).contains(target)) {
+                        return false;
+                    }
+                    if (terminal) {
+                        pending = new CompletableFuture<>();
+                        terminalTransitionPending = pending;
+                        recorder = beforeTerminalTransition;
+                    } else {
+                        state.set(target);
+                    }
+                }
+            }
+            if (current == null) {
+                pending.join();
+                continue;
+            }
+            if (terminal) {
+                publishTerminal(target, failureError, recorder, pending);
+            }
+            completeResultEndpointReadiness();
+            notifyListeners(current, target);
+            return true;
+        }
+    }
+
+    private void publishTerminal(State target, ErrorDetail failureError,
+            Runnable recorder, CompletableFuture<Void> pending) {
+        try {
+            // JDBC may block: the state stays non-terminal, but no monitor is held.
+            recorder.run();
+        } catch (RuntimeException | Error failure) {
+            synchronized (this) {
+                terminalTransitionPending = null;
+            }
+            pending.complete(null);
+            throw failure;
+        }
+        synchronized (this) {
+            if (target == State.FAILED && failureError != null) {
+                error.compareAndSet(null, failureError);
+            }
+            state.set(target);
+            terminalTransitionPending = null;
+        }
+        pending.complete(null);
+    }
+
+    /** Persists terminal cleanup responsibility before a terminal state becomes visible. */
+    public synchronized void setBeforeTerminalTransition(Runnable recorder) {
+        beforeTerminalTransition = java.util.Objects.requireNonNull(recorder, "recorder");
     }
 
     public State getState() {
@@ -95,6 +193,11 @@ public class QueryStateMachine {
     /** Returns the tenant identifier associated with this query, or null if unset. */
     public String getTenantId() {
         return tenantId;
+    }
+
+    /** Returns the submitting principal captured before this query becomes externally visible. */
+    public String getAuditPrincipal() {
+        return auditPrincipal;
     }
 
     /** Sets the tenant identifier for per-tenant quota filtering. */
@@ -127,7 +230,30 @@ public class QueryStateMachine {
     }
 
     public void setResultEndpoint(ResultEndpoint resultEndpoint) {
-        this.resultEndpoint = resultEndpoint;
+        this.resultEndpoint = java.util.Objects.requireNonNull(
+                resultEndpoint, "resultEndpoint must not be null");
+        completeResultEndpointReadiness();
+    }
+
+    private void completeResultEndpointReadiness() {
+        ResultEndpoint endpoint = resultEndpoint;
+        State current = state.get();
+        if (endpoint != null && (current == State.RUNNING
+                || current == State.FINISHING || current == State.FINISHED)) {
+            resultEndpointReady.complete(endpoint);
+        }
+    }
+
+    CompletableFuture<ResultEndpoint> resultEndpointReady() {
+        return resultEndpointReady;
+    }
+
+    boolean claimTerminalEffects() {
+        return terminalEffectsApplied.compareAndSet(false, true);
+    }
+
+    boolean terminalEffectsApplied() {
+        return terminalEffectsApplied.get();
     }
 
     // ── Stage state aggregation ──
@@ -164,10 +290,7 @@ public class QueryStateMachine {
      */
     public void onStageFailed(String stageId, ErrorDetail stageError) {
         updateStageState(stageId, StageStateMachine.State.FAILED);
-        if (stageError != null) {
-            error.compareAndSet(null, stageError);
-        }
-        tryTransition(State.FAILED);
+        tryTransitionToFailed(stageError);
     }
 
     private void notifyListeners(State oldState, State newState) {
@@ -177,7 +300,7 @@ public class QueryStateMachine {
     }
 
     /**
-     * Creates a {@link CoordinatorResultService.QueryFinisher} that advances
+     * Creates a callback that advances
      * this state machine to FINISHED from any non-terminal state.
      *
      * <p>Walks through the state sequence (PLANNING → SCHEDULING → RUNNING →
@@ -193,7 +316,7 @@ public class QueryStateMachine {
      *
      * @throws PangrovaException if the state machine cannot reach FINISHED (e.g., FAILED/CANCELLED)
      */
-    public CoordinatorResultService.QueryFinisher toFinisher() {
+    public Runnable toFinisher() {
         return () -> {
             if (getState() == State.FINISHED) {
                 return;
@@ -216,4 +339,3 @@ public class QueryStateMachine {
         };
     }
 }
-

@@ -11,25 +11,22 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests graceful degradation when catalog backend is unavailable.
- * Catalog is registered with empty schema list instead of failing.
- * Validates: Requirement 15.5 (fault isolation for catalog backends).
+ * Catalog backend failures must not become a successful empty catalog lookup.
  */
 class MetadataSchemaBuilderCatalogUnavailableTest {
 
     @Test
-    void buildRootSchemaRegistersEmptyCatalogOnBackendFailure() {
+    void dynamicSchemaLookupPropagatesBackendFailure() {
         MetadataService failingService = new FailingMetadataService();
         MetadataSchemaBuilder adapter = new MetadataSchemaBuilder(failingService);
 
-        CalciteSchema root = adapter.buildRootSchema();
-
-        assertThat(root.plus().getSubSchema("broken_catalog")).isNotNull();
-        assertThat(root.plus().getSubSchema("broken_catalog")
-                .getSubSchemaNames()).isEmpty();
+        CalciteSchema root = adapter.buildRootSchema(MetadataPlanningTestSessions.session());
+        assertThatThrownBy(() -> root.plus().getSubSchema("broken_catalog").getSubSchemaNames())
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("Connection refused");
     }
 
     /**

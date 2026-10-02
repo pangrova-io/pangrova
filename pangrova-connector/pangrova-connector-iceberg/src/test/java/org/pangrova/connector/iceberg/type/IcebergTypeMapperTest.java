@@ -24,6 +24,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class IcebergTypeMapperTest {
 
+    @Test
+    void timezoneNanoTimestampFailsClosedInsteadOfLosingTimezone() {
+        Type timestamp = Types.TimestampNanoType.withZone();
+        assertThatThrownBy(() -> IcebergTypeMapper.toPangrovaType(timestamp))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+        assertThatThrownBy(() -> IcebergTypeMapper.toParameterizedType(timestamp))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+        Schema schema = new Schema(Types.NestedField.optional(1, "event_time", timestamp));
+        assertThatThrownBy(() -> IcebergTypeMapper.toPangrovaColumns(schema))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+    }
+
+    @Test
+    void nestedTimezoneNanoTimestampAlsoFailsClosed() {
+        Type nested = Types.ListType.ofOptional(2, Types.TimestampNanoType.withZone());
+        assertThatThrownBy(() -> IcebergTypeMapper.toParameterizedType(nested))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+        Schema schema = new Schema(Types.NestedField.optional(1, "events", nested));
+        assertThatThrownBy(() -> IcebergTypeMapper.toPangrovaColumns(schema))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("precision-aware timestamp");
+    }
+
     @ParameterizedTest(name = "Iceberg {0} -> PangrovaType.{1}")
     @MethodSource("primitiveTypeMappings")
     void toPangrovaType_primitives(Type icebergType, PangrovaType expected) {

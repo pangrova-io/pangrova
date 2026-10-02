@@ -1,6 +1,7 @@
 package org.pangrova.worker.jni.write;
 
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.connector.data.ConnectorPageSink;
 import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
 import org.pangrova.spi.connector.data.page.Page;
@@ -20,6 +21,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -34,86 +36,88 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Validates fix for F-WORKER-EXEC-05: the write hot path must NOT create/close
- * a new RootAllocator per batch. Instead, a single per-session allocator is
- * reused across all batches within a write session.
- *
- * <p>This test instruments RootAllocator construction counting to verify that
- * regardless of how many batches are appended, only one allocator is created
- * per write session.</p>
- */
+/** Exercises repeated appends and independent sessions under the executor's shared allocator. */
 class WriteSessionAllocatorReuseTest {
+    private NativeWriteExecutor executor;
+
+    @AfterEach
+    void closeExecutor() {
+        if (executor != null) {
+            executor.close();
+        }
+    }
 
     @Test
     void multipleBatchesReuseSessionAllocator() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("allocator_reuse_table"));
 
-        // Append multiple batches — all should use the same session allocator
+        // Append multiple batches under one live session.
         int batchCount = 10;
         for (int i = 0; i < batchCount; i++) {
             byte[] batch = buildBatch(5, i * 5);
-            executor.appendSerializedBatch(handle, batch, 5, 2);
+            executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch), 5, 2);
         }
 
         WriteCommitResult result = executor.commitWrite(handle);
 
         // All 10 batches were processed successfully
         assertThat(result.rowsWritten()).isEqualTo(50);
-        assertThat(receivedPages).hasSize(batchCount);
+        assertThat(receivedPages).hasSize(batchCount * 5);
 
-        // Verify data integrity across all batches
-        for (int i = 0; i < batchCount; i++) {
+        // Row-only sinks receive one bounded page per row, in input order.
+        for (int i = 0; i < receivedPages.size(); i++) {
             Page page = receivedPages.get(i);
             assertThat(page.columns()).containsExactly("id", "name");
-            assertThat(page.getPositionCount()).isEqualTo(5);
+            assertThat(page.getPositionCount()).isEqualTo(1);
+            assertThat(ColumnValue.toRaw(page.rows().get(0).get("id"))).isEqualTo(i);
+            assertThat(ColumnValue.toRaw(page.rows().get(0).get("name"))).isEqualTo("row-" + i);
         }
     }
 
     @Test
     void allocatorIsClosedOnCommit() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("close_on_commit_table"));
 
         byte[] batch = buildBatch(3, 0);
-        executor.appendSerializedBatch(handle, batch, 3, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch), 3, 2);
 
-        // Commit should close the session allocator without error
+        // Commit ends the session; teardown closes the shared allocator and detects leaks.
         executor.commitWrite(handle);
 
-        assertThat(receivedPages).hasSize(1);
+        assertThat(receivedPages).hasSize(3);
     }
 
     @Test
     void allocatorIsClosedOnAbort() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("close_on_abort_table"));
 
         byte[] batch = buildBatch(3, 0);
-        executor.appendSerializedBatch(handle, batch, 3, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch), 3, 2);
 
-        // Abort should close the session allocator without error
+        // Abort must leave no decoded buffers for executor teardown.
         executor.abortWrite(handle);
     }
 
     @Test
     void allocatorIsClosedOnCloseAllSessions() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("close_all_table"));
 
         byte[] batch = buildBatch(3, 0);
-        executor.appendSerializedBatch(handle, batch, 3, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch), 3, 2);
 
-        // closeAllSessions should close the session allocator without error
+        // Close all sessions before the shared allocator is closed in teardown.
         executor.closeAllSessions();
 
         assertThat(executor.activeSessionCount()).isZero();
@@ -122,49 +126,43 @@ class WriteSessionAllocatorReuseTest {
     @Test
     void separateSessionsGetIndependentAllocators() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle1 = executor.beginWrite(descriptor("table_a"));
         long handle2 = executor.beginWrite(descriptor("table_b"));
 
         // Each session can process batches independently
         byte[] batch = buildBatch(3, 0);
-        executor.appendSerializedBatch(handle1, batch, 3, 2);
-        executor.appendSerializedBatch(handle2, batch, 3, 2);
+        executor.appendDirectBatch(handle1, WriteBatchFixtures.directRange(batch), 3, 2);
+        executor.appendDirectBatch(handle2, WriteBatchFixtures.directRange(batch), 3, 2);
 
         // Committing one session should not affect the other
         executor.commitWrite(handle1);
 
         // Second session still works after first is committed
-        executor.appendSerializedBatch(handle2, batch, 3, 2);
+        executor.appendDirectBatch(handle2, WriteBatchFixtures.directRange(batch), 3, 2);
         executor.commitWrite(handle2);
 
-        // 1 page from handle1, 2 pages from handle2
-        assertThat(receivedPages).hasSize(3);
+        // Three rows from handle1, six rows from handle2.
+        assertThat(receivedPages).hasSize(9);
     }
 
     @Test
-    void allocatorConstructionCountIsOnePerSession() throws Exception {
-        // This test uses a counting wrapper to prove that only 1 RootAllocator
-        // is created per session, regardless of batch count.
-        var allocatorCount = new AtomicInteger(0);
-        NativeWriteExecutor executor = createAllocatorCountingExecutor(
-                new ArrayList<>(), allocatorCount);
+    void catalogResolutionOccursOnceAcrossRepeatedAppends() throws Exception {
+        var resolutionCount = new AtomicInteger(0);
+        executor = createResolutionCountingExecutor(new ArrayList<>(), resolutionCount);
 
         long handle = executor.beginWrite(descriptor("counting_table"));
-        // Allocator was created in beginWrite
-        assertThat(allocatorCount.get()).isEqualTo(1);
+        assertThat(resolutionCount.get()).isEqualTo(1);
 
         // Append many batches — count should NOT increase
         for (int i = 0; i < 20; i++) {
             byte[] batch = buildBatch(5, i * 5);
-            executor.appendSerializedBatch(handle, batch, 5, 2);
+            executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch), 5, 2);
         }
 
-        // Still just 1 allocator — no per-batch allocator creation
-        assertThat(allocatorCount.get())
-                .as("Only one allocator should be created per session, " +
-                        "regardless of batch count (was: per-batch before F-WORKER-EXEC-05 fix)")
+        assertThat(resolutionCount.get())
+            .as("Catalog resources are resolved once, not once per batch")
                 .isEqualTo(1);
 
         executor.commitWrite(handle);
@@ -172,39 +170,31 @@ class WriteSessionAllocatorReuseTest {
 
     // --- Test infrastructure ---
 
-    /**
-     * Creates an executor that counts RootAllocator constructions.
-     * We subclass NativeWriteExecutor and override beginWrite to count
-     * allocator creations — but since we can't subclass a final class,
-     * we instead verify by tracking the session count and batch count:
-     * if allocators were created per-batch, concurrent allocator usage would
-     * fail (RootAllocator tracks children); the test passes because the fix
-     * reuses a single session allocator.
-     *
-     * The counting approach uses a factory pattern via a custom catalog resolver
-     * that tracks invocations of beginWrite (which is the only place allocators
-     * are now created).
-     */
-    private static NativeWriteExecutor createAllocatorCountingExecutor(
-            List<Page> pageCollector, AtomicInteger allocatorCount) {
-        return new NativeWriteExecutor(catalogName -> {
-            allocatorCount.incrementAndGet();
+    /** Counts catalog lookups without claiming to instrument allocator construction. */
+    private static NativeWriteExecutor createResolutionCountingExecutor(
+            List<Page> pageCollector, AtomicInteger resolutionCount) {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
+            resolutionCount.incrementAndGet();
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) ->
                     new CollectingPageSink(pageCollector);
             ConnectorSession session = new StubSession();
-            return new CatalogResourceResolver.CatalogResources(metadata, provider, session);
-        });
+            return new CatalogResourceResolver.CatalogResources(
+                    metadata, provider, session, TestOutputHandles.outputHandle(),
+                    List.of("id"));
+        }));
     }
 
     private static NativeWriteExecutor createExecutor(List<Page> pageCollector) {
-        return new NativeWriteExecutor(catalogName -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) ->
                     new CollectingPageSink(pageCollector);
             ConnectorSession session = new StubSession();
-            return new CatalogResourceResolver.CatalogResources(metadata, provider, session);
-        });
+            return new CatalogResourceResolver.CatalogResources(
+                    metadata, provider, session, TestOutputHandles.outputHandle(),
+                    List.of("id"));
+        }));
     }
 
     private static byte[] buildBatch(int rowCount, int startId) throws IOException {
@@ -241,7 +231,7 @@ class WriteSessionAllocatorReuseTest {
                 List.of(
                         new WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new WriteDescriptor.ColumnSchema("name", "VARCHAR")),
-                Map.of());
+                Map.of("taskId", "allocator-task"));
     }
 
     private static final class CollectingPageSink implements ConnectorPageSink {

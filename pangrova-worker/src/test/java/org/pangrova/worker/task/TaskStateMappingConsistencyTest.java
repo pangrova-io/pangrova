@@ -1,6 +1,6 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.protocol.v1.TaskState;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.spi.execution.TaskStatus;
 import org.junit.jupiter.api.Test;
 

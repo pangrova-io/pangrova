@@ -21,8 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Verifies that every concrete {@code *Service}, {@code *Coordinator}, and
  * {@code *Scheduler} class in production code is reachable — via field
  * references, constructor parameters, method signatures, or direct
- * dependencies — from at least one {@code *BootstrapMain} / {@code *Main}
- * entry point.
+ * dependencies or an actual {@code ServiceLoader} declaration — from at least
+ * one {@code *BootstrapMain} / {@code *Main} entry point.
  *
  * <p>This is the structural twin of {@link SpiWiringVerificationTest}: it
  * targets the long stateful collaborator classes (services, coordinators,
@@ -75,9 +75,7 @@ class BootstrapReachabilityTest {
      * {@code @DeadCode}, or (c) adds it here with a tracking issue.</p>
      */
     private static final Set<String> BASELINED_ORPHANS = Set.of(
-            "org.pangrova.coordinator.ai.embedding.DistributedBackfillCoordinator",
             "org.pangrova.coordinator.clustering.ClusteringScheduler",
-            "org.pangrova.coordinator.columnar.ColumnarQueryService",
             "org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshCoordinator",
             "org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshLockCoordinator",
             "org.pangrova.coordinator.dynamictable.schedule.RefreshScheduler",
@@ -202,6 +200,9 @@ class BootstrapReachabilityTest {
             if (!visited.add(current)) {
                 continue;
             }
+
+            ServiceLoaderReachability.enqueueProviders(
+                    current, importedClasses, queue, visited);
 
             importedClasses.stream()
                     .filter(c -> c.getName().equals(current))

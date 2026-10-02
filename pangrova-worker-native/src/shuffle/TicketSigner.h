@@ -30,6 +30,10 @@ inline constexpr int64_t kDefaultTicketTtlMillis = 600'000;  // 10 minutes
 
 class TicketSigner {
  public:
+  struct SignedTicket {
+    std::string ticket;
+    int64_t expires_at_epoch_ms;
+  };
   // @param key        Raw HMAC key. Empty disables signing (plaintext passthrough).
   // @param ttlMillis  Ticket lifetime added to the current time as the expiry.
   explicit TicketSigner(std::string key,
@@ -37,6 +41,13 @@ class TicketSigner {
 
   // Returns the signed ticket, or the plaintext payload when signing disabled.
   std::string sign(std::string_view payload) const;
+
+  // Returns the opaque ticket together with the exact expiry embedded in its
+  // signature, allowing the control plane to schedule proactive renewal.
+  SignedTicket signWithMetadata(std::string_view payload) const;
+
+  // The caller's canonical grant owns the exact finite expiry.
+  SignedTicket signWithExpiry(std::string_view payload, int64_t expiryEpochMillis) const;
 
   // True when a key is configured (signing active).
   bool enabled() const { return !key_.empty(); }

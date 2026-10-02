@@ -12,20 +12,24 @@ sidebar_label: "JNI Bridge"
 
 ## 1. Protocol Boundary Contract
 
-### 1.1 Dual Proto Design
+### 1.1 One canonical source
 
-Pangrova maintains two separate Protobuf definition files for the Java and Native (C++) layers:
+`pangrova-protocol/src/main/proto` is the only source tree for every
+Pangrova-owned message that crosses a process or JVM/Native boundary. Maven and
+CMake invoke their own generators, but both generators consume the same files.
+Build-system differences do not justify mirrored schemas.
 
-| Proto File | Location | Package | Owner |
-|------------|----------|---------|-------|
-| Java-side | `pangrova-protocol/src/main/proto/pangrova/protocol/v1/` | `pangrova.protocol.v1` | Java team |
-| Native-side | `pangrova-worker-native/proto/pangrova_native_protocol.proto` | `pangrova.native.protocol.v1` | Native team |
+The only supported execution protocol is `pangrova.protocol.v2`. Its descriptor
+is rooted at `pangrova/protocol/v2/protocol_manifest.proto` and
+`pangrova/protocol/v2/runtime.proto`. Startup compares a deterministic,
+dependency-complete `google.protobuf.FileDescriptorSet` and its SHA-256. The Worker fails closed
+before accepting tasks when the Java and Native descriptor sets differ.
 
-The dual proto design exists because:
-
-1. **Different build systems**: Java uses Maven + protobuf-maven-plugin; C++ uses CMake + protoc.
-2. **Different consumers**: Java proto generates Java classes used by Coordinator and Worker Java layers; Native proto generates C++ classes used by the Velox execution engine.
-3. **Different evolution cadence**: Java-side messages (REST DTOs, Flight tickets) evolve with the control plane; Native-side messages evolve with the execution engine.
+Organizational proto files are allowed inside the v2 package, but they remain
+one generated protocol and one descriptor set. Vector, text, multimodal,
+embedding, retrieval, index and export semantics use the generic typed plan,
+`OperatorBinding`, `CapabilityDescriptor`, `DataSplit` and artifact contracts;
+they must not introduce feature-specific task envelopes or a second proto tree.
 
 ### 1.2 Boundary Contract
 
@@ -41,78 +45,89 @@ StatusSerializer              ←   nativeGetTaskStatus()       ←  TaskExecuto
   (Native proto serialization)      (byte[] transfer)             (C++ state)
 ```
 
-**Critical rule**: The byte stream produced by `TaskRequestBuilder` (using Java proto) must be correctly parseable by `TaskRequestParser` (using Native proto). This requires **field-number-level alignment** between the two proto definitions for all messages that cross the JNI boundary.
+**Critical rule:** the byte stream produced by generated Java classes must be
+parsed by C++ classes generated from the exact same canonical descriptor. There
+is no v1 fallback, version negotiation, dual parser or compatibility shim.
+Manual cross-file alignment is not an accepted mechanism.
 
 ### 1.3 Messages That Cross the JNI Boundary
 
-| Message | Direction | Alignment Required |
-|---------|-----------|-------------------|
-| `TaskRequest` | Java → Native | YES — field numbers must match |
-| `SplitInfo` | Java → Native | YES — field numbers must match |
-| `WriteConfig` | Java → Native | YES — field numbers must match |
-| `ResourceLimit` | Java → Native | YES — field numbers must match |
-| `NativeInitConfig` | Java → Native | YES — field numbers must match |
-| `TaskStatus` / `TaskResponse` | Native → Java | YES — field numbers must match |
+| Message family | Direction | Contract |
+|---|---|---|
+| `TaskRequest`, splits, resource/write/shuffle config | Java → Native | Canonical generated descriptor and protocol epoch |
+| `RuntimeInitConfig` | Java → Native | Canonical runtime, memory, cache, spill, filesystem and mutual-TLS configuration |
+| `RuntimeCommand` and typed command payloads | Java → Native | Canonical generated descriptor; unknown command fails |
+| `TaskStatus`, command responses, metrics/cache/capabilities | Native → Java | Canonical generated descriptor; negative response is not success |
 
-Messages that do NOT cross: `FlightTicket` (Java-only), `NativeCommand` (Native-only), `PrefetchSplitsRequest` (Native-only), `CacheStats` (Native-only).
+REST DTOs that never cross JNI are Java contracts. Native implementation-only
+structures that never cross JNI are C++ contracts. Neither may duplicate a
+cross-runtime wire message.
 
-### 1.4 TaskRequest Field Alignment
+### 1.4 Canonical v2 `TaskRequest`
 
-The Native proto is the **authority** for field numbers. Java proto must align exactly.
-
-| Field # | Name | Type | Notes |
-|---------|------|------|-------|
-| 1 | `task_id` | string | |
-| 2 | `query_id` | string | |
-| 3 | `substrait_plan` / `plan_fragment` | bytes | Same wire type, different name |
-| 4 | `splits` | repeated SplitInfo | |
-| 5 | `resource_limit` | ResourceLimit | |
-| 6 | `session_properties` | map\<string, string\> | |
-| 7 | `task_type` | TaskType enum | Numerically aligned |
-| 8 | `stage_id` | int32 | Java-only, reserved in Native |
-| 9 | _(reserved)_ | — | Permanently reserved |
-| 10 | `partition_id` | int32 | Java-only, reserved in Native |
-| 11 | `write_config` | WriteConfig | |
-
-### 1.5 SplitInfo Field Alignment
+The canonical proto is the authority for field numbers. Both Java and C++
+generate these fields from the same source:
 
 | Field # | Name | Type | Notes |
 |---------|------|------|-------|
-| 1 | `split_id` | string | |
-| 2 | `connector_id` | string | |
-| 3 | `file_path` | string | |
-| 4 | `file_format` | FileFormat enum | |
-| 5 | `start_offset` | int64 | |
-| 6 | `length` | int64 | |
-| 7 | `column_mapping` | repeated ColumnMapping | Schema evolution support |
-| 8 | `partition_values` | map\<string, string\> | Partition pruning metadata |
-| 9 | `iceberg_info` | IcebergSplitInfo (oneof) | Iceberg-specific |
-| 10 | `paimon_info` | PaimonSplitInfo (oneof) | Paimon-specific |
+| 1 | `protocol` | ProtocolVersion | Exact protocol identity; mismatch fails before execution |
+| 2 | `attempt` | TaskAttemptId | Query/job, stage, partition, epoch, attempt and fencing identity |
+| 3 | `task_kind` | TaskKind | Read, write, shuffle, background build/validate/export |
+| 4 | `security` | SecurityContext | Tenant, principal, roles and policy-context hash |
+| 5 | `substrait_plan` | bytes | Serialized Substrait plan |
+| 6 | `substrait_plan_checksum` | Checksum | Integrity-bound plan digest |
+| 7 | `splits` | repeated DataSplit | Snapshot-pinned generic inputs |
+| 8 | `operator_bindings` | repeated OperatorBinding | Version-exact model/index/artifact capabilities |
+| 9 | `resource_grant` | StageResourceGrant | Bounded Native and provider resources |
+| 10 | `deadline_epoch_ms` | uint64 | Absolute execution deadline |
+| 11 | `trace_context` | TraceContext | Cross-runtime trace identity |
+| 12 | `budget_reservation_id` | string | Governed budget reservation |
+| 13 | `execution_options` | TaskExecutionOptions | Session, write, shuffle and direct-result options |
+| 14 | `exchange_inputs` | repeated ExchangeInputBinding | Signed remote data-plane sources |
+| 15 | `initial_runtime_filters` | repeated RuntimeFilterBinding | Typed initial filters |
 
-### 1.6 Enum Alignment
+### 1.5 `DataSplit` Field Alignment
 
-**TaskType**: `UNSPECIFIED=0, READ=1, WRITE=2, SHUFFLE_READ=3, SHUFFLE_WRITE=4`
+| Field # | Name | Type | Notes |
+|---------|------|------|-------|
+| 1 | `split_id` | string | Stable split identity |
+| 2 | `connector_id` | string | Connector capability identity |
+| 3 | `source_id` | string | Stable logical source identity |
+| 4 | `source_snapshot` | string | Immutable source snapshot/version |
+| 5 | `data_object_id` | string | Source-owned object identity |
+| 6 | `opaque_location` | string | Worker-resolved data location |
+| 7 | `start_offset` | uint64 | Bounded range start |
+| 8 | `length` | uint64 | Bounded range length |
+| 9 | `partition_values` | repeated PartitionValue | Typed partition pruning metadata |
+| 10 | `connector_detail` | google.protobuf.Any | Type-URL-validated connector detail |
 
-**TaskState**: `UNSPECIFIED=0, PENDING=1, RUNNING=2, FLUSHING=3, FINISHED=4, FAILED=5, CANCELLED=6`
+### 1.6 Task kinds and terminal states
+
+`TaskKind` contains read, write, shuffle read/write and background
+build/validate/export. `TaskAttemptId` and execution-owner fencing apply to all
+of them; background AI infrastructure does not bypass the distributed task
+contract. Task status is returned through the canonical v2 result/runtime
+messages and unknown enum values fail closed.
 
 ---
 
 ## 2. Memory Ownership Model
 
-### 2.1 Data Flow (Pull Model)
+### 2.1 Result Data Flow
 
 ```
-Java ResultPuller thread
-  → NativeTaskExecutor.getNextBatch(handle)
-    → [JNI] NativeRuntime.nativeGetNextBatch(handle, arrowArrayPtr, arrowSchemaPtr)
-      → C++ TaskExecutor::getNextBatch(row_vector)  // pop from OutputQueue
-      → ArrowBridge::exportRowVectorToJava(row_vector, arrowArray, arrowSchema, pool)
-      → return kDataAvailable
-    → [JNI return to Java]
-    → Data.importVectorSchemaRoot(allocator, arrowArray, arrowSchema)
-    → serializeToIpc(root)
-    → close allocator → close VectorSchemaRoot
+Native task / output buffers
+  → Native FlightResultServer
+    → Arrow RecordBatch / IPC stream
+      → authenticated result endpoint
+        → client consumes stream to EOF
+          → output acknowledgement / Native task release
 ```
+
+Java schedules and issues JNI control commands; `NativeRuntime` has no
+`nativeGetNextBatch` row-pull API. The Coordinator does not relay result batches.
+The output consumer is part of task completion: an admitted endpoint is not a
+terminal success report, and unconsumed output must be cancelled and drained.
 
 ### 2.2 Memory Ownership Hierarchy
 
@@ -122,23 +137,44 @@ C++ side:
     → QueryCtx (per-task) → task MemoryPool (per-task)
       → RowVector buffers (per-batch, allocated from task pool)
 
-Java side:
-  RootAllocator (per-call in getNextBatch)
-    → VectorSchemaRoot (imported from ArrowArray)
-    → ArrowStreamWriter serializes to IPC bytes
-    → allocator.close() releases Java-side buffers
+Interop side:
+  ArrowArray / ArrowSchema exported under the task MemoryPool
+    → release callback retains original buffers and required layout buffers
+      → importing consumer owns the transferred release obligation
+
+Client side:
+  client-owned allocator / stream / vectors
+    → consume and close stream and vectors
+      → close allocator after its dependent vectors
 ```
 
 ### 2.3 Arrow C Data Interface Ownership Rules
 
-- `exportToArrow(row_vector, *arrowArray, pool)` is zero-copy: buffer pointers directly reference RowVector memory
-- ArrowArray.release callback captures `shared_ptr<RowVector>` to prevent premature destruction
-- When Java calls ArrowArray release, the callback destructs the RowVector
-- RowVector lifecycle is tied to the ArrowArray.release callback
+- Velox Vector is the task-local representation; Arrow is the interop and wire
+  contract. Their string and nested layouts are not generally identical.
+- Compatible flat buffers may be shared. In the pinned Velox implementation,
+  ordinary string export allocates offsets and copies string bytes; array/map
+  export constructs Arrow offsets. Flattening constant/dictionary encodings can
+  also allocate. These are not zero-copy operations.
+- `ColumnarDataExporter` currently flattens dictionaries and constants before
+  export. `FlightResultServer` preserves dictionaries by default but flattens
+  constants. Do not infer one boundary's copy behavior from another.
+- Arrow release callbacks retain the buffers required by the exported array.
+  Consumers must respect ownership transfer and release exactly once; the task
+  MemoryPool must outlive outstanding exports.
+- Boundary copy bytes, allocation, serialization CPU and dictionary retention
+  still require measurements. The presence of a C Data interface is not a
+  measured zero-copy guarantee. See the [Velox vector layouts](https://facebookincubator.github.io/velox/develop/vectors.html)
+  and [Arrow C Data ownership contract](https://arrow.apache.org/docs/format/CDataInterface.html).
 
 ### 2.4 Protobuf Usage Assessment
 
-Protobuf for control-plane (task creation, commands, status) is appropriate. IPC bytes for data-plane (batch transfer) avoids serialization overhead. The hot path (`getNextBatch`) does NOT use Protobuf.
+Protobuf carries task creation, commands and status. Arrow IPC/Flight carries
+columnar data and has serialization, framing and transport costs; TLS and network
+transmission are not physically zero-copy. The architecture target is one typed
+Arrow data-plane contract, with necessary conversions measured rather than
+claimed absent. Existing private shuffle page payloads and row-shaped JVM AI/write
+upcalls remain tracked migration gaps in the [root-cause ledger](../internal/ai-native-single-path-root-cause-design.md).
 
 ---
 
@@ -192,13 +228,28 @@ task members so reverse member destruction releases the plan before its pools.
 
 ## 4. Evolution Rules
 
-1. **Adding fields**: Add to both proto files with the same field number.
-2. **Removing fields**: Mark as `deprecated`. Never reuse field numbers.
-3. **Renaming fields**: Allowed (names are not part of wire format).
-4. **Changing types**: Forbidden for cross-boundary messages. Create a new field.
-5. **Adding enum values**: Add to both protos with the same numeric value.
+1. **Ownership:** edit only the canonical source. Never add a Worker/Native mirror
+   or hand-edit generated sources.
+2. **Changing the contract:** update the canonical source, both generated
+   runtimes, descriptor golden, parser tests and capability epoch atomically.
+3. **Removing fields:** reserve field numbers and names. Never reuse them.
+4. **Deployment:** Pangrova supports one execution protocol epoch per cluster.
+   Drain or fence old Workers before admitting the new epoch; do not negotiate or
+   silently downgrade individual tasks.
+5. **Adding enum values:** generated consumers must reject unsupported semantic
+   values rather than treating `UNKNOWN` as success.
+6. **Typed semantics:** semantic plan changes use typed Substrait extensions;
+   JSON/session-property encodings are not protocol evolution.
+7. **Rollout:** schedule only a homogeneous protocol/capability epoch and reject
+   any mismatch before partial execution.
 
 ### Validation Tests
 
-- `ProtocolConsistencyPropertyTest`: validates field number alignment across both protos
-- `TaskRequestRoundTripPropertyTest`: validates Java-serialized bytes parse correctly with Native proto
+- canonical descriptor-diff gate: proves the checked-in descriptor matches the
+  canonical source set and forbids Pangrova-owned Native mirror protos;
+- `CanonicalProtocolDescriptorsTest`: proves deterministic dependency closure and
+  descriptor hash;
+- Native capability tests: compare the generated complete descriptor and SHA;
+- golden enum/message tests: prevent incompatible field or enum drift;
+- packaged JNI tests: prove symbols, class names, and request/response parsing
+  against the shipped library rather than a component-only build.

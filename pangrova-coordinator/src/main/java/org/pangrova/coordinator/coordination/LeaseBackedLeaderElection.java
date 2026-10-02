@@ -10,49 +10,33 @@ import java.util.Optional;
 /**
  * Lease-based leader election using the unified {@link DistributedLease} SPI.
  *
- * <p>Uses a fixed lease key {@code "coordinator_leader"}. Epoch can be
- * supplied via {@link #tryAcquireWithEpoch} for proper fencing, or
- * defaults to 0 via the legacy {@link #tryAcquire} interface.</p>
+ * <p>Uses a fixed lease key {@code "coordinator_leader"}. The lease backend
+ * is the sole issuer of fencing epochs.</p>
  */
 public final class LeaseBackedLeaderElection {
 
     private static final String LEASE_KEY = "coordinator_leader";
-    private static final long DEFAULT_EPOCH = 0;
-
     private final DistributedLease lease;
 
     public LeaseBackedLeaderElection(DistributedLease lease) {
         this.lease = Objects.requireNonNull(lease, "lease must not be null");
     }
 
-    public boolean tryAcquire(String candidateId, long leaseDurationMs) {
+    public Optional<LeaseEntry> tryAcquire(String candidateId, long leaseDurationMs) {
         Objects.requireNonNull(candidateId, "candidateId must not be null");
-        return lease.tryAcquire(LEASE_KEY, candidateId, DEFAULT_EPOCH,
+        return lease.tryAcquire(LEASE_KEY, candidateId,
                 Duration.ofMillis(leaseDurationMs));
     }
 
-    /**
-     * Acquires leadership with explicit epoch for fencing.
-     *
-     * @param candidateId candidate node identifier
-     * @param epoch       monotonic epoch for stale-leader fencing
-     * @param leaseDurationMs lease TTL in milliseconds
-     * @return true if the candidate is now the leader
-     */
-    public boolean tryAcquireWithEpoch(String candidateId, long epoch, long leaseDurationMs) {
-        Objects.requireNonNull(candidateId, "candidateId must not be null");
-        return lease.tryAcquire(LEASE_KEY, candidateId, epoch,
-                Duration.ofMillis(leaseDurationMs));
+    public boolean tryRenew(String leaderId, long epoch, long leaseDurationMs) {
+        Objects.requireNonNull(leaderId, "leaderId must not be null");
+        return lease.tryRenew(
+                LEASE_KEY, leaderId, epoch, Duration.ofMillis(leaseDurationMs));
     }
 
-    public boolean tryRenew(String leaderId, long leaseDurationMs) {
+    public boolean release(String leaderId, long epoch) {
         Objects.requireNonNull(leaderId, "leaderId must not be null");
-        return lease.tryRenew(LEASE_KEY, leaderId, Duration.ofMillis(leaseDurationMs));
-    }
-
-    public boolean release(String leaderId) {
-        Objects.requireNonNull(leaderId, "leaderId must not be null");
-        return lease.release(LEASE_KEY, leaderId);
+        return lease.release(LEASE_KEY, leaderId, epoch);
     }
 
     public Optional<String> currentLeader() {

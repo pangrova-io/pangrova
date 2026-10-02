@@ -2,7 +2,6 @@ package org.pangrova.connector.paimon;
 
 import org.pangrova.spi.connector.index.ColumnValueReader;
 import org.pangrova.spi.connector.index.ConnectorIndexSupport;
-import org.pangrova.spi.connector.index.CommitListener;
 import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.pangrova.spi.connector.index.NativeIndexCapability;
 import org.pangrova.spi.connector.index.NativeIndexEvaluator;
@@ -25,17 +24,12 @@ final class PaimonConnectorIndexSupport implements ConnectorIndexSupport {
 
     @Override
     public Optional<FileSystemAccessor> getFileSystemAccessor() {
-        return Optional.empty(); // Paimon FS accessor wired at connector level
+        return metadata.getFileSystemAccessor();
     }
 
     @Override
     public Optional<ColumnValueReader> getColumnValueReader() {
-        return Optional.empty(); // Paimon column reader wired at connector level
-    }
-
-    @Override
-    public void registerCommitListener(CommitListener listener) {
-        metadata.registerCommitListener(listener);
+        return metadata.getColumnValueReader();
     }
 
     @Override

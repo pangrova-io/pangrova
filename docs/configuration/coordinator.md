@@ -88,19 +88,42 @@ development and tests.
 
 Feature flags control which subsystem modules are active. They are shared
 between `coordinator.yml` and `worker.yml` where noted. All default to `true`
-except `security.enabled`.
+except `security.enabled` and `tenant.enabled`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `governance.enabled` | bool | `true` | Enable the governance module |
 | `resilience.enabled` | bool | `true` | Enable the resilience module (circuit breaker, retry) |
 | `streaming.enabled` | bool | `true` | Enable the streaming module |
-| `tenant.enabled` | bool | `true` | Enable the multi-tenant module |
+| `tenant.enabled` | bool | `false` | Enable the multi-tenant module; requires authenticated user identities |
 | `indexing.enabled` | bool | `true` | Enable the indexing module |
 | `operations.enabled` | bool | `true` | Enable the operations module (compaction, maintenance) |
 | `observability.enabled` | bool | `true` | Enable the observability module |
-| `security.enabled` | bool | `false` | Enable the security module. When `true`, `security.auth.type` must be configured |
+| `security.enabled` | bool | `false` | Enable the security module. Requires an authoritative PostgreSQL metadata datasource and configured `security.auth.type`; missing/unavailable stores fail startup. |
 | `security.auth.type` | string | — | Authenticator type when security is enabled: `OAUTH2`, `LDAP`, or `NOOP` (development only) |
+| `security.auth.properties.*` | backend settings | — | OAuth2 requires `issuer-uri` and optionally `audience`; signatures are always verified. LDAP requires `ldap-url`, with kebab-case backend bind/search properties. Unknown keys, signature-bypass settings and properties for a different authenticator are rejected. |
+
+Roles, user-role assignments, explicit identity-group-to-role mappings and grants
+must be provisioned in the shared PostgreSQL authority (`pangrova_roles`,
+`pangrova_user_roles`, `pangrova_group_roles`, `security_grants`). Identity groups
+never implicitly confer a role. `security.grants` configuration is unsupported
+and rejected, so restarting a coordinator cannot restore revoked permissions.
+Every access check reads current roles and grants; unavailable SQL state fails
+closed instead of reusing an earlier permission. RLS and column masking match
+the independently resolved role set while retaining the authenticated identity's
+original groups and attributes. SQL role/grant administration is not yet exposed
+by this configuration surface; provision the persistent authority explicitly.
+
+Query admission resolves the tenant from the authenticated user's membership when
+`tenant.enabled=true`; it requires `security.enabled=true` with an authenticator
+other than `NOOP`, and an absent identity
+or membership is rejected. The client
+cannot select a tenant through `sessionProperties.tenant_id`. With the tenant
+module disabled, queries use the explicit `default` tenant identity so task
+requests and distributed-write commits still carry a complete canonical owner.
+Per-tenant throttling runs after this resolution. Relational queries require an
+available Native Worker; when none is available, submission returns HTTP 503
+(`COORDINATOR-0001`) instead of executing rows in the Coordinator.
 
 ---
 
@@ -112,7 +135,7 @@ Additional coordinator behavior is tuned via JVM system properties
 | System property | Default | Description |
 |-----------------|---------|-------------|
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit applied by the coordinator request-limit filter |
-| `pangrova.shuffle.manager` | (auto) | Shuffle provider name (`native`, `celeborn`, ...). When unset, the highest-durability provider on the classpath is selected automatically |
+| `pangrova.shuffle.manager` | (auto) | Shuffle provider name (`native`, `local-spill`, or `object-store`). When unset, the highest-durability provider on the classpath is selected automatically |
 | `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Base directory for index build artifacts |
 | `pangrova.cache.result.redis-url` | — | Redis URL to enable the external query result cache |
 | `pangrova.cache.result.ttl-seconds` | `3600` | TTL for externally cached query results |
@@ -122,7 +145,7 @@ Additional coordinator behavior is tuned via JVM system properties
 
 ## Example
 
-Minimal production `coordinator.yml` (only real keys):
+Production-oriented `coordinator.yml` (only real keys; provision the issuer and privileges before deployment):
 
 ```yaml
 coordinator:
@@ -156,7 +179,7 @@ resilience:
 streaming:
   enabled: true
 tenant:
-  enabled: true
+  enabled: false
 indexing:
   enabled: true
 operations:
@@ -164,7 +187,43 @@ operations:
 observability:
   enabled: true
 security:
-  enabled: false
+  enabled: true
+  auth:
+    type: OAUTH2
+    properties:
+      issuer-uri: "${PANGROVA_OIDC_ISSUER}"
+      audience: "pangrova"
 ```
+
+Authentication always verifies JWT signatures. Backend health never routes a
+matching request to a different authenticator. Rejected credentials are tracked
+separately from backend-health failures. `NOOP` is an explicit unsecured development
+choice, not an availability fallback.
+
+Deferred Native artifact work persists the authenticated principal, exact source
+columns, target `ALTER` action, and actual security expressions observed during
+compilation. It never persists bearer tokens or identity groups. Replay, page
+claim/renewal, and publication read current direct roles, grants and the metadata
+database's active tenant/membership authority. Raw index reads reject applicable
+RLS/masks; securely transformed exports require identical current policy content,
+otherwise they must be cancelled and securely recompiled. Group-only authority or
+policies needing ephemeral identity attributes cannot authorize deferred work
+without a trusted current identity-context resolver.
+
+Publication reads authority and commits its manifest, active pointer and job CAS
+on one PostgreSQL connection/transaction. Authority table mutation triggers share
+the transaction gate, including direct SQL provisioning and revocation. Deleting
+a role also removes its grants and assignments; recreating its name does not
+restore authority. Authority tables disallow `TRUNCATE`; use gated `DELETE`.
+Ordinary metadata reads remain readable after a builder is revoked; use of a
+published artifact is authorized for the current query actor, not its old builder.
+
+Each dispatched Native task's canonical deadline is the earlier of its initial
+page lease expiry and configured task timeout. Database lease renewal does not
+renew already dispatched Native credentials. Revocation stops new dispatch,
+renewal and publication; cancellation of in-flight execution is best-effort,
+bounded by that initial deadline. The current two-minute page lease is not a
+validated large-page execution guarantee. Longer pages require generic fenced
+execution-lease renewal acknowledged atomically by Native, not a widened timeout.
 
 **See Also:** [Configuration model](index.md), [Worker](worker.md), [Quick Reference](reference.md)

@@ -8,8 +8,9 @@ import org.pangrova.worker.jni.NativeLibraryLoader;
 /**
  * BM25 batch scorer with native SIMD acceleration.
  *
- * <p>Delegates to native C++ implementation via JNI when the native library is
- * available and functional. Falls back to a pure-Java implementation otherwise.
+ * <p>Delegates to the canonical native C++ data-plane implementation through JNI.
+ * Native runtime or ABI failures are surfaced to the caller; BM25 has no JVM
+ * execution path.
  *
  * <p>Input layout:
  * <ul>
@@ -22,10 +23,6 @@ import org.pangrova.worker.jni.NativeLibraryLoader;
  */
 public final class Bm25NativeScorer {
 
-    static {
-        NativeLibraryLoader.load();
-    }
-
     private Bm25NativeScorer() {}
 
     /**
@@ -35,37 +32,22 @@ public final class Bm25NativeScorer {
      * @return BM25 scores for each document (length = numDocs)
      */
     public static double[] scoreBatch(Bm25ScoreRequest request) {
-        if (NativeLibraryLoader.isFunctional()) {
-            try {
-                return nativeScoreBatchRequest(request);
-            } catch (UnsatisfiedLinkError e) {
-                // Native binding for the record-based entry point is unavailable —
-                // degrade to the pure-Java implementation for the process lifetime.
-                NativeLibraryLoader.markUnsupported();
-            }
-        }
-        return javaFallbackScoreBatch(request);
+        return scoreBatchNative(request);
     }
 
-    private static native double[] nativeScoreBatchRequest(Bm25ScoreRequest request);
-
-    /**
-     * Pure-Java fallback BM25 scorer.
-     */
-    private static double[] javaFallbackScoreBatch(Bm25ScoreRequest request) {
-        double[] scores = new double[request.numDocs()];
-        double k1 = request.k1();
-        double b = request.b();
-        double avgDocLength = request.avgDocLength();
-        for (int t = 0; t < request.numTerms(); t++) {
-            double idf = request.idfs()[t];
-            for (int d = 0; d < request.numDocs(); d++) {
-                double tf = request.termFreqs()[t * request.numDocs() + d];
-                double dl = request.docLengths()[d];
-                double dlNorm = 1.0 - b + b * (dl / avgDocLength);
-                scores[d] += idf * (tf * (k1 + 1.0)) / (tf + k1 * dlNorm);
-            }
-        }
-        return scores;
+    /** Direct native entry point used by the ABI integration test. */
+    static double[] scoreBatchNative(Bm25ScoreRequest request) {
+        NativeLibraryLoader.load();
+        return nativeScoreBatch(
+                request.idfs(), request.termFreqs(), request.docLengths(),
+                request.numDocs(), request.numTerms(), request.k1(), request.b(),
+                request.avgDocLength());
     }
+
+    // CHECKSTYLE.OFF: ParameterNumber -- Stable JNI ABI mirrored by JniBridge.cpp.
+    private static native double[] nativeScoreBatch(
+            double[] idfs, int[] termFreqs, int[] docLengths,
+            int numDocs, int numTerms, double k1, double b, double avgDocLength);
+    // CHECKSTYLE.ON: ParameterNumber
+
 }

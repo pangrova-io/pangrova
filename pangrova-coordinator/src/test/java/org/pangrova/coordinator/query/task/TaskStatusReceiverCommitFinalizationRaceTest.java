@@ -86,18 +86,23 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
 
         QueryStateMachine sm = runningStateMachine();
         h.queryManager.registerStateMachine(QUERY_ID, sm);
-        h.writeCommitTracker.registerWriteContext(QUERY_ID, CATALOG_NAME,
+        h.writeCommitTracker.registerWriteContext(
+                QUERY_ID,
+                CATALOG_NAME,
                 new TaskStatusReceiverWriteCommitTest.TestOutputTableHandle(),
-                new TaskStatusReceiverWriteCommitTest.TestConnectorSession());
+                new TaskStatusReceiverWriteCommitTest.TestConnectorSession(),
+                binding(h),
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
         registerTwoRunningTasks(tracker);
 
         tracker.armRace();
 
         Thread a = new Thread(() ->
-                h.receiver.onTaskStatus(finishedWithWriteResult("t-1", new byte[]{1})),
+                h.receiver.onTaskStatus(finishedWithWriteResult(tracker, "t-1", new byte[]{1})),
                 "report-t-1");
         Thread b = new Thread(() ->
-                h.receiver.onTaskStatus(finishedWithWriteResult("t-2", new byte[]{2})),
+                h.receiver.onTaskStatus(finishedWithWriteResult(tracker, "t-2", new byte[]{2})),
                 "report-t-2");
         a.start();
         b.start();
@@ -145,18 +150,23 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
 
         QueryStateMachine sm = runningStateMachine();
         h.queryManager.registerStateMachine(QUERY_ID, sm);
-        h.writeCommitTracker.registerWriteContext(QUERY_ID, CATALOG_NAME,
+        h.writeCommitTracker.registerWriteContext(
+                QUERY_ID,
+                CATALOG_NAME,
                 new TaskStatusReceiverWriteCommitTest.TestOutputTableHandle(),
-                new TaskStatusReceiverWriteCommitTest.TestConnectorSession());
+                new TaskStatusReceiverWriteCommitTest.TestConnectorSession(),
+                binding(h),
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
         registerTwoRunningTasks(tracker);
 
         tracker.armRace();
 
         Thread a = new Thread(() ->
-                h.receiver.onTaskStatus(finishedWithWriteResult("t-1", new byte[]{1})),
+                h.receiver.onTaskStatus(finishedWithWriteResult(tracker, "t-1", new byte[]{1})),
                 "report-t-1");
         Thread b = new Thread(() ->
-                h.receiver.onTaskStatus(finishedWithWriteResult("t-2", new byte[]{2})),
+                h.receiver.onTaskStatus(finishedWithWriteResult(tracker, "t-2", new byte[]{2})),
                 "report-t-2");
         a.start();
         b.start();
@@ -174,7 +184,14 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
 
     private record Harness(QueryManager queryManager,
                            NativeWriteCommitTracker writeCommitTracker,
+                           CatalogRegistry catalogRegistry,
                            TaskStatusReceiver receiver) {}
+
+    private static byte[] binding(Harness harness) {
+        return CanonicalWriteCommitTestBinding.create(
+                harness.catalogRegistry().getCatalog(CATALOG_NAME),
+                new TaskStatusReceiverWriteCommitTest.TestOutputTableHandle());
+    }
 
     private static Harness newHarness(CoordinatorTaskTracker tracker,
                                       ConnectorMetadata metadata) {
@@ -190,7 +207,8 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
                 qm, tracker, workerManager,
                 null, null, null, null,
                 catalogRegistry, writeCommitTracker, null, null, null);
-        return new Harness(qm, writeCommitTracker, new TaskStatusReceiver(deps));
+        return new Harness(qm, writeCommitTracker, catalogRegistry,
+                new TaskStatusReceiver(deps));
     }
 
     private static QueryStateMachine runningStateMachine() {
@@ -204,6 +222,13 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
     private static void registerTwoRunningTasks(CoordinatorTaskTracker tracker) {
         for (String taskId : List.of("t-1", "t-2")) {
             tracker.registerTask(QUERY_ID, taskId);
+            var request = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                    taskId, QUERY_ID, 0, 0,
+                    org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE, new byte[]{1});
+            tracker.registerTaskRequest(taskId, request);
+            tracker.registerTaskAttempt(taskId,
+                    org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                            request.taskRequest().getAttempt()));
             tracker.markScheduled(QUERY_ID, taskId);
             tracker.updateTaskState(QUERY_ID, taskId, "RUNNING");
         }
@@ -211,12 +236,30 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
 
     private long sequenceCounter = 100;
 
-    private TaskStatusReport finishedWithWriteResult(String taskId, byte[] commitMetadata) {
+    private TaskStatusReport finishedWithWriteResult(
+            CoordinatorTaskTracker tracker, String taskId, byte[] commitMetadata) {
         WriteResultDescriptor wr = new WriteResultDescriptor(
                 List.of(), 100, 1024, commitMetadata);
         return new TaskStatusReport(
-                taskId, QUERY_ID, 0, 0, "COMPUTE", WORKER_ID, "FINISHED",
-                null, null, wr, sequenceCounter++, System.currentTimeMillis());
+                taskId, QUERY_ID, 0, 0, "WRITE", WORKER_ID, "FINISHED",
+                null, null, wr, sequenceCounter++, System.currentTimeMillis(),
+                null, null, org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        tracker.getTaskRequest(taskId).taskRequest().getAttempt()),
+                canonicalReport(tracker, taskId));
+    }
+
+    private static byte[] canonicalReport(CoordinatorTaskTracker tracker, String taskId) {
+        return org.pangrova.protocol.v2.TaskReport.newBuilder()
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
+                        .TASK_REPORT_ORIGIN_NATIVE)
+                .setAttempt(tracker.getTaskRequest(taskId).taskRequest().getAttempt())
+                .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED)
+                .setCoverage(org.pangrova.protocol.v2.CoverageReport.newBuilder()
+                        .setExpectedWorkUnits(1).setCompletedWorkUnits(1)
+                        .setCoverageRatio(1.0)
+                        .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                                .COMPLETION_STATE_COMPLETE))
+                .build().toByteArray();
     }
 
     private static QueryManager buildQueryManager(WorkerManager wm,
@@ -227,7 +270,7 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
         QueryDispatcherContext qdDeps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null,
                 td, scheduler, wm, tracker,
-                null, null, null, null, 0L);
+                null, null, null, 0L);
         QueryDispatcher dispatcher = new QueryDispatcher(
                 qdDeps, null, null);
         return new QueryManager(
@@ -251,8 +294,9 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
     private static WorkerInfo workerInfo(String workerId) {
         return new WorkerInfo(workerId, "host-1", 8080, 8081, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0,
-                1024L * 1024 * 1024, Instant.now(), 1.0, null, 1,
-                List.of(), null, List.of());
+                1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
+                null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 
     // --- Test doubles ---
@@ -320,6 +364,14 @@ class TaskStatusReceiverCommitFinalizationRaceTest {
                 Thread.currentThread().interrupt();
             }
             throw new RuntimeException("simulated distributed commit failure");
+        }
+
+        @Override
+        public void finishDistributedWrite(ConnectorSession session,
+                                           ConnectorOutputTableHandle outputHandle,
+                                           List<byte[]> fragments,
+                                           org.pangrova.spi.connector.metadata.DistributedWriteCommitContext context) {
+            finishDistributedWrite(session, outputHandle, fragments);
         }
 
         @Override

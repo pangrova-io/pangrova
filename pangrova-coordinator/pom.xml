@@ -18,6 +18,11 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-lance</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-shuffle-core</artifactId>
         </dependency>        <!-- Internal modules -->
         <dependency>
@@ -100,6 +105,10 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-protocol</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.grpc</groupId>
+            <artifactId>grpc-netty-shaded</artifactId>
         </dependency>
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -204,6 +213,11 @@
 
         <!-- Test dependencies -->
         <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-test-common</artifactId>
             <scope>test</scope>
@@ -256,13 +270,7 @@
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <version>${h2.version}</version>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
         <dependency>
             <groupId>ch.qos.logback</groupId>
@@ -300,8 +308,9 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <excludedGroups>native-required</excludedGroups>
+                    <excludedGroups>${pangrova.coordinator.excludedTestGroups}</excludedGroups>
                     <argLine>
+                        @{jacoco.agent.argLine}
                         -Xmx512m
                         -XX:MaxDirectMemorySize=256m
                         --add-opens=java.base/java.nio=ALL-UNNAMED

@@ -3,7 +3,6 @@ package org.pangrova.metadata.service;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.metadata.cache.JdbcInvalidationPoller;
-import org.pangrova.spi.coordination.DistributedLease;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,8 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Schedules periodic metadata cleanup tasks: expired lease removal,
- * invalidation log pruning, and stale cache eviction.
+ * Schedules periodic invalidation-log pruning and stale-cache eviction.
  *
  * <p>Uses a single-thread {@link ScheduledExecutorService} created via
  * {@link ManagedExecutorFactory} which sets {@code removeOnCancelPolicy(true)}
@@ -33,7 +31,6 @@ public final class MetadataCleanupScheduler implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(MetadataCleanupScheduler.class);
     private static final long SHUTDOWN_TIMEOUT_SECONDS = 5;
 
-    private final DistributedLease distributedLease;
     private final JdbcInvalidationPoller invalidationPoller;
     private final Runnable cacheMaintenance;
     private final MetadataCleanupConfig config;
@@ -45,17 +42,13 @@ public final class MetadataCleanupScheduler implements Closeable {
     /**
      * Creates a cleanup scheduler with the given dependencies.
      *
-     * @param distributedLease   lease store for expired lease cleanup
      * @param invalidationPoller poller for invalidation log cleanup
      * @param cacheMaintenance   runnable that triggers cache eviction maintenance
      * @param config             cleanup configuration (interval, enabled flags)
      */
-    public MetadataCleanupScheduler(DistributedLease distributedLease,
-                                    JdbcInvalidationPoller invalidationPoller,
+    public MetadataCleanupScheduler(JdbcInvalidationPoller invalidationPoller,
                                     Runnable cacheMaintenance,
                                     MetadataCleanupConfig config) {
-        this.distributedLease = Objects.requireNonNull(distributedLease,
-                "distributedLease must not be null");
         this.invalidationPoller = Objects.requireNonNull(invalidationPoller,
                 "invalidationPoller must not be null");
         this.cacheMaintenance = Objects.requireNonNull(cacheMaintenance,
@@ -68,13 +61,10 @@ public final class MetadataCleanupScheduler implements Closeable {
     /**
      * Package-private constructor for testing with a custom scheduler.
      */
-    MetadataCleanupScheduler(DistributedLease distributedLease,
-                             JdbcInvalidationPoller invalidationPoller,
+    MetadataCleanupScheduler(JdbcInvalidationPoller invalidationPoller,
                              Runnable cacheMaintenance,
                              MetadataCleanupConfig config,
                              ScheduledExecutorService scheduler) {
-        this.distributedLease = Objects.requireNonNull(distributedLease,
-                "distributedLease must not be null");
         this.invalidationPoller = Objects.requireNonNull(invalidationPoller,
                 "invalidationPoller must not be null");
         this.cacheMaintenance = Objects.requireNonNull(cacheMaintenance,
@@ -137,9 +127,6 @@ public final class MetadataCleanupScheduler implements Closeable {
         LOG.debug("event=metadata_cleanup_cycle_start");
         int totalCleaned = 0;
 
-        if (config.leaseCleanupEnabled()) {
-            totalCleaned += cleanExpiredLeases();
-        }
         if (config.invalidationCleanupEnabled()) {
             totalCleaned += cleanInvalidationLog();
         }
@@ -151,19 +138,6 @@ public final class MetadataCleanupScheduler implements Closeable {
             LOG.info("event=metadata_cleanup_cycle_complete totalCleaned={}", totalCleaned);
         } else {
             LOG.debug("event=metadata_cleanup_cycle_complete totalCleaned=0");
-        }
-    }
-
-    private int cleanExpiredLeases() {
-        try {
-            int expired = distributedLease.expireStale();
-            if (expired > 0) {
-                LOG.info("event=lease_cleanup expired={}", expired);
-            }
-            return expired;
-        } catch (RuntimeException e) {
-            LOG.warn("event=lease_cleanup_failed error={}", e.getMessage(), e);
-            return 0;
         }
     }
 

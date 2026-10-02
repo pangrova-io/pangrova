@@ -58,7 +58,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *   <li>Tenant: TenantResolver, QuotaChecker, query scheduling integration</li>
  * </ul>
  */
-class GovernanceOperationsTenantIntegrationTest {
+class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -151,8 +151,7 @@ class GovernanceOperationsTenantIntegrationTest {
 
     @Test
     void governanceLineageEmitterInjectedIntoQueryManager() throws Exception {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(buildAllModulesEnabled());
 
         assertThat(bootstrap.getQueryManager()).isNotNull();
         assertThat(bootstrap.isStarted()).isTrue();
@@ -267,8 +266,7 @@ class GovernanceOperationsTenantIntegrationTest {
 
     @Test
     void tenantResolverAndQuotaCheckerInjectedIntoQueryManager() throws Exception {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(buildAllModulesEnabled());
 
         assertThat(bootstrap.getQueryManager()).isNotNull();
 
@@ -283,8 +281,7 @@ class GovernanceOperationsTenantIntegrationTest {
 
     @Test
     void allThreeModulesStartInBootstrapWithoutConflict() {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(buildAllModulesEnabled());
 
         assertThat(bootstrap.isStarted()).isTrue();
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
@@ -292,8 +289,7 @@ class GovernanceOperationsTenantIntegrationTest {
 
     @Test
     void allThreeModulesShutdownCleanly() {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(buildAllModulesEnabled());
 
         assertThatCode(() -> bootstrap.shutdown()).doesNotThrowAnyException();
         assertThat(bootstrap.isStarted()).isFalse();
@@ -301,8 +297,7 @@ class GovernanceOperationsTenantIntegrationTest {
 
     @Test
     void querySubmissionWithAllModulesEnabledSucceeds() throws Exception {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(buildAllModulesEnabled());
 
         HttpResponse<String> resp = submitQuery(bootstrap.getHttpPort(), "SELECT 42");
 
@@ -377,11 +372,12 @@ class GovernanceOperationsTenantIntegrationTest {
                 null, null, null);
     }
 
-    private static HttpResponse<String> submitQuery(int port, String sql) throws Exception {
+    private HttpResponse<String> submitQuery(int port, String sql) throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

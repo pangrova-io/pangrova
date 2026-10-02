@@ -2,6 +2,7 @@ package org.pangrova.testing.e2e.lifecycle;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.pangrova.protocol.rest.query.SubmitQueryResponse;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
@@ -69,8 +70,7 @@ class QueryLifecycleE2ETest extends SqlE2ETestBase {
         String sql = "SELECT id, name, value FROM " + fqn + " ORDER BY id";
         String requestBody = MAPPER.writeValueAsString(Map.of("query", sql, "session_properties", Map.of()));
 
-        HttpRequest submitReq = HttpRequest.newBuilder()
-                .uri(URI.create(submitUrl))
+        HttpRequest submitReq = authenticatedHttpRequest(URI.create(submitUrl))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
@@ -86,16 +86,18 @@ class QueryLifecycleE2ETest extends SqlE2ETestBase {
                 .as("Submit response must contain a query_id")
                 .isNotBlank();
 
-        // Stage 2: Poll until terminal state (exercises dispatch → execute → shuffle)
+        // Drain this submitted query before waiting for its terminal state.
+        // Native OUTPUT uses bounded streaming buffers and requires a consumer.
         String stateUrl = "http://localhost:" + coordinatorHttpPort()
                 + "/v1/query/" + queryId + "/state";
-        String terminalState = pollUntilTerminal(stateUrl);
+        List<TypedRow> rows = consumeSubmittedQuery(
+                MAPPER.treeToValue(submitJson, SubmitQueryResponse.class));
+        String terminalState = MAPPER.readTree(pollUntilTerminal(queryId)).path("state").asText();
         assertThat(terminalState)
                 .as("Query should reach FINISHED state")
                 .isEqualTo("FINISHED");
 
-        // Stage 3: Verify results via the high-level runner (exercises result fetch)
-        List<TypedRow> rows = sqlRunner.execute(sql);
+        // Verify the original query's fetched results.
         assertThat(rows).hasSize(3);
         assertThat(rows.get(0).getRaw("id")).isEqualTo(1L);
         assertThat(rows.get(0).getRaw("name")).isEqualTo("alpha");
@@ -105,7 +107,7 @@ class QueryLifecycleE2ETest extends SqlE2ETestBase {
         // Stage 4: Cleanup verification — re-query state should still be FINISHED
         // (QueryManager retains terminal state for a configurable period)
         HttpResponse<String> cleanupResp = HTTP.send(
-                HttpRequest.newBuilder().uri(URI.create(stateUrl)).GET().build(),
+                authenticatedHttpRequest(URI.create(stateUrl)).GET().build(),
                 HttpResponse.BodyHandlers.ofString());
         // Terminal state is retained or query is cleaned up (404 is also acceptable)
         assertThat(cleanupResp.statusCode()).isIn(200, 404);
@@ -141,7 +143,7 @@ class QueryLifecycleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
-    @DisplayName("Constant-fold lifecycle: SELECT 1 + 2 exercises coordinator-local result path")
+    @DisplayName("Constant-fold lifecycle: SELECT 1 + 2 exercises Worker/Native result path")
     void constantFoldLifecycle() {
         List<TypedRow> rows = sqlRunner.execute("SELECT 1 + 2 AS result");
 
@@ -150,22 +152,4 @@ class QueryLifecycleE2ETest extends SqlE2ETestBase {
         assertThat(((Number) val).longValue()).isEqualTo(3L);
     }
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    private String pollUntilTerminal(String stateUrl) throws Exception {
-        long deadline = System.currentTimeMillis() + 60_000;
-        while (System.currentTimeMillis() < deadline) {
-            HttpResponse<String> resp = HTTP.send(
-                    HttpRequest.newBuilder().uri(URI.create(stateUrl)).GET().build(),
-                    HttpResponse.BodyHandlers.ofString());
-            String state = MAPPER.readTree(resp.body()).get("state").asText();
-            if ("FINISHED".equals(state) || "FAILED".equals(state)) {
-                return state;
-            }
-            Thread.sleep(50);
-        }
-        throw new AssertionError("Query did not reach terminal state within 60s");
-    }
 }

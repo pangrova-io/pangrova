@@ -77,6 +77,9 @@ public final class WorkerShutdownSequence {
         stopResultExpiration(ctx.schedulerRefs().resultExpirationExecutor());
         stopMetrics(ctx.schedulerRefs().metricsExecutor(), ctx.resourceRefs().nativeMetricsPublisher());
         shutdownNative(ctx.resourceRefs().nativeAvailable());
+        if (ctx.resourceRefs().shuffleServiceMemoryLease() != null) {
+            ctx.resourceRefs().shuffleServiceMemoryLease().close();
+        }
         closeResourceManager(ctx.resourceRefs().resourceManager());
         closeObservability(ctx.resourceRefs().otelInitializer());
         LOG.info("event=resources_released");
@@ -128,8 +131,9 @@ public final class WorkerShutdownSequence {
         try {
             NativeRuntime.shutdownNativeRuntime();
             LOG.info("event=native_runtime_shutdown");
-        } catch (Exception e) {
-            LOG.warn("event=native_runtime_shutdown_error error={}", e.getMessage());
+        } catch (RuntimeException | Error e) {
+            LOG.error("event=native_runtime_shutdown_error lease_retained=true error={}", e.getMessage(), e);
+            throw e;
         }
     }
 

@@ -47,8 +47,8 @@ class WorkerObservabilityBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -61,8 +61,8 @@ class WorkerObservabilityBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS, true, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -77,8 +77,8 @@ class WorkerObservabilityBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS, true, obsCfg, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        bootstrap = TestWorkerBootstrap.create(config);
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();

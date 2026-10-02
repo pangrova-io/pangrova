@@ -2,6 +2,9 @@ package org.pangrova.coordinator.coordination;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
+import java.util.UUID;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -11,26 +14,22 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.spi.coordination.CoordinatorRegistry;
 import org.pangrova.spi.coordination.CoordinatorRole;
 import org.pangrova.spi.coordination.DistributedLease;
+import org.pangrova.spi.coordination.ExecutionAnchor;
+import org.pangrova.spi.coordination.ExecutionAnchorStore;
+import org.pangrova.spi.coordination.LeaseEntry;
+import org.pangrova.coordinator.coordination.inmemory.InMemoryExecutionAnchorStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * HA coordination service with dual-node leader election and query ownership.
+ * Cluster-control coordination and local query ownership.
  *
- * <p>Leader election is delegated to {@link LeaseBackedLeaderElection} which
- * bridges to the unified {@link DistributedLease} SPI. This service manages
- * the election lifecycle: automatic leader acquisition on startup, periodic
- * lease renewal for the leader, and periodic leader-failure detection on
- * the standby node.</p>
- *
- * <p>Query ownership is tracked by {@link QueryOwnershipRegistry} and uses epoch-based
- * zombie fencing: claims stamped with a stale epoch are rejected to prevent split-brain
- * query execution.</p>
- *
- * <p>Concurrency strategy: {@link AtomicBoolean} for running state,
- * {@link AtomicReference} for local role tracking, {@link AtomicLong}
- * for epoch, and a thread-safe ownership registry.
- * Distributed coordination is handled by the lease backend.</p>
+ * <p>Control leadership governs reconciliation and recovery, not query admission.
+ * Every healthy Coordinator dispatches independently using backend-issued terms.
+ * Data rows, vectors, candidates and result fusion never enter this service.</p>
+ * <p>Durable query anchors bind the process incarnation and takeover fencing token,
+ * independently of singleton control leadership. Atomic state and the thread-safe
+ * ownership registry govern local concurrency; the lease backend governs the cluster.</p>
  */
 @ThreadSafe
 public class HighAvailabilityCoordinationService implements AutoCloseable {
@@ -39,9 +38,6 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     /** Node role in the HA cluster. */
     public enum Role { LEADER, STANDBY, STOPPED }
-
-    /** Ownership entry binding a query to a coordinator at a specific epoch. */
-    public record OwnershipEntry(String coordinatorId, long epoch) {}
 
     /** Immutable HA configuration. */
     public record CoordinationConfig(long leaseTimeoutMs, long heartbeatIntervalMs,
@@ -64,11 +60,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
             }
         }
 
-        /**
-         * Backward-compatible constructor applying the default query-ownership cap
-         * ({@link #DEFAULT_MAX_QUERY_OWNERSHIP_ENTRIES}). A-OWN-01: prefer the 3-arg
-         * constructor to size the cap for the deployment.
-         */
+        /** Creates the standard configuration with the default ownership cap. */
         public CoordinationConfig(long leaseTimeoutMs, long heartbeatIntervalMs) {
             this(leaseTimeoutMs, heartbeatIntervalMs, DEFAULT_MAX_QUERY_OWNERSHIP_ENTRIES);
         }
@@ -82,16 +74,19 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     private final LeaseBackedLeaderElection leaseElection;
     private final AtomicReference<Role> role = new AtomicReference<>(Role.STOPPED);
     private final AtomicLong epoch = new AtomicLong(0);
+    private final AtomicReference<LeaseEntry> localLease = new AtomicReference<>();
     private final QueryOwnershipRegistry ownership;
 
     private final AtomicReference<Consumer<String>> failoverCallback = new AtomicReference<>();
     private final AtomicReference<Runnable> demotionCallback = new AtomicReference<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<String> localNodeId = new AtomicReference<>();
+    private final AtomicReference<String> localIncarnation = new AtomicReference<>();
     private final AtomicReference<String> knownLeaderId = new AtomicReference<>();
     private volatile ElectionScheduler electionScheduler;
     private final CoordinatorRegistryClient registryBridge = new CoordinatorRegistryClient();
     private volatile CoordinatorRegistry coordinatorRegistryRef;
+    private volatile boolean processAuthorityBound;
 
     public HighAvailabilityCoordinationService(DistributedLease lease) {
         this(lease, CoordinationConfig.defaults());
@@ -101,30 +96,27 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         Objects.requireNonNull(lease, "lease must not be null");
         this.leaseElection = new LeaseBackedLeaderElection(lease);
         this.config = Objects.requireNonNull(config, "config must not be null");
-        this.ownership = new QueryOwnershipRegistry(this.config.maxQueryOwnershipEntries());
+        this.ownership = new QueryOwnershipRegistry(
+                this.config.maxQueryOwnershipEntries(),
+                Duration.ofMillis(this.config.leaseTimeoutMs()),
+                new InMemoryExecutionAnchorStore());
     }
 
-    /**
-     * Sets the orphan query reclaimer for persisting running queries on shutdown.
-     * When set, {@link #close()} writes all owned queries to the orphaned_queries
-     * table before clearing the in-memory ownership map.
-     */
-    public void setOrphanReclaimer(OrphanQueryReclaimer reclaimer) {
-        ownership.setReclaimer(reclaimer);
+    /** Installs the shared durable execution-anchor backend before query admission. */
+    public void setExecutionAnchorStore(ExecutionAnchorStore store) {
+        ownership.setStore(Objects.requireNonNull(store, "store must not be null"));
     }
 
-    /**
-     * Sets the coordinator registry for self-registration and role tracking.
-     * When set, {@link #start(String)} registers this coordinator,
-     * {@link #tryBecomeLeader(String)} and demotion update the role,
-     * and {@link #close()} unregisters. All registry calls are guarded
-     * by a null check so existing callers that never set a registry
-     * experience zero behavioral change.
-     *
-     * @param registry the coordinator registry (must not be null)
-     * @param host     the advertised hostname for this coordinator
-     * @param httpPort the HTTP API port for this coordinator
-     */
+    /** Uses the process-wide backend/incarnation binding without adding a second ownership authority. */
+    public void bindExecutionAuthority(CoordinatorExecutionAuthority authority) {
+        Objects.requireNonNull(authority, "authority");
+        if (running.get()) throw new IllegalStateException("execution authority must be bound before HA starts");
+        setExecutionAnchorStore(authority.backend());
+        localIncarnation.set(authority.incarnation());
+        processAuthorityBound = true;
+    }
+
+    /** Configures registry self-registration, heartbeats, role updates and shutdown. */
     public void setCoordinatorRegistry(CoordinatorRegistry registry, String host, int httpPort) {
         this.coordinatorRegistryRef = Objects.requireNonNull(registry, "registry must not be null");
         registryBridge.configure(
@@ -140,20 +132,20 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     public boolean tryBecomeLeader(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
-        long currentEpoch = epoch.get();
-        boolean acquired = leaseElection.tryAcquireWithEpoch(
-                coordinatorId, currentEpoch, config.leaseTimeoutMs());
-        if (acquired) {
-            onLeaderAcquired(coordinatorId);
-        } else {
+        Optional<LeaseEntry> acquired = leaseElection.tryAcquire(
+                coordinatorId, config.leaseTimeoutMs());
+        if (acquired.isEmpty()) {
             LOG.debug("event=leader_election_rejected candidate={}", coordinatorId);
+            return false;
         }
-        return acquired;
+        onLeaderAcquired(acquired.orElseThrow());
+        return true;
     }
 
-    private void onLeaderAcquired(String coordinatorId) {
-        epoch.incrementAndGet();
-        syncEpochFromLease();
+    private void onLeaderAcquired(LeaseEntry acquired) {
+        String coordinatorId = acquired.holderId();
+        localLease.set(acquired);
+        epoch.set(acquired.epoch());
         String previousLeader = knownLeaderId.getAndSet(coordinatorId);
         role.set(Role.LEADER);
         localNodeId.set(coordinatorId);
@@ -172,71 +164,44 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     public boolean renewLease(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
-        return leaseElection.tryRenew(coordinatorId, config.leaseTimeoutMs());
+        LeaseEntry held = localLease.get();
+        return held != null && coordinatorId.equals(held.holderId())
+                && leaseElection.tryRenew(
+                        coordinatorId, held.epoch(), config.leaseTimeoutMs());
     }
-    /**
-     * Voluntarily relinquishes leadership.
-     *
-     * <p>BUG-D05 fix: Notifies demotion callbacks and persists orphaned queries
-     * before clearing ownership. Without this, CDC pipelines and DT refresh
-     * schedulers continued running on the demoted coordinator while the new
-     * leader also started them, causing duplicate processing.</p>
-     *
-     * <p><b>R10.3 Timing dependency:</b> The ordering of operations below is critical:
-     * <ol>
-     *   <li>{@code leaseElection.release()} — relinquish leadership atomically via lease</li>
-     *   <li>{@code role.set(STANDBY)} — local state reflects demotion</li>
-     *   <li>{@code notifyDemotion()} — callbacks stop CDC/DT schedulers on this node</li>
-     *   <li>{@code persistOrphanedQueries()} — write in-flight queries for new leader to reclaim</li>
-     *   <li>{@code ownership.clear()} — release local ownership map</li>
-     * </ol>
-     * Steps 3-4 MUST happen before step 5: clearing ownership before persisting orphans
-     * would lose in-flight query records. The lease release (step 1) happens first so
-     * the new leader can acquire leadership immediately; the orphan persistence (step 4)
-     * is protected by the fact that the ownership registry is still populated at that point.
-     * A concurrent {@code acquireQueryOwnership} call from the new leader is safe because
-     * it operates on the distributed lease, not this node's local map.</p>
-     */
+    /** Relinquishes control leadership without releasing active-active query ownership. */
     public boolean stepDown(String coordinatorId) {
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
-        boolean released = leaseElection.release(coordinatorId);
+        LeaseEntry held = localLease.get();
+        boolean released = held != null && coordinatorId.equals(held.holderId())
+                && leaseElection.release(coordinatorId, held.epoch());
         if (released) {
+            localLease.compareAndSet(held, null);
             role.set(Role.STANDBY);
-            // G-HA-05: Clear knownLeaderId so that re-acquiring leadership
-            // after a step-down is treated as a new leader acquisition.
-            // Without this, the same coordinator re-acquiring would see
-            // previousLeader == coordinatorId and skip the failover callback,
-            // leaving maintenance singletons stopped.
+            // Reacquisition must restart leader-only control loops.
             knownLeaderId.set(null);
             updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY);
             notifyDemotion();
-            persistOrphanedQueries(coordinatorId);
-            ownership.clear();
             LOG.info("event=leader_step_down leader={} epoch={}", coordinatorId, epoch.get());
         }
         return released;
     }
 
     /**
-     * Acquires ownership of a query for the given coordinator at the current leader epoch.
-     * See {@link QueryOwnershipRegistry#acquire} for the epoch-fencing rationale (BUG-D01).
+     * Acquires a durable execution anchor for a query. The returned ownership is
+     * independent from the singleton cluster-control term.
      */
     public boolean acquireQueryOwnership(String queryId, String coordinatorId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
-        return ownership.acquire(queryId, coordinatorId, epoch.get());
+        return ownership.acquire(queryId, coordinatorId, requireLocalIncarnation());
     }
 
     public boolean releaseQueryOwnership(String queryId, String coordinatorId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(coordinatorId, "coordinatorId must not be null");
-        return ownership.release(queryId, coordinatorId);
-    }
-
-    public int transferOwnership(String fromCoordinatorId, String toCoordinatorId) {
-        Objects.requireNonNull(fromCoordinatorId, "fromCoordinatorId must not be null");
-        Objects.requireNonNull(toCoordinatorId, "toCoordinatorId must not be null");
-        return ownership.transfer(fromCoordinatorId, toCoordinatorId, epoch.incrementAndGet());
+        return ownership.release(
+                queryId, coordinatorId, requireLocalIncarnation());
     }
 
     /**
@@ -264,15 +229,66 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     /**
+     * Checks that this node's cached cluster term is still the active durable
+     * control term. This is used only at metadata commit boundaries; the query
+     * data plane must not synchronously consult the coordination backend.
+     */
+    public boolean isCurrentControlTerm() {
+        Optional<LeaseEntry> active = leaseElection.currentLeaderEntry();
+        if (active.isEmpty()) {
+            return false;
+        }
+        long activeEpoch = active.orElseThrow().epoch();
+        epoch.accumulateAndGet(activeEpoch, Math::max);
+        return epoch.get() == activeEpoch;
+    }
+
+    /**
      * This coordinator's own node id (null before {@link #start}). A-FENCE-01: used to stamp the
-     * owning coordinator on durable write intents and to fence commits from a demoted leader.
+     * owning coordinator on durable write intents.
      */
     public String getLocalNodeId() {
         return localNodeId.get();
     }
 
-    public boolean validateEpoch(String queryId, long queryEpoch) {
-        return ownership.isCurrentEpoch(queryId, queryEpoch);
+    public boolean validateExecutionToken(String queryId, long fencingToken) {
+        return ownership.isCurrentToken(queryId, fencingToken);
+    }
+
+    /** Performs an authoritative store check at a side-effecting commit boundary. */
+    public boolean validateDurableExecutionToken(String queryId, long fencingToken) {
+        return ownership.isDurablyCurrent(queryId, fencingToken);
+    }
+
+    /** Returns this process's locally cached execution anchor for task stamping. */
+    public ExecutionAnchor requireExecutionAnchor(String executionId) {
+        return ownership.localAnchor(executionId).orElseThrow(() ->
+                new IllegalStateException(
+                        "No live local execution anchor: " + executionId));
+    }
+
+    /** Atomically claims a bounded batch of expired executions for recovery. */
+    public List<ExecutionAnchor> claimExpiredExecutions(int maxBatchSize) {
+        return ownership.claimExpired(
+                Objects.requireNonNull(localNodeId.get(), "coordinator is not started"),
+                requireLocalIncarnation(), maxBatchSize);
+    }
+
+    /** Relinquishes one failed recovery claim without marking the query complete. */
+    public boolean yieldExecution(ExecutionAnchor anchor) {
+        return ownership.yield(anchor);
+    }
+
+    /** Makes all executions owned by this exact process eligible for takeover. */
+    public int yieldLocalExecutions() {
+        String nodeId = Objects.requireNonNull(
+                localNodeId.get(), "coordinator is not started");
+        return ownership.yieldOwned(nodeId, requireLocalIncarnation());
+    }
+
+    /** Returns the unique identity of this Coordinator process. */
+    public String getLocalIncarnation() {
+        return requireLocalIncarnation();
     }
 
     public void onFailover(Consumer<String> callback) {
@@ -280,9 +296,9 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     /**
-     * Registers a callback invoked when this node is demoted from LEADER to STANDBY
-     * (e.g., lease renewal failure). The callback should stop accepting new queries
-     * and persist orphaned queries for the new leader to reclaim.
+     * Registers a callback invoked when this node loses singleton control leadership.
+     * The callback stops only leader-exclusive control loops; query admission and
+     * execution remain active on this healthy Coordinator.
      */
     public void onDemotion(Runnable callback) {
         this.demotionCallback.set(callback);
@@ -301,6 +317,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
             return;
         }
         localNodeId.set(coordinatorId);
+        localIncarnation.compareAndSet(null, UUID.randomUUID().toString());
         electionScheduler = new ElectionScheduler(config, running, createSchedulerCallback());
         electionScheduler.start();
         syncEpochFromLease();
@@ -338,23 +355,19 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
         @Override
         public Optional<String> currentLeader() {
-            return leaseElection.currentLeader();
+            Optional<LeaseEntry> current = leaseElection.currentLeaderEntry();
+            current.ifPresent(entry -> epoch.accumulateAndGet(entry.epoch(), Math::max));
+            return current.map(LeaseEntry::holderId);
         }
 
         @Override
         public void onLeaseRenewalFailed(String coordinatorId) {
+            localLease.set(null);
             role.set(Role.STANDBY);
             updateRegistryRole(coordinatorId, CoordinatorRole.STANDBY);
             notifyDemotion();
-            persistOrphanedQueries(coordinatorId);
-            ownership.clear();
-            LOG.info("event=lease_renewal_failed coordinator={} epoch={} ownershipCleared=true",
+            LOG.info("event=lease_renewal_failed coordinator={} epoch={} queryOwnershipRetained=true",
                     coordinatorId, epoch.get());
-            // A-HA-01: lease renewal failure = this coordinator lost the single JDBC coordination
-            // store (the HA SPOF). Beyond demotion, raise a CRITICAL alarm so the materialized
-            // SPOF / unexpected leadership loss is paged rather than passing as a quiet INFO — in
-            // a sole-coordinator deployment this is a coordination outage until the store recovers
-            // or a standby takes over. (Full remedy: quorum-store migration, A-HA-01 medium-term.)
             LOG.error("event=coordinator_alarm severity=CRITICAL component=ha_lease_renewal "
                             + "message=\"lease renewal failed; coordinator demoted — coordination store "
                             + "(HA single point of failure) unreachable or contended\" coordinator={} epoch={}",
@@ -364,6 +377,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         @Override
         public void onHeartbeatTick(String coordinatorId) {
             refreshRegistryHeartbeat(coordinatorId);
+            renewExecutionAnchors(coordinatorId);
         }
     }
 
@@ -371,43 +385,37 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     public void close() {
         boolean wasRunning = running.compareAndSet(true, false);
         if (wasRunning) {
-            // C-HA-01: Cancel and await scheduler termination BEFORE orphan
-            // persistence to prevent concurrent persistOrphanedQueries calls
-            // from the scheduler thread (handleLeaseRenewal demotion path).
             ElectionScheduler sched = electionScheduler;
             if (sched != null) {
                 sched.cancelScheduledTask();
                 sched.shutdown();
             }
         }
-        // Persist running queries as orphans before clearing ownership.
-        // Safe to call now — scheduler thread is fully stopped.
         String nodeId = localNodeId.get();
-        persistOrphanedQueries(nodeId);
-        // Always release lease if this node is leader, regardless of start() usage
+        String incarnation = localIncarnation.get();
+        if (nodeId != null && incarnation != null) {
+            try {
+                int yielded = yieldLocalExecutions();
+                LOG.info("event=execution_anchors_yielded coordinatorId={} "
+                                + "incarnation={} count={}",
+                        nodeId, incarnation, yielded);
+            } catch (RuntimeException e) {
+                LOG.error("event=execution_anchor_yield_failed coordinatorId={} "
+                                + "incarnation={} error={}",
+                        nodeId, incarnation, e.getMessage(), e);
+            }
+        }
         if (nodeId != null) {
-            leaseElection.release(nodeId);
+            LeaseEntry held = localLease.getAndSet(null);
+            if (held != null && nodeId.equals(held.holderId())) {
+                leaseElection.release(nodeId, held.epoch());
+            }
             unregisterFromRegistry(nodeId);
         }
         role.set(Role.STOPPED);
         ownership.clear();
+        localIncarnation.set(null);
         LOG.info("event=ha_service_closed epoch={}", epoch.get());
-    }
-
-    /**
-     * Persists all currently owned queries as orphans so a new leader can reclaim them.
-     * Called from {@link org.pangrova.coordinator.PangrovaCoordinator#stop()} during graceful
-     * shutdown when drain times out and in-flight queries must be handed off.
-     *
-     * <p>BUG-D25: transferOwnership released ownership without persisting orphans,
-     * causing the new leader to have no record of in-flight queries.</p>
-     */
-    public void persistOrphanedQueriesForTransfer(String coordinatorId) {
-        persistOrphanedQueries(coordinatorId);
-    }
-
-    private void persistOrphanedQueries(String coordinatorId) {
-        ownership.persistOrphans(coordinatorId);
     }
 
     private void notifyFailover(String newLeaderId) {
@@ -438,6 +446,26 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
      */
     private void refreshRegistryHeartbeat(String coordinatorId) {
         registryBridge.heartbeat(coordinatorId);
+    }
+
+    private void renewExecutionAnchors(String coordinatorId) {
+        if (processAuthorityBound) return;
+        String incarnation = requireLocalIncarnation();
+        if (!ownership.renewOwned(coordinatorId, incarnation)) {
+            throw new IllegalStateException(
+                    "One or more execution anchors could not be renewed");
+        }
+    }
+
+    private String requireLocalIncarnation() {
+        String incarnation = localIncarnation.get();
+        if (incarnation == null) {
+            incarnation = UUID.randomUUID().toString();
+            if (!localIncarnation.compareAndSet(null, incarnation)) {
+                incarnation = localIncarnation.get();
+            }
+        }
+        return incarnation;
     }
 
     private void registerWithRegistry(String coordinatorId) {

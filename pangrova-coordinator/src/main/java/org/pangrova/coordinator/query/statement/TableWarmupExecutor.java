@@ -6,6 +6,7 @@ import java.util.Map;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.spi.connector.ConnectorSession;
@@ -100,9 +101,10 @@ public final class TableWarmupExecutor {
      * {@code (catalog, schema, table, splits_processed, splits_failed,
      * rows_touched, bytes_prefetched, duration_ms)}.
      */
-    public List<TypedRow> execute(String catalog, Map<String, String> arguments) {
+    public List<TypedRow> execute(
+            String catalog, Map<String, String> arguments, CoordinatorSessionContext context) {
         SchemaTable target = parseTarget(catalog, arguments);
-        ResolvedTable resolved = resolveTable(catalog, target);
+        ResolvedTable resolved = resolveTable(catalog, target, context);
 
         long startNanos = System.nanoTime();
         WarmupCounters counters = new WarmupCounters();
@@ -119,8 +121,8 @@ public final class TableWarmupExecutor {
         return List.of(buildResultRow(catalog, target, counters, durationMs));
     }
 
-    private ResolvedTable resolveTable(String catalog, SchemaTable target) {
-        ConnectorSession session = TableResolver.buildSession(catalog);
+    private ResolvedTable resolveTable(String catalog, SchemaTable target, CoordinatorSessionContext context) {
+        ConnectorSession session = TableResolver.buildSession(context, catalog, target.schema);
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(catalog);
         ConnectorMetadata metadata = catalogHandle.getMetadata(session);
         ConnectorTableHandle tableHandle = metadata.getTableHandle(

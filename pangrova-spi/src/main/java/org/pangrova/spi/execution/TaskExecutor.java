@@ -2,6 +2,8 @@ package org.pangrova.spi.execution;
 
 import org.pangrova.spi.annotation.Stable;
 
+import java.util.Optional;
+
 /**
  * SPI for executing tasks against the native engine.
  *
@@ -39,12 +41,15 @@ public interface TaskExecutor {
     /**
      * Releases all resources associated with the task.
      *
-     * <p>Must be called exactly once per {@link #createTask} call,
-     * regardless of whether the task succeeded or failed.</p>
+     * <p>Successful drain returns the actual canonical final TaskReport. A
+     * failed drain retains ownership and throws so the caller can retry.
+     * Absence means this executor no longer tracks the handle; it is not a
+     * synthesized successful task or proof that another owner released it.</p>
      *
      * @param executorHandle handle returned by {@link #createTask}
+     * @return the final canonical report, or empty when the handle is untracked
      */
-    void releaseTask(long executorHandle);
+    Optional<byte[]> releaseTask(long executorHandle);
 
     /**
      * Requests cancellation of a running task.
@@ -127,18 +132,32 @@ public interface TaskExecutor {
     }
 
     /**
-     * Reports the execution capabilities of this executor.
-     * The scheduler uses this information to match tasks to workers
-     * with sufficient resources and compatible formats.
+     * Returns the executor's canonical v2 TaskReport envelope.
      *
-     * <p>Default implementation returns {@link ExecutionCapabilities#unlimited()},
-     * indicating no constraints. Implementations should override this to
-     * report actual limits.</p>
+     * <p>The status is control-plane metadata only. Implementations must never
+     * place result batches, candidate rows, vectors, or artifact bytes in this
+     * envelope.</p>
      *
-     * @return the executor's capabilities, never null
+     * @param executorHandle handle returned by {@link #createTask}
+     * @return serialized canonical v2 TaskReport, or an empty array
      */
-    default ExecutionCapabilities capabilities() {
-        return ExecutionCapabilities.unlimited();
+    default byte[] getTaskStatus(long executorHandle) {
+        return new byte[0];
+    }
+
+    /**
+     * Returns the executor's canonical v2 NativeTaskStats envelope.
+     *
+     * <p>This is control-plane telemetry only. Implementations must capture it
+     * before releasing the executor handle; callers must not synthesize an
+     * all-zero success record when it is unavailable.</p>
+     *
+     * @param executorHandle handle returned by {@link #createTask}
+     * @return serialized canonical v2 NativeTaskStats, or an empty array when
+     *         the executor does not implement native telemetry
+     */
+    default byte[] getTaskStats(long executorHandle) {
+        return new byte[0];
     }
 
 }

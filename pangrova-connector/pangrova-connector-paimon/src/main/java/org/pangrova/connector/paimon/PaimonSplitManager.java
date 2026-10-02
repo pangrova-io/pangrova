@@ -1,8 +1,17 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.scan.PaimonPartitionExtractor;
+
+import org.pangrova.connector.paimon.scan.PaimonDataFileExtractor;
+
+import org.pangrova.connector.paimon.scan.PaimonNativeMergeAdmission;
+
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonLsmLevel;
+import org.pangrova.connector.paimon.handle.PaimonLsmFile;
+import org.pangrova.connector.paimon.handle.PaimonPhysicalFile;
+import org.pangrova.connector.paimon.handle.PaimonMergePolicy;
 import org.pangrova.connector.paimon.handle.PaimonSplit;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.spi.connector.ConnectorSession;
@@ -246,17 +255,24 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
         String tableLocation = PaimonDataFileExtractor.extractTableLocation(table);
         List<Split> paimonSplits = readBuilder.newScan().plan().splits();
+        String readMode = ctx.primaryKeys.isEmpty() ? "APPEND" : "PRIMARY_KEY";
 
         if (ctx.needsMerge) {
             return paimonSplits.stream()
-                    .map(split -> buildSplit(tableName, split, ctx, table, tableLocation))
+                    .map(split -> buildSplit(tableName, split, ctx, table, tableLocation, readMode))
                     .toList();
         }
         // Append-only: expand each DataSplit into one ConnectorSplit per data file
         // so the native reader (one file per split) reads all files.
+        return expandPhysicalSplits(tableName, ctx, table, tableLocation, readMode, paimonSplits);
+    }
+
+    private List<ConnectorSplit> expandPhysicalSplits(String tableName, TableSplitContext ctx,
+            Table table, String tableLocation, String readMode, List<Split> paimonSplits) {
         List<ConnectorSplit> result = new ArrayList<>();
         for (Split split : paimonSplits) {
-            result.addAll(expandAppendOnlySplit(tableName, split, ctx, table, tableLocation));
+            result.addAll(expandAppendOnlySplit(
+                    tableName, split, ctx, table, tableLocation, readMode));
         }
         return List.copyOf(result);
     }
@@ -292,49 +308,56 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         // Incremental splits are append-only — expand per-file
         List<ConnectorSplit> result = new ArrayList<>();
         for (Split split : paimonSplits) {
-            result.addAll(expandAppendOnlySplit(tableName, split, ctx, table, tableLocation));
+            result.addAll(expandAppendOnlySplit(
+                    tableName, split, ctx, table, tableLocation, "INCREMENTAL"));
         }
         return List.copyOf(result);
     }
 
     private List<ConnectorSplit> expandAppendOnlySplit(
             String tableName, Split paimonSplit,
-            TableSplitContext ctx, Table table, String tableLocation) {
+            TableSplitContext ctx, Table table, String tableLocation, String readMode) {
         if (!(paimonSplit instanceof DataSplit dataSplit)) {
-            return List.of(buildSplit(tableName, paimonSplit, ctx, table, tableLocation));
+            return List.of(buildSplit(
+                    tableName, paimonSplit, ctx, table, tableLocation, readMode));
         }
         List<DataFileMeta> dataFiles = dataSplit.dataFiles();
-        if (dataFiles == null || dataFiles.size() <= 1) {
-            return List.of(buildSplit(tableName, paimonSplit, ctx, table, tableLocation));
+        if (dataFiles == null || dataFiles.isEmpty()) {
+            return List.of();
+        }
+        requireDataSplit(dataSplit);
+        if (dataFiles.size() == 1) {
+            return List.of(buildSplit(
+                    tableName, paimonSplit, ctx, table, tableLocation, readMode));
         }
         int bucketId = dataSplit.bucket();
         Map<String, String> partitionValues =
                 PaimonPartitionExtractor.extractPartitionValues(paimonSplit, table);
-        PaimonPartitionExtractor.SchemaEvolutionResult schemaEvolution =
-                PaimonPartitionExtractor.extractSchemaEvolution(paimonSplit, table);
-
         List<ConnectorSplit> splits = new ArrayList<>(dataFiles.size());
         long registryId = splitRegistry.register(paimonSplit);
         for (DataFileMeta file : dataFiles) {
-            String filePath = PaimonDataFileExtractor.buildFilePath(
-                    tableLocation, dataSplit, file.fileName(), partitionValues);
+            String filePath = PaimonDataFileExtractor.buildFilePath(dataSplit, file);
+            var schemaEvolution = PaimonPartitionExtractor.extractSchemaEvolution(file, table);
             PaimonLsmLevel singleLevel = new PaimonLsmLevel(
-                    file.level(), List.of(filePath), file.rowCount());
+                    file.level(), List.of(new PaimonLsmFile(physicalFile(filePath, file),
+                            file.minSequenceNumber(), file.maxSequenceNumber(),
+                            PaimonDataFileExtractor.deletionVector(dataSplit, file),
+                            schemaEvolution.columnMappings(), schemaEvolution.typePromotions())), file.rowCount());
             splits.add(new PaimonSplit(
                     tableName, registryId, file.rowCount(),
                     bucketId, ctx.primaryKeys, ctx.mergeEngine, ctx.changelogProducer,
-                    0L, 0L, 0L, "FULL", List.of(singleLevel),
-                    false, ctx.deletionVectorsEnabled, "",
+                    dataSplit.snapshotId(), 0L, 0L, readMode, List.of(singleLevel),
+                    false, ctx.deletionVectorsEnabled,
                     ctx.aggregationSpecs, ctx.changelogMode, partitionValues,
                     schemaEvolution.columnMappings(), schemaEvolution.typePromotions(),
-                    filePath));
+                    physicalFile(filePath, file), ctx.mergePolicy));
         }
         return splits;
     }
 
     private ConnectorSplit buildSplit(
             String tableName, Split paimonSplit,
-            TableSplitContext ctx, Table table, String tableLocation) {
+            TableSplitContext ctx, Table table, String tableLocation, String readMode) {
         int bucketId = extractBucketId(paimonSplit);
         Map<String, String> partitionValues =
                 PaimonPartitionExtractor.extractPartitionValues(paimonSplit, table);
@@ -344,25 +367,34 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                     tableName, bucketId, partitionValues);
         }
 
-        PaimonPartitionExtractor.SchemaEvolutionResult schemaEvolution =
-                PaimonPartitionExtractor.extractSchemaEvolution(paimonSplit, table);
-
-        String primaryFilePath =
-                PaimonDataFileExtractor.extractPrimaryFilePath(
-                        tableLocation, paimonSplit, partitionValues);
+        DataSplit dataSplit = requireDataSplit(paimonSplit);
+        DataFileMeta primary = dataSplit.dataFiles().get(0);
+        var schemaEvolution = PaimonPartitionExtractor.extractSchemaEvolution(primary, table);
+        String primaryFilePath = PaimonDataFileExtractor.buildFilePath(dataSplit, primary);
         List<PaimonLsmLevel> lsmLevels =
-                PaimonDataFileExtractor.extractLsmLevels(
-                        tableLocation, paimonSplit, partitionValues);
+                PaimonDataFileExtractor.extractLsmLevels(table, paimonSplit);
 
         long registryId = splitRegistry.register(paimonSplit);
         return new PaimonSplit(
                 tableName, registryId, paimonSplit.rowCount(),
                 bucketId, ctx.primaryKeys, ctx.mergeEngine, ctx.changelogProducer,
-                0L, 0L, 0L, "FULL", lsmLevels,
-                ctx.needsMerge, ctx.deletionVectorsEnabled, "",
+                dataSplit.snapshotId(), 0L, 0L, readMode, lsmLevels,
+                ctx.needsMerge, ctx.deletionVectorsEnabled,
                 ctx.aggregationSpecs, ctx.changelogMode, partitionValues,
                 schemaEvolution.columnMappings(), schemaEvolution.typePromotions(),
-                primaryFilePath);
+                physicalFile(primaryFilePath, primary), ctx.mergePolicy);
+    }
+
+    private static DataSplit requireDataSplit(Split split) {
+        if (!(split instanceof DataSplit data) || data.dataFiles().isEmpty() || data.snapshotId() <= 0) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_READ_ERROR,
+                    "Native Paimon scan requires physical files from an exact SDK snapshot");
+        }
+        return data;
+    }
+
+    private static PaimonPhysicalFile physicalFile(String path, DataFileMeta file) {
+        return new PaimonPhysicalFile(path, file.fileFormat(), file.fileSize(), file.rowCount(), file.schemaId());
     }
 
     private static int extractBucketId(Split split) {
@@ -383,27 +415,44 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                 options.getOrDefault("deletion-vectors.enabled", "false"));
         boolean changelogMode = isChangelogCapable(changelogProducer);
         boolean needsMerge = !primaryKeys.isEmpty() && !deletionVectorsEnabled;
+        if (needsMerge && "PARTIAL_UPDATE".equals(mergeEngine)) {
+            PaimonNativeMergeAdmission.validatePartialUpdate(table);
+        }
 
         Map<String, String> aggregationSpecs = Map.of();
         if ("AGGREGATION".equals(mergeEngine)) {
-            aggregationSpecs = extractAggregationSpecs(options);
+            aggregationSpecs = extractAggregationSpecs(table);
         }
 
         return new TableSplitContext(
                 primaryKeys, mergeEngine, changelogProducer,
                 needsMerge, deletionVectorsEnabled, changelogMode,
-                aggregationSpecs);
+                aggregationSpecs, mergePolicy(options, mergeEngine));
     }
 
-    private static Map<String, String> extractAggregationSpecs(Map<String, String> options) {
+    private static PaimonMergePolicy mergePolicy(Map<String, String> options, String engine) {
+        var sdkOptions = org.apache.paimon.options.Options.fromMap(options);
+        boolean ignore = sdkOptions.get(org.apache.paimon.CoreOptions.IGNORE_DELETE);
+        boolean remove = switch (engine) {
+            case "PARTIAL_UPDATE" ->
+                    sdkOptions.get(org.apache.paimon.CoreOptions.PARTIAL_UPDATE_REMOVE_RECORD_ON_DELETE);
+            case "AGGREGATION" -> sdkOptions.get(org.apache.paimon.CoreOptions.AGGREGATION_REMOVE_RECORD_ON_DELETE);
+            default -> false;
+        };
+        return new PaimonMergePolicy(ignore, remove);
+    }
+
+    private static Map<String, String> extractAggregationSpecs(Table table) {
         Map<String, String> specs = new LinkedHashMap<>();
-        String prefix = "fields.";
-        String suffix = ".aggregate-function";
-        for (Map.Entry<String, String> entry : options.entrySet()) {
-            String key = entry.getKey();
-            if (key.startsWith(prefix) && key.endsWith(suffix)) {
-                String columnName = key.substring(prefix.length(), key.length() - suffix.length());
-                specs.put(columnName, entry.getValue().toUpperCase());
+        var options = new org.apache.paimon.CoreOptions(org.apache.paimon.options.Options.fromMap(table.options()));
+        for (String name : table.rowType().getFieldNames()) {
+            if (!table.primaryKeys().contains(name)) {
+                String function = org.apache.paimon.mergetree.compact.aggregate.AggregateMergeFunction.getAggFuncName(
+                        name, options, table.primaryKeys(), options.sequenceField());
+                String normalized = function.toUpperCase(java.util.Locale.ROOT);
+                PaimonNativeMergeAdmission.validateAggregation(name, normalized,
+                        table.rowType().getTypeAt(table.rowType().getFieldNames().indexOf(name)), options);
+                specs.put(name, normalized);
             }
         }
         return Map.copyOf(specs);
@@ -426,5 +475,6 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             boolean needsMerge,
             boolean deletionVectorsEnabled,
             boolean changelogMode,
-            Map<String, String> aggregationSpecs) {}
+            Map<String, String> aggregationSpecs,
+            PaimonMergePolicy mergePolicy) {}
 }

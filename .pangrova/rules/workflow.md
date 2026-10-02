@@ -97,7 +97,7 @@ Native 修改触发**完整验证链** — 执行 `build-pipeline.md` §Full-Cha
 | 3 | Configuration docs | New config keys | Document in module README or CONFIG.md |
 | 4 | Changelog entry | User-facing changes | `CHANGELOG.md` |
 | 5 | Full-chain connectivity | Major changes | `mvn -DskipTests install` + native build + JNI verify |
-| 6 | E2E + Smoke tests | Scope warrants it | `pangrova-test-e2e` + `pangrova-test-smoke` |
+| 6 | E2E + Smoke tests | Scope warrants it | `pangrova-test-e2e` + `ActivationSmokeE2ETest` |
 | 7 | Diff coverage ≥60% | PR submission | `diff-coverage-check.sh` |
 | 8 | **Documentation sync** | Behavior/API/arch changes | `.pangrova/rules/`, `docs/` |
 

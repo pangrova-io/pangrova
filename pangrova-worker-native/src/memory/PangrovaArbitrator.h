@@ -118,6 +118,8 @@ class PangrovaArbitrator : public facebook::velox::memory::MemoryArbitrator {
   int64_t nonJvmCapBytes() const;
 
  private:
+  void commitCapacity(facebook::velox::memory::MemoryPool* pool,
+                      int64_t granted, uint64_t requested);
   // Metadata for a tracked memory pool.
   struct PoolEntry {
     facebook::velox::memory::MemoryPool* pool;

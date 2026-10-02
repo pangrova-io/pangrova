@@ -21,12 +21,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 /**
- * Acceptance test: validates the Worker execution chain from main() to task completion.
- *
- * <p>Chain under test: WorkerBootstrap → TaskManager → NativeTaskExecutor →
- * SimulatedTaskExecutor.</p>
- *
- * <p><b>Property 35: Worker execution chain from main() to task completion</b></p>
+ * Component tests for Native bootstrap lifecycle and, separately, the test-only executor.
+ * No simulated executor assertion is end-to-end Native execution evidence.
  */
 @org.junit.jupiter.api.Tag("native-required")
 @Tag("Feature: e2e-pipeline-integration - Property 35: Worker execution chain")
@@ -94,7 +90,7 @@ class WorkerExecutionChainTest {
             @ForAll("batchCounts") int batchCount) {
 
         SimulatedTaskExecutor executor = new SimulatedTaskExecutor(batchCount);
-        long handle = executor.createTask(new byte[0]);
+        long handle = executor.createTask(request("batch-task"));
         executor.startTask(handle);
 
         for (int i = 0; i < batchCount; i++) {
@@ -112,7 +108,7 @@ class WorkerExecutionChainTest {
     @Test
     void simulatedTaskExecutorFullLifecycle() {
         SimulatedTaskExecutor executor = new SimulatedTaskExecutor(3);
-        long handle = executor.createTask(new byte[0]);
+        long handle = executor.createTask(request("lifecycle-task"));
         executor.startTask(handle);
 
         assertThat(executor.getNextBatchResult(handle).status()).isEqualTo(BatchResult.Status.DATA);
@@ -142,8 +138,8 @@ class WorkerExecutionChainTest {
     @Test
     void simulatedTaskExecutorTracksActiveCount() {
         SimulatedTaskExecutor executor = new SimulatedTaskExecutor(1);
-        long h1 = executor.createTask(new byte[0]);
-        long h2 = executor.createTask(new byte[0]);
+        long h1 = executor.createTask(request("count-task-1"));
+        long h2 = executor.createTask(request("count-task-2"));
 
         assertThat(executor.activeTaskCount()).isEqualTo(2);
 
@@ -164,13 +160,20 @@ class WorkerExecutionChainTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        workerBootstrap = TestWorkerBootstrap.create(config);
         workerBootstrap.start();
     }
 
     private void shutdownAll() {
         shutdownWorker();
+    }
+
+    private static byte[] request(String taskId) {
+        return org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                taskId, "component-query", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, new byte[] {1})
+                .build().toByteArray();
     }
 
     private void shutdownWorker() {

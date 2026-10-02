@@ -5,10 +5,12 @@
 
 #include <chrono>
 #include <memory>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 #include "executor/driver/TaskExecutor.h"
+#include "shuffle/FlightShuffleServer.h"
 #include "shuffle/SerializedShuffleQueue.h"
 #include "velox/vector/ComplexVector.h"
 
@@ -55,11 +57,29 @@ std::vector<uint8_t> buildValuesPlan() {
   substrait::Plan plan;
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
+  root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();
+  read->mutable_base_schema()->add_names("value");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
   auto* vt = read->mutable_virtual_table();
   // Add one row with a single BIGINT value so ValuesNode produces 1 row.
-  auto* row = vt->add_values();
-  row->add_fields()->set_i64(42);
+  auto* row = vt->add_expressions();
+  row->add_fields()->mutable_literal()->set_i64(42);
+  return serialize(plan);
+}
+
+std::vector<uint8_t> buildShuffleValuesPlan(int32_t partitions) {
+  substrait::Plan plan;
+  auto* root = plan.add_relations()->mutable_root();
+  root->add_names("value");
+  auto* exchange = root->mutable_input()->mutable_exchange();
+  exchange->set_partition_count(partitions);
+  exchange->mutable_round_robin();
+  auto* read = exchange->mutable_input()->mutable_read();
+  read->mutable_base_schema()->add_names("value");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  auto* row = read->mutable_virtual_table()->add_expressions();
+  row->add_fields()->mutable_literal()->set_i64(42);
   return serialize(plan);
 }
 
@@ -67,13 +87,32 @@ TaskExecutorConfig makeShuffleConfig(int32_t num_partitions) {
   TaskExecutorConfig config;
   config.task_id = "shuffle-test-task";
   config.query_id = "shuffle-test-query";
-  config.substrait_plan = buildValuesPlan();
+  config.substrait_plan = buildShuffleValuesPlan(num_partitions);
   config.num_shuffle_partitions = num_partitions;
   config.queue_poll_timeout = milliseconds(500);
   return config;
 }
 
 // --- Shuffle output routes to SerializedShuffleQueue ---
+
+TEST(ShuffleOutputTest, SerializedQueueOwnsSubmittedBytes) {
+  pangrova::shuffle::SerializedShuffleQueue queue(1);
+  pangrova::shuffle::ShuffleBatch submitted;
+  submitted.partition_id = 0;
+  submitted.row_count = 1;
+  submitted.data = folly::IOBuf::copyBuffer("page", 4);
+  const auto* producer_bytes = submitted.data->data();
+  ASSERT_TRUE(queue.push(std::move(submitted), milliseconds(100)));
+
+  pangrova::shuffle::ShuffleBatch received;
+  ASSERT_EQ(queue.pop(received, milliseconds(100)), PopResult::DATA);
+  ASSERT_NE(received.data, nullptr);
+  EXPECT_NE(received.data->data(), producer_bytes);
+  EXPECT_EQ(received.data->computeChainDataLength(), 4);
+  EXPECT_EQ(std::string_view(
+                reinterpret_cast<const char*>(received.data->data()), 4),
+            "page");
+}
 
 TEST(ShuffleOutputTest, SerializedShuffleBatchAvailable) {
   auto config = makeShuffleConfig(3);
@@ -82,13 +121,61 @@ TEST(ShuffleOutputTest, SerializedShuffleBatchAvailable) {
   ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
   EXPECT_EQ(exec.state(), ExecutorState::FINISHED);
 
-  // The VALUES node produces 1 row — it should be serialized and
-  // available in the SerializedShuffleQueue.
-  pangrova::shuffle::ShuffleBatch batch;
-  int rc = exec.getSerializedShuffleBatch(batch);
-  // Batch may or may not be available depending on execution path;
-  // verify no crash and valid return code.
-  EXPECT_TRUE(rc == kDataAvailable || rc == kEof || rc == kNotReady);
+  // FINISHED is visible only after the producer has flushed its buffered
+  // partition and committed a clean queue close. A reader arriving after task
+  // completion must still receive the one VALUES row, then clean EOF.
+  auto* queue = exec.serializedShuffleQueue();
+  ASSERT_NE(queue, nullptr);
+  EXPECT_TRUE(queue->isCommitted());
+  EXPECT_TRUE(queue->isClosed());
+  // The producer has completed before this Flight reader arrives. The
+  // queue remains borrowed until Flight quiesces; release() is only legal
+  // after that point because it drains any unconsumed batches.
+  ASSERT_GT(queue->size(), 0);
+  pangrova::shuffle::PartitionDemuxer demuxer(queue);
+  demuxer.setMaxPartitions(3);
+  demuxer.start();
+  ASSERT_TRUE(demuxer.quiesce(std::chrono::seconds(2)));
+  int64_t rows = 0;
+  for (int32_t partition = 0; partition < 3; ++partition) {
+    pangrova::shuffle::ShuffleBatch batch;
+    while (demuxer.pop(partition, batch, milliseconds(10))) {
+      rows += batch.row_count;
+      ASSERT_NE(batch.data, nullptr);
+    }
+  }
+  EXPECT_EQ(rows, 1);
+  EXPECT_TRUE(demuxer.isFullyConsumed());
+  demuxer.stop();
+  exec.release();
+
+  exec.cancel();
+  EXPECT_EQ(exec.state(), ExecutorState::FINISHED);
+  EXPECT_TRUE(queue->isCommitted());
+}
+
+TEST(ShuffleOutputTest, CancelBeforeCommitCannotPublishCleanEof) {
+  auto config = makeShuffleConfig(1);
+  TaskExecutor exec(config);
+  auto* queue = exec.serializedShuffleQueue();
+  ASSERT_NE(queue, nullptr);
+  exec.cancel();
+  EXPECT_EQ(exec.state(), ExecutorState::CANCELLED);
+  EXPECT_TRUE(queue->isAborted());
+  EXPECT_FALSE(queue->commit());
+}
+
+TEST(ShuffleOutputTest, DeadlineBeforeCommitCannotPublishCleanEof) {
+  auto config = makeShuffleConfig(1);
+  const auto now_ms = std::chrono::duration_cast<milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  config.deadline_epoch_ms = now_ms - 1;
+  TaskExecutor exec(config);
+  auto* queue = exec.serializedShuffleQueue();
+  ASSERT_NE(queue, nullptr);
+  EXPECT_EQ(exec.state(), ExecutorState::FAILED);
+  EXPECT_TRUE(queue->isAborted());
+  EXPECT_FALSE(queue->commit());
 }
 
 TEST(ShuffleOutputTest, OutputQueueEmptyWhenShuffleEnabled) {

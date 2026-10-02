@@ -132,7 +132,10 @@ class CoordinatorBootstrapConfigPropertyTest {
         Arbitrary<CoordinatorBootstrapConfig.TransportConfig> transports = Combinators.combine(
                 Arbitraries.integers().between(0, 65535),
                 Arbitraries.longs().between(1024 * 1024, 1024L * 1024 * 1024)
-        ).as(CoordinatorBootstrapConfig.TransportConfig::new);
+        ).as((port, allocatorBytes) -> new CoordinatorBootstrapConfig.TransportConfig(
+                port, allocatorBytes,
+                CoordinatorBootstrapConfig.TransportConfig.DEFAULT_ADVERTISED_HOST,
+                null));
 
         Arbitrary<CoordinatorBootstrapConfig.WorkerHealthConfig> healths = Combinators.combine(
                 Arbitraries.longs().between(1000, 60_000),

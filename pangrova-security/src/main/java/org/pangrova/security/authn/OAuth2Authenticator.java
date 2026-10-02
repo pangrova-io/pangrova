@@ -46,8 +46,7 @@ public class OAuth2Authenticator implements Authenticator {
      */
     record OAuth2Config(
             String issuerUri,
-            String audience,
-            boolean requireSignatureVerification
+            String audience
     ) {}
 
     /** Creates an OAuth2 authenticator with a default HTTP client. */
@@ -74,31 +73,20 @@ public class OAuth2Authenticator implements Authenticator {
     public void init(Map<String, String> config) {
         String uri = config.get("issuerUri");
         if (uri == null || uri.isBlank()) {
-            LOG.warn("event=oauth2_init_missing_issuer message=issuerUri not configured");
+            throw new IllegalArgumentException("OAuth2 requires issuerUri");
         }
         String audience = config.get("audience");
-        boolean requireSig = !"false".equalsIgnoreCase(config.get("requireSignatureVerification"));
-        if (!requireSig) {
-            // F-SEC-01: disabling signature verification makes unsigned JWTs (alg=none) accepted
-            // via parseUnsignedToken — effectively an authentication bypass. This is a
-            // development/testing escape hatch only; emit an unmissable CRITICAL alarm so it can
-            // never be enabled silently in production.
-            LOG.error("event=security_alarm severity=CRITICAL component=authentication "
-                    + "message=\"OAuth2 requireSignatureVerification=false: unsigned JWT tokens "
-                    + "(alg=none) are ACCEPTED WITHOUT signature verification. This disables token "
-                    + "authenticity and MUST NOT be used in production.\"");
+        if (config.containsKey("requireSignatureVerification")) {
+            throw new IllegalArgumentException("OAuth2 signatures are mandatory; no signature toggle is supported");
         }
 
-        OAuth2Config oauthConfig = new OAuth2Config(uri, audience, requireSig);
+        OAuth2Config oauthConfig = new OAuth2Config(uri, audience);
         configRef.set(oauthConfig);
         jwtParserRef.set(new SecureJwtParser(keyResolver));
 
-        if (uri != null && !uri.isBlank()) {
-            keyResolver.discoverJwksEndpoint(uri);
-        }
+        keyResolver.discoverJwksEndpoint(uri);
 
-        LOG.info("event=oauth2_init issuerUri={} audience={} requireSignatureVerification={}",
-                uri, audience, requireSig);
+        LOG.info("event=oauth2_init issuerUri={} audience={} signatureRequired=true", uri, audience);
     }
 
     @Override
@@ -118,7 +106,7 @@ public class OAuth2Authenticator implements Authenticator {
 
     private AuthenticationResult authenticateConfigured(AuthenticationRequest request, OAuth2Config config) {
         try {
-            SecureJwtParser.ParsedJwt parsed = parseToken(request.token(), config);
+            SecureJwtParser.ParsedJwt parsed = parseToken(request.token());
             JwtClaims claims = parsed.claims();
 
             JwtClaimValidator.validateIssuer(claims, config.issuerUri());
@@ -148,14 +136,11 @@ public class OAuth2Authenticator implements Authenticator {
         }
     }
 
-    private SecureJwtParser.ParsedJwt parseToken(String token, OAuth2Config config) {
+    private SecureJwtParser.ParsedJwt parseToken(String token) {
         SecureJwtParser parser = jwtParserRef.get();
         if (parser == null) {
             parser = new SecureJwtParser(keyResolver);
             jwtParserRef.set(parser);
-        }
-        if (!config.requireSignatureVerification()) {
-            return parser.parseUnsignedToken(token);
         }
         JwtAlgorithmValidator.validateRawToken(token);
         SecureJwtParser.ParsedJwt parsed = parser.parseSignedToken(token);
@@ -196,6 +181,9 @@ public class OAuth2Authenticator implements Authenticator {
 
     @Override
     public void close() {
+        configRef.set(null);
+        jwtParserRef.set(null);
+        lastHealthStatus.set(false);
         keyResolver.clear();
         LOG.debug("event=oauth2_close");
     }

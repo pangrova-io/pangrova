@@ -24,7 +24,7 @@ class ColumnMaskingProcessorTest {
     @Test
     void returnsEmptyWhenNoMasks() {
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(new EmptyColumnMaskStore());
-        Optional<String> mask = processor.getMask(ANALYST, "iceberg", "default", "users", "email");
+        Optional<String> mask = processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email");
         assertThat(mask).isEmpty();
     }
 
@@ -35,7 +35,7 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        Optional<String> result = processor.getMask(ANALYST, "iceberg", "default", "users", "email");
+        Optional<String> result = processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email");
         assertThat(result).isPresent();
         assertThat(result.get()).isEqualTo("MASK_EMAIL(email)");
     }
@@ -47,7 +47,7 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        Optional<String> result = processor.getMask(ADMIN, "iceberg", "default", "users", "email");
+        Optional<String> result = processor.getMask(ADMIN, java.util.Set.of("admin"), "iceberg", "default", "users", "email");
         assertThat(result).isEmpty();
     }
 
@@ -58,7 +58,7 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        Optional<String> result = processor.getMask(ANALYST, "iceberg", "default", "users", "email");
+        Optional<String> result = processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email");
         assertThat(result).isEmpty();
     }
 
@@ -69,8 +69,8 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        assertThat(processor.getMask(ANALYST, "iceberg", "default", "users", "email")).isPresent();
-        assertThat(processor.getMask(ADMIN, "iceberg", "default", "users", "email")).isEmpty();
+        assertThat(processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email")).isPresent();
+        assertThat(processor.getMask(ADMIN, java.util.Set.of("admin"), "iceberg", "default", "users", "email")).isEmpty();
     }
 
     /**

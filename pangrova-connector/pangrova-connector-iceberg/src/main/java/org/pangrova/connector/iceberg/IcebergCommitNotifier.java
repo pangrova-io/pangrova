@@ -3,8 +3,6 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.spi.connector.index.CommitEvent;
 import org.pangrova.spi.connector.index.CommitEventType;
 import org.pangrova.spi.connector.index.CommitListener;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
@@ -12,11 +10,18 @@ import java.util.function.Consumer;
 
 /**
  * Notifies the registered commit listener and split-cache invalidator after
- * successful Iceberg commits. Listener errors never fail the commit.
+ * successful Iceberg commits. Persistence failures surface to the caller so
+ * journaled writes can replay the event after an ambiguous commit outcome.
  */
 final class IcebergCommitNotifier {
 
-    private static final Logger LOG = LoggerFactory.getLogger(IcebergCommitNotifier.class);
+    static final class NotificationFailure extends IllegalStateException {
+        NotificationFailure(String catalogName, String schemaName, String tableName,
+                            RuntimeException cause) {
+            super("Commit notification failed for " + catalogName + "."
+                    + schemaName + "." + tableName, cause);
+        }
+    }
 
     private final String catalogName;
     private volatile CommitListener commitListener;
@@ -40,7 +45,7 @@ final class IcebergCommitNotifier {
 
     /**
      * Notifies the registered commit listener after a successful Iceberg commit.
-     * Never fails the commit due to listener errors.
+     * Propagates listener errors; the physical snapshot may already be committed.
      *
      * @param schemaName   schema name
      * @param tableName    table name
@@ -49,30 +54,39 @@ final class IcebergCommitNotifier {
      * @param snapshotId   the new snapshot ID
      * @param eventType    type of commit operation
      */
-    void notifyCommit(String schemaName,
+    void notifyCommit(String tenantId,
+                      String schemaName,
                       String tableName,
                       List<String> addedFiles,
                       List<String> removedFiles,
                       String snapshotId,
                       CommitEventType eventType) {
-        Consumer<String> cacheInvalidator = this.splitCacheInvalidator;
-        if (cacheInvalidator != null) {
-            cacheInvalidator.accept(tableName);
-        }
+        notifyCommit(tenantId, schemaName, tableName, addedFiles, removedFiles,
+                snapshotId, eventType, null);
+    }
 
-        CommitListener listener = this.commitListener;
-        if (listener == null) {
-            return;
-        }
+    void notifyCommit(String tenantId,
+                      String schemaName,
+                      String tableName,
+                      List<String> addedFiles,
+                      List<String> removedFiles,
+                      String snapshotId,
+                      CommitEventType eventType,
+                      String commitFingerprint) {
         try {
-            CommitEvent event = new CommitEvent(
-                    catalogName, schemaName, tableName,
-                    addedFiles, removedFiles,
-                    Instant.now(), snapshotId, eventType);
-            listener.onCommit(event);
-        } catch (Exception e) {
-            LOG.warn("action=commit_listener_failed table={}.{}.{} eventType={} error={}",
-                    catalogName, schemaName, tableName, eventType, e.getMessage());
+            Consumer<String> cacheInvalidator = this.splitCacheInvalidator;
+            if (cacheInvalidator != null) {
+                cacheInvalidator.accept(tableName);
+            }
+            CommitListener listener = this.commitListener;
+            if (listener != null) {
+                listener.onCommit(new CommitEvent(
+                        tenantId, catalogName, schemaName, tableName,
+                        addedFiles, removedFiles,
+                        Instant.now(), snapshotId, eventType, commitFingerprint));
+            }
+        } catch (RuntimeException failure) {
+            throw new NotificationFailure(catalogName, schemaName, tableName, failure);
         }
     }
 }

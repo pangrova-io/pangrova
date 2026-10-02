@@ -1,8 +1,9 @@
 package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
+import org.pangrova.protocol.batch.ColumnarBatch;
+import org.pangrova.protocol.batch.ColumnarPageSink;
 import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.data.page.NativePage;
 import org.pangrova.spi.connector.data.page.NativePageConverter;
@@ -44,7 +45,7 @@ import java.util.UUID;
  * <p>Not thread-safe: instances are confined to a single writer thread.
  */
 @NotThreadSafe
-abstract class AbstractIcebergPageSink implements ConnectorPageSink {
+abstract class AbstractIcebergPageSink implements ColumnarPageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(AbstractIcebergPageSink.class);
 
@@ -97,18 +98,45 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
     @Override
     public void appendPage(Page page) {
         for (TypedRow row : page.rows()) {
-            GenericRecord record = convertRow(row);
-            if (partitioned) {
-                writeToPartition(record);
-            } else {
-                writer.write(record);
+            writeRecord(convertRow(row));
+        }
+    }
+
+    /**
+     * Converts and writes each row synchronously without retaining the caller's batch.
+     *
+     * @param batch caller-owned batch, with missing target columns written as null
+     */
+    @Override
+    public void appendColumnarBatch(ColumnarBatch batch) {
+        List<Types.NestedField> fields = writeSchema.columns();
+        List<String> columns = batch.columns();
+        int[] ordinals = new int[fields.size()];
+        for (int column = 0; column < fields.size(); column++) {
+            ordinals[column] = columns.indexOf(fields.get(column).name());
+        }
+        int rowCount = batch.rowCount();
+        for (int row = 0; row < rowCount; row++) {
+            GenericRecord record = GenericRecord.create(parquetSafeSchema);
+            for (int column = 0; column < fields.size(); column++) {
+                Object value = ordinals[column] < 0 ? null : batch.value(row, ordinals[column]);
+                record.set(column, IcebergValueCoercion.coerceValue(value, fields.get(column).type()));
             }
+            writeRecord(record);
         }
     }
 
     @Override
     public void appendNativePage(NativePage page) {
         appendPage(NativePageConverter.toPage(page));
+    }
+
+    private void writeRecord(GenericRecord record) {
+        if (partitioned) {
+            writeToPartition(record);
+        } else {
+            writer.write(record);
+        }
     }
 
     private void writeToPartition(GenericRecord record) {
@@ -199,7 +227,7 @@ abstract class AbstractIcebergPageSink implements ConnectorPageSink {
         try {
             dataWriter.close();
             DataFile dataFile = dataWriter.toDataFile();
-            String path = dataFile.path().toString();
+            String path = dataFile.location();
             table.io().deleteFile(path);
             LOG.info("event=abort_partial_file_deleted table={}.{} path={}",
                     schemaName, tableName, path);

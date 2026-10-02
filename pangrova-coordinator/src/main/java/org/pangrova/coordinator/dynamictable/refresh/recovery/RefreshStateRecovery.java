@@ -9,6 +9,7 @@ import org.pangrova.coordinator.dynamictable.refresh.schema.SchemaEvolutionCheck
 import org.pangrova.metadata.dynamictable.DynamicTableLifecycleState;
 import org.pangrova.metadata.dynamictable.DynamicTableState;
 import org.pangrova.metadata.dynamictable.DynamicTableStateStore;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -167,7 +169,8 @@ public final class RefreshStateRecovery {
 
     private RecoverAction classifyAndRecover(DynamicTableState state,
                                              Function<String, Map<String, String>> schemaProvider) {
-        if (!tryAcquireRecoveryLock(state)) {
+        Optional<LeaseEntry> recoveryLease = acquireRecoveryLock(state);
+        if (lockManager != null && !coordinatorId.isEmpty() && recoveryLease.isEmpty()) {
             logSkipped(state, "locked_by_another_coordinator");
             return RecoverAction.SKIPPED;
         }
@@ -179,21 +182,18 @@ public final class RefreshStateRecovery {
             LOG.error("event=dt_recovery_error dtName={} error={}", state.dtName(), e.getMessage(), e);
             return RecoverAction.SKIPPED;
         } finally {
-            releaseRecoveryLock(state);
+            if (lockManager != null) {
+                recoveryLease.ifPresent(lockManager::release);
+            }
         }
     }
 
-    private boolean tryAcquireRecoveryLock(DynamicTableState state) {
+    private Optional<LeaseEntry> acquireRecoveryLock(DynamicTableState state) {
         if (lockManager == null || coordinatorId.isEmpty()) {
-            return true;
+            return Optional.empty();
         }
-        return lockManager.tryAcquire(state.dtName(), coordinatorId, state.epoch(), Duration.ofMinutes(1));
-    }
-
-    private void releaseRecoveryLock(DynamicTableState state) {
-        if (lockManager != null && !coordinatorId.isEmpty()) {
-            lockManager.release(state.dtName(), coordinatorId);
-        }
+        return lockManager.tryAcquire(
+                state.dtName(), coordinatorId, Duration.ofMinutes(1));
     }
 
     private RecoverAction recoverActiveState(DynamicTableState state,

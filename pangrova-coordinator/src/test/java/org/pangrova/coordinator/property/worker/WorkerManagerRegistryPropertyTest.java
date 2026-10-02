@@ -45,7 +45,6 @@ class WorkerManagerRegistryPropertyTest {
     private record MetricsPart(
             long availableMemoryBytes, Instant lastHeartbeat,
             double performanceScore, String resourcePoolId,
-            int protocolVersion, List<String> capabilities,
             String rackId, List<String> dataLocality) {}
 
     @Provide
@@ -68,8 +67,6 @@ class WorkerManagerRegistryPropertyTest {
                         System.currentTimeMillis()).map(Instant::ofEpochMilli),
                 Arbitraries.doubles().between(0.0, 1.0),
                 Arbitraries.of((String) null),
-                Arbitraries.integers().between(1, 5),
-                Arbitraries.of("SCAN", "JOIN", "AGG").list().ofMinSize(0).ofMaxSize(3),
                 Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(6)
                         .map(s -> "rack-" + s).injectNull(0.3),
                 Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(6)
@@ -83,8 +80,9 @@ class WorkerManagerRegistryPropertyTest {
                 id.cpuUtilization(), id.runningTaskCount(),
                 m.availableMemoryBytes(), m.lastHeartbeat(),
                 m.performanceScore(), m.resourcePoolId(),
-                m.protocolVersion(), m.capabilities(),
-                m.rackId(), m.dataLocality()));
+                2, m.rackId(), m.dataLocality(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder
+                        .canonicalInventory()));
     }
 
     @Provide
@@ -189,8 +187,9 @@ class WorkerManagerRegistryPropertyTest {
                     template.cpuUtilization(), template.runningTaskCount(),
                     template.availableMemoryBytes(), Instant.now(),
                     template.performanceScore(), null,
-                    template.protocolVersion(), template.capabilities(),
-                    template.rackId(), template.dataLocality());
+                    template.protocolVersion(), template.rackId(),
+                    template.dataLocality(), null,
+                    template.capabilityInventory());
             manager.registerWorker(worker);
             registeredIds.add(uniqueId);
         }

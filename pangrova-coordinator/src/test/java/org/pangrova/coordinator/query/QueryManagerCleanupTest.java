@@ -144,7 +144,7 @@ class QueryManagerCleanupTest {
                         scheduler,
                         new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
-                        null, null, null, null, 0L),
+                        null, null, null, 0L),
                 null, null);
     }
 }

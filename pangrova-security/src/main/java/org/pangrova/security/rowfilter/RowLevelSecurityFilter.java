@@ -5,6 +5,7 @@ import org.pangrova.spi.security.UserIdentity;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -38,8 +39,9 @@ public class RowLevelSecurityFilter {
      * @return a safe SQL expression with user values validated and bound, or empty if no policies apply
      * @throws IllegalArgumentException if any user value contains unsafe SQL metacharacters
      */
-    public Optional<String> getFilter(UserIdentity user, String catalog, String schema, String table) {
-        return getParameterizedFilter(user, catalog, schema, table)
+    public Optional<String> getFilter(UserIdentity user, Set<String> effectiveRoles,
+                                      String catalog, String schema, String table) {
+        return getParameterizedFilter(user, effectiveRoles, catalog, schema, table)
                 .map(ParameterizedFilter::toSafeExpression);
     }
 
@@ -50,9 +52,20 @@ public class RowLevelSecurityFilter {
      *
      * @return the parameterized filter, or empty if no policies apply
      */
-    public Optional<ParameterizedFilter> getParameterizedFilter(UserIdentity user,
+    public Optional<ParameterizedFilter> getParameterizedFilter(UserIdentity user, Set<String> effectiveRoles,
                                                                  String catalog, String schema, String table) {
-        List<RowPolicy> applicable = filterApplicable(store.getPolicies(catalog, schema, table), user);
+        List<RowPolicy> applicable = filterApplicable(store.getPolicies(catalog, schema, table), effectiveRoles);
+        return bindApplicablePolicies(user, applicable);
+    }
+
+    /** Renders policies read on the caller's current authorization transaction. */
+    public static Optional<String> renderPolicies(
+            UserIdentity user, Set<String> effectiveRoles, List<RowPolicy> policies) {
+        return bindApplicablePolicies(user, filterApplicable(policies, effectiveRoles))
+                .map(ParameterizedFilter::toSafeExpression);
+    }
+
+    private static Optional<ParameterizedFilter> bindApplicablePolicies(UserIdentity user, List<RowPolicy> applicable) {
         if (applicable.isEmpty()) {
             return Optional.empty();
         }
@@ -61,27 +74,27 @@ public class RowLevelSecurityFilter {
         return Optional.of(bindUserContext(merged, user));
     }
 
-    private List<RowPolicy> filterApplicable(List<RowPolicy> policies, UserIdentity user) {
+    private static List<RowPolicy> filterApplicable(List<RowPolicy> policies, Set<String> effectiveRoles) {
         return policies.stream()
                 .filter(RowPolicy::enabled)
-                .filter(p -> p.appliesTo(user))
+                .filter(p -> p.appliesTo(effectiveRoles))
                 .toList();
     }
 
-    private List<RowPolicy> sortPolicies(List<RowPolicy> policies) {
+    private static List<RowPolicy> sortPolicies(List<RowPolicy> policies) {
         return policies.stream()
                 .sorted(Comparator.comparingInt(RowPolicy::priority).reversed()
                         .thenComparing(RowPolicy::policyName))
                 .toList();
     }
 
-    private String mergeExpressions(List<RowPolicy> policies) {
+    private static String mergeExpressions(List<RowPolicy> policies) {
         return policies.stream()
                 .map(p -> "(" + p.filterExpression() + ")")
                 .collect(Collectors.joining(" AND "));
     }
 
-    private ParameterizedFilter bindUserContext(String expression, UserIdentity user) {
+    private static ParameterizedFilter bindUserContext(String expression, UserIdentity user) {
         List<ParameterizedFilter.BoundParameter> params = new ArrayList<>();
         int paramIndex = 1;
 

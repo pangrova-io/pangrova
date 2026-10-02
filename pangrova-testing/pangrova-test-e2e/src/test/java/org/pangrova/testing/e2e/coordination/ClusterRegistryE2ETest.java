@@ -6,7 +6,6 @@ import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.coordination.JdbcCoordinatorRegistry;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
 import org.pangrova.metadata.coordination.JdbcWorkerRegistry;
 import org.pangrova.metadata.store.EmbeddedDataSource;
 import org.pangrova.resource.MemoryPressure;
@@ -14,13 +13,15 @@ import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.spi.coordination.WorkerSnapshot;
 import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.e2e.fixture.RegistryTestSchemaHelper;
+import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
+import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.pangrova.testing.e2e.SharedTestContainers;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
@@ -61,20 +62,15 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-                SharedTestContainers.AVAILABLE && SharedTestContainers.POSTGRES.isRunning(),
-                "Docker/PostgreSQL is not available — skipping container-based tests");
-        var pg = SharedTestContainers.POSTGRES;
+        var pg = RegistryTestSchemaHelper.requirePostgres();
         dataSource = new EmbeddedDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
-        RegistryTestSchemaHelper.createWorkerRegistryTable(dataSource);
-        RegistryTestSchemaHelper.createCoordinatorRegistryTable(dataSource);
-        RegistryTestSchemaHelper.createDistributedLeaseTable(dataSource);
+        MetadataSchemaInitializer.createSchema(dataSource);
         RegistryTestSchemaHelper.truncateAll(dataSource,
-                "worker_registry", "coordinator_registry", "distributed_lease");
+                "worker_registry", "coordinator_registry");
         workerRegistry = new JdbcWorkerRegistry(dataSource);
         coordinatorRegistry = new JdbcCoordinatorRegistry(dataSource);
-        lease = new JdbcDistributedLease(dataSource);
+        lease = new TestLeaseNamespace().jdbc(dataSource);
     }
 
     @AfterEach
@@ -83,7 +79,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             return;
         }
         RegistryTestSchemaHelper.truncateAll(dataSource,
-                "worker_registry", "coordinator_registry", "distributed_lease");
+                "worker_registry", "coordinator_registry");
     }
 
     // -----------------------------------------------------------------------
@@ -160,9 +156,11 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
             managerA.registerWorker(createWorkerInfo("worker-2", "w-host-2", 9002, 9102));
             managerA.registerWorker(createWorkerInfo("worker-3", "w-host-3", 9003, 9103));
             assertThat(managerA.getActiveWorkers()).hasSize(3);
+            long previousEpoch = haA.getCurrentEpoch();
 
             // LEADER crashes (close)
             haA.close();
+            assertThat(lease.currentHolder("coordinator_leader")).isEmpty();
 
             // STANDBY takes over
             HighAvailabilityCoordinationService haB = new HighAvailabilityCoordinationService(lease, config);
@@ -176,6 +174,7 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
                 haB.start("coordinator-b");
 
                 assertThat(haB.getRole()).isEqualTo(HighAvailabilityCoordinationService.Role.LEADER);
+                assertThat(haB.getCurrentEpoch()).isGreaterThan(previousEpoch);
 
                 // loadFromRegistry recovers 3 workers (triggered by start→tryBecomeLeader→failover callback)
                 // If failover callback wasn't triggered (first leader, not failover), load manually
@@ -412,6 +411,6 @@ class ClusterRegistryE2ETest extends ContainerTestBase {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 4L * 1024 * 1024 * 1024,
                 Instant.now(), 0.0, null,
-                1, List.of(), null, List.of());
+                2, null, List.of(), null, CanonicalWorkerInventory.empty());
     }
 }

@@ -6,6 +6,7 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Tag;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 import java.io.File;
 import java.lang.reflect.Method;
@@ -44,18 +45,22 @@ class ProtocolImmutabilityPropertyTest {
     private static final List<Class<?>> ALL_DTO_CLASSES = discoverDtoClasses();
 
     /**
-     * Property 8: All REST DTO classes are Java records.
+     * Property 8: REST DTO classes use an immutable representation.
      *
      * <p>For any REST DTO class discovered via classpath scanning,
-     * the class must be a Java record type.</p>
+     * the class must be a Java record or the final canonical task envelope.</p>
      *
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
     @Property(tries = 10)
-    @Tag("Feature: full-pipeline-audit-fix, Property 8: Protocol object immutability")
-    void allDtosAreRecords(@ForAll("dtoClasses") Class<?> dtoClass) {
-        assertThat(dtoClass.isRecord())
-                .as("DTO %s must be a Java record", dtoClass.getSimpleName())
+    @Tag("protocol-immutability")
+    void allDtosUseImmutableRepresentations(
+            @ForAll("dtoClasses") Class<?> dtoClass) {
+        assertThat(dtoClass.isRecord()
+                || (dtoClass == SubmitTaskRequest.class
+                && java.lang.reflect.Modifier.isFinal(dtoClass.getModifiers())))
+                .as("DTO %s must be a record or the final canonical envelope",
+                        dtoClass.getSimpleName())
                 .isTrue();
     }
 
@@ -68,7 +73,7 @@ class ProtocolImmutabilityPropertyTest {
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
     @Property(tries = 10)
-    @Tag("Feature: full-pipeline-audit-fix, Property 8: Protocol object immutability")
+    @Tag("protocol-immutability")
     void noDtoHasSetters(@ForAll("dtoClasses") Class<?> dtoClass) {
         for (Method method : dtoClass.getMethods()) {
             if (method.getDeclaringClass() == Object.class) {
@@ -88,13 +93,13 @@ class ProtocolImmutabilityPropertyTest {
      *
      * <p>For any REST DTO record, every component type must be either
      * a primitive, a known immutable type (String, boxed primitives),
-     * a {@link List} or {@link Map} (defensively copied in compact
+     * a {@link List}, {@link Map}, or {@link Set} (defensively copied in compact
      * constructors), or another protocol record.</p>
      *
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
     @Property(tries = 10)
-    @Tag("Feature: full-pipeline-audit-fix, Property 8: Protocol object immutability")
+    @Tag("protocol-immutability")
     void allComponentsAreImmutableTypes(@ForAll("dtoClasses") Class<?> dtoClass) {
         if (!dtoClass.isRecord()) {
             return; // covered by allDtosAreRecords
@@ -124,8 +129,8 @@ class ProtocolImmutabilityPropertyTest {
         if (ALLOWED_IMMUTABLE_TYPES.contains(type)) {
             return true;
         }
-        // List and Map are allowed when defensively copied (verified by RestDtoImmutabilityTest)
-        if (type == List.class || type == Map.class) {
+        // Collections are allowed when defensively copied (verified by RestDtoImmutabilityTest).
+        if (type == List.class || type == Map.class || type == Set.class) {
             return true;
         }
         // byte[] is allowed when defensively copied in compact constructor and accessor

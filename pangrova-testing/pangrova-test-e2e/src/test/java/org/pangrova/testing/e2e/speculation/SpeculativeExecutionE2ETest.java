@@ -6,6 +6,10 @@ import org.pangrova.coordinator.speculation.SpeculativeTaskLauncher;
 import org.pangrova.coordinator.speculation.StragglerDetector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskDuration;
+import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
+import org.pangrova.coordinator.worker.WorkerManager;
+import org.pangrova.common.resilience.CircuitBreakerPolicy;
+import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
@@ -109,43 +113,47 @@ class SpeculativeExecutionE2ETest extends SqlE2ETestBase {
     }
 
     @Nested
-    @DisplayName("SpeculativeTaskLauncher Pair Management")
+    @DisplayName("SpeculativeTaskLauncher Admission")
     class TaskLauncherTest {
 
         @Test
-        @DisplayName("launches speculative copy and tracks original-speculative pair")
-        void launchAndTrackPair() {
+        @DisplayName("requires configured dispatch dependencies")
+        void launchRequiresDispatchDependencies() {
             SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
 
-            String specId = launcher.launchSpeculative("task-1", "worker-A");
-
-            assertThat(specId).startsWith("spec-");
-            assertThat(launcher.isSpeculative(specId)).isTrue();
-            assertThat(launcher.getOriginalTaskId(specId)).hasValue("task-1");
-            assertThat(launcher.getSpeculativeTaskId("task-1")).hasValue(specId);
-            assertThat(launcher.getOriginalTasksWithCopies()).containsExactly("task-1");
-        }
-
-        @Test
-        @DisplayName("removePair cleans up both forward and reverse mappings")
-        void removePairCleansUp() {
-            SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
-            String specId = launcher.launchSpeculative("task-1", "worker-A");
-
-            launcher.removePair("task-1");
-
-            assertThat(launcher.isSpeculative(specId)).isFalse();
-            assertThat(launcher.getSpeculativeTaskId("task-1")).isEmpty();
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> launcher.launchSpeculative("task-1", "worker-A", "query-1"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("dispatch dependencies");
             assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
         }
 
         @Test
-        @DisplayName("isSpeculative returns false for original task IDs")
-        void isSpeculativeReturnsFalseForOriginal() {
+        @DisplayName("requires a nonblank query identity")
+        void launchRequiresQueryIdentity() {
             SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
-            launcher.launchSpeculative("task-1", "worker-A");
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> launcher.launchSpeculative("task-1", "worker-A", ""))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("queryId");
+        }
 
+        @Test
+        @DisplayName("missing original task cannot leave a speculative pair")
+        void missingOriginalRequestDoesNotLeavePair() {
+            SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
+            launcher.setDispatchDependencies(
+                    new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(),
+                            new NoOpTracingProvider()),
+                    new WorkerManager(20_000, 60_000,
+                            new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()),
+                    new CoordinatorTaskTracker());
+
+            assertThat(launcher.launchSpeculative("task-1", "worker-A", "query-1"))
+                    .isNull();
             assertThat(launcher.isSpeculative("task-1")).isFalse();
+            assertThat(launcher.getSpeculativeTaskId("task-1")).isEmpty();
+            assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
         }
     }
 

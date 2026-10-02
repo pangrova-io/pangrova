@@ -101,15 +101,19 @@ class WorkerBootstrapComponentAssemblyTest {
     void memoryArbitratorIsConfigured() throws Exception {
         WorkerBootstrapConfig.ResourceConfig rc = new WorkerBootstrapConfig.ResourceConfig(
                 256L * 1024 * 1024, 32L * 1024 * 1024, 2, 1, 1, null, 0,
-                50.0, 70.0, 85.0, 95.0);
+                50.0, 70.0, 85.0, 95.0,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_RETENTION,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_TRANSIT,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL,
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL_FILES, null);
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "comp-mem", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, rc, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        bootstrap = configuredBootstrap(config);
         bootstrap.start();
 
         org.pangrova.resource.ResourceManager rm =
@@ -157,8 +161,8 @@ class WorkerBootstrapComponentAssemblyTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, null, 0, false, null, null, null,
                 null, null,
-                null);
-        bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        bootstrap = configuredBootstrap(config);
         bootstrap.start();
         Object heartbeatSender = getRefField(bootstrap, "heartbeatSender");
         assertThat(heartbeatSender).isNotNull();
@@ -187,7 +191,7 @@ class WorkerBootstrapComponentAssemblyTest {
 
     @Test
     void shutdownWithoutStartIsNoOp() {
-        bootstrap = new WorkerBootstrap(testConfig("comp-no-start"));
+        bootstrap = configuredBootstrap(testConfig("comp-no-start"));
         assertThatCode(() -> bootstrap.shutdown()).doesNotThrowAnyException();
         assertThat(bootstrap.isStarted()).isFalse();
         bootstrap = null;
@@ -215,8 +219,12 @@ class WorkerBootstrapComponentAssemblyTest {
     // -- Helpers --
 
     private void startDefaultWorker(String workerId) {
-        bootstrap = new WorkerBootstrap(testConfig(workerId));
+        bootstrap = configuredBootstrap(testConfig(workerId));
         bootstrap.start();
+    }
+
+    private static WorkerBootstrap configuredBootstrap(WorkerBootstrapConfig config) {
+        return TestWorkerBootstrap.create(config);
     }
 
     private static WorkerBootstrapConfig testConfig(String workerId) {
@@ -226,7 +234,7 @@ class WorkerBootstrapComponentAssemblyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
+                null, null, null);
     }
 
     private static Object getField(Object target, String fieldName) throws Exception {

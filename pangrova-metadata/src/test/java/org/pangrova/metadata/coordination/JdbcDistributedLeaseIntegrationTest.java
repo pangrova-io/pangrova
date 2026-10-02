@@ -60,9 +60,10 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
     void singleCoordinatorAcquiresLease() {
         DistributedLease lease = new JdbcDistributedLease(dataSource);
 
-        boolean acquired = lease.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(30));
+        Optional<LeaseEntry> acquired = lease.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(30));
 
-        assertThat(acquired).isTrue();
+        assertThat(acquired).isPresent();
         Optional<LeaseEntry> holder = lease.currentHolder("leader");
         assertThat(holder).isPresent();
         assertThat(holder.get().holderId()).isEqualTo("coord-1");
@@ -75,11 +76,13 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
         DistributedLease lease1 = new JdbcDistributedLease(dataSource);
         DistributedLease lease2 = new JdbcDistributedLease(dataSource);
 
-        boolean acquired1 = lease1.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(30));
-        boolean acquired2 = lease2.tryAcquire("leader", "coord-2", 1, Duration.ofSeconds(30));
+        Optional<LeaseEntry> acquired1 = lease1.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(30));
+        Optional<LeaseEntry> acquired2 = lease2.tryAcquire(
+                "leader", "coord-2", Duration.ofSeconds(30));
 
-        assertThat(acquired1).isTrue();
-        assertThat(acquired2).isFalse();
+        assertThat(acquired1).isPresent();
+        assertThat(acquired2).isEmpty();
 
         Optional<LeaseEntry> holder = lease1.currentHolder("leader");
         assertThat(holder).isPresent();
@@ -90,9 +93,11 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
     @DisplayName("Heartbeat renewal extends lease expiry")
     void heartbeatRenewalExtendsExpiry() {
         DistributedLease lease = new JdbcDistributedLease(dataSource);
-        lease.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(10));
+        LeaseEntry held = lease.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(10)).orElseThrow();
 
-        boolean renewed = lease.tryRenew("leader", "coord-1", Duration.ofSeconds(30));
+        boolean renewed = lease.tryRenew(
+                "leader", "coord-1", held.epoch(), Duration.ofSeconds(30));
 
         assertThat(renewed).isTrue();
         Optional<LeaseEntry> holder = lease.currentHolder("leader");
@@ -104,9 +109,11 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
     @DisplayName("Non-holder cannot renew lease")
     void nonHolderCannotRenew() {
         DistributedLease lease = new JdbcDistributedLease(dataSource);
-        lease.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(30));
+        LeaseEntry held = lease.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(30)).orElseThrow();
 
-        boolean renewed = lease.tryRenew("leader", "coord-2", Duration.ofSeconds(30));
+        boolean renewed = lease.tryRenew(
+                "leader", "coord-2", held.epoch(), Duration.ofSeconds(30));
 
         assertThat(renewed).isFalse();
     }
@@ -117,12 +124,14 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
         DistributedLease lease1 = new JdbcDistributedLease(dataSource);
         DistributedLease lease2 = new JdbcDistributedLease(dataSource);
 
-        lease1.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(30));
-        boolean released = lease1.release("leader", "coord-1");
+        LeaseEntry first = lease1.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(30)).orElseThrow();
+        boolean released = lease1.release("leader", "coord-1", first.epoch());
         assertThat(released).isTrue();
 
-        boolean acquired2 = lease2.tryAcquire("leader", "coord-2", 1, Duration.ofSeconds(30));
-        assertThat(acquired2).isTrue();
+        LeaseEntry acquired2 = lease2.tryAcquire(
+                "leader", "coord-2", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(acquired2.epoch()).isEqualTo(first.epoch() + 1);
 
         Optional<LeaseEntry> holder = lease2.currentHolder("leader");
         assertThat(holder).isPresent();
@@ -136,14 +145,16 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
         DistributedLease lease2 = new JdbcDistributedLease(dataSource);
 
         // Acquire with very short TTL to simulate crash (no renewal)
-        lease1.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(2));
+        LeaseEntry first = lease1.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(2)).orElseThrow();
 
         // Wait for expiry
         await().atMost(5, SECONDS).until(() -> lease1.currentHolder("leader").isEmpty());
 
         // Second coordinator can now acquire
-        boolean acquired2 = lease2.tryAcquire("leader", "coord-2", 1, Duration.ofSeconds(30));
-        assertThat(acquired2).isTrue();
+        LeaseEntry acquired2 = lease2.tryAcquire(
+                "leader", "coord-2", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(acquired2.epoch()).isEqualTo(first.epoch() + 1);
 
         Optional<LeaseEntry> holder = lease2.currentHolder("leader");
         assertThat(holder).isPresent();
@@ -151,21 +162,18 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
     }
 
     @Test
-    @DisplayName("Epoch fencing: higher epoch replaces active lease")
-    void epochFencingReplacesActiveLease() {
+    @DisplayName("Active lease cannot be preempted by a contender")
+    void activeLeaseCannotBePreempted() {
         DistributedLease lease1 = new JdbcDistributedLease(dataSource);
         DistributedLease lease2 = new JdbcDistributedLease(dataSource);
 
-        lease1.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(30));
-
-        // Higher epoch can force-replace
-        boolean acquired2 = lease2.tryAcquire("leader", "coord-2", 2, Duration.ofSeconds(30));
-        assertThat(acquired2).isTrue();
+        LeaseEntry first = lease1.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(lease2.tryAcquire("leader", "coord-2", Duration.ofSeconds(30)))
+                .isEmpty();
 
         Optional<LeaseEntry> holder = lease2.currentHolder("leader");
-        assertThat(holder).isPresent();
-        assertThat(holder.get().holderId()).isEqualTo("coord-2");
-        assertThat(holder.get().epoch()).isEqualTo(2);
+        assertThat(holder).contains(first);
     }
 
     @Test
@@ -183,7 +191,8 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
                 try {
                     startLatch.await();
                     DistributedLease lease = new JdbcDistributedLease(dataSource);
-                    if (lease.tryAcquire("leader", coordId, 1, Duration.ofSeconds(30))) {
+                    if (lease.tryAcquire(
+                            "leader", coordId, Duration.ofSeconds(30)).isPresent()) {
                         winnerCount.incrementAndGet();
                     }
                 } catch (InterruptedException e) {
@@ -202,17 +211,19 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
     }
 
     @Test
-    @DisplayName("expireStale removes expired entries")
-    void expireStaleRemovesExpiredEntries() throws Exception {
+    @DisplayName("expired lease retains its epoch high-water mark")
+    void expiredLeaseRetainsEpochHighWatermark() {
         DistributedLease lease = new JdbcDistributedLease(dataSource);
 
-        lease.tryAcquire("key-1", "coord-1", 1, Duration.ofSeconds(1));
-        lease.tryAcquire("key-2", "coord-2", 1, Duration.ofSeconds(30));
+        LeaseEntry first = lease.tryAcquire(
+                "key-1", "coord-1", Duration.ofSeconds(1)).orElseThrow();
+        lease.tryAcquire("key-2", "coord-2", Duration.ofSeconds(30));
 
-        // Poll until key-1's 1-second TTL has elapsed and expireStale() removes it
-        await().atMost(5, SECONDS).until(() -> lease.expireStale() >= 1);
+        await().atMost(5, SECONDS).until(() -> lease.currentHolder("key-1").isEmpty());
+        LeaseEntry next = lease.tryAcquire(
+                "key-1", "coord-3", Duration.ofSeconds(30)).orElseThrow();
 
-        assertThat(lease.currentHolder("key-1")).isEmpty();
+        assertThat(next.epoch()).isEqualTo(first.epoch() + 1);
         assertThat(lease.currentHolder("key-2")).isPresent();
     }
 
@@ -221,11 +232,12 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
     void reentrantAcquisitionSucceeds() {
         DistributedLease lease = new JdbcDistributedLease(dataSource);
 
-        boolean first = lease.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(30));
-        boolean second = lease.tryAcquire("leader", "coord-1", 1, Duration.ofSeconds(30));
+        LeaseEntry first = lease.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(30)).orElseThrow();
+        LeaseEntry second = lease.tryAcquire(
+                "leader", "coord-1", Duration.ofSeconds(30)).orElseThrow();
 
-        assertThat(first).isTrue();
-        assertThat(second).isTrue();
+        assertThat(second).isEqualTo(first);
     }
 
     // --- Schema helpers ---
@@ -238,8 +250,8 @@ class JdbcDistributedLeaseIntegrationTest extends ContainerTestBase {
                         lease_key   VARCHAR(255) PRIMARY KEY,
                         holder_id   VARCHAR(255) NOT NULL,
                         epoch       BIGINT       NOT NULL DEFAULT 0,
-                        acquired_at TIMESTAMP(3) NOT NULL,
-                        expires_at  TIMESTAMP(3) NOT NULL,
+                        acquired_at TIMESTAMPTZ(6) NOT NULL,
+                        expires_at  TIMESTAMPTZ(6) NOT NULL,
                         version     BIGINT       NOT NULL DEFAULT 0
                     )""");
             stmt.execute("""

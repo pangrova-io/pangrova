@@ -24,8 +24,8 @@ public final class SetClusteringOrderTask implements MetadataTask<SetClusteringO
 
     @Override
     public StatementResult execute(SetClusteringOrderStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeSetClusteringOrder(statement);
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeSetClusteringOrder(statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.CLUSTERING);
     }
 

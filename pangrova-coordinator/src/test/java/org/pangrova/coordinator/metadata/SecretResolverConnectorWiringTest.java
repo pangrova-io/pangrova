@@ -40,7 +40,7 @@ class SecretResolverConnectorWiringTest {
         SecretResolver resolver = new SecretResolver();
         resolver.register(new EnvSecretProvider());
         resolver.register(new FileSecretProvider(tempDir));
-        factory = new PluginConnectorHandleFactory(getClass().getClassLoader(), resolver);
+        factory = new PluginConnectorHandleFactory(getClass().getClassLoader(), resolver, descriptor -> java.util.Optional.empty());
     }
 
     @AfterEach

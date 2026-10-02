@@ -6,9 +6,14 @@
 
 #include <gtest/gtest.h>
 
+#include <openssl/evp.h>
+
+#include <array>
+
 #include "jni/command/StatusSerializer.h"
 
-#include "pangrova/native/protocol/v1/task.pb.h"
+#include "pangrova/protocol/v2/result.pb.h"
+#include "pangrova/protocol/v2/runtime.pb.h"
 
 // Velox TaskStats for constructing test data.
 #if __has_include("velox/exec/TaskStats.h")
@@ -20,6 +25,14 @@
 
 namespace pangrova::jni::test {
 namespace {
+
+std::string reportSha256(std::string_view input) {
+  std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+  unsigned int size = 0;
+  EXPECT_EQ(EVP_Digest(input.data(), input.size(), digest.data(), &size,
+                       EVP_sha256(), nullptr), 1);
+  return {reinterpret_cast<const char*>(digest.data()), size};
+}
 
 #if PANGROVA_HAS_VELOX_TASK_STATS
 
@@ -57,7 +70,7 @@ TEST_F(StatusSerializerTest, SerializeEmptyTaskStats) {
   facebook::velox::exec::TaskStats taskStats;
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   EXPECT_EQ(proto.elapsed_time_ms(), 0);
@@ -87,7 +100,7 @@ TEST_F(StatusSerializerTest, SerializeSingleOperator) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   EXPECT_EQ(proto.elapsed_time_ms(), 1500);
@@ -140,7 +153,7 @@ TEST_F(StatusSerializerTest, SerializeMultiplePipelinesAndOperators) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   EXPECT_EQ(proto.elapsed_time_ms(), 500);
@@ -176,14 +189,14 @@ TEST_F(StatusSerializerTest, SerializeRoundTrip) {
   auto bytes = serializeNativeTaskStats(taskStats);
 
   // First deserialization.
-  pangrova::native::protocol::v1::TaskStats proto1;
+  pangrova::protocol::v2::NativeTaskStats proto1;
   ASSERT_TRUE(proto1.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   // Re-serialize and deserialize again.
   std::vector<uint8_t> bytes2(proto1.ByteSizeLong());
   proto1.SerializeToArray(bytes2.data(), static_cast<int>(bytes2.size()));
 
-  pangrova::native::protocol::v1::TaskStats proto2;
+  pangrova::protocol::v2::NativeTaskStats proto2;
   ASSERT_TRUE(proto2.ParseFromArray(bytes2.data(), static_cast<int>(bytes2.size())));
 
   // Verify round-trip equivalence.
@@ -209,7 +222,7 @@ TEST_F(StatusSerializerTest, AllMetricsNonNegative) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   EXPECT_GE(proto.elapsed_time_ms(), 0);
@@ -232,6 +245,164 @@ TEST_F(StatusSerializerTest, AllMetricsNonNegative) {
     EXPECT_GE(op.peak_memory_bytes(), 0);
     EXPECT_GE(op.spill_bytes(), 0);
   }
+}
+
+TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
+  executor::TaskExecutorConfig config;
+  config.task_id = "task-1";
+  config.query_id = "job-1";
+  config.stage_id = 3;
+  config.partition_id = 7;
+  config.plan_epoch = 11;
+  config.attempt_id = 2;
+  config.fencing_token = 47;
+  config.control_epoch = 13;
+  config.owner_id = "coordinator-a";
+  config.owner_incarnation = "process-a";
+  config.owner_fencing_token = 19;
+  executor::TaskExecutor executor(config);
+
+  protocol::v2::ArtifactWorkReport report;
+  report.set_job_id("job-1");
+  report.set_page_id("page-1");
+  report.set_fencing_token(5);
+  report.set_source_id("catalog.schema.items");
+  report.set_source_snapshot("snapshot-1");
+  report.set_staging_generation("generation-1");
+  auto* output = report.add_outputs();
+  output->set_object_id("object-1");
+  output->set_opaque_uri("s3://bucket/object-1");
+  output->set_size_bytes(10);
+  output->set_object_role("GRAPH");
+  output->set_source_object_id("source-1");
+  output->set_scope(
+      protocol::v2::ARTIFACT_OBJECT_SCOPE_SOURCE_OBJECT);
+  output->set_row_count(1);
+  output->mutable_checksum()->set_algorithm(
+      protocol::v2::Checksum::ALGORITHM_SHA256);
+  output->mutable_checksum()->set_digest(std::string(32, 'a'));
+  report.mutable_report_checksum()->set_algorithm(
+      protocol::v2::Checksum::ALGORITHM_SHA256);
+  auto unsigned_report = report;
+  unsigned_report.clear_report_checksum();
+  report.mutable_report_checksum()->set_digest(
+      reportSha256(unsigned_report.SerializeAsString()));
+  config.artifact_report_state->publish(report);
+
+  auto bytes = serializeTaskStatus(executor);
+  protocol::v2::TaskReport status;
+  ASSERT_TRUE(status.ParseFromArray(bytes.data(), bytes.size()));
+  ASSERT_TRUE(status.has_attempt());
+  EXPECT_EQ(status.report_origin(),
+            protocol::v2::TASK_REPORT_ORIGIN_NATIVE);
+  EXPECT_EQ(status.attempt().query_or_job_id(), "job-1");
+  EXPECT_EQ(status.attempt().task_id(), "task-1");
+  EXPECT_EQ(status.attempt().stage_id(), 3);
+  EXPECT_EQ(status.attempt().partition_id(), 7);
+  EXPECT_EQ(status.attempt().plan_epoch(), 11);
+  EXPECT_EQ(status.attempt().attempt_id(), 2);
+  EXPECT_EQ(status.attempt().fencing_token(), 47);
+  EXPECT_EQ(status.attempt().control_epoch(), 13);
+  ASSERT_TRUE(status.attempt().has_execution_owner());
+  EXPECT_EQ(status.attempt().execution_owner().owner_id(), "coordinator-a");
+  EXPECT_EQ(status.attempt().execution_owner().owner_incarnation(), "process-a");
+  EXPECT_EQ(status.attempt().execution_owner().fencing_token(), 19);
+  ASSERT_TRUE(status.has_artifact_work());
+  EXPECT_EQ(status.artifact_work().SerializeAsString(), report.SerializeAsString());
+}
+
+TEST_F(StatusSerializerTest, FailedTaskReportsPinnedSourceCoverage) {
+  executor::TaskExecutorConfig config;
+  config.task_id = "task-coverage";
+  config.query_id = "query-coverage";
+  config.stage_id = 4;
+  config.partition_id = 8;
+  config.plan_epoch = 3;
+  config.attempt_id = 1;
+  config.fencing_token = 33;
+  config.control_epoch = 7;
+  config.owner_id = "coordinator-b";
+  config.owner_incarnation = "process-b";
+  config.owner_fencing_token = 12;
+  for (int index = 0; index < 2; ++index) {
+    split::SplitConfig split;
+    split.split_id = "split-" + std::to_string(index);
+    split.table_name = "catalog.schema.events";
+    split.source_snapshot = "snapshot-42";
+    split.data_object_id = "object-" + std::to_string(index);
+    config.splits.push_back(std::move(split));
+  }
+  executor::TaskExecutor executor(config);
+  executor.notifyTaskFailed("source read failed");
+
+  auto bytes = serializeTaskStatus(executor);
+  protocol::v2::TaskReport status;
+  ASSERT_TRUE(status.ParseFromArray(bytes.data(), bytes.size()));
+  EXPECT_EQ(status.state(), protocol::v2::TASK_STATE_FAILED);
+  EXPECT_EQ(status.report_origin(),
+            protocol::v2::TASK_REPORT_ORIGIN_NATIVE);
+  ASSERT_TRUE(status.has_error());
+  ASSERT_TRUE(status.has_coverage());
+  const auto& coverage = status.coverage();
+  EXPECT_EQ(coverage.completion_state(),
+            protocol::v2::COMPLETION_STATE_PARTIAL);
+  EXPECT_EQ(coverage.expected_work_units(), 2);
+  EXPECT_EQ(coverage.completed_work_units(), 0);
+  EXPECT_DOUBLE_EQ(coverage.coverage_ratio(), 0.0);
+  ASSERT_EQ(coverage.failed_work_unit_ids_size(), 2);
+  EXPECT_EQ(coverage.failed_work_unit_ids(0), "split-0");
+  EXPECT_EQ(coverage.failed_work_unit_ids(1), "split-1");
+  ASSERT_EQ(coverage.source_snapshots_size(), 1);
+  EXPECT_EQ(coverage.source_snapshots(0).source_id(),
+            "catalog.schema.events");
+  EXPECT_EQ(coverage.source_snapshots(0).snapshot_id(), "snapshot-42");
+  EXPECT_EQ(coverage.source_snapshots(0).expected_work_units(), 2);
+  EXPECT_EQ(coverage.source_snapshots(0).completed_work_units(), 0);
+}
+
+TEST_F(StatusSerializerTest, FailedTaskReportsBoundLargeSplitCoverage) {
+  executor::TaskExecutorConfig config;
+  config.task_id = "task-large-coverage";
+  config.query_id = "query-large-coverage";
+  for (int index = 0; index < 4097; ++index) {
+    split::SplitConfig split;
+    split.split_id = "split-" + std::to_string(index);
+    split.table_name = "catalog.schema.events";
+    split.source_snapshot = "snapshot-42";
+    config.splits.push_back(std::move(split));
+  }
+  executor::TaskExecutor executor(config);
+  executor.notifyTaskFailed("source read failed");
+
+  auto bytes = serializeTaskStatus(executor);
+  protocol::v2::TaskReport status;
+  ASSERT_TRUE(status.ParseFromArray(bytes.data(), bytes.size()));
+  ASSERT_TRUE(status.has_coverage());
+  const auto& coverage = status.coverage();
+  EXPECT_EQ(status.report_origin(), protocol::v2::TASK_REPORT_ORIGIN_NATIVE);
+  EXPECT_TRUE(coverage.all_work_units_failed());
+  EXPECT_EQ(coverage.failed_work_unit_ids_size(), 0);
+  EXPECT_EQ(coverage.expected_work_units(), 4097);
+  EXPECT_EQ(coverage.completed_work_units(), 0);
+  ASSERT_EQ(coverage.source_snapshots_size(), 1);
+  EXPECT_EQ(coverage.source_snapshots(0).expected_work_units(), 4097);
+}
+
+TEST_F(StatusSerializerTest, FailedTaskRetainsTaskOwnedColumnarCopyObservation) {
+  executor::TaskExecutorConfig config;
+  config.task_id = "copy-observation-owner";
+  config.query_id = "copy-observation-query";
+  executor::TaskExecutor executor(config);
+  executor.metricsCollector().observeColumnarConversionCopiedBytes(40);
+  executor.metricsCollector().observeColumnarConversionCopiedBytes(40);
+  executor.notifyTaskFailed("physical writer failed after conversion");
+  const auto encoded = serializeTaskStatus(executor);
+  protocol::v2::TaskReport report;
+  ASSERT_TRUE(report.ParseFromArray(encoded.data(), static_cast<int>(encoded.size())));
+  EXPECT_EQ(report.state(), protocol::v2::TASK_STATE_FAILED);
+  EXPECT_EQ(report.attempt().task_id(), config.task_id);
+  EXPECT_EQ(report.usage().columnar_conversion_copied_bytes(), 40);
+  EXPECT_FALSE(report.has_artifact_work());
 }
 
 #endif  // PANGROVA_HAS_VELOX_TASK_STATS

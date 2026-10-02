@@ -22,6 +22,7 @@ statement
     | showSchemas                    #showSchemasStatement
     | showTables                     #showTablesStatement
     | showViews                      #showViewsStatement
+    | showSemanticViews              #showSemanticViewsStatement
     | showSnapshots                  #showSnapshotsStatement
     | showFiles                      #showFilesStatement
     | showManifests                  #showManifestsStatement
@@ -33,6 +34,11 @@ statement
     | callStatement                  #callProcedureStatement
     | createTable                    #createTableStatement
     | createView                     #createViewStatement
+    | createSemanticView             #createSemanticViewStatement
+    | publishSemanticView            #publishSemanticViewStatement
+    | createFeatureView              #createFeatureViewStatement
+    | publishFeatureView             #publishFeatureViewStatement
+    | materializeFeatureView         #materializeFeatureViewStatement
     | dropView                       #dropViewStatement
     | createSchema                   #createSchemaStatement
     | dropTable                      #dropTableStatement
@@ -325,10 +331,15 @@ primaryExpression
     | MAP LBRACKET (expression (COMMA expression)*)? RBRACKET       #mapConstructorExpr
     | (STRUCT | ROW_KW) LPAREN namedField (COMMA namedField)* RPAREN #structConstructorExpr
     | qualifiedName LPAREN STAR RPAREN filterClause? windowSpec?    #starFunctionCallExpr
-    | qualifiedName LPAREN setQuantifier=DISTINCT? (expression (COMMA expression)*)? RPAREN filterClause? windowSpec? #functionCallExpr
+    | functionName LPAREN setQuantifier=DISTINCT? (expression (COMMA expression)*)? RPAREN filterClause? windowSpec? #functionCallExpr
     | qualifiedName                                                 #identifierExpr
     | LPAREN expression RPAREN                                      #parenExpr
     | LPAREN query RPAREN                                           #scalarSubqueryExpr
+    ;
+
+functionName
+    : qualifiedName
+    | AI_EMBED
     ;
 
 namedField
@@ -537,6 +548,35 @@ dropView
 
 showViews
     : SHOW VIEWS ((FROM | IN) qualifiedName)?
+    ;
+
+createSemanticView
+    : CREATE SEMANTIC VIEW (IF NOT EXISTS)? qualifiedName
+      VERSION version=INTEGER_LITERAL AS definition=STRING_LITERAL
+    ;
+
+publishSemanticView
+    : ALTER SEMANTIC VIEW qualifiedName PUBLISH VERSION version=INTEGER_LITERAL
+      (EXPECTING EPOCH expectedEpoch=INTEGER_LITERAL)?
+    ;
+
+showSemanticViews
+    : SHOW SEMANTIC VIEWS ((FROM | IN) qualifiedName)?
+    ;
+
+createFeatureView
+    : CREATE FEATURE VIEW (IF NOT EXISTS)? qualifiedName
+      VERSION version=INTEGER_LITERAL AS definition=STRING_LITERAL
+    ;
+
+publishFeatureView
+    : ALTER FEATURE VIEW qualifiedName PUBLISH VERSION version=INTEGER_LITERAL
+      (EXPECTING EPOCH expectedEpoch=INTEGER_LITERAL)?
+    ;
+
+materializeFeatureView
+    : MATERIALIZE FEATURE VIEW qualifiedName VERSION version=INTEGER_LITERAL
+      SNAPSHOT snapshot=STRING_LITERAL
     ;
 
 // --- SHOW metadata statements ---
@@ -1012,6 +1052,12 @@ INTEGER     : I N T E G E R;
 REFRESH     : R E F R E S H;
 MATERIALIZED: M A T E R I A L I Z E D;
 VIEW        : V I E W;
+SEMANTIC    : S E M A N T I C;
+FEATURE     : F E A T U R E;
+MATERIALIZE : M A T E R I A L I Z E;
+PUBLISH     : P U B L I S H;
+EXPECTING   : E X P E C T I N G;
+EPOCH       : E P O C H;
 INCREMENTAL : I N C R E M E N T A L;
 COMPACT     : C O M P A C T;
 OPTIMIZE    : O P T I M I Z E;
@@ -1367,7 +1413,9 @@ fragment LETTER : [a-zA-Z];
 
 // Non-reserved keywords (can be used as identifiers)
 nonReservedKeyword
-    : REFRESH | MATERIALIZED | VIEW | INCREMENTAL | COMPACT | OPTIMIZE | VACUUM
+    : REFRESH | MATERIALIZED | MATERIALIZE | VIEW | SEMANTIC | FEATURE
+    | PUBLISH | EXPECTING | EPOCH
+    | INCREMENTAL | COMPACT | OPTIMIZE | VACUUM
     | CATALOG | CATALOGS | DESCRIBE | PROPERTIES | CALL
     | SYSTEM_TIME | SYSTEM_VERSION | VERSION | SET | WITH | SHOW | LIMIT
     | TABLE | IF | EXISTS | INTO | VALUES | INSERT | PARTITIONED | COMMENT

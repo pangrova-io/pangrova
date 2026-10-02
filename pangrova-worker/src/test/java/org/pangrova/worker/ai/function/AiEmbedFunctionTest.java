@@ -1,125 +1,94 @@
-/*
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package org.pangrova.worker.ai.function;
 
-import org.pangrova.spi.ai.embedding.BlobReference;
-import org.pangrova.spi.ai.embedding.EmbeddingProvider;
-import org.pangrova.spi.connector.data.ColumnValue;
 import org.junit.jupiter.api.Test;
+import org.pangrova.spi.ai.AiCapabilityDescriptor;
+import org.pangrova.spi.connector.data.ColumnValue;
+import org.pangrova.worker.ai.context.AiExecutionContext;
+import org.pangrova.worker.ai.context.BoundAiInvocation;
+import org.pangrova.worker.ai.embedding.provider.OpenAiCompatibleEmbeddingProvider;
+import org.pangrova.worker.ai.embedding.provider.OpenAiEmbeddingConfig;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+/** Pre-I/O validation uses the actual provider; value acceptance is real-provider integration. */
 class AiEmbedFunctionTest {
 
-    private final float[] testVector = {0.1f, 0.2f, 0.3f};
-
-    private final EmbeddingProvider fixedProvider = new EmbeddingProvider() {
-        @Override
-        public float[] embed(String text) {
-            return testVector.clone();
-        }
-
-        @Override
-        public List<float[]> embedBatch(List<String> texts) {
-            return texts.stream().map(t -> testVector.clone()).toList();
-        }
-
-        @Override
-        public List<float[]> embedBlob(List<BlobReference> refs) {
-            return refs.stream().map(r -> testVector.clone()).toList();
-        }
-
-        @Override
-        public int dimensions() {
-            return 3;
-        }
-
-        @Override
-        public String modelName() {
-            return "test-embed-model";
-        }
-
-        @Override
-        public int maxBatchSize() {
-            return 32;
-        }
-    };
-
-    private final AiEmbedFunction fn = new AiEmbedFunction(
-            name -> "test-embed-model".equals(name) ? fixedProvider : null);
-
-    @Test
-    void embedReturnsJsonFloatArray() {
-        ColumnValue result = fn.invoke(List.of(
-                new ColumnValue.StringValue("test-embed-model"),
-                new ColumnValue.StringValue("hello world")));
-
-        assertInstanceOf(ColumnValue.StringValue.class, result);
-        String json = ((ColumnValue.StringValue) result).value();
-        assertEquals("[0.1,0.2,0.3]", json);
-    }
+    private final OpenAiCompatibleEmbeddingProvider provider = new OpenAiCompatibleEmbeddingProvider(
+            new OpenAiEmbeddingConfig("http://localhost:11434/v1/embeddings", "local", "",
+                    384, 8, 1000.0, "query: ", "doc: ", 30));
+    private final AiEmbedFunction function = new AiEmbedFunction(
+            name -> "local".equals(name) ? provider : null);
 
     @Test
     void embedReturnsNullOnNullText() {
-        ColumnValue result = fn.invoke(List.of(
-                new ColumnValue.StringValue("test-embed-model"),
-                new ColumnValue.NullValue()));
-
-        assertInstanceOf(ColumnValue.NullValue.class, result);
+        assertThat(function.invoke(arguments(new ColumnValue.StringValue("local"),
+                new ColumnValue.NullValue(), "RAW"))).isInstanceOf(ColumnValue.NullValue.class);
     }
 
     @Test
     void embedReturnsNullOnNullModel() {
-        ColumnValue result = fn.invoke(List.of(
-                new ColumnValue.NullValue(),
-                new ColumnValue.StringValue("some text")));
-
-        assertInstanceOf(ColumnValue.NullValue.class, result);
+        assertThat(function.invoke(arguments(new ColumnValue.NullValue(),
+                new ColumnValue.StringValue("text"), "RAW"))).isInstanceOf(ColumnValue.NullValue.class);
     }
 
     @Test
     void embedThrowsOnUnknownModel() {
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
-                fn.invoke(List.of(
-                        new ColumnValue.StringValue("unknown-model"),
-                        new ColumnValue.StringValue("hello"))));
-
-        assertTrue(ex.getMessage().contains("unknown-model"));
+        assertThatThrownBy(() -> function.invoke(arguments(new ColumnValue.StringValue("unknown"),
+                new ColumnValue.StringValue("text"), "RAW")))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("unknown");
     }
 
     @Test
-    void embedThrowsOnTooFewArguments() {
-        assertThrows(IllegalArgumentException.class, () ->
-                fn.invoke(List.of(
-                        new ColumnValue.StringValue("test-embed-model"))));
+    void embedThrowsOnWrongNormalizedArity() {
+        for (var arguments : List.of(List.<ColumnValue>of(new ColumnValue.StringValue("local")),
+                List.<ColumnValue>of(new ColumnValue.StringValue("local"),
+                        new ColumnValue.StringValue("text")))) {
+            assertThatThrownBy(() -> function.invoke(arguments))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("normalized");
+        }
     }
 
     @Test
-    void floatsToJsonProducesCompactFormat() {
-        assertEquals("[1.5,-0.3,0.0]",
-                AiEmbedFunction.floatsToJson(new float[]{1.5f, -0.3f, 0.0f}));
+    void embedRejectsProviderDimensionThatDiffersFromExactModelBindingBeforeIo() {
+        var binding = new BoundAiInvocation("ai-embed-test", "local", "v1", new byte[32],
+                AiCapabilityDescriptor.Operation.EMBEDDING, "query:stage:task:ai-embed-test",
+                new org.pangrova.spi.ai.AiRequestConstraints(1000, 0, 262144, 1048576),
+                8, 100, 400, 1048576, 4194304, 0, 383);
+        assertThatThrownBy(() -> AiExecutionContext.callWithBoundInvocation(binding,
+                () -> function.invoke(arguments(new ColumnValue.StringValue("local"),
+                        new ColumnValue.StringValue("text"), "RAW"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("differs from exact model binding 383");
     }
 
     @Test
-    void floatsToJsonHandlesEmptyArray() {
-        assertEquals("[]", AiEmbedFunction.floatsToJson(new float[0]));
+    void requiresExactModelBindingBeforeIo() {
+        assertThatThrownBy(() -> function.invoke(arguments(new ColumnValue.StringValue("local"),
+                new ColumnValue.StringValue("text"), "RAW")))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact model output binding");
     }
 
     @Test
-    void floatsToJsonHandlesSingleElement() {
-        assertEquals("[0.42]", AiEmbedFunction.floatsToJson(new float[]{0.42f}));
+    void rejectsUnknownOrNullPurposeBeforeIo() {
+        assertThatThrownBy(() -> function.invoke(arguments(new ColumnValue.StringValue("local"),
+                new ColumnValue.StringValue("text"), "UNKNOWN")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> function.invoke(List.of(new ColumnValue.StringValue("local"),
+                new ColumnValue.StringValue("text"), new ColumnValue.NullValue())))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("purpose must not be NULL");
+    }
+
+    @Test
+    void metadataDeclaresOneNormalizedPurposeSignatureForTextAndFile() {
+        assertThat(function.getArgumentSignatures()).containsExactly(
+                List.of("VARCHAR", "VARCHAR", "VARCHAR"), List.of("VARCHAR", "ROW", "VARCHAR"));
+        assertThat(function.getMetadata().returnType()).isEqualTo("VECTOR");
+    }
+
+    private static List<ColumnValue> arguments(ColumnValue model, ColumnValue input, String purpose) {
+        return List.of(model, input, new ColumnValue.StringValue(purpose));
     }
 }

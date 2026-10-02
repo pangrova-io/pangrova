@@ -16,9 +16,14 @@ import org.junit.jupiter.api.Test;
 
 import java.io.File;
 import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Audit test for NoOp class fragmentation in pangrova-observability.
@@ -32,11 +37,25 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class NoOpFragmentationAuditTest {
 
+    @Test
+    void sharedNoOpInstrumentsHaveNoMutableInstanceFields() {
+        for (Class<?> type : List.of(NoOpLongCounter.class, NoOpLongUpDownCounter.class, NoOpSpan.class)) {
+            assertTrue(Arrays.stream(type.getDeclaredFields())
+                    .allMatch(field -> Modifier.isStatic(field.getModifiers())), type.getName());
+        }
+        var tracing = new NoOpTracingProvider();
+        assertSame(tracing.currentSpan(), tracing.startSpan("named", SpanKind.CLIENT));
+        assertSame(tracing.currentSpan(), tracing.startSpan("parented", SpanKind.INTERNAL, null));
+        var metrics = new NoOpMetricsProvider();
+        assertSame(metrics.createUpDownCounter("a", "d", "u"),
+                metrics.createUpDownCounter("b", "d", "u"));
+    }
+
     /**
      * Verify exactly 10 NoOp classes exist in the noop package.
      */
     @Test
-    void noopPackage_containsExpectedNumberOfClasses() {
+    void noopPackageContainsExpectedNumberOfClasses() {
         File noopDir = new File("src/main/java/org/pangrova/observability/noop");
         assertTrue(noopDir.isDirectory(), "noop directory must exist");
 
@@ -50,7 +69,7 @@ class NoOpFragmentationAuditTest {
      * Each NoOp class maps 1:1 to a distinct SPI interface.
      */
     @Test
-    void noopClasses_mapOneToOneToSpiInterfaces() {
+    void noopClassesMapOneToOneToSpiInterfaces() {
         // Provider-level NoOps
         assertInstanceOf(MetricsProvider.class, new NoOpMetricsProvider());
         assertInstanceOf(TracingProvider.class, new NoOpTracingProvider());
@@ -76,7 +95,7 @@ class NoOpFragmentationAuditTest {
      * Instrument-level NoOps use singleton pattern (static INSTANCE field).
      */
     @Test
-    void instrumentNoOps_useSingletonPattern() {
+    void instrumentNoOpsUseSingletonPattern() {
         assertSame(NoOpLongCounter.INSTANCE, NoOpLongCounter.INSTANCE);
         assertSame(NoOpLongUpDownCounter.INSTANCE, NoOpLongUpDownCounter.INSTANCE);
         assertSame(NoOpDoubleHistogram.INSTANCE, NoOpDoubleHistogram.INSTANCE);
@@ -89,7 +108,7 @@ class NoOpFragmentationAuditTest {
      * Instrument-level NoOps are final classes (immutable, no subclassing).
      */
     @Test
-    void instrumentNoOps_areFinalClasses() {
+    void instrumentNoOpsAreFinalClasses() {
         assertTrue(Modifier.isFinal(NoOpLongCounter.class.getModifiers()));
         assertTrue(Modifier.isFinal(NoOpLongUpDownCounter.class.getModifiers()));
         assertTrue(Modifier.isFinal(NoOpDoubleHistogram.class.getModifiers()));
@@ -102,7 +121,7 @@ class NoOpFragmentationAuditTest {
      * Provider-level NoOps return shared singleton instruments.
      */
     @Test
-    void providerNoOps_returnSharedSingletonInstruments() {
+    void providerNoOpsReturnSharedSingletonInstruments() {
         NoOpMetricsProvider metrics = new NoOpMetricsProvider();
         LongCounter c1 = metrics.createCounter("a", "d", "u");
         LongCounter c2 = metrics.createCounter("b", "d", "u");
@@ -127,7 +146,7 @@ class NoOpFragmentationAuditTest {
      * NoOp operations are safe to call (no exceptions, no side effects).
      */
     @Test
-    void noopOperations_areSafeToCall() {
+    void noopOperationsAreSafeToCall() {
         // Metrics
         NoOpLongCounter.INSTANCE.add(42);
         NoOpLongUpDownCounter.INSTANCE.add(-1);
@@ -169,7 +188,7 @@ class NoOpFragmentationAuditTest {
      * <p>This test documents the justification: each NoOp has unique behavior.
      */
     @Test
-    void noopFactory_notJustified_becauseReturnTypesVary() {
+    void noopFactoryNotJustifiedBecauseReturnTypesVary() {
         // NoOpSpan.setAttribute returns 'this' for fluent chaining
         Span span = NoOpSpan.INSTANCE.setAttribute("k", "v");
         assertSame(NoOpSpan.INSTANCE, span, "Span fluent API must return this");

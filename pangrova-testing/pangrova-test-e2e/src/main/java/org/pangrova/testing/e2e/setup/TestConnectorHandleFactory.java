@@ -7,12 +7,16 @@ import org.pangrova.metadata.catalog.ConnectorHandleFactory;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorContext;
 import org.pangrova.spi.connector.ConnectorFactory;
+import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
+import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * Test-only ConnectorHandleFactory that discovers ConnectorFactory via ServiceLoader
@@ -23,8 +27,11 @@ public final class TestConnectorHandleFactory implements ConnectorHandleFactory 
     private static final Logger LOG = LoggerFactory.getLogger(TestConnectorHandleFactory.class);
 
     private final Map<String, ConnectorFactory> factories = new ConcurrentHashMap<>();
+    private final Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> controlPlanes;
 
-    public TestConnectorHandleFactory() {
+    /** Discovers real plugins and supplies their catalog-bound Worker metadata control port. */
+    public TestConnectorHandleFactory(Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> controlPlanes) {
+        this.controlPlanes = Objects.requireNonNull(controlPlanes, "controlPlanes");
         discoverFactories();
     }
 
@@ -32,7 +39,7 @@ public final class TestConnectorHandleFactory implements ConnectorHandleFactory 
     public CatalogHandle create(CatalogDescriptor descriptor) {
         ConnectorFactory factory = resolveFactory(descriptor.provider());
         Connector connector = factory.create(
-                descriptor.name(), descriptor.properties(), new EmptyContext());
+                descriptor.name(), descriptor.properties(), new CatalogContext(controlPlanes.apply(descriptor)));
         LOG.info("Created test connector '{}' via provider '{}'",
                 descriptor.name(), descriptor.provider());
         return new ConnectorCatalogHandle(descriptor, connector);
@@ -55,5 +62,9 @@ public final class TestConnectorHandleFactory implements ConnectorHandleFactory 
         return factory;
     }
 
-    private static final class EmptyContext implements ConnectorContext {}
+    private record CatalogContext(Optional<NativeDatasetControlPlane> control) implements ConnectorContext {
+        private CatalogContext { Objects.requireNonNull(control, "control"); }
+        @Override
+        public Optional<NativeDatasetControlPlane> nativeDatasetControlPlane() { return control; }
+    }
 }

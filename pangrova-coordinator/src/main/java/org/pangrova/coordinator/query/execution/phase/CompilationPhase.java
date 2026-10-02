@@ -45,7 +45,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
     /** Extracts time-travel specs from SQL, returning stripped SQL and snapshot overrides. */
     @FunctionalInterface
     public interface TimeTravelExtractor {
-        TimeTravelResult extract(String sql, SqlCompiler compiler);
+        TimeTravelResult extract(String sql, SqlCompiler compiler, CoordinatorSessionContext session);
     }
 
     /** Result of time-travel extraction. */
@@ -60,6 +60,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
     private final QueryLineageCapture lineageCapture;
     private final Function<SqlCompiler, SqlCompiler> compilerSnapshotFn;
 
+    /** Creates the authenticated bind, policy and optimization phase. */
     public CompilationPhase(
             SecurityPolicyEnforcer securityPolicyEnforcer,
             TimeTravelExtractor timeTravelExtractor,
@@ -73,26 +74,21 @@ public final class CompilationPhase implements QueryExecutionPhase {
 
     @Override
     public PhaseResult execute(QueryExecutionContext context) {
-        SqlCompiler currentCompiler = compilerSnapshotFn.apply(context.compiler());
-        TimeTravelResult ttResult = timeTravelExtractor.extract(context.sql(), currentCompiler);
-        QueryExecutionContext updated = context
+        SqlCompiler currentCompiler = compilerSnapshotFn.apply(context.compiler()).forSession(
+                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(context.session()));
+        TimeTravelResult ttResult = timeTravelExtractor.extract(context.sql(), currentCompiler, context.session());
+        QueryExecutionContext updated = context.withCompiler(currentCompiler)
                 .withTimeTravelResult(ttResult.strippedSql(), ttResult.snapshotOverrides());
 
-        // PLAN-CACHE TENANT-SAFETY INVARIANT (F-PLAN-CACHE-TENANT):
-        // compileToResult() may return a cached optimized plan keyed only by
-        // normalized SQL + session-properties digest (PlanCacheKey) — i.e. it is
-        // tenant-/principal-/policy-independent. Row-level security and column
-        // masking MUST therefore be applied per-session AFTER cache retrieval and
-        // MUST NOT be baked into the cached PlanResult; otherwise a plan cached for
-        // one tenant could leak another tenant's row filters/masks. Keep
-        // applyPolicies() strictly downstream of compileToResult() and never cache
-        // the post-policy PlannedQuery.
-        PlanResult planResult = currentCompiler.compileToResult(ttResult.strippedSql());
+        // Schema, name caches and statistics belong to this authenticated query.
+        // Authorize and transform expressions before optimization; policy results must never be cached.
+        PlanResult planResult = currentCompiler.compileForPolicyApplication(ttResult.strippedSql());
         List<String> preOptNames = planResult.preOptimizationColumnNames();
         PlannedQuery plannedQuery = planResult.toPlannedQuery();
 
-        // Apply per-session security policies to the (possibly cached) tenant-independent plan.
+        // Apply security policies to this authenticated query's plan.
         plannedQuery = securityPolicyEnforcer.applyPolicies(plannedQuery, context.session());
+        plannedQuery = currentCompiler.optimizeProtectedQuery(plannedQuery);
 
         lineageCapture.captureLineageInfo(
                 context.session().queryId(), context.originalSql(), plannedQuery);
@@ -100,7 +96,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
                 context.session().queryId(), preOptNames, plannedQuery);
         return new PhaseResult.Continue(
                 updated.withCompiledPlan(plannedQuery, preOptNames,
-                        planResult.runtimeFilterDescriptors()));
+                        plannedQuery.runtimeFilterDescriptors()));
     }
 
     @Override

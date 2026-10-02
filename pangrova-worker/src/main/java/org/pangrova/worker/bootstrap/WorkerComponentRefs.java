@@ -39,6 +39,7 @@ public final class WorkerComponentRefs {
     private ResourceMonitor resourceMonitor;
     private RootMemoryPool rootMemoryPool;
     private NodeMemoryPool nodeMemoryPool;
+    private org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease shuffleServiceMemoryLease;
     private TaskManager taskManager;
     private WorkerHttpServer httpServer;
     private HeartbeatSender heartbeatSender;
@@ -71,6 +72,14 @@ public final class WorkerComponentRefs {
 
     public NodeMemoryPool nodeMemoryPool() { return nodeMemoryPool; }
     public void setNodeMemoryPool(NodeMemoryPool v) { this.nodeMemoryPool = v; }
+
+    public org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease shuffleServiceMemoryLease() {
+        return shuffleServiceMemoryLease;
+    }
+    public void setShuffleServiceMemoryLease(
+            org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease v) {
+        this.shuffleServiceMemoryLease = v;
+    }
 
     public TaskManager taskManager() { return taskManager; }
     public void setTaskManager(TaskManager v) { this.taskManager = v; }
@@ -131,9 +140,18 @@ public final class WorkerComponentRefs {
     }
 
     private org.pangrova.worker.jni.NativeFunctionBridge nativeFunctionBridge;
+    private java.util.List<AutoCloseable> nativeFunctionResources = java.util.List.of();
 
-    public org.pangrova.worker.jni.NativeFunctionBridge nativeFunctionBridge() { return nativeFunctionBridge; }
-    public void setNativeFunctionBridge(org.pangrova.worker.jni.NativeFunctionBridge v) { this.nativeFunctionBridge = v; }
+    public org.pangrova.worker.jni.NativeFunctionBridge nativeFunctionBridge() {
+        return nativeFunctionBridge;
+    }
+    public void setNativeFunctionBridge(org.pangrova.worker.jni.NativeFunctionBridge v) {
+        this.nativeFunctionBridge = v;
+    }
+    public java.util.List<AutoCloseable> nativeFunctionResources() { return nativeFunctionResources; }
+    public void setNativeFunctionResources(java.util.List<AutoCloseable> resources) {
+        nativeFunctionResources = resources == null ? java.util.List.of() : java.util.List.copyOf(resources);
+    }
 
     private ExchangeTransport exchangeTransport;
 
@@ -141,7 +159,9 @@ public final class WorkerComponentRefs {
 
     private CatalogResourceResolver catalogResourceResolver;
 
-    private volatile java.util.List<String> nativeCapabilities = java.util.List.of();
+    // Base64-encoded canonical v2 CapabilityInventory. Kept as the exact
+    // protobuf payload for Coordinator scheduling and HA registry recovery.
+    private volatile String nativeCapabilityInventory;
 
     public ExchangeTransport exchangeTransport() { return exchangeTransport; }
     public void setExchangeTransport(ExchangeTransport v) { this.exchangeTransport = v; }
@@ -152,21 +172,27 @@ public final class WorkerComponentRefs {
     public CatalogResourceResolver catalogResourceResolver() { return catalogResourceResolver; }
     public void setCatalogResourceResolver(CatalogResourceResolver v) { this.catalogResourceResolver = v; }
 
-    public java.util.List<String> nativeCapabilities() { return nativeCapabilities; }
-    public void setNativeCapabilities(java.util.List<String> v) {
-        this.nativeCapabilities = v == null ? java.util.List.of() : java.util.List.copyOf(v);
-    }
+    public String nativeCapabilityInventory() { return nativeCapabilityInventory; }
+    public void setNativeCapabilityInventory(String v) { this.nativeCapabilityInventory = v; }
 
-    // HMAC key(s) for shuffle ticket verification, received from Coordinator
-    // during worker registration. Raw bytes (not base64).
+    // Process-local HMAC key material for producer-issued shuffle tickets.
+    // The Coordinator and consuming workers never receive these raw bytes.
     private byte[] shuffleHmacCurrentKey;
     private byte[] shuffleHmacPreviousKey;
 
-    public byte[] shuffleHmacCurrentKey() { return shuffleHmacCurrentKey; }
-    public void setShuffleHmacCurrentKey(byte[] v) { this.shuffleHmacCurrentKey = v; }
+    public byte[] shuffleHmacCurrentKey() {
+        return shuffleHmacCurrentKey == null ? null : shuffleHmacCurrentKey.clone();
+    }
+    public void setShuffleHmacCurrentKey(byte[] v) {
+        this.shuffleHmacCurrentKey = v == null ? null : v.clone();
+    }
 
-    public byte[] shuffleHmacPreviousKey() { return shuffleHmacPreviousKey; }
-    public void setShuffleHmacPreviousKey(byte[] v) { this.shuffleHmacPreviousKey = v; }
+    public byte[] shuffleHmacPreviousKey() {
+        return shuffleHmacPreviousKey == null ? null : shuffleHmacPreviousKey.clone();
+    }
+    public void setShuffleHmacPreviousKey(byte[] v) {
+        this.shuffleHmacPreviousKey = v == null ? null : v.clone();
+    }
 
     private TenantResourceTracker tenantResourceTracker;
 

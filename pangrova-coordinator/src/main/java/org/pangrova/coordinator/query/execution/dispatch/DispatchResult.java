@@ -13,70 +13,51 @@
  */
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.coordinator.result.CoordinatorResultService;
+import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
-import java.util.Optional;
-
-import org.pangrova.coordinator.ai.vector.GlobalTopKMerger;
-import org.pangrova.coordinator.result.CoordinatorResultService;
-import org.pangrova.planner.vector.VectorSearchNode;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-
 /**
- * Holds the outcome of dispatching a task to a worker.
- * Cross-package contract: produced by scheduler, consumed by query execution and result service.
+ * Control-plane outcome of dispatching one task.
  *
- * @param workerHost       hostname of the worker (for backward compatibility)
- * @param taskId           dispatched task identifier
- * @param resultEndpoint   endpoint for result retrieval
- * @param workerId         unique worker identifier for precise routing (nullable for backward compat)
- * @param vectorSearchNode vector search plan metadata, present when the dispatched query
- *                         contains a vector search operation (empty otherwise)
- * @param mergeResult      global Top-K merge result, present after coordinator-side merge
- *                         of per-worker vector search results (empty otherwise)
+ * <p>It intentionally contains endpoints and identities only. Candidate rows,
+ * scores, fusion state and Top-K results belong to the Native data plane.</p>
  */
-public record DispatchResult(String workerHost, String taskId, ResultEndpoint resultEndpoint,
-                              String workerId, Optional<VectorSearchNode> vectorSearchNode,
-                              Optional<GlobalTopKMerger.MergeResult> mergeResult) {
+public record DispatchResult(
+        String workerHost,
+        String taskId,
+        ResultEndpoint resultEndpoint,
+        String workerId,
+        ShuffleEndpointDescriptor shuffleEndpoint) {
 
-    /** Backward-compatible constructor without workerId or vectorSearchNode. */
     public DispatchResult(String workerHost, String taskId, ResultEndpoint resultEndpoint) {
-        this(workerHost, taskId, resultEndpoint, null, Optional.empty(), Optional.empty());
+        this(workerHost, taskId, resultEndpoint, null, null);
     }
 
-    /** Backward-compatible constructor without vectorSearchNode. */
-    public DispatchResult(String workerHost, String taskId, ResultEndpoint resultEndpoint, String workerId) {
-        this(workerHost, taskId, resultEndpoint, workerId, Optional.empty(), Optional.empty());
-    }
-
-    /** Backward-compatible constructor without mergeResult. */
-    public DispatchResult(String workerHost, String taskId, ResultEndpoint resultEndpoint,
-                          String workerId, Optional<VectorSearchNode> vectorSearchNode) {
-        this(workerHost, taskId, resultEndpoint, workerId, vectorSearchNode, Optional.empty());
+    public DispatchResult(
+            String workerHost, String taskId, ResultEndpoint resultEndpoint,
+            String workerId) {
+        this(workerHost, taskId, resultEndpoint, workerId, null);
     }
 
     public DispatchResult {
         checkNotNull(workerHost, "workerHost must not be null");
         checkNotNull(taskId, "taskId must not be null");
-        checkNotNull(resultEndpoint, "resultEndpoint must not be null");
-        vectorSearchNode = vectorSearchNode != null ? vectorSearchNode : Optional.empty();
-        mergeResult = mergeResult != null ? mergeResult : Optional.empty();
+        // Intermediate and write tasks have no client-readable result stream.
     }
 
-    /** Returns a copy with the vector search node attached. */
-    public DispatchResult withVectorSearchNode(VectorSearchNode node) {
-        return new DispatchResult(workerHost, taskId, resultEndpoint, workerId,
-                Optional.ofNullable(node), mergeResult);
+    /** Returns a copy carrying the producer-issued shuffle endpoint. */
+    public DispatchResult withShuffleEndpoint(ShuffleEndpointDescriptor endpoint) {
+        return new DispatchResult(
+                workerHost, taskId, resultEndpoint, workerId, endpoint);
     }
 
-    /** Returns a copy with the global merge result attached. */
-    public DispatchResult withMergeResult(GlobalTopKMerger.MergeResult result) {
-        return new DispatchResult(workerHost, taskId, resultEndpoint, workerId,
-                vectorSearchNode, Optional.ofNullable(result));
-    }
-
-    /** Converts a coordinator-local dispatch result to a standard DispatchResult. */
-    public static DispatchResult fromLocal(CoordinatorResultService.LocalDispatchResult local) {
-        return new DispatchResult(local.workerHost(), local.taskId(), local.resultEndpoint());
+    /** Converts a bounded control-plane statement result to a dispatch descriptor. */
+    public static DispatchResult fromControlPlane(
+            CoordinatorResultService.ControlPlaneDispatchResult controlPlane) {
+        return new DispatchResult(
+                controlPlane.workerHost(), controlPlane.taskId(), controlPlane.resultEndpoint());
     }
 }

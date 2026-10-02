@@ -1,6 +1,6 @@
 -- Shared-state schema for security/governance policy stores (SI-4).
--- Applied by PersistentStoreSupport.initSchema against the shared SQL DataSource (PostgreSQL dialect,
--- compatible with H2 PostgreSQL mode for tests). Statements are idempotent (CREATE TABLE IF NOT EXISTS).
+-- Applied by PersistentStoreSupport.initSchema against the shared PostgreSQL DataSource.
+-- Statements are idempotent (CREATE TABLE IF NOT EXISTS).
 
 -- Row-level security policies (RowPolicy).
 CREATE TABLE IF NOT EXISTS row_policy (

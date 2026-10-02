@@ -3,10 +3,9 @@ package org.pangrova.worker.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.Base64;
 import java.util.List;
-import java.util.Map;
 
+import org.pangrova.protocol.CanonicalTaskRequests;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.spi.execution.PlanFragment;
 import org.pangrova.spi.execution.PlanNodeId;
@@ -51,17 +50,30 @@ class TaskSubmitDedupTest {
     }
 
     @Test
-    void nullCoordinatorTaskIdRejectedByContract() {
-        assertThatThrownBy(() -> buildRequest(null, "q-dedup-3"))
+    void nullTaskRequestRejectedByAdmission() {
+        assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("taskId must not be null or blank");
+                .hasMessageContaining("TaskRequest must not be null");
+    }
+
+    @Test
+    void nullCoordinatorTaskIdRejectedByProtobufBuilder() {
+        assertThatThrownBy(() -> buildRequest(null, "q-dedup-null"))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test
     void blankCoordinatorTaskIdRejectedByContract() {
-        assertThatThrownBy(() -> buildRequest("", "q-dedup-4"))
+        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                        "valid-task", "q-dedup-4", 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        new byte[]{0x01});
+        var request = canonical
+                .setAttempt(canonical.getAttempt().toBuilder().clearTaskId())
+                .build();
+        assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(request))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("taskId must not be null or blank");
+                .hasMessageContaining("attempt and execution-owner identity are incomplete");
     }
 
     @Test
@@ -95,21 +107,10 @@ class TaskSubmitDedupTest {
     }
 
     private static SubmitTaskRequest buildRequest(String taskId, String queryId) {
-        String plan = Base64.getEncoder().encodeToString(new byte[]{0x01});
-        return SubmitTaskRequest.builder()
-                .taskId(taskId)
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment(plan)
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
+        return org.pangrova.worker.CanonicalTaskRequestTestFixture.request(
+                taskId, queryId, 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                new byte[]{0x01});
     }
 
     private static TaskDescriptor toDescriptor(SubmitTaskRequest request) {
@@ -120,7 +121,8 @@ class TaskSubmitDedupTest {
             public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
         };
         return new TaskDescriptor(
-                new QueryId(request.queryId()), fragment, List.of(),
-                request.sessionProperties() != null ? request.sessionProperties() : Map.of());
+                new QueryId(request.taskRequest().getAttempt().getQueryOrJobId()),
+                fragment, List.of(),
+                request.taskRequest().getExecutionOptions().getSessionPropertiesMap());
     }
 }

@@ -74,6 +74,16 @@ set(_PB_RESOLVED FALSE)
 if(PANGROVA_DEPS_PREFIX AND EXISTS "${PANGROVA_DEPS_PREFIX}/lib/cmake/protobuf")
   find_package(Protobuf REQUIRED CONFIG
     PATHS "${PANGROVA_DEPS_PREFIX}" NO_DEFAULT_PATH)
+  if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
+    if(NOT PANGROVA_ASAN_PROTOBUF_LIB
+        OR NOT EXISTS "${PANGROVA_ASAN_PROTOBUF_LIB}")
+      message(FATAL_ERROR
+        "ASan requires an instrumented v25.3 libprotobuf.a in "
+        "PANGROVA_ASAN_PROTOBUF_LIB")
+    endif()
+    set_target_properties(protobuf::libprotobuf PROPERTIES
+      IMPORTED_LOCATION_RELEASE "${PANGROVA_ASAN_PROTOBUF_LIB}")
+  endif()
   add_library(bundled_protobuf ALIAS protobuf::libprotobuf)
   message(STATUS "Using hermetic protobuf: ${PANGROVA_DEPS_PREFIX}")
   set(_PB_SOURCE "hermetic")
@@ -128,7 +138,32 @@ else()
 endif()
 
 # --- Generate C++ from .proto files ---
-file(GLOB_RECURSE PROTO_FILES "${CMAKE_CURRENT_SOURCE_DIR}/proto/*.proto")
+# Cross-runtime messages and their pinned third-party IDL imports are owned by
+# pangrova-protocol. Native must never keep a mirrored boundary schema.
+set(CANONICAL_PROTO_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/../pangrova-protocol/src/main/proto")
+set(CANONICAL_PROTO_IMPORT_ROOT
+    "${CMAKE_CURRENT_SOURCE_DIR}/../pangrova-protocol/src/main/proto-imports")
+file(GLOB_RECURSE CANONICAL_BOUNDARY_PROTO_FILES CONFIGURE_DEPENDS
+     "${CANONICAL_PROTO_ROOT}/pangrova/protocol/v2/*.proto")
+file(GLOB_RECURSE CANONICAL_IMPORT_PROTO_FILES CONFIGURE_DEPENDS
+     "${CANONICAL_PROTO_IMPORT_ROOT}/substrait/*.proto")
+file(GLOB_RECURSE NATIVE_PROTO_FILES
+     "${CMAKE_CURRENT_SOURCE_DIR}/proto/*.proto")
+
+if(NOT CANONICAL_BOUNDARY_PROTO_FILES)
+  message(FATAL_ERROR
+    "Canonical Pangrova v2 protocol sources are missing under "
+    "${CANONICAL_PROTO_ROOT}/pangrova/protocol/v2. Native builds must be "
+    "configured from a checkout or release context containing pangrova-protocol.")
+endif()
+if(NOT CANONICAL_IMPORT_PROTO_FILES)
+  message(FATAL_ERROR
+    "Canonical Substrait import IDL is missing under "
+    "${CANONICAL_PROTO_IMPORT_ROOT}/substrait.")
+endif()
+set(PROTO_FILES ${NATIVE_PROTO_FILES} ${CANONICAL_IMPORT_PROTO_FILES}
+                ${CANONICAL_BOUNDARY_PROTO_FILES})
 
 if(PROTO_FILES)
   set(PROTO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -138,7 +173,15 @@ if(PROTO_FILES)
   set(PROTO_HDRS)
 
   foreach(PROTO_FILE ${PROTO_FILES})
-    file(RELATIVE_PATH PROTO_REL ${CMAKE_CURRENT_SOURCE_DIR}/proto ${PROTO_FILE})
+    string(FIND "${PROTO_FILE}" "${CANONICAL_PROTO_ROOT}/" _CANONICAL_PREFIX)
+    string(FIND "${PROTO_FILE}" "${CANONICAL_PROTO_IMPORT_ROOT}/" _IMPORT_PREFIX)
+    if(_CANONICAL_PREFIX EQUAL 0)
+      file(RELATIVE_PATH PROTO_REL ${CANONICAL_PROTO_ROOT} ${PROTO_FILE})
+    elseif(_IMPORT_PREFIX EQUAL 0)
+      file(RELATIVE_PATH PROTO_REL ${CANONICAL_PROTO_IMPORT_ROOT} ${PROTO_FILE})
+    else()
+      file(RELATIVE_PATH PROTO_REL ${CMAKE_CURRENT_SOURCE_DIR}/proto ${PROTO_FILE})
+    endif()
     get_filename_component(PROTO_REL_DIR ${PROTO_REL} DIRECTORY)
     get_filename_component(PROTO_NAME ${PROTO_FILE} NAME_WE)
     if(PROTO_REL_DIR)
@@ -152,6 +195,8 @@ if(PROTO_FILES)
 
   set(_PROTOC_ARGS
     --proto_path=${CMAKE_CURRENT_SOURCE_DIR}/proto
+    --proto_path=${CANONICAL_PROTO_ROOT}
+    --proto_path=${CANONICAL_PROTO_IMPORT_ROOT}
     --cpp_out=${PROTO_GENERATED_DIR}
   )
   if(_WKT_PATH)

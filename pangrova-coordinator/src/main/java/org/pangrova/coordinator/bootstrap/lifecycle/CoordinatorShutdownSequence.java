@@ -109,6 +109,35 @@ final class CoordinatorShutdownSequence {
         }
     }
 
+    static void closeQueryResultCache(org.pangrova.planner.cache.QueryResultCache cache) {
+        if (cache == null) return;
+        try {
+            cache.close();
+        } catch (Exception failure) {
+            LOG.warn("event=query_cache_close_failed error={}", failure.getMessage(), failure);
+        }
+    }
+
+    static void closeStreamingBootstrap(StreamingBootstrap streaming) {
+        if (streaming == null) return;
+        try {
+            streaming.close();
+            LOG.info("event=phase_closed phase=streaming_bootstrap");
+        } catch (Exception e) {
+            LOG.warn("event=phase_close_failed phase=streaming_bootstrap error={}", e.getMessage(), e);
+        }
+    }
+
+    static void closeBranchCleanup(org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask cleanup) {
+        if (cleanup == null) return;
+        try {
+            cleanup.close();
+            LOG.info("event=phase_closed phase=branch_ttl_cleanup");
+        } catch (Exception e) {
+            LOG.warn("event=phase_close_failed phase=branch_ttl_cleanup error={}", e.getMessage(), e);
+        }
+    }
+
     static void closeMetadata(MetadataBootstrap bootstrap,
                                PluginConnectorHandleFactory factory,
                                DataSource dataSource) {
@@ -219,6 +248,17 @@ final class CoordinatorShutdownSequence {
             String taskId = entry.getKey();
             String queryId = entry.getValue();
             taskTracker.removeDeadline(taskId);
+            var request = taskTracker.getTaskRequest(taskId);
+            if (request != null && (request.taskRequest().getTaskKind()
+                    == org.pangrova.protocol.v2.TaskKind.TASK_KIND_BACKGROUND_BUILD
+                    || request.taskRequest().getTaskKind()
+                    == org.pangrova.protocol.v2.TaskKind.TASK_KIND_BACKGROUND_EXPORT)) {
+                taskTracker.updateTaskState(queryId, taskId, "FAILED");
+                taskTracker.signalTaskTerminal(queryId, taskId);
+                LOG.error("METRIC coordinator.artifact_task.timeout_total taskId={} jobId={}",
+                        taskId, queryId);
+                continue;
+            }
             if (failedQueryIds.add(queryId)) {
                 ErrorDetail error = new ErrorDetail(
                         "TASK_TIMEOUT", "TASK_TIMEOUT",

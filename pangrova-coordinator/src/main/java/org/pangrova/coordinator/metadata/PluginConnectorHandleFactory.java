@@ -11,6 +11,7 @@ import org.pangrova.security.secret.SecretResolver;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorContext;
 import org.pangrova.spi.connector.ConnectorFactory;
+import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,6 +19,8 @@ import java.net.URL;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.ServiceLoader;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -30,12 +33,15 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
 
     private final ClassLoader spiClassLoader;
     private final SecretResolver secretResolver;
+    private final Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl;
     private final Map<String, ConnectorFactory> factoryCache = new ConcurrentHashMap<>();
     private final Map<String, PluginClassLoader> classLoaders = new ConcurrentHashMap<>();
 
-    public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver) {
+    public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver,
+            Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl) {
         this.spiClassLoader = spiClassLoader;
         this.secretResolver = secretResolver;
+        this.nativeControl = java.util.Objects.requireNonNull(nativeControl, "nativeControl");
         discoverFactories();
     }
 
@@ -78,7 +84,8 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
     private Connector createConnector(ConnectorFactory factory, CatalogDescriptor descriptor) {
         ensureIsolatedClassLoader(descriptor.provider());
         Map<String, String> resolvedProps = resolveProperties(descriptor.properties());
-        ConnectorContext context = new EmptyConnectorContext();
+        Optional<NativeDatasetControlPlane> port = java.util.Objects.requireNonNull(nativeControl.apply(descriptor));
+        ConnectorContext context = () -> port;
         return factory.create(descriptor.name(), resolvedProps, context);
     }
 
@@ -98,9 +105,4 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
         return new PluginClassLoader(provider, new URL[0], spiClassLoader);
     }
 
-    /**
-     * Empty ConnectorContext — marker interface with no methods yet.
-     */
-    private static final class EmptyConnectorContext implements ConnectorContext {
-    }
 }

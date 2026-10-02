@@ -10,7 +10,8 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-common` | Shared utilities and base types |
 | `pangrova-config` | Configuration management |
 | `pangrova-spi` | SPI extension interfaces |
-| `pangrova-shuffle` | Shuffle data exchange abstraction (Java side) |
+| `pangrova-shuffle/pangrova-shuffle-core` | Shuffle contract and engine-side exchange orchestration |
+| `pangrova-shuffle/pangrova-shuffle-service` | Deployable remote shuffle transport and durable spool service |
 | `pangrova-parser` | SQL parsing (Calcite dialect extensions) |
 | `pangrova-planner` | Calcite logical plan → physical plan conversion |
 | `pangrova-protocol` | Network protocol layer (gRPC / Arrow Flight) |
@@ -18,7 +19,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `pangrova-resilience` | Fault tolerance, retry, circuit breaker |
 | `pangrova-operations` | DDL/DML operation execution |
 | `pangrova-resource` | Resource management and scheduling |
-| `pangrova-coordinator` | Distributed coordination, query routing, metadata |
+| `pangrova-coordinator` | Control plane only: parse, bind, authorize, admit, schedule, fence, validate terminal metadata and audit |
 | `pangrova-worker` | Worker node process, JNI loading entry, task scheduling |
 | `pangrova-metadata` | Metadata storage and Catalog management |
 | `pangrova-connector-*` | Data source connectors (Iceberg / Paimon) |
@@ -41,6 +42,7 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `src/executor/` | Task execution driver, pipeline orchestration |
 | `src/shuffle/` | Arrow Flight distributed data exchange |
 | `src/memory/` | Velox memory allocator + JVM memory coordination |
+| `src/columnar/` | Canonical Arrow stream interoperability and explicit buffer ownership |
 | `src/index/` | Bloom filter, vector index native implementation |
 | `src/merge/` | Merge-on-Read multi-version merge |
 | `src/delete/` | Deletion vector reading and row filtering |
@@ -52,10 +54,10 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 | `src/variant/` | Semi-structured variant column reader |
 | `src/text/` | Text processing (tokenization, stemming) |
 | `src/write/` | Native write path |
-| `src/compat/` | Compatibility shims and template instantiations |
+| `src/compat/` | Build-time platform/ABI adapters only; never protocol, semantic or execution fallback |
 | `src/observability/` | OpenTelemetry C++ SDK integration |
 | `lance-ffi/` | Rust→C FFI for Lance vector storage |
-| `proto/` | C++ side protobuf definitions (TaskRequest, status) |
+| `proto/` | Empty/non-authoritative; C++ generates the canonical v2 sources from `pangrova-protocol` |
 
 ## Interaction Boundary
 
@@ -64,10 +66,10 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 │  Java (JVM)                                       │
 │  pangrova-worker → JNI → libpangrova_native.dylib/so │
 │                                                   │
-│  Data: Arrow RecordBatch (zero-copy via JNI)      │
+│  Interop data: Arrow C Data / typed IPC           │
 │  Control: Protobuf-serialized TaskRequest         │
 └────────────────────┬──────────────────────────────┘
-                     │ System.loadLibrary / JNI
+                     │ Classpath resource → System.load / JNI
 ┌────────────────────▼──────────────────────────────┐
 │  C++ (Native)                                     │
 │  libpangrova_native — single shared library         │
@@ -79,6 +81,16 @@ Java handles coordination and planning; C++ handles high-performance vectorized 
 ```
 
 ## Native Dependency Graph
+
+Velox Vector is the sole task-local execution representation. Arrow is the
+interop and data-plane wire contract, not a requirement to replace Velox's
+internal layouts. Share compatible buffers through the Arrow C Data Interface
+with explicit ownership; necessary string, nested-offset, encoding and timestamp
+conversions must preserve semantics and account for allocation/copy costs.
+IPC serialization, compression, TLS and network transport are not physically
+zero-copy. Measure each boundary's copy bytes and CPU before making performance
+claims. Private page payloads and unmeasured row upcalls are migration gaps, not
+alternative compliant execution paths.
 
 ```
 pangrova-worker (Java)
@@ -128,6 +140,13 @@ pangrova-worker (Java)
 - `operations`, `resource`, `config`: NO coordinator/worker internal imports.
 - `coordinator` → `worker`: compile-scope restricted to `org.pangrova.worker.transport.*` only.
 - Java ↔ C++: only via `protocol` + JNI bridge.
+- The Coordinator MUST NOT transport rows/candidates, merge Top-K, fuse scores,
+  rerank, scan source data, or execute background data transformations. Those
+  operations run in the Native Worker data plane and exchange data through
+  signed Arrow Flight endpoints.
+- The execution boundary supports exactly one canonical
+  `pangrova.protocol.v2` descriptor/capability epoch. No v1 parser, feature-specific
+  task proto, dual execution path, negotiation or silent downgrade is allowed.
 
 ## DML Execution Routing Table
 
@@ -136,23 +155,28 @@ The fundamental boundary between Java and C++ execution layers:
 | Operation | Reads data? | Execution path | Key code |
 |-----------|------------|----------------|----------|
 | `SELECT` | Yes | **Native** — vectorized scan + filter + projection | `QueryDispatcher` → stage/task dispatch |
-| `INSERT VALUES` | No | **Java** — direct `ConnectorPageSink` write | `DmlExecutor.executeInsert()` |
-| `INSERT OVERWRITE` (static) | No | **Java** — direct `ConnectorPageSink` overwrite | `DmlExecutor.executeInsertOverwrite()` |
-| `INSERT SELECT` | Yes | **Native** read → worker-direct write → coordinator atomic commit | `PlanExecutionFactory.executeInsertSelect()` |
-| `DELETE` (no WHERE) | No | **Java** — `deleteByFilter(All)` metadata op | `PlanExecutionFactory.executeDeleteWithMetadataFallback()` |
-| `DELETE WHERE` (simple) | No | **Java** — connector `deleteByFilter` with predicate pushdown | same method, filter-conversion branch |
-| `DELETE WHERE` (complex) | Yes | **Native** distributed — NOT(filter) → surviving rows → overwrite | same method, `executeDml()` fallback |
+| `INSERT VALUES` | No | **Native** typed `ValuesRel` → worker-direct write → coordinator fenced atomic commit | `PlanExecutionFactory.executeDml()` |
+| `INSERT OVERWRITE` (static) | No | **Native** typed `ValuesRel` → worker static-partition overwrite → coordinator fenced atomic commit | `PlanExecutionFactory.executeDml()` |
+| `INSERT SELECT` | Yes | **Native** read → worker-direct write → coordinator fenced atomic commit | `PlanExecutionFactory.executeDml()` |
+| `DELETE` (no WHERE) | Yes, when a row policy applies | **Native** — protected mutation predicate → surviving rows → fenced overwrite | `PlanExecutionFactory.executeDml()` |
+| `DELETE WHERE` | Yes | **Native** distributed — rows not matching the protected mutation predicate → fenced overwrite | `PlanExecutionFactory.executeDml()` |
 | `UPDATE` | Yes | **Native** distributed — workers apply assignments, coordinator atomic commit | `PlanExecutionFactory.executeDml()` via `NativeDmlCompileFunction` |
 | `MERGE` | Yes | **Native** distributed — workers match/transform, coordinator atomic commit | `PlanExecutionFactory.executeDml()` via `NativeDmlCompileFunction` |
 | DDL | No | **Java** — catalog metadata API | `DdlExecutor` |
 
-**Routing rule**: All read-dependent DML (SELECT, INSERT SELECT, UPDATE, MERGE, complex DELETE)
-goes through Native (Velox) distributed execution — coordinator-level CoW was removed to eliminate
-the unbounded coordinator-heap OOM risk. Workers produce commit-metadata fragments via
+**Routing rule**: All relational DML, including literal-only `INSERT VALUES`, goes through the
+canonical planner → v2 task → Native/Worker write path. The Coordinator may validate types,
+authorize, bind, admit, schedule, fence and commit metadata, but it must never construct a
+`Page`, open a `ConnectorPageSink`, or retain a DML row payload. Workers produce
+commit-metadata fragments via
 `finishWithMetadata()`; the coordinator performs the single atomic catalog commit through
 `ConnectorMetadata.finishDistributedWrite()` (fenced by `WriteCommitFencer`, journaled in
-`WriteCommitJournal`). Pure metadata ops (INSERT VALUES, DELETE ALL, simple DELETE WHERE, DDL)
-stay in Java. Final catalog commit always happens in Java via connector SPI.
+`WriteCommitJournal`). Only DDL remains a Java-local metadata operation. DELETE must not
+bypass policy compilation, authenticated write admission or the durable commit journal,
+even when a connector supports metadata-only deletion. Mutation row policies restrict
+matches; they must never remove the unmodified physical rows needed by a replacement
+write. Target masks protect predicates and assignments, not the physical survivor columns.
+Final catalog commit always happens in Java via connector SPI.
 
 ## C++ Module Dependency Rules
 
@@ -163,12 +187,13 @@ Within `pangrova-worker-native/src/`, C++ components follow layered dependencies
 | `jni/` | `compat/` only — JNI layer must be THIN |
 | `jni/bridge/` | `executor/`, `result/`, `shuffle/`, `write/`, `lance/`, `vector/` |
 | `jni/command/` | `executor/`, `jni/bridge/`, `jni/registry/`, `compat/` |
-| `velox/` | Velox SDK, Arrow, Protobuf — NO direct JNI includes |
+| `velox/` | Velox SDK, Arrow, Protobuf, `columnar/` — NO direct JNI includes |
 | `executor/` | `velox/`, `memory/`, `shuffle/`, `result/`, `observability/` |
-| `shuffle/` | Arrow Flight, `memory/`, `observability/` |
-| `memory/` | Velox memory SDK, `observability/` |
+| `shuffle/` | Arrow Flight, `columnar/`, `memory/`, `observability/` |
+| `memory/` | Velox memory SDK, Arrow allocation API, `observability/` |
+| `columnar/` | Arrow, `memory/` only — no SQL type decoder, executor or JNI |
 | `merge/`, `delete/`, `index/`, `split/` | `velox/connector/`, `memory/` |
-| `result/` | Arrow Flight, `memory/` |
+| `result/` | Arrow Flight, Velox output-buffer SDK, Protocol, `columnar/`, `memory/`; `shuffle/` ticket-security APIs only (no shuffle buffers or executor ownership) |
 | `observability/` | OpenTelemetry SDK only (no business logic) |
 | `lance/` | Lance C FFI, Arrow |
 | `vector/` | Arrow, `memory/` |

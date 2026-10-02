@@ -70,8 +70,7 @@ class TracePropagationE2ETest extends SqlE2ETestBase {
                     {"query":"SELECT id, name FROM %s.%s.%s ORDER BY id","session_properties":{}}"""
                     .formatted(CATALOG, SCHEMA, testTable);
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+            HttpRequest request = authenticatedHttpRequest(URI.create(url))
                     .header("Content-Type", "application/json")
                     .header("traceparent", traceparent)
                     .POST(HttpRequest.BodyPublishers.ofString(body))
@@ -92,8 +91,7 @@ class TracePropagationE2ETest extends SqlE2ETestBase {
             String body = """
                     {"query":"SELECT 1 AS one","session_properties":{}}""";
 
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
+            HttpRequest request = authenticatedHttpRequest(URI.create(url))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();

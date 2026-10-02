@@ -133,7 +133,7 @@ public final class NativeMetricsPayload {
     private static NativeMetricsPayload empty() {
         Map<String, Number> zeroFields = new LinkedHashMap<>();
         for (FieldDefinition fd : V1_FIELDS) {
-            zeroFields.put(fd.name(), fd.type() == FieldType.DOUBLE ? 0.0 : 0L);
+            zeroFields.put(fd.name(), zeroValue(fd.type()));
         }
         return new NativeMetricsPayload(LEGACY_VERSION, zeroFields);
     }
@@ -160,7 +160,7 @@ public final class NativeMetricsPayload {
 
             if (fieldOffset + FIELD_SIZE > raw.length) {
                 // Payload too short for this field — default to zero
-                result.put(fd.name(), fd.type() == FieldType.DOUBLE ? 0.0 : 0L);
+                result.put(fd.name(), zeroValue(fd.type()));
             } else {
                 long bits = buf.getLong(fieldOffset);
                 if (fd.type() == FieldType.DOUBLE) {
@@ -172,6 +172,13 @@ public final class NativeMetricsPayload {
         }
 
         return new NativeMetricsPayload(version, result);
+    }
+
+    private static Number zeroValue(FieldType type) {
+        if (type == FieldType.DOUBLE) {
+            return Double.valueOf(0.0);
+        }
+        return Long.valueOf(0L);
     }
 
     @Override

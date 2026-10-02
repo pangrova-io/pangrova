@@ -96,14 +96,14 @@ class RepeatQueryConsistencyTest extends SqlE2ETestBase {
         // Execute baseline query under normal conditions
         List<TypedRow> baseline = sqlRunner.execute(sql);
 
-        // Simulate HIGH memory pressure by re-registering worker
+        // Simulate the Worker reporting HIGH pressure through its heartbeat.
         simulateHighMemoryPressure();
-
-        List<TypedRow> underPressure = sqlRunner.execute(sql);
-        ResultValidator.assertEqualsOrdered(baseline, underPressure);
-
-        // Restore normal memory pressure
-        restoreNormalMemoryPressure();
+        try {
+            List<TypedRow> underPressure = sqlRunner.execute(sql);
+            ResultValidator.assertEqualsOrdered(baseline, underPressure);
+        } finally {
+            restoreNormalMemoryPressure();
+        }
     }
 
     // --- N4.4: Data modification invalidates cache ---
@@ -205,13 +205,12 @@ class RepeatQueryConsistencyTest extends SqlE2ETestBase {
 
     private void registerWorkerWithPressure(
             org.pangrova.resource.MemoryPressure pressure) {
-        var workerInfo = new org.pangrova.coordinator.worker.WorkerInfo(
-                WORKER_ID, "localhost", workerHttpPort(), 0, 0,
-                org.pangrova.coordinator.worker.HealthState.ACTIVE,
-                pressure, 0.0, 0, 4L * 1024 * 1024 * 1024,
-                java.time.Instant.now(), 1.0, null, 1, List.of(),
-                null, List.of());
-        workerManager.registerWorker(workerInfo);
+        var worker = java.util.Objects.requireNonNull(
+                workerManager.getWorker(WORKER_ID), "E2E Worker must be registered");
+        workerManager.onHeartbeat(WORKER_ID,
+                new org.pangrova.coordinator.worker.WorkerManager.HeartbeatData(
+                        pressure, worker.cpuUtilization(), worker.runningTaskCount(),
+                        worker.availableMemoryBytes(), worker.cacheSummary()));
     }
 
     // -----------------------------------------------------------------------

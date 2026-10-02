@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Acceptance test: validates the scheduler chain from main() to task dispatch.
@@ -39,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Property 34: Scheduler chain from main() to task dispatch</b></p>
  */
 @Tag("Feature: e2e-pipeline-integration - Property 34: Scheduler chain from main() to task dispatch")
-class SchedulerChainTest {
+class SchedulerChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -141,26 +142,27 @@ class SchedulerChainTest {
         assertThat(stragglers).containsExactly("t4");
     }
 
-    /** SpeculativeTaskLauncher tracks original task for speculative copies. */
+    /** An unwired launcher cannot advertise an unexecuted speculative copy. */
     @Test
     void speculativeTaskLauncherTracksOriginal() {
         SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
 
-        String specId = launcher.launchSpeculative("t1", "worker-exclude");
-
-        assertThat(launcher.isSpeculative(specId)).isTrue();
-        assertThat(launcher.getOriginalTaskId(specId)).hasValue("t1");
+        assertThatThrownBy(() -> launcher.launchSpeculative(
+                "t1", "worker-exclude", "query-1"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
     }
 
-    /** CoordinatorBootstrap starts with scheduler chain intact — query submission returns 200. */
+    /** Native-only query dispatch rejects submissions until a worker is available. */
     @Test
-    void coordinatorBootstrapStartsWithSchedulerChain() throws Exception {
+    void coordinatorBootstrapFailsClosedWithoutWorker() throws Exception {
         startCoordinator("coord-sched-test");
         int port = coordinatorBootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
 
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("COORDINATOR-0001");
     }
 
     /** Task tracker detects failed task after PENDING→SCHEDULED→RUNNING→FAILED transitions. */
@@ -183,8 +185,7 @@ class SchedulerChainTest {
         shutdownAll();
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 coordinatorId, 0);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
-        coordinatorBootstrap.start();
+        coordinatorBootstrap = startAuthorizedCoordinator(config);
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
         assertThat(coordinatorBootstrap.getHttpPort()).isGreaterThan(0);
     }
@@ -198,11 +199,12 @@ class SchedulerChainTest {
 
     // -- HTTP helpers --
 
-    private static HttpResponse<String> submitQuery(int port, String sql) throws Exception {
+    private HttpResponse<String> submitQuery(int port, String sql) throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

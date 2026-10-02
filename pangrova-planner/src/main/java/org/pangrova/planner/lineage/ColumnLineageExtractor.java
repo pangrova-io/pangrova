@@ -1,5 +1,7 @@
 package org.pangrova.planner.lineage;
 
+import org.pangrova.planner.PlanTable;
+
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Aggregate;
 import org.apache.calcite.rel.core.Filter;
@@ -67,7 +69,7 @@ public final class ColumnLineageExtractor {
 
     private void collectTables(RelNode node, Set<String> tables) {
         if (node instanceof TableScan scan) {
-            tables.add(String.join(".", scan.getTable().getQualifiedName()));
+            tables.add(String.join(".", PlanTable.require(scan).getQualifiedName()));
         }
         for (RelNode input : node.getInputs()) {
             collectTables(input, tables);
@@ -95,7 +97,7 @@ public final class ColumnLineageExtractor {
     }
 
     private List<List<ColumnDerivation.SourceColumn>> resolveTableScan(TableScan scan) {
-        String tableName = String.join(".", scan.getTable().getQualifiedName());
+        String tableName = String.join(".", PlanTable.require(scan).getQualifiedName());
         List<RelDataTypeField> fields = scan.getRowType().getFieldList();
         List<List<ColumnDerivation.SourceColumn>> result = new ArrayList<>(fields.size());
         for (RelDataTypeField field : fields) {

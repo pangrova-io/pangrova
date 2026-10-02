@@ -15,7 +15,7 @@ import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
+import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 
@@ -28,8 +28,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Property 3: Spill configuration lossless propagation.
  *
  * <p>For any SpillBudget (arbitrary maxSpillBytes and spillDirectory values),
- * the values propagate unchanged through DefaultWorkerSelector.computeResourceLimit
- * into ResourceLimitPayload.</p>
+ * the byte quota propagates unchanged through DefaultWorkerSelector.computeResourceLimit
+ * into the canonical StageResourceGrant. Spill paths remain node-local configuration.</p>
  *
  * <p><b>Validates: Requirements 3.2, 3.3</b></p>
  */
@@ -47,14 +47,12 @@ class SpillBudgetPropagationPropertyTest {
         SplitAssignmentManager sam = new SplitAssignmentManager();
         DefaultWorkerSelector selector = new DefaultWorkerSelector(wm, scheduler, sam, budget);
 
-        ResourceLimitPayload payload = selector.computeResourceLimit(parallelism, concurrentStages);
+        StageResourceGrant payload = selector.computeResourceLimit(
+                parallelism, concurrentStages, wm.getWorker("worker-1"));
 
-        assertThat(payload.maxSpillBytes())
+        assertThat(payload.getSpillBytes())
                 .as("maxSpillBytes must propagate unchanged")
                 .isEqualTo(budget.maxSpillBytes());
-        assertThat(payload.spillDirectory())
-                .as("spillDirectory must propagate unchanged")
-                .isEqualTo(budget.spillDirectory());
     }
 
     @Property(tries = 100)
@@ -110,6 +108,7 @@ class SpillBudgetPropagationPropertyTest {
                 "worker-1", "host-1", 8080, 9090, 9091,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
                 4L * 1024 * 1024 * 1024, Instant.now(), 1.0,
-                "default", 1, List.of(), null, List.of()));
+                "default", 2, null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory()));
     }
 }

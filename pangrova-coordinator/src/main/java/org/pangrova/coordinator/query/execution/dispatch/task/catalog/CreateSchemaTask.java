@@ -23,7 +23,7 @@ public final class CreateSchemaTask implements MetadataTask<CreateSchemaStatemen
 
     @Override
     public StatementResult execute(CreateSchemaStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeCreateSchema(statement);
+        List<TypedRow> rows = executor.executeCreateSchema(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.DDL);
     }
 

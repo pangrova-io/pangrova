@@ -6,6 +6,7 @@ import org.pangrova.spi.ai.inference.InferenceResult;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.BatchableScalarFunction;
 import org.pangrova.spi.function.FunctionMetadata;
+import org.pangrova.protocol.function.FunctionBindingDeclarations;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,12 +23,8 @@ import java.util.Map;
  */
 public final class AiClassifyFunction implements BatchableScalarFunction {
 
-    private static final FunctionMetadata METADATA = new FunctionMetadata(
-            "ai_classify",
-            "VARCHAR",
-            List.of("VARCHAR", "VARCHAR", "VARCHAR"),
-            false,
-            "Classifies text into one of the provided labels using an LLM");
+    private static final FunctionMetadata METADATA =
+            FunctionBindingDeclarations.callbackMetadata("ai_classify");
 
     private final java.util.function.Function<String, InferenceProvider> providerLookup;
 
@@ -36,7 +33,7 @@ public final class AiClassifyFunction implements BatchableScalarFunction {
      *
      * @param providerLookup resolves model names to inference providers
      */
-    public AiClassifyFunction(
+    AiClassifyFunction(
             java.util.function.Function<String, InferenceProvider> providerLookup) {
         if (providerLookup == null) {
             throw new IllegalArgumentException("providerLookup required");

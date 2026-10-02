@@ -188,17 +188,19 @@ public enum PangrovaErrorCode {
     AI_EMBEDDING_MODEL_IN_USE("AI-0004", "Embedding model is referenced by dependent columns"),
     AI_EMBEDDING_VERSION_CONFLICT("AI-0005", "Optimistic concurrency conflict on model version"),
     AI_EMBEDDING_ACCESS_DENIED("AI-0006", "Insufficient privilege for embedding model operation"),
+    AI_EMBEDDING_MODEL_DROP_UNAVAILABLE(
+            "AI-0007", "Embedding model drop requires durable dependency coordination"),
     AI_EMBEDDING_PROVIDER_UNAVAILABLE("AI-3003", "Embedding provider unavailable"),
     AI_BRANCH_NOT_FOUND("AI-3008", "Branch does not exist"),
     AI_BRANCH_ALREADY_EXISTS("AI-3011", "Branch already exists"),
     AI_BRANCH_SNAPSHOT_EXPIRED("AI-3007", "Branch references an expired snapshot"),
     AI_MERGE_NOT_SUPPORTED("AI-3012", "MERGE BRANCH is not supported"),
     AI_BLOB_SIZE_EXCEEDED("AI-3010", "BLOB content exceeds maximum allowed size"),
-        AI_LANCE_FORMAT_UNAVAILABLE(
-            "AI-3013", "Lance file format unavailable: native binary was built without Lance C FFI support"),
     AI_EMBEDDING_QUEUE_FULL("AI-3014", "Embedding queue backpressure active: ASYNC INSERT blocked until queue drains"),
     AI_INFERENCE_PROVIDER_UNAVAILABLE("AI-3015", "Inference provider unavailable"),
     AI_MODEL_SERVICE_UNAVAILABLE("AI-3016", "Model service unavailable on data plane"),
+    AI_INVOCATION_AUTHORIZATION_DENIED(
+            "AI-3017", "AI invocation authorization denied"),
 
     TEST_REFERENCE_ENGINE_INIT_FAILED("TEST-0001", "Reference engine initialization failed"),
     TEST_RESULT_MISMATCH("TEST-0002", "Result mismatch detected"),

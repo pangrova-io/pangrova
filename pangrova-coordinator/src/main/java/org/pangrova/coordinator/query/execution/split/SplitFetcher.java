@@ -7,7 +7,8 @@ import java.util.Map;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.statement.StatementConnectorSession;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.SessionContextConverter;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
@@ -77,10 +78,10 @@ public final class SplitFetcher {
      */
     public static List<ConnectorSplit> fetchRawConnectorSplits(
             PlannedQuery plannedQuery, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides) {
+            Map<String, Long> snapshotOverrides, CoordinatorSessionContext context) {
         return fetchRawConnectorSplits(
                 plannedQuery.splitSources(), registry, snapshotOverrides,
-                plannedQuery.queryOutputColumns());
+                plannedQuery.queryOutputColumns(), context);
     }
 
     /**
@@ -90,14 +91,15 @@ public final class SplitFetcher {
      */
     public static List<ConnectorSplit> fetchRawConnectorSplits(
             List<SplitSourceDescriptor> sources, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides, List<String> queryOutputColumns) {
+            Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
+            CoordinatorSessionContext context) {
         if (registry == null || sources.isEmpty()) {
             return List.of();
         }
         Map<String, SplitSourceDescriptor> unique = deduplicateSources(sources);
         List<ConnectorSplit> allSplits = new ArrayList<>();
         for (SplitSourceDescriptor desc : unique.values()) {
-            allSplits.addAll(fetchConnectorSplits(desc, registry, snapshotOverrides, queryOutputColumns));
+            allSplits.addAll(fetchConnectorSplits(desc, registry, snapshotOverrides, queryOutputColumns, context));
         }
         return allSplits;
     }
@@ -119,8 +121,8 @@ public final class SplitFetcher {
      */
     public static List<SplitWithPaths> fetchSplitsWithFilePaths(
             PlannedQuery plannedQuery, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides) {
-        List<ConnectorSplit> allSplits = fetchRawConnectorSplits(plannedQuery, registry, snapshotOverrides);
+            Map<String, Long> snapshotOverrides, CoordinatorSessionContext context) {
+        List<ConnectorSplit> allSplits = fetchRawConnectorSplits(plannedQuery, registry, snapshotOverrides, context);
         LOG.info("event=split_fetch_summary total_splits={}", allSplits.size());
         return toSplitWithPaths(allSplits);
     }
@@ -132,9 +134,10 @@ public final class SplitFetcher {
      */
     public static List<SplitWithPaths> fetchSplitsWithFilePaths(
             List<SplitSourceDescriptor> sources, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides, List<String> queryOutputColumns) {
+            Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
+            CoordinatorSessionContext context) {
         List<ConnectorSplit> allSplits = fetchRawConnectorSplits(sources, registry, snapshotOverrides,
-                queryOutputColumns);
+                queryOutputColumns, context);
         LOG.info("event=split_fetch_summary total_splits={}", allSplits.size());
         return toSplitWithPaths(allSplits);
     }
@@ -176,9 +179,11 @@ public final class SplitFetcher {
 
     private static List<ConnectorSplit> fetchConnectorSplits(
             SplitSourceDescriptor desc, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides, List<String> queryOutputColumns) {
+            Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
+            CoordinatorSessionContext context) {
         CatalogHandle catalog = registry.getCatalog(desc.catalogName());
-        ConnectorSession session = createSession(desc.catalogName(), desc.schemaName());
+        ConnectorSession session = SessionContextConverter.toConnectorSession(
+                context, desc.catalogName(), desc.schemaName());
         ConnectorTableHandle tableHandle = resolveTableHandle(catalog, session, desc);
         if (tableHandle == null) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
@@ -197,7 +202,7 @@ public final class SplitFetcher {
         Constraint constraint = desc.constraint();
         List<ConnectorSplit> splits = drainSplits(catalog, session, tableHandle, constraint);
         LOG.debug("event=splits_fetched table={} splitCount={}", desc.qualifiedName(), splits.size());
-        return splits;
+        return splits.stream().map(split -> NativeReadSplitBinding.bind(split, catalog, session)).toList();
     }
 
     private static ConnectorTableHandle applySnapshotOverride(
@@ -292,7 +297,4 @@ public final class SplitFetcher {
         }
     }
 
-    private static ConnectorSession createSession(String catalog, String schema) {
-        return new StatementConnectorSession(catalog, schema);
-    }
 }

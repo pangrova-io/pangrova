@@ -4,23 +4,21 @@ import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
 import org.pangrova.coordinator.query.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 
 /**
  * Bundles the dependencies for {@link PlanExecutionFactory} construction,
  * keeping the constructor parameter count within the quality gate (≤4).
  *
  * @param dmlDispatch             compiles DML to Substrait and dispatches to native workers
- * @param cacheInvalidator        invalidates cache after DML writes (nullable)
+ * @param writeCompleteCallback  observes a successfully committed DML write (nullable)
  * @param explainCompiler         compiles inner SQL and returns plan text for EXPLAIN
- * @param writeCommitTracker      tracks distributed write commit metadata (nullable)
- * @param catalogRegistry         resolves catalog names for write context registration (nullable)
- * @param accessControlEnforcer   enforces SELECT privilege on source tables (nullable)
+ * @param catalogRegistry         resolves actual table declarations before compilation
+ * @param generatedValueMaterialization checks generated definition readiness
  */
 public record PlanExecutionFactoryContext(
         NativeDmlCompileFunction dmlDispatch,
-        Consumer<String> cacheInvalidator,
+        Consumer<String> writeCompleteCallback,
         BiFunction<String, CoordinatorSessionContext, String> explainCompiler,
-        org.pangrova.coordinator.query.task.NativeWriteCommitTracker writeCommitTracker,
         org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
-        AccessControlEnforcer accessControlEnforcer) {}
+        org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
+                generatedValueMaterialization) {}

@@ -4,6 +4,7 @@ package org.pangrova.metadata.index.model;
  * Immutable event describing a schema change that may affect indexes.
  *
  * @param type           the type of schema change
+ * @param tenantId      tenant owning affected indexes
  * @param catalogName    catalog containing the table
  * @param schemaName     schema containing the table
  * @param tableName      current table name
@@ -15,6 +16,7 @@ package org.pangrova.metadata.index.model;
  */
 public record SchemaChangeEvent(
         SchemaChangeType type,
+        String tenantId,
         String catalogName,
         String schemaName,
         String tableName,
@@ -27,6 +29,9 @@ public record SchemaChangeEvent(
     public SchemaChangeEvent {
         if (type == null) {
             throw new IllegalArgumentException("type required");
+        }
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId required");
         }
         if (catalogName == null || catalogName.isBlank()) {
             throw new IllegalArgumentException("catalogName required");
@@ -41,52 +46,52 @@ public record SchemaChangeEvent(
 
     /** Factory for DROP_COLUMN events. */
     public static SchemaChangeEvent dropColumn(
-            String catalog, String schema, String table, String column) {
+            String tenantId, String catalog, String schema, String table, String column) {
         return new SchemaChangeEvent(
-                SchemaChangeType.DROP_COLUMN, catalog, schema, table,
+                SchemaChangeType.DROP_COLUMN, tenantId, catalog, schema, table,
                 null, column, null, null, null);
     }
 
     /** Factory for RENAME_COLUMN events. */
     public static SchemaChangeEvent renameColumn(
-            String catalog, String schema, String table,
+            String tenantId, String catalog, String schema, String table,
             String oldColumn, String newColumn) {
         return new SchemaChangeEvent(
-                SchemaChangeType.RENAME_COLUMN, catalog, schema, table,
+                SchemaChangeType.RENAME_COLUMN, tenantId, catalog, schema, table,
                 null, oldColumn, newColumn, null, null);
     }
 
     /** Factory for MODIFY_COLUMN_TYPE events. */
     public static SchemaChangeEvent modifyColumnType(
-            String catalog, String schema, String table,
+            String tenantId, String catalog, String schema, String table,
             String column, String oldType, String newType) {
         return new SchemaChangeEvent(
-                SchemaChangeType.MODIFY_COLUMN_TYPE, catalog, schema, table,
+                SchemaChangeType.MODIFY_COLUMN_TYPE, tenantId, catalog, schema, table,
                 null, column, null, oldType, newType);
     }
 
     /** Factory for DROP_TABLE events. */
     public static SchemaChangeEvent dropTable(
-            String catalog, String schema, String table) {
+            String tenantId, String catalog, String schema, String table) {
         return new SchemaChangeEvent(
-                SchemaChangeType.DROP_TABLE, catalog, schema, table,
+                SchemaChangeType.DROP_TABLE, tenantId, catalog, schema, table,
                 null, null, null, null, null);
     }
 
     /** Factory for RENAME_TABLE events. */
     public static SchemaChangeEvent renameTable(
-            String catalog, String schema, String oldTable, String newTable) {
+            String tenantId, String catalog, String schema, String oldTable, String newTable) {
         return new SchemaChangeEvent(
-                SchemaChangeType.RENAME_TABLE, catalog, schema, newTable,
+                SchemaChangeType.RENAME_TABLE, tenantId, catalog, schema, newTable,
                 oldTable, null, null, null, null);
     }
 
     /** Factory for ADD_COLUMN events. */
     public static SchemaChangeEvent addColumn(
-            String catalog, String schema, String table,
+            String tenantId, String catalog, String schema, String table,
             String column, String columnType) {
         return new SchemaChangeEvent(
-                SchemaChangeType.ADD_COLUMN, catalog, schema, table,
+                SchemaChangeType.ADD_COLUMN, tenantId, catalog, schema, table,
                 null, null, column, null, columnType);
     }
 }

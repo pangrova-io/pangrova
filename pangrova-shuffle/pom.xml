@@ -13,10 +13,10 @@
     <artifactId>pangrova-shuffle</artifactId>
     <packaging>pom</packaging>
     <name>Pangrova Shuffle</name>
-    <description>Shuffle parent for Pangrova: core SPI and provider implementations (Celeborn, etc.)</description>
+    <description>Shuffle parent for Pangrova: core SPI and in-tree provider implementations</description>
 
     <modules>
         <module>pangrova-shuffle-core</module>
-        <module>pangrova-shuffle-celeborn</module>
+        <module>pangrova-shuffle-service</module>
     </modules>
 </project>

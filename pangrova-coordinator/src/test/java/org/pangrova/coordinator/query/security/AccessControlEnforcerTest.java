@@ -1,12 +1,15 @@
 package org.pangrova.coordinator.query.security;
 
+import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedRoles;
+
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
@@ -38,7 +41,7 @@ class AccessControlEnforcerTest {
     class AnonymousAccess {
 
         @Test
-        void checkTableAccess_nullIdentity_throwsAccessDenied() {
+        void checkTableAccessNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
 
             assertThatThrownBy(() -> enforcer.checkTableAccess(List.of(), null))
@@ -47,49 +50,49 @@ class AccessControlEnforcerTest {
         }
 
         @Test
-        void checkCreateTable_nullIdentity_throwsAccessDenied() {
+        void checkCreateTableNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkCreateTable(null, CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
-        void checkAlterTable_nullIdentity_throwsAccessDenied() {
+        void checkAlterTableNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkAlterTable(null, CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
-        void checkDropTable_nullIdentity_throwsAccessDenied() {
+        void checkDropTableNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkDropTable(null, CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
-        void checkInsertIntoTable_nullIdentity_throwsAccessDenied() {
+        void checkInsertIntoTableNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkInsertIntoTable(null, CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
-        void checkDeleteFromTable_nullIdentity_throwsAccessDenied() {
+        void checkDeleteFromTableNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkDeleteFromTable(null, CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
-        void checkUpdateTable_nullIdentity_throwsAccessDenied() {
+        void checkUpdateTableNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkUpdateTable(null, CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AccessDeniedException.class);
         }
 
         @Test
-        void checkSelectFromTable_nullIdentity_throwsAccessDenied() {
+        void checkSelectFromTableNullIdentityThrowsAccessDenied() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkSelectFromTable(null, CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AccessDeniedException.class)
@@ -103,14 +106,14 @@ class AccessControlEnforcerTest {
     class InsertAccess {
 
         @Test
-        void allowed_withInsertGrant() {
+        void allowedWithInsertGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.INSERT)));
             assertThatCode(() -> enforcer.checkInsertIntoTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void denied_withoutInsertGrant() {
+        void deniedWithoutInsertGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.SELECT)));
             assertThatThrownBy(() -> enforcer.checkInsertIntoTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -123,22 +126,21 @@ class AccessControlEnforcerTest {
     class UpdateAccess {
 
         @Test
-        void allowed_withBothInsertAndDeleteGrants() {
-            AccessControlEnforcer enforcer = enforcer(List.of(
-                    grant(Privilege.INSERT), grant(Privilege.DELETE)));
+        void allowedWithSqlUpdateGrant() {
+            AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.UPDATE)));
             assertThatCode(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void denied_withOnlyInsertGrant() {
+        void deniedWithOnlyInsertGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.INSERT)));
             assertThatThrownBy(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
         }
 
         @Test
-        void denied_withOnlyDeleteGrant() {
+        void deniedWithOnlyDeleteGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.DELETE)));
             assertThatThrownBy(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -151,14 +153,14 @@ class AccessControlEnforcerTest {
     class DeleteAccess {
 
         @Test
-        void allowed_withDeleteGrant() {
+        void allowedWithDeleteGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.DELETE)));
             assertThatCode(() -> enforcer.checkDeleteFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void denied_withoutDeleteGrant() {
+        void deniedWithoutDeleteGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.INSERT)));
             assertThatThrownBy(() -> enforcer.checkDeleteFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -171,14 +173,14 @@ class AccessControlEnforcerTest {
     class CreateTableAccess {
 
         @Test
-        void allowed_withCreateTableGrant() {
+        void allowedWithCreateTableGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.CREATE_TABLE)));
             assertThatCode(() -> enforcer.checkCreateTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void denied_withoutCreateTableGrant() {
+        void deniedWithoutCreateTableGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.SELECT)));
             assertThatThrownBy(() -> enforcer.checkCreateTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -191,14 +193,14 @@ class AccessControlEnforcerTest {
     class AlterTableAccess {
 
         @Test
-        void allowed_withAlterGrant() {
+        void allowedWithAlterGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALTER)));
             assertThatCode(() -> enforcer.checkAlterTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void denied_withoutAlterGrant() {
+        void deniedWithoutAlterGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.SELECT)));
             assertThatThrownBy(() -> enforcer.checkAlterTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -211,14 +213,14 @@ class AccessControlEnforcerTest {
     class DropTableAccess {
 
         @Test
-        void allowed_withDropGrant() {
+        void allowedWithDropGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.DROP)));
             assertThatCode(() -> enforcer.checkDropTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void denied_withoutDropGrant() {
+        void deniedWithoutDropGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.SELECT)));
             assertThatThrownBy(() -> enforcer.checkDropTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -231,105 +233,105 @@ class AccessControlEnforcerTest {
     class PrivilegeHierarchy {
 
         @Test
-        void ownerGrant_impliesSelect() {
+        void ownerGrantImpliesSelect() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkTableAccess(List.of(), user()))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void ownerGrant_impliesInsert() {
+        void ownerGrantImpliesInsert() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkInsertIntoTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void ownerGrant_impliesDelete() {
+        void ownerGrantImpliesDelete() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkDeleteFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void ownerGrant_impliesUpdate() {
+        void ownerGrantImpliesUpdate() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void ownerGrant_impliesCreateTable() {
+        void ownerGrantImpliesCreateTable() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkCreateTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void ownerGrant_impliesAlterTable() {
+        void ownerGrantImpliesAlterTable() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkAlterTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void ownerGrant_impliesDropTable() {
+        void ownerGrantImpliesDropTable() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkDropTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allGrant_impliesSelect() {
+        void allGrantImpliesSelect() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkTableAccess(List.of(), user()))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allGrant_impliesInsert() {
+        void allGrantImpliesInsert() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkInsertIntoTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allGrant_impliesDelete() {
+        void allGrantImpliesDelete() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkDeleteFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allGrant_impliesUpdate() {
+        void allGrantImpliesUpdate() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allGrant_impliesCreateTable() {
+        void allGrantImpliesCreateTable() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkCreateTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allGrant_impliesAlterTable() {
+        void allGrantImpliesAlterTable() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkAlterTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allGrant_impliesDropTable() {
+        void allGrantImpliesDropTable() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkDropTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void specificGrant_doesNotImplyOtherPrivilege() {
+        void specificGrantDoesNotImplyOtherPrivilege() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.SELECT)));
             assertThatThrownBy(() -> enforcer.checkInsertIntoTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -342,14 +344,32 @@ class AccessControlEnforcerTest {
     class PlanLevelSelectEnforcement {
 
         @Test
-        void constantQueryNoTableScan_passes() {
+        void systemTableReadsRequireBaseTableGrant() {
+            AccessControlEnforcer baseGranted = enforcer(List.of(grant(Privilege.SELECT)));
+            assertThatCode(() -> baseGranted.checkTableAccess(
+                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$snapshots")), user()))
+                    .doesNotThrowAnyException();
+            assertThatCode(() -> baseGranted.checkTableAccess(
+                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$history")), user()))
+                    .doesNotThrowAnyException();
+
+            PrivilegeGrant suffixOnly = PrivilegeGrant.of("role1", Privilege.SELECT,
+                    "TABLE", CATALOG, SCHEMA, TABLE + "$snapshots", null);
+            AccessControlEnforcer noBaseGrant = enforcer(List.of(suffixOnly));
+            assertThatThrownBy(() -> noBaseGrant.checkTableAccess(
+                    List.of(List.of(CATALOG, SCHEMA, TABLE + "$snapshots")), user()))
+                    .isInstanceOf(AuthorizationDeniedException.class);
+        }
+
+        @Test
+        void constantQueryNoTableScanPasses() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatCode(() -> enforcer.checkTableAccess(List.of(), user()))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void selectWithGrant_passes() {
+        void selectWithGrantPasses() {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("role1", Privilege.SELECT, "TABLE", "*", "*", "*", null));
             AccessControlEnforcer enforcer = enforcer(grants);
@@ -364,56 +384,56 @@ class AccessControlEnforcerTest {
     class SelectFromTableAccess {
 
         @Test
-        void allowed_withSelectGrant() {
+        void allowedWithSelectGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.SELECT)));
             assertThatCode(() -> enforcer.checkSelectFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void denied_withoutSelectGrant() {
+        void deniedWithoutSelectGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.INSERT)));
             assertThatThrownBy(() -> enforcer.checkSelectFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(org.pangrova.security.authz.AuthorizationDeniedException.class);
         }
 
         @Test
-        void denied_withNoGrants() {
+        void deniedWithNoGrants() {
             AccessControlEnforcer enforcer = enforcer(List.of());
             assertThatThrownBy(() -> enforcer.checkSelectFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(org.pangrova.security.authz.AuthorizationDeniedException.class);
         }
 
         @Test
-        void allowed_withOwnerGrant() {
+        void allowedWithOwnerGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.OWNER)));
             assertThatCode(() -> enforcer.checkSelectFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
 
         @Test
-        void allowed_withAllGrant() {
+        void allowedWithAllGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.ALL)));
             assertThatCode(() -> enforcer.checkSelectFromTable(user(), CATALOG, SCHEMA, TABLE))
                     .doesNotThrowAnyException();
         }
     }
 
-    // ── MERGE privilege checks (requires both INSERT and DELETE) ──
+    // Physical overwrite privileges cannot substitute for the SQL UPDATE action.
 
     @Nested
-    class MergeAccess {
+    class UpdateGrantSeparation {
 
         @Test
-        void allowed_withBothInsertAndDeleteGrants() {
+        void insertAndDeleteCannotSubstituteForUpdate() {
             AccessControlEnforcer enforcer = enforcer(List.of(
                     grant(Privilege.INSERT), grant(Privilege.DELETE)));
-            assertThatCode(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
-                    .doesNotThrowAnyException();
+            assertThatThrownBy(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
+                    .isInstanceOf(AuthorizationDeniedException.class);
         }
 
         @Test
-        void denied_withOnlyInsertGrant() {
+        void deniedWithOnlyInsertGrant() {
             AccessControlEnforcer enforcer = enforcer(List.of(grant(Privilege.INSERT)));
             assertThatThrownBy(() -> enforcer.checkUpdateTable(user(), CATALOG, SCHEMA, TABLE))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -427,7 +447,9 @@ class AccessControlEnforcerTest {
     }
 
     private static AccessControl buildAccessControl(List<PrivilegeGrant> grants) {
-        return new RbacAccessControl(grants,
+        return new DynamicRbacAccessControl(
+                new StaticGrantStore(grants),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("role1", "role1"))),
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
                 new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
     }

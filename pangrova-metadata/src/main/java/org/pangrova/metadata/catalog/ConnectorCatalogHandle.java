@@ -7,6 +7,7 @@ import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
 import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
 import org.pangrova.spi.connector.metadata.HealthCheckResult;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
 
 /**
  * CatalogHandle backed by a Connector SPI implementation.
@@ -44,6 +45,11 @@ public final class ConnectorCatalogHandle implements CatalogHandle {
     }
 
     @Override
+    public void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
+        connector.registerCommitListener(listener);
+    }
+
+    @Override
     public ConnectorSplitManager getSplitManager() {
         return connector.getSplitManager();
     }
@@ -55,6 +61,10 @@ public final class ConnectorCatalogHandle implements CatalogHandle {
     @Override
     public ConnectorPageSinkProvider getPageSinkProvider() {
         return connector.getPageSinkProvider();
+    }
+
+    public ConnectorOutputHandleCodec getOutputHandleCodec() {
+        return connector.getOutputHandleCodec();
     }
 
     @Override

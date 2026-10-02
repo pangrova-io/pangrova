@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalOutputAssertions.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
 #include "substrait/algebra.pb.h"
@@ -58,6 +59,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
   auto* ref = expr->mutable_selection();
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
 }
@@ -132,6 +134,8 @@ std::vector<uint8_t> buildTopNRowNumberPlan(
   // Window function: row_number() with default frame (no bounds set).
   // Not setting bounds → isDefaultRowsFrame returns true (first branch).
   auto* wf = window_rel->add_window_functions();
+  wf->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
+  wf->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf->set_function_reference(0);  // row_number
   wf->mutable_output_type()->mutable_i64();
 
@@ -301,7 +305,8 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeHasCorrectPartitionKeys) {
 
   // Verify partition key names.
   for (int i = 0; i < param.partition_key_count; ++i) {
-    EXPECT_EQ(topn->partitionKeys()[i]->name(), "pk_" + std::to_string(i))
+    expectCanonicalOutputField(converter, plan->outputType(), i, "pk_" + std::to_string(i));
+    EXPECT_EQ(topn->partitionKeys()[i]->name(), physicalFieldAlias(i))
         << "Partition key name mismatch at index " << i
         << " for " << param.name;
   }
@@ -341,9 +346,11 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeHasCorrectSortingKeys) {
 
   // Verify sorting key names.
   for (int i = 0; i < param.order_key_count; ++i) {
+    expectCanonicalOutputField(converter, plan->outputType(),
+        param.partition_key_count + i, "ok_" + std::to_string(i));
     EXPECT_EQ(
         topn->sortingKeys()[i]->name(),
-        "ok_" + std::to_string(i))
+        physicalFieldAlias(param.partition_key_count + i))
         << "Sorting key name mismatch at index " << i
         << " for " << param.name;
   }
@@ -353,6 +360,10 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeHasCorrectSortingKeys) {
       static_cast<int>(topn->sortingOrders().size()),
       param.order_key_count)
       << "Sorting order count mismatch for " << param.name;
+  for (const auto& order : topn->sortingOrders()) {
+    EXPECT_TRUE(order.isAscending());
+    EXPECT_FALSE(order.isNullsFirst());
+  }
 }
 
 // ===========================================================================

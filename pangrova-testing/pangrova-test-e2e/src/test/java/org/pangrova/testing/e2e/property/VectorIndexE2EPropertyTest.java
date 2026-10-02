@@ -43,7 +43,7 @@ class VectorIndexE2EPropertyTest extends SqlE2ETestBase {
     @BeforeAll
     @BeforeContainer
     static void registerConnectors() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
     }

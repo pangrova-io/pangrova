@@ -6,7 +6,13 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.net.ConnectException;
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.SocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -106,11 +112,29 @@ class ClientExceptionClassificationTest {
         @Test
         @DisplayName("DNS resolution failure throws PangrovaConnectionException")
         void dnsResolutionFailureClassified() {
+            // Bypass process-wide HTTP proxies: otherwise a proxy can return a
+            // 502 for .invalid before the client's DNS classifier is exercised.
+            HttpClient directClient = HttpClient.newBuilder()
+                    .proxy(new ProxySelector() {
+                        @Override
+                        public List<Proxy> select(URI uri) {
+                            return List.of(Proxy.NO_PROXY);
+                        }
+
+                        @Override
+                        public void connectFailed(URI uri, SocketAddress address,
+                                                  IOException failure) {
+                            throw new AssertionError("Unexpected proxy connection", failure);
+                        }
+                    })
+                    .connectTimeout(Duration.ofSeconds(3))
+                    .build();
             PangrovaRestClient client = PangrovaRestClient.builder()
                     .coordinatorHost("this-host-does-not-exist-pangrova-test.invalid")
                     .coordinatorPort(8080)
                     .connectTimeout(Duration.ofSeconds(3))
                     .requestTimeout(Duration.ofSeconds(3))
+                    .httpClient(directClient)
                     .build();
 
             assertThatThrownBy(() -> client.getQueryStatus("q-123"))

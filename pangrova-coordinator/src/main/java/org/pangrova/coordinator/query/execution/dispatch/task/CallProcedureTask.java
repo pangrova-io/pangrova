@@ -55,12 +55,13 @@ public final class CallProcedureTask implements MetadataTask<CallStatement> {
         // TableWarmupExecutor instead of the connector.
         if (TableWarmupExecutor.PROCEDURE_NAME.equalsIgnoreCase(procedureName)) {
             TableWarmupExecutor warmup = new TableWarmupExecutor(catalogRegistry);
-            List<TypedRow> rows = warmup.execute(catalogName, args);
+            List<TypedRow> rows = warmup.execute(catalogName, args, context.session());
             return new StatementResult(
                     rows, extractColumnNames(rows), null, StatementCategory.MAINTENANCE);
         }
 
-        ConnectorSession session = TableResolver.buildSession(catalogName);
+        String schema = nameParts.size() == 3 ? nameParts.get(1) : TableResolver.defaultSchema(context.session());
+        ConnectorSession session = TableResolver.buildSession(context.session(), catalogName, schema);
         ConnectorMetadata metadata = catalogRegistry.getCatalog(catalogName).getMetadata(session);
 
         List<TypedRow> rows = metadata.executeProcedure(session, procedureName, args);

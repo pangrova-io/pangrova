@@ -4,8 +4,9 @@ import io.substrait.proto.ExtendedExpression;
 import io.substrait.proto.ExpressionReference;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
-import org.pangrova.protocol.v1.SplitConstraintInfo;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.SplitConstraint;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expressions;
@@ -77,8 +78,8 @@ class IcebergSplitPredicateInjectionIntegrationTest {
                 .contains("l_orderkey", "l_quantity", "l_discount",
                         "l_shipdate", "l_extendedprice");
 
-        assertThat(extExpr.getExtensionUrisCount())
-                .as("ExtendedExpression should declare extension URIs")
+        assertThat(extExpr.getExtensionUrnsCount())
+                .as("ExtendedExpression should declare canonical extension URNs")
                 .isGreaterThan(0);
 
         ExpressionReference exprRef = extExpr.getReferredExpr(0);
@@ -138,10 +139,10 @@ class IcebergSplitPredicateInjectionIntegrationTest {
                 .isEqualTo(predicateBytes);
 
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
+        DataSplit info = DataSplit.parseFrom(protoBytes);
 
-        assertThat(info.hasSplitConstraint()).isTrue();
-        SplitConstraintInfo constraint = info.getSplitConstraint();
+        assertThat(DataSplitProtoCodec.fileDetail(info).hasSplitConstraint()).isTrue();
+        SplitConstraint constraint = DataSplitProtoCodec.fileDetail(info).getSplitConstraint();
         assertThat(constraint.getPredicate().size())
                 .as("SplitConstraintInfo.predicate should be non-empty")
                 .isGreaterThan(0);
@@ -166,9 +167,9 @@ class IcebergSplitPredicateInjectionIntegrationTest {
                 List.of(), List.of(), new byte[0]);
 
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
+        DataSplit info = DataSplit.parseFrom(protoBytes);
 
-        assertThat(info.hasSplitConstraint()).isFalse();
+        assertThat(DataSplitProtoCodec.fileDetail(info).hasSplitConstraint()).isFalse();
     }
 
     /**

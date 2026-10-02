@@ -7,6 +7,7 @@ import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.ColumnHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.annotation.Stable;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
@@ -42,6 +43,16 @@ public interface ConnectorMetadata
      * @return the table metadata, never null
      */
     ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table);
+
+    /**
+     * Returns read metadata with explicit declaration evidence. Historical consumers require EXACT;
+     * physical schema availability alone does not prove that a snapshot had no generated columns.
+     * Connectors without versioned declaration evidence report UNAVAILABLE, never fabricate absence.
+     */
+    default ConnectorTableReadMetadata getTableReadMetadata(ConnectorSession session, ConnectorTableHandle table) {
+        return new ConnectorTableReadMetadata(getTableMetadata(session, table),
+                ConnectorTableReadMetadata.DeclarationEvidence.UNAVAILABLE);
+    }
 
     /**
      * Returns column handles for all columns in the specified table.
@@ -281,18 +292,6 @@ public interface ConnectorMetadata
      */
     default java.util.List<String> listDataFiles(String catalogName, String schemaName, String tableName) {
         return java.util.List.of();
-    }
-
-    /**
-     * Registers a listener for data commit events.
-     *
-     * <p>The connector invokes the listener after each successful data
-     * commit. The listener guarantees fast return (enqueue, not block).</p>
-     *
-     * @param listener the commit listener to register
-     */
-    default void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
-        // no-op — connectors that support commit events override this
     }
 
     /**

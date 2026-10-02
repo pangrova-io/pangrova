@@ -1,8 +1,12 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
+import org.pangrova.connector.iceberg.write.IcebergPageSinkProvider;
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.coordination.WriteCommitFingerprint;
 import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
@@ -25,8 +29,11 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for IcebergMetadata multi-fragment atomic commit via finishDistributedWrite.
@@ -49,7 +56,9 @@ class IcebergMetadataAtomicCommitTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() {
+            return Map.of("tenant_id", "iceberg-atomic-test");
+        }
     };
 
     private static final Schema TEST_SCHEMA = new Schema(
@@ -123,6 +132,209 @@ class IcebergMetadataAtomicCommitTest {
                 .isEqualTo(snapshotCountBefore);
     }
 
+    @Test
+    void recoveryReplayFindsFingerprintInSnapshotLineageAndDoesNotAppendTwice() {
+        Table table = createTable("recover_once");
+        IcebergOutputTableHandle handle = beginInsert("recover_once");
+        byte[] fragment = buildAppendFragmentBytes(table, "recover-once.parquet", 7, 700);
+        DistributedWriteCommitContext context = context(
+                "q-recover-once", handle, List.of(fragment));
+
+        metadata.finishDistributedWrite(SESSION, handle, List.of(fragment), context);
+        table.refresh();
+        Snapshot committed = table.currentSnapshot();
+        assertThat(committed.summary())
+                .containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
+                        context.commitFingerprint())
+                .containsEntry(IcebergDistributedCommitMarker.TENANT_ID, context.tenantId())
+                .containsEntry(IcebergDistributedCommitMarker.BASE_SNAPSHOT_ID,
+                        String.valueOf(handle.baseSnapshotId()));
+
+        DataFile unrelated = DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/unrelated.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(1)
+                .withFileSizeInBytes(100)
+                .build();
+        table.newAppend().appendFile(unrelated).commit();
+        int snapshotsBeforeReplay = countSnapshots(table);
+
+        IcebergOutputTableHandle rebuilt = (IcebergOutputTableHandle)
+                metadata.reconstructOutputHandle(
+                        SESSION, new SchemaTableName(NAMESPACE, "recover_once"),
+                        "INSERT", handle.baseSnapshotId());
+        metadata.finishDistributedWrite(SESSION, rebuilt, List.of(fragment), context);
+
+        assertThat(rebuilt.baseSnapshotId()).isEqualTo(handle.baseSnapshotId());
+        assertThat(countSnapshots(table)).isEqualTo(snapshotsBeforeReplay);
+    }
+
+    @Test
+    void replayAfterNotificationFailureUsesOriginalSnapshot() {
+        Table table = createTable("replay_event");
+        IcebergOutputTableHandle handle = beginInsert("replay_event");
+        byte[] fragment = buildAppendFragmentBytes(table, "event-file.parquet", 7, 700);
+        DistributedWriteCommitContext context = context(
+                "q-replay-event", handle, List.of(fragment));
+        AtomicInteger deliveries = new AtomicInteger();
+        AtomicReference<org.pangrova.spi.connector.index.CommitEvent> replayed =
+                new AtomicReference<>();
+        metadata.registerCommitListener(event -> {
+            if (deliveries.incrementAndGet() == 1) {
+                throw new IllegalStateException("commit log unavailable");
+            }
+            replayed.set(event);
+        });
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(
+                SESSION, handle, List.of(fragment), context))
+                .isInstanceOf(IcebergCommitNotifier.NotificationFailure.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
+        table.refresh();
+        long committedSnapshot = table.currentSnapshot().snapshotId();
+        int snapshotsAfterCommit = countSnapshots(table);
+
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/later.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(1)
+                .withFileSizeInBytes(100)
+                .build()).commit();
+        metadata.finishDistributedWrite(SESSION, handle, List.of(fragment), context);
+
+        assertThat(countSnapshots(table)).isEqualTo(snapshotsAfterCommit + 1);
+        assertThat(replayed.get()).isNotNull();
+        assertThat(replayed.get().snapshotId()).isEqualTo(String.valueOf(committedSnapshot));
+        assertThat(replayed.get().commitFingerprint()).isEqualTo(context.commitFingerprint());
+    }
+
+    @Test
+    void replayFailsClosedWhenCommittedMarkerSnapshotWasExpired() {
+        Table table = createTable("expired_marker");
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/base.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(1)
+                .withFileSizeInBytes(100)
+                .build()).commit();
+        IcebergOutputTableHandle handle = beginInsert("expired_marker");
+        byte[] fragment = buildAppendFragmentBytes(table, "journaled.parquet", 7, 700);
+        DistributedWriteCommitContext context = context(
+                "q-expired-marker", handle, List.of(fragment));
+
+        metadata.finishDistributedWrite(SESSION, handle, List.of(fragment), context);
+        table.refresh();
+        long committedSnapshot = table.currentSnapshot().snapshotId();
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/later.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(1)
+                .withFileSizeInBytes(100)
+                .build()).commit();
+        table.expireSnapshots().expireSnapshotId(committedSnapshot)
+                .cleanExpiredFiles(false).commit();
+        int snapshotsBeforeReplay = countSnapshots(table);
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(
+                SESSION, handle, List.of(fragment), context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("snapshot ancestry was expired");
+        assertThat(countSnapshots(table)).isEqualTo(snapshotsBeforeReplay);
+    }
+
+    @Test
+    void replayRejectsMarkerOutsideCurrentSnapshotAncestry() {
+        Table table = createTable("rolled_back_marker");
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/base.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(1)
+                .withFileSizeInBytes(100)
+                .build()).commit();
+        table.refresh();
+        long baseSnapshot = table.currentSnapshot().snapshotId();
+        IcebergOutputTableHandle handle = beginInsert("rolled_back_marker");
+        byte[] fragment = buildAppendFragmentBytes(table, "rolled-back.parquet", 7, 700);
+        DistributedWriteCommitContext context = context(
+                "q-rolled-back-marker", handle, List.of(fragment));
+
+        metadata.finishDistributedWrite(SESSION, handle, List.of(fragment), context);
+        table.refresh();
+        long publishedSnapshot = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().rollbackTo(baseSnapshot).commit();
+        table.refresh();
+        assertThat(table.snapshot(publishedSnapshot)).isNotNull();
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(
+                SESSION, handle, List.of(fragment), context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("not in the current snapshot ancestry");
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(baseSnapshot);
+    }
+
+    @Test
+    void oldJournalCannotWriteRecreatedTableWithSameName() {
+        Table original = createTable("recreated_table");
+        IcebergOutputTableHandle handle = beginInsert("recreated_table");
+        byte[] fragment = buildAppendFragmentBytes(original, "old-write.parquet", 7, 700);
+        DistributedWriteCommitContext context = context(
+                "q-old-incarnation", handle, List.of(fragment));
+        TableIdentifier identifier = TableIdentifier.of(NAMESPACE, "recreated_table");
+        assertThat(catalog.dropTable(identifier, true)).isTrue();
+        Table recreated = createTable("recreated_table");
+        assertThat(recreated.uuid().toString()).isNotEqualTo(handle.tableUuid());
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(
+                SESSION, handle, List.of(fragment), context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("table UUID changed");
+        assertThatThrownBy(() -> new IcebergPageSinkProvider(catalog)
+                .createPageSink(null, SESSION, handle))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("table UUID changed");
+        recreated.refresh();
+        assertThat(recreated.currentSnapshot()).isNull();
+    }
+
+    @Test
+    void outputHandleCodecRequiresTableUuid() {
+        Table table = createTable("handle_uuid");
+        IcebergOutputTableHandle handle = beginInsert("handle_uuid");
+        IcebergOutputHandleCodec codec = new IcebergOutputHandleCodec();
+        byte[] payload = codec.serialize(handle);
+
+        assertThat(codec.deserialize(codec.codecVersion(), payload)).isEqualTo(handle);
+        assertThat(handle.tableUuid()).isEqualTo(table.uuid().toString());
+        assertThatThrownBy(() -> codec.deserialize(1, payload))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported Iceberg output handle version");
+    }
+
+    @Test
+    void emptyOverwriteRecoveryPublishesTruncateOnlyOnce() {
+        Table table = createTable("recover_empty_overwrite");
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/original.parquet")
+                .withFormat(FileFormat.PARQUET)
+                .withRecordCount(3)
+                .withFileSizeInBytes(300)
+                .build()).commit();
+        var tableHandle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, "recover_empty_overwrite"));
+        IcebergOutputTableHandle handle = (IcebergOutputTableHandle)
+                metadata.beginOverwrite(SESSION, tableHandle);
+        DistributedWriteCommitContext context = context(
+                "q-empty-overwrite", handle, List.of());
+        int before = countSnapshots(table);
+
+        metadata.finishDistributedWrite(SESSION, handle, List.of(), context);
+        metadata.finishDistributedWrite(SESSION, handle, List.of(), context);
+
+        assertThat(countSnapshots(table)).isEqualTo(before + 1);
+        table.refresh();
+        assertThat(table.currentSnapshot().summary().get("total-records")).isEqualTo("0");
+    }
+
     // --- helpers ---
 
     @Test
@@ -169,6 +381,30 @@ class IcebergMetadataAtomicCommitTest {
                 .as("rebuilt handle drives a real commit").isEqualTo(before + 1);
     }
 
+    @Test
+    void reconstructOutputHandleRejectsUnknownWriteMode() {
+        createTable("reject_unknown_mode");
+        SchemaTableName table = new SchemaTableName(NAMESPACE, "reject_unknown_mode");
+        for (String mode : List.of("UNKNOWN", "APPEND", "overwrite", "")) {
+            assertThatThrownBy(() -> metadata.reconstructOutputHandle(SESSION, table, mode))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("write recovery mode");
+        }
+        assertThatThrownBy(() -> metadata.reconstructOutputHandle(SESSION, table, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("write recovery mode");
+    }
+
+    @Test
+    void outputHandleRejectsUnknownWriteMode() {
+        assertThatThrownBy(() -> new IcebergOutputTableHandle(
+                NAMESPACE, "orders", "00000000-0000-0000-0000-000000000001",
+                "file:///warehouse/orders", "{}", "{}",
+                2, IcebergOutputTableHandle.NO_SNAPSHOT, null, Map.of(), Map.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unsupported Iceberg write mode");
+    }
+
     private Catalog buildHadoopCatalog() {
         Map<String, String> props = Map.of(
                 "type", "hadoop",
@@ -192,6 +428,34 @@ class IcebergMetadataAtomicCommitTest {
         var tableHandle = metadata.getTableHandle(
                 SESSION, new SchemaTableName(NAMESPACE, tableName));
         return (IcebergOutputTableHandle) metadata.beginInsert(SESSION, tableHandle);
+    }
+
+    private DistributedWriteCommitContext context(
+            String executionId,
+            IcebergOutputTableHandle handle,
+            List<byte[]> fragments) {
+        String tenantId = SESSION.getProperties().get("tenant_id");
+        byte[] binding = IcebergWriteBindingFixtures.binding(handle);
+        String fingerprint = WriteCommitFingerprint.compute(
+                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                        executionId,
+                        tenantId,
+                        CATALOG_NAME,
+                        new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
+                        handle.writeMode(),
+                        handle.baseSnapshotId(),
+                        binding,
+                        SESSION.getUser(),
+                        IcebergWriteReceiptFixtures.receipt()),
+                fragments);
+        return new DistributedWriteCommitContext(
+                executionId,
+                tenantId,
+                handle.baseSnapshotId(),
+                binding,
+                fingerprint,
+                SESSION.getUser(),
+                IcebergWriteReceiptFixtures.receipt());
     }
 
     /**

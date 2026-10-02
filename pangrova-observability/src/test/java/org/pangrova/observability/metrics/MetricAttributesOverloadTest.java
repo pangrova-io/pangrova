@@ -29,6 +29,58 @@ class MetricAttributesOverloadTest {
     private SdkMeterProvider meterProvider;
     private MetricsProvider metricsProvider;
 
+    @Test
+    void coordinatorGettersRetainRegisteredInstrumentIdentityAndExportUpdates() {
+        var metrics = new CoordinatorMetrics(metricsProvider, () -> 1.0);
+        assertThat(metrics.getQueriesSubmitted()).isSameAs(metrics.getQueriesSubmitted());
+        assertThat(metrics.getQueriesCompleted()).isSameAs(metrics.getQueriesCompleted());
+        assertThat(metrics.getQueriesFailed()).isSameAs(metrics.getQueriesFailed());
+        assertThat(metrics.getTasksScheduled()).isSameAs(metrics.getTasksScheduled());
+        assertThat(metrics.getQueriesRunning()).isSameAs(metrics.getQueriesRunning());
+        metrics.getQueriesSubmitted().add(2);
+        metrics.getQueriesCompleted().add(2);
+        metrics.getQueriesFailed().add(2);
+        metrics.getTasksScheduled().add(2);
+        metrics.getQueriesRunning().add(3);
+        metrics.getQueriesRunning().add(-1);
+        for (String name : List.of("queries.submitted", "queries.completed", "queries.failed",
+                "tasks.scheduled", "queries.running")) {
+            assertExportedSum("pangrova.coordinator." + name, 2);
+        }
+    }
+
+    @Test
+    void workerGettersRetainRegisteredInstrumentIdentityAndExportUpdates() {
+        var metrics = new WorkerMetrics(metricsProvider, () -> 1.0, () -> 2.0);
+        assertThat(metrics.getTasksReceived()).isSameAs(metrics.getTasksReceived());
+        assertThat(metrics.getTasksCompleted()).isSameAs(metrics.getTasksCompleted());
+        assertThat(metrics.getTasksFailed()).isSameAs(metrics.getTasksFailed());
+        assertThat(metrics.getTasksRunning()).isSameAs(metrics.getTasksRunning());
+        assertThat(metrics.getIoBytesRead()).isSameAs(metrics.getIoBytesRead());
+        assertThat(metrics.getIoBytesWritten()).isSameAs(metrics.getIoBytesWritten());
+        assertThat(metrics.getIoRowsRead()).isSameAs(metrics.getIoRowsRead());
+        assertThat(metrics.getIoRowsWritten()).isSameAs(metrics.getIoRowsWritten());
+        metrics.getTasksReceived().add(2);
+        metrics.getTasksCompleted().add(2);
+        metrics.getTasksFailed().add(2);
+        metrics.getTasksRunning().add(3);
+        metrics.getTasksRunning().add(-1);
+        metrics.getIoBytesRead().add(2);
+        metrics.getIoBytesWritten().add(2);
+        metrics.getIoRowsRead().add(2);
+        metrics.getIoRowsWritten().add(2);
+        for (String name : List.of("tasks.received", "tasks.completed", "tasks.failed", "tasks.running",
+                "io.bytes.read", "io.bytes.written", "io.rows.read", "io.rows.written")) {
+            assertExportedSum("pangrova.worker." + name, 2);
+        }
+    }
+
+    private void assertExportedSum(String name, long value) {
+        MetricData metric = findMetric(reader.collectAllMetrics(), name);
+        assertThat(metric.getLongSumData().getPoints()).hasSize(1);
+        assertThat(metric.getLongSumData().getPoints().iterator().next().getValue()).isEqualTo(value);
+    }
+
     @BeforeEach
     void setUp() {
         reader = InMemoryMetricReader.create();

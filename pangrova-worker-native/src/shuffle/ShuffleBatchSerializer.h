@@ -6,15 +6,29 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <folly/io/IOBuf.h>
 
+#include "shuffle/ShuffleTransferLimits.h"
 #include "velox/common/memory/MemoryPool.h"
 #include "velox/common/compression/Compression.h"
 #include "velox/serializers/PrestoSerializer.h"
 #include "velox/vector/ComplexVector.h"
 
 namespace pangrova::shuffle {
+
+inline constexpr size_t kMaxCanonicalShuffleBatchBytes =
+    kCanonicalShuffleBatchBytes;
+
+struct SerializedShuffleSlice {
+  std::unique_ptr<folly::IOBuf> data;
+  int64_t row_count = 0;
+};
+
+std::vector<size_t> planShuffleBatchRowCounts(
+    const std::vector<uint64_t>& estimated_row_bytes,
+    size_t max_batch_bytes);
 
 // Serializes columnar batches to PrestoVectorSerde format bytes.
 // Uses the registered PrestoVectorSerde for serialization,
@@ -31,6 +45,7 @@ class ShuffleBatchSerializer {
     // Partitions smaller than this skip compression to avoid CPU waste
     // on tiny buffers that compress poorly (overhead > savings).
     int64_t compression_min_bytes = 4096;  // 4KB
+    size_t max_serialized_batch_bytes = kMaxCanonicalShuffleBatchBytes;
   };
 
   explicit ShuffleBatchSerializer(const Config& config);
@@ -45,6 +60,12 @@ class ShuffleBatchSerializer {
       const facebook::velox::RowVectorPtr& vector,
       facebook::velox::memory::MemoryPool* pool);
 
+  // Serializes into complete pages bounded by max_serialized_batch_bytes.
+  // A single row that cannot fit fails with SHUFFLE_ROW_EXCEEDS_BATCH_LIMIT.
+  std::vector<SerializedShuffleSlice> serializeBatches(
+      const facebook::velox::RowVectorPtr& vector,
+      facebook::velox::memory::MemoryPool* pool);
+
   // Deserialize PrestoVectorSerde bytes back to RowVector.
   // Takes ownership of the IOBuf to avoid a copy.
   facebook::velox::RowVectorPtr deserialize(
@@ -53,6 +74,22 @@ class ShuffleBatchSerializer {
       facebook::velox::memory::MemoryPool* pool);
 
  private:
+  std::unique_ptr<folly::IOBuf> serializeRange(
+      const facebook::velox::RowVectorPtr& vector,
+      facebook::velox::vector_size_t begin,
+      facebook::velox::vector_size_t size,
+      facebook::velox::memory::MemoryPool* pool);
+
+  void serializeBoundedRange(
+      const facebook::velox::RowVectorPtr& vector,
+      facebook::velox::vector_size_t begin,
+      facebook::velox::vector_size_t size,
+      facebook::velox::memory::MemoryPool* pool,
+      std::vector<SerializedShuffleSlice>& output);
+
+  std::vector<uint64_t> estimateRowBytes(
+      const facebook::velox::RowVectorPtr& vector);
+
   const Config config_;
   const facebook::velox::common::CompressionKind compression_kind_;
   facebook::velox::serializer::presto::PrestoVectorSerde serde_;

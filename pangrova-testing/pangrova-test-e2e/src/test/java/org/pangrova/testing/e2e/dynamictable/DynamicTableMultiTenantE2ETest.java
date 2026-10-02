@@ -39,7 +39,7 @@ class DynamicTableMultiTenantE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void prepareSourceTables() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         try { sqlRunner.execute("DROP TABLE IF EXISTS " + SOURCE_A); } catch (Exception ignored) { }

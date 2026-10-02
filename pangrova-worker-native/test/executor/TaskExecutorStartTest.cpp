@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 
+#include "cache/SemanticResultCache.h"
 #include "executor/driver/TaskExecutor.h"
 #include "velox/vector/ComplexVector.h"
 
@@ -17,6 +18,7 @@
 #if __has_include("substrait/plan.pb.h")
 #include "substrait/plan.pb.h"
 #include "substrait/algebra.pb.h"
+#include "pangrova/protocol/v2/result.pb.h"
 #define PANGROVA_HAS_SUBSTRAIT_PROTO 1
 #else
 #define PANGROVA_HAS_SUBSTRAIT_PROTO 0
@@ -63,6 +65,31 @@ TEST(TaskExecutorStartTest, EmptyPlanTransitionsToFailed) {
   ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
   EXPECT_EQ(exec.state(), ExecutorState::FAILED);
   EXPECT_FALSE(exec.errorMessage().empty());
+}
+
+TEST(TaskExecutorStartTest, DeadlineExpiresWhileTaskIsPending) {
+  auto config = makeConfig({});
+  const auto now_ms = duration_cast<milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  config.deadline_epoch_ms = now_ms + 50;
+
+  TaskExecutor exec(config);
+  ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
+  EXPECT_EQ(exec.state(), ExecutorState::FAILED);
+  EXPECT_NE(exec.errorMessage().find("Task deadline exceeded"), std::string::npos);
+  EXPECT_NE(exec.errorMessage().find(config.task_id), std::string::npos);
+}
+
+TEST(TaskExecutorStartTest, AlreadyExpiredDeadlineFailsBeforeStart) {
+  auto config = makeConfig({});
+  const auto now_ms = duration_cast<milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  config.deadline_epoch_ms = now_ms - 1;
+
+  TaskExecutor exec(config);
+  EXPECT_EQ(exec.state(), ExecutorState::FAILED);
+  EXPECT_NE(exec.errorMessage().find("Task deadline exceeded"), std::string::npos);
+  EXPECT_THROW(exec.start(), std::runtime_error);
 }
 
 // --- TraceId propagation via config ---
@@ -159,11 +186,14 @@ std::vector<uint8_t> buildValuesPlan() {
   substrait::Plan plan;
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
+  root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();
+  read->mutable_base_schema()->add_names("value");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
   auto* vt = read->mutable_virtual_table();
   // Add one row with a single BIGINT value so ValuesNode produces 1 row.
-  auto* row = vt->add_values();
-  row->add_fields()->set_i64(42);
+  auto* row = vt->add_expressions();
+  row->add_fields()->mutable_literal()->set_i64(42);
   return serialize(plan);
 }
 
@@ -171,8 +201,11 @@ std::vector<uint8_t> buildTableScanPlan() {
   substrait::Plan plan;
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
+  root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();
   read->mutable_named_table()->add_names("test_table");
+  read->mutable_base_schema()->add_names("value");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
   return serialize(plan);
 }
 
@@ -182,6 +215,7 @@ std::vector<uint8_t> buildProjectValuesPlan() {
   auto* root = plan_rel->mutable_root();
   auto* project = root->mutable_input()->mutable_project();
   auto* read = project->mutable_input()->mutable_read();
+  read->mutable_base_schema()->mutable_struct_();
   read->mutable_virtual_table();
   return serialize(plan);
 }
@@ -201,6 +235,41 @@ TEST(TaskExecutorStartTest, ValuesPlanProducesBatchAndFinishes) {
   exec.start();
   ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
   EXPECT_EQ(exec.state(), ExecutorState::FINISHED);
+}
+
+TEST(TaskExecutorStartTest, StatsExposeSemanticCacheUsageBeforeRelease) {
+  auto& cache = cache::SemanticResultCache::instance();
+  cache.invalidateAll();
+  auto config = makeConfig(buildValuesPlan());
+  TaskExecutor exec(config);
+  exec.start();
+  ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
+  ASSERT_EQ(exec.state(), ExecutorState::FINISHED);
+
+  cache::ReuseIdentity identity{
+      "tenant-a", "alice", "policy-v1", "model@1#digest",
+      "text-generation@1#digest", "ai_complete", "VARCHAR", "temperature=0",
+      "orders", "snapshot-1"};
+  cache::ReusePolicy policy{60'000, 100, 1024 * 1024, 0.98, 256};
+  const auto key = cache::SemanticResultCache::requestKey("hello", 256);
+  EXPECT_FALSE(cache.lookup(identity, key, policy, config.task_id).has_value());
+  ASSERT_TRUE(cache.put(
+      identity, key, std::string("world"), policy, config.task_id));
+  EXPECT_TRUE(cache.lookup(identity, key, policy, config.task_id).has_value());
+  auto too_small = policy;
+  too_small.max_bytes = 1;
+  EXPECT_FALSE(cache.put(
+      identity, key, std::string("not admitted"), too_small, config.task_id));
+
+  const auto serialized = exec.collectTaskStats();
+  protocol::v2::NativeTaskStats stats;
+  ASSERT_TRUE(stats.ParseFromArray(
+      serialized.data(), static_cast<int>(serialized.size())));
+  EXPECT_EQ(stats.cache_hit_count(), 1);
+  EXPECT_EQ(stats.cache_miss_count(), 1);
+  EXPECT_GT(stats.cache_hit_bytes(), 0);
+  EXPECT_GT(stats.cache_miss_bytes(), 0);
+  EXPECT_EQ(stats.cache_admission_rejection_count(), 1);
 }
 
 TEST(TaskExecutorStartTest, ValuesPlanBatchIsReadable) {
@@ -233,7 +302,7 @@ TEST(TaskExecutorStartTest, ProjectValuesWalksToLeaf) {
   EXPECT_EQ(exec.state(), ExecutorState::FINISHED);
 }
 
-// --- TableScan plan: reaches FINISHED (placeholder produces no data) ---
+// --- Real TableScan without assigned splits finishes with no data ---
 
 TEST(TaskExecutorStartTest, TableScanPlanReachesFinished) {
   auto config = makeConfig(buildTableScanPlan());

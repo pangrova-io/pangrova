@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.QueryStateMachine.State;
@@ -92,5 +93,21 @@ class QueryStateMachineListenerTest {
         assertEquals(2, log.size());
         assertTrue(log.contains("A:PLANNING"));
         assertTrue(log.contains("B:PLANNING"));
+    }
+
+    @Test
+    void terminalStateIsNotPublishedBeforeDurableRecorderSucceeds() {
+        QueryStateMachine sm = new QueryStateMachine();
+        AtomicInteger calls = new AtomicInteger();
+        sm.setBeforeTerminalTransition(() -> {
+            if (calls.incrementAndGet() == 1) {
+                throw new IllegalStateException("durable intent unavailable");
+            }
+        });
+        assertThrows(IllegalStateException.class, () -> sm.tryTransition(State.FAILED));
+        assertEquals(State.QUEUED, sm.getState());
+        assertTrue(sm.tryTransition(State.FAILED));
+        assertEquals(State.FAILED, sm.getState());
+        assertEquals(2, calls.get());
     }
 }

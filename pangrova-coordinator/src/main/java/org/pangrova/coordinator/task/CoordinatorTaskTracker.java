@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 
 /**
  * Coordinator-side task tracker.
@@ -39,12 +40,8 @@ public class CoordinatorTaskTracker {
 
     private final TaskTimingTracker timingTracker = new TaskTimingTracker();
 
-    private final ConcurrentHashMap<String, CompletableFuture<Void>> taskCompletionFutures =
-            new ConcurrentHashMap<>();
-
-    /** Original task requests keyed by confirmed taskId, for speculative cloning. */
-    private final ConcurrentHashMap<String, SubmitTaskRequest> taskRequestStore =
-            new ConcurrentHashMap<>();
+    /** Atomic task identity used for status fencing and optional speculative cloning. */
+    private final TaskIdentityRegistry taskIdentityStore = new TaskIdentityRegistry();
 
     private volatile TaskFailureCallback taskFailureCallback;
 
@@ -63,6 +60,35 @@ public class CoordinatorTaskTracker {
         timingTracker.registerTaskQuery(taskId, queryId);
     }
 
+    /**
+     * Rolls back a task that was prepared but never submitted to a Worker.
+     * This must not be used after dispatch has started: an ambiguous HTTP
+     * failure can still leave a live Worker reporting this attempt.
+     */
+    public void unregisterUndispatchedTask(String queryId, String taskId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks == null) {
+            return;
+        }
+        TaskStateMachine state = tasks.get(taskId);
+        if (state == null) {
+            return;
+        }
+        if (state.getState() != TaskStateMachine.State.PENDING
+                && state.getState() != TaskStateMachine.State.SCHEDULED) {
+            throw new IllegalStateException(
+                    "cannot unregister a started task: " + taskId);
+        }
+        if (tasks.remove(taskId, state)) {
+            if (tasks.isEmpty()) {
+                queryTasks.remove(queryId, tasks);
+            }
+            taskWorkerAssignment.remove(taskId);
+            timingTracker.clearTaskTracking(taskId);
+            taskIdentityStore.remove(taskId);
+        }
+    }
+
     public void assignWorker(String taskId, String workerId) {
         taskWorkerAssignment.put(taskId, workerId);
         // Maintain reverse index: find queryId from timing tracker and add to worker index
@@ -77,17 +103,24 @@ public class CoordinatorTaskTracker {
         return taskWorkerAssignment.get(taskId);
     }
 
+    /** Removes a pre-dispatch assignment only when it still names the expected worker. */
+    public boolean unassignWorker(String taskId, String workerId) {
+        return taskWorkerAssignment.remove(taskId, workerId);
+    }
+
     public void markScheduled(String queryId, String taskId) {
         TaskStateMachine sm = getStateMachine(queryId, taskId);
         sm.tryTransition(TaskStateMachine.State.SCHEDULED);
     }
 
-    public void updateTaskState(String queryId, String taskId, String workerState) {
+    /** Returns whether the reported state is accepted, including an exact idempotent state observation. */
+    public boolean updateTaskState(String queryId, String taskId, String workerState) {
         TaskStateMachine sm = getStateMachine(queryId, taskId);
         TaskStateMachine.State target = mapWorkerState(workerState);
         boolean transitioned = sm.tryTransition(target);
-        if (target == TaskStateMachine.State.FAILED
-                || target == TaskStateMachine.State.ABANDONED) {
+        boolean accepted = transitioned || sm.getState() == target;
+        if (accepted && (target == TaskStateMachine.State.FAILED
+                || target == TaskStateMachine.State.ABANDONED)) {
             completeTaskFutureIfTerminal(taskId, sm);
         }
         if (transitioned && target == TaskStateMachine.State.FAILED) {
@@ -96,17 +129,13 @@ public class CoordinatorTaskTracker {
                 callback.onTaskFailed(queryId, taskId);
             }
         }
+        return accepted;
     }
 
     public void signalTaskTerminal(String queryId, String taskId) {
         TaskStateMachine sm = findStateMachine(queryId, taskId);
         if (sm != null) {
             completeTaskFutureIfTerminal(taskId, sm);
-        } else {
-            CompletableFuture<Void> future = taskCompletionFutures.remove(taskId);
-            if (future != null) {
-                future.complete(null);
-            }
         }
     }
 
@@ -248,16 +277,50 @@ public class CoordinatorTaskTracker {
 
     public void clearTaskTracking(String taskId) {
         timingTracker.clearTaskTracking(taskId);
-        // F-COORD-20: speculative execution registers SubmitTaskRequest in
-        // taskRequestStore via registerTaskRequest(); without removing it here
-        // the map grew unbounded under sustained dispatch load (one entry per
-        // task ID, holding a serialized protobuf). Cleanup is the symmetric
-        // partner of registerTaskRequest and must run on every terminal
-        // event regardless of whether speculative cloning fired.
-        taskRequestStore.remove(taskId);
+        // Task identities may retain the serialized request for speculative
+        // cloning, so terminal cleanup must remove the identity atomically.
+        taskIdentityStore.remove(taskId);
     }
 
-    // --- Task request store (for speculative cloning) ---
+    /**
+     * Retires a physical speculative loser after its logical partition has
+     * completed on another attempt. Cancellation is not a query task failure.
+     */
+    public void retireSpeculativeLoser(String queryId, String taskId) {
+        taskIdentityStore.remove(taskId);
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks != null) {
+            TaskStateMachine retired = tasks.remove(taskId);
+            if (retired != null) {
+                retired.completionSignal().complete(null);
+            }
+        }
+        taskWorkerAssignment.remove(taskId);
+        timingTracker.clearTaskTracking(taskId);
+    }
+
+    /**
+     * Removes one fully settled task attempt so a durable logical work unit can
+     * be retried under a fresh attempt-specific task ID without leaking state.
+     */
+    public void unregisterSettledTask(String queryId, String taskId) {
+        ConcurrentHashMap<String, TaskStateMachine> tasks = queryTasks.get(queryId);
+        if (tasks != null) {
+            TaskStateMachine state = tasks.get(taskId);
+            if (state != null && !state.isTerminal()) {
+                throw new IllegalStateException("cannot unregister a non-terminal task: " + taskId);
+            }
+            tasks.remove(taskId);
+            if (tasks.isEmpty()) {
+                queryTasks.remove(queryId, tasks);
+            }
+        }
+        taskWorkerAssignment.remove(taskId);
+        timingTracker.clearTaskTracking(taskId);
+        taskIdentityStore.remove(taskId);
+    }
+
+    // --- Task identity store (status fencing and speculative cloning) ---
 
     /**
      * Stores the original {@link SubmitTaskRequest} for a dispatched task,
@@ -265,39 +328,46 @@ public class CoordinatorTaskTracker {
      * the request with a new task ID when launching a speculative copy.
      */
     public void registerTaskRequest(String taskId, SubmitTaskRequest request) {
-        taskRequestStore.put(taskId, request);
+        taskIdentityStore.registerRequest(taskId, request);
+    }
+
+    /** Removes a prepared request only when it is still the exact registered request. */
+    public boolean unregisterTaskRequest(String taskId, SubmitTaskRequest request) {
+        return taskIdentityStore.removeRequest(taskId, request);
+    }
+
+    /** Registers the only attempt identity authorized to report for a task ID. */
+    public void registerTaskAttempt(String taskId, TaskAttemptDescriptor attempt) {
+        taskIdentityStore.registerAttempt(taskId, attempt);
+    }
+
+    /** Returns the expected status-report attempt, or null for an unknown task identity. */
+    public TaskAttemptDescriptor getTaskAttempt(String taskId) {
+        return taskIdentityStore.attempt(taskId);
     }
 
     /**
      * Returns the original task request for the given task ID, or null if not stored.
      */
     public SubmitTaskRequest getTaskRequest(String taskId) {
-        return taskRequestStore.get(taskId);
+        return taskIdentityStore.request(taskId);
     }
 
     // --- Task completion futures ---
 
     public CompletableFuture<Void> awaitTaskCompletion(String queryId, String taskId) {
-        TaskStateMachine sm = getStateMachine(queryId, taskId);
-        TaskStateMachine.State current = sm.getState();
-        if (current == TaskStateMachine.State.ABANDONED) {
-            return CompletableFuture.failedFuture(
-                    new IllegalStateException("Task abandoned: " + taskId));
-        }
-        return taskCompletionFutures.computeIfAbsent(taskId, k -> new CompletableFuture<>());
+        return getStateMachine(queryId, taskId).completionSignal();
     }
 
     private void completeTaskFutureIfTerminal(String taskId, TaskStateMachine sm) {
         TaskStateMachine.State state = sm.getState();
-        CompletableFuture<Void> future = taskCompletionFutures.remove(taskId);
-        timingTracker.removeDeadline(taskId);
-        if (future == null) {
-            return;
-        }
+        CompletableFuture<Void> future = sm.completionSignal();
         if (state == TaskStateMachine.State.FINISHED) {
+            timingTracker.removeDeadline(taskId);
             future.complete(null);
         } else if (state == TaskStateMachine.State.FAILED
                 || state == TaskStateMachine.State.ABANDONED) {
+            timingTracker.removeDeadline(taskId);
             future.completeExceptionally(
                     new IllegalStateException("Task terminated: " + taskId
                             + ", state=" + state));
@@ -346,7 +416,6 @@ public class CoordinatorTaskTracker {
             case "FAILED" -> TaskStateMachine.State.FAILED;
             case "CANCELLED" -> TaskStateMachine.State.FAILED;
             case "SCHEDULED" -> TaskStateMachine.State.SCHEDULED;
-            case "RESCHEDULING" -> TaskStateMachine.State.RESCHEDULING;
             case "ABANDONED" -> TaskStateMachine.State.ABANDONED;
             default -> throw new IllegalArgumentException("Unknown worker state: " + workerState);
         };

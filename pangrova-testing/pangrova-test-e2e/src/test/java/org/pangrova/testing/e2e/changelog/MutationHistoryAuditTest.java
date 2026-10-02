@@ -125,7 +125,7 @@ class MutationHistoryAuditTest extends PangrovaE2ETestBase {
             executeDml("DELETE FROM " + tableName + " WHERE id = 2");
 
             List<TypedRow> snapshots = executeQuery(
-                    "SELECT * FROM " + tableName + "$snapshots ORDER BY committed_at");
+                    "SELECT * FROM " + tableName + "$snapshots ORDER BY timestamp_ms");
             assertThat(snapshots).hasSizeGreaterThanOrEqualTo(3);
         }
 
@@ -136,13 +136,12 @@ class MutationHistoryAuditTest extends PangrovaE2ETestBase {
 
             List<TypedRow> snapshots = executeQuery(
                     "SELECT snapshot_id FROM " + tableName + "$snapshots LIMIT 1");
-            if (!snapshots.isEmpty()) {
-                String snapshotId = snapshots.get(0).getRaw("snapshot_id").toString();
-                List<TypedRow> historical = executeQuery(
-                        "SELECT * FROM " + tableName
-                        + " FOR VERSION AS OF " + snapshotId);
-                assertThat(historical).isNotEmpty();
-            }
+            assertThat(snapshots).isNotEmpty();
+            String snapshotId = snapshots.get(0).getRaw("snapshot_id").toString();
+            List<TypedRow> historical = executeQuery(
+                    "SELECT * FROM " + tableName
+                    + " FOR VERSION AS OF " + snapshotId);
+            assertThat(historical).isNotEmpty();
         }
     }
 }

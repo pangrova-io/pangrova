@@ -140,6 +140,31 @@ class DefaultMetadataServiceCacheTest {
                 Map.of(), "default", "", "test-query-001");
     }
 
+    @Test
+    void resolutionCacheSeparatesTenantPrincipalPolicyAndConnectorProperties() {
+        var table = new QualifiedTableRef("test_catalog", "public", "orders");
+        var firstSession = scopedSession("tenant-a", "alice", "policy-1", Map.of("role", "reader"));
+        var first = service.resolveTable(firstSession, table);
+        assertThat(service.resolveTable(firstSession, table)).isSameAs(first);
+        var sessions = List.of(
+                scopedSession("tenant-b", "alice", "policy-1", Map.of("role", "reader")),
+                scopedSession("tenant-a", "bob", "policy-1", Map.of("role", "reader")),
+                scopedSession("tenant-a", "alice", "policy-2", Map.of("role", "reader")),
+                scopedSession("tenant-a", "alice", "policy-1", Map.of("role", "admin")));
+        sessions.forEach(session -> assertThat(service.resolveTable(session, table)).isNotSameAs(first));
+        assertThat(connectorMetadata.getTableMetadataCallCount()).isEqualTo(5);
+        service.invalidateTableCaches(table);
+        service.resolveTable(firstSession, table);
+        sessions.forEach(session -> service.resolveTable(session, table));
+        assertThat(connectorMetadata.getTableMetadataCallCount()).isEqualTo(10);
+    }
+
+    private static MetadataSessionContext scopedSession(
+            String tenant, String user, String token, Map<String, String> properties) {
+        return new MetadataSessionContext(user, "test_catalog", "public", "UTC", "en",
+                properties, tenant, token, "query");
+    }
+
     // ── Test infrastructure ──
 
     static final class CountingConnectorMetadata implements ConnectorMetadata {

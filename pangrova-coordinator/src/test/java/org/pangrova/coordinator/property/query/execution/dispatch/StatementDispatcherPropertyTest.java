@@ -392,7 +392,8 @@ class StatementDispatcherPropertyTest {
                         new TableRef(Identifier.of("src")),
                         new BinaryExpression(Identifier.of("id"),
                                 BinaryExpression.Operator.EQUAL, Literal.ofInteger(1)),
-                        List.of())
+                        List.of(new MergeStatement.MergeClause.WhenMatchedUpdate(Optional.empty(),
+                                List.of(new UpdateStatement.Assignment("col", Literal.ofInteger(42))))))
         ));
     }
 
@@ -469,7 +470,7 @@ class StatementDispatcherPropertyTest {
     void deleteInvokesCheckCanDeleteFromTable(
             @ForAll("deleteStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
                 .as("DELETE must invoke checkCanDeleteFromTable")
@@ -477,21 +478,20 @@ class StatementDispatcherPropertyTest {
     }
 
     /**
-     * Property 2 (UPDATE/MERGE): UPDATE and MERGE invoke both
-     * checkCanInsertIntoTable and checkCanDeleteFromTable.
+     * UPDATE and update-only MERGE require the SQL UPDATE privilege.
      *
      * <p><b>Validates: Requirements 2.1, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 8.3</b></p>
      */
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 2: Permission mapping correctness")
-    void updateMergeInvokesBothInsertAndDelete(
+    void updateAndUpdateOnlyMergeInvokeOnlyUpdatePrivilege(
             @ForAll("updateMergeStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
-                .as("UPDATE/MERGE must invoke both checkCanInsertIntoTable and checkCanDeleteFromTable")
-                .containsExactly("checkCanInsertIntoTable", "checkCanDeleteFromTable");
+                .as("Physical overwrite must not widen SQL UPDATE permission requirements")
+                .containsExactly("checkCanUpdateTable");
     }
 
     /**
@@ -504,7 +504,7 @@ class StatementDispatcherPropertyTest {
     void insertInvokesCheckCanInsertIntoTable(
             @ForAll("insertStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
                 .as("INSERT must invoke checkCanInsertIntoTable")
@@ -521,7 +521,7 @@ class StatementDispatcherPropertyTest {
     void dropTableInvokesCheckCanDropTable(
             @ForAll("dropTableStatements") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
                 .as("DROP TABLE must invoke checkCanDropTable")
@@ -529,20 +529,33 @@ class StatementDispatcherPropertyTest {
     }
 
     /**
-     * Property 2 (DDL non-DROP): Non-DROP DDL invokes checkCanAlterTable.
+     * Property 2 (DDL non-DROP): CREATE uses CREATE privileges; schema evolution uses ALTER.
      *
      * <p><b>Validates: Requirements 2.1, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 8.3</b></p>
      */
     @Property(tries = 100)
     @Tag("Feature: statement-routing-unification, Property 2: Permission mapping correctness")
-    void ddlNonDropInvokesCheckCanAlterTable(
+    void ddlNonDropInvokesItsExactPrivilege(
             @ForAll("ddlNonDropWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
-                .as("Non-DROP DDL must invoke checkCanAlterTable")
-                .containsExactly("checkCanAlterTable");
+                .as("CREATE and ALTER must invoke their exact privilege")
+                .containsExactly(stmt instanceof CreateTableStatement
+                        ? "checkCanCreateTable" : "checkCanAlterTable");
+    }
+
+    @Property(tries = 100)
+    void catalogDdlInvokesTheExactCatalogMutationCheck(@ForAll boolean create) {
+        Statement statement = create
+                ? new CreateCatalogStatement("catalog", Optional.of("lance"), Map.of())
+                : new DropCatalogStatement("catalog");
+        var recorder = new RecordingAccessControl();
+        PermissionChecker.check(statement,
+                new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
+        assertThat(recorder.calls).containsExactly(create
+                ? "checkCanCreateCatalog" : "checkCanDropCatalog");
     }
 
     /**
@@ -555,7 +568,7 @@ class StatementDispatcherPropertyTest {
     void indexInvokesCheckCanAlterTable(
             @ForAll("indexWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
                 .as("INDEX must invoke checkCanAlterTable")
@@ -572,7 +585,7 @@ class StatementDispatcherPropertyTest {
     void clusteringInvokesCheckCanAlterTable(
             @ForAll("clusteringWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
                 .as("CLUSTERING must invoke checkCanAlterTable")
@@ -589,7 +602,7 @@ class StatementDispatcherPropertyTest {
     void dynamicTableInvokesCheckCanAlterTable(
             @ForAll("dynamicTableWithTableName") Statement stmt) {
         var recorder = new RecordingAccessControl();
-        PermissionChecker.check(stmt, TEST_USER, recorder);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), recorder);
 
         assertThat(recorder.calls)
                 .as("DYNAMIC_TABLE must invoke checkCanAlterTable")
@@ -628,7 +641,7 @@ class StatementDispatcherPropertyTest {
     void nullAccessControlSkipsPermissionChecks(
             @ForAll("allStatements") Statement stmt) {
         // Must not throw — null AccessControl means skip
-        PermissionChecker.check(stmt, TEST_USER, null);
+        PermissionChecker.check(stmt, new CoordinatorSessionContext("permission-query", Map.of(), TEST_USER, "tenant-a"), null);
     }
 
     /**
@@ -983,6 +996,11 @@ class StatementDispatcherPropertyTest {
 
         final List<String> calls = new ArrayList<>();
 
+        @Override
+        public void checkCanUpdateTable(UserIdentity user, String catalog, String schema, String table) {
+            calls.add("checkCanUpdateTable");
+        }
+
         // ── TableAccessControl ──
 
         @Override
@@ -1047,6 +1065,16 @@ class StatementDispatcherPropertyTest {
         @Override
         public void checkCanAccessCatalog(UserIdentity user, String catalog) {
             calls.add("checkCanAccessCatalog");
+        }
+
+        @Override
+        public void checkCanCreateCatalog(UserIdentity user, String catalog) {
+            calls.add("checkCanCreateCatalog");
+        }
+
+        @Override
+        public void checkCanDropCatalog(UserIdentity user, String catalog) {
+            calls.add("checkCanDropCatalog");
         }
 
         // ── SchemaAccessControl ──

@@ -34,7 +34,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Converts query results to columnar IPC byte arrays for coordinator-local dispatch.
+ * Converts bounded control-plane statement rows to columnar IPC bytes.
  *
  * <p>Supports three result paths:</p>
  * <ul>

@@ -13,11 +13,11 @@ import java.io.Closeable;
  */
 public interface ExchangeChannelManager extends Closeable {
 
-    ExchangeSink createSink(String queryId, int partitionId);
+    ExchangeSink createSink(ExchangeChannelContext context);
 
-    ExchangeSource createSource(String queryId, int partitionId, ExchangeReadMode readMode);
+    ExchangeSource createSource(ExchangeChannelContext context, ExchangeReadMode readMode);
 
-    default ExchangeSource createSource(String queryId, int partitionId) {
-        return createSource(queryId, partitionId, ExchangeReadMode.BLOCKING);
+    default ExchangeSource createSource(ExchangeChannelContext context) {
+        return createSource(context, ExchangeReadMode.BLOCKING);
     }
 }

@@ -2,21 +2,23 @@ package org.pangrova.worker.jni.write;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.protocol.batch.ColumnarBatch;
+import org.pangrova.protocol.batch.ColumnarPageSink;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
 import org.pangrova.spi.connector.data.ConnectorPageSink;
 import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
+import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.data.page.Page;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
-import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.worker.exchange.transport.PageDecoder;
 import org.pangrova.worker.jni.NativeRuntimeException;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,10 +48,9 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
      * TaskStatusCollector reads this via drainCommitMetadataForTask(taskId)
      * when building the FINISHED status report for write tasks.
      *
-     * <p>Per-task isolation: the taskId is resolved from WriteDescriptor.properties
-     * (key "taskId") at beginWrite() time. When the native side does not pass
-     * a taskId (legacy path), a synthetic key derived from the write handle is
-     * used and the global fallback drain still works.</p>
+     * <p>Per-task isolation: the canonical taskId is mandatory in
+     * {@link WriteDescriptor#properties()}. Metadata is only ever drained by an
+     * exact task identifier; cross-task fallback would violate commit fencing.</p>
      */
     private final ConcurrentHashMap<String, byte[]> pendingCommitMetadata =
             new ConcurrentHashMap<>();
@@ -93,26 +94,23 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     @Override
     public long beginWrite(WriteDescriptor descriptor) {
         checkNotNull(descriptor, "descriptor");
+        String taskId = requireTaskId(descriptor);
+        requireConnectorManagedWriteFormat(descriptor);
         String catalogName = descriptor.catalogName();
         LOG.info("event=begin_write catalog={} schema={} table={} mode={}",
                 catalogName, descriptor.schemaName(), descriptor.tableName(),
                 descriptor.dmlOperation());
 
-        ConnectorPageSink sink = createSinkForDescriptor(descriptor);
         // Resolve column names from table metadata instead of native RowVector names.
         // The native engine's ProjectNode generates synthetic names (proj_0, proj_1, ...) for
         // computed expressions (e.g., CASE WHEN in UPDATE). The table schema has
         // the correct column names that Iceberg expects for writing.
-        List<String> columnNames = resolveWriteColumnNames(descriptor);
+        CatalogResourceResolver.CatalogResources resources =
+                catalogLookup.resolve(taskId, catalogName);
+        List<String> columnNames = resolveWriteColumnNames(descriptor, resources);
+        ConnectorPageSink sink = createSinkForDescriptor(descriptor, resources);
 
         long handle = handleCounter.incrementAndGet();
-        String taskId = descriptor.properties().getOrDefault("taskId", "");
-        if (taskId.isEmpty()) {
-            LOG.warn("event=missing_task_id_in_descriptor handle={} catalog={} table={}.{} "
-                    + "using_fallback=true",
-                    handle, catalogName, descriptor.schemaName(), descriptor.tableName());
-            taskId = "__handle_" + handle;
-        }
         handleToTaskId.put(handle, taskId);
         activeSessions.put(handle, new WriteSession(
                 sink, columnNames, System.nanoTime(),
@@ -123,12 +121,10 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         return handle;
     }
 
-    /**
-     * Resolves write column names from table metadata when descriptor columns
-     * contain synthetic native engine names (proj_N). Falls back to descriptor columns
-     * when they already match the table schema.
-     */
-    private List<String> resolveWriteColumnNames(WriteDescriptor descriptor) {
+    /** Resolves synthetic native projection names against the target table schema. */
+    private List<String> resolveWriteColumnNames(
+            WriteDescriptor descriptor,
+            CatalogResourceResolver.CatalogResources resources) {
         List<String> descriptorCols = descriptor.columns().stream()
                 .map(WriteDescriptor.ColumnSchema::name)
                 .toList();
@@ -137,123 +133,103 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         if (!hasSyntheticNames) {
             return descriptorCols;
         }
-        // Resolve actual column names from table metadata
-        try {
-            CatalogResourceResolver.CatalogResources resources =
-                    catalogLookup.resolve(descriptor.catalogName());
-            ConnectorTableHandle tableHandle = resolveTableHandle(
-                    resources.metadata(), resources.session(),
-                    descriptor.schemaName(), descriptor.tableName());
-            var tableMeta = resources.metadata().getTableMetadata(
-                    resources.session(), tableHandle);
-            List<String> schemaColumns = tableMeta.columns();
-            if (schemaColumns.size() == descriptorCols.size()) {
-                LOG.info("event=resolve_write_columns synthetic={} resolved={}",
-                        descriptorCols, schemaColumns);
-                return schemaColumns;
-            }
-        } catch (Exception e) {
-            LOG.warn("event=resolve_write_columns_failed error={}", e.getMessage());
+        List<String> schemaColumns = resources.writeColumnNames();
+        if (schemaColumns.size() != descriptorCols.size()) {
+            throw new IllegalArgumentException(
+                    "Native projection width does not match target table schema: projection="
+                            + descriptorCols.size() + " table=" + schemaColumns.size());
         }
-        return descriptorCols;
+        LOG.info("event=resolve_write_columns synthetic={} resolved={}",
+                descriptorCols, schemaColumns);
+        return schemaColumns;
     }
 
-    private ConnectorPageSink createSinkForDescriptor(WriteDescriptor descriptor) {
-        CatalogResourceResolver.CatalogResources resources =
-                catalogLookup.resolve(descriptor.catalogName());
-        ConnectorMetadata metadata = resources.metadata();
-
-        ConnectorTableHandle tableHandle = resolveTableHandle(
-                metadata, resources.session(),
-                descriptor.schemaName(), descriptor.tableName());
-
-        ConnectorOutputTableHandle outputHandle = beginOperation(
-                metadata, resources.session(), tableHandle, descriptor.dmlOperation());
-
+    private ConnectorPageSink createSinkForDescriptor(
+            WriteDescriptor descriptor,
+            CatalogResourceResolver.CatalogResources resources) {
         return createPageSink(
                 resources.pageSinkProvider(), resources.session(),
-                outputHandle, descriptor.dmlOperation());
+                resources.outputHandle(), descriptor.dmlOperation());
+    }
+
+    /** Pre-binds the exact catalog deployment and output handle before Native starts. */
+    public void bindTask(String taskId, org.pangrova.protocol.v2.TaskRequest request) {
+        catalogLookup.bindTask(taskId, request);
+    }
+
+    /** Releases all task-scoped connector bindings. */
+    public void releaseTask(String taskId) {
+        catalogLookup.releaseTask(taskId);
     }
 
     /**
-     * Legacy columnar data interface append path (deprecated).
-     * Retained solely so that native JNI method-ID resolution succeeds during
-     * NativeWriteExecutor initialization. The active write path uses
-     * {@link #appendSerializedBatch} via native {@code appendBatchData()}.
-     *
-     * @param writeHandle    handle returned by {@link #beginWrite}
-     * @param arrowArrayPtr  native pointer to ArrowArray struct (unused)
-     * @param arrowSchemaPtr native pointer to ArrowSchema struct (unused)
-     */
-    @SuppressWarnings("unused") // called via JNI from native NativeWriteExecutor
-    public void appendBatch(long writeHandle, long arrowArrayPtr, long arrowSchemaPtr) {
-        throw new UnsupportedOperationException(
-                "appendBatch via columnar data interface pointers is deprecated; use appendSerializedBatch");
-    }
-
-    @Override
-    public void appendSerializedBatch(long writeHandle, byte[] data, int rowCount, int columnCount) {
-        WriteSession ws = requireSession(writeHandle);
-
-        try (BufferAllocator allocator = sharedAllocator.newChildAllocator(
-                "batch-decode-" + writeHandle, 0, 16L * 1024 * 1024)) {
-            Page decodedPage = PageDecoder.decode(data, allocator);
-            // Per-batch detail at DEBUG — no row data (PII risk).
-            LOG.debug("event=decoded_batch handle={} columns={} columnCount={}",
-                    writeHandle, decodedPage.columns(), decodedPage.columns().size());
-            Page projectedPage = WritePageProjector.projectToWriteSchema(decodedPage, ws.columnNames());
-            ws.sink().appendPage(projectedPage);
-            ws.rowsAppended().addAndGet(rowCount);
-        } catch (java.io.IOException e) {
-            throw new NativeRuntimeException(PangrovaErrorCode.NATIVE_DATA_INTERFACE_ERROR,
-                    "Failed to decode serialized batch: handle=" + writeHandle
-                            + " bytes=" + data.length + " error=" + e.getMessage());
-        }
-
-        LOG.debug("event=serialized_batch_appended handle={} catalog={} rows={} bytes={}",
-                writeHandle, ws.catalogName(), rowCount, data.length);
-
-        // Periodic aggregate INFO log every BATCH_LOG_INTERVAL batches.
-        long currentBatch = ws.batchCount().incrementAndGet();
-        if (currentBatch % BATCH_LOG_INTERVAL == 0) {
-            LOG.info("event=write_progress handle={} catalog={} batchesSoFar={} totalRows={}",
-                    writeHandle, ws.catalogName(), currentBatch, ws.rowsAppended().get());
-        }
-    }
-
-    /**
-     * L4-3A: Zero-copy write path using DirectByteBuffer.
-     * The native side wraps its Arrow IPC serialization buffer as a DirectByteBuffer
-     * via JNI NewDirectByteBuffer(), eliminating the memcpy from native to JVM heap.
+     * Borrows the native buffer synchronously, avoiding a payload-sized heap copy.
+     * Decoding still allocates column buffers. No reader or view escapes this call.
      */
     @Override
     @SuppressWarnings("unused") // called via JNI from native NativeWriteExecutor
     public void appendDirectBatch(long writeHandle, java.nio.ByteBuffer data,
                                   int rowCount, int columnCount) {
+        appendDecodedBatch(writeHandle, data, rowCount, columnCount);
+    }
+
+    private void appendDecodedBatch(long writeHandle, ByteBuffer data, int rowCount, int columnCount) {
         WriteSession ws = requireSession(writeHandle);
-        int size = data.remaining();
-
         try (BufferAllocator allocator = sharedAllocator.newChildAllocator(
-                "batch-decode-direct-" + writeHandle, 0, 16L * 1024 * 1024)) {
-            Page decodedPage = PageDecoder.decodeDirect(data, allocator);
-            LOG.debug("event=decoded_direct_batch handle={} columns={} columnCount={}",
-                    writeHandle, decodedPage.columns(), decodedPage.columns().size());
-            Page projectedPage = WritePageProjector.projectToWriteSchema(decodedPage, ws.columnNames());
-            ws.sink().appendPage(projectedPage);
-            ws.rowsAppended().addAndGet(rowCount);
-        } catch (java.io.IOException e) {
-            throw new NativeRuntimeException(PangrovaErrorCode.NATIVE_DATA_INTERFACE_ERROR,
-                    "Failed to decode direct batch: handle=" + writeHandle
-                            + " bytes=" + size + " error=" + e.getMessage());
+            "batch-decode-" + writeHandle, 0, 16L * 1024 * 1024);
+            ColumnarBatch decoded = ColumnarBatch.open(data, allocator, rowCount, columnCount);
+            ColumnarBatch projected = WritePageProjector.projectToWriteSchema(decoded, ws.columnNames())) {
+            appendToSink(ws.sink(), projected);
+            ws.rowsAppended().addAndGet(decoded.rowCount());
+        } catch (IOException e) {
+            NativeRuntimeException failure = new NativeRuntimeException(
+                PangrovaErrorCode.NATIVE_DATA_INTERFACE_ERROR,
+                "Failed to decode write batch: handle=" + writeHandle, e);
+            failWrite(writeHandle, ws, failure);
+            throw failure;
+        } catch (RuntimeException | Error failure) {
+            failWrite(writeHandle, ws, failure);
+            throw failure;
         }
-
-        LOG.debug("event=direct_batch_appended handle={} catalog={} rows={} bytes={}",
-                writeHandle, ws.catalogName(), rowCount, size);
-
         long currentBatch = ws.batchCount().incrementAndGet();
         if (currentBatch % BATCH_LOG_INTERVAL == 0) {
             LOG.info("event=write_progress handle={} catalog={} batchesSoFar={} totalRows={}",
                     writeHandle, ws.catalogName(), currentBatch, ws.rowsAppended().get());
+        }
+    }
+
+    private static void appendToSink(ConnectorPageSink sink, ColumnarBatch batch) {
+        if (sink instanceof ColumnarPageSink columnarSink) {
+            columnarSink.appendColumnarBatch(batch);
+            return;
+        }
+        // Row-only sinks use their declared SPI, never an unsupported native API.
+        // Keep conversion bounded to one row, rather than retaining a whole batch.
+        List<String> columns = batch.columns();
+        if (batch.rowCount() == 0) {
+            sink.appendPage(new Page(columns, List.of()));
+        }
+        for (int row = 0; row < batch.rowCount(); row++) {
+            TypedRow.Builder builder = TypedRow.builder();
+            for (int column = 0; column < columns.size(); column++) {
+                builder.putRaw(columns.get(column), batch.value(row, column));
+            }
+            sink.appendPage(new Page(columns, List.of(builder.build())));
+        }
+    }
+
+    private void failWrite(long handle, WriteSession session, Throwable failure) {
+        activeSessions.remove(handle, session);
+        handleToTaskId.remove(handle);
+        try {
+            session.sink().abort();
+        } catch (RuntimeException | Error cleanup) {
+            failure.addSuppressed(cleanup);
+        }
+        try {
+            session.sink().close();
+        } catch (RuntimeException | Error cleanup) {
+            failure.addSuppressed(cleanup);
         }
     }
 
@@ -263,6 +239,17 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         if (ws == null) {
             throw new NativeRuntimeException(PangrovaErrorCode.NATIVE_INVALID_HANDLE,
                     "No active write session for handle=" + writeHandle);
+        }
+
+        String taskId = handleToTaskId.remove(writeHandle);
+        if (taskId == null || taskId.isBlank()) {
+            try {
+                ws.sink().abort();
+            } finally {
+                ws.sink().close();
+            }
+            throw new NativeRuntimeException(PangrovaErrorCode.NATIVE_INVALID_HANDLE,
+                    "Write session has no canonical task identifier: handle=" + writeHandle);
         }
 
         byte[] commitMetadata;
@@ -282,11 +269,9 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         // commit metadata and finishDistributedWrite() is called with empty
         // fragments — data is never committed to the catalog.
         if (commitMetadata.length > 0) {
-            String taskId = handleToTaskId.remove(writeHandle);
-            String key = (taskId != null && !taskId.isEmpty()) ? taskId : "__handle_" + writeHandle;
-            pendingCommitMetadata.put(key, commitMetadata.clone());
+            publishCommitMetadataForTask(taskId, commitMetadata);
             LOG.debug("event=commit_metadata_pending_put handle={} key={} bytes={} pendingSize={}",
-                    writeHandle, key, commitMetadata.length, pendingCommitMetadata.size());
+                    writeHandle, taskId, commitMetadata.length, pendingCommitMetadata.size());
         } else {
             LOG.warn("event=commit_metadata_empty handle={} catalog={}",
                     writeHandle, ws.catalogName());
@@ -298,6 +283,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     @Override
     public void abortWrite(long writeHandle) {
         WriteSession ws = activeSessions.remove(writeHandle);
+        handleToTaskId.remove(writeHandle);
         if (ws == null) {
             LOG.warn("event=abort_no_session handle={}", writeHandle);
             return;
@@ -324,36 +310,46 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     }
 
     /**
+     * Publishes a native writer's immutable commit fragment for its canonical task.
+     * An identical retry is harmless; a conflicting fragment is rejected before a
+     * task can report success with ambiguous catalog input.
+     *
+     * @param taskId coordinator-assigned task identifier
+     * @param metadata nonempty serialized commit fragment
+     */
+    @SuppressWarnings("unused") // called by the native writer through JNI
+    public void publishCommitMetadataForTask(String taskId, byte[] metadata) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException("Canonical taskId is required for write commit metadata");
+        }
+        if (metadata == null || metadata.length == 0) {
+            throw new IllegalArgumentException("Nonempty write commit metadata is required");
+        }
+        byte[] previous = pendingCommitMetadata.putIfAbsent(taskId, metadata.clone());
+        if (previous != null && !Arrays.equals(previous, metadata)) {
+            throw new IllegalStateException("Conflicting write commit metadata for taskId=" + taskId);
+        }
+    }
+
+    /**
      * Drains commit metadata for the specified task. Returns the metadata bytes
-     * if found, or falls back to draining the first pending entry when the
-     * native side did not pass a taskId (legacy compatibility).
+     * if found. No cross-task fallback is permitted.
      *
      * @param taskId the coordinator-assigned task identifier
      * @return the commit metadata bytes, or empty array if none pending
      */
     public byte[] drainCommitMetadataForTask(String taskId) {
-        if (pendingCommitMetadata.isEmpty()) {
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Canonical taskId is required to drain write commit metadata");
+        }
+        byte[] metadata = pendingCommitMetadata.remove(taskId);
+        if (metadata == null) {
             return new byte[0];
         }
-        if (taskId != null && !taskId.isEmpty()) {
-            byte[] metadata = pendingCommitMetadata.remove(taskId);
-            if (metadata != null) {
-                LOG.debug("event=commit_metadata_drain_hit taskId={} bytes={}",
-                        taskId, metadata.length);
-                return metadata;
-            }
-        }
-        // Fallback: native side did not pass taskId — drain first entry
-        // (preserves single-writer-per-worker behavior).
-        var iterator = pendingCommitMetadata.entrySet().iterator();
-        if (!iterator.hasNext()) {
-            return new byte[0];
-        }
-        var entry = iterator.next();
-        iterator.remove();
-        LOG.debug("event=commit_metadata_drain_fallback taskId={} fallbackKey={} bytes={}",
-                taskId, entry.getKey(), entry.getValue().length);
-        return entry.getValue();
+        LOG.debug("event=commit_metadata_drain_hit taskId={} bytes={}",
+                taskId, metadata.length);
+        return metadata;
     }
 
     /**
@@ -377,6 +373,7 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     }
 
     private void cleanupSession(long handle, WriteSession ws) {
+        handleToTaskId.remove(handle);
         try {
             ws.sink().abort();
         } catch (RuntimeException e) {
@@ -395,6 +392,13 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     public void close() {
         closeAllSessions();
         sharedAllocator.close();
+        if (catalogLookup instanceof AutoCloseable closeable) {
+            try {
+                closeable.close();
+            } catch (Exception failure) {
+                throw new IllegalStateException("Failed to close Worker catalog runtime", failure);
+            }
+        }
     }
 
     private WriteSession requireSession(long writeHandle) {
@@ -406,30 +410,22 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         return ws;
     }
 
-    private static ConnectorTableHandle resolveTableHandle(
-            ConnectorMetadata metadata,
-            org.pangrova.spi.connector.ConnectorSession session,
-            String schemaName,
-            String tableName) {
-        ConnectorTableHandle handle = metadata.getTableHandle(
-                session, new SchemaTableName(schemaName, tableName));
-        if (handle == null) {
-            throw new NativeRuntimeException(PangrovaErrorCode.METADATA_TABLE_NOT_FOUND,
-                    "Table not found: " + schemaName + "." + tableName);
+    private static String requireTaskId(WriteDescriptor descriptor) {
+        String taskId = descriptor.properties().get("taskId");
+        if (taskId == null || taskId.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Native write descriptor requires a non-empty canonical taskId");
         }
-        return handle;
+        return taskId;
     }
 
-    private static ConnectorOutputTableHandle beginOperation(
-            ConnectorMetadata metadata,
-            org.pangrova.spi.connector.ConnectorSession session,
-            ConnectorTableHandle tableHandle,
-            WriteDescriptor.DmlOperation dmlOperation) {
-        return switch (dmlOperation) {
-            case INSERT -> metadata.beginInsert(session, tableHandle);
-            case OVERWRITE -> metadata.beginOverwrite(session, tableHandle);
-            case DELETE -> metadata.beginDelete(session, tableHandle);
-        };
+    private static void requireConnectorManagedWriteFormat(WriteDescriptor descriptor) {
+        String format = descriptor.properties().get(WriteDescriptor.FILE_FORMAT_PROPERTY);
+        if (format != null && "LANCE".equalsIgnoreCase(format)) {
+            throw new IllegalArgumentException(
+                    "Lance writes require Native output allocation and external-file commit metadata; "
+                            + "the connector PageSink path cannot write Lance");
+        }
     }
 
     private static ConnectorPageSink createPageSink(
@@ -446,6 +442,4 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
                     ConnectorTransactionHandle.EMPTY, session, outputHandle);
         };
     }
-
-
 }

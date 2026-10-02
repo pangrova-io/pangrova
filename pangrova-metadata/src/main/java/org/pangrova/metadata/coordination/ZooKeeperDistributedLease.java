@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
+import java.util.Base64;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -33,8 +33,8 @@ import java.util.Optional;
  * replicating lease state across a ZooKeeper quorum. When deployed against a 3- or 5-node ensemble,
  * loss of a minority of nodes does not lose coordination — unlike a single database.
  *
- * <p>Semantics mirror {@link JdbcDistributedLease}: time-bounded (TTL) leases with epoch fencing and
- * re-entrant acquisition. Each lease is a persistent znode at {@code <basePath>/<leaseKey>} whose
+ * <p>Semantics mirror {@link JdbcDistributedLease}: time-bounded leases with backend-issued fencing
+ * epochs. Each lease is a persistent znode at {@code <basePath>/<leaseKey>} whose
  * data encodes {@code (epoch, acquiredAtMs, expiresAtMs, holderId)}.</p>
  *
  * <p><b>Mutual exclusion</b> is provided by ZooKeeper's per-znode version: acquire/renew/release
@@ -72,10 +72,9 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
     }
 
     @Override
-    public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
-        Objects.requireNonNull(leaseKey, "leaseKey must not be null");
-        Objects.requireNonNull(holderId, "holderId must not be null");
-        Objects.requireNonNull(duration, "duration must not be null");
+    public Optional<LeaseEntry> tryAcquire(
+            String leaseKey, String holderId, Duration duration) {
+        requireRequest(leaseKey, holderId, duration);
         String path = leasePath(leaseKey);
         try {
             long now = serverNowMillis();
@@ -85,57 +84,55 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
             try {
                 data = client.getData().storingStatIn(stat).forPath(path);
             } catch (KeeperException.NoNodeException absent) {
-                return createLease(path, leaseKey, holderId, epoch, now, expiresAt);
+                return createLease(path, leaseKey, holderId, now, expiresAt);
             }
             LeaseData existing = LeaseData.parse(data);
-            // Acquire is allowed when the current lease is expired, held by us (re-entrant), or
-            // fenced by a strictly higher epoch. Otherwise an active foreign holder blocks us.
-            boolean canTake = existing.expiresAtMs() <= now
-                    || existing.holderId().equals(holderId)
-                    || existing.epoch() < epoch;
-            if (!canTake) {
-                return false;
+            if (existing.expiresAtMs() > now) {
+                return existing.holderId().equals(holderId)
+                        ? Optional.of(toEntry(leaseKey, existing)) : Optional.empty();
             }
+            long nextEpoch = Math.incrementExact(existing.epoch());
             try {
                 client.setData().withVersion(stat.getVersion())
-                        .forPath(path, LeaseData.serialize(epoch, now, expiresAt, holderId));
+                        .forPath(path, LeaseData.serialize(
+                                nextEpoch, now, expiresAt, holderId));
                 LOG.info("event=zk_lease_acquired leaseKey={} holderId={} epoch={} expiresAt={}",
-                        leaseKey, holderId, epoch, Instant.ofEpochMilli(expiresAt));
-                return true;
+                        leaseKey, holderId, nextEpoch, Instant.ofEpochMilli(expiresAt));
+                return Optional.of(new LeaseEntry(leaseKey, holderId, nextEpoch,
+                        Instant.ofEpochMilli(now), Instant.ofEpochMilli(expiresAt)));
             } catch (KeeperException.BadVersionException race) {
-                // A concurrent writer changed the node first — lost the race.
-                return false;
+                return Optional.empty();
             }
         } catch (Exception e) {
             LOG.warn("event=zk_lease_acquire_failed leaseKey={} holderId={} error={}",
                     leaseKey, holderId, e.toString());
-            return false;
+            return Optional.empty();
         }
     }
 
-    private boolean createLease(String path, String leaseKey, String holderId,
-                                long epoch, long now, long expiresAt) {
+    private Optional<LeaseEntry> createLease(
+            String path, String leaseKey, String holderId, long now, long expiresAt) {
         try {
             client.create().creatingParentsIfNeeded()
-                    .forPath(path, LeaseData.serialize(epoch, now, expiresAt, holderId));
+                    .forPath(path, LeaseData.serialize(1, now, expiresAt, holderId));
             LOG.info("event=zk_lease_acquired leaseKey={} holderId={} epoch={} expiresAt={} note=created",
-                    leaseKey, holderId, epoch, Instant.ofEpochMilli(expiresAt));
-            return true;
+                    leaseKey, holderId, 1, Instant.ofEpochMilli(expiresAt));
+            return Optional.of(new LeaseEntry(leaseKey, holderId, 1,
+                    Instant.ofEpochMilli(now), Instant.ofEpochMilli(expiresAt)));
         } catch (KeeperException.NodeExistsException race) {
-            // A concurrent acquirer created it first.
-            return false;
+            return Optional.empty();
         } catch (Exception e) {
             LOG.warn("event=zk_lease_create_failed leaseKey={} holderId={} error={}",
                     leaseKey, holderId, e.toString());
-            return false;
+            return Optional.empty();
         }
     }
 
     @Override
-    public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
-        Objects.requireNonNull(leaseKey, "leaseKey must not be null");
-        Objects.requireNonNull(holderId, "holderId must not be null");
-        Objects.requireNonNull(duration, "duration must not be null");
+    public boolean tryRenew(
+            String leaseKey, String holderId, long epoch, Duration duration) {
+        requireRequest(leaseKey, holderId, duration);
+        requireEpoch(epoch);
         String path = leasePath(leaseKey);
         try {
             long now = serverNowMillis();
@@ -145,7 +142,8 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
             LeaseData existing = LeaseData.parse(data);
             // Renew only if we still own it AND it has not already lapsed (a lapsed lease must be
             // re-acquired, not renewed, so a new holder is not silently overwritten).
-            if (!existing.holderId().equals(holderId) || existing.expiresAtMs() <= now) {
+            if (!existing.holderId().equals(holderId) || existing.epoch() != epoch
+                    || existing.expiresAtMs() <= now) {
                 return false;
             }
             try {
@@ -168,22 +166,28 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
     }
 
     @Override
-    public boolean release(String leaseKey, String holderId) {
+    public boolean release(String leaseKey, String holderId, long epoch) {
         Objects.requireNonNull(leaseKey, "leaseKey must not be null");
         Objects.requireNonNull(holderId, "holderId must not be null");
+        requireEpoch(epoch);
         String path = leasePath(leaseKey);
         try {
             Stat stat = new Stat();
             byte[] data = client.getData().storingStatIn(stat).forPath(path);
             LeaseData existing = LeaseData.parse(data);
-            if (!existing.holderId().equals(holderId)) {
+            long now = serverNowMillis();
+            if (!existing.holderId().equals(holderId) || existing.epoch() != epoch
+                    || existing.expiresAtMs() <= now) {
                 return false;
             }
             try {
-                client.delete().withVersion(stat.getVersion()).forPath(path);
-                LOG.info("event=zk_lease_released leaseKey={} holderId={}", leaseKey, holderId);
+                client.setData().withVersion(stat.getVersion()).forPath(path,
+                        LeaseData.serialize(existing.epoch(), existing.acquiredAtMs(),
+                                now, holderId));
+                LOG.info("event=zk_lease_released leaseKey={} holderId={} epoch={}",
+                        leaseKey, holderId, epoch);
                 return true;
-            } catch (KeeperException.BadVersionException | KeeperException.NoNodeException race) {
+            } catch (KeeperException.BadVersionException race) {
                 return false;
             }
         } catch (KeeperException.NoNodeException absent) {
@@ -216,57 +220,6 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
         }
     }
 
-    @Override
-    public int expireStale() {
-        int removed = 0;
-        try {
-            long now = serverNowMillis();
-            List<String> children = client.getChildren().forPath(basePath);
-            for (String child : children) {
-                if (CLOCK_NODE.equals(child)) {
-                    continue;
-                }
-                if (expireIfElapsed(basePath + "/" + child, now)) {
-                    removed++;
-                }
-            }
-        } catch (KeeperException.NoNodeException noBase) {
-            return 0;
-        } catch (Exception e) {
-            LOG.error("event=zk_lease_expire_stale_error error={}", e.toString(), e);
-            return 0;
-        }
-        if (removed > 0) {
-            LOG.info("event=zk_lease_stale_expired count={}", removed);
-        }
-        return removed;
-    }
-
-    /**
-     * Deletes one lease znode when its TTL has elapsed against the authoritative clock.
-     *
-     * <p>Extracted from {@link #expireStale()} to keep that loop within the project
-     * indent-depth budget. Concurrent renewal and deletion are both benign: a version
-     * mismatch means the holder renewed the lease, and a vanished node means another
-     * coordinator already expired it, so the znode is left alone and reported as not
-     * expired.</p>
-     *
-     * @return {@code true} only when this call actually deleted the znode
-     */
-    private boolean expireIfElapsed(String path, long now) throws Exception {
-        try {
-            Stat stat = new Stat();
-            byte[] data = client.getData().storingStatIn(stat).forPath(path);
-            if (LeaseData.parse(data).expiresAtMs() > now) {
-                return false;
-            }
-            client.delete().withVersion(stat.getVersion()).forPath(path);
-            return true;
-        } catch (KeeperException.BadVersionException | KeeperException.NoNodeException concurrent) {
-            return false;
-        }
-    }
-
     /**
      * Samples the ZooKeeper leader's clock (A-LEASE-01): a write to the dedicated {@code _clock}
      * znode is stamped by the server with an {@code mtime}, giving a single authoritative time source
@@ -291,8 +244,13 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
     }
 
     private String leasePath(String leaseKey) {
-        // znode names cannot contain '/'; encode it so composite keys map to a single child node.
-        return basePath + "/" + leaseKey.replace('/', '_');
+        // A reversible, collision-free path segment is mandatory: replacing '/'
+        // with '_' aliases distinct logical resources (for example a/b and a_b),
+        // which can make unrelated jobs share one fence. URL-safe Base64 contains
+        // no ZooKeeper path separator and preserves the full UTF-8 key.
+        String encoded = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(leaseKey.getBytes(StandardCharsets.UTF_8));
+        return basePath + "/k-" + encoded;
     }
 
     private static String normalizeBase(String base) {
@@ -301,6 +259,29 @@ public final class ZooKeeperDistributedLease implements DistributedLease {
             b = b.substring(0, b.length() - 1);
         }
         return b;
+    }
+
+    private static LeaseEntry toEntry(String leaseKey, LeaseData data) {
+        return new LeaseEntry(leaseKey, data.holderId(), data.epoch(),
+                Instant.ofEpochMilli(data.acquiredAtMs()),
+                Instant.ofEpochMilli(data.expiresAtMs()));
+    }
+
+    private static void requireRequest(
+            String leaseKey, String holderId, Duration duration) {
+        Objects.requireNonNull(leaseKey, "leaseKey must not be null");
+        Objects.requireNonNull(holderId, "holderId must not be null");
+        Objects.requireNonNull(duration, "duration must not be null");
+        if (leaseKey.isBlank() || holderId.isBlank() || duration.toMillis() <= 0) {
+            throw new IllegalArgumentException(
+                    "leaseKey and holderId must be non-blank and duration must be positive");
+        }
+    }
+
+    private static void requireEpoch(long epoch) {
+        if (epoch <= 0) {
+            throw new IllegalArgumentException("epoch must be positive");
+        }
     }
 
     /**

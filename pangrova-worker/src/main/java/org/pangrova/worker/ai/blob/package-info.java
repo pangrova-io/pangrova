@@ -1,7 +1,7 @@
 /**
- * BLOB orphan cleanup for external blob storage.
+ * Governed FILE content storage and HTTPS import.
  *
- * <p>Scans blob storage prefixes, identifies unreferenced blob files,
- * and deletes those older than a configurable grace period (default 24 hours).</p>
+ * <p>Physical locations remain Worker-internal. The package publishes only
+ * tenant-scoped content identities with bounded streaming and atomic writes.</p>
  */
 package org.pangrova.worker.ai.blob;

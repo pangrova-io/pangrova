@@ -76,11 +76,12 @@ class ZooKeeperDistributedLeaseTest {
 
     @Test
     void acquireGivesMutualExclusionAndReentrancy() {
-        assertThat(lease.tryAcquire("ha-leader", "A", 1, Duration.ofSeconds(30))).isTrue();
-        assertThat(lease.tryAcquire("ha-leader", "B", 1, Duration.ofSeconds(30)))
-                .as("a second holder must be excluded while A's lease is active").isFalse();
-        assertThat(lease.tryAcquire("ha-leader", "A", 1, Duration.ofSeconds(30)))
-                .as("re-entrant acquire by the current holder succeeds").isTrue();
+        LeaseEntry first = lease.tryAcquire(
+                "ha-leader", "A", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(lease.tryAcquire("ha-leader", "B", Duration.ofSeconds(30)))
+                .as("a second holder must be excluded while A's lease is active").isEmpty();
+        assertThat(lease.tryAcquire("ha-leader", "A", Duration.ofSeconds(30)))
+                .contains(first);
         Optional<LeaseEntry> holder = lease.currentHolder("ha-leader");
         assertThat(holder).isPresent();
         assertThat(holder.get().holderId()).isEqualTo("A");
@@ -89,44 +90,67 @@ class ZooKeeperDistributedLeaseTest {
 
     @Test
     void renewOnlyByOwnerThenReleaseHandsOff() {
-        assertThat(lease.tryAcquire("k", "A", 1, Duration.ofSeconds(30))).isTrue();
-        assertThat(lease.tryRenew("k", "A", Duration.ofSeconds(30))).isTrue();
-        assertThat(lease.tryRenew("k", "B", Duration.ofSeconds(30)))
+        LeaseEntry held = lease.tryAcquire(
+                "k", "A", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(lease.tryRenew("k", "A", held.epoch(), Duration.ofSeconds(30))).isTrue();
+        assertThat(lease.tryRenew("k", "B", held.epoch(), Duration.ofSeconds(30)))
                 .as("a non-owner cannot renew").isFalse();
-        assertThat(lease.release("k", "B")).as("a non-owner cannot release").isFalse();
-        assertThat(lease.release("k", "A")).isTrue();
-        assertThat(lease.tryAcquire("k", "B", 1, Duration.ofSeconds(30)))
-                .as("after release the lease is free to acquire").isTrue();
+        assertThat(lease.release("k", "B", held.epoch()))
+                .as("a non-owner cannot release").isFalse();
+        assertThat(lease.release("k", "A", held.epoch())).isTrue();
+        LeaseEntry next = lease.tryAcquire(
+                "k", "B", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(next.epoch()).isEqualTo(held.epoch() + 1);
+        assertThat(lease.tryRenew("k", "A", held.epoch(), Duration.ofSeconds(30)))
+                .as("the released token is permanently fenced").isFalse();
     }
 
     @Test
-    void higherEpochFencesStaleHolder() {
-        assertThat(lease.tryAcquire("k", "old-leader", 1, Duration.ofSeconds(30))).isTrue();
-        assertThat(lease.tryAcquire("k", "new-leader", 2, Duration.ofSeconds(30)))
-                .as("a strictly higher epoch fences the stale holder").isTrue();
-        assertThat(lease.currentHolder("k").orElseThrow().holderId()).isEqualTo("new-leader");
-        assertThat(lease.tryAcquire("k", "old-leader", 1, Duration.ofSeconds(30)))
-                .as("a lower epoch cannot reclaim after being fenced").isFalse();
+    void activeHolderCannotBePreemptedByAContender() {
+        LeaseEntry held = lease.tryAcquire(
+                "k", "old-leader", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(lease.tryAcquire("k", "new-leader", Duration.ofSeconds(30)))
+                .as("callers cannot invent an epoch to preempt a live holder").isEmpty();
+        assertThat(lease.currentHolder("k")).contains(held);
     }
 
     @Test
     void expiredLeaseIsTakenOverUsingServerClock() throws Exception {
-        assertThat(lease.tryAcquire("k", "A", 1, Duration.ofMillis(300))).isTrue();
+        LeaseEntry first = lease.tryAcquire(
+                "k", "A", Duration.ofMillis(300)).orElseThrow();
         Thread.sleep(700); // exceed the TTL; expiry is judged by the ZK server clock
         assertThat(lease.currentHolder("k")).as("an expired lease has no active holder").isEmpty();
-        assertThat(lease.tryAcquire("k", "B", 1, Duration.ofSeconds(30)))
-                .as("an expired lease can be taken over by a new holder").isTrue();
-        assertThat(lease.currentHolder("k").orElseThrow().holderId()).isEqualTo("B");
+        LeaseEntry next = lease.tryAcquire(
+                "k", "B", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(next.holderId()).isEqualTo("B");
+        assertThat(next.epoch()).isEqualTo(first.epoch() + 1);
     }
 
     @Test
-    void expireStaleReapsOnlyLapsedLeases() throws Exception {
-        assertThat(lease.tryAcquire("k-short", "A", 1, Duration.ofMillis(200))).isTrue();
-        assertThat(lease.tryAcquire("k-long", "A", 1, Duration.ofSeconds(30))).isTrue();
+    void expiryRetainsEpochHighWatermark() throws Exception {
+        LeaseEntry first = lease.tryAcquire(
+                "k-short", "A", Duration.ofMillis(200)).orElseThrow();
+        assertThat(lease.tryAcquire("k-long", "A", Duration.ofSeconds(30))).isPresent();
         Thread.sleep(600);
-        int removed = lease.expireStale();
-        assertThat(removed).as("only the lapsed lease is reaped").isEqualTo(1);
+        LeaseEntry next = lease.tryAcquire(
+                "k-short", "B", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(next.epoch()).isEqualTo(first.epoch() + 1);
         assertThat(lease.currentHolder("k-long")).as("the active lease survives").isPresent();
+    }
+
+    @Test
+    void compositeLeaseKeysHaveCollisionFreeZooKeeperPaths() {
+        LeaseEntry slashKey = lease.tryAcquire(
+                "artifact/a_b", "A", Duration.ofSeconds(30)).orElseThrow();
+        LeaseEntry underscoreKey = lease.tryAcquire(
+                "artifact_a_b", "B", Duration.ofSeconds(30)).orElseThrow();
+
+        assertThat(slashKey.epoch()).isEqualTo(1L);
+        assertThat(underscoreKey.epoch()).isEqualTo(1L);
+        assertThat(lease.currentHolder("artifact/a_b").orElseThrow().holderId())
+                .isEqualTo("A");
+        assertThat(lease.currentHolder("artifact_a_b").orElseThrow().holderId())
+                .isEqualTo("B");
     }
 
     @Test
@@ -137,9 +161,9 @@ class ZooKeeperDistributedLeaseTest {
         try (ZooKeeperLeaseProvider provider =
                      new ZooKeeperLeaseProvider("127.0.0.1:" + port, "/pangrova/provider-leases")) {
             org.pangrova.spi.coordination.DistributedLease l = provider.lease();
-            assertThat(l.tryAcquire("k", "A", 1, Duration.ofSeconds(30))).isTrue();
-            assertThat(l.tryAcquire("k", "B", 1, Duration.ofSeconds(30)))
-                    .as("provider lease enforces mutual exclusion").isFalse();
+            assertThat(l.tryAcquire("k", "A", Duration.ofSeconds(30))).isPresent();
+            assertThat(l.tryAcquire("k", "B", Duration.ofSeconds(30)))
+                    .as("provider lease enforces mutual exclusion").isEmpty();
             assertThat(l.currentHolder("k").orElseThrow().holderId()).isEqualTo("A");
         }
     }

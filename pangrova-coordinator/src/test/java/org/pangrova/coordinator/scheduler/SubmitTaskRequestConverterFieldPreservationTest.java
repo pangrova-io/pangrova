@@ -6,8 +6,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.spi.execution.TaskDescriptor;
 import org.pangrova.spi.execution.TaskResourceLimit;
 import org.junit.jupiter.api.Test;
@@ -44,7 +44,8 @@ class SubmitTaskRequestConverterFieldPreservationTest {
 
     @Test
     void preservesResourceLimit() {
-        ResourceLimitPayload limit = new ResourceLimitPayload(256_000_000L, 8, 512_000_000L, "/tmp/spill");
+        StageResourceGrant limit = resourceGrant(
+                "preservation", 256_000_000L, 8, 512_000_000L);
         SubmitTaskRequest request = buildRequestWithResourceLimit(limit);
 
         TaskDescriptor descriptor = SubmitTaskRequestConverter.toTaskDescriptor(request);
@@ -53,7 +54,7 @@ class SubmitTaskRequestConverterFieldPreservationTest {
         assertThat(spiLimit.maxMemoryBytes()).isEqualTo(256_000_000L);
         assertThat(spiLimit.maxThreads()).isEqualTo(8);
         assertThat(spiLimit.maxSpillBytes()).isEqualTo(512_000_000L);
-        assertThat(spiLimit.spillDirectory()).isEqualTo("/tmp/spill");
+        assertThat(spiLimit.spillDirectory()).isEmpty();
     }
 
     @Test
@@ -66,7 +67,7 @@ class SubmitTaskRequestConverterFieldPreservationTest {
     }
 
     @Test
-    void nullTaskTypeDefaultsToCompute() {
+    void canonicalReadTaskProjectsToCompute() {
         SubmitTaskRequest request = buildFullRequest(0, 0, null);
 
         TaskDescriptor descriptor = SubmitTaskRequestConverter.toTaskDescriptor(request);
@@ -91,37 +92,58 @@ class SubmitTaskRequestConverterFieldPreservationTest {
 
     @Test
     void toResourceLimitDelegatesCorrectly() {
-        ResourceLimitPayload limit = new ResourceLimitPayload(100L, 2, 200L, "/spill");
+        StageResourceGrant limit = resourceGrant("delegation", 100L, 2, 200L);
 
-        TaskResourceLimit result = SubmitTaskRequestConverter.toResourceLimit(limit);
+        TaskResourceLimit result = org.pangrova.protocol.rest.task.convert
+                .TaskRequestDtoConverter.toResourceLimit(limit);
 
         assertThat(result.maxMemoryBytes()).isEqualTo(100L);
         assertThat(result.maxThreads()).isEqualTo(2);
         assertThat(result.maxSpillBytes()).isEqualTo(200L);
-        assertThat(result.spillDirectory()).isEqualTo("/spill");
+        assertThat(result.spillDirectory()).isEmpty();
     }
 
     @Test
     void toResourceLimitNullReturnsNone() {
-        TaskResourceLimit result = SubmitTaskRequestConverter.toResourceLimit(null);
+        TaskResourceLimit result = org.pangrova.protocol.rest.task.convert
+                .TaskRequestDtoConverter.toResourceLimit(null);
 
         assertThat(result).isEqualTo(TaskResourceLimit.NONE);
     }
 
     private static SubmitTaskRequest buildFullRequest(int stageId, int partitionId, String taskType) {
-        return new SubmitTaskRequest(
-                "t-1", "q-full", stageId, partitionId, taskType,
-                PLAN_B64, List.of(SPLIT_B64), List.of(),
-                new ResourceLimitPayload(128_000_000L, 4, 0L, ""),
-                Map.of("timezone", "UTC"), null, null,
-                null, null, null, null, null, null, null);
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                        "t-1", "q-full", stageId, partitionId,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        Base64.getDecoder().decode(PLAN_B64))
+                .addSplits(org.pangrova.protocol.v2.DataSplit.newBuilder()
+                        .setSplitId("split-data"))
+                .setResourceGrant(resourceGrant(
+                        "t-1:grant", 128_000_000L, 4, 0L))
+                .setExecutionOptions(org.pangrova.protocol.v2.TaskExecutionOptions.newBuilder()
+                        .putAllSessionProperties(Map.of("timezone", "UTC"))
+                        .setDirectResultOutput("OUTPUT".equals(taskType)));
+        return SubmitTaskRequest.from(canonical.build());
     }
 
-    private static SubmitTaskRequest buildRequestWithResourceLimit(ResourceLimitPayload limit) {
-        return new SubmitTaskRequest(
-                "t-2", "q-rl", 0, 0, "COMPUTE",
-                PLAN_B64, List.of(), List.of(),
-                limit, Map.of(), null, null,
-                null, null, null, null, null, null, null);
+    private static SubmitTaskRequest buildRequestWithResourceLimit(StageResourceGrant limit) {
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                "t-2", "q-rl", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                Base64.getDecoder().decode(PLAN_B64));
+        if (limit != null) {
+            canonical.setResourceGrant(limit);
+        }
+        return SubmitTaskRequest.from(canonical.build());
+    }
+
+    private static StageResourceGrant resourceGrant(
+            String grantId, long nativeMemoryBytes, int cpuSlots, long spillBytes) {
+        return StageResourceGrant.newBuilder()
+                .setGrantId(grantId)
+                .setNativeMemoryBytes(nativeMemoryBytes)
+                .setCpuSlots(cpuSlots)
+                .setSpillBytes(spillBytes)
+                .build();
     }
 }

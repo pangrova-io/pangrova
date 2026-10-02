@@ -22,9 +22,12 @@ public final class CatalogStatisticsProvider implements ConnectorStatisticsProvi
     private static final Logger LOG = LoggerFactory.getLogger(CatalogStatisticsProvider.class);
 
     private final CatalogRegistry catalogRegistry;
+    private final ConnectorSession authenticatedSession;
 
-    public CatalogStatisticsProvider(CatalogRegistry catalogRegistry) {
+    public CatalogStatisticsProvider(CatalogRegistry catalogRegistry, ConnectorSession session) {
         this.catalogRegistry = catalogRegistry;
+        this.authenticatedSession = PlanningConnectorSession.bind(session,
+                session.getCatalog().orElse(null), session.getSchema().orElse(null));
     }
 
     @Override
@@ -37,15 +40,15 @@ public final class CatalogStatisticsProvider implements ConnectorStatisticsProvi
         try {
             return fetchStatistics(parts[0], parts[1], parts[2], tableName);
         } catch (Exception e) {
-            LOG.debug("event=stats_lookup_failed tableName={} error={}", tableName, e.getMessage());
-            return TableStatistics.UNKNOWN;
+            throw new org.pangrova.metadata.exception.MetadataResolutionException(
+                    parts[0], parts[1], parts[2], e);
         }
     }
 
     private TableStatistics fetchStatistics(
             String catalogName, String schemaName, String table, String fullName) {
         CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-        ConnectorSession session = new SystemConnectorSession(catalogName);
+        ConnectorSession session = PlanningConnectorSession.bind(authenticatedSession, catalogName, schemaName);
         ConnectorTableHandle tableHandle = handle.getMetadata(session)
                 .getTableHandle(session, new SchemaTableName(schemaName, table));
         if (tableHandle == null) {

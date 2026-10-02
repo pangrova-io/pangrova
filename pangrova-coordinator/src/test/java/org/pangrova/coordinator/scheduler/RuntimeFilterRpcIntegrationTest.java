@@ -99,7 +99,8 @@ class RuntimeFilterRpcIntegrationTest {
 
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-rpc-dpp");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-rpc-dpp", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-rpc-dpp",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
 
         // Fire the stage-completion hook
         handler.onFinished(event);
@@ -153,7 +154,8 @@ class RuntimeFilterRpcIntegrationTest {
 
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-rpc-bloom");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-rpc-bloom", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-rpc-bloom",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
 
         handler.onFinished(event);
 

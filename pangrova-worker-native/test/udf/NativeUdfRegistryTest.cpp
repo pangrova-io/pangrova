@@ -8,11 +8,29 @@
 #include <vector>
 
 #include "udf/NativeUdfRegistry.h"
+#include "velox/functions/FunctionRegistry.h"
 
 namespace pangrova::udf::test {
 namespace {
 
-#if PANGROVA_HAS_VELOX_TYPE
+class TaggedVectorFunction final : public facebook::velox::exec::VectorFunction {
+ public:
+  explicit TaggedVectorFunction(int tag) : tag_(tag) {}
+
+  int tag() const { return tag_; }
+
+  void apply(
+      const facebook::velox::SelectivityVector&,
+      std::vector<facebook::velox::VectorPtr>&,
+      const TypePtr&,
+      facebook::velox::exec::EvalCtx&,
+      facebook::velox::VectorPtr&) const override {
+    throw std::runtime_error("registration test function is not executable");
+  }
+
+ private:
+  int tag_;
+};
 
 ScalarUdfSpec makeScalarSpec(const std::string& name) {
   ScalarUdfSpec spec;
@@ -20,14 +38,12 @@ ScalarUdfSpec makeScalarSpec(const std::string& name) {
   spec.inputTypes = {facebook::velox::BIGINT()};
   spec.outputType = facebook::velox::BIGINT();
   spec.stateful = true;
-#if PANGROVA_HAS_VELOX_VECTOR_FUNC
   spec.vectorFunctionFactory =
       [](const std::string&,
          const std::vector<facebook::velox::exec::VectorFunctionArg>&)
           -> std::unique_ptr<facebook::velox::exec::VectorFunction> {
     return nullptr;
   };
-#endif
   return spec;
 }
 
@@ -38,7 +54,6 @@ AggregateUdfSpec makeAggregateSpec(const std::string& name) {
   spec.intermediateType = facebook::velox::BIGINT();
   spec.outputType = facebook::velox::BIGINT();
 
-#if PANGROVA_HAS_VELOX_AGGREGATE
   spec.aggregateFactory =
       [](facebook::velox::core::AggregationNode::Step,
          const std::vector<TypePtr>&,
@@ -46,7 +61,6 @@ AggregateUdfSpec makeAggregateSpec(const std::string& name) {
           -> std::unique_ptr<facebook::velox::exec::Aggregate> {
     return nullptr;
   };
-#endif
   return spec;
 }
 
@@ -65,6 +79,73 @@ TEST(NativeUdfRegistryTest, RegisterMultipleScalarUdfs) {
   registry.registerScalar(makeScalarSpec("udf_b"));
   registry.registerScalar(makeScalarSpec("udf_c"));
   EXPECT_EQ(registry.scalarCount(), 3u);
+}
+
+TEST(NativeUdfRegistryTest, RegisterScalarOverloadsUnderOneName) {
+  NativeUdfRegistry registry;
+  auto bigint = makeScalarSpec("overloaded");
+  auto varchar = makeScalarSpec("overloaded");
+  varchar.inputTypes = {facebook::velox::VARCHAR()};
+  registry.registerScalar(bigint);
+  registry.registerScalar(varchar);
+  EXPECT_EQ(registry.scalarCount(), 1u);
+  EXPECT_TRUE(registry.findScalar("overloaded").has_value());
+}
+
+TEST(NativeUdfRegistryTest, DistinctOverloadsUseTheirOwnFactories) {
+  NativeUdfRegistry registry;
+  auto bigint = makeScalarSpec("pangrova_test_routed_overload_udf");
+  bigint.vectorFunctionFactory =
+      [](const std::string&,
+         const std::vector<facebook::velox::exec::VectorFunctionArg>&) {
+        return std::make_unique<TaggedVectorFunction>(1);
+      };
+  auto varchar = makeScalarSpec(bigint.name);
+  varchar.inputTypes = {facebook::velox::VARCHAR()};
+  varchar.vectorFunctionFactory =
+      [](const std::string&,
+         const std::vector<facebook::velox::exec::VectorFunctionArg>&) {
+        return std::make_unique<TaggedVectorFunction>(2);
+      };
+  registry.registerScalar(bigint);
+  registry.registerScalar(varchar);
+  registry.registerAllWithVelox();
+
+  facebook::velox::core::QueryConfig config({});
+  auto bigintFunction = facebook::velox::exec::getVectorFunction(
+      bigint.name, {facebook::velox::BIGINT()}, {}, config);
+  auto varcharFunction = facebook::velox::exec::getVectorFunction(
+      bigint.name, {facebook::velox::VARCHAR()}, {}, config);
+  ASSERT_NE(bigintFunction, nullptr);
+  ASSERT_NE(varcharFunction, nullptr);
+  auto bigintTagged =
+      std::dynamic_pointer_cast<TaggedVectorFunction>(bigintFunction);
+  auto varcharTagged =
+      std::dynamic_pointer_cast<TaggedVectorFunction>(varcharFunction);
+  ASSERT_NE(bigintTagged, nullptr);
+  ASSERT_NE(varcharTagged, nullptr);
+  EXPECT_EQ(bigintTagged->tag(), 1);
+  EXPECT_EQ(varcharTagged->tag(), 2);
+}
+
+TEST(NativeUdfRegistryTest, DuplicateScalarSignatureThrows) {
+  NativeUdfRegistry registry;
+  registry.registerScalar(makeScalarSpec("duplicate"));
+  EXPECT_THROW(
+      registry.registerScalar(makeScalarSpec("duplicate")),
+      std::runtime_error);
+}
+
+TEST(NativeUdfRegistryTest, DuplicateRowSignatureIgnoresFieldNames) {
+  NativeUdfRegistry registry;
+  auto first = makeScalarSpec("duplicate_row");
+  first.inputTypes = {facebook::velox::ROW(
+      {"left"}, {facebook::velox::BIGINT()})};
+  auto second = makeScalarSpec("duplicate_row");
+  second.inputTypes = {facebook::velox::ROW(
+      {"right"}, {facebook::velox::BIGINT()})};
+  registry.registerScalar(first);
+  EXPECT_THROW(registry.registerScalar(second), std::runtime_error);
 }
 
 TEST(NativeUdfRegistryTest, FindScalarNotRegisteredReturnsEmpty) {
@@ -107,11 +188,28 @@ TEST(NativeUdfRegistryTest, CountsAreIndependent) {
   EXPECT_EQ(registry.aggregateCount(), 1u);
 }
 
-#else
-TEST(NativeUdfRegistryTest, SkippedWithoutVeloxTypes) {
-  GTEST_SKIP() << "Velox type headers not available";
+TEST(NativeUdfRegistryTest, RegistersConcreteFileRowAndVectorSignatures) {
+  NativeUdfRegistry registry;
+  auto fileFunction = makeScalarSpec("pangrova_test_file_row_udf");
+  fileFunction.inputTypes = {
+      facebook::velox::VARCHAR(),
+      facebook::velox::ROW(
+          {"uri", "mime_type", "size", "checksum", "created_at"},
+          {facebook::velox::VARCHAR(), facebook::velox::VARCHAR(),
+           facebook::velox::BIGINT(), facebook::velox::VARCHAR(),
+           facebook::velox::TIMESTAMP()})};
+  fileFunction.outputType = facebook::velox::VARCHAR();
+  registry.registerScalar(fileFunction);
+
+  auto vectorFunction = makeScalarSpec("pangrova_test_vector_return_udf");
+  vectorFunction.inputTypes = {
+      facebook::velox::VARCHAR(), facebook::velox::VARCHAR()};
+  vectorFunction.outputType =
+      facebook::velox::ARRAY(facebook::velox::REAL());
+  registry.registerScalar(vectorFunction);
+
+  EXPECT_NO_THROW(registry.registerAllWithVelox());
 }
-#endif
 
 }  // namespace
 }  // namespace pangrova::udf::test

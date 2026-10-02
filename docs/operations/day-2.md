@@ -5,7 +5,8 @@ sidebar_label: "Day-2 Operations"
 
 # Pangrova — Day-2 Operations
 
-> **Summary.** Rolling upgrades, online DDL, disaster recovery, autoscaling, and failure-recovery SOPs.
+> **Summary.** Epoch-fenced upgrades, online DDL, disaster recovery,
+> autoscaling, and failure-recovery SOPs.
 
 ## 1. Operations Architecture Overview
 
@@ -18,7 +19,7 @@ sidebar_label: "Day-2 Operations"
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │  Capability         │ Description                 │ Implementation      │   │
 │  │  ─────────────────────────────────────────────────────────────────────  │   │
-│  │  Rolling Upgrade    │ Zero-downtime upgrade       │ Rolling restart+cmp │   │
+│  │  Epoch Upgrade      │ Blue/green traffic cutover  │ Drain+fence+verify │   │
 │  │  Online DDL         │ Non-blocking schema change │ Async exec+progress │   │
 │  │  Disaster Recovery  │ Cross-region DR             │ Metadata+data repl. │  │
 │  │  Auto Scaling       │ Autoscaling                 │ Load-based elastic. │   │
@@ -30,31 +31,31 @@ sidebar_label: "Day-2 Operations"
 
 ---
 
-## 2. Rolling Upgrade
+## 2. Protocol-Epoch Upgrade
 
 ### 2.1 Upgrade Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Rolling Upgrade Architecture                             │
+│                       Protocol-Epoch Upgrade Architecture                        │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
 │  Upgrade order:                                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  1. Worker nodes (upgraded one by one)                                   │   │
-│  │     Worker-1 → Worker-2 → Worker-3 → ...                                │   │
+│  │  1. Create a fenced green Worker pool with the new execution epoch       │   │
+│  │     Descriptor + Native library + capability inventory must all match    │   │
 │  │                                                                          │   │
-│  │  2. Coordinator nodes (upgraded one by one)                              │   │
-│  │     Coordinator-1 → Coordinator-2 → Coordinator-3                       │   │
+│  │  2. Validate green, stop admission to blue, and drain/fence blue          │   │
+│  │     No query or background job may span execution epochs                 │   │
 │  │                                                                          │   │
-│  │  3. Verification & rollback points                                       │   │
-│  │     Verify after each node upgrade; roll back immediately on failure     │   │
+│  │  3. Atomically switch admission to green; keep blue fenced for rollback   │   │
+│  │     Remove blue only after query/job and publication-fence verification  │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
-│  Version compatibility requirements:                                            │
-│  • An N-version Coordinator must be compatible with N-1 version Workers          │
-│  • An N-version Worker must be compatible with N-1 version Coordinators          │
-│  • Protocol version is managed independently; incompatible changes bump it       │
+│  Epoch requirements:                                                            │
+│  • One admitted descriptor/capability epoch per cluster                          │
+│  • Mismatched Workers remain fenced and receive no tasks                         │
+│  • No negotiation, v1 fallback, dual parser, or per-task downgrade                │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -139,80 +140,47 @@ public class RollingUpgradeController {
      * 3. Startup Timeout: If waitForWorkerReady() exceeds 2m, rollback to previous
      *    version and restart.
      *
-     * 4. Partial Upgrade Failure Strategy (controlled by rolling-upgrade.rollback-on-failure):
-     *    - true (default): Rollback ALL already-upgraded Workers to previous version,
-     *      restoring the cluster to a homogeneous state.
-     *    - false: Keep already-upgraded Workers running on new version (mixed-version
-     *      cluster). Relies on protocol version compatibility (§2.3) to ensure N and
-     *      N+1 versions can coexist.
+     * 4. Partial Upgrade Failure Strategy:
+     *    Keep the green pool fenced, continue serving on the homogeneous blue
+     *    epoch, and roll green back or replace it. A mixed execution epoch is
+     *    never admitted and there is no rollback-by-protocol-downgrade.
      */
 }
 
 
 ```
 
-### 2.3 Version Compatibility
+### 2.3 Epoch Admission
 
 ```java
 /**
- * Version compatibility checker
+ * Exact execution-epoch admission checker
  */
 public class VersionCompatibilityChecker {
 
     /**
-     * Check version compatibility
+     * Check descriptor, Native library and capability identity before admission.
      */
     public CompatibilityResult check(String currentVersion, String targetVersion) {
-        Version current = Version.parse(currentVersion);
-        Version target = Version.parse(targetVersion);
-
-        // Check protocol version
-        int currentProtocol = getProtocolVersion(current);
-        int targetProtocol = getProtocolVersion(target);
-
-        if (Math.abs(targetProtocol - currentProtocol) > 1) {
+        ExecutionEpoch admitted = readAdmittedEpoch();
+        ExecutionEpoch candidate = inspectCandidate(targetVersion);
+        if (!candidate.protocolDescriptorSha256()
+                .equals(admitted.protocolDescriptorSha256())
+                || !candidate.nativeLibrarySha256()
+                        .equals(admitted.nativeLibrarySha256())
+                || !candidate.capabilityEpoch().equals(admitted.capabilityEpoch())) {
             return CompatibilityResult.incompatible(
-                "Protocol version gap too large: " + currentProtocol + " -> " + targetProtocol);
+                    "Worker execution epoch does not match cluster admission");
         }
-
-        // Check Native library version
-        String currentNative = getNativeVersion(current);
-        String targetNative = getNativeVersion(target);
-
-        if (!isNativeCompatible(currentNative, targetNative)) {
-            return CompatibilityResult.incompatible(
-                "Native library incompatible: " + currentNative + " -> " + targetNative);
-        }
-
         return CompatibilityResult.compatible();
     }
 
     /**
-     * Protocol version mapping
-     *
-     * This mapping must stay consistent with overview.md §4.6 Canonical Protocol Mapping.
-     * Each protocol version number corresponds to a compatible set of communication protocols:
-     *
-     * Protocol Version 1: REST v1 + Arrow Flight v1 + Protobuf TaskRequest v1
-     * Protocol Version 2: REST v1 + Arrow Flight v1 + Protobuf TaskRequest v2 (adds trace context)
-     * Protocol Version 3: REST v2 + Arrow Flight v2 + Protobuf TaskRequest v2
-     *
-     * Compatibility rules:
-     * - Coordinator and Worker within the same Protocol Version are fully compatible
-     * - Adjacent Protocol Versions (N and N+1) are guaranteed backward-compatible
-     * - Spanning two versions (N and N+2) is not guaranteed compatible; must upgrade in steps
-     *
-     * When changing the protocol version, the following must be updated together:
-     * 1. This mapping table
-     * 2. overview.md §4.6 Canonical Protocol Mapping
-     * 3. The Protobuf definitions of the pangrova-protocol module
+     * Changing the execution epoch updates the canonical v2 proto source,
+     * Java and C++ generated descriptors, packaged Native library, capability
+     * inventory and admission record atomically. REST API versioning is a
+     * separate client contract and never selects a JNI execution protocol.
      */
-    private static final Map<String, Integer> PROTOCOL_VERSIONS = Map.of(
-        "1.0.x", 1,
-        "1.1.x", 1,
-        "1.2.x", 2,
-        "2.0.x", 3
-    );
 }
 ```
 
@@ -1578,7 +1546,10 @@ See [14 §7](../architecture/observability.md) for structured logging format.
 
 
 
-> **Protocol Version Cross-Reference (§2.3)**: The protocol version management here covers the operational upgrade process (rolling upgrade compatibility). The Native layer protocol versioning in [03 §5.7](../architecture/native-execution.md) covers Protobuf wire format compatibility. Both systems use semantic versioning. The operational version gate (§2.3) checks Native protocol version compatibility before allowing a rolling upgrade to proceed.
+> **Execution epoch cross-reference (§2.3):** The operational gate and
+> [Native protocol contract](../architecture/native-execution.md) enforce the
+> same descriptor, Native-library and capability epoch. Blue and green pools may
+> coexist while fenced, but only one homogeneous epoch receives work.
 
 
 > **Configuration status:** The rolling-upgrade, online-DDL, disaster-recovery,
@@ -1591,3 +1562,28 @@ See [14 §7](../architecture/observability.md) for structured logging format.
 
 
 > **MetadataReplicationService (§4.2)**: The replication strategy is **synchronous by default** with **async degradation** under failure. Normal operation: synchronous replication with `replication.sync-timeout = 5s`. If sync replication times out, the system degrades to async mode and logs a warning. The `replication.mode` config (sync | async | sync-with-degradation) controls this behavior. Default: `sync-with-degradation`.
+
+## Conditional Iceberg branch TTL cleanup
+
+Tables with `branch.ttl` use conditional branch removal against the observed
+snapshot. `main` and tags are never cleanup candidates. A conflict or unknown
+commit result defers work until a later fresh scan; it does not replay an
+unconditional drop or continue acting on the stale ref listing.
+
+PostgreSQL-backed SDK `JdbcCatalog` instances support this operation through an
+atomic SQL comparison of the complete old metadata location. This also protects
+against a branch being replaced by a same-name tag at the same snapshot after
+the TTL check. Data-file location does not determine catalog commit safety:
+JDBC-backed tables are not rejected merely because their table root uses S3.
+
+Configure the Iceberg catalog with `type=jdbc`, a `jdbc:postgresql:` `uri`,
+`warehouse`, `jdbc.user`, and `jdbc.password` (credentials supplied through the
+deployment's secret handling). The coordinator assembly includes the PostgreSQL
+runtime driver; the connector declares it as an optional runtime dependency for
+other assemblies. The ordinary connector factory uses SDK `CatalogUtil` wiring.
+
+The currently verified non-JDBC path remains Hadoop catalog metadata on local
+files with atomic version publication. REST, Hive, HDFS and Hadoop-catalog object
+storage are not enabled by this change and fail explicitly. Supporting them
+requires backend-specific atomicity/conditional-commit validation, not adding
+URI schemes to an allowlist or falling back to `removeBranch().commit()`.

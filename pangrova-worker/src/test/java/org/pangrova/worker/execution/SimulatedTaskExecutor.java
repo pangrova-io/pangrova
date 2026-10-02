@@ -4,6 +4,7 @@ import org.pangrova.spi.execution.BatchResult;
 import org.pangrova.spi.execution.TaskExecutor;
 
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -64,13 +65,23 @@ public final class SimulatedTaskExecutor implements TaskExecutor {
     @Override
     public long createTask(byte[] taskRequestBytes) {
         long handle = handleCounter.getAndIncrement();
-        tasks.put(handle, new TaskState());
+        try {
+            var request = org.pangrova.protocol.v2.TaskRequest.parseFrom(taskRequestBytes);
+            if (!request.hasAttempt()) {
+                throw new IllegalArgumentException("simulated task requires attempt identity");
+            }
+            tasks.put(handle, new TaskState(request));
+        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException("invalid canonical simulated task request", e);
+        }
         return handle;
     }
 
     @Override
     public void startTask(long executorHandle) {
-        requireTask(executorHandle).started = true;
+        TaskState state = requireTask(executorHandle);
+        state.startedAtNanos = System.nanoTime();
+        state.started = true;
     }
 
     @Override
@@ -135,6 +146,77 @@ public final class SimulatedTaskExecutor implements TaskExecutor {
     }
 
     @Override
+    public byte[] getTaskStatus(long executorHandle) {
+        TaskState state = requireTask(executorHandle);
+        boolean failed = state.errorMessage != null;
+        boolean finished = state.finishSignaled && !failed;
+        long expected = Math.max(1, state.request.getSplitsCount());
+        var coverage = org.pangrova.protocol.v2.CoverageReport.newBuilder()
+                .setCompletionState(finished
+                        ? org.pangrova.protocol.v2.CompletionState.COMPLETION_STATE_COMPLETE
+                        : failed
+                        ? org.pangrova.protocol.v2.CompletionState.COMPLETION_STATE_PARTIAL
+                        : org.pangrova.protocol.v2.CompletionState.COMPLETION_STATE_UNSPECIFIED)
+                .setExpectedWorkUnits(expected)
+                .setCompletedWorkUnits(finished ? expected : 0)
+                .setCoverageRatio(finished ? 1.0 : 0.0);
+        if (failed) {
+            if (state.request.getSplitsCount() == 0) {
+                coverage.addFailedWorkUnitIds(state.attempt.getTaskId());
+            } else {
+                state.request.getSplitsList().forEach(
+                        split -> coverage.addFailedWorkUnitIds(split.getSplitId()));
+            }
+        }
+        Map<String, Long> sourceCounts = new LinkedHashMap<>();
+        state.request.getSplitsList().forEach(split -> {
+            String key = split.getSourceId() + '\0' + split.getSourceSnapshot();
+            sourceCounts.merge(key, 1L, Math::addExact);
+        });
+        sourceCounts.forEach((key, count) -> {
+            int separator = key.indexOf('\0');
+            coverage.addSourceSnapshots(
+                    org.pangrova.protocol.v2.SourceSnapshotReport.newBuilder()
+                            .setSourceId(key.substring(0, separator))
+                            .setSnapshotId(key.substring(separator + 1))
+                            .setExpectedWorkUnits(count)
+                            .setCompletedWorkUnits(finished ? count : 0));
+        });
+        var report = org.pangrova.protocol.v2.TaskReport.newBuilder()
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
+                        .TASK_REPORT_ORIGIN_NATIVE)
+                .setAttempt(state.attempt)
+                .setState(failed
+                        ? org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
+                        : finished
+                        ? org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                        : org.pangrova.protocol.v2.TaskState.TASK_STATE_RUNNING)
+                .setCoverage(coverage);
+        if (failed) {
+            report.setError(org.pangrova.protocol.v2.ExecutionError.newBuilder()
+                    .setErrorClass(org.pangrova.protocol.v2.ErrorClass.ERROR_CLASS_INTERNAL)
+                    .setCode("SIMULATED_TASK_FAILED")
+                    .setMessage(state.errorMessage)
+                    .setFailedComponent("simulated-executor"));
+        }
+        return report.build().toByteArray();
+    }
+
+    @Override
+    public byte[] getTaskStats(long executorHandle) {
+        TaskState state = requireTask(executorHandle);
+        if (!state.started || !state.finishSignaled) {
+            throw new IllegalStateException("Simulated task statistics require terminal execution");
+        }
+        long elapsedMs = Math.max(1L,
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                        System.nanoTime() - state.startedAtNanos));
+        return org.pangrova.protocol.v2.NativeTaskStats.newBuilder()
+                .setElapsedTimeMs(elapsedMs)
+                .build().toByteArray();
+    }
+
+    @Override
     public byte[] executeCommand(long executorHandle, byte[] commandProto) {
         // Simulate command execution — return a minimal success response.
         // NativeCommandResponse: field 1 (success) = true → tag 0x08, value 0x01
@@ -167,12 +249,20 @@ public final class SimulatedTaskExecutor implements TaskExecutor {
     }
 
     private static final class TaskState {
+        final org.pangrova.protocol.v2.TaskAttemptId attempt;
+        final org.pangrova.protocol.v2.TaskRequest request;
         volatile boolean started;
+        volatile long startedAtNanos;
         volatile boolean released;
         volatile boolean cancelled;
         volatile boolean finishSignaled;
         volatile String errorMessage;
         final AtomicLong batchCount = new AtomicLong(0);
         final AtomicLong shuffleBatchCount = new AtomicLong(0);
+
+        private TaskState(org.pangrova.protocol.v2.TaskRequest request) {
+            this.request = request;
+            this.attempt = request.getAttempt();
+        }
     }
 }

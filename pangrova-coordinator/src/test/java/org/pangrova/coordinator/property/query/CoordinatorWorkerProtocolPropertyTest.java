@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.property.query;
 
+import com.google.protobuf.ByteString;
 import net.jqwik.api.*;
 import net.jqwik.api.constraints.IntRange;
 import org.pangrova.coordinator.query.QueryManager;
@@ -19,16 +20,24 @@ import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.config.OutputConfig;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
+import org.pangrova.protocol.StageResourceGrantCodec;
+import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.*;
+import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,11 +45,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Property 36: Coordinator-Worker protocol field completeness.
- * Property 37: Exchange source update idempotency.
- *
  * <p>For any Coordinator-Worker coordination protocol message
  * (SubmitTaskRequest/Response, TaskStatusReport/Response,
- * UpdateExchangeSourcesRequest), all fields set by the sender
+ * task attempt and exchange bindings), all fields set by the sender
  * are preserved after construction — no field loss or default
  * value override.</p>
  *
@@ -48,7 +55,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 @Tag("Feature: architecture-remediation")
 @Tag("Property 36: Coordinator-Worker protocol field completeness")
-@Tag("Property 37: Exchange source update idempotency")
 class CoordinatorWorkerProtocolPropertyTest {
 
     private static final String WORKER_ID = "w-proto";
@@ -63,18 +69,23 @@ class CoordinatorWorkerProtocolPropertyTest {
             @ForAll @IntRange(min = 0, max = 10) int stageId,
             @ForAll @IntRange(min = 0, max = 100) int partitionId) {
 
-        SubmitTaskRequest req = new SubmitTaskRequest(
-                taskId, queryId, stageId, partitionId, "COMPUTE",
-                "plan-bytes", List.of("split1"), List.of(),
-                null, null, null, null,
-                null, null, null, null, null, null, null);
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                        taskId, queryId, stageId, partitionId,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        "plan-bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .addSplits(org.pangrova.protocol.v2.DataSplit.newBuilder()
+                        .setSplitId("split1"))
+                .build();
+        SubmitTaskRequest req = SubmitTaskRequest.from(canonical);
 
-        assertThat(req.taskId()).isEqualTo(taskId);
-        assertThat(req.queryId()).isEqualTo(queryId);
-        assertThat(req.stageId()).isEqualTo(stageId);
-        assertThat(req.partitionId()).isEqualTo(partitionId);
-        assertThat(req.taskType()).isEqualTo("COMPUTE");
-        assertThat(req.splits()).containsExactly("split1");
+        assertThat(req.taskRequest()).isEqualTo(canonical);
+        assertThat(req.taskRequest().getAttempt().getTaskId()).isEqualTo(taskId);
+        assertThat(req.taskRequest().getAttempt().getQueryOrJobId()).isEqualTo(queryId);
+        assertThat(req.taskRequest().getAttempt().getStageId()).isEqualTo(stageId);
+        assertThat(req.taskRequest().getAttempt().getPartitionId()).isEqualTo(partitionId);
+        assertThat(req.taskRequest().getTaskKind())
+                .isEqualTo(org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ);
+        assertThat(req.taskRequest().getSplits(0).getSplitId()).isEqualTo("split1");
     }
 
     // ── Property 36: TaskStatusReport identity mirrors SubmitTaskRequest ──
@@ -86,21 +97,25 @@ class CoordinatorWorkerProtocolPropertyTest {
             @ForAll @IntRange(min = 0, max = 10) int stageId,
             @ForAll @IntRange(min = 0, max = 100) int partitionId) {
 
-        SubmitTaskRequest req = new SubmitTaskRequest(
-                taskId, queryId, stageId, partitionId, "COMPUTE",
-                "plan", List.of(), List.of(), null, null, null, null,
-                null, null, null, null, null, null, null);
+        SubmitTaskRequest req =
+                org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                        taskId, queryId, stageId, partitionId,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var attempt = req.taskRequest().getAttempt();
 
         TaskStatusReport report = new TaskStatusReport(
-                req.taskId(), req.queryId(), req.stageId(), req.partitionId(),
-                req.taskType(), WORKER_ID, "RUNNING",
-                null, null, null, 1L, System.currentTimeMillis());
+                attempt.getTaskId(), attempt.getQueryOrJobId(),
+                attempt.getStageId(), attempt.getPartitionId(),
+                "COMPUTE", WORKER_ID, "RUNNING",
+                null, null, null, 1L, System.currentTimeMillis(), null, null,
+                TaskAttemptDescriptor.from(attempt));
 
-        assertThat(report.taskId()).isEqualTo(req.taskId());
-        assertThat(report.queryId()).isEqualTo(req.queryId());
-        assertThat(report.stageId()).isEqualTo(req.stageId());
-        assertThat(report.partitionId()).isEqualTo(req.partitionId());
-        assertThat(report.taskType()).isEqualTo(req.taskType());
+        assertThat(report.taskId()).isEqualTo(attempt.getTaskId());
+        assertThat(report.queryId()).isEqualTo(attempt.getQueryOrJobId());
+        assertThat(report.stageId()).isEqualTo(attempt.getStageId());
+        assertThat(report.partitionId()).isEqualTo(attempt.getPartitionId());
+        assertThat(report.taskType()).isEqualTo("COMPUTE");
     }
 
     // ── Property 36: Sequence-based dedup in TaskStatusReceiver ──
@@ -118,6 +133,7 @@ class CoordinatorWorkerProtocolPropertyTest {
                 TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
 
         tracker.registerTask(queryId, taskId);
+        tracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.of(1, 0));
         tracker.markScheduled(queryId, taskId);
 
         QueryStateMachine sm = new QueryStateMachine();
@@ -141,21 +157,202 @@ class CoordinatorWorkerProtocolPropertyTest {
         assertThat(accepted3).as("Duplicate seq=%d should be rejected", seq2).isFalse();
     }
 
-    // ── Property 37: Exchange source update sequence dedup ──
+    @Example
+    void unknownTaskIdentityIsRejectedFailClosed() {
+        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+        WorkerManager wm = new WorkerManager(
+                20_000, 60_000, new InMemoryWorkerRegistry());
+        wm.registerWorker(TestWorkerInfoBuilder.active(
+                WORKER_ID, "localhost", 8080, 9090));
+        tracker.registerTask("q-unknown", "t-unknown");
+        tracker.markScheduled("q-unknown", "t-unknown");
+        TaskStatusReceiver receiver = new TaskStatusReceiver(
+                TaskStatusReceiverContext.withoutSpeculation(
+                        buildMinimalQueryManager(tracker, wm), tracker, wm));
 
-    @Property(tries = 10)
-    void exchangeSourceUpdateRejectsStaleSequence(
-            @ForAll("taskIds") String taskId,
-            @ForAll("queryIds") String queryId) {
+        assertThat(receiver.onTaskStatus(report(
+                "t-unknown", "q-unknown", "RUNNING", 1L))).isFalse();
+    }
 
-        ExchangeSourceDescriptor src = new ExchangeSourceDescriptor("src-task", "host1", 9090, 0, "FLIGHT", 5L);
-        UpdateExchangeSourcesRequest req = new UpdateExchangeSourcesRequest(
-                taskId, queryId, List.of(src), "upstream-complete");
+    @Example
+    void staleAttemptIsRejectedBeforeSequenceIsConsumed() {
+        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+        WorkerManager wm = new WorkerManager(
+                20_000, 60_000, new InMemoryWorkerRegistry());
+        wm.registerWorker(TestWorkerInfoBuilder.active(
+                WORKER_ID, "localhost", 8080, 9090));
+        tracker.registerTask("q-fence", "t-fence");
+        TaskAttemptDescriptor expected = TaskAttemptDescriptor.of(2, 1);
+        tracker.registerTaskAttempt("t-fence", expected);
+        tracker.markScheduled("q-fence", "t-fence");
+        TaskStatusReceiver receiver = new TaskStatusReceiver(
+                TaskStatusReceiverContext.withoutSpeculation(
+                        buildMinimalQueryManager(tracker, wm), tracker, wm));
 
-        assertThat(req.taskId()).isEqualTo(taskId);
-        assertThat(req.queryId()).isEqualTo(queryId);
-        assertThat(req.exchangeSources()).hasSize(1);
-        assertThat(req.exchangeSources().get(0).sequenceId()).isEqualTo(5L);
+        assertThat(receiver.onTaskStatus(report(
+                "t-fence", "q-fence", "RUNNING", 7L))).isFalse();
+        TaskStatusReport matching = new TaskStatusReport(
+                "t-fence", "q-fence", 0, 0, "COMPUTE", WORKER_ID,
+                "RUNNING", null, null, null, 7L, System.currentTimeMillis(),
+                null, null, expected);
+        assertThat(receiver.onTaskStatus(matching)).isTrue();
+    }
+
+    @Example
+    void statusFromDifferentRegisteredWorkerIsRejectedBeforeSequenceIsConsumed() {
+        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+        WorkerManager wm = new WorkerManager(
+                20_000, 60_000, new InMemoryWorkerRegistry());
+        wm.registerWorker(TestWorkerInfoBuilder.active(
+                WORKER_ID, "localhost", 8080, 9090));
+        wm.registerWorker(TestWorkerInfoBuilder.active(
+                "w-other", "localhost", 8081, 9091));
+        tracker.registerTask("q-worker-fence", "t-worker-fence");
+        tracker.registerTaskAttempt(
+                "t-worker-fence", TaskAttemptDescriptor.of(1, 0));
+        tracker.assignWorker("t-worker-fence", WORKER_ID);
+        tracker.markScheduled("q-worker-fence", "t-worker-fence");
+        TaskStatusReceiver receiver = new TaskStatusReceiver(
+                TaskStatusReceiverContext.withoutSpeculation(
+                        buildMinimalQueryManager(tracker, wm), tracker, wm));
+        TaskStatusReport wrongWorker = new TaskStatusReport(
+                "t-worker-fence", "q-worker-fence", 0, 0, "COMPUTE",
+                "w-other", "RUNNING", null, null, null, 7L,
+                System.currentTimeMillis(), null, null,
+                TaskAttemptDescriptor.of(1, 0));
+
+        assertThat(receiver.onTaskStatus(wrongWorker)).isFalse();
+        assertThat(receiver.onTaskStatus(report(
+                "t-worker-fence", "q-worker-fence", "RUNNING", 7L))).isTrue();
+    }
+
+    @Example
+    void artifactCommitFailureIsRetryableAndStaleTerminalHasNoSideEffect()
+            throws Exception {
+        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+        WorkerManager wm = new WorkerManager(
+                20_000, 60_000, new InMemoryWorkerRegistry());
+        wm.registerWorker(TestWorkerInfoBuilder.active(
+                WORKER_ID, "localhost", 8080, 9090));
+        TaskAttemptDescriptor attempt = TaskAttemptDescriptor.of(9, 0);
+        long ownerEpoch = 9;
+        var target = org.pangrova.protocol.v2.ArtifactWriteBinding.newBuilder()
+                .setArtifactId("index-1")
+                .setArtifactType("DISKANN")
+                .setGeneration("2")
+                .setSourceId("catalog.schema.table")
+                .setSourceSnapshot("snapshot-1")
+                .setStagingUri("s3://bucket/staging/job-1")
+                .addExpectedSourceObjectIds("source-1")
+                .setPublicationFencingToken(attempt.fencingToken())
+                .setWorkUnitId("page-1")
+                .setIdempotencyKey("job-1:page-1")
+                .setWorkKind(org.pangrova.protocol.v2.ArtifactWorkKind
+                        .ARTIFACT_WORK_KIND_SOURCE_MAP)
+                .setExecutionKind(org.pangrova.protocol.v2.ArtifactExecutionKind
+                        .ARTIFACT_EXECUTION_KIND_BUILD)
+                .addDependencies(org.pangrova.protocol.v2.ArtifactDependency.newBuilder()
+                        .setKind("SOURCE_SNAPSHOT")
+                        .setId("catalog.schema.table")
+                        .setVersion("snapshot-1"))
+                .setDependencySetChecksum(org.pangrova.protocol.v2.Checksum.newBuilder()
+                        .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
+                        .setDigest(com.google.protobuf.ByteString.copyFrom(
+                                java.util.HexFormat.of().parseHex(
+                                        org.pangrova.metadata.artifact.contract.ArtifactDependencySet
+                                                .sourceSnapshot("catalog.schema.table",
+                                                        "snapshot-1").sha256()))))
+                .setEmptyPartitionPolicy(org.pangrova.protocol.v2
+                        .ArtifactEmptyPartitionPolicy
+                        .ARTIFACT_EMPTY_PARTITION_POLICY_FORBID)
+                .build();
+        var binding = org.pangrova.protocol.v2.OperatorBinding.newBuilder()
+                .setPlanNodeId("build")
+                .setOutputArtifact(target)
+                .build();
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                        "page-1", "job-1", 4, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_BACKGROUND_BUILD,
+                        new byte[]{1})
+                .setAttempt(org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                        .setQueryOrJobId("job-1").setTaskId("page-1")
+                        .setStageId(4).setPlanEpoch(attempt.planEpoch())
+                        .setAttemptId(attempt.attemptId())
+                        .setFencingToken(attempt.fencingToken())
+                        .setControlEpoch(ownerEpoch)
+                        .setExecutionOwner(org.pangrova.protocol.v2.ExecutionOwnerIdentity
+                                .newBuilder().setOwnerId("coordinator-a")
+                                .setOwnerIncarnation("process-a")
+                                .setFencingToken(ownerEpoch)))
+                .addOperatorBindings(binding)
+                .setResourceGrant(StageResourceGrant.newBuilder()
+                        .setGrantId("page-1:grant").setNativeMemoryBytes(4096)
+                        .setCpuSlots(1).setSpillBytes(4096))
+                .build();
+        SubmitTaskRequest request = SubmitTaskRequest.from(canonical);
+        tracker.registerTask("job-1", "page-1");
+        tracker.registerTaskAttempt("page-1", attempt);
+        tracker.registerTaskRequest("page-1", request);
+        tracker.assignWorker("page-1", WORKER_ID);
+        tracker.markScheduled("job-1", "page-1");
+        tracker.registerTask("job-1", "other-page");
+        tracker.registerTaskAttempt("other-page", attempt);
+        tracker.markScheduled("job-1", "other-page");
+
+        AtomicBoolean durable = new AtomicBoolean(false);
+        AtomicInteger commitAttempts = new AtomicInteger();
+        CountDownLatch retryCommitEntered = new CountDownLatch(1);
+        CountDownLatch releaseRetryCommit = new CountDownLatch(1);
+        TaskStatusReceiver receiver = new TaskStatusReceiver(
+                new TaskStatusReceiverContext(
+                        buildMinimalQueryManager(tracker, wm), tracker, wm,
+                        null, null, null, null, null, null, null, null, null,
+                        new org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink() {
+                            @Override
+                            public boolean commit(String tenantId, org.pangrova.protocol.v2.TaskReport status,
+                                    byte[] originalWireBytes) {
+                                assertThat(originalWireBytes).isEqualTo(status.toByteArray());
+                                if (commitAttempts.incrementAndGet() == 2) {
+                                    retryCommitEntered.countDown();
+                                    await(releaseRetryCommit);
+                                }
+                                return durable.get();
+                            }
+
+                            @Override
+                            public boolean ownsExecution(String tenantId, String executionId) {
+                                return false;
+                            }
+                        }));
+        TaskStatusReport terminal = artifactReport(request, target);
+
+        assertThat(receiver.onTaskStatus(terminal)).isFalse();
+        assertThat(commitAttempts).hasValue(1);
+        assertThat(receiver.onTaskStatus(
+                artifactReport(request, target, 10L))).isFalse();
+        assertThat(commitAttempts).hasValue(1);
+        assertThat(tracker.getTaskState("job-1", "page-1"))
+                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.SCHEDULED);
+        tracker.updateTaskState("job-1", "page-1", "RUNNING");
+        durable.set(true);
+        ExecutorService reports = Executors.newFixedThreadPool(2);
+        try {
+            var retry = reports.submit(() -> receiver.onTaskStatus(terminal));
+            assertThat(retryCommitEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            var stale = reports.submit(() -> receiver.onTaskStatus(
+                    artifactReport(request, target, 10L)));
+            assertThat(stale.isDone()).isFalse();
+            releaseRetryCommit.countDown();
+
+            assertThat(retry.get(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(stale.get(5, TimeUnit.SECONDS)).isFalse();
+            assertThat(commitAttempts).hasValue(2);
+            assertThat(tracker.getTaskState("job-1", "page-1"))
+                    .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED);
+        } finally {
+            releaseRetryCommit.countDown();
+            reports.shutdownNow();
+        }
     }
 
     // ── Property 36: Worker registration request field completeness ──
@@ -166,8 +363,10 @@ class CoordinatorWorkerProtocolPropertyTest {
 
         WorkerRegistrationRequest req = new WorkerRegistrationRequest(
                 workerId, "host-" + workerId, 8080, 9090, 0,
-                1, List.of("COMPUTE", "WRITE"),
-                "rack-1", List.of("local-data"), null);
+                2, "rack-1", List.of("local-data"), null,
+                org.pangrova.protocol.CapabilityInventoryCodec.encode(
+                        org.pangrova.coordinator.worker.TestWorkerInfoBuilder
+                                .canonicalInventory()));
 
         assertThat(req.workerId()).isEqualTo(workerId);
         assertThat(req.httpHost()).isEqualTo("host-" + workerId);
@@ -193,7 +392,8 @@ class CoordinatorWorkerProtocolPropertyTest {
 
         TaskStatusReport rpt = new TaskStatusReport(
                 taskId, queryId, 0, 0, "COMPUTE", unknownWorker,
-                "RUNNING", null, null, null, 1L, System.currentTimeMillis());
+                "RUNNING", null, null, null, 1L, System.currentTimeMillis(),
+                null, null, TaskAttemptDescriptor.of(1, 0));
 
         assertThatThrownBy(() -> receiver.onTaskStatus(rpt))
                 .isInstanceOf(UnregisteredWorkerException.class);
@@ -208,32 +408,53 @@ class CoordinatorWorkerProtocolPropertyTest {
             @ForAll @IntRange(min = 0, max = 10) int stageId,
             @ForAll @IntRange(min = 0, max = 100) int partitionId) {
 
-        ResourceLimitPayload resourceLimit = new ResourceLimitPayload(1024L, 4, 2048L, "/tmp/spill");
-        OutputConfig outputConfig = new OutputConfig("ticket-1", 1024L, 4, 30_000L);
-        WriteConfig writeConfig = new WriteConfig("catalog.db.table", "APPEND",
-                null, "PARQUET", 128_000_000L);
+        StageResourceGrant resourceGrant = StageResourceGrant.newBuilder()
+                .setGrantId(taskId + ":grant")
+                .setNativeMemoryBytes(1024L)
+                .setCpuSlots(4)
+                .setSpillBytes(2048L)
+                .setObjectStoreReadBytes(1024L)
+                .setObjectStoreWriteBytes(2048L)
+                .build();
         Map<String, String> sessionProps = Map.of("key1", "val1", "key2", "val2");
 
-        SubmitTaskRequest req = new SubmitTaskRequest(
-                taskId, queryId, stageId, partitionId, "WRITE",
-                "plan-bytes-full", List.of("split-a", "split-b"),
-                List.of(new ExchangeSourceDescriptor("src-t", "h1", 9090, 0, "BROADCAST", 1L)),
-                resourceLimit, sessionProps, outputConfig, writeConfig,
-                null, null, null, null, null, null, null);
+        var options = org.pangrova.protocol.v2.TaskExecutionOptions.newBuilder()
+                .putAllSessionProperties(sessionProps)
+                .setDirectResultOutput(true)
+                .setWrite(org.pangrova.protocol.v2.WriteTaskOptions.newBuilder()
+                        .setTargetTable("catalog.db.table")
+                        .setWriteMode("APPEND")
+                        .setFileFormat(org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET)
+                        .setTargetFileSize(128_000_000L));
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                        taskId, queryId, stageId, partitionId,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE,
+                        "plan-bytes-full".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .addSplits(org.pangrova.protocol.v2.DataSplit.newBuilder()
+                        .setSplitId("split-a"))
+                .addSplits(org.pangrova.protocol.v2.DataSplit.newBuilder()
+                        .setSplitId("split-b"))
+                .setResourceGrant(resourceGrant)
+                .setExecutionOptions(options)
+                .build();
+        SubmitTaskRequest req = SubmitTaskRequest.from(canonical);
 
-        assertThat(req.taskId()).isEqualTo(taskId);
-        assertThat(req.queryId()).isEqualTo(queryId);
-        assertThat(req.stageId()).isEqualTo(stageId);
-        assertThat(req.partitionId()).isEqualTo(partitionId);
-        assertThat(req.taskType()).isEqualTo("WRITE");
-        assertThat(req.planFragment()).isEqualTo("plan-bytes-full");
-        assertThat(req.splits()).containsExactly("split-a", "split-b");
-        assertThat(req.exchangeSources()).hasSize(1);
-        assertThat(req.exchangeSources().get(0).sourceTaskId()).isEqualTo("src-t");
-        assertThat(req.resourceLimit()).isEqualTo(resourceLimit);
-        assertThat(req.sessionProperties()).isEqualTo(sessionProps);
-        assertThat(req.outputConfig()).isEqualTo(outputConfig);
-        assertThat(req.writeConfig()).isEqualTo(writeConfig);
+        assertThat(req.taskRequest()).isEqualTo(canonical);
+        assertThat(canonical.getAttempt().getTaskId()).isEqualTo(taskId);
+        assertThat(canonical.getAttempt().getQueryOrJobId()).isEqualTo(queryId);
+        assertThat(canonical.getAttempt().getStageId()).isEqualTo(stageId);
+        assertThat(canonical.getAttempt().getPartitionId()).isEqualTo(partitionId);
+        assertThat(canonical.getTaskKind())
+                .isEqualTo(org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE);
+        assertThat(canonical.getSubstraitPlan().toStringUtf8()).isEqualTo("plan-bytes-full");
+        assertThat(canonical.getSplitsList()).extracting("splitId")
+                .containsExactly("split-a", "split-b");
+        assertThat(canonical.getResourceGrant()).isEqualTo(resourceGrant);
+        assertThat(canonical.getExecutionOptions().getSessionPropertiesMap())
+                .isEqualTo(sessionProps);
+        assertThat(canonical.getExecutionOptions().getDirectResultOutput()).isTrue();
+        assertThat(canonical.getExecutionOptions().getWrite().getTargetTable())
+                .isEqualTo("catalog.db.table");
     }
 
     // ── Property 36: SubmitTaskResponse field completeness ──
@@ -244,7 +465,8 @@ class CoordinatorWorkerProtocolPropertyTest {
             @ForAll boolean accepted) {
 
         String rejectReason = accepted ? null : "memory_exceeded";
-        SubmitTaskResponse resp = new SubmitTaskResponse(accepted, rejectReason, taskId, null);
+        SubmitTaskResponse resp = new SubmitTaskResponse(
+                accepted, rejectReason, taskId, null, null);
 
         assertThat(resp.accepted()).isEqualTo(accepted);
         assertThat(resp.rejectReason()).isEqualTo(rejectReason);
@@ -267,7 +489,8 @@ class CoordinatorWorkerProtocolPropertyTest {
 
         TaskStatusReport report = new TaskStatusReport(
                 taskId, queryId, stageId, partitionId, "COMPUTE",
-                workerId, "FAILED", null, error, null, seq, ts);
+                workerId, "FAILED", null, error, null, seq, ts,
+                null, null, TaskAttemptDescriptor.of(1, 0));
 
         assertThat(report.taskId()).isEqualTo(taskId);
         assertThat(report.queryId()).isEqualTo(queryId);
@@ -313,7 +536,100 @@ class CoordinatorWorkerProtocolPropertyTest {
     private static TaskStatusReport report(String taskId, String queryId, String state, long seq) {
         return new TaskStatusReport(
                 taskId, queryId, 0, 0, "COMPUTE", WORKER_ID,
-                state, null, null, null, seq, System.currentTimeMillis());
+                state, null, null, null, seq, System.currentTimeMillis(),
+                null, null, TaskAttemptDescriptor.of(1, 0));
+    }
+
+    private static ExchangeSourceDescriptor exchangeSource(String taskId) {
+        return new ExchangeSourceDescriptor(
+                "exchange-input-ex-1", "ex-1", 1,
+                taskId, 0, 0, 0,
+                1L, 0, (1L << 32) + 1L,
+                "h1", 9090, "", "signed-ticket",
+                System.currentTimeMillis() + 600_000L,
+                0L, 0L, "BLOCKING");
+    }
+
+    private static TaskStatusReport artifactReport(
+            SubmitTaskRequest request,
+            org.pangrova.protocol.v2.ArtifactWriteBinding target) {
+        return artifactReport(request, target, 11L);
+    }
+
+    private static TaskStatusReport artifactReport(
+            SubmitTaskRequest request,
+            org.pangrova.protocol.v2.ArtifactWriteBinding target,
+            long sequence) {
+        var dispatchedAttempt = request.taskRequest().getAttempt();
+        var object = org.pangrova.protocol.v2.ArtifactObject.newBuilder()
+                .setObjectId("object-1")
+                .setOpaqueUri(target.getStagingUri() + "/object-1")
+                .setObjectRole("GRAPH")
+                .setSourceObjectId("source-1")
+                .setSizeBytes(64)
+                .setRowCount(1)
+                .setOrdinal(0)
+                .setScope(org.pangrova.protocol.v2.ArtifactObjectScope
+                        .ARTIFACT_OBJECT_SCOPE_SOURCE_OBJECT)
+                .setChecksum(sha256Checksum(new byte[]{1}))
+                .build();
+        var unsigned = org.pangrova.protocol.v2.ArtifactWorkReport.newBuilder()
+                .setJobId(dispatchedAttempt.getQueryOrJobId())
+                .setPageId(dispatchedAttempt.getTaskId())
+                .setFencingToken(dispatchedAttempt.getFencingToken())
+                .setSourceId(target.getSourceId())
+                .setSourceSnapshot(target.getSourceSnapshot())
+                .setStagingGeneration(target.getGeneration())
+                .addOutputs(object)
+                .build();
+        var work = unsigned.toBuilder()
+                .setReportChecksum(sha256Checksum(unsigned.toByteArray()))
+                .build();
+        var nativeAttempt = org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                .mergeFrom(dispatchedAttempt)
+                .build();
+        var status = org.pangrova.protocol.v2.TaskReport.newBuilder()
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
+                        .TASK_REPORT_ORIGIN_NATIVE)
+                .setAttempt(nativeAttempt)
+                .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED)
+                .setCoverage(org.pangrova.protocol.v2.CoverageReport.newBuilder()
+                        .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                                .COMPLETION_STATE_COMPLETE)
+                        .setExpectedWorkUnits(1)
+                        .setCompletedWorkUnits(1)
+                        .setCoverageRatio(1.0))
+                .setArtifactWork(work)
+                .build();
+        return new TaskStatusReport(
+                dispatchedAttempt.getTaskId(), dispatchedAttempt.getQueryOrJobId(),
+                dispatchedAttempt.getStageId(), dispatchedAttempt.getPartitionId(),
+                "BACKGROUND_BUILD", WORKER_ID, "FINISHED",
+                null, null, null, sequence, System.currentTimeMillis(), null, null,
+                TaskAttemptDescriptor.from(dispatchedAttempt), status.toByteArray());
+    }
+
+    private static org.pangrova.protocol.v2.Checksum sha256Checksum(byte[] bytes) {
+        try {
+            return org.pangrova.protocol.v2.Checksum.newBuilder()
+                    .setAlgorithm(org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256)
+                    .setDigest(ByteString.copyFrom(
+                            java.security.MessageDigest.getInstance("SHA-256").digest(bytes)))
+                    .build();
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("timed out waiting for test latch");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("interrupted while waiting for test latch", e);
+        }
     }
 
     private static QueryManager buildMinimalQueryManager(
@@ -323,11 +639,10 @@ class CoordinatorWorkerProtocolPropertyTest {
         var scheduler = new TaskScheduler(new WorkerPerformanceScorer());
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, dispatcher, scheduler,
-                workerManager, tracker, null, null, null, null, 0L);
+                workerManager, tracker, null, null, null, 0L);
         var queryDispatcher = new QueryDispatcher(
                 deps, null, null);
         return new QueryManager(
                 QueryManagerContext.minimal(queryDispatcher, new NoOpTracingProvider()));
     }
 }
-

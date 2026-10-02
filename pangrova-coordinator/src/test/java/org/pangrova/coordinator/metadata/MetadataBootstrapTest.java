@@ -52,7 +52,7 @@ class MetadataBootstrapTest {
         InMemoryMetadataStore store = new InMemoryMetadataStore();
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store);
 
-        CalciteSchema schema = bootstrap.buildCalciteSchema();
+        CalciteSchema schema = bootstrap.buildCalciteSchema(MetadataPlanningTestSessions.session());
 
         assertThat(schema).isNotNull();
         bootstrap.shutdown();

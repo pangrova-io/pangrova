@@ -25,23 +25,18 @@ public final class DispatchCanceller {
     private static final Logger LOG = LoggerFactory.getLogger(DispatchCanceller.class);
 
     private final CoordinatorTaskTracker taskTracker;
-    private final long taskTimeoutSeconds;
     private final TaskCancelRetrier cancelRetrier;
 
     public DispatchCanceller(TaskDispatcher dispatcher,
-                      CoordinatorTaskTracker taskTracker,
-                      long taskTimeoutSeconds) {
+                      CoordinatorTaskTracker taskTracker) {
         this.taskTracker = taskTracker;
-        this.taskTimeoutSeconds = taskTimeoutSeconds;
         this.cancelRetrier = new TaskCancelRetrier(dispatcher, taskTracker);
     }
 
     public DispatchCanceller(TaskDispatcher dispatcher,
                       CoordinatorTaskTracker taskTracker,
-                      long taskTimeoutSeconds,
                       TaskCancelRetrier cancelRetrier) {
         this.taskTracker = taskTracker;
-        this.taskTimeoutSeconds = taskTimeoutSeconds;
         this.cancelRetrier = cancelRetrier;
     }
 
@@ -71,26 +66,37 @@ public final class DispatchCanceller {
      */
     public void registerDispatchedTask(String queryId, DispatchResult result, String workerId) {
         String taskId = result.taskId();
-        try {
-            taskTracker.registerTask(queryId, taskId);
-            taskTracker.markScheduled(queryId, taskId);
-        } catch (IllegalStateException e) {
-            // Task already registered by TaskStatusReceiver (early arrival race)
-        }
+        // The state machine was installed before HTTP dispatch. A Worker may
+        // already have reported RUNNING or a terminal state by this point.
+        taskTracker.getTaskState(queryId, taskId);
         taskTracker.assignWorker(taskId, workerId);
-        if (taskTimeoutSeconds > 0) {
-            taskTracker.setDeadline(taskId,
-                    java.time.Instant.now().plusSeconds(taskTimeoutSeconds));
+    }
+
+    /** Registers the immutable task identity before any bytes are sent to a Worker. */
+    public void prepareTaskDispatch(
+            org.pangrova.protocol.rest.task.SubmitTaskRequest request,
+            String workerId) {
+        var attempt = request.taskRequest().getAttempt();
+        String taskId = attempt.getTaskId();
+        String queryId = attempt.getQueryOrJobId();
+        taskTracker.registerTask(queryId, taskId);
+        try {
+            taskTracker.registerTaskRequest(taskId, request);
+            taskTracker.markScheduled(queryId, taskId);
+            taskTracker.assignWorker(taskId, workerId);
+            taskTracker.setDeadline(taskId, java.time.Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
+        } catch (RuntimeException failure) {
+            taskTracker.unregisterUndispatchedTask(queryId, taskId);
+            throw failure;
         }
     }
 
-    /**
-     * Stores the original task request in the task tracker for speculative cloning.
-     */
-    public void storeTaskRequest(String taskId, org.pangrova.protocol.rest.task.SubmitTaskRequest request) {
-        if (request != null) {
-            taskTracker.registerTaskRequest(taskId, request);
-        }
+    /** Rolls back a prepared task only when dispatch did not start. */
+    public void discardPreparedTask(
+            org.pangrova.protocol.rest.task.SubmitTaskRequest request) {
+        var attempt = request.taskRequest().getAttempt();
+        taskTracker.unregisterUndispatchedTask(
+                attempt.getQueryOrJobId(), attempt.getTaskId());
     }
 
     /**

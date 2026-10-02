@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.security;
 
+import org.pangrova.planner.PlanTable;
+
 import org.pangrova.planner.security.expression.FilterExpressionParser;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.security.AccessControl;
@@ -44,12 +46,20 @@ public final class RowFilterApplier {
     private static final Logger LOG = LoggerFactory.getLogger(RowFilterApplier.class);
 
     private final AccessControl accessControl;
-    private final SecurityExpressionCache expressionCache;
+    private final PolicyObservationSink observations;
 
-    public RowFilterApplier(AccessControl accessControl,
-                             SecurityExpressionCache expressionCache) {
-        this.accessControl = accessControl;
-        this.expressionCache = expressionCache;
+    public RowFilterApplier(AccessControl accessControl) {
+        this(accessControl, null);
+    }
+
+    private RowFilterApplier(AccessControl accessControl, PolicyObservationSink observations) {
+        this.accessControl = java.util.Objects.requireNonNull(accessControl, "accessControl");
+        this.observations = observations;
+    }
+
+    /** Binds observations to this query without changing the policy authority. */
+    public RowFilterApplier observing(PolicyObservationSink sink) {
+        return new RowFilterApplier(accessControl, java.util.Objects.requireNonNull(sink, "sink"));
     }
 
     /**
@@ -67,6 +77,12 @@ public final class RowFilterApplier {
     }
 
     private RelNode applyFiltersRecursive(RelNode node, UserIdentity identity) {
+        if (node instanceof org.apache.calcite.rel.logical.LogicalTableModify modify
+                && MutationPolicyInputs.modifiesExistingRows(modify)) {
+            return MutationPolicyInputs.rowFilters(modify,
+                    input -> applyFiltersRecursive(input, identity),
+                    scan -> applyFilterToScan(scan, identity));
+        }
         if (node instanceof TableScan scan) {
             return applyFilterToScan(scan, identity);
         }
@@ -76,16 +92,16 @@ public final class RowFilterApplier {
 
     private RelNode applyFilterToScan(TableScan scan, UserIdentity identity) {
         QualifiedTableName ref = PlanNodeTransform.extractTableRef(scan);
-        String cacheKey = ref.catalog() + "." + ref.schema() + "." + ref.table();
-        Optional<String> filter = expressionCache.getOrCompute(
-                cacheKey, identity,
-                () -> accessControl.getRowFilter(
-                        identity, ref.catalog(), ref.schema(), ref.table()));
+        Optional<String> filter = accessControl.getRowFilter(
+                identity, ref.catalog(), ref.schema(), ref.table());
+        if (observations != null) {
+            observations.rowFilter(ref, filter);
+        }
         if (filter.isEmpty()) {
             return scan;
         }
         String filterExpr = filter.get();
-        RelDataType fullTableRowType = scan.getTable().getRowType();
+        RelDataType fullTableRowType = PlanTable.require(scan).getRowType();
         RelDataType scanRowType = scan.getRowType();
         RexNode condition = FilterExpressionParser.parse(
                 filterExpr, fullTableRowType, scan.getCluster());

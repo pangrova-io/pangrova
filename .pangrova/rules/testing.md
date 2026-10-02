@@ -6,9 +6,10 @@
 |----------|----------|-----|--------|
 | Unit | `src/test/java/` per module | (default) | JUnit 5 + jqwik |
 | Integration | `src/test/java/` per module | `@Tag("integration")` | JUnit 5 + TestContainers |
+| Routing integration | `pangrova-testing/pangrova-test-e2e` | `@Tag("routing-integration")` | JUnit 5 + one real worker endpoint |
 | Property | `src/test/java/**/property/` | (default) | jqwik |
 | E2E | `pangrova-testing/pangrova-test-e2e` | — | JUnit 5 + TestContainers |
-| Smoke | `pangrova-testing/pangrova-test-smoke` | — | JUnit 5 |
+| Smoke | `pangrova-testing/pangrova-test-e2e/.../smoke/ActivationSmokeE2ETest` | `@E2ETest` | JUnit 5 + packaged JNI |
 | Chaos | `pangrova-testing/pangrova-test-chaos` | — | JUnit 5 + Toxiproxy |
 | Benchmark | `pangrova-testing/pangrova-test-benchmark` | — | JMH |
 | C++ Unit | `pangrova-worker-native/test/` | — | GoogleTest |
@@ -172,6 +173,12 @@ For chaos/fault-injection tests. Required for CDC EOS tests, distributed consens
 | Coordinator Port | 8080 |
 | Worker Port | 8081 |
 | Health Check | HTTP `/v1/health` → 200 |
+
+A test counts as multi-worker or distributed E2E only when every advertised
+worker has a distinct process/container and endpoint. Multiple worker IDs that
+resolve to one worker endpoint are routing integration; they must use the
+`routing-integration` tag and must not claim process isolation, remote data
+movement, network partition behavior, or worker-level failure recovery.
 
 ## Container Lifecycle Rules
 

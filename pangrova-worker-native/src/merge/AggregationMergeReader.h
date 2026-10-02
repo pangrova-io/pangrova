@@ -21,7 +21,6 @@ namespace pangrova::merge {
 // Supported aggregation function types for Paimon AGGREGATION merge engine.
 enum class AggFunction {
   SUM,
-  COUNT,
   MAX,
   MIN,
   LAST_VALUE,
@@ -32,6 +31,7 @@ enum class AggFunction {
   COLLECT,
   MERGE_MAP,
   FIRST_VALUE,
+  FIRST_NON_NULL_VALUE,
   PRODUCT,
   NESTED_UPDATE
 };
@@ -48,7 +48,7 @@ class AggregationMergeReader final : public MergeReader {
       facebook::velox::column_index_t sequence_column_index,
       facebook::velox::RowTypePtr output_type,
       std::unordered_map<facebook::velox::column_index_t, AggFunction>
-          agg_specs);
+          agg_specs, MergeDeletePolicy delete_policy);
 
   ~AggregationMergeReader() override { close(); }
 
@@ -71,7 +71,9 @@ class AggregationMergeReader final : public MergeReader {
       facebook::velox::memory::MemoryPool* pool) const;
   void aggregateRow(
       const facebook::velox::RowVectorPtr& target,
-      const HeapEntry& source) const;
+      const HeapEntry& source, bool retract) const;
+  void applyRetractFunction(AggFunction func, const facebook::velox::VectorPtr& target,
+      const facebook::velox::VectorPtr& source, facebook::velox::vector_size_t row) const;
   void applyAggFunction(
       AggFunction func,
       const facebook::velox::VectorPtr& target,
@@ -86,6 +88,7 @@ class AggregationMergeReader final : public MergeReader {
   std::vector<facebook::velox::column_index_t> key_indices_;
   facebook::velox::column_index_t sequence_index_;
   facebook::velox::RowTypePtr output_type_;
+  MergeDeletePolicy delete_policy_;
   std::unordered_map<facebook::velox::column_index_t, AggFunction> agg_specs_;
 
   std::vector<ReaderState> readers_;

@@ -23,6 +23,7 @@ struct TaskStatsSnapshot {
     int64_t output_queue_capacity;
     int64_t shuffle_queue_depth;
     int64_t shuffle_queue_capacity;
+    uint64_t columnar_conversion_copied_bytes;
 };
 
 /**
@@ -36,6 +37,8 @@ public:
     void addRows(int64_t rows);
     void addBytes(int64_t bytes);
     void updatePeakMemory(int64_t bytes);
+    // One sink publishes cumulative observations; repeated snapshots are not summed.
+    void observeColumnarConversionCopiedBytes(uint64_t cumulative_bytes);
 
     // Connector-specific metric accumulators.
     void addMergeReaderInputRows(int64_t rows);
@@ -54,6 +57,7 @@ private:
     std::atomic<int64_t> peak_memory_bytes_{0};
     std::atomic<int64_t> rows_read_{0};
     std::atomic<int64_t> bytes_read_{0};
+    std::atomic<uint64_t> columnar_conversion_copied_bytes_{0};
     // Connector-specific counters.
     std::atomic<int64_t> merge_reader_input_rows_{0};
     std::atomic<int64_t> merge_reader_output_rows_{0};

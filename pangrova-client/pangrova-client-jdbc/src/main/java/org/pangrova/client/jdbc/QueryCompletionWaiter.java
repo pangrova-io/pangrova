@@ -10,8 +10,7 @@ import java.sql.SQLException;
 import java.sql.SQLTimeoutException;
 
 /**
- * Blocks until a submitted query reaches a terminal state and yields its result
- * endpoint.
+ * Waits for a readable result endpoint, then for the query's terminal outcome.
  *
  * <p>Extracted from {@link PangrovaStatement} so the JDBC surface stays readable:
  * everything here is the polling protocol (backoff, timeout, terminal-state
@@ -24,6 +23,8 @@ final class QueryCompletionWaiter {
     private static final long MILLIS_PER_SECOND = 1000L;
 
     private static final String STATE_FINISHED = "FINISHED";
+    private static final String STATE_RUNNING = "RUNNING";
+    private static final String STATE_FINISHING = "FINISHING";
     private static final String STATE_FAILED = "FAILED";
     private static final String STATE_CANCELLED = "CANCELLED";
 
@@ -31,42 +32,27 @@ final class QueryCompletionWaiter {
     }
 
     /**
-     * Waits for {@code queryId} to finish.
+     * Waits until the result endpoint can be read. A streaming OUTPUT task may
+     * need the client to consume its Flight stream before it can finish.
      *
      * @param queryTimeoutSeconds JDBC query timeout; {@code 0} or less means no timeout
-     * @return the endpoint the result can be fetched from
+     * @return the endpoint and whether the query was already terminal
      * @throws SQLTimeoutException if the timeout elapses first (the query is cancelled)
      * @throws SQLException        if the query fails or is cancelled server-side
      */
-    static ResultEndpoint awaitCompletion(PangrovaRestClient client, String queryId,
-                                          SubmitQueryResponse submitResponse,
-                                          int queryTimeoutSeconds) throws SQLException {
-        ResultEndpoint immediate = checkImmediateResult(submitResponse);
+    static ReadyEndpoint awaitReadableEndpoint(PangrovaRestClient client, String queryId,
+                                               SubmitQueryResponse submitResponse,
+                                               long deadlineMs,
+                                               int queryTimeoutSeconds) throws SQLException {
+        ReadyEndpoint immediate = checkImmediateResult(submitResponse, queryId);
         if (immediate != null) {
             return immediate;
         }
-        long deadlineMs = queryTimeoutSeconds > 0
-                ? System.currentTimeMillis() + queryTimeoutSeconds * MILLIS_PER_SECOND
-                : Long.MAX_VALUE;
-        return pollUntilTerminal(client, queryId, deadlineMs, queryTimeoutSeconds);
-    }
-
-    /** A query that finished during submission needs no polling at all. */
-    private static ResultEndpoint checkImmediateResult(SubmitQueryResponse response) {
-        if (response.resultEndpoint() != null && STATE_FINISHED.equals(response.state())) {
-            return response.resultEndpoint();
-        }
-        return null;
-    }
-
-    private static ResultEndpoint pollUntilTerminal(PangrovaRestClient client, String queryId,
-                                                    long deadlineMs,
-                                                    int queryTimeoutSeconds) throws SQLException {
         long pollMs = POLL_INTERVAL_MS;
         while (true) {
             checkTimeout(client, queryId, deadlineMs, queryTimeoutSeconds);
             QueryStatusResponse status = client.getQueryStatus(queryId);
-            ResultEndpoint result = handleTerminalState(status, queryId);
+            ReadyEndpoint result = handleReadableState(status, queryId);
             if (result != null) {
                 return result;
             }
@@ -74,9 +60,50 @@ final class QueryCompletionWaiter {
         }
     }
 
-    private static void checkTimeout(PangrovaRestClient client, String queryId, long deadlineMs,
+    static long deadlineFor(int queryTimeoutSeconds) {
+        return queryTimeoutSeconds > 0
+                ? System.currentTimeMillis() + queryTimeoutSeconds * MILLIS_PER_SECOND
+                : Long.MAX_VALUE;
+    }
+
+    /** Checks the canonical terminal outcome after the Flight stream is drained. */
+    static QueryStatusResponse awaitTerminalSuccess(PangrovaRestClient client, String queryId,
+                                                    long deadlineMs, int queryTimeoutSeconds)
+            throws SQLException {
+        long pollMs = POLL_INTERVAL_MS;
+        while (true) {
+            checkTimeout(client, queryId, deadlineMs, queryTimeoutSeconds);
+            QueryStatusResponse status = client.getQueryStatus(queryId);
+            if (STATE_FAILED.equals(status.state())) {
+                throw failedQueryException(status, queryId);
+            }
+            if (STATE_CANCELLED.equals(status.state())) {
+                throw new SQLException("Query was cancelled, queryId=" + queryId);
+            }
+            if (STATE_FINISHED.equals(status.state())) {
+                return status;
+            }
+            pollMs = sleepWithBackoff(pollMs);
+        }
+    }
+
+    /** A readable endpoint can be present in the submit response itself. */
+    private static ReadyEndpoint checkImmediateResult(SubmitQueryResponse response,
+                                                      String queryId) throws SQLException {
+        if (STATE_FAILED.equals(response.state()) || STATE_CANCELLED.equals(response.state())) {
+            throw new SQLException("Query " + response.state().toLowerCase()
+                    + ", queryId=" + queryId);
+        }
+        if (response.resultEndpoint() != null && isReadableState(response.state())) {
+            return new ReadyEndpoint(response.resultEndpoint(),
+                    STATE_FINISHED.equals(response.state()));
+        }
+        return null;
+    }
+
+    static void checkTimeout(PangrovaRestClient client, String queryId, long deadlineMs,
                                      int queryTimeoutSeconds) throws SQLException {
-        if (System.currentTimeMillis() > deadlineMs) {
+        if (System.currentTimeMillis() >= deadlineMs) {
             try {
                 client.cancelQuery(queryId);
             } catch (Exception ignored) {
@@ -88,24 +115,34 @@ final class QueryCompletionWaiter {
     }
 
     /**
-     * Maps a status response onto a terminal outcome.
+     * Maps a status response onto either a readable endpoint or a failure.
      *
-     * @return the result endpoint when finished, or {@code null} while still running
+     * @return the endpoint when readable, or {@code null} while still scheduling
      */
-    private static ResultEndpoint handleTerminalState(QueryStatusResponse status,
-                                                      String queryId) throws SQLException {
+    private static ReadyEndpoint handleReadableState(QueryStatusResponse status,
+                                                     String queryId) throws SQLException {
         String state = status.state();
-        if (STATE_FINISHED.equals(state)) {
-            return requireEndpoint(status.resultEndpoint(), queryId);
-        }
         if (STATE_FAILED.equals(state)) {
             throw failedQueryException(status, queryId);
         }
         if (STATE_CANCELLED.equals(state)) {
             throw new SQLException("Query was cancelled, queryId=" + queryId);
         }
+        if (STATE_FINISHED.equals(state)) {
+            return new ReadyEndpoint(requireEndpoint(status.resultEndpoint(), queryId), true);
+        }
+        if (status.resultEndpoint() != null && isReadableState(state)) {
+            return new ReadyEndpoint(status.resultEndpoint(), false);
+        }
         return null;
     }
+
+    private static boolean isReadableState(String state) {
+        return STATE_RUNNING.equals(state) || STATE_FINISHING.equals(state)
+                || STATE_FINISHED.equals(state);
+    }
+
+    record ReadyEndpoint(ResultEndpoint endpoint, boolean terminal) {}
 
     private static ResultEndpoint requireEndpoint(ResultEndpoint endpoint,
                                                   String queryId) throws SQLException {

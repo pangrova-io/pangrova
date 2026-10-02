@@ -8,6 +8,7 @@
 //
 // **Validates: Requirements 8.3**
 #include <gtest/gtest.h>
+#include <set>
 
 #include "velox/plan/VeloxPlanConverter.h"
 
@@ -29,6 +30,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
   auto* ref = expr->mutable_selection();
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
 }
@@ -50,7 +52,16 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
 
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
-  root->add_names("output");
+  std::set<int> referenced;
+  for (const auto& grouping : grouping_sets) referenced.insert(grouping.begin(), grouping.end());
+  std::vector<int> groupingOrdinals(num_grouping_cols, -1);
+  int groupingOrdinal = 0;
+  for (const auto column : referenced) {
+    groupingOrdinals.at(column) = groupingOrdinal++;
+    root->add_names("col_" + std::to_string(column));
+  }
+  root->add_names("sum");
+  if (grouping_sets.size() > 1) root->add_names("grouping_set_index");
 
   auto* agg = root->mutable_input()->mutable_aggregate();
 
@@ -63,11 +74,15 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
   }
   addI64Column(schema, "agg_col");
 
+  for (const auto column : referenced) {
+    setFieldRef(agg->add_grouping_expressions(), column);
+  }
+
   // Add grouping sets.
   for (const auto& gs : grouping_sets) {
     auto* grouping = agg->add_groupings();
     for (int col_idx : gs) {
-      setFieldRef(grouping->add_grouping_expressions(), col_idx);
+      grouping->add_expression_references(groupingOrdinals.at(col_idx));
     }
   }
 
@@ -75,6 +90,7 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
   auto* measure = agg->add_measures();
   auto* agg_func = measure->mutable_measure();
   agg_func->set_function_reference(1);
+  agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   auto* arg = agg_func->add_arguments();
   setFieldRef(arg->mutable_value(), num_grouping_cols);
   agg_func->mutable_output_type()->mutable_i64();
@@ -146,16 +162,14 @@ TEST(GroupingSetsCubeRollupTest, CubeTwoColumns) {
   auto gid_node = findNode(result, "GroupId");
   ASSERT_NE(gid_node, nullptr) << "GroupIdNode not found in plan tree";
 
-  // GroupIdNode output should include groupId column.
+  // GroupIdNode's declared internal discriminator is BIGINT. Its physical
+  // alias must not be confused with the public INTEGER grouping-set index.
+  auto group_id = std::dynamic_pointer_cast<const facebook::velox::core::GroupIdNode>(gid_node);
+  ASSERT_NE(group_id, nullptr);
   auto gid_output = gid_node->outputType();
-  bool has_group_id = false;
-  for (size_t i = 0; i < gid_output->size(); ++i) {
-    if (gid_output->nameOf(i) == "groupId") {
-      has_group_id = true;
-      break;
-    }
-  }
-  EXPECT_TRUE(has_group_id) << "GroupIdNode output missing 'groupId' column";
+  ASSERT_GT(gid_output->size(), 0);
+  EXPECT_EQ(gid_output->nameOf(gid_output->size() - 1), group_id->groupIdName());
+  EXPECT_TRUE(gid_output->childAt(gid_output->size() - 1)->isBigint());
 
   // Should have Aggregation node above GroupIdNode.
   auto agg_node = findNode(result, "Aggregation");
@@ -172,6 +186,9 @@ TEST(GroupingSetsCubeRollupTest, CubeTwoColumns) {
   }
   EXPECT_FALSE(final_has_group_id)
       << "Final output should not contain 'groupId' column";
+  ASSERT_EQ(final_output->size(), 4);
+  EXPECT_TRUE(final_output->childAt(3)->isInteger());
+  EXPECT_EQ(converter.resultColumnLabels()[3], "grouping_set_index");
 }
 
 // ---------------------------------------------------------------------------

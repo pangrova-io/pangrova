@@ -10,6 +10,7 @@ import org.pangrova.spi.connector.index.CommitEvent;
 import org.pangrova.spi.connector.index.CommitEventType;
 import org.pangrova.spi.connector.index.CommitListener;
 import org.pangrova.spi.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,13 +45,15 @@ public final class ClusteringScheduler {
     private final CommitListener commitListener;
     private final DistributedLease distributedLease;
     private final String coordinatorId;
+    private final String tenantId;
 
     public ClusteringScheduler(ExecutorService executor) {
-        this(executor, null, null, null);
+        this(executor, null, null, null, null);
     }
 
-    public ClusteringScheduler(ExecutorService executor, CommitListener commitListener) {
-        this(executor, commitListener, null, null);
+    public ClusteringScheduler(
+            ExecutorService executor, CommitListener commitListener, String tenantId) {
+        this(executor, commitListener, null, null, tenantId);
     }
 
     /**
@@ -62,11 +65,17 @@ public final class ClusteringScheduler {
      * @param coordinatorId   this coordinator's identifier (required if lease is non-null)
      */
     public ClusteringScheduler(ExecutorService executor, CommitListener commitListener,
-                               DistributedLease distributedLease, String coordinatorId) {
+                               DistributedLease distributedLease, String coordinatorId,
+                               String tenantId) {
         this.executor = executor;
         this.commitListener = commitListener;
         this.distributedLease = distributedLease;
         this.coordinatorId = coordinatorId;
+        if (commitListener != null && (tenantId == null || tenantId.isBlank())) {
+            throw new IllegalArgumentException(
+                    "tenantId is required when commit notification is enabled");
+        }
+        this.tenantId = tenantId;
     }
 
     /**
@@ -88,20 +97,20 @@ public final class ClusteringScheduler {
             return executeRecluster(descriptor, capability);
         }
         String leaseKey = LEASE_KEY_PREFIX + descriptor.tableName();
-        acquireLeaseOrThrow(leaseKey, descriptor.tableName());
+        LeaseEntry held = acquireLeaseOrThrow(leaseKey, descriptor.tableName());
         try {
             return executeRecluster(descriptor, capability);
         } finally {
-            distributedLease.release(leaseKey, coordinatorId);
+            distributedLease.release(leaseKey, coordinatorId, held.epoch());
             LOG.info("action=recluster_lease_released table={} coordinatorId={}",
                     descriptor.tableName(), coordinatorId);
         }
     }
 
-    private void acquireLeaseOrThrow(String leaseKey, Object tableName) {
-        boolean acquired = distributedLease.tryAcquire(
-                leaseKey, coordinatorId, 0, DEFAULT_LEASE_DURATION);
-        if (!acquired) {
+    private LeaseEntry acquireLeaseOrThrow(String leaseKey, Object tableName) {
+        LeaseEntry acquired = distributedLease.tryAcquire(
+                leaseKey, coordinatorId, DEFAULT_LEASE_DURATION).orElse(null);
+        if (acquired == null) {
             LOG.warn("action=recluster_lease_denied table={} coordinatorId={}",
                     tableName, coordinatorId);
             throw new IllegalStateException(
@@ -110,6 +119,7 @@ public final class ClusteringScheduler {
         }
         LOG.info("action=recluster_lease_acquired table={} coordinatorId={}",
                 tableName, coordinatorId);
+        return acquired;
     }
 
     private ClusteringResult executeRecluster(ClusteringDescriptor descriptor,
@@ -230,10 +240,10 @@ public final class ClusteringScheduler {
         }
         try {
             CommitEvent event = new CommitEvent(
-                    "default", "default", tableName,
+                    tenantId, "default", "default", tableName,
                     result.addedFilePaths(), result.removedFilePaths(),
                     Instant.now(), "recluster-" + Instant.now().toEpochMilli(),
-                    CommitEventType.OVERWRITE);
+                    CommitEventType.OVERWRITE, null);
             commitListener.onCommit(event);
             LOG.info("action=index_rebuild_triggered table={} newFiles={} deletedFiles={}",
                     tableName, result.addedFilePaths().size(), result.removedFilePaths().size());

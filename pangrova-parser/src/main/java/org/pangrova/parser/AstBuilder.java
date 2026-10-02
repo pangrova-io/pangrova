@@ -69,6 +69,8 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     private final SqlDialect dialect;
     private final AstDdlDmlBuilder ddlDml = new AstDdlDmlBuilder(this);
     private final AstExtendedDdlBuilder extDdl = new AstExtendedDdlBuilder(this);
+    private final AstSemanticViewBuilder semanticView = new AstSemanticViewBuilder(this);
+    private final AstFeatureViewBuilder featureView = new AstFeatureViewBuilder(this);
     private final AstDmlBuilder dml = new AstDmlBuilder(this, ddlDml);
     private final AstExpressionBuilder expr = new AstExpressionBuilder(this);
     private final SourceLocationRegistry locationRegistry = new SourceLocationRegistry();
@@ -202,6 +204,7 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     @Override public Statement visitShowSchemasStatement(PangrovaSqlParser.ShowSchemasStatementContext ctx) { return (ShowSchemasStatement) ddlDml.visitShowSchemas(ctx.showSchemas()); }
     @Override public Statement visitShowTablesStatement(PangrovaSqlParser.ShowTablesStatementContext ctx) { return (ShowTablesStatement) ddlDml.visitShowTables(ctx.showTables()); }
     @Override public Statement visitShowViewsStatement(PangrovaSqlParser.ShowViewsStatementContext ctx) { return (ShowViewsStatement) ddlDml.visitShowViews(ctx.showViews()); }
+    @Override public Statement visitShowSemanticViewsStatement(PangrovaSqlParser.ShowSemanticViewsStatementContext ctx) { return semanticView.visitShowSemanticViews(ctx.showSemanticViews()); }
     @Override public Statement visitShowSnapshotsStatement(PangrovaSqlParser.ShowSnapshotsStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowSnapshots(ctx.showSnapshots()); }
     @Override public Statement visitShowFilesStatement(PangrovaSqlParser.ShowFilesStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowFiles(ctx.showFiles()); }
     @Override public Statement visitShowManifestsStatement(PangrovaSqlParser.ShowManifestsStatementContext ctx) { return (ShowMetadataStatement) ddlDml.visitShowManifests(ctx.showManifests()); }
@@ -220,6 +223,11 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         return (Statement) ddlDml.visit(a);
     }
     @Override public Statement visitCreateViewStatement(PangrovaSqlParser.CreateViewStatementContext ctx) { return withLocation((CreateViewStatement) ddlDml.visitCreateView(ctx.createView()), ctx); }
+    @Override public Statement visitCreateSemanticViewStatement(PangrovaSqlParser.CreateSemanticViewStatementContext ctx) { return withLocation(semanticView.visitCreateSemanticView(ctx.createSemanticView()), ctx); }
+    @Override public Statement visitPublishSemanticViewStatement(PangrovaSqlParser.PublishSemanticViewStatementContext ctx) { return withLocation(semanticView.visitPublishSemanticView(ctx.publishSemanticView()), ctx); }
+    @Override public Statement visitCreateFeatureViewStatement(PangrovaSqlParser.CreateFeatureViewStatementContext ctx) { return withLocation(featureView.visitCreateFeatureView(ctx.createFeatureView()), ctx); }
+    @Override public Statement visitPublishFeatureViewStatement(PangrovaSqlParser.PublishFeatureViewStatementContext ctx) { return withLocation(featureView.visitPublishFeatureView(ctx.publishFeatureView()), ctx); }
+    @Override public Statement visitMaterializeFeatureViewStatement(PangrovaSqlParser.MaterializeFeatureViewStatementContext ctx) { return withLocation(featureView.visitMaterializeFeatureView(ctx.materializeFeatureView()), ctx); }
     @Override public Statement visitDropViewStatement(PangrovaSqlParser.DropViewStatementContext ctx) { return (DropViewStatement) ddlDml.visitDropView(ctx.dropView()); }
     @Override public Statement visitCreateSchemaStatement(PangrovaSqlParser.CreateSchemaStatementContext ctx) { return (CreateSchemaStatement) ddlDml.visitCreateSchema(ctx.createSchema()); }
     @Override public Statement visitDeleteFromStatement(PangrovaSqlParser.DeleteFromStatementContext ctx) { return withLocation((DeleteStatement) dml.visitDeleteFrom(ctx.deleteFrom()), ctx); }
@@ -425,6 +433,16 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         List<String> parts = name.parts();
         String lastPart = parts.get(parts.size() - 1);
         int dollarIdx = lastPart.indexOf('$');
+        var finalIdentifier = ctx.qualifiedName().identifier()
+                .get(ctx.qualifiedName().identifier().size() - 1);
+        if (dollarIdx >= 0 && (finalIdentifier.QUOTED_IDENTIFIER() != null
+                || finalIdentifier.BACKTICK_IDENTIFIER() != null)) {
+            throw new ParseException(
+                    org.pangrova.common.exception.PangrovaErrorCode.PARSER_SYNTAX_ERROR,
+                    "Quoted table names containing '$' are not supported; use an unquoted system-table suffix",
+                    finalIdentifier.getStart().getLine(),
+                    finalIdentifier.getStart().getCharPositionInLine());
+        }
         if (dollarIdx > 0 && dollarIdx < lastPart.length() - 1) {
             String baseTablePart = lastPart.substring(0, dollarIdx);
             String systemTableName = lastPart.substring(dollarIdx + 1);

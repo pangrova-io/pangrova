@@ -457,7 +457,6 @@ class NamingConventionPropertyTest {
         ops.add(new RenameOperation("5a", "RexNodeConverter", "ExpressionConverter", "pangrova-planner", "CLASS"));
         ops.add(new RenameOperation("5a", "RelNodeVisitor", "PlanNodeConverter", "pangrova-planner", "CLASS"));
         ops.add(new RenameOperation("5a", "MVRelOptTable", "MaterializedViewTableRef", "pangrova-planner", "CLASS"));
-        ops.add(new RenameOperation("5a", "ProtoRelDeserializer", "SubstraitPlanDeserializer", "pangrova-planner", "CLASS"));
         // NativeDataBridge deleted — Arrow Java SDK removed from pangrova-worker (native-result-serving)
         ops.add(new RenameOperation("5a", "DppFilterMetrics", "DynamicPartitionFilterMetrics", "pangrova-worker", "CLASS"));
         ops.add(new RenameOperation("5a", "DppConfig", "DynamicPartitionPruningConfig", "pangrova-planner", "CLASS"));

@@ -11,8 +11,12 @@
 #include <memory>
 #include <string>
 
+#include "executor/driver/PlanExecutionDriver.h"
+#include "jni/RuntimeInitializer.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
-#include "pangrova/native/protocol/v1/memory.pb.h"
+#include "pangrova/protocol/v2/runtime.pb.h"
+
+#include "../TestMemoryHelper.h"
 
 namespace pangrova::velox::test {
 namespace {
@@ -20,6 +24,20 @@ namespace {
 class VeloxMemoryGovernorTest : public ::testing::Test {
  protected:
   static constexpr int64_t kDefaultMemory = 256L * 1024 * 1024;  // 256MB
+
+  static void SetUpTestSuite() {
+    // These unit tests install a standalone process-wide Velox MemoryManager.
+    // Stop the lifecycle-owned manager first so its governor cannot retain a
+    // pointer that testingSetInstance() invalidates.
+    pangrova::jni::shutdownVeloxRuntime();
+  }
+
+  static void TearDownTestSuite() {
+    // Restore the lifecycle-owned manager for every suite that follows.  A
+    // bare testingSetInstance() here would leave globalVeloxMemoryGovernor()
+    // pointing at the manager deleted by the next standalone construction.
+    pangrova::test::testMemoryManager();
+  }
 
   // Create a VeloxMemoryGovernor in test mode (null listener).
   std::unique_ptr<VeloxMemoryGovernor> createGovernor(
@@ -115,6 +133,41 @@ TEST_F(VeloxMemoryGovernorTest, SpillDisabledByDefault) {
   EXPECT_FALSE(governor->spillEnabled());
   EXPECT_TRUE(governor->spillDirectory().empty());
   EXPECT_EQ(governor->maxSpillBytes(), 0);
+}
+
+TEST_F(VeloxMemoryGovernorTest, WorkerLocalSpillPolicyIntersectsNodeAndTaskLimits) {
+  VeloxMemoryGovernorConfig config;
+  config.enable_spill = true;
+  config.spill_directory = "/worker-local/spill";
+  config.max_spill_bytes = 512L * 1024 * 1024;
+  auto governor = createGovernor(kDefaultMemory, config);
+
+  const auto policy = pangrova::executor::resolveWorkerLocalSpillPolicy(
+      256L * 1024 * 1024, governor.get());
+  EXPECT_TRUE(policy.enabled);
+  EXPECT_EQ(policy.directory, "/worker-local/spill");
+  EXPECT_EQ(policy.max_bytes, 256L * 1024 * 1024);
+
+  const auto node_capped = pangrova::executor::resolveWorkerLocalSpillPolicy(
+      1024L * 1024 * 1024, governor.get());
+  EXPECT_EQ(node_capped.max_bytes, 512L * 1024 * 1024);
+}
+
+TEST_F(VeloxMemoryGovernorTest, WorkerLocalSpillPolicyRequiresBothPolicies) {
+  {
+    auto disabled_governor = createGovernor();
+    EXPECT_FALSE(pangrova::executor::resolveWorkerLocalSpillPolicy(
+        1024, disabled_governor.get()).enabled);
+  }
+
+  VeloxMemoryGovernorConfig config;
+  config.enable_spill = true;
+  config.spill_directory = "/worker-local/spill";
+  auto enabled_governor = createGovernor(kDefaultMemory, config);
+  EXPECT_FALSE(pangrova::executor::resolveWorkerLocalSpillPolicy(
+      0, enabled_governor.get()).enabled);
+  EXPECT_FALSE(pangrova::executor::resolveWorkerLocalSpillPolicy(
+      1024, nullptr).enabled);
 }
 
 // --- signalMemoryPressure with null cache ---
@@ -219,7 +272,7 @@ TEST_F(VeloxMemoryGovernorTest, MemorySnapshotProtoFieldsNonZeroAfterTaskWithSpi
 
   // Collect snapshot and serialize to proto (same path as JniBridge).
   auto snapshot = governor->getMemorySnapshot();
-  pangrova::native::protocol::v1::MemorySnapshot proto;
+  pangrova::protocol::v2::MemorySnapshot proto;
   proto.set_current_used_bytes(snapshot.current_used_bytes);
   proto.set_peak_used_bytes(snapshot.peak_used_bytes);
   proto.set_spill_bytes(snapshot.spill_bytes);
@@ -245,7 +298,7 @@ TEST_F(VeloxMemoryGovernorTest, MemorySnapshotProtoFieldsNonZeroAfterTaskWithSpi
   proto.SerializeToArray(wire.data(), static_cast<int>(wire.size()));
   ASSERT_FALSE(wire.empty());
 
-  pangrova::native::protocol::v1::MemorySnapshot deserialized;
+  pangrova::protocol::v2::MemorySnapshot deserialized;
   ASSERT_TRUE(deserialized.ParseFromArray(wire.data(), static_cast<int>(wire.size())));
   EXPECT_EQ(deserialized.spill_bytes(), spillBytes);
   EXPECT_EQ(deserialized.current_used_bytes(), proto.current_used_bytes());

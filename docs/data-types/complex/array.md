@@ -26,7 +26,13 @@ SELECT ARRAY['red', 'green', 'blue'] AS colors;
 
 -- Insert array values
 INSERT INTO tags VALUES (1, ARRAY['urgent', 'bug']);
+
+-- An empty array takes its element type from the target column
+INSERT INTO tags VALUES (2, ARRAY[]);
 ```
+
+`ARRAY[]` requires a typed context such as an `ARRAY(VARCHAR)` insert column;
+an untyped empty array has no element type to infer.
 
 **Access:**
 

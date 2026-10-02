@@ -67,7 +67,7 @@ class NativeCapabilityRegistryTest {
         assertThat(registry.isFunctionSupported("l2_distance")).isTrue();
         assertThat(registry.isFunctionSupported("cosine_distance")).isTrue();
         assertThat(registry.isFunctionSupported("inner_product")).isTrue();
-        assertThat(registry.isFunctionSupported("cosine_similarity")).isTrue();
+        assertThat(registry.isFunctionSupported("pangrova_cosine_similarity")).isTrue();
         // Unknown functions still rejected
         assertThat(registry.isFunctionSupported("nonexistent_func")).isFalse();
     }

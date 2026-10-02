@@ -59,7 +59,7 @@ class DistributedPropertyTest extends SqlE2ETestBase {
     @BeforeAll
     @BeforeContainer
     static void loadTpcHData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.loadTpcHData(CATALOG, SCHEMA, SCALE_FACTOR);

@@ -6,16 +6,13 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
-import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.spi.execution.TaskDescriptor;
 import org.junit.jupiter.api.Test;
 
 /**
  * Tests for {@link SubmitTaskRequestConverter}.
- * Validates DTO→SPI conversion and result endpoint construction.
+ * Validates DTO→SPI conversion. Producer endpoint oracles live with Worker signing.
  */
 class SubmitTaskRequestConverterTest {
 
@@ -52,26 +49,15 @@ class SubmitTaskRequestConverterTest {
 
     @Test
     void toTaskDescriptorHandlesNullSessionProperties() {
-        SubmitTaskRequest request = new SubmitTaskRequest(
-                "t-1", "q-4", 0, 0, "COMPUTE",
-                "cGxhbg==", List.of(), List.of(), null, null, null, null,
-                null, null, null, null, null, null, null);
+        SubmitTaskRequest request =
+                org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                        "t-1", "q-4", 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
         TaskDescriptor descriptor = SubmitTaskRequestConverter.toTaskDescriptor(request);
 
         assertThat(descriptor.sessionProperties()).isEmpty();
-    }
-
-    @Test
-    void buildResultEndpointUsesWorkerTransportPort() {
-        WorkerInfo worker = createWorker();
-
-        ResultEndpoint endpoint = SubmitTaskRequestConverter.buildResultEndpoint(worker, "task-42");
-
-        assertThat(endpoint.host()).isEqualTo("worker-host");
-        assertThat(endpoint.port()).isEqualTo(8082);
-        assertThat(endpoint.ticket()).isEqualTo("task-42");
-        assertThat(endpoint.protocol()).isEqualTo("grpc-transport");
     }
 
     @Test
@@ -86,14 +72,20 @@ class SubmitTaskRequestConverterTest {
 
     private static SubmitTaskRequest createRequest(
             String queryId, String planFragment, List<String> splits) {
-        return new SubmitTaskRequest(
-                "task-1", queryId, 0, 0, "COMPUTE",
-                planFragment, splits, List.of(), null,
-                Map.of("key", "value"), null, null,
-                null, null, null, null, null, null, null);
+        byte[] plan = planFragment == null
+                ? new byte[0] : Base64.getDecoder().decode(planFragment);
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                        "task-1", queryId, 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, plan)
+                .setExecutionOptions(org.pangrova.protocol.v2.TaskExecutionOptions
+                        .newBuilder().putAllSessionProperties(Map.of("key", "value")));
+        if (splits != null) {
+            for (int index = 0; index < splits.size(); index++) {
+                canonical.addSplits(org.pangrova.protocol.v2.DataSplit.newBuilder()
+                        .setSplitId("split-" + index));
+            }
+        }
+        return SubmitTaskRequest.from(canonical.build());
     }
 
-    private static WorkerInfo createWorker() {
-        return TestWorkerInfoBuilder.active("w-1", "worker-host", 8080, 8082);
-    }
 }

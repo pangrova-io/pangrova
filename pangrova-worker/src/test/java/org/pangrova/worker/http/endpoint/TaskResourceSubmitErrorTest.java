@@ -11,9 +11,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.util.List;
-import java.util.Map;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -42,20 +39,14 @@ class TaskResourceSubmitErrorTest {
 
     @Test
     void submitTask_internalError_returnsStructuredSubmitTaskResponse() {
-        SubmitTaskRequest request = SubmitTaskRequest.builder()
-                .taskId("task-1")
-                .queryId("query-1")
-                .stageId(0)
-                .partitionId(1)
-                .taskType("SCAN")
-                .planFragment("plan-fragment")
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
+        var canonical =
+                org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                        "task-1", "query-1", 0, 1,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        "plan-fragment".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                        .clearSubstraitPlanChecksum()
+                        .build();
+        SubmitTaskRequest request = SubmitTaskRequest.from(canonical);
 
         Response response = resource.submitTask(request);
 

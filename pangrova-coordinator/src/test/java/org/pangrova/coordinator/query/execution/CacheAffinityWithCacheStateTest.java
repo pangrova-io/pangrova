@@ -117,7 +117,8 @@ class CacheAffinityWithCacheStateTest {
                 workerId, "host-" + workerId, 8080, 8081, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1_000_000_000L,
-                Instant.now(), 1.0, "default", 1,
-                List.of(), null, List.of());
+                Instant.now(), 1.0, "default", 2,
+                null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

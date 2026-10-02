@@ -8,6 +8,7 @@ import org.pangrova.metadata.catalog.CatalogType;
 import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
 import org.pangrova.metadata.catalog.ConnectorHandleFactory;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
+import org.pangrova.metadata.exception.MetadataException;
 import org.pangrova.metadata.model.ColumnType;
 import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.model.TableMetadata;
@@ -40,6 +41,7 @@ import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that ALTER TABLE operations propagate schema changes to the
@@ -135,7 +137,7 @@ class DefaultMetadataServiceAlterTableTest {
         List<SchemaChange> changes = List.of(
                 new SchemaChange.AddColumn("email", ColumnType.of("VARCHAR"), true),
                 new SchemaChange.DropColumn("name"),
-                new SchemaChange.AddColumn("age", ColumnType.of("INT"), false));
+                new SchemaChange.AddColumn("age", ColumnType.of("INT"), true));
 
         service.alterTable(session, tableRef, changes);
 
@@ -144,6 +146,35 @@ class DefaultMetadataServiceAlterTableTest {
         assertThat(connectorMetadata.addColumnCalls.get(0).columnName()).isEqualTo("email");
         assertThat(connectorMetadata.addColumnCalls.get(1).columnName()).isEqualTo("age");
         assertThat(connectorMetadata.dropColumnCalls.get(0)).isEqualTo("name");
+    }
+
+    @Test
+    void alterTableRejectsUnsupportedNotNullBeforeApplyingOtherChanges() {
+        QualifiedTableRef tableRef = new QualifiedTableRef("test_catalog", "public", "orders");
+        MetadataSessionContext session = testSession();
+
+        assertThatThrownBy(() -> service.alterTable(session, tableRef, List.of(
+                new SchemaChange.DropColumn("name"),
+                new SchemaChange.AddColumn("age", ColumnType.of("INT"), false))))
+                .isInstanceOf(MetadataException.class)
+                .hasMessageContaining("NOT NULL");
+
+        assertThat(connectorMetadata.dropColumnCalls).isEmpty();
+        assertThat(connectorMetadata.addColumnCalls).isEmpty();
+    }
+
+    @Test
+    void alterTableRejectsNullabilityChangeBeforeApplyingOtherChanges() {
+        QualifiedTableRef tableRef = new QualifiedTableRef("test_catalog", "public", "orders");
+        MetadataSessionContext session = testSession();
+
+        assertThatThrownBy(() -> service.alterTable(session, tableRef, List.of(
+                new SchemaChange.DropColumn("name"),
+                new SchemaChange.ChangeNullability("id", false))))
+                .isInstanceOf(MetadataException.class)
+                .hasMessageContaining("nullability");
+
+        assertThat(connectorMetadata.dropColumnCalls).isEmpty();
     }
 
     private static MetadataSessionContext testSession() {

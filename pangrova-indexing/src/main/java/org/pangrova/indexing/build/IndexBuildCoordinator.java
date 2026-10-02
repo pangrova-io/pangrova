@@ -39,6 +39,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
     private volatile boolean paused;
     private volatile boolean closed;
 
+    /** Creates a coordinator from immutable build services and limits. */
     public IndexBuildCoordinator(IndexBuildContext context, IndexBuildMetrics metrics) {
         if (context == null) {
             throw new IllegalArgumentException("ctx must not be null");
@@ -55,6 +56,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         ownerId = "builder-" + UUID.randomUUID();
     }
 
+    /** Submits a build without a mapping callback. */
     public CompletableFuture<IndexBuildResult> submitBuildTask(
             IndexDescriptor descriptor,
             List<DataFileInfo> dataFiles,
@@ -63,6 +65,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         return submitBuildTask(descriptor, dataFiles, fileSystemAccessor, reader, null);
     }
 
+    /** Submits a build and streams completed mapping batches to the supplied callback. */
     public CompletableFuture<IndexBuildResult> submitBuildTask(
             IndexDescriptor descriptor,
             List<DataFileInfo> dataFiles,
@@ -92,10 +95,12 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         return future;
     }
 
+    /** Returns whether a new build can be dispatched immediately. */
     public boolean canAcceptBuild() {
         return !closed && !paused && activeBuilds.get() < maxConcurrentBuilds;
     }
 
+    /** Cancels queued work and marks active work for cooperative cancellation. */
     public void cancelBuild(String indexId) {
         if (indexId == null) {
             return;
@@ -111,11 +116,13 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         LOG.info("event=index_build_cancelled indexId={}", indexId);
     }
 
+    /** Pauses dispatch while retaining queued build requests. */
     public void pauseBuilds() {
         paused = true;
         LOG.info("event=index_build_paused pendingBuilds={}", pendingBuilds.size());
     }
 
+    /** Resumes dispatch of all requests accumulated while paused. */
     public void resumePendingBuilds() {
         paused = false;
         int resumed = 0;

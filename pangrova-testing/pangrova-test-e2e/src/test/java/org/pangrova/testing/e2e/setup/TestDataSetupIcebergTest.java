@@ -140,7 +140,9 @@ class TestDataSetupIcebergTest {
             @Override public String getUser() { return "test"; }
             @Override public Optional<String> getCatalog() { return Optional.of("test_warehouse"); }
             @Override public Optional<String> getSchema() { return Optional.of("default"); }
-            @Override public Map<String, String> getProperties() { return Map.of(); }
+            @Override public Map<String, String> getProperties() {
+                return Map.of("tenant_id", "e2e-tenant");
+            }
         };
     }
 

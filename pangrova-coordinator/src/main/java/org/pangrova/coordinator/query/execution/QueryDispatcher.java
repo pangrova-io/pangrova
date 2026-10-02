@@ -3,8 +3,6 @@ package org.pangrova.coordinator.query.execution;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.coordinator.ai.cache.SemanticCache;
-
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.QueryStateMachine;
@@ -18,18 +16,17 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget;
-import org.pangrova.coordinator.query.execution.result.QueryCacheService;
+import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.planner.PlannedQuery;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.governance.lineage.DatasetRef;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.observability.tracing.QueryTracer;
-import org.pangrova.planner.cache.QueryResultCache;
 import org.pangrova.spi.observability.TracingProvider;
+import org.pangrova.shuffle.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,7 +39,6 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <p>This class is a thin facade that delegates to:
  * <ul>
  *   <li>{@link QueryPipelineExecutor} — pipeline execution and DML compilation</li>
- *   <li>{@link MergeDecomposer} — complex MERGE statement decomposition</li>
  *   <li>{@link QuerySchedulingEngine} — dispatch to workers and DAG execution</li>
  * </ul>
  *
@@ -56,21 +52,23 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public class QueryDispatcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryDispatcher.class);
+    private static final long DEFAULT_DAG_DISPATCH_TIMEOUT_MS = 300_000L;
 
     private final QueryPipelineExecutor pipelineExecutor;
     private final QuerySchedulingEngine schedulingEngine;
-    private final MergeDecomposer mergeDecomposer;
     private final QueryOwnershipTracker ownershipTracker;
     private final QueryLineageCapture lineageCapture;
     private final LineageEventEmitter lineageEmitter;
     private final CoordinatorTaskTracker taskTracker;
     private final TaskDispatcher dispatcher;
+    private final ShuffleLifecycleManager shuffleLifecycleManager;
 
     public QueryDispatcher(QueryDispatcherContext deps,
                            StatementDispatcher preBuiltDispatcher) {
         this(deps, preBuiltDispatcher, null);
     }
 
+    /** Assembles the shared query execution pipeline with optional tracing. */
     public QueryDispatcher(QueryDispatcherContext deps,
                            StatementDispatcher preBuiltDispatcher,
                            TracingProvider tracingProvider) {
@@ -80,9 +78,9 @@ public class QueryDispatcher {
         this.lineageEmitter = deps.lineageEmitter();
         this.taskTracker = deps.taskTracker();
         this.dispatcher = deps.dispatcher();
+        this.shuffleLifecycleManager = deps.shuffleLifecycleManager();
 
         var securityApplier = createSecurityApplier(deps);
-        var cacheService = createCacheService(deps);
         var queryTracer = tracingProvider != null
                 ? new QueryTracer(tracingProvider) : null;
         var splitMgr = resolveSplitAssignmentManager(deps);
@@ -90,26 +88,20 @@ public class QueryDispatcher {
         var rfHandler = createRuntimeFilterHandler(deps);
         var dagEngine = createDagEngine(deps, splitMgr, rfHandler);
         long dagDispatchTimeoutMs = deps.taskTimeoutSeconds() > 0
-                ? deps.taskTimeoutSeconds() * 1000L : 300_000L;
+                ? deps.taskTimeoutSeconds() * 1000L : DEFAULT_DAG_DISPATCH_TIMEOUT_MS;
 
         this.schedulingEngine = new QuerySchedulingEngine(
                 new QuerySchedulingEngine.SchedulingDependencies(
                         dagEngine, workerSelector,
                         deps.workerManager(), deps.taskTracker(),
-                        deps.coordinatorResultService(),
                         deps.catalogRegistry(),
                         deps.indexAwareSplitFetcher(), rfHandler,
                         dagDispatchTimeoutMs));
 
-        var mergeWal = new MergeWriteAheadLog();
-        this.mergeDecomposer = new MergeDecomposer(
-                mergeWal, deps.catalogRegistry(),
-                this::delegateDmlSql);
-
         this.pipelineExecutor = new QueryPipelineExecutor(
-                securityApplier, cacheService, preBuiltDispatcher,
+                securityApplier, preBuiltDispatcher,
                 queryTracer, lineageCapture,
-                schedulingEngine, mergeDecomposer,
+                schedulingEngine,
                 deps.catalogRegistry());
 
         var cancelRetrier = new TaskCancelRetrier(
@@ -119,6 +111,7 @@ public class QueryDispatcher {
                 deps.catalogRegistry(), splitMgr, cancelRetrier);
         this.ownershipTracker.initFromContext(
                 deps.haService(), deps.coordinatorId());
+        this.schedulingEngine.setConnectorRegistrar(ownershipTracker::registerConnectorMetadata);
     }
 
     // ── Public API ──
@@ -137,24 +130,23 @@ public class QueryDispatcher {
         } catch (Exception e) {
             LOG.error("event=execute_crash queryId={} error={}",
                     session.queryId(), e.getMessage(), e);
-            sm.setError(new org.pangrova.protocol.rest.error.ErrorDetail(
-                    "INTERNAL_ERROR", e.getClass().getSimpleName(),
-                    e.getMessage()));
-            sm.tryTransition(QueryStateMachine.State.FAILED);
+            // QueryManager owns the terminal transition and its durable journal,
+            // active-count and admission cleanup. This layer only releases the
+            // dispatch ownership it acquired before propagating the failure.
             ownershipTracker.cleanupQuery(session.queryId());
             throw wrapIfNeeded(e, session.queryId());
         }
     }
 
-    public DispatchResult dispatchPlan(QueryStateMachine sm,
-                                       CoordinatorSessionContext session,
-                                       PlannedQuery plan) {
-        return pipelineExecutor.dispatchPlan(sm, session, plan);
-    }
-
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
                                         CoordinatorSessionContext session) {
         return pipelineExecutor.executeDmlSql(sm, sql, session);
+    }
+
+    /** Compiles a protected read relation using this dispatcher's current query authority. */
+    public AuthorizedRelation compileAuthorizedRelation(String sql, CoordinatorSessionContext session) {
+        checkNotNull(sql, "sql must not be null");
+        return pipelineExecutor.compileAuthorizedRelation(sql, session);
     }
 
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
@@ -190,7 +182,11 @@ public class QueryDispatcher {
             org.pangrova.coordinator.query.task
                     .NativeWriteCommitTracker tracker) {
         schedulingEngine.setWriteCommitTracker(tracker);
-        mergeDecomposer.setWriteCommitTracker(tracker);
+    }
+
+    /** Binds the production generated-write authority before query submission starts. */
+    public void setGeneratedWriteAuthoritySupplier(GeneratedWriteAuthoritySupplier supplier) {
+        schedulingEngine.setGeneratedWriteAuthoritySupplier(supplier);
     }
 
     /**
@@ -198,24 +194,9 @@ public class QueryDispatcher {
      * workload analysis.
      */
     public void setSelfIntelligence(
-            SemanticCache semanticCache,
             org.pangrova.planner.advisor.QueryPatternRecorder patternRecorder) {
-        if (semanticCache != null) {
-            pipelineExecutor.setSemanticCache(semanticCache);
-        }
         if (patternRecorder != null) {
             pipelineExecutor.setPatternRecorder(patternRecorder);
-        }
-    }
-
-    /**
-     * Injects the embedding provider used to populate the semantic query cache.
-     * A null provider leaves semantic caching disabled (the pipeline skips
-     * caching rather than storing zero vectors).
-     */
-    public void setEmbeddingProvider(org.pangrova.spi.ai.embedding.EmbeddingProvider embeddingProvider) {
-        if (embeddingProvider != null) {
-            pipelineExecutor.setEmbeddingProvider(embeddingProvider);
         }
     }
 
@@ -230,6 +211,24 @@ public class QueryDispatcher {
     public void cleanupQuery(String queryId) {
         ownershipTracker.cleanupQuery(queryId);
         schedulingEngine.dagEngine().clearQuery(queryId);
+    }
+
+    /** Wires the one durable remote Shuffle cleanup path. */
+    public void setShuffleCleanupIntents(JdbcShuffleCleanupIntentStore intents) {
+        if (shuffleLifecycleManager == null) {
+            throw new IllegalStateException("remote Shuffle lifecycle is not configured");
+        }
+        ownershipTracker.setShuffleCleanup(intents, shuffleLifecycleManager);
+    }
+
+    /** Retries a persisted terminal Shuffle cleanup after Coordinator restart. */
+    public void retryPendingShuffleCleanup(String queryId) {
+        if (!(shuffleLifecycleManager
+                instanceof org.pangrova.coordinator.query.execution.dispatch.shuffle
+                        .CoordinatorShuffleLifecycleManager remote)) {
+            throw new IllegalStateException("remote Shuffle lifecycle is not configured");
+        }
+        remote.recoverCleanupShuffle(queryId);
     }
 
     public void cancelDispatchedTasks(String queryId) {
@@ -268,19 +267,6 @@ public class QueryDispatcher {
                 deps.columnMaskApplier(), deps.rowFilterApplier());
     }
 
-    private static QueryCacheService createCacheService(
-            QueryDispatcherContext deps) {
-        QueryResultCache resolvedCache =
-                QueryCacheService.resolveCache(deps.compiler());
-        var cacheCoordinator = resolvedCache != null
-                ? new org.pangrova.coordinator.query.cache
-                        .ResultCacheCoordinator(resolvedCache, null, null)
-                : null;
-        return new QueryCacheService(cacheCoordinator,
-                deps.cacheWritebackConfig(),
-                deps.coordinatorResultService());
-    }
-
     private static SplitAssignmentManager resolveSplitAssignmentManager(
             QueryDispatcherContext deps) {
         return deps.splitAssignmentManager() != null
@@ -293,7 +279,8 @@ public class QueryDispatcher {
         return new DefaultWorkerSelector(
                 deps.workerManager(), deps.taskScheduler(), splitMgr,
                 deps.spillBudget() != null
-                        ? deps.spillBudget() : new SpillBudget(0, ""));
+                        ? deps.spillBudget() : new SpillBudget(0, ""),
+                deps.embeddingModelRegistry());
     }
 
     private static org.pangrova.coordinator.query.execution.dispatch.dag
@@ -326,30 +313,7 @@ public class QueryDispatcher {
                 deps.shuffleLifecycleManager(), splitMgr,
                 deps.resilienceRegistry(), deps.stateJournal()),
                 buildStageHandlers(deps, rfHandler),
-                deps.indexAwareSplitFetcher(),
-                buildHintAwareReoptimizer(deps));
-    }
-
-    /**
-     * F-AQE-03: build a SubPlanReoptimizer that honors join-strategy hints from AQE.
-     */
-    private static org.pangrova.planner.SubPlanReoptimizer buildHintAwareReoptimizer(
-            QueryDispatcherContext deps) {
-        var planner = deps.compiler().planner();
-        return new org.pangrova.planner.SubPlanReoptimizer() {
-            @Override
-            public org.pangrova.planner.PlanFragment reoptimize(
-                    org.pangrova.planner.PlanFragment fragment) {
-                return fragment.reoptimize(planner);
-            }
-
-            @Override
-            public org.pangrova.planner.PlanFragment reoptimize(
-                    org.pangrova.planner.PlanFragment fragment,
-                    org.pangrova.planner.adaptive.JoinStrategy joinStrategyHint) {
-                return fragment.reoptimize(planner, joinStrategyHint);
-            }
-        };
+                deps.indexAwareSplitFetcher());
     }
 
     private static List<org.pangrova.coordinator.query.execution.dispatch
@@ -385,13 +349,6 @@ public class QueryDispatcher {
     }
 
     // ── Internal helpers ──
-
-    private DispatchResult delegateDmlSql(QueryStateMachine sm, String sql,
-                                          CoordinatorSessionContext session,
-                                          String writeModeOverride) {
-        return pipelineExecutor.executeDmlSql(
-                sm, sql, session, writeModeOverride);
-    }
 
     private void emitQueryStartedLineage(String queryId, String sql) {
         if (lineageEmitter == null) {

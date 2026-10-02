@@ -11,6 +11,7 @@
 #include "shuffle/TicketVerifier.h"
 
 #include <chrono>
+#include <charconv>
 #include <cstring>
 
 #include <openssl/crypto.h>
@@ -99,9 +100,8 @@ arrow::Result<TicketPayload> TicketVerifier::verify(
 
   // Step 2: Parse and check expiry.
   int64_t expiryMs = 0;
-  try {
-    expiryMs = std::stoll(std::string(expiryStr));
-  } catch (...) {
+  const auto parsed = std::from_chars(expiryStr.data(), expiryStr.data() + expiryStr.size(), expiryMs);
+  if (parsed.ec != std::errc{} || parsed.ptr != expiryStr.data() + expiryStr.size()) {
     return arrow::Status::Invalid("Invalid ticket");
   }
 
@@ -123,6 +123,8 @@ arrow::Result<TicketPayload> TicketVerifier::verify(
     currentKey = currentKey_;
     previousKey = previousKey_;
   }
+
+  if (currentKey.empty()) return arrow::Status::Invalid("Invalid ticket");
 
   // Try current key first.
   std::string expectedHmac = computeHmac(currentKey, signedMessage);
@@ -147,6 +149,15 @@ void TicketVerifier::rotateKey(std::string_view newCurrentKey) {
   previousKey_ = std::move(currentKey_);
   currentKey_ = std::string(newCurrentKey);
   PANGROVA_LOG(INFO) << "event=ticket_key_rotated";
+}
+
+void TicketVerifier::setKeys(std::string_view currentKey,
+                             std::string_view previousKey) {
+  std::lock_guard<std::mutex> lock(mu_);
+  currentKey_ = std::string(currentKey);
+  previousKey_ = std::string(previousKey);
+  PANGROVA_LOG(INFO) << "event=ticket_keys_replaced"
+                    << " has_previous_key=" << !previousKey_.empty();
 }
 
 std::string TicketVerifier::computeHmac(std::string_view key,

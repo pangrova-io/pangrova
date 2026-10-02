@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner;
 
+import org.pangrova.protocol.v2.BatchSerde;
+
 import java.util.List;
 
 /**
@@ -23,16 +25,27 @@ public record StageTransfer(
         int upstreamStageId,
         int downstreamStageId,
         ShuffleType shuffleType,
-        List<Integer> distributionKeys
+        List<Integer> distributionKeys,
+        String exchangeId,
+        int partitionCount,
+        BatchSerde batchSerde,
+        boolean requireComplete
 ) {
     public StageTransfer {
         if (shuffleType == null) {
             throw new NullPointerException("shuffleType must not be null");
         }
         distributionKeys = distributionKeys == null ? List.of() : List.copyOf(distributionKeys);
-    }
-
-    public StageTransfer(int upstreamStageId, int downstreamStageId, ShuffleType shuffleType) {
-        this(upstreamStageId, downstreamStageId, shuffleType, List.of());
+        if (exchangeId == null || exchangeId.isBlank()) {
+            throw new IllegalArgumentException("exchangeId must not be blank");
+        }
+        if (partitionCount < 1) {
+            throw new IllegalArgumentException("partitionCount must be >= 1");
+        }
+        if (batchSerde == null
+                || batchSerde == BatchSerde.BATCH_SERDE_UNSPECIFIED
+                || batchSerde == BatchSerde.UNRECOGNIZED) {
+            throw new IllegalArgumentException("batchSerde must be explicitly bound");
+        }
     }
 }

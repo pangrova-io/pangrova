@@ -1,15 +1,20 @@
 package org.pangrova.metadata.cache;
 
 import org.pangrova.metadata.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.metadata.store.EmbeddedDataSource;
+import org.pangrova.metadata.coordination.JdbcCoordinatorRegistry;
+import org.pangrova.metadata.testinfra.SharedPostgresContainer;
+import org.pangrova.spi.coordination.CoordinatorSnapshot;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,20 +22,17 @@ import static org.awaitility.Awaitility.await;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 /**
- * Unit tests for {@link JdbcInvalidationPoller} using H2 in-memory database.
+ * PostgreSQL integration tests for {@link JdbcInvalidationPoller}.
  */
 class JdbcInvalidationPollerTest {
 
-    private EmbeddedDataSource dataSource;
+    private DataSource dataSource;
     private RecordingMetadataCache cache;
     private JdbcInvalidationPoller poller;
 
     @BeforeEach
-    void setUp() {
-        dataSource = new EmbeddedDataSource(
-                "jdbc:h2:mem:invalidation_test_" + System.nanoTime()
-                        + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
-                "sa", "");
+    void setUp() throws Exception {
+        dataSource = SharedPostgresContainer.migratedDataSource("invalidation");
         cache = new RecordingMetadataCache();
         poller = new JdbcInvalidationPoller(dataSource, cache, 1);
         poller.initSchema();
@@ -39,11 +41,10 @@ class JdbcInvalidationPollerTest {
     @AfterEach
     void tearDown() {
         poller.close();
-        dataSource.close();
     }
 
     @Test
-    void initSchemaCreatesTable() throws SQLException {
+    void initSchemaValidatesProductionMigration() throws SQLException {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(
@@ -201,24 +202,56 @@ class JdbcInvalidationPollerTest {
         // Write a valid entry
         poller.writeInvalidation("c\u001Fs\u001Ft", InvalidationType.TABLE);
 
-        // Drop the table to simulate a transient DB error
+        // Hide the table to simulate a transient schema lookup failure without
+        // recreating a competing schema or resetting the publication sequence.
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE invalidation_log");
+            stmt.execute("ALTER TABLE invalidation_log RENAME TO unavailable_invalidation_log");
         }
 
         // Poll should not throw — it catches and logs
         poller.poll();
         assertThat(cache.tableInvalidations).isEmpty();
 
-        // Recreate table and write new entry
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("ALTER TABLE unavailable_invalidation_log RENAME TO invalidation_log");
+        }
+        // Recover the canonical table and write another entry.
         poller.initSchema();
         poller.writeInvalidation("c2\u001Fs2\u001Ft2", InvalidationType.TABLE);
 
-        // Next poll should recover (but note: IDs reset after table recreation)
-        // The high-water mark is still at 0 since the first poll failed
         poller.poll();
-        assertThat(cache.tableInvalidations).hasSize(1);
+        assertThat(cache.tableInvalidations).hasSize(2);
+        assertThat(poller.getLastProcessedId()).isEqualTo(2);
+    }
+
+    @Test
+    void refusesMissingCommitOrderGate() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE invalidation_log DISABLE TRIGGER invalidation_append_commit_gate");
+        }
+        assertThatThrownBy(poller::initSchema)
+                .isInstanceOf(org.pangrova.metadata.exception.MetastoreException.class)
+                .hasRootCauseMessage("Canonical invalidation commit-order trigger is missing or disabled");
+    }
+
+    @Test
+    void readsBoundedPagesWithoutDroppingBacklog() throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("INSERT INTO invalidation_log(cache_key, invalidation_type) "
+                    + "SELECT 'catalog_' || n, 'CATALOG' FROM generate_series(1, 1001) AS n");
+        }
+        poller.poll();
+        assertThat(cache.catalogInvalidations).hasSize(JdbcInvalidationPoller.POLL_PAGE_SIZE);
+        assertThat(poller.getLastProcessedId()).isEqualTo(1000);
+        poller.poll();
+        assertThat(cache.catalogInvalidations).hasSize(1001);
+        assertThat(poller.getLastProcessedId()).isEqualTo(1001);
+        poller.poll();
+        assertThat(cache.catalogInvalidations).hasSize(1001);
     }
 
     @Test
@@ -316,14 +349,36 @@ class JdbcInvalidationPollerTest {
         assertThat(second).as("Second cleanup should find nothing to delete").isZero();
     }
 
+    @Test
+    void cleanupCannotPassAnotherRegisteredCoordinatorsProgress() throws SQLException {
+        var registry = new JdbcCoordinatorRegistry(dataSource);
+        long now = System.currentTimeMillis();
+        registry.register(new CoordinatorSnapshot("local", "localhost", 1, "LEADER", 1, now, now));
+        registry.register(new CoordinatorSnapshot("remote", "localhost", 2, "STANDBY", 1, now, now));
+        poller.setCoordinatorRegistry(registry, "local");
+        poller.writeInvalidation("first", InvalidationType.CATALOG);
+        poller.writeInvalidation("second", InvalidationType.CATALOG);
+        backdateAllEntries(48);
+        poller.poll();
+        assertThat(registry.getCoordinator("local").orElseThrow().lastProcessedInvalidationId()).isEqualTo(2);
+        assertThat(poller.cleanup()).as("Unknown remote progress must retain the log").isZero();
+        registry.updateLastProcessedInvalidationId("remote", 1);
+        assertThat(poller.cleanup()).isEqualTo(1);
+        assertThat(countRows()).isEqualTo(1);
+        registry.updateLastProcessedInvalidationId("remote", 2);
+        assertThat(poller.cleanup()).isEqualTo(1);
+        assertThat(countRows()).isZero();
+    }
+
     // ── Helpers ──
 
     private void backdateAllEntries(int hoursAgo) throws SQLException {
         try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.executeUpdate(
-                    "UPDATE invalidation_log SET created_at = TIMESTAMPADD(HOUR, -"
-                            + hoursAgo + ", CURRENT_TIMESTAMP)");
+             PreparedStatement statement = conn.prepareStatement(
+                     "UPDATE invalidation_log SET created_at = "
+                             + "CURRENT_TIMESTAMP - (? * INTERVAL '1 hour')")) {
+            statement.setInt(1, hoursAgo);
+            statement.executeUpdate();
         }
     }
 

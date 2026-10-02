@@ -1,6 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
 import org.pangrova.config.ShuffleMode;
+import org.pangrova.worker.jni.NativeFunctionConfig;
 
 /**
  * Configuration for Worker bootstrap sequence.
@@ -35,7 +36,9 @@ public record WorkerBootstrapConfig(
         String internalAuthSecret,
         ShuffleMode shuffleMode,
         CacheConfig cacheConfig,
-        String advertisedHost) {
+        String advertisedHost,
+        NativeFunctionConfig nativeFunctionConfig,
+        TransportSecurityConfig transportSecurityConfig) {
 
     public static final long DEFAULT_HEARTBEAT_INTERVAL_MS = 5_000;
     public static final int DEFAULT_RESULT_RETENTION_SECONDS = 300;
@@ -51,6 +54,9 @@ public record WorkerBootstrapConfig(
         registrationRetryConfig = orDefault(registrationRetryConfig, RegistrationRetryConfig.defaults());
         shuffleMode = orDefault(shuffleMode, ShuffleMode.NATIVE);
         cacheConfig = orDefault(cacheConfig, CacheConfig.defaults());
+        nativeFunctionConfig = orDefault(nativeFunctionConfig, NativeFunctionConfig.DEFAULT);
+        transportSecurityConfig = orDefault(
+                transportSecurityConfig, TransportSecurityConfig.disabled());
     }
 
     private static void checkWorkerId(String workerId) {
@@ -74,7 +80,70 @@ public record WorkerBootstrapConfig(
         return new WorkerBootstrapConfig(
                 workerId, 0, 0, null, DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, ResourceConfig.defaults(), DEFAULT_RESULT_RETENTION_SECONDS,
-                false, null, null, null, ShuffleMode.NATIVE, null, null);
+                false, null, null, null, ShuffleMode.NATIVE, null, null,
+                NativeFunctionConfig.DEFAULT, TransportSecurityConfig.disabled());
+    }
+
+    /** Mutual-TLS configuration for Native shuffle and result transport. */
+    public record TransportSecurityConfig(
+            boolean enabled,
+            String certificateChainPath,
+            String privateKeyPath,
+            String rootCaPath,
+            String tlsIdentity) {
+
+        public TransportSecurityConfig {
+            certificateChainPath = normalize(certificateChainPath);
+            privateKeyPath = normalize(privateKeyPath);
+            rootCaPath = normalize(rootCaPath);
+            tlsIdentity = normalize(tlsIdentity);
+            checkDisabledConfiguration(
+                    enabled, certificateChainPath, privateKeyPath, rootCaPath, tlsIdentity);
+            checkEnabledConfiguration(
+                    enabled, certificateChainPath, privateKeyPath, rootCaPath, tlsIdentity);
+        }
+
+        public static TransportSecurityConfig disabled() {
+            return new TransportSecurityConfig(false, "", "", "", "");
+        }
+
+        private static String normalize(String value) {
+            return value == null ? "" : value.trim();
+        }
+
+        private static void checkDisabledConfiguration(
+                boolean enabled,
+                String certificateChainPath,
+                String privateKeyPath,
+                String rootCaPath,
+                String tlsIdentity) {
+            if (!enabled && hasAnyValue(
+                    certificateChainPath, privateKeyPath, rootCaPath, tlsIdentity)) {
+                throw new IllegalArgumentException(
+                        "transport TLS settings require enabled=true");
+            }
+        }
+
+        private static void checkEnabledConfiguration(
+                boolean enabled,
+                String certificateChainPath,
+                String privateKeyPath,
+                String rootCaPath,
+                String tlsIdentity) {
+            if (enabled && hasMissingValue(
+                    certificateChainPath, privateKeyPath, rootCaPath, tlsIdentity)) {
+                throw new IllegalArgumentException(
+                        "enabled transport TLS requires certificate, private key, root CA and identity");
+            }
+        }
+
+        private static boolean hasAnyValue(String first, String second, String third, String fourth) {
+            return !first.isEmpty() || !second.isEmpty() || !third.isEmpty() || !fourth.isEmpty();
+        }
+
+        private static boolean hasMissingValue(String first, String second, String third, String fourth) {
+            return first.isEmpty() || second.isEmpty() || third.isEmpty() || fourth.isEmpty();
+        }
     }
 
     /**
@@ -91,11 +160,20 @@ public record WorkerBootstrapConfig(
             double pressureThresholdLow,
             double pressureThresholdMedium,
             double pressureThresholdHigh,
-            double pressureThresholdCritical) {
+            double pressureThresholdCritical,
+            long shuffleRetentionBytes,
+            long shuffleTransitBytes,
+            long shuffleSpillBytes,
+            int shuffleSpillFiles,
+            String shuffleSpillDirectory) {
 
         public static final long DEFAULT_MEMORY_BUDGET = 512L * 1024 * 1024;
         public static final long DEFAULT_SYSTEM_RESERVED = 64L * 1024 * 1024;
         public static final long DEFAULT_NODE_MEMORY = 1024L * 1024 * 1024;
+        public static final long DEFAULT_SHUFFLE_RETENTION = 16L * 1024 * 1024;
+        public static final long DEFAULT_SHUFFLE_TRANSIT = 16L * 1024 * 1024;
+        public static final long DEFAULT_SHUFFLE_SPILL = 1024L * 1024 * 1024;
+        public static final int DEFAULT_SHUFFLE_SPILL_FILES = 256;
 
         /** Default memory-pressure thresholds (percent) for each escalation level. */
         public static final double DEFAULT_PRESSURE_THRESHOLD_LOW = 50.0;
@@ -107,6 +185,10 @@ public record WorkerBootstrapConfig(
             if (nodeMemoryBytes <= 0) {
                 nodeMemoryBytes = DEFAULT_NODE_MEMORY;
             }
+            if (shuffleRetentionBytes <= 0 || shuffleTransitBytes < 3L * 4 * 1024 * 1024 + 64 * 1024 ||
+                    shuffleSpillBytes <= 0 || shuffleSpillFiles <= 0) {
+                throw new IllegalArgumentException("Shuffle service quotas must be positive and transit must fit a 4 MiB batch");
+            }
         }
 
         /** Returns a resource configuration populated with default values. */
@@ -115,7 +197,9 @@ public record WorkerBootstrapConfig(
                     DEFAULT_MEMORY_BUDGET, DEFAULT_SYSTEM_RESERVED,
                     4, 2, 1, null, DEFAULT_NODE_MEMORY,
                     DEFAULT_PRESSURE_THRESHOLD_LOW, DEFAULT_PRESSURE_THRESHOLD_MEDIUM,
-                    DEFAULT_PRESSURE_THRESHOLD_HIGH, DEFAULT_PRESSURE_THRESHOLD_CRITICAL);
+                    DEFAULT_PRESSURE_THRESHOLD_HIGH, DEFAULT_PRESSURE_THRESHOLD_CRITICAL,
+                    DEFAULT_SHUFFLE_RETENTION, DEFAULT_SHUFFLE_TRANSIT,
+                    DEFAULT_SHUFFLE_SPILL, DEFAULT_SHUFFLE_SPILL_FILES, null);
         }
     }
 
@@ -171,31 +255,64 @@ public record WorkerBootstrapConfig(
             String ssdCachePath,
             long ssdCacheBytes,
             int ssdShards,
-            long checkpointIntervalBytes) {
-
-        /** Backward-compatible constructor (no checkpoint interval). */
-        public CacheConfig(boolean enabled, long memoryCacheBytes,
-                           String ssdCachePath, long ssdCacheBytes, int ssdShards) {
-            this(enabled, memoryCacheBytes, ssdCachePath, ssdCacheBytes, ssdShards, 0);
-        }
+            long checkpointIntervalBytes,
+            String artifactCachePath,
+            long artifactCacheBytes,
+            long artifactIndexMemoryBytes) {
 
         public CacheConfig {
             if (ssdCachePath == null) {
                 ssdCachePath = "/dev/null";
             }
+            if (artifactCachePath == null) {
+                artifactCachePath = "/dev/null";
+            }
+            checkMemoryConfiguration(enabled, memoryCacheBytes, ssdShards);
+            checkCheckpointInterval(checkpointIntervalBytes);
+            checkArtifactConfiguration(
+                    enabled, artifactCachePath, artifactCacheBytes, artifactIndexMemoryBytes);
+        }
+
+        public static CacheConfig defaults() {
+            return new CacheConfig(false, 0, "/dev/null", 0, 1, 0,
+                    "/dev/null", 0, 0);
+        }
+
+        private static void checkMemoryConfiguration(
+                boolean enabled, long memoryCacheBytes, int ssdShards) {
             if (enabled && memoryCacheBytes <= 0) {
-                throw new IllegalArgumentException("memoryCacheBytes must be positive when cache is enabled");
+                throw new IllegalArgumentException(
+                        "memoryCacheBytes must be positive when cache is enabled");
             }
             if (enabled && ssdShards <= 0) {
-                throw new IllegalArgumentException("ssdShards must be positive when cache is enabled");
+                throw new IllegalArgumentException(
+                        "ssdShards must be positive when cache is enabled");
             }
+        }
+
+        private static void checkCheckpointInterval(long checkpointIntervalBytes) {
             if (checkpointIntervalBytes < 0) {
                 throw new IllegalArgumentException("checkpointIntervalBytes must be non-negative");
             }
         }
 
-        public static CacheConfig defaults() {
-            return new CacheConfig(false, 0, "/dev/null", 0, 1, 0);
+        private static void checkArtifactConfiguration(
+                boolean enabled,
+                String artifactCachePath,
+                long artifactCacheBytes,
+                long artifactIndexMemoryBytes) {
+            if (enabled && artifactCachePath.isBlank()) {
+                throw new IllegalArgumentException(
+                        "artifactCachePath must not be blank when cache is enabled");
+            }
+            if (enabled && artifactCacheBytes <= 0) {
+                throw new IllegalArgumentException(
+                        "artifactCacheBytes must be positive when cache is enabled");
+            }
+            if (enabled && artifactIndexMemoryBytes <= 0) {
+                throw new IllegalArgumentException(
+                        "artifactIndexMemoryBytes must be positive when cache is enabled");
+            }
         }
     }
 }

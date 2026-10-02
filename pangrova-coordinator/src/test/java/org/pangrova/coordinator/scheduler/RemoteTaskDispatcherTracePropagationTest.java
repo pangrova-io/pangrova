@@ -67,10 +67,10 @@ class RemoteTaskDispatcherTracePropagationTest {
     }
 
     private static SubmitTaskRequest dummyRequest() {
-        return new SubmitTaskRequest(
-                "task-trace-1", "q-trace-1", 0, 0, "COMPUTE", "cGxhbg==",
-                List.of(), List.of(), null, Map.of(), null, null,
-                null, null, null, null, null, null, null);
+        return org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                "task-trace-1", "q-trace-1", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static WorkerInfo unreachableWorker() {

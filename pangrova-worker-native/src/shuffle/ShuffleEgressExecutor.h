@@ -43,13 +43,24 @@ class ShuffleEgressExecutor {
   ShuffleEgressExecutor(ShuffleEgressExecutor&&) = delete;
   ShuffleEgressExecutor& operator=(ShuffleEgressExecutor&&) = delete;
 
-  // Delivers a committed partition segment to the Java egress.
+  // Delivers one serialized partition batch to the Java egress.
   // Converts the raw byte buffer to a Java DirectByteBuffer for zero-copy.
   // Throws std::runtime_error if the Java side throws.
-  void onPartitionCommitted(const std::string& query_id, int32_t stage_id,
-                            int32_t partition_id, int32_t map_id,
-                            int64_t attempt_id, const uint8_t* data,
-                            int64_t size);
+  void onPartitionBatch(const std::string& query_id,
+                        const std::string& task_id,
+                        int32_t partition_id,
+                        int64_t row_count,
+                        const uint8_t* data,
+                        int64_t size);
+
+  // Commits all task partitions after the native queue has closed and drained.
+  void onTaskCompleted(const std::string& query_id,
+                       const std::string& task_id);
+
+  // Aborts task-local Java sinks after Native execution or callback failure.
+  void onTaskAborted(const std::string& query_id,
+                     const std::string& task_id,
+                     const std::string& reason) noexcept;
 
  private:
   // Checks for a pending Java exception after a JNI call.
@@ -58,10 +69,9 @@ class ShuffleEgressExecutor {
   JavaVM* vm_;
   jobject egress_;  // GlobalRef to Java ShuffleByteEgress instance
 
-  // Cached method ID for ShuffleByteEgress.onPartitionCommitted(
-  //     String queryId, int stageId, int partitionId,
-  //     int mapId, long attemptId, ByteBuffer arrowIpc)
-  jmethodID onPartitionCommittedId_;
+  jmethodID onPartitionBatchId_;
+  jmethodID onTaskCompletedId_;
+  jmethodID onTaskAbortedId_;
 };
 
 }  // namespace pangrova::shuffle

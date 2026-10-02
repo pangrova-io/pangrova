@@ -4,6 +4,7 @@
 #include "memory/PangrovaArbitrator.h"
 
 #include <algorithm>
+#include <limits>
 #include <sstream>
 
 #include "memory/BlockAllocationListener.h"
@@ -132,107 +133,56 @@ void PangrovaArbitrator::removePool(
                    << " pool_count=" << pools_.size();
 }
 
-void PangrovaArbitrator::growCapacity(
-    facebook::velox::memory::MemoryPool* pool,
-    uint64_t targetBytes) {
-  grow_requests_.fetch_add(1, std::memory_order_relaxed);
-
-  if (targetBytes == 0) {
-    return;
+void PangrovaArbitrator::commitCapacity(
+    facebook::velox::memory::MemoryPool* pool, int64_t granted, uint64_t requested) {
+  bool committed;
+  try {
+    committed = growPool(pool, static_cast<uint64_t>(granted), requested);
+  } catch (...) {
+    listener_->allocationChanged(-granted);
+    grow_failures_.fetch_add(1, std::memory_order_relaxed);
+    throw;
   }
-
-  // Delegate to listener chain:
-  // PangrovaArbitrator → BlockAllocationListener → PangrovaAllocationListener → JNI
-  // Java side tracks the reservation; Velox MemoryManager handles pool capacity.
-  int64_t granted = listener_->allocationChanged(
-      static_cast<int64_t>(targetBytes));
-
-  if (granted > 0) {
-    grow_successes_.fetch_add(1, std::memory_order_relaxed);
-    total_grown_bytes_.fetch_add(granted, std::memory_order_relaxed);
-    // Actually grow the pool's capacity so Velox's internal accounting
-    // (reservation vs capacity) stays consistent. The reservationBytes
-    // parameter commits the pending reservation that triggered this
-    // arbitration call — without it, the caller retries indefinitely
-    // and the reservation counter overflows.
-    growPool(pool, static_cast<uint64_t>(granted), targetBytes);
-    return;
+  if (!committed) {
+    listener_->allocationChanged(-granted);
+    grow_failures_.fetch_add(1, std::memory_order_relaxed);
+    VELOX_MEM_POOL_CAP_EXCEEDED(fmt::format(
+        "Task pool rejected capacity growth: pool={} granted_bytes={} requested_bytes={}",
+        pool->name(), granted, requested));
   }
-
-  grow_failures_.fetch_add(1, std::memory_order_relaxed);
-
-  // Attempt to reclaim memory from the pool before giving up.
-  // This triggers Velox's internal spill path for operators that support
-  // spilling (e.g., HashBuild, OrderBy), freeing memory that can then
-  // be re-allocated.
-  uint64_t reclaimed = shrinkPool(pool, targetBytes);
-  if (reclaimed > 0) {
-    // Release the reclaimed capacity from Java-side reservation first.
-    // shrinkPool() reduced the Velox pool's capacity, but the corresponding
-    // Java-side reservation (tracked by BlockAllocationListener) was not
-    // reduced. Without this release, Java-side reserved_bytes_ would
-    // over-count by `reclaimed` bytes, causing the Java memory coordinator
-    // to believe native is using more memory than it actually is.
-    listener_->allocationChanged(-static_cast<int64_t>(reclaimed));
-    total_shrunk_bytes_.fetch_add(
-        static_cast<int64_t>(reclaimed), std::memory_order_relaxed);
-
-    PANGROVA_LOG(INFO) << "event=pangrova_arbitrator_reclaimed"
-              << " pool=" << pool->name()
-              << " reclaimed_bytes=" << reclaimed
-              << " requested_bytes=" << targetBytes;
-    // Retry the allocation after reclaim.
-    int64_t retryGranted = listener_->allocationChanged(
-        static_cast<int64_t>(targetBytes));
-    if (retryGranted > 0) {
-      grow_successes_.fetch_add(1, std::memory_order_relaxed);
-      total_grown_bytes_.fetch_add(retryGranted, std::memory_order_relaxed);
-      growPool(pool, static_cast<uint64_t>(retryGranted), targetBytes);
-      return;
-    }
-  }
-
-  PANGROVA_LOG(ERROR) << "event=pangrova_arbitrator_grow_denied"
-            << " pool=" << pool->name()
-            << " requested_bytes=" << targetBytes
-            << " reclaimed_bytes=" << reclaimed;
-
-  // Guard: if the arbitrator is shutting down, deny silently. Throwing
-  // during teardown can crash threads that are draining work.
-  if (shutdown_.load(std::memory_order_acquire)) {
-    PANGROVA_LOG(WARNING) << "event=oom_during_shutdown pool=" << pool->name()
-                        << " requested_bytes=" << targetBytes;
-    return;
-  }
-
-  // Guard: if the pool is not tracked by this arbitrator, it may be a
-  // background allocation on a thread without VELOX_FAIL catch semantics.
-  // Deny gracefully instead of risking process termination.
-  {
-    std::lock_guard<std::mutex> lock(pools_mutex_);
-    // PERF-T9: O(1) lookup in unordered_map.
-    bool tracked = pools_.count(pool) > 0;
-    if (!tracked) {
-      PANGROVA_LOG(ERROR) << "event=oom_untracked_pool pool=" << pool->name()
-                        << " requested_bytes=" << targetBytes;
-      return;
-    }
-  }
-
-  // Throw VeloxMemoryCapExceeded so Velox can distinguish OOM from generic
-  // runtime errors. This enables the framework to trigger spill/abort paths
-  // rather than treating it as an unexpected crash. On Velox driver threads
-  // it is caught by Task::next() which transitions the task to FAILED. On JNI
-  // call paths it is caught by JniExceptionScope and converted to a Java
-  // OutOfMemoryError.
-  VELOX_MEM_POOL_CAP_EXCEEDED(fmt::format(
-      "PangrovaArbitrator: memory allocation denied by Java-side coordinator. "
-      "pool={} requested_bytes={} reclaimed_bytes={}",
-      pool->name(),
-      targetBytes,
-      reclaimed));
+  grow_successes_.fetch_add(1, std::memory_order_relaxed);
+  total_grown_bytes_.fetch_add(granted, std::memory_order_relaxed);
 }
 
+void PangrovaArbitrator::growCapacity(
+    facebook::velox::memory::MemoryPool* pool, uint64_t targetBytes) {
+  VELOX_CHECK_NOT_NULL(pool, "Capacity growth requires a pool");
+  grow_requests_.fetch_add(1, std::memory_order_relaxed);
+  if (targetBytes == 0) return;
+  if (targetBytes > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+    grow_failures_.fetch_add(1, std::memory_order_relaxed);
+    VELOX_MEM_POOL_CAP_EXCEEDED("Capacity request exceeds the accounting domain");
+  }
+  int64_t granted = listener_->allocationChanged(static_cast<int64_t>(targetBytes));
+  if (granted > 0) {
+    commitCapacity(pool, granted, targetBytes);
+    return;
+  }
+  const auto reclaimed = shrinkPool(pool, targetBytes);
+  if (reclaimed > 0) {
+    listener_->allocationChanged(-static_cast<int64_t>(reclaimed));
+    total_shrunk_bytes_.fetch_add(static_cast<int64_t>(reclaimed), std::memory_order_relaxed);
+    granted = listener_->allocationChanged(static_cast<int64_t>(targetBytes));
+    if (granted > 0) {
+      commitCapacity(pool, granted, targetBytes);
+      return;
+    }
+  }
+  grow_failures_.fetch_add(1, std::memory_order_relaxed);
+  VELOX_MEM_POOL_CAP_EXCEEDED(fmt::format(
+      "Capacity growth denied: pool={} requested_bytes={} reclaimed_bytes={}",
+      pool->name(), targetBytes, reclaimed));
+}
 uint64_t PangrovaArbitrator::shrinkCapacity(
     facebook::velox::memory::MemoryPool* pool,
     uint64_t targetBytes) {

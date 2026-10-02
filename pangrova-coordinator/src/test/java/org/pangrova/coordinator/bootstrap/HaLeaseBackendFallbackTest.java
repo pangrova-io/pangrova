@@ -37,18 +37,17 @@ class HaLeaseBackendFallbackTest {
                         false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 new CoordinatorBootstrapConfig.TransportConfig(0, 256L * 1024 * 1024,
-                        "10.0.0.5"),  // non-loopback → multi-node
+                        "10.0.0.5", null),  // non-loopback → multi-node
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);  // no metadata JDBC config → no datasource
 
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
 
-        // Starting should fail fast because HA would use InMemory lease in a multi-node deployment
+        // Starting must fail fast before accepting a process-local lease in a multi-node deployment.
         assertThatThrownBy(bootstrap::start)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("InMemory")
-                .hasMessageContaining("multi-node")
-                .hasMessageContaining("brain-split");
+                .hasMessageContaining("distributed lease backend")
+                .hasMessageContaining("advertisedHost=10.0.0.5");
     }
 
     @Test
@@ -62,7 +61,7 @@ class HaLeaseBackendFallbackTest {
                         false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 new CoordinatorBootstrapConfig.TransportConfig(0, 256L * 1024 * 1024,
-                        "192.168.1.100"),  // non-loopback → multi-node
+                        "192.168.1.100", null),  // non-loopback → multi-node
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);  // no metadata JDBC config → no datasource
 
@@ -70,8 +69,8 @@ class HaLeaseBackendFallbackTest {
 
         assertThatThrownBy(bootstrap::start)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("InMemory")
-                .hasMessageContaining("multi-node");
+                .hasMessageContaining("distributed lease backend")
+                .hasMessageContaining("advertisedHost=192.168.1.100");
     }
 
     @Test
@@ -100,7 +99,7 @@ class HaLeaseBackendFallbackTest {
                         false, false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 new CoordinatorBootstrapConfig.TransportConfig(0, 256L * 1024 * 1024,
-                        "localhost"),  // loopback → single-node
+                        "localhost", null),  // loopback → single-node
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 

@@ -18,5 +18,6 @@
     <modules>
         <module>pangrova-connector-iceberg</module>
         <module>pangrova-connector-paimon</module>
+        <module>pangrova-connector-lance</module>
     </modules>
 </project>

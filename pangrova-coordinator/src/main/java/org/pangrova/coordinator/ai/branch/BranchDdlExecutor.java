@@ -2,6 +2,8 @@ package org.pangrova.coordinator.ai.branch;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.parser.ast.statement.CreateBranchStatement;
 import org.pangrova.parser.ast.statement.CreateTagStatement;
@@ -40,11 +42,11 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes CREATE BRANCH after enforcing ALTER privileges. */
-    public List<TypedRow> executeCreateBranch(CreateBranchStatement stmt, UserIdentity user) {
-        QualifiedTableName tableRef = QualifiedTableName.resolve(stmt.tableName().parts());
-        checkAlterPrivilege(tableRef, user);
+    public List<TypedRow> executeCreateBranch(CreateBranchStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = buildSession(tableRef.catalog());
+        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -72,11 +74,11 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes DROP BRANCH after enforcing ALTER privileges. */
-    public List<TypedRow> executeDropBranch(DropBranchStatement stmt, UserIdentity user) {
-        QualifiedTableName tableRef = QualifiedTableName.resolve(stmt.tableName().parts());
-        checkAlterPrivilege(tableRef, user);
+    public List<TypedRow> executeDropBranch(DropBranchStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = buildSession(tableRef.catalog());
+        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -104,11 +106,11 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes CREATE TAG after enforcing ALTER privileges. */
-    public List<TypedRow> executeCreateTag(CreateTagStatement stmt, UserIdentity user) {
-        QualifiedTableName tableRef = QualifiedTableName.resolve(stmt.tableName().parts());
-        checkAlterPrivilege(tableRef, user);
+    public List<TypedRow> executeCreateTag(CreateTagStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = buildSession(tableRef.catalog());
+        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -136,11 +138,11 @@ public final class BranchDdlExecutor {
     }
 
     /** Executes DROP TAG after enforcing ALTER privileges. */
-    public List<TypedRow> executeDropTag(DropTagStatement stmt, UserIdentity user) {
-        QualifiedTableName tableRef = QualifiedTableName.resolve(stmt.tableName().parts());
-        checkAlterPrivilege(tableRef, user);
+    public List<TypedRow> executeDropTag(DropTagStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        checkAlterPrivilege(tableRef, context.userIdentity());
 
-        ConnectorSession session = buildSession(tableRef.catalog());
+        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         ConnectorTableHandle tableHandle = requireTableHandle(metadata, session, tableRef);
 
@@ -168,9 +170,9 @@ public final class BranchDdlExecutor {
     }
 
     /** Returns a pointer row directing users to the branches system table. */
-    public List<TypedRow> executeShowBranches(ShowBranchesStatement stmt) {
-        QualifiedTableName tableRef = QualifiedTableName.resolve(stmt.tableName().parts());
-        ConnectorSession session = buildSession(tableRef.catalog());
+    public List<TypedRow> executeShowBranches(ShowBranchesStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         requireTableHandle(metadata, session, tableRef);
 
@@ -181,9 +183,9 @@ public final class BranchDdlExecutor {
     }
 
     /** Returns a pointer row directing users to the tags system table. */
-    public List<TypedRow> executeShowTags(ShowTagsStatement stmt) {
-        QualifiedTableName tableRef = QualifiedTableName.resolve(stmt.tableName().parts());
-        ConnectorSession session = buildSession(tableRef.catalog());
+    public List<TypedRow> executeShowTags(ShowTagsStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = resolveMetadata(tableRef, session);
         requireTableHandle(metadata, session, tableRef);
 
@@ -215,9 +217,5 @@ public final class BranchDdlExecutor {
                     "Table not found: " + ref);
         }
         return handle;
-    }
-
-    private static ConnectorSession buildSession(String catalog) {
-        return new BranchConnectorSession(catalog);
     }
 }

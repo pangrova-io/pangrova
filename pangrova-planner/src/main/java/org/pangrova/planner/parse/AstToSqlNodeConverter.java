@@ -1,5 +1,7 @@
 package org.pangrova.planner.parse;
 
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.planner.PlannerException;
 import org.pangrova.parser.ast.AllColumns;
 import org.pangrova.parser.ast.CteQuery;
 import org.pangrova.parser.ast.CubeGroupBy;
@@ -224,7 +226,18 @@ public final class AstToSqlNodeConverter {
             }
             return wrapAlias(subquery, ref.alias());
         }
-        SqlNode node = applyTimeTravel(id(ref.name()), ref);
+        Identifier tableName = ref.systemTableRef().map(systemTable -> {
+            String kind = systemTable.systemTableName();
+            if (!kind.equalsIgnoreCase("snapshots") && !kind.equalsIgnoreCase("history")) {
+                throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                        "System table has no Native reader: " + kind);
+            }
+            List<String> parts = new ArrayList<>(systemTable.baseTable().parts());
+            int last = parts.size() - 1;
+            parts.set(last, parts.get(last) + "$" + kind);
+            return new Identifier(parts);
+        }).orElse(ref.name());
+        SqlNode node = applyTimeTravel(id(tableName), ref);
         // UNPIVOT: wrap table in SqlUnpivot
         if (ref.unpivotClause().isPresent()) {
             node = convertUnpivot(node, ref.unpivotClause().get());

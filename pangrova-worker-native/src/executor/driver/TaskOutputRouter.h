@@ -1,15 +1,13 @@
 // Manages output queues and routes batches to output or shuffle queues.
-// Owns OutputQueue, SerializedShuffleQueue, and ExchangeBuffer.
+// Owns OutputQueue and SerializedShuffleQueue.
 // Extracted from TaskExecutor to enforce single-responsibility.
 #pragma once
 
 #include <chrono>
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <vector>
 
-#include "executor/queue/ExchangeBuffer.h"
 #include "executor/queue/OutputQueue.h"
 #include "shuffle/SerializedShuffleQueue.h"
 
@@ -29,6 +27,7 @@ class TaskOutputRouter {
   TaskOutputRouter(int32_t num_shuffle_partitions,
                    size_t output_queue_capacity,
                    size_t shuffle_queue_capacity,
+                   size_t shuffle_buffer_bytes,
                    std::chrono::milliseconds queue_poll_timeout);
 
   // Non-copyable, non-movable (owns unique_ptr members).
@@ -44,25 +43,16 @@ class TaskOutputRouter {
   bool getNextBatch(facebook::velox::RowVectorPtr& row_vector,
                     std::chrono::milliseconds timeout);
 
-  // Pull next serialized shuffle batch from the shuffle queue.
-  // Returns true if a batch was retrieved, false on timeout or closed.
-  bool getSerializedShuffleBatch(pangrova::shuffle::ShuffleBatch& batch,
-                                 std::chrono::milliseconds timeout);
-
-  // Exchange input (for receiving data from other workers).
-  // Returns false if the exchange buffer is full (backpressure) or closed.
-  bool addExchangeBatch(const std::string& source_id,
-                        facebook::velox::RowVectorPtr row_vector);
-  void noMoreExchangeData(const std::string& source_id);
-  void noMoreExchangeSources();
-
   // Queue access for producer side (Velox callback / test).
   OutputQueue* outputQueue();
   pangrova::shuffle::SerializedShuffleQueue* serializedShuffleQueue();
-  ExchangeBuffer* exchangeBuffer();
 
   // Close all queues — unblocks waiters.
   void closeAll();
+
+  // Mark shuffle output failed before closing so readers cannot accept EOF.
+  // False means successful shuffle commit already won the terminal race.
+  bool abortShuffle();
 
   // F-NATIVE-EXEC-05: Drain unconsumed items from the output queue.
   // Called during release() to ensure RowVector memory pools are released
@@ -76,7 +66,6 @@ class TaskOutputRouter {
   std::unique_ptr<OutputQueue> output_queue_;
   std::unique_ptr<pangrova::shuffle::SerializedShuffleQueue> serialized_shuffle_queue_;
   int32_t num_shuffle_partitions_;
-  std::unique_ptr<ExchangeBuffer> exchange_buffer_;
   std::chrono::milliseconds queue_poll_timeout_;
 };
 

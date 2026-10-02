@@ -45,6 +45,43 @@ public final class CoordinatorOptions {
                     + "(background tasks only), or COMBINED (both, default)")
             .build();
 
+    // ---- Internal transport security ----
+
+    public static final ConfigOption<Boolean> TRANSPORT_TLS_ENABLED =
+            ConfigOptions.key("coordinator.transport.tls.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Require mutual TLS for Coordinator control-plane clients")
+                    .build();
+
+    public static final ConfigOption<String> TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH =
+            ConfigOptions.key("coordinator.transport.tls.certificate-chain-path")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("Coordinator PEM certificate chain")
+                    .build();
+
+    public static final ConfigOption<String> TRANSPORT_TLS_PRIVATE_KEY_PATH =
+            ConfigOptions.key("coordinator.transport.tls.private-key-path")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("Coordinator PEM private key")
+                    .build();
+
+    public static final ConfigOption<String> TRANSPORT_TLS_ROOT_CA_PATH =
+            ConfigOptions.key("coordinator.transport.tls.root-ca-path")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("PEM root CA for internal peer verification")
+                    .build();
+
+    public static final ConfigOption<String> SHUFFLE_TLS_SERVER_IDENTITY =
+            ConfigOptions.key("coordinator.shuffle.tls.server-identity")
+                    .stringType()
+                    .defaultValue("")
+                    .withDescription("Certificate DNS identity expected from shuffle servers")
+                    .build();
+
     // ---- Feature Flags (all default true except security) ----
 
     public static final ConfigOption<Boolean> METADATA_ENABLED = ConfigOptions.key("metadata.enabled")
@@ -73,8 +110,8 @@ public final class CoordinatorOptions {
 
     public static final ConfigOption<Boolean> TENANT_ENABLED = ConfigOptions.key("tenant.enabled")
             .booleanType()
-            .defaultValue(true)
-            .withDescription("Enable the tenant module")
+            .defaultValue(false)
+            .withDescription("Enable tenant isolation; requires authenticated user identities")
             .build();
 
     public static final ConfigOption<Boolean> INDEXING_ENABLED = ConfigOptions.key("indexing.enabled")

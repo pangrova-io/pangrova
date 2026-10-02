@@ -1,6 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.connector.paimon.PaimonMetadata;
+import org.pangrova.connector.paimon.PaimonCommitTestSupport;
 import org.pangrova.connector.paimon.PaimonPageSourceProvider;
 import org.pangrova.connector.paimon.PaimonSplitManager;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
@@ -63,7 +64,7 @@ class PaimonOverwriteAbortTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test"); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> COLUMNS = List.of(
@@ -92,7 +93,7 @@ class PaimonOverwriteAbortTest {
         ConnectorPageSink sink = pageSinkProvider.createOverwritePageSink(TX, SESSION, overwriteHandle);
         sink.appendPage(new Page(List.of("id", "val"), buildRows(10, 12)));
         byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, overwriteHandle, List.of(commitMetadata));
+        PaimonCommitTestSupport.finish(metadata, SESSION, overwriteHandle, List.of(commitMetadata));
         sink.close();
 
         List<TypedRow> rows = readAll("overwrite_tbl");
@@ -144,7 +145,7 @@ class PaimonOverwriteAbortTest {
         ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, handle);
         sink.appendPage(new Page(List.of("id", "val"), rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, handle, List.of(commitMetadata));
+        PaimonCommitTestSupport.finish(metadata, SESSION, handle, List.of(commitMetadata));
         sink.close();
     }
 

@@ -118,7 +118,9 @@ public final class ReservedWordPolicy {
         Set<String> nonReserved = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         nonReserved.addAll(java.util.List.of(
                 // Extension/DDL
-                "REFRESH", "MATERIALIZED", "VIEW", "INCREMENTAL",
+                "REFRESH", "MATERIALIZED", "MATERIALIZE", "VIEW", "SEMANTIC", "FEATURE",
+                "PUBLISH", "EXPECTING",
+                "INCREMENTAL",
                 "COMPACT", "OPTIMIZE", "VACUUM",
                 "CATALOG", "CATALOGS", "DESCRIBE", "PROPERTIES", "CALL",
                 // Time travel

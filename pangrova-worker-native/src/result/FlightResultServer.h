@@ -1,19 +1,21 @@
 // FlightResultServer: Arrow Flight server that pulls pre-serialized
 // SerializedPage from Velox's OutputBufferManager and serves them
-// to the coordinator via Arrow Flight DoGet.
+// to the authorized client-facing data-plane consumer via Arrow Flight DoGet.
 //
-// No custom queue needed — Velox's PartitionedOutputNode serializes
-// output via PrestoVectorSerde and routes it through OutputBufferManager.
+// Velox's PartitionedOutputNode serializes one canonical Arrow stream per
+// payload and routes it through OutputBufferManager.
 // This server pulls from OutputBufferManager::getData() directly.
 //
 // Placement: result/ — Native result output path components.
-// Aligned with Prestissimo architecture (same Velox components, Flight transport).
 #pragma once
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <arrow/flight/server.h>
@@ -22,6 +24,11 @@
 #include <arrow/type.h>
 
 #include <velox/type/Type.h>
+#include "memory/ColumnarMemoryPool.h"
+#include "pangrova/protocol/v2/result.pb.h"
+
+#include "result/ResultColumnType.h"
+#include "result/ResultOwnershipState.h"
 
 namespace pangrova::result {
 
@@ -47,15 +54,20 @@ FetchWaitDecision decideFetchWait(
     int64_t elapsed_seconds,
     int64_t timeout_seconds);
 
-// Parses a page buffer of [4-byte length | Arrow IPC RecordBatch] frames into
-// OWNING RecordBatches. Each batch copies its frame data so it remains valid
-// after the source buffer is freed — this is the fix for F-NATIVE-SHUF-01.
+// Copies a borrowed source into the actual task allocator, then decodes every
+// batch through the sole canonical stream codec and validates its exact schema.
 arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>>
 parseArrowBatchFrames(
     const std::shared_ptr<arrow::Schema>& schema,
     const uint8_t* data,
     int64_t length,
-    const std::string& task_id);
+    const std::shared_ptr<memory::ColumnarMemoryPool>& pool);
+
+// Adds exact logical type metadata to fields whose physical storage matches
+// the validated result contract. Leaves ordinary lists untouched.
+arrow::Result<std::shared_ptr<arrow::Schema>> withResultColumnTypes(
+    const std::shared_ptr<arrow::Schema>& schema,
+    const std::vector<ResultColumnVectorDimension>& result_column_types);
 
 }  // namespace detail
 
@@ -76,7 +88,7 @@ struct FlightResultServerConfig {
   std::string tls_root_ca_path;
   // F-NATIVE-SHUF-05: Configurable timeout for result fetch (seconds).
   // Default 300s (5 min) to accommodate long-running sparse-output queries.
-  // Set <=0 for unbounded (rely on task liveness check only).
+  // Set <=0 to use the finite admitted result-authority expiry only.
   int64_t result_fetch_timeout_seconds = 300;
 };
 
@@ -85,18 +97,27 @@ struct FlightResultServerConfig {
 // Lifecycle:
 //   1. Construct with config
 //   2. start() — binds port, begins accepting DoGet requests
-//   3. Coordinator calls DoGet with ResultTicket (taskId string)
+//   3. Authorized client calls DoGet with producer-issued scoped authority
 //   4. stop() — graceful shutdown, drains in-flight requests
 //
 // Per-worker singleton, started once at bootstrap via JNI command.
-// No task registry needed — OutputBufferManager is Velox's global singleton
-// that tracks all tasks by taskId automatically.
+// Live registrations bind exact attempt/security/schema/allocator ownership.
 //
 // Thread safety: start/stop are serialized via NativeCommandDispatcher
 // (single command channel per executor handle). DoGet handlers are
 // thread-safe (Arrow Flight server manages concurrency).
 class FlightResultServer : public arrow::flight::FlightServerBase {
  public:
+  struct TaskOutputInfo {
+    facebook::velox::RowTypePtr output_type;
+    std::vector<ResultColumnVectorDimension> result_column_types;
+    std::vector<std::string> column_labels;
+    std::shared_ptr<memory::ColumnarMemoryPool> pool;
+    std::shared_ptr<ResultOwnershipState> ownership;
+    protocol::v2::ExecutionCallbackContext authority;
+    bool claimed = false;
+  };
+
   explicit FlightResultServer(FlightResultServerConfig config);
 
   ~FlightResultServer() override;
@@ -122,45 +143,24 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   // even after the Velox task has completed and left getRunningTasks().
   static void registerTaskOutputType(
       const std::string& task_id,
-      facebook::velox::RowTypePtr output_type);
+      TaskOutputInfo info);
 
   // Removes the cached output type for a task (called during task cleanup).
   static void unregisterTaskOutputType(const std::string& task_id);
 
-  // Look up the output RowType for a task — first from instance cache, then
-  // from running tasks. Used by DoGet and DirectBatchStreamReader.
-  // F-NATIVE-SHUF-08: moved from anonymous namespace to allow access to
-  // instance members.
-  static facebook::velox::RowTypePtr lookupTaskOutputType(
+  // Returns physical and logical result types in one atomic cache lookup.
+  static std::optional<TaskOutputInfo> lookupTaskOutputInfo(
       const std::string& task_id);
+
+  static arrow::Result<TaskOutputInfo> claimTaskOutputInfo(
+      const protocol::v2::ResultReadGrant& grant);
 
   // Singleton instance accessor. Set during start(), cleared during stop().
   static FlightResultServer* instance();
 
-  // Registers the serde mode used by a result task's PartitionedOutputNode.
-  // DoGet uses this to determine whether pages are Arrow IPC (direct stream)
-  // or PrestoVectorSerde (deserialize + re-export).
-  static void registerTaskSerdeMode(
-      const std::string& task_id,
-      const std::string& serde_mode);
-
-  // Removes the cached serde mode for a task.
-  static void unregisterTaskSerdeMode(const std::string& task_id);
-
-  // Returns the serde mode for a task ("presto" or "arrow_batch").
-  // Returns "presto" if not registered (safe default).
-  static std::string lookupTaskSerdeMode(const std::string& task_id);
-
   // Arrow Flight DoGet override.
-  // Ticket format: taskId string (Velox OutputBufferManager key).
-  //
-  // DoGet implementation:
-  //   1. Parse Ticket → taskId
-  //   2. Look up serde mode for the task (Arrow IPC or PrestoVectorSerde)
-  //   3a. Arrow IPC mode: stream pre-serialized RecordBatch frames directly
-  //   3b. Legacy mode: deserialize PrestoVectorSerde → Arrow C Data Interface export
-  //   4. Acknowledge consumed pages via OutputBufferManager::acknowledge()
-  //   5. Signal end-of-stream when OutputBuffer has no more data
+  // Authenticate the scoped grant and claim its exact live result registration;
+  // consume typed Arrow batches and require explicit producer EOF evidence.
   arrow::Status DoGet(
       const arrow::flight::ServerCallContext& context,
       const arrow::flight::Ticket& request,
@@ -175,9 +175,7 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   // F-NATIVE-SHUF-08: Per-instance caches instead of process-global statics.
   // Guarded by their respective mutexes; accessed via instance().
   mutable std::mutex output_type_mutex_;
-  std::unordered_map<std::string, facebook::velox::RowTypePtr> output_type_cache_;
-  mutable std::mutex serde_mode_mutex_;
-  std::unordered_map<std::string, std::string> serde_mode_cache_;
+  std::unordered_map<std::string, TaskOutputInfo> output_type_cache_;
   static std::atomic<FlightResultServer*> instance_;
 };
 

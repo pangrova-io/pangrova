@@ -12,6 +12,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.pangrova.planner.type.PlannerTypeSystem;
 
 import org.apache.calcite.sql.SqlIntervalQualifier;
 import org.apache.calcite.sql.parser.SqlParserPos;
@@ -21,6 +23,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TypeMapperTest {
+
+    @ParameterizedTest
+    @CsvSource({"0,0", "-2147483648,2", "39,2", "10,-2", "10,11"})
+    void malformedDecimalTypesFailBothCanonicalMappings(int precision, int scale) {
+        var type = new BasicSqlType(PlannerTypeSystem.INSTANCE, SqlTypeName.DECIMAL, precision, scale);
+        assertThatThrownBy(() -> typeMapper.map(type)).isInstanceOf(SubstraitConversionException.class)
+                .hasMessageContaining("Invalid DECIMAL");
+        assertThatThrownBy(() -> typeMapper.toPangrovaParameterizedType(type))
+                .isInstanceOf(SubstraitConversionException.class).hasMessageContaining("Invalid DECIMAL");
+    }
+
+    @Test
+    void omittedScaleSentinelResolvesToTheDeclaredDefaultRatherThanAMalformedType() {
+        var type = new BasicSqlType(PlannerTypeSystem.INSTANCE, SqlTypeName.DECIMAL, 10,
+                RelDataType.SCALE_NOT_SPECIFIED);
+        assertThat(type.getScale()).isZero();
+        assertThat(typeMapper.map(type)).isEqualTo(TypeCreator.REQUIRED.decimal(10, 0));
+        assertThat(typeMapper.toPangrovaParameterizedType(type))
+                .isEqualTo(new org.pangrova.spi.connector.data.type.primitive.DecimalType(10, 0));
+    }
 
     private TypeMapper typeMapper;
     private RelDataTypeFactory typeFactory;
@@ -84,7 +106,8 @@ class TypeMapperTest {
     void mapTimestamp() {
         RelDataType calciteType = typeFactory.createSqlType(SqlTypeName.TIMESTAMP);
         Type result = typeMapper.map(calciteType);
-        assertThat(result).isEqualTo(TypeCreator.REQUIRED.TIMESTAMP);
+        assertThat(result).isEqualTo(TypeCreator.REQUIRED.precisionTimestamp(
+                calciteType.getPrecision()));
     }
 
     @Test
@@ -102,7 +125,7 @@ class TypeMapperTest {
                 TimeUnit.DAY, TimeUnit.SECOND, SqlParserPos.ZERO);
         RelDataType calciteType = typeFactory.createSqlIntervalType(qualifier);
         Type result = typeMapper.map(calciteType);
-        assertThat(result).isEqualTo(TypeCreator.REQUIRED.INTERVAL_DAY);
+        assertThat(result).isEqualTo(TypeCreator.REQUIRED.intervalDay(6));
     }
 
     @Test
@@ -146,14 +169,16 @@ class TypeMapperTest {
     void mapTime() {
         RelDataType calciteType = typeFactory.createSqlType(SqlTypeName.TIME);
         Type result = typeMapper.map(calciteType);
-        assertThat(result).isEqualTo(TypeCreator.REQUIRED.TIME);
+        assertThat(result).isEqualTo(TypeCreator.REQUIRED.precisionTime(
+                calciteType.getPrecision()));
     }
 
     @Test
     void mapTimestampWithLocalTimeZone() {
         RelDataType calciteType = typeFactory.createSqlType(SqlTypeName.TIMESTAMP_WITH_LOCAL_TIME_ZONE);
         Type result = typeMapper.map(calciteType);
-        assertThat(result).isEqualTo(TypeCreator.REQUIRED.TIMESTAMP_TZ);
+        assertThat(result).isEqualTo(TypeCreator.REQUIRED.precisionTimestampTZ(
+                calciteType.getPrecision()));
     }
 
     @Test

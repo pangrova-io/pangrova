@@ -24,7 +24,7 @@ class RowLevelSecurityFilterTest {
     @Test
     void returnsEmptyWhenNoPolicies() {
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(new EmptyRowPolicyStore());
-        Optional<String> result = filter.getFilter(ANALYST, "iceberg", "default", "orders");
+        Optional<String> result = filter.getFilter(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "orders");
         assertThat(result).isEmpty();
     }
 
@@ -35,7 +35,7 @@ class RowLevelSecurityFilterTest {
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-        Optional<String> result = filter.getFilter(ANALYST, "iceberg", "default", "orders");
+        Optional<String> result = filter.getFilter(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "orders");
         assertThat(result).isPresent();
         assertThat(result.get()).contains("'alice'");
     }
@@ -49,7 +49,7 @@ class RowLevelSecurityFilterTest {
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(p1, p2));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-        Optional<String> result = filter.getFilter(ANALYST, "iceberg", "default", "orders");
+        Optional<String> result = filter.getFilter(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "orders");
         assertThat(result).isPresent();
         assertThat(result.get()).contains("AND");
     }
@@ -61,7 +61,7 @@ class RowLevelSecurityFilterTest {
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(disabled));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-        Optional<String> result = filter.getFilter(ANALYST, "iceberg", "default", "orders");
+        Optional<String> result = filter.getFilter(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "orders");
         assertThat(result).isEmpty();
     }
 
@@ -72,8 +72,8 @@ class RowLevelSecurityFilterTest {
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-        assertThat(filter.getFilter(ANALYST, "iceberg", "default", "orders")).isPresent();
-        assertThat(filter.getFilter(ADMIN, "iceberg", "default", "orders")).isEmpty();
+        assertThat(filter.getFilter(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "orders")).isPresent();
+        assertThat(filter.getFilter(ADMIN, java.util.Set.of("admin"), "iceberg", "default", "orders")).isEmpty();
     }
 
     @Test
@@ -83,7 +83,7 @@ class RowLevelSecurityFilterTest {
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-        Optional<String> result = filter.getFilter(ANALYST, "iceberg", "default", "orders");
+        Optional<String> result = filter.getFilter(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "orders");
         assertThat(result).isPresent();
         assertThat(result.get()).contains("'engineering'");
     }
@@ -95,7 +95,7 @@ class RowLevelSecurityFilterTest {
         InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(policy));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-        Optional<String> result = filter.getFilter(ANALYST, "iceberg", "default", "orders");
+        Optional<String> result = filter.getFilter(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "orders");
         assertThat(result).isPresent();
         assertThat(result.get()).contains("'analyst'");
     }

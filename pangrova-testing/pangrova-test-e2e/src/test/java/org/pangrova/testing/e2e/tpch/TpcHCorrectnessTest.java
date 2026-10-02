@@ -13,9 +13,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * TPC-H standard query correctness tests (Q1–Q10).
  *
  * <p>Executes TPC-H benchmark queries through the full pipeline against
- * scale-factor-1 data and validates results against precomputed references.
- * Uses {@link TpcHTestSupport} for query loading, table name qualification,
- * and result comparison with tolerance for floating-point aggregates.</p>
+ * identical deterministic schema-compatible data in Pangrova and PostgreSQL.
+ * Compares every result with the independent reference engine, including
+ * ordering and floating-point aggregates. This is not an official TPC-H
+ * scale-factor benchmark or a performance acceptance result.</p>
  *
  * <p>Requirements validated: 9.3, 14.1</p>
  */
@@ -29,7 +30,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("aggregates line items by return flag and status")
         void pricingSummaryReport() {
             List<TypedRow> rows = executeQuery("q01.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q01.sql",
+            assertMatchesReference(rows, "q01.sql",
                     "l_returnflag", "l_linestatus");
         }
     }
@@ -41,7 +42,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("finds minimum cost supplier for parts in a region")
         void minimumCostSupplier() {
             List<TypedRow> rows = executeQuery("q02.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q02.sql",
+            assertMatchesReference(rows, "q02.sql",
                     "s_name", "s_address");
         }
     }
@@ -53,7 +54,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("retrieves highest-revenue unshipped orders")
         void shippingPriority() {
             List<TypedRow> rows = executeQuery("q03.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q03.sql",
+            assertMatchesReference(rows, "q03.sql",
                     "l_orderkey", "revenue");
         }
     }
@@ -65,7 +66,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("counts orders by priority with late line items")
         void orderPriorityChecking() {
             List<TypedRow> rows = executeQuery("q04.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q04.sql",
+            assertMatchesReference(rows, "q04.sql",
                     "o_orderpriority", "order_count");
         }
     }
@@ -77,7 +78,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("revenue from local suppliers by nation")
         void localSupplierVolume() {
             List<TypedRow> rows = executeQuery("q05.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q05.sql",
+            assertMatchesReference(rows, "q05.sql",
                     "n_name", "revenue");
         }
     }
@@ -89,7 +90,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("computes forecasting revenue scalar aggregate")
         void forecastingRevenueChange() {
             List<TypedRow> rows = executeQuery("q06.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q06.sql", "revenue");
+            assertMatchesReference(rows, "q06.sql", "revenue");
         }
     }
 
@@ -100,7 +101,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("bilateral trade volume between two nations")
         void volumeShipping() {
             List<TypedRow> rows = executeQuery("q07.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q07.sql",
+            assertMatchesReference(rows, "q07.sql",
                     "supp_nation", "cust_nation", "revenue");
         }
     }
@@ -112,7 +113,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("computes market share for a given nation")
         void nationalMarketShare() {
             List<TypedRow> rows = executeQuery("q08.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q08.sql",
+            assertMatchesReference(rows, "q08.sql",
                     "o_year", "mkt_share");
         }
     }
@@ -124,7 +125,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("profit for parts matching a pattern by nation and year")
         void productTypeProfitMeasure() {
             List<TypedRow> rows = executeQuery("q09.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q09.sql",
+            assertMatchesReference(rows, "q09.sql",
                     "nation", "o_year", "sum_profit");
         }
     }
@@ -136,7 +137,7 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @DisplayName("top customers with returned items")
         void returnedItemReporting() {
             List<TypedRow> rows = executeQuery("q10.sql");
-            TpcHTestSupport.assertMatchesReference(rows, "q10.sql",
+            assertMatchesReference(rows, "q10.sql",
                     "c_custkey", "c_name", "revenue");
         }
     }

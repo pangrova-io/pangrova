@@ -4,11 +4,10 @@ import org.pangrova.security.authz.GroupRoleMapping;
 import org.pangrova.security.authz.Role;
 import org.pangrova.security.authz.RoleStore;
 import org.pangrova.security.authz.UserRoleAssignment;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.pangrova.security.testinfra.SharedSecurityPostgres;
+import org.pangrova.testing.ContainerTestBase;
 
 import java.time.Instant;
 import java.util.List;
@@ -22,35 +21,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Mirrors the contract checks in {@link org.pangrova.security.authz.InMemoryRoleStoreTest}
  * so behaviour is consistent across the two {@link RoleStore} implementations.
  */
-class PersistentRoleStoreTest {
-
-    @SuppressWarnings("resource")
-    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("pangrova_test")
-            .withUsername("pangrova")
-            .withPassword("pangrova_test");
-
-    @BeforeAll
-    static void startContainer() { PG.start(); }
-
-    @AfterAll
-    static void stopContainer() { PG.stop(); }
+class PersistentRoleStoreTest extends ContainerTestBase {
 
     private PersistentRoleStore store;
+    private javax.sql.DataSource dataSource;
 
     @BeforeEach
     void setUp() throws Exception {
-        org.postgresql.ds.PGSimpleDataSource ds = new org.postgresql.ds.PGSimpleDataSource();
-        ds.setUrl(PG.getJdbcUrl());
-        ds.setUser(PG.getUsername());
-        ds.setPassword(PG.getPassword());
-        // Drop and recreate tables so each test starts clean
-        try (var conn = ds.getConnection()) {
-            conn.createStatement().execute("DROP TABLE IF EXISTS pangrova_user_roles");
-            conn.createStatement().execute("DROP TABLE IF EXISTS pangrova_group_roles");
-            conn.createStatement().execute("DROP TABLE IF EXISTS pangrova_roles");
-        }
-        store = new PersistentRoleStore(ds);
+        dataSource = SharedSecurityPostgres.isolatedDataSource();
+        store = new PersistentRoleStore(dataSource);
         store.initSchema();
     }
 
@@ -114,6 +93,34 @@ class PersistentRoleStoreTest {
     @Test
     void dropNonExistentRoleReturnsFalse() {
         assertThat(store.dropRole("ghost")).isFalse();
+    }
+
+    @Test
+    void droppingAndRecreatingRoleCannotRestorePriorGrants() {
+        store.createRole(Role.of("analyst"));
+        store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
+        var grants = new PersistentGrantStore(dataSource);
+        grants.addGrant(org.pangrova.security.authz.PrivilegeGrant.of("analyst",
+                org.pangrova.security.authz.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
+        assertThat(store.dropRole("analyst")).isTrue();
+        store.createRole(Role.of("analyst"));
+        store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
+        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+    }
+
+    @Test
+    void directSqlRoleDeletionAlsoRemovesGrantsAndBindings() throws Exception {
+        store.createRole(Role.of("analyst"));
+        store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
+        var grants = new PersistentGrantStore(dataSource);
+        grants.addGrant(org.pangrova.security.authz.PrivilegeGrant.of("analyst",
+                org.pangrova.security.authz.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("DELETE FROM pangrova_roles WHERE role_name='analyst'");
+        }
+        store.createRole(Role.of("analyst"));
+        assertThat(store.rolesForUser("alice")).isEmpty();
+        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
     }
 
     // ---- user -> role bindings ----------------------------------------------
@@ -221,10 +228,7 @@ class PersistentRoleStoreTest {
     @Test
     void twoStoreInstancesSeeConsistentStateFromSameDatabase() throws Exception {
         // Simulate two coordinators sharing the same JDBC DataSource (same DB).
-        org.postgresql.ds.PGSimpleDataSource ds = new org.postgresql.ds.PGSimpleDataSource();
-        ds.setUrl(PG.getJdbcUrl());
-        ds.setUser(PG.getUsername());
-        ds.setPassword(PG.getPassword());
+        var ds = SharedSecurityPostgres.isolatedDataSource();
 
         PersistentRoleStore coord1 = new PersistentRoleStore(ds);
         coord1.initSchema();

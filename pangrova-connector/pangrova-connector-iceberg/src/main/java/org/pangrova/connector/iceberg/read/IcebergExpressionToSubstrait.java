@@ -19,7 +19,7 @@ import io.substrait.proto.ExpressionReference;
 import io.substrait.proto.FunctionArgument;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.SimpleExtensionDeclaration;
-import io.substrait.proto.SimpleExtensionURI;
+import io.substrait.proto.SimpleExtensionURN;
 import io.substrait.proto.Type;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.expressions.And;
@@ -48,10 +48,12 @@ public final class IcebergExpressionToSubstrait {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergExpressionToSubstrait.class);
 
-    private static final String FUNCTIONS_COMPARISON_URI = "/functions_comparison.yaml";
-    private static final String FUNCTIONS_BOOLEAN_URI = "/functions_boolean.yaml";
-    private static final int COMPARISON_URI_ANCHOR = 1;
-    private static final int BOOLEAN_URI_ANCHOR = 2;
+    private static final String FUNCTIONS_COMPARISON_URN =
+            "extension:io.substrait:functions_comparison";
+    private static final String FUNCTIONS_BOOLEAN_URN =
+            "extension:io.substrait:functions_boolean";
+    private static final int COMPARISON_URN_ANCHOR = 1;
+    private static final int BOOLEAN_URN_ANCHOR = 2;
 
     private static final Map<String, Integer> FUNCTION_REFS = new HashMap<>();
     private static int nextFunctionRef = 1;
@@ -302,6 +304,10 @@ public final class IcebergExpressionToSubstrait {
         if (value == null) {
             return Literal.newBuilder().setNull(substraitType).build();
         }
+        Literal temporal = IcebergTemporalSubstrait.literal(value, substraitType);
+        if (temporal != null) {
+            return temporal;
+        }
         Literal scalar = convertScalarLiteral(value);
         if (scalar != null) {
             return scalar;
@@ -397,10 +403,10 @@ public final class IcebergExpressionToSubstrait {
                     .setDate(Type.Date.newBuilder()
                             .setNullability(Type.Nullability.NULLABILITY_NULLABLE).build())
                     .build();
-            case TIMESTAMP -> Type.newBuilder()
-                    .setTimestamp(Type.Timestamp.newBuilder()
-                            .setNullability(Type.Nullability.NULLABILITY_NULLABLE).build())
-                    .build();
+            case TIMESTAMP -> IcebergTemporalSubstrait.timestampType(
+                    ((Types.TimestampType) icebergType).shouldAdjustToUTC(), 6);
+            case TIMESTAMP_NANO -> IcebergTemporalSubstrait.timestampType(
+                    ((Types.TimestampNanoType) icebergType).shouldAdjustToUTC(), 9);
             case DECIMAL -> mapDecimalType((Types.DecimalType) icebergType);
             default -> throw new UnsupportedExpressionException(
                     "Unsupported Iceberg type for Substrait mapping: " + icebergType);
@@ -419,23 +425,24 @@ public final class IcebergExpressionToSubstrait {
     private byte[] buildExtendedExpression(Expression expr, Schema tableSchema) {
         ExtendedExpression.Builder builder = ExtendedExpression.newBuilder();
 
-        builder.addExtensionUris(SimpleExtensionURI.newBuilder()
-                .setExtensionUriAnchor(COMPARISON_URI_ANCHOR)
-                .setUri(FUNCTIONS_COMPARISON_URI)
+        builder.addExtensionUrns(SimpleExtensionURN.newBuilder()
+                .setExtensionUrnAnchor(COMPARISON_URN_ANCHOR)
+                .setUrn(FUNCTIONS_COMPARISON_URN)
                 .build());
-        builder.addExtensionUris(SimpleExtensionURI.newBuilder()
-                .setExtensionUriAnchor(BOOLEAN_URI_ANCHOR)
-                .setUri(FUNCTIONS_BOOLEAN_URI)
+        builder.addExtensionUrns(SimpleExtensionURN.newBuilder()
+                .setExtensionUrnAnchor(BOOLEAN_URN_ANCHOR)
+                .setUrn(FUNCTIONS_BOOLEAN_URN)
                 .build());
 
         for (Map.Entry<String, Integer> entry : FUNCTION_REFS.entrySet()) {
             String funcName = entry.getKey();
             int ref = entry.getValue();
-            int uriAnchor = isComparisonFunction(funcName) ? COMPARISON_URI_ANCHOR : BOOLEAN_URI_ANCHOR;
+            int urnAnchor = isComparisonFunction(funcName)
+                    ? COMPARISON_URN_ANCHOR : BOOLEAN_URN_ANCHOR;
             builder.addExtensions(SimpleExtensionDeclaration.newBuilder()
                     .setExtensionFunction(
                             SimpleExtensionDeclaration.ExtensionFunction.newBuilder()
-                                    .setExtensionUriReference(uriAnchor)
+                                    .setExtensionUrnReference(urnAnchor)
                                     .setFunctionAnchor(ref)
                                     .setName(funcName)
                                     .build())

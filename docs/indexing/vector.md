@@ -1,6 +1,6 @@
 ---
 title: "Vector"
-description: "VECTOR index for approximate nearest neighbor (ANN) search — HNSW and IVFPQ"
+description: "Native durable VECTOR indexes: HNSW, IVF-PQ, and DiskANN"
 ---
 
 # Vector Index
@@ -10,6 +10,11 @@ A vector index enables approximate nearest neighbor (ANN) search over
 algorithms — **HNSW** (graph-based, high recall, default), **IVFPQ** (quantized,
 memory-efficient), and **DISK_ANN** (Vamana graph, SSD-resident) — selected at
 index creation time.
+
+Build and retrieval execute exclusively in Native workers. The Coordinator
+only resolves canonical capabilities, creates durable build jobs, binds an
+immutable artifact generation, and dispatches ordinary tasks. Pangrova has no
+Java HNSW, IVF-PQ, DiskANN, or brute-force search engine.
 
 ## When to Use
 
@@ -24,12 +29,15 @@ index creation time.
 -- HNSW index (default algorithm, default metric L2)
 CREATE INDEX idx_embedding ON embeddings(embedding)
 USING VECTOR
-WITH ('algorithm' = 'HNSW', 'metric' = 'L2', 'hnsw.M' = '16', 'hnsw.efConstruction' = '200');
+WITH ('algorithm' = 'HNSW', 'metric' = 'L2',
+      'max_connections' = '16', 'ef_construction' = '200');
 
--- IVFPQ index (L2 metric only)
+-- IVFPQ index (L2, COSINE, or INNER_PRODUCT)
 CREATE INDEX idx_embedding_pq ON embeddings(embedding)
 USING VECTOR
-WITH ('algorithm' = 'IVFPQ', 'metric' = 'L2', 'ivfpq.nlist' = '256', 'ivfpq.m' = '8', 'ivfpq.nbits' = '8');
+WITH ('algorithm' = 'IVF_PQ', 'metric' = 'L2',
+      'coarse_clusters' = '256', 'pq_subvectors' = '8',
+      'pq_bits_per_code' = '8');
 
 -- Drop / inspect
 DROP INDEX idx_embedding ON embeddings;
@@ -37,17 +45,36 @@ SHOW INDEXES ON embeddings;
 ```
 
 Index options are string key/value pairs. Common build-time options: `algorithm`
-(`HNSW` default, `IVFPQ`, `DISK_ANN`), `metric` (`L2` default, `COSINE`,
-`INNER_PRODUCT`; IVFPQ supports `L2` only), plus the algorithm-specific parameters
-below.
+(`HNSW` default, `IVF_PQ`/`IVFPQ`, `DISK_ANN`) and `metric`. HNSW and IVF-PQ
+support `L2` (default), `COSINE`, and `INNER_PRODUCT`. DiskANN requires `L2`.
+An unsupported metric fails before a build job is persisted. `EUCLIDEAN` is
+normalized to `L2`, and the canonical metric is always persisted in metadata.
+
+HNSW and IVF-PQ use version 2 artifact formats and capability contracts. The
+metric is encoded in the index bytes; build properties, query options, and
+loaded index bytes must agree. Version 1 indexes must be rebuilt; there is no
+legacy reader. Native candidate ranking and exact rescoring use the same metric
+(Euclidean distance, cosine distance, or negative inner product; lower is better).
+IVF-PQ trains residual quantizers with Euclidean reconstruction error and ranks
+reconstructed vectors using the configured metric.
+
+The SQL spelling `IVFPQ` is normalized to `IVF_PQ` before metadata is persisted.
+The SQL options `ivfpq.nlist`, `ivfpq.m`, and `ivfpq.nbits` map to
+`coarse_clusters`, `pq_subvectors`, and `pq_bits_per_code`; conflicting values
+for a SQL option and its canonical equivalent are rejected.
+
+An empty source snapshot publishes an explicit zero-object generation through
+the same durable publication fence. No Native work pages are required because
+the snapshot contains no source objects. Nonempty builds still require every
+source page and its complete output bundle before publication.
 
 ## HNSW Parameters
 
 | Parameter | Description | Default | Range |
 |-----------|-------------|---------|-------|
-| `hnsw.M` | Max connections per node per layer | 16 | [4, 64] |
-| `hnsw.efConstruction` | Candidate list size during build | 200 | [M, 4096] |
-| `hnsw.efSearch` | Candidate list size during search (query-time) | 64 | [topK, 4096] |
+| `max_connections` | Max connections per node | 16 | [2, 512] |
+| `ef_construction` | Candidate list size during build | 200 | [max_connections, 100000] |
+| `ef_search` | Candidate list size during search | dynamic | [topK, 100000] |
 
 Trade-offs: higher `M` → better recall, more memory, slower build; higher
 `efConstruction` → better graph quality, slower build; higher `efSearch` → better
@@ -57,10 +84,10 @@ recall, slower search.
 
 | Parameter | Description | Default | Range |
 |-----------|-------------|---------|-------|
-| `ivfpq.nlist` | Number of IVF clusters (Voronoi cells) | 256 | [1, 65536] |
-| `ivfpq.nprobe` | Clusters searched per query (query-time) | 16 | [1, nlist] |
-| `ivfpq.m` | Number of PQ sub-quantizers | 8 | dimension must be divisible by m |
-| `ivfpq.nbits` | Bits per sub-quantizer code | 8 | 4, 8, or 16 |
+| `coarse_clusters` | Number of IVF clusters | 64 | [1, 4096] |
+| `nprobes` | Clusters searched per query | min(8, coarse_clusters) | [1, coarse_clusters] |
+| `pq_subvectors` | Number of PQ sub-vectors | largest divisor ≤ 32 | must divide dimension |
+| `pq_bits_per_code` | Bits per PQ code | 8 | [1, 8] |
 
 ## HNSW vs IVFPQ
 
@@ -68,13 +95,13 @@ recall, slower search.
 |-----------|------|-------|
 | Recall@10 | 95–99% | 85–95% |
 | Memory per 100K vectors (dim=768) | ~12MB (graph-only) | ~2.3MB |
-| Supported metrics | L2, COSINE, INNER_PRODUCT | L2 only |
-| Incremental insert | Supported | Supported (encodes into the existing codebook) |
+| Supported durable format metric | L2, COSINE, INNER_PRODUCT | L2, COSINE, INNER_PRODUCT |
+| Update model | Immutable generation rebuild | Immutable generation rebuild |
 | Best for | High recall, < 10M vectors | Memory-constrained, > 10M vectors |
 
-**Recommendation:** default to HNSW. Use IVFPQ when memory is constrained or the
-vector count exceeds 10M per file. DISK_ANN targets SSD-resident graphs but does
-not support incremental updates — changes require a full rebuild.
+**Recommendation:** default to HNSW. Use IVF-PQ when memory is constrained.
+DiskANN targets SSD-resident large-scale retrieval. All three publish immutable,
+snapshot-pinned generations; refreshes never mutate a serving artifact in place.
 
 ## ANN Query Pattern
 
@@ -94,11 +121,13 @@ WHERE category = 'tech' AND created_at > '2024-01-01'
 ORDER BY cosine_distance(embedding, ARRAY[0.1, 0.2, ...])
 LIMIT 10;
 
--- Explicit index hint (optional)
-SELECT /*+ VECTOR_INDEX(embeddings, idx_embedding) */ id, content
-FROM embeddings
-ORDER BY l2_distance(embedding, ARRAY[0.1, 0.2, ...])
-LIMIT 10;
 ```
+
+The planner stores the selected Native retrieval `CapabilityRef` in the plan.
+The Coordinator binds a compatible `ArtifactFormatRef`, complete source-object
+coverage, checksums, row-locator contract, and generation. Workers that do not
+advertise the exact capability and format are ineligible. Missing or incomplete
+artifacts cannot silently return an empty or partial Top-K; behavior follows the
+explicit execution policy.
 
 **See Also:** [Vector Search](../sql-reference/functions/vector-search.md) for the full query-side guide, [Vector Functions](../sql-reference/functions/vector.md), [Indexing Architecture](../architecture/indexing.md) for the design

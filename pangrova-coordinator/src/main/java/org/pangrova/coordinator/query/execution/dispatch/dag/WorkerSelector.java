@@ -1,7 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
+
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
+import org.pangrova.protocol.v2.StageResourceGrant;
 
 /**
  * Strategy for selecting a Worker and computing resource limits for task dispatch.
@@ -23,8 +25,9 @@ public interface WorkerSelector {
         return Integer.MAX_VALUE;
     }
 
-    /** Computes per-task resource limits based on parallelism and concurrent stages. */
-    ResourceLimitPayload computeResourceLimit(int parallelism, int concurrentStages);
+    /** Computes a task grant that fits the exact selected Worker. */
+    StageResourceGrant computeResourceLimit(
+            int parallelism, int concurrentStages, WorkerInfo selectedWorker);
 
     /**
      * Selects a Worker with cache affinity preference for the given split files.
@@ -33,6 +36,31 @@ public interface WorkerSelector {
      */
     default WorkerInfo selectWithCacheAffinity(String tenantId, java.util.List<String> splitFilePaths) {
         return select(tenantId);
+    }
+
+    /**
+     * Selects only from Workers that advertise every exact capability, artifact
+     * format and model object in the task bindings.
+     */
+    default WorkerInfo selectForBindings(
+            String tenantId,
+            java.util.List<String> splitFilePaths,
+            java.util.List<org.pangrova.protocol.v2.OperatorBinding> bindings) {
+        return splitFilePaths == null || splitFilePaths.isEmpty()
+                ? select(tenantId)
+                : selectWithCacheAffinity(tenantId, splitFilePaths);
+    }
+
+    /**
+     * Resolves one SQL model name to a single exact active deployment identity
+     * that implements the requested generic capability.
+     */
+    default org.pangrova.protocol.v2.ModelAvailability resolveExactModel(
+            String modelName,
+            org.pangrova.protocol.v2.CapabilityRef capability,
+            org.pangrova.spi.security.UserIdentity user) {
+        throw new org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException(
+                "Worker selector cannot resolve exact model deployments");
     }
 
     /**

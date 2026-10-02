@@ -26,6 +26,17 @@ public interface ScalarFunction {
     FunctionMetadata getMetadata();
 
     /**
+     * Returns all supported argument signatures for this function name.
+     * Implementations with overloads must return every exact signature that
+     * the planner and native runtime may resolve.
+     *
+     * @return immutable argument signatures, never empty
+     */
+    default List<List<String>> getArgumentSignatures() {
+        return List.of(getMetadata().argumentTypes());
+    }
+
+    /**
      * Evaluates the function for a single row.
      *
      * @param arguments positional argument values matching the declared argument types

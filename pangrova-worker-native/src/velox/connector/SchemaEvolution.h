@@ -8,12 +8,19 @@
 // Validates: Requirements R6.6, R13.4
 #pragma once
 
+#include <string>
 #include <vector>
 
 #include "split/SplitConfig.h"
 #include "velox/vector/ComplexVector.h"
 
 namespace pangrova::velox {
+
+// Resolve the protocol type spelling used by TypePromotionConfig to a Velox
+// type. Reader factories use this to request the physical source type before
+// applyTypePromotion materializes the planned logical type.
+facebook::velox::TypePtr resolveSchemaEvolutionType(
+    const std::string& type_name);
 
 // Apply column mapping based on field IDs: reorder columns to match
 // output_type, and fill missing columns with null constants.

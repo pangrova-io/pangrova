@@ -7,10 +7,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.pangrova.spi.connector.data.page.BatchFormat;
 import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.shuffle.exchange.ExchangeChannelContext;
 import org.pangrova.shuffle.exchange.ExchangeChannelManager;
+import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
 import org.pangrova.shuffle.exchange.ExchangeSink;
 import org.pangrova.shuffle.exchange.ExchangeSource;
+import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,8 +28,8 @@ class ExchangeSpiContractTest {
     @Test
     void sinkFinishMakesDataAvailableToSource() throws IOException {
         var manager = new InMemoryExchangeManager();
-        var sink = manager.createSink("q1", 0);
-        var source = manager.createSource("q1", 0);
+        var sink = manager.createSink(context("q1", 0));
+        var source = manager.createSource(context("q1", 0));
 
         sink.addNativePage(testArrowPage("batch1"));
         sink.finish();
@@ -44,8 +47,8 @@ class ExchangeSpiContractTest {
     @Test
     void sourceReturnsNullBeforeSinkFinishes() throws IOException {
         var manager = new InMemoryExchangeManager();
-        var sink = manager.createSink("q1", 0);
-        var source = manager.createSource("q1", 0);
+        var sink = manager.createSink(context("q1", 0));
+        var source = manager.createSource(context("q1", 0));
 
         assertThat(source.getNextNativePage()).isNull();
         assertThat(source.isFinished()).isFalse();
@@ -64,7 +67,7 @@ class ExchangeSpiContractTest {
     @Test
     void addPageAfterFinishThrowsIllegalState() throws IOException {
         var manager = new InMemoryExchangeManager();
-        var sink = manager.createSink("q1", 0);
+        var sink = manager.createSink(context("q1", 0));
 
         sink.finish();
 
@@ -78,7 +81,7 @@ class ExchangeSpiContractTest {
     @Test
     void addPageAfterAbortThrowsIllegalState() throws IOException {
         var manager = new InMemoryExchangeManager();
-        var sink = manager.createSink("q1", 0);
+        var sink = manager.createSink(context("q1", 0));
 
         sink.abort();
 
@@ -92,8 +95,8 @@ class ExchangeSpiContractTest {
     @Test
     void abortDiscardsBufferedData() throws IOException {
         var manager = new InMemoryExchangeManager();
-        var sink = manager.createSink("q1", 0);
-        var source = manager.createSource("q1", 0);
+        var sink = manager.createSink(context("q1", 0));
+        var source = manager.createSource(context("q1", 0));
 
         sink.addNativePage(testArrowPage("data"));
         sink.abort();
@@ -109,10 +112,10 @@ class ExchangeSpiContractTest {
     @Test
     void multiplePartitionsAreIndependent() throws IOException {
         var manager = new InMemoryExchangeManager();
-        var sink0 = manager.createSink("q1", 0);
-        var sink1 = manager.createSink("q1", 1);
-        var source0 = manager.createSource("q1", 0);
-        var source1 = manager.createSource("q1", 1);
+        var sink0 = manager.createSink(context("q1", 0));
+        var sink1 = manager.createSink(context("q1", 1));
+        var source0 = manager.createSource(context("q1", 0));
+        var source1 = manager.createSource(context("q1", 1));
 
         sink0.addNativePage(testArrowPage("p0"));
         sink0.finish();
@@ -140,6 +143,16 @@ class ExchangeSpiContractTest {
         return new NativePage(content.getBytes(StandardCharsets.UTF_8), -1, -1, BatchFormat.ARROW_IPC);
     }
 
+    private static ExchangeChannelContext context(String queryId, int partitionId) {
+        return new ExchangeChannelContext(
+                new ExchangeTaskAttempt(
+                        queryId, 0, 0, "task-0", 1L,
+                        new ExchangeAttemptFence(1L, 0, 1L),
+                        new ShuffleExecutionOwner("owner", "incarnation", 1L)),
+                partitionId,
+                Long.MAX_VALUE);
+    }
+
     // ---- Minimal in-memory implementation ----
 
     private static final class InMemoryExchangeManager implements ExchangeChannelManager {
@@ -147,16 +160,19 @@ class ExchangeSpiContractTest {
                 new java.util.concurrent.ConcurrentHashMap<>();
 
         @Override
-        public ExchangeSink createSink(String queryId, int partitionId) {
+        public ExchangeSink createSink(ExchangeChannelContext context) {
             var channel = channels.computeIfAbsent(
-                    queryId + ":" + partitionId, k -> new InMemoryChannel());
+                    context.queryId() + ":" + context.exchangePartitionId(),
+                    k -> new InMemoryChannel());
             return new InMemorySink(channel);
         }
 
         @Override
-        public ExchangeSource createSource(String queryId, int partitionId, ExchangeReadMode readMode) {
+        public ExchangeSource createSource(
+                ExchangeChannelContext context, ExchangeReadMode readMode) {
             var channel = channels.computeIfAbsent(
-                    queryId + ":" + partitionId, k -> new InMemoryChannel());
+                    context.queryId() + ":" + context.exchangePartitionId(),
+                    k -> new InMemoryChannel());
             return new InMemorySource(channel);
         }
 

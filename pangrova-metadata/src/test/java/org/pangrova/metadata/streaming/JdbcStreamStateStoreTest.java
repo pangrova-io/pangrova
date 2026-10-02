@@ -16,7 +16,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class JdbcStreamStateStoreTest {
@@ -26,7 +25,6 @@ class JdbcStreamStateStoreTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        assumeTrue(SharedPostgresContainer.isAvailable());
         dataSource = SharedPostgresContainer.dataSource();
         initSchema(dataSource);
         store = new JdbcStreamStateStore(dataSource);

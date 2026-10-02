@@ -36,7 +36,7 @@ class SubquerySetOperationTest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.loadTpcHDataViaConnector(
@@ -110,32 +110,23 @@ class SubquerySetOperationTest extends SqlE2ETestBase {
         @Test
         @DisplayName("EXISTS returns rows where correlated subquery has matches")
         void existsSubquery() {
-            try {
-                List<TypedRow> rows = sqlRunner.execute(
-                        "SELECT c_custkey, c_name FROM customer c "
-                        + "WHERE EXISTS ("
-                        + "  SELECT 1 FROM orders o WHERE o.o_custkey = c.c_custkey"
-                        + ") LIMIT 10");
-                assertThat(rows).isNotEmpty();
-            } catch (AssertionError | RuntimeException e) {
-                // Correlated EXISTS subquery decorrelation may not be fully supported
-                // in native execution — acceptable
-            }
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT c_custkey, c_name FROM customer c "
+                    + "WHERE EXISTS ("
+                    + "  SELECT 1 FROM orders o WHERE o.o_custkey = c.c_custkey"
+                    + ") LIMIT 10");
+            assertThat(rows).isNotEmpty();
         }
 
         @Test
         @DisplayName("NOT EXISTS returns rows without matches")
         void notExistsSubquery() {
-            try {
-                List<TypedRow> rows = sqlRunner.execute(
-                        "SELECT COUNT(*) AS cnt FROM customer c "
-                        + "WHERE NOT EXISTS ("
-                        + "  SELECT 1 FROM orders o WHERE o.o_custkey = c.c_custkey"
-                        + ")");
-                assertThat(rows).hasSize(1);
-            } catch (AssertionError | RuntimeException e) {
-                // Correlated NOT EXISTS decorrelation may not be fully supported
-            }
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT COUNT(*) AS cnt FROM customer c "
+                    + "WHERE NOT EXISTS ("
+                    + "  SELECT 1 FROM orders o WHERE o.o_custkey = c.c_custkey"
+                    + ")");
+            assertThat(rows).hasSize(1);
         }
     }
 
@@ -179,18 +170,14 @@ class SubquerySetOperationTest extends SqlE2ETestBase {
         @Test
         @DisplayName("INTERSECT returns only common rows")
         void intersectReturnsCommon() {
-            try {
-                List<TypedRow> rows = sqlRunner.execute(
-                        "SELECT o_orderstatus AS status FROM orders "
-                        + "INTERSECT "
-                        + "SELECT o_orderstatus AS status FROM orders WHERE o_orderstatus = 'O'");
-                assertThat(rows).isNotEmpty();
-                // Result should only contain 'O'
-                for (TypedRow row : rows) {
-                    assertThat(row.getRaw("status")).isEqualTo("O");
-                }
-            } catch (AssertionError | RuntimeException e) {
-                // INTERSECT operation may not be fully supported in native execution
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT o_orderstatus AS status FROM orders "
+                    + "INTERSECT "
+                    + "SELECT o_orderstatus AS status FROM orders WHERE o_orderstatus = 'O'");
+            assertThat(rows).isNotEmpty();
+            // Result should only contain 'O'
+            for (TypedRow row : rows) {
+                assertThat(row.getRaw("status")).isEqualTo("O");
             }
         }
     }

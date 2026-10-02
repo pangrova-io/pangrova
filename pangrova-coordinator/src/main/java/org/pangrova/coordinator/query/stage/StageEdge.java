@@ -14,6 +14,7 @@
 package org.pangrova.coordinator.query.stage;
 
 import org.pangrova.planner.ShuffleType;
+import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
 
 import java.util.List;
@@ -28,12 +29,20 @@ import java.util.List;
  * @param downstreamStageId the consuming stage
  * @param shuffleType       the shuffle distribution type for this edge
  * @param distributionKeys  column indices used for hash partitioning (empty for non-hash)
+ * @param exchangeId         stable plan-level exchange identifier
+ * @param partitionCount     number of downstream output partitions
+ * @param batchSerde         protocol-level batch serialization format
+ * @param requireComplete    whether all committed upstream partitions are required
  */
 public record StageEdge(
         int upstreamStageId,
         int downstreamStageId,
         ShuffleType shuffleType,
-        List<Integer> distributionKeys
+        List<Integer> distributionKeys,
+        String exchangeId,
+        int partitionCount,
+        BatchSerde batchSerde,
+        boolean requireComplete
 ) {
 
     /**
@@ -43,29 +52,55 @@ public record StageEdge(
         this(upstreamStageId, downstreamStageId, shuffleType, List.of());
     }
 
+    /**
+     * Constructor for topology-only DAGs; executable plans use the full record.
+     */
+    public StageEdge(
+            int upstreamStageId,
+            int downstreamStageId,
+            ShuffleType shuffleType,
+            List<Integer> distributionKeys) {
+        this(upstreamStageId, downstreamStageId, shuffleType, distributionKeys,
+                "exchange-" + upstreamStageId + "-to-" + downstreamStageId,
+                1, BatchSerde.BATCH_SERDE_NATIVE_ROW, true);
+    }
+
     public StageEdge {
         if (shuffleType == null) {
             throw new NullPointerException("shuffleType must not be null");
         }
         distributionKeys = distributionKeys == null ? List.of() : List.copyOf(distributionKeys);
+        if (exchangeId == null || exchangeId.isBlank()) {
+            throw new IllegalArgumentException("exchangeId must not be blank");
+        }
+        if (partitionCount < 1) {
+            throw new IllegalArgumentException("partitionCount must be >= 1");
+        }
+        if (batchSerde == null
+                || batchSerde == BatchSerde.BATCH_SERDE_UNSPECIFIED
+                || batchSerde == BatchSerde.UNRECOGNIZED) {
+            throw new IllegalArgumentException("batchSerde must be explicitly bound");
+        }
     }
 
     /**
      * Derives the {@link ExchangeReadMode} from the shuffle type.
-     * Broadcast and singleton distributions allow streaming reads;
-     * hash and range distributions require blocking until upstream commits.
+     * Complete exchanges must wait for every committed upstream partition;
+     * only explicitly non-complete broadcast/singleton edges allow streaming.
      */
     public ExchangeReadMode readMode() {
+        if (requireComplete) {
+            return ExchangeReadMode.BLOCKING;
+        }
         return switch (shuffleType) {
             case BROADCAST, SINGLETON -> ExchangeReadMode.STREAMING;
             default -> ExchangeReadMode.BLOCKING;
         };
     }
 
-    /**
-     * Whether this edge represents a hash-distributed shuffle.
-     */
+    /** External shuffle registration currently accepts hash outputs only. */
     public boolean isHashShuffle() {
         return shuffleType == ShuffleType.HASH;
     }
+
 }

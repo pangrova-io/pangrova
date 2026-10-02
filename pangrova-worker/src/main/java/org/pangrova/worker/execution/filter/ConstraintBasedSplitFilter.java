@@ -4,16 +4,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.protocol.v1.ColumnStatisticsInfo;
-import org.pangrova.protocol.v1.SplitConstraintInfo;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
 import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
+import org.pangrova.protocol.v2.ColumnStatistics;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.protocol.v2.RuntimeFilter;
+import org.pangrova.protocol.v2.SplitConstraint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Filters splits using constraint predicates (partition values and file-level
- * column statistics) carried in {@link SplitConstraintInfo}.
+ * column statistics) carried in the typed v2 {@link FileSplitDetail}.
  *
  * <p>Evaluates query predicates (from dynamic filters) against the split's own
  * metadata to skip irrelevant splits before native execution. This complements
@@ -36,7 +39,7 @@ public final class ConstraintBasedSplitFilter {
      * @param skippedSplits  number of splits skipped by constraint evaluation
      */
     public record FilterResult(
-            List<SplitInfo> retainedSplits,
+            List<DataSplit> retainedSplits,
             int totalSplits,
             int skippedSplits
     ) {}
@@ -55,7 +58,7 @@ public final class ConstraintBasedSplitFilter {
      * @param stageId  stage identifier for logging
      * @return filter result with retained splits and skip metrics
      */
-    public static FilterResult filter(List<SplitInfo> splits,
+    public static FilterResult filter(List<DataSplit> splits,
                                        List<DynamicFilterPayload> filters,
                                        String queryId, int stageId) {
         if (splits == null || splits.isEmpty()) {
@@ -70,12 +73,12 @@ public final class ConstraintBasedSplitFilter {
         return applyPredicates(splits, predicates, queryId, stageId);
     }
 
-    private static FilterResult applyPredicates(List<SplitInfo> splits,
+    private static FilterResult applyPredicates(List<DataSplit> splits,
                                                 List<MinMaxPredicate> predicates,
                                                 String queryId, int stageId) {
-        List<SplitInfo> retained = new ArrayList<>(splits.size());
+        List<DataSplit> retained = new ArrayList<>(splits.size());
         int skipped = 0;
-        for (SplitInfo split : splits) {
+        for (DataSplit split : splits) {
             if (passesConstraint(split, predicates)) {
                 retained.add(split);
             } else {
@@ -94,17 +97,22 @@ public final class ConstraintBasedSplitFilter {
      * Evaluates a single split's constraint against the predicates.
      * Returns true if the split should be retained (might contain matching data).
      */
-    static boolean passesConstraint(SplitInfo split, List<MinMaxPredicate> predicates) {
-        SplitConstraintInfo constraint = split.getSplitConstraint();
-        if (constraint.equals(SplitConstraintInfo.getDefaultInstance())) {
-            return true;
-        }
-
-        if (failsPartitionConstraint(constraint.getPartitionValuesMap(), predicates)) {
+    static boolean passesConstraint(DataSplit split, List<MinMaxPredicate> predicates) {
+        // Partition values belong to the canonical DataSplit envelope, not to
+        // connector-specific FileSplitDetail. They must be evaluated even when
+        // the file has no optional column-statistics constraint.
+        if (failsPartitionConstraint(
+                DataSplitProtoCodec.stringPartitionValues(split), predicates)) {
             return false;
         }
 
-        List<ColumnStatisticsInfo> stats = constraint.getColumnStatisticsList();
+        FileSplitDetail detail = DataSplitProtoCodec.fileDetail(split);
+        if (!detail.hasSplitConstraint()) {
+            return true;
+        }
+        SplitConstraint constraint = detail.getSplitConstraint();
+
+        List<ColumnStatistics> stats = constraint.getColumnStatisticsList();
         if (stats.isEmpty()) {
             return true;
         }
@@ -124,9 +132,9 @@ public final class ConstraintBasedSplitFilter {
     }
 
     private static boolean failsStatsConstraint(
-            Map<String, ColumnStatisticsInfo> statsMap, List<MinMaxPredicate> predicates) {
+            Map<String, ColumnStatistics> statsMap, List<MinMaxPredicate> predicates) {
         for (MinMaxPredicate predicate : predicates) {
-            ColumnStatisticsInfo colStats = statsMap.get(predicate.column());
+            ColumnStatistics colStats = statsMap.get(predicate.column());
             if (colStats == null) {
                 continue;
             }
@@ -137,10 +145,10 @@ public final class ConstraintBasedSplitFilter {
         return false;
     }
 
-    private static Map<String, ColumnStatisticsInfo> buildStatsMap(
-            List<ColumnStatisticsInfo> stats) {
-        var map = new java.util.HashMap<String, ColumnStatisticsInfo>(stats.size());
-        for (ColumnStatisticsInfo stat : stats) {
+    private static Map<String, ColumnStatistics> buildStatsMap(
+            List<ColumnStatistics> stats) {
+        var map = new java.util.HashMap<String, ColumnStatistics>(stats.size());
+        for (ColumnStatistics stat : stats) {
             map.put(stat.getColumnName(), stat);
         }
         return map;
@@ -153,11 +161,9 @@ public final class ConstraintBasedSplitFilter {
             return predicates;
         }
         for (DynamicFilterPayload payload : filters) {
-            if ("MIN_MAX".equals(payload.filterType())) {
-                MinMaxPredicate predicate = MinMaxPredicate.parse(payload);
-                if (predicate != null) {
-                    predicates.add(predicate);
-                }
+            RuntimeFilter entry = TypedDynamicFilter.parseSingle(payload);
+            if (entry.hasRange()) {
+                predicates.add(new MinMaxPredicate(entry.getColumnName(), entry));
             }
         }
         return predicates;
@@ -167,19 +173,7 @@ public final class ConstraintBasedSplitFilter {
      * A MIN_MAX predicate extracted from a dynamic filter payload.
      * Used to evaluate against split constraint column statistics.
      */
-    record MinMaxPredicate(String column, String min, String max) {
-
-        static MinMaxPredicate parse(DynamicFilterPayload payload) {
-            String data = new String(payload.filterData(), java.nio.charset.StandardCharsets.UTF_8);
-            String[] parts = data.split("\\|", 3);
-            if (parts.length < 3) {
-                return null;
-            }
-            String column = (payload.column() != null && !payload.column().isEmpty())
-                    ? payload.column()
-                    : parts[0];
-            return new MinMaxPredicate(column, parts[1], parts[2]);
-        }
+    record MinMaxPredicate(String column, RuntimeFilter entry) {
 
         /**
          * Returns true if the given value falls within [min, max].
@@ -188,7 +182,7 @@ public final class ConstraintBasedSplitFilter {
             if (value == null) {
                 return true;
             }
-            return value.compareTo(min) >= 0 && value.compareTo(max) <= 0;
+            return TypedDynamicFilter.rangeMatches(entry, value);
         }
 
         /**
@@ -200,13 +194,7 @@ public final class ConstraintBasedSplitFilter {
                     || splitMax == null || splitMax.isEmpty()) {
                 return true;
             }
-            if (splitMax.compareTo(min) < 0) {
-                return false;
-            }
-            if (splitMin.compareTo(max) > 0) {
-                return false;
-            }
-            return true;
+            return TypedDynamicFilter.rangeOverlaps(entry, splitMin, splitMax);
         }
     }
 }

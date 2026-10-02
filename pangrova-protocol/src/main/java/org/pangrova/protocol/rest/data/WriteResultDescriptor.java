@@ -19,6 +19,12 @@ public record WriteResultDescriptor(
         commitMetadata = commitMetadata != null ? commitMetadata.clone() : new byte[0];
     }
 
+    /** Returns an owned copy so validated metadata cannot be mutated after admission. */
+    @Override
+    public byte[] commitMetadata() {
+        return commitMetadata.clone();
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

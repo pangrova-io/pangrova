@@ -1,6 +1,7 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.connector.paimon.PaimonMetadata;
+import org.pangrova.connector.paimon.PaimonCommitTestSupport;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
 import org.pangrova.spi.connector.data.ConnectorPageSink;
@@ -55,7 +56,7 @@ class PaimonCommitListenerNotificationTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> APPEND_COLUMNS = List.of(
@@ -144,7 +145,7 @@ class PaimonCommitListenerNotificationTest {
         List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).columnNames());
         sink.appendPage(new Page(columns, rows));
         byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
+        PaimonCommitTestSupport.finish(metadata, SESSION, outputHandle, List.of(commitMetadata));
         sink.close();
     }
 

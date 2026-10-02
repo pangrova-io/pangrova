@@ -34,9 +34,9 @@ public final class ShowViewsTask implements MetadataTask<ShowViewsStatement> {
     @Override
     public StatementResult execute(ShowViewsStatement statement, StatementExecutionContext context) {
         List<String> parts = statement.qualifiedName();
-        String catalog = parts.size() >= 2 ? parts.get(0) : "default";
+        String catalog = parts.size() >= 2 ? parts.get(0) : TableResolver.defaultCatalog(context.session());
         String schema = parts.size() >= 2 ? parts.get(1) : parts.get(0);
-        ConnectorSession session = TableResolver.buildSession(catalog);
+        ConnectorSession session = TableResolver.buildSession(context.session(), catalog, schema);
         ConnectorMetadata metadata = catalogRegistry.getCatalog(catalog).getMetadata(session);
 
         List<SchemaTableName> views = metadata.listViews(session, Optional.of(schema));

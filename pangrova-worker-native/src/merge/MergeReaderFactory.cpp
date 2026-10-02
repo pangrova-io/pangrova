@@ -61,13 +61,14 @@ std::unique_ptr<MergeReader> MergeReaderFactory::create(
       : resolveColumnIndex(config.sequence_column, output_type);
 
   const auto engine = toLower(config.merge_engine);
+  const MergeDeletePolicy delete_policy{config.ignore_delete, config.remove_record_on_delete};
   if (engine == "deduplicate") {
     return std::make_unique<DeduplicateMergeReader>(
-        std::move(key_indices), seq_index, output_type);
+        std::move(key_indices), seq_index, output_type, delete_policy);
   }
   if (engine == "partial_update") {
     return std::make_unique<PartialUpdateMergeReader>(
-        std::move(key_indices), seq_index, output_type);
+        std::move(key_indices), seq_index, output_type, delete_policy);
   }
   if (engine == "aggregation") {
     // Defensive: validate aggregation_specs keys do not contain empty strings.
@@ -90,11 +91,11 @@ std::unique_ptr<MergeReader> MergeReaderFactory::create(
     }
     auto agg_specs = resolveAggSpecs(config.aggregation_specs, output_type);
     return std::make_unique<AggregationMergeReader>(
-        std::move(key_indices), seq_index, output_type, std::move(agg_specs));
+        std::move(key_indices), seq_index, output_type, std::move(agg_specs), delete_policy);
   }
   if (engine == "first_row") {
     return std::make_unique<FirstRowMergeReader>(
-        std::move(key_indices), seq_index, output_type);
+        std::move(key_indices), seq_index, output_type, delete_policy);
   }
 
   throw executor::NativeUnsupportedFeatureException(
@@ -139,7 +140,22 @@ MergeReaderFactory::resolveAggSpecs(
   resolved.reserve(agg_specs.size());
   for (const auto& [col_name, func_name] : agg_specs) {
     auto col_idx = resolveColumnIndex(col_name, output_type);
-    resolved[col_idx] = parseAggFunction(func_name);
+    auto function = parseAggFunction(func_name);
+    const auto& type = output_type->childAt(col_idx);
+    if (function == AggFunction::PRODUCT && type->isDecimal()) {
+      throw std::invalid_argument("Paimon Native PRODUCT does not represent decimal scale semantics");
+    }
+    if ((function == AggFunction::COLLECT || function == AggFunction::NESTED_UPDATE)
+        && type->kind() != facebook::velox::TypeKind::ARRAY) {
+      throw std::invalid_argument("Paimon collect/nested_update requires ARRAY");
+    }
+    if (function == AggFunction::NESTED_UPDATE && type->childAt(0)->kind() != facebook::velox::TypeKind::ROW) {
+      throw std::invalid_argument("Paimon nested_update requires ARRAY<ROW>");
+    }
+    if (function == AggFunction::MERGE_MAP && type->kind() != facebook::velox::TypeKind::MAP) {
+      throw std::invalid_argument("Paimon merge_map requires MAP");
+    }
+    resolved[col_idx] = function;
   }
   return resolved;
 }

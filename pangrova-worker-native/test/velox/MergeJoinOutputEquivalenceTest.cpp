@@ -22,9 +22,9 @@
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalOutputAssertions.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
-#include "pangrova/native/protocol/v1/plan_hints.pb.h"
 #include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
 
@@ -93,8 +93,18 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 void setJoinKeyRef(
     substrait::Expression::FieldReference* ref,
     int field_index) {
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
+}
+
+template <typename JoinRel>
+void addStandardJoinKey(JoinRel* join, int left_index, int right_index) {
+  auto* key = join->add_keys();
+  setJoinKeyRef(key->mutable_left(), left_index);
+  setJoinKeyRef(key->mutable_right(), right_index);
+  key->mutable_comparison()->set_simple(
+      substrait::ComparisonJoinKey::SIMPLE_COMPARISON_TYPE_EQ);
 }
 
 std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
@@ -120,7 +130,7 @@ std::vector<uint8_t> buildMergeJoinPlan(
 
   root->add_names("join_key");
   root->add_names("left_payload");
-  root->add_names("join_key");
+  root->add_names("join_key_right");
   root->add_names("right_payload");
 
   auto* merge_join = root->mutable_input()->mutable_merge_join();
@@ -140,17 +150,10 @@ std::vector<uint8_t> buildMergeJoinPlan(
   addI64Column(right_schema, "right_payload");
 
   // Join key: left.join_key (index 0) = right.join_key (index 0)
-  setJoinKeyRef(merge_join->add_left_keys(), 0);
-  setJoinKeyRef(merge_join->add_right_keys(), 0);
+  addStandardJoinKey(merge_join, 0, 0);
 
   // Set join type
   merge_join->set_type(join_type);
-
-  // Mark inputs as pre-sorted (MergeJoin operates on sorted data)
-  pangrova::native::protocol::v1::MergeJoinHint hint;
-  hint.set_inputs_pre_sorted(true);
-  merge_join->mutable_advanced_extension()->mutable_enhancement()->PackFrom(
-      hint);
 
   return serializePlan(plan);
 }
@@ -168,7 +171,7 @@ std::vector<uint8_t> buildHashJoinPlan(
 
   root->add_names("join_key");
   root->add_names("left_payload");
-  root->add_names("join_key");
+  root->add_names("join_key_right");
   root->add_names("right_payload");
 
   auto* hash_join = root->mutable_input()->mutable_hash_join();
@@ -188,8 +191,7 @@ std::vector<uint8_t> buildHashJoinPlan(
   addI64Column(right_schema, "right_payload");
 
   // Join key: left.join_key (index 0) = right.join_key (index 0)
-  setJoinKeyRef(hash_join->add_left_keys(), 0);
-  setJoinKeyRef(hash_join->add_right_keys(), 0);
+  addStandardJoinKey(hash_join, 0, 0);
 
   // Set join type
   hash_join->set_type(join_type);
@@ -422,21 +424,18 @@ TEST_P(MergeJoinOutputEquivalenceTest, OutputColumnNameConsistency) {
       << "HashJoin output should have 4 columns for " << param.name;
 
   // Left columns should retain original names.
-  EXPECT_EQ(merge_output->nameOf(0), "join_key");
-  EXPECT_EQ(merge_output->nameOf(1), "left_payload");
-  EXPECT_EQ(hash_output->nameOf(0), "join_key");
-  EXPECT_EQ(hash_output->nameOf(1), "left_payload");
+  expectCanonicalOutputField(merge_converter, merge_output, 0, "join_key");
+  expectCanonicalOutputField(merge_converter, merge_output, 1, "left_payload");
+  expectCanonicalOutputField(hash_converter, hash_output, 0, "join_key");
+  expectCanonicalOutputField(hash_converter, hash_output, 1, "left_payload");
 
   // Right join_key should be deduplicated with "_right" suffix in both.
-  EXPECT_EQ(merge_output->nameOf(2), "join_key_right")
-      << "MergeJoin right key column should be deduplicated for "
-      << param.name;
-  EXPECT_EQ(hash_output->nameOf(2), "join_key_right")
-      << "HashJoin right key column should be deduplicated for " << param.name;
+  expectCanonicalOutputField(merge_converter, merge_output, 2, "join_key_right");
+  expectCanonicalOutputField(hash_converter, hash_output, 2, "join_key_right");
 
   // Right payload should retain original name (no collision).
-  EXPECT_EQ(merge_output->nameOf(3), "right_payload");
-  EXPECT_EQ(hash_output->nameOf(3), "right_payload");
+  expectCanonicalOutputField(merge_converter, merge_output, 3, "right_payload");
+  expectCanonicalOutputField(hash_converter, hash_output, 3, "right_payload");
 }
 
 // ===========================================================================

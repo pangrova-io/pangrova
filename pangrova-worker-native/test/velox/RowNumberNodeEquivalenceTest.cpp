@@ -71,6 +71,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
   auto* ref = expr->mutable_selection();
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
 }
@@ -126,6 +127,8 @@ std::vector<uint8_t> buildRowNumberPlan(
 
   // Single window function: row_number() with no arguments, default frame.
   auto* wf = window_rel->add_window_functions();
+  wf->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
+  wf->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf->set_function_reference(0);
   wf->mutable_output_type()->mutable_i64();
   // No arguments (row_number takes none).
@@ -174,10 +177,14 @@ std::vector<uint8_t> buildMultiWindowFunctionPlan(int partition_key_count) {
 
   // Two window functions: row_number() and rank().
   auto* wf1 = window_rel->add_window_functions();
+  wf1->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
+  wf1->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf1->set_function_reference(0);
   wf1->mutable_output_type()->mutable_i64();
 
   auto* wf2 = window_rel->add_window_functions();
+  wf2->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
+  wf2->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf2->set_function_reference(1);
   wf2->mutable_output_type()->mutable_i64();
 

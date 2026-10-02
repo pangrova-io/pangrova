@@ -10,12 +10,10 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
-import org.pangrova.coordinator.query.cache.CacheWritebackConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager;
-import org.pangrova.coordinator.query.execution.dispatch.task.ShowMetadataRedirectTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateCatalogTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.DropCatalogTask;
@@ -33,7 +31,7 @@ import org.pangrova.parser.ast.SetSessionStatement;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.spi.coordination.QueryStateJournal;
-import org.pangrova.shuffle.ShuffleServerEndpoint;
+import org.pangrova.shuffle.ShuffleServiceAddress;
 import org.pangrova.shuffle.ShuffleLifecycleManager;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
@@ -56,16 +54,35 @@ final class QueryExecutionBootstrap {
     private final ModuleIntegrationBootstrap moduleWiring;
     private final StreamingBootstrap streamingBootstrap;
     private final HighAvailabilityCoordinationService coordinationService;
+    private final org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver;
     private final org.pangrova.coordinator.query.task.NativeWriteCommitTracker writeCommitTracker;
+    private final org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
+            generatedValueMaterialization;
+    private final org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier writeAuthoritySupplier;
+    private final org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore;
+    private final java.util.function.Function<org.pangrova.coordinator.feature.FeatureSourceCompiler,
+            org.pangrova.coordinator.feature.FeatureViewStatementService> featureViewServiceFactory;
+    private final org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
+            embeddingModelRegistry;
 
     private RemoteTaskDispatcher remoteTaskDispatcher;
+    private WorkerManager workerManager;
     private org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory metadataFactory;
 
     QueryExecutionBootstrap(CoordinatorBootstrapConfig config, TracingProvider tracingProvider,
                          AccessControl accessControl, MetadataBootstrap metadataBootstrap,
                          ModuleIntegrationBootstrap moduleWiring, StreamingBootstrap streamingBootstrap,
                          HighAvailabilityCoordinationService coordinationService,
-                         org.pangrova.coordinator.query.task.NativeWriteCommitTracker writeCommitTracker) {
+                         org.pangrova.coordinator.query.task.NativeWriteCommitTracker writeCommitTracker,
+                         org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
+                                 generatedValueMaterialization,
+                         org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore,
+                         java.util.function.Function<org.pangrova.coordinator.feature.FeatureSourceCompiler,
+                                 org.pangrova.coordinator.feature.FeatureViewStatementService>
+                                 featureViewServiceFactory,
+                         org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
+                                 embeddingModelRegistry,
+                         org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver) {
         this.config = config;
         this.tracingProvider = tracingProvider;
         this.accessControl = accessControl;
@@ -73,7 +90,14 @@ final class QueryExecutionBootstrap {
         this.moduleWiring = moduleWiring;
         this.streamingBootstrap = streamingBootstrap;
         this.coordinationService = coordinationService;
+        this.shuffleOwnerResolver = shuffleOwnerResolver;
         this.writeCommitTracker = writeCommitTracker;
+        this.generatedValueMaterialization = generatedValueMaterialization;
+        this.writeAuthoritySupplier = generatedValueMaterialization == null ? null
+                : generatedValueMaterialization::writeAuthority;
+        this.semanticViewStore = semanticViewStore;
+        this.featureViewServiceFactory = featureViewServiceFactory;
+        this.embeddingModelRegistry = embeddingModelRegistry;
     }
 
     QueryDispatcher buildQueryDispatcher(
@@ -82,14 +106,22 @@ final class QueryExecutionBootstrap {
             SplitAssignmentManager splitAssignmentManager,
             SpeculativeStageHandler speculativeStageHandler,
             QueryStateJournal stateJournal) {
+        this.workerManager = java.util.Objects.requireNonNull(wm, "workerManager must not be null");
         SqlCompiler compiler = mc.require(SqlCompiler.class);
         CircuitBreakerPolicy cb = circuitBreaker;
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
                 cb != null ? cb : CircuitBreakerPolicy.noOp(), tracingProvider,
                 config.internalAuthSecret());
+        if (coordinationService != null) {
+            rtd.setControlEpochSupplier(coordinationService::getCurrentEpoch);
+            rtd.setExecutionOwnerResolver(executionId -> {
+                var anchor = coordinationService.requireExecutionAnchor(executionId);
+                return new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
+                        anchor.ownerId(), anchor.ownerIncarnation(),
+                        anchor.fencingToken());
+            });
+        }
         this.remoteTaskDispatcher = rtd;
-        CacheWritebackConfig wbConfig = config.cacheWritebackEnabled()
-                ? new CacheWritebackConfig(true) : CacheWritebackConfig.DISABLED;
         ShuffleLifecycleManager shuffleLifecycleManager = buildShuffleLifecycleManager();
         var security = new org.pangrova.coordinator.query.execution.SecurityContextBundle(
                 mc.optional(org.pangrova.coordinator.query.security.AccessControlEnforcer.class),
@@ -100,31 +132,38 @@ final class QueryExecutionBootstrap {
                 splitAssignmentManager, speculativeStageHandler,
                 config.spillBudget(),
                 moduleWiring != null ? moduleWiring.getResilienceRegistry() : null);
-        var cache = new org.pangrova.coordinator.query.execution.CacheContextBundle(wbConfig);
         QueryDispatcherContext deps = new QueryDispatcherContext(compiler,
-                security, scheduling, cache,
+                security, scheduling,
                 mc.optional(CatalogRegistry.class),
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
-                resultService, config.effectiveTaskTimeoutSeconds(),
+                config.effectiveTaskTimeoutSeconds(),
                 mc.optional(org.pangrova.planner.runtimefilter.RuntimeFilterRegistry.class),
                 new org.pangrova.planner.adaptive.AdaptiveQueryExecutor(),
                 org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED,
                 shuffleLifecycleManager, coordinationService,
                 coordinationService != null ? config.coordinatorId() : null,
                 stateJournal,
-                mc.optional(IndexAwareSplitFetcher.class));
+                mc.optional(IndexAwareSplitFetcher.class),
+                embeddingModelRegistry);
         // Late-binding reference: MERGE and INSERT SELECT dispatch functions need
         // QueryDispatcher, but QueryDispatcher needs StatementDispatcher. Resolve
         // via AtomicReference populated after QueryDispatcher construction.
         var queryDispatcherRef = new AtomicReference<QueryDispatcher>();
+        if (generatedValueMaterialization != null) {
+            generatedValueMaterialization.bindSourceCompiler((sql, actor) -> {
+                QueryDispatcher dispatcher = queryDispatcherRef.get();
+                if (dispatcher == null) {
+                    throw new IllegalStateException("QueryDispatcher not initialized for generated input compilation");
+                }
+                return dispatcher.compileAuthorizedRelation(sql, actor);
+            });
+        }
         var dispatcher = buildStatementDispatcher(
                 compiler, tt, deps, queryDispatcherRef, resultService);
-        if (dispatcher != null && metadataBootstrap != null) {
-            dispatcher.setSystemTableQueryTask(
-                    new org.pangrova.coordinator.query.execution.dispatch.task.SystemTableQueryTask(
-                            metadataBootstrap.catalogRegistry()));
-        }
         var qd = new QueryDispatcher(deps, dispatcher, tracingProvider);
+        if (writeAuthoritySupplier != null) {
+            qd.setGeneratedWriteAuthoritySupplier(writeAuthoritySupplier);
+        }
         if (writeCommitTracker != null) {
             qd.setWriteCommitTracker(writeCommitTracker);
         }
@@ -142,7 +181,7 @@ final class QueryExecutionBootstrap {
         CatalogRegistry catalog = metadataBootstrap.catalogRegistry();
         IndexingBootstrap indexing = moduleWiring != null ? moduleWiring.getIndexingBootstrap() : null;
         Consumer<String> writeCallback = buildWriteCompleteCallback(
-                moduleWiring != null ? moduleWiring.getMaintenanceScheduler() : null, indexing);
+                moduleWiring != null ? moduleWiring.getMaintenanceScheduler() : null);
 
         // DML dispatch function: compiles statement SQL to RelNode, dispatches
         // through QueryDispatcher pipeline. Late-bound via queryDispatcherRef
@@ -162,14 +201,6 @@ final class QueryExecutionBootstrap {
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(
                 catalog, null,
                 org.pangrova.coordinator.metadata.MetadataSchemaBuilder::invalidateTableCaches);
-        var dmlExecutor = new org.pangrova.coordinator.query.statement.dml.DmlExecutor(
-                catalog,
-                new org.pangrova.coordinator.query.statement.dml.DmlExecutorConfig(
-                        writeCallback, dmlDispatch,
-                        new org.pangrova.coordinator.query.execution.CoordinatorMemoryGuard(),
-                        org.pangrova.coordinator.query.statement.dml.DmlExecutorConfig.DEFAULT_MAX_CONCURRENT_DML,
-                        org.pangrova.coordinator.query.statement.dml.DmlExecutorConfig.DEFAULT_DML_TIMEOUT_MS,
-                        writeCommitTracker));
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
 
@@ -180,7 +211,21 @@ final class QueryExecutionBootstrap {
         // 2-Factory architecture: MetadataExecutionFactory (direct metadata ops)
         // + PlanExecutionFactory (compilation + DAG dispatch).
         this.metadataFactory = buildMetadataFactory(
-                ddlExecutor, dmlExecutor, showDescribeExecutor, maintenanceExecutor, catalog, dmlDispatch);
+                ddlExecutor, showDescribeExecutor, maintenanceExecutor, catalog, dmlDispatch);
+        if (semanticViewStore != null) {
+            registerSemanticViewTasks(metadataFactory, semanticViewStore);
+        }
+        if (featureViewServiceFactory != null) {
+            var featureViewService = featureViewServiceFactory.apply((sql, actor) -> {
+                QueryDispatcher dispatcher = queryDispatcherRef.get();
+                if (dispatcher == null) {
+                    throw new IllegalStateException("QueryDispatcher not initialized for authenticated Feature compilation");
+                }
+                return dispatcher.compileAuthorizedRelation(sql, actor);
+            });
+            org.pangrova.coordinator.feature.FeatureViewMetadataTasks.register(
+                    metadataFactory, featureViewService);
+        }
         if (indexing != null && indexing.getDdlExecutor() != null) {
             registerIndexTasks(metadataFactory, indexing.getDdlExecutor());
         }
@@ -192,11 +237,10 @@ final class QueryExecutionBootstrap {
 
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
-                        dmlDispatch, (java.util.function.Consumer<String>) null,
+                        dmlDispatch, writeCallback,
                         (sql, sess) -> securityApplier.compileAndApplyPolicies(sql, sess).toString(),
-                        writeCommitTracker,
                         metadataBootstrap != null ? metadataBootstrap.catalogRegistry() : null,
-                        deps.accessControlEnforcer()));
+                        generatedValueMaterialization));
 
         var factories = new ArrayList<
                 org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory<?>>();
@@ -223,13 +267,12 @@ final class QueryExecutionBootstrap {
     }
 
     /**
-     * Builds a MetadataExecutionFactory with core DDL, DML (INSERT), SHOW/DESCRIBE,
+     * Builds a MetadataExecutionFactory with control-plane DDL, SHOW/DESCRIBE,
      * and maintenance tasks. Index, clustering, stream, dynamic table, and tenant
      * tasks are registered dynamically via registerTask() after construction.
      */
     private static org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory buildMetadataFactory(
             org.pangrova.coordinator.query.statement.DdlExecutor ddlExecutor,
-            org.pangrova.coordinator.query.statement.dml.DmlExecutor dmlExecutor,
             org.pangrova.coordinator.query.statement.ShowDescribeExecutor showDescribeExecutor,
             org.pangrova.coordinator.query.statement.MaintenanceExecutor maintenanceExecutor,
             CatalogRegistry catalogRegistry,
@@ -266,11 +309,6 @@ final class QueryExecutionBootstrap {
                 (stmt, ctx) -> new org.pangrova.coordinator.query.execution.dispatch.StatementResult(
                         ddlExecutor.executeSetSession(stmt), java.util.List.of(), null,
                         org.pangrova.coordinator.query.execution.dispatch.StatementCategory.DDL));
-        // DML (INSERT VALUES, INSERT OVERWRITE only — DELETE/UPDATE/MERGE go to PlanExecutionFactory)
-        tasks.put(org.pangrova.parser.ast.InsertStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.InsertValuesTask(dmlExecutor));
-        tasks.put(org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.InsertOverwriteTask(dmlExecutor));
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(ddlExecutor, dmlDispatch));
@@ -304,11 +342,6 @@ final class QueryExecutionBootstrap {
         tasks.put(org.pangrova.parser.ast.statement.IncrementalReadStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalogRegistry));
         // SHOW metadata (redirects to system table queries)
-        var showMetadataTask = new ShowMetadataRedirectTask(catalogRegistry);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowSnapshots.class, showMetadataTask);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowFiles.class, showMetadataTask);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowManifests.class, showMetadataTask);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowPartitions.class, showMetadataTask);
         return new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
     }
 
@@ -370,34 +403,13 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.storage.ShowStorageProfilesTask(registry));
     }
 
-    Consumer<String> buildWriteCompleteCallback(
-            MaintenanceScheduler ms, IndexingBootstrap indexing) {
-        Consumer<String> mCb = ms != null
-                ? t -> ms.onWriteComplete(t, new org.pangrova.spi.connector.data.write.model.WriteResult(
-                        t, 0, 0, 0, 0, java.time.Instant.now()))
-                : null;
-        Consumer<String> iCb = buildIndexAutoRebuildCallback(indexing);
-        if (mCb == null && iCb == null) {
+    Consumer<String> buildWriteCompleteCallback(MaintenanceScheduler ms) {
+        if (ms == null) {
             return null;
         }
-        final var fm = mCb;
-        final var fi = iCb;
-        return t -> {
-            if (fm != null) {
-                fm.accept(t);
-            }
-            if (fi != null) {
-                fi.accept(t);
-            }
-        };
-    }
-
-    private Consumer<String> buildIndexAutoRebuildCallback(IndexingBootstrap indexing) {
-        if (indexing == null || indexing.getBuildCoordinator() == null || indexing.getMetadataStore() == null) {
-            return null;
-        }
-        return new org.pangrova.coordinator.index.lifecycle.IndexAutoRebuildTrigger(
-                indexing.getMetadataStore(), indexing.getBuildCoordinator());
+        return table -> ms.onWriteComplete(
+                table, new org.pangrova.spi.connector.data.write.model.WriteResult(
+                        table, 0, 0, 0, 0, java.time.Instant.now()));
     }
 
     private ShuffleLifecycleManager buildShuffleLifecycleManager() {
@@ -409,15 +421,23 @@ final class QueryExecutionBootstrap {
                         "shuffleMode=REMOTE but shuffleEndpoints is empty; "
                                 + "configure at least one shuffle server endpoint");
             }
-            List<ShuffleServerEndpoint> endpoints = rawEndpoints.stream()
-                    .map(QueryExecutionBootstrap::parseEndpoint)
+            String tlsIdentity = config.shuffleTlsConfig() == null
+                    ? "" : config.shuffleTlsConfig().serverIdentity();
+            List<ShuffleServiceAddress> endpoints = rawEndpoints.stream()
+                    .map(endpoint -> parseEndpoint(endpoint, tlsIdentity))
                     .toList();
-            return new CoordinatorShuffleLifecycleManager(endpoints);
+            if (shuffleOwnerResolver == null) {
+                throw new IllegalStateException(
+                        "shuffleMode=REMOTE requires durable execution ownership");
+            }
+            return new CoordinatorShuffleLifecycleManager(
+                    endpoints, shuffleOwnerResolver, config.shuffleTlsConfig());
         }
         return null;
     }
 
-    private static ShuffleServerEndpoint parseEndpoint(String hostPort) {
+    private static ShuffleServiceAddress parseEndpoint(
+            String hostPort, String tlsIdentity) {
         int colonIdx = hostPort.lastIndexOf(':');
         if (colonIdx <= 0 || colonIdx == hostPort.length() - 1) {
             throw new IllegalArgumentException(
@@ -425,13 +445,13 @@ final class QueryExecutionBootstrap {
         }
         String host = hostPort.substring(0, colonIdx);
         int port = Integer.parseInt(hostPort.substring(colonIdx + 1));
-        return new ShuffleServerEndpoint(host, port);
+        return new ShuffleServiceAddress(host, port, tlsIdentity);
     }
 
     RemoteTaskDispatcher remoteTaskDispatcher() { return remoteTaskDispatcher; }
 
     /**
-     * Registers embedding model DDL tasks (CREATE/DROP/SHOW EMBEDDING MODEL) into the
+     * Registers embedding model DDL tasks (CREATE/ALTER/DROP/SHOW EMBEDDING MODEL) into the
      * metadata execution factory. Called after the embedding model registry is initialized.
      */
     void registerEmbeddingModelTasks(
@@ -439,14 +459,32 @@ final class QueryExecutionBootstrap {
         if (metadataFactory == null || registry == null) {
             return;
         }
-        metadataFactory.registerTask(
-                org.pangrova.parser.ast.statement.CreateEmbeddingModelStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.CreateEmbeddingModelTask(registry));
-        metadataFactory.registerTask(
-                org.pangrova.parser.ast.statement.DropEmbeddingModelStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.DropEmbeddingModelTask(registry));
-        metadataFactory.registerTask(
-                org.pangrova.parser.ast.statement.ShowEmbeddingModelsStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ShowEmbeddingModelsTask(registry));
+        org.pangrova.coordinator.ai.embedding.EmbeddingModelTaskRegistration.register(
+                metadataFactory, registry, requireWorkerManager());
+    }
+
+    private WorkerManager requireWorkerManager() {
+        return java.util.Objects.requireNonNull(
+                workerManager, "query execution WorkerManager is not initialized");
+    }
+
+    /** Registers the metadata-only Semantic View control-plane statements. */
+    private void registerSemanticViewTasks(
+            org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory factory,
+            org.pangrova.metadata.semantic.SemanticViewStore store) {
+        var service = new org.pangrova.coordinator.semantic.SemanticViewStatementService(
+                java.util.Objects.requireNonNull(store, "store must not be null"), accessControl);
+        factory.registerTask(
+                org.pangrova.parser.ast.statement.CreateSemanticViewStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.semantic.CreateSemanticViewTask(
+                        service));
+        factory.registerTask(
+                org.pangrova.parser.ast.statement.PublishSemanticViewStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.semantic.PublishSemanticViewTask(
+                        service));
+        factory.registerTask(
+                org.pangrova.parser.ast.statement.ShowSemanticViewsStatement.class,
+                new org.pangrova.coordinator.query.execution.dispatch.task.semantic.ShowSemanticViewsTask(
+                        service));
     }
 }

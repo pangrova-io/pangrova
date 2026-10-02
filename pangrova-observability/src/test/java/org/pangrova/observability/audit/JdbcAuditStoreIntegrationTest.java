@@ -14,8 +14,15 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration test for JdbcAuditStore using a real PostgreSQL instance via TestContainers.
@@ -89,8 +96,7 @@ class JdbcAuditStoreIntegrationTest {
         for (QueryAuditRecord r : records) {
             store.save(r);
         }
-        // Give the auto-flush a moment to complete
-        Thread.sleep(200);
+        awaitPersisted("q-auto-" + (JdbcAuditStore.BATCH_SIZE - 1));
 
         // At least some records should be persisted due to batch size trigger
         int found = 0;
@@ -99,7 +105,63 @@ class JdbcAuditStoreIntegrationTest {
                 found++;
             }
         }
-        assertThat(found).isGreaterThan(0);
+        assertThat(found).isEqualTo(JdbcAuditStore.BATCH_SIZE);
+    }
+
+    @Test
+    void jdbcDoesNotHoldMonitorAndCloseWaitsForActualFlushThenDrainsAllBatches() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var gated = new JdbcAuditStoreTestDataSources.GatedDataSource(dataSource, release, entered);
+        var concurrent = new JdbcAuditStore(gated, 201);
+        var executor = Executors.newFixedThreadPool(3, task -> new Thread(task, "audit-concurrency-test"));
+        try {
+            concurrent.save(buildRecord("q-gated-0", "user", "SELECT 1", "tenant", true));
+            var flush = executor.submit(concurrent::flushBuffer);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(gated.heldMonitorCount()).isZero();
+            executor.submit(concurrent::flushBuffer).get(1, TimeUnit.SECONDS);
+            for (int i = 1; i <= 200; i++) {
+                concurrent.save(buildRecord("q-gated-" + i, "user", "SELECT 1", "tenant", true));
+            }
+            assertThatThrownBy(() -> concurrent.save(
+                    buildRecord("q-overflow", "user", "SELECT 1", "tenant", true)))
+                    .isInstanceOf(java.util.concurrent.RejectedExecutionException.class);
+            var close = executor.submit(concurrent::close);
+            assertThatThrownBy(() -> close.get(100, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            release.countDown();
+            flush.get(5, TimeUnit.SECONDS);
+            close.get(5, TimeUnit.SECONDS);
+            for (int i = 0; i <= 200; i++) {
+                assertThat(store.findById("q-gated-" + i)).isPresent();
+            }
+            assertThat(store.findById("q-overflow")).isEmpty();
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            concurrent.close();
+        }
+    }
+
+    private void awaitPersisted(String queryId) throws Exception {
+        CompletableFuture<Void> persisted = new CompletableFuture<>();
+        var poller = new ScheduledThreadPoolExecutor(1, task -> new Thread(task, "audit-persistence-test"));
+        poller.setRemoveOnCancelPolicy(true);
+        try {
+            poller.scheduleWithFixedDelay(() -> {
+                try {
+                    if (store.findById(queryId).isPresent()) {
+                        persisted.complete(null);
+                    }
+                } catch (RuntimeException e) {
+                    persisted.completeExceptionally(e);
+                }
+            }, 0, 20, TimeUnit.MILLISECONDS);
+            persisted.get(5, TimeUnit.SECONDS);
+        } finally {
+            poller.shutdownNow();
+        }
     }
 
     @Test

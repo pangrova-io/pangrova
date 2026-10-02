@@ -567,6 +567,15 @@ public class SmartQueryRouter {
 
 CBO (Cost-Based Optimization) relies on accurate table/column statistics. Pangrova supports three statistics collection strategies:
 
+Correctness boundary: the current CBO statistics are cost estimates, not
+authoritative bounds tied to the query's exact source snapshot. They must never
+rewrite a table scan into an empty relation, including for a literal outside an
+observed min/max range. The unsafe planner-wide elimination rule was removed.
+Connector file/row-group pruning must use the query-bound storage metadata;
+future planner elimination requires an exact snapshot/coverage contract and
+comparison-specific proof. `StatisticsPruningSafetyTest` verifies the real SQL
+compiler retains sources despite stale cost statistics.
+
 | Trigger | Mechanism | Applicable Scenario | Overhead |
 |---------|-----------|---------------------|----------|
 | Manual `ANALYZE` | User explicitly runs `ANALYZE TABLE` | Ad-hoc, first-time import, schema change | On-demand, no background cost |
@@ -1347,7 +1356,18 @@ interface ConnectorMetadata:
 
 ## 12. CTE Materialization Strategy (OPT-019)
 
-This section adds cost-based CTE (Common Table Expression) materialization to the Calcite optimization pipeline, eliminating redundant computation when a CTE is referenced multiple times.
+Current CTE execution uses Calcite expansion: every reference retains its real source
+relations through Substrait serialization. Reference counting and cost hints are advisory;
+they do not publish temporary tables or advertise a Native materialization capability.
+The earlier synthetic temp-scan rewrite was removed because no producer, Native reader,
+or durable query-scoped ownership contract existed for it. `CteCompilationContractTest`
+checks repeated and single-use SQL on the same compiler; this is a compilation contract,
+not distributed execution evidence.
+
+The remaining materialization architecture and pseudocode below are an unimplemented
+design. A future implementation must use query-scoped Native producer/consumer stages,
+canonical exchange contracts, resource admission, complete-result semantics, cancellation
+and recovery. It must not replace source subtrees before those stages are wired.
 
 ### 12.1 Architecture
 
@@ -1414,7 +1434,7 @@ class CTEMaterializer:
 |--------|--------------------------|---------------------------|
 | Performance | Multi-referenced CTEs computed N times | Expensive CTEs computed once; N-1 redundant computations eliminated |
 | Complexity | Simple — Calcite default | Medium — cost estimation, materialization stage, virtual table |
-| Risk | None | Low — only applied when cost-beneficial; inline remains default for single-reference |
+| Risk | Repeated computation retains ordinary query execution risks | Requires correctness and failure validation; cost benefit alone is insufficient |
 | Memory | None | Materialized results held in Worker memory for query duration |
 
 ### 12.4 Migration Path
@@ -1425,4 +1445,8 @@ class CTEMaterializer:
 | 2 | Reference Counting | CTE reference counting in Calcite plan analysis. Log multi-referenced CTEs. |
 | 3 | Cost-Based Materialization | `CTEMaterializationRule` with cost-based decision. |
 
-> **Cross-reference**: CTE materialization leverages the existing `PangrovaCostModel` (§6). Materialized results are stored in Worker memory managed by [resource-management.md](./resource-management.md). The ANTLR4 parser's `WITH` clause support is defined in [02 §2](./query-execution.md).
+> **Cross-reference**: the unimplemented materialization design would use the existing
+> `PangrovaCostModel` (§6) and Native Worker resource admission from
+> [resource-management.md](./resource-management.md). No temporary-table storage is
+> currently created by CTE planning. ANTLR4 `WITH` support is documented in
+> [query-execution.md](./query-execution.md).

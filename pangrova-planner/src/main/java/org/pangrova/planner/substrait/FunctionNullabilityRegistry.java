@@ -48,6 +48,23 @@ public final class FunctionNullabilityRegistry {
             entry("string", "trim", FunctionNullability.NULL_IF_ANY_NULL),
             entry("string", "char_length", FunctionNullability.NULL_IF_ANY_NULL),
             entry("string", "like", FunctionNullability.NULL_IF_ANY_NULL),
+            // AI and FILE infrastructure functions propagate SQL NULL inputs.
+            // Provider failures are exceptions, never SQL NULL fallbacks.
+            entry("ai", "ai_complete", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_classify", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_summarize", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_filter", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_embed", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_extract", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_guard", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_predict", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_translate", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_describe_image", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_parse_document", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_transcribe", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("ai", "ai_ocr", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("file", "file_from_url", FunctionNullability.NULL_IF_ANY_NULL),
+            entry("file", "file_from_bytes", FunctionNullability.NULL_IF_ANY_NULL),
             // Aggregates — count/sum0/approx_distinct are non-null; the rest are null on empty input.
             entry("aggregate", "count", FunctionNullability.NEVER_NULL),
             entry("aggregate", "sum0", FunctionNullability.NEVER_NULL),

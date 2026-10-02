@@ -225,9 +225,9 @@ pangrova-coordinator/
 │  │       ↓                                                              │   │
 │  │  Native I/O (Parquet/ORC) ← Data Source Connector ← Split Info       │   │
 │  │       ↓                                                              │   │
-│  │  Arrow RecordBatch (Zero-Copy) → Arrow Flight → Next Stage           │   │
+│  │  Velox serialized pages → Native Flight → Native ExchangeSource      │   │
 │  │                                                                      │   │
-│  │  Characteristics: vectorization, SIMD, zero-copy, extreme performance │   │
+│  │  Characteristics: vectorization and SIMD; shuffle is serialized       │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
@@ -802,201 +802,22 @@ public class SplitRetryManager {
 }
 ```
 
-### 4.3 Shuffle Data Persistence
+### 4.3 Shuffle Buffering and Recovery Boundary
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Shuffle Persistence Architecture                         │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Design goals:                                                                   │
-│  • Cross-Worker fault tolerance: Shuffle data recoverable after a Worker crash  │
-│  • Low-latency first: the normal path adds no latency; persistence is asynchronous │
-│  • Configurable: choose persistence strategy per query/Stage level              │
-│                                                                                  │
-│  Persistence modes:                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────────────┐ │
-│  │  Mode              │ Latency│ Fault tol.     │ Use case                     │ │
-│  │─────────────────────────────────────────────────────────────────────────────│ │
-│  │  MEMORY_ONLY       │ Lowest │ None           │ Short queries, recomputable  │ │
-│  │  MEMORY_AND_DISK   │ Low    │ Worker process │ Medium queries               │ │
-│  │  MEMORY_AND_REMOTE │ Medium │ Cross-Worker   │ Long queries, critical tasks │ │
-│  │  REMOTE_ONLY       │ High   │ Fully durable  │ Very large Shuffle, resumable│ │
-│  └─────────────────────────────────────────────────────────────────────────────┘ │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+The current direct shuffle path is Native: a producer's Velox callback
+partitions and serializes pages into `SerializedShuffleQueue`; Native
+`FlightShuffleServer` serves each partition by signed ticket; the downstream
+Native `PangrovaExchangeSource` pulls it through Flight DoGet. Java carries
+task placement, identity, and lifecycle metadata, not data batches.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                    MEMORY_AND_REMOTE Mode Data Flow                              │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Producer Worker (Stage N)                                                       │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  Velox Pipeline Output                                                   │   │
-│  │         │                                                                │   │
-│  │         ▼                                                                │   │
-│  │  ┌─────────────────┐                                                    │   │
-│  │  │Shuffle Partitioner│                                                   │   │
-│  │  │ (Partitioner)   │                                                    │   │
-│  │  └────────┬────────┘                                                    │   │
-│  │           │                                                              │   │
-│  │     ┌─────┴─────┐                                                       │   │
-│  │     ▼           ▼                                                       │   │
-│  │  ┌──────┐  ┌──────────┐                                                │   │
-│  │  │Memory│  │Async S3  │  ← Async write, does not block the main path   │   │
-│  │  │Buffer│  │Writer    │                                                │   │
-│  │  └──┬───┘  └────┬─────┘                                                │   │
-│  │     │           │                                                       │   │
-│  │     │           ▼                                                       │   │
-│  │     │    ┌─────────────┐                                               │   │
-│  │     │    │ S3 Bucket   │                                               │   │
-│  │     │    │ /shuffle/   │                                               │   │
-│  │     │    │ {query_id}/ │                                               │   │
-│  │     │    │ {stage_id}/ │                                               │   │
-│  │     │    │ {part_id}/  │                                               │   │
-│  │     │    └─────────────┘                                               │   │
-│  │     ▼                                                                   │   │
-│  │  ┌──────────────┐                                                      │   │
-│  │  │ Arrow Flight │ ──────────────────────────────────────┐              │   │
-│  │  │ (Primary)    │                                       │              │   │
-│  │  └──────────────┘                                       │              │   │
-│  └─────────────────────────────────────────────────────────┼───────────────┘   │
-│                                                             │                   │
-│  Consumer Worker (Stage N+1)                                ▼                   │
-│  ┌─────────────────────────────────────────────────────────────────────────┐   │
-│  │  ┌──────────────────┐                                                   │   │
-│  │  │ Shuffle Reader   │                                                   │   │
-│  │  │                  │                                                   │   │
-│  │  │ 1. Try Flight    │ ← Read from memory first (low latency)           │   │
-│  │  │ 2. Fallback S3   │ ← Read from S3 when Producer is down             │   │
-│  │  └──────────────────┘                                                   │   │
-│  └─────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
-
-```java
-/**
- * Shuffle persistence manager
- */
-public class ShufflePersistenceManager {
-
-    private final S3AsyncClient s3Client;
-    private final String shuffleBucket;
-    private final ExecutorService asyncWriteExecutor;
-
-    /**
-     * Asynchronously persist Shuffle data to S3
-     *
-     *
-     * Data lifecycle: ShuffleDrainThread pulls a batch from Native via
-     * nativeGetShuffleBatch() (Arrow C Data zero-copy). The batch is then:
-     * (1) Synchronously serialized to Arrow IPC bytes (deep copy) on the
-     *     ShuffleDrainThread — this decouples the batch lifetime from S3 write.
-     * (2) The IPC bytes are submitted to asyncWriteExecutor for S3 upload.
-     * (3) The original VectorSchemaRoot is enqueued into ShuffleBuffer for
-     *     Flight Server streaming (normal path).
-     * This ensures the S3 write does not hold a reference to the original
-     * batch after serialization, avoiding use-after-free on Flight send.
-     */
-    public CompletableFuture<ShuffleLocation> persistAsync(
-            QueryId queryId, StageId stageId, int partitionId,
-            VectorSchemaRoot data) {
-
-        String s3Key = String.format("shuffle/%s/%s/%d/%s.arrow",
-            queryId, stageId, partitionId, UUID.randomUUID());
-
-        return CompletableFuture.supplyAsync(() -> {
-            // Serialize to Arrow IPC format
-            byte[] arrowBytes = serializeToArrowIpc(data);
-
-            // Upload to S3
-            s3Client.putObject(
-                PutObjectRequest.builder()
-                    .bucket(shuffleBucket)
-                    .key(s3Key)
-                    .build(),
-                AsyncRequestBody.fromBytes(arrowBytes)
-            ).join();
-
-            return new ShuffleLocation(ShuffleLocationType.S3, s3Key);
-        }, asyncWriteExecutor);
-    }
-
-    /**
-     * Recover Shuffle data from S3
-     */
-    public VectorSchemaRoot recover(ShuffleLocation location, BufferAllocator allocator) {
-        byte[] arrowBytes = s3Client.getObject(
-            GetObjectRequest.builder()
-                .bucket(shuffleBucket)
-                .key(location.getPath())
-                .build(),
-            AsyncResponseTransformer.toBytes()
-        ).join().asByteArray();
-
-        return deserializeFromArrowIpc(arrowBytes, allocator);
-    }
-}
-
-/**
- * Shuffle reader - supports failover
- */
-public class FaultTolerantShuffleReader {
-
-    private final FlightClient flightClient;
-    private final ShufflePersistenceManager persistenceManager;
-    private final ShuffleLocationRegistry locationRegistry;
-
-    public VectorSchemaRoot read(QueryId queryId, StageId stageId, int partitionId) {
-        ShuffleLocation location = locationRegistry.getLocation(queryId, stageId, partitionId);
-
-        // 1. Try primary path (Arrow Flight from producer worker)
-        if (location.getType() == ShuffleLocationType.WORKER) {
-            try {
-                return readFromFlight(location.getWorkerId(), queryId, stageId, partitionId);
-            } catch (FlightRuntimeException e) {
-                if (isWorkerUnavailable(e)) {
-                    log.warn("Producer worker unavailable, falling back to S3");
-                    // Fall through to S3 recovery
-                } else {
-                    throw e;
-                }
-            }
-        }
-
-        // 2. Fallback to S3
-        ShuffleLocation s3Location = locationRegistry.getS3Location(queryId, stageId, partitionId);
-        if (s3Location != null) {
-            return persistenceManager.recover(s3Location, allocator);
-        }
-
-        throw new ShuffleDataLostException(
-            "Shuffle data lost: query=%s, stage=%s, partition=%d",
-            queryId, stageId, partitionId);
-    }
-}
-```
-
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Shuffle Cleanup Strategy                                 │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                  │
-│  Cleanup timing:                                                                 │
-│  • Query completes successfully: immediately clean all Shuffle data of the query │
-│  • Query failed/cancelled: clean immediately                                     │
-│  • Query timeout: clean                                                          │
-│  • Scheduled cleanup: hourly scan, clean orphan data older than 24 hours         │
-│                                                                                  │
-│  S3 lifecycle policy:                                                            │
-│  • Objects under the shuffle/ prefix are auto-deleted after 7 days (safety net)  │
-│  • Configured via S3 Lifecycle Rules                                             │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+`ShuffleBufferStore` bounds resident pages and may spill to an unlinked local
+temporary file while the producer process is alive. That spill is not a durable
+cross-Worker checkpoint. Successful producers flush buffered partitions and
+commit clean EOF before reporting `FINISHED`; failed or cancelled producers
+abort the stream, and consumers reject incomplete input. If a Worker is lost,
+the Coordinator must retry the affected stage from its source snapshot rather
+than silently returning partial results. This section does not claim S3-backed
+shuffle recovery or a Java shuffle-persistence manager implementation.
 
 ### 4.4 Query Checkpoint
 

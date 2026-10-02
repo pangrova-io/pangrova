@@ -6,6 +6,9 @@ import org.pangrova.metadata.index.model.BreakerState;
 import org.pangrova.metadata.index.model.CacheEvent;
 import org.pangrova.metadata.index.model.CommitLogEntry;
 import org.pangrova.metadata.index.model.IndexFileMapping;
+import org.pangrova.metadata.index.model.IndexFileSelection;
+import org.pangrova.metadata.index.model.IndexGenerationManifest;
+import org.pangrova.metadata.index.model.IndexPublicationRequest;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
 import org.pangrova.spi.index.statistics.DataFileStatistics;
@@ -23,28 +26,36 @@ import java.util.Optional;
  * <p>Facade that delegates to focused sub-stores, each handling a single
  * responsibility domain:</p>
  * <ul>
- *   <li>{@link JdbcIndexDescriptorStore} — index CRUD, schema evolution, state queries</li>
+ *   <li>{@link JdbcIndexDescriptorStore} — index CRUD and schema evolution</li>
+ *   <li>{@link JdbcIndexDescriptorReadStore} — descriptor state and identity queries</li>
  *   <li>{@link JdbcIndexFileMappingStore} — file mapping CRUD and batch queries</li>
  *   <li>{@link JdbcIndexStateStore} — build claim coordination</li>
  *   <li>{@link JdbcIndexStatisticsStore} — file column statistics (L0 pruning)</li>
- *   <li>{@link JdbcIndexGcStore} — GC queries, commit log, cache events, breaker state</li>
+ *   <li>{@link JdbcIndexGcStore} — GC queries, cache events, breaker state</li>
+ *   <li>{@link JdbcIndexCommitQueue} — durable commit-event queue and fenced heads</li>
  * </ul>
  */
 public final class JdbcIndexMetadataStore implements IndexMetadataStore {
 
     private final JdbcIndexDescriptorStore descriptorStore;
+    private final JdbcIndexDescriptorReadStore descriptorReadStore;
     private final JdbcIndexFileMappingStore fileMappingStore;
     private final JdbcIndexStateStore stateStore;
     private final JdbcIndexStatisticsStore statisticsStore;
     private final JdbcIndexGcStore gcStore;
+    private final JdbcIndexCommitQueue commitQueue;
+    private final JdbcIndexPublicationStore publicationStore;
 
     /** Creates the facade over the focused JDBC sub-stores backed by the given data source. */
     public JdbcIndexMetadataStore(DataSource dataSource) {
         this.descriptorStore = new JdbcIndexDescriptorStore(dataSource);
+        this.descriptorReadStore = new JdbcIndexDescriptorReadStore(dataSource);
         this.fileMappingStore = new JdbcIndexFileMappingStore(dataSource);
         this.stateStore = new JdbcIndexStateStore(dataSource);
         this.statisticsStore = new JdbcIndexStatisticsStore(dataSource);
         this.gcStore = new JdbcIndexGcStore(dataSource);
+        this.commitQueue = new JdbcIndexCommitQueue(dataSource);
+        this.publicationStore = new JdbcIndexPublicationStore(dataSource);
     }
 
     // --- IndexDescriptor CRUD (delegate to descriptorStore) ---
@@ -80,20 +91,84 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public boolean updateIndexState(
+            String indexId,
+            String newState,
+            Instant timestamp,
+            String staleReason,
+            Instant expectedUpdatedAt,
+            String expectedState,
+            int expectedGeneration) {
+        return descriptorStore.updateIndexState(
+                indexId, newState, timestamp, staleReason,
+                expectedUpdatedAt, expectedState, expectedGeneration);
+    }
+
+    @Override
+    public boolean beginIndexGeneration(
+            String indexId,
+            int newGeneration,
+            String buildSnapshotId,
+            Instant timestamp,
+            Instant expectedUpdatedAt,
+            IndexState expectedState,
+            int expectedGeneration) {
+        return descriptorStore.beginIndexGeneration(
+                indexId, newGeneration, buildSnapshotId, timestamp,
+                expectedUpdatedAt, expectedState, expectedGeneration);
+    }
+
+    @Override
+    public boolean failIndexGeneration(
+            String indexId,
+            int generation,
+            Instant expectedBuildUpdatedAt,
+            Instant failedAt,
+            String failureReason) {
+        return descriptorStore.failIndexGeneration(
+                indexId, generation, expectedBuildUpdatedAt, failedAt, failureReason);
+    }
+
+    @Override
+    public boolean isIndexGenerationBuildable(String indexId, int generation) {
+        return descriptorStore.isIndexGenerationBuildable(indexId, generation);
+    }
+
+    @Override
+    public IndexGenerationManifest publishIndexGeneration(
+            IndexPublicationRequest request) {
+        return publicationStore.publish(request);
+    }
+
+    @Override
+    public Optional<IndexGenerationManifest> findActiveIndexGeneration(
+            String indexId) {
+        return publicationStore.findActive(indexId);
+    }
+
+    @Override
     public Optional<IndexDescriptor> findIndex(String indexId) {
         return descriptorStore.findIndex(indexId);
     }
 
     @Override
-    public List<IndexDescriptor> findIndexesByTable(String catalog, String schema, String table) {
-        return descriptorStore.findIndexesByTable(catalog, schema, table);
+    public List<IndexDescriptor> findIndexesByTable(
+            String tenantId, String catalog, String schema, String table) {
+        return descriptorStore.findIndexesByTable(tenantId, catalog, schema, table);
+    }
+
+    @Override
+    public List<IndexDescriptor> findIndexesByTableForGlobalMaintenance(
+            String catalog, String schema, String table) {
+        return descriptorStore.findIndexesByTableForGlobalMaintenance(catalog, schema, table);
     }
 
     @Override
     public List<IndexDescriptor> findReadyIndexesForColumns(
-            String catalog, String schema, String table,
+            String tenantId, String catalog, String schema, String table,
             List<String> columns, boolean includeStale) {
-        return descriptorStore.findReadyIndexesForColumns(catalog, schema, table, columns, includeStale);
+        return descriptorStore.findReadyIndexesForColumns(
+                tenantId, catalog, schema, table, columns, includeStale);
     }
 
     @Override
@@ -108,36 +183,38 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
 
     @Override
     public List<IndexDescriptor> findIndexesByColumn(
-            String catalog, String schema, String table, String column) {
-        return descriptorStore.findIndexesByColumn(catalog, schema, table, column);
+            String tenantId, String catalog, String schema, String table, String column) {
+        return descriptorStore.findIndexesByColumn(tenantId, catalog, schema, table, column);
     }
 
     @Override
     public void renameColumnInIndexes(
-            String catalog, String schema, String table,
+            String tenantId, String catalog, String schema, String table,
             String oldColumn, String newColumn) {
-        descriptorStore.renameColumnInIndexes(catalog, schema, table, oldColumn, newColumn);
+        descriptorStore.renameColumnInIndexes(
+                tenantId, catalog, schema, table, oldColumn, newColumn);
     }
 
     @Override
     public void dropAllIndexesForTable(
-            String catalog, String schema, String table, Instant timestamp) {
-        descriptorStore.dropAllIndexesForTable(catalog, schema, table, timestamp);
+            String tenantId, String catalog, String schema, String table, Instant timestamp) {
+        descriptorStore.dropAllIndexesForTable(tenantId, catalog, schema, table, timestamp);
     }
 
     @Override
-    public void renameTable(String catalog, String schema, String oldTable, String newTable) {
-        descriptorStore.renameTable(catalog, schema, oldTable, newTable);
+    public void renameTable(
+            String tenantId, String catalog, String schema, String oldTable, String newTable) {
+        descriptorStore.renameTable(tenantId, catalog, schema, oldTable, newTable);
     }
 
     @Override
     public List<IndexDescriptor> findIndexesByState(IndexState state) {
-        return descriptorStore.findIndexesByState(state);
+        return descriptorReadStore.findIndexesByState(state);
     }
 
     @Override
     public Map<String, IndexDescriptor> findIndexesByIds(List<String> indexIds) {
-        return descriptorStore.findIndexesByIds(indexIds);
+        return descriptorReadStore.findIndexesByIds(indexIds);
     }
 
     @Override
@@ -147,7 +224,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
 
     @Override
     public List<IndexDescriptor> findIndexesByStatePaginated(IndexState state, int offset, int limit) {
-        return descriptorStore.findIndexesByStatePaginated(state, offset, limit);
+        return descriptorReadStore.findIndexesByStatePaginated(state, offset, limit);
     }
 
     // --- IndexFileMapping CRUD (delegate to fileMappingStore) ---
@@ -160,6 +237,16 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     @Override
     public void batchRegisterIndexFiles(List<IndexFileMapping> mappings) {
         fileMappingStore.batchRegisterIndexFiles(mappings);
+    }
+
+    @Override
+    public long copyIndexGenerationMappings(
+            String indexId,
+            int sourceGeneration,
+            int targetGeneration,
+            List<String> excludedDataFiles) {
+        return fileMappingStore.copyIndexGenerationMappings(
+                indexId, sourceGeneration, targetGeneration, excludedDataFiles);
     }
 
     @Override
@@ -177,6 +264,22 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     public Map<String, Map<String, String>> batchGetIndexFileMappings(
             List<String> indexIds, List<String> dataFilePaths, String querySnapshotToken) {
         return fileMappingStore.batchGetIndexFileMappings(indexIds, dataFilePaths, querySnapshotToken);
+    }
+
+    @Override
+    public Map<String, Map<String, IndexFileMapping>> batchGetIndexArtifacts(
+            Map<String, IndexFileSelection> selections,
+            List<String> dataFilePaths) {
+        Map<String, IndexFileSelection> activeSelections = new java.util.HashMap<>();
+        for (var selection : selections.entrySet()) {
+            Optional<IndexGenerationManifest> active =
+                    publicationStore.findActive(selection.getKey());
+            if (active.isPresent() && selection.getValue().matches(active.get())) {
+                activeSelections.put(selection.getKey(), selection.getValue());
+            }
+        }
+        return fileMappingStore.batchGetIndexArtifacts(
+                Map.copyOf(activeSelections), dataFilePaths);
     }
 
     @Override
@@ -250,21 +353,21 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
         return gcStore.listStaleFileMappings(olderThanMillis, createdBefore);
     }
 
-    // --- Commit log (delegate to gcStore) ---
+    // --- Commit log (delegate to commitQueue) ---
 
     @Override
     public void recordCommitEvent(CommitEventRequest request) {
-        gcStore.recordCommitEvent(request);
+        commitQueue.recordCommitEvent(request);
     }
 
     @Override
-    public List<CommitLogEntry> pollUnprocessedCommitEvents(int limit) {
-        return gcStore.pollUnprocessedCommitEvents(limit);
+    public List<CommitLogEntry> pollUnprocessedCommitEvents(int limit, long leaseEpoch) {
+        return commitQueue.pollUnprocessedCommitEvents(limit, leaseEpoch);
     }
 
     @Override
-    public void markCommitEventProcessed(long eventId) {
-        gcStore.markCommitEventProcessed(eventId);
+    public void markCommitEventProcessed(long eventId, long leaseEpoch) {
+        commitQueue.markCommitEventProcessed(eventId, leaseEpoch);
     }
 
     // --- Cache events (delegate to gcStore) ---

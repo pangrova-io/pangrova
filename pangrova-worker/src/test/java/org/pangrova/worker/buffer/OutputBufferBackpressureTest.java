@@ -4,6 +4,8 @@ import org.pangrova.resilience.backpressure.BackpressureController;
 import org.pangrova.resilience.backpressure.BackpressureController.Action;
 import org.pangrova.resilience.backpressure.BackpressureController.BackpressureResult;
 import org.pangrova.worker.execution.SimulatedTaskExecutor;
+import org.pangrova.worker.CanonicalTaskRequestTestFixture;
+import org.pangrova.protocol.v2.TaskKind;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,7 +24,7 @@ class OutputBufferBackpressureTest {
         SimulatedTaskExecutor executor = new SimulatedTaskExecutor(0);
         OutputBufferBackpressure bp = new OutputBufferBackpressure(active, controller, executor);
 
-        long handle = executor.createTask(new byte[0]);
+        long handle = executor.createTask(canonicalTaskBytes());
         BackpressureResult result = bp.evaluate(handle);
 
         assertThat(result.action()).isEqualTo(Action.PROCEED);
@@ -38,7 +40,7 @@ class OutputBufferBackpressureTest {
         SimulatedTaskExecutor executor = new SimulatedTaskExecutor(0);
         OutputBufferBackpressure bp = new OutputBufferBackpressure(active, controller, executor);
 
-        long handle = executor.createTask(new byte[0]);
+        long handle = executor.createTask(canonicalTaskBytes());
 
         // Fill buffer to capacity
         buffer.addBatch(new byte[]{1});
@@ -59,7 +61,7 @@ class OutputBufferBackpressureTest {
         SimulatedTaskExecutor executor = new SimulatedTaskExecutor(0);
         OutputBufferBackpressure bp = new OutputBufferBackpressure(active, controller, executor);
 
-        long handle = executor.createTask(new byte[0]);
+        long handle = executor.createTask(canonicalTaskBytes());
 
         // Add 6 batches — above highWaterMark(5)
         for (int i = 0; i < 6; i++) {
@@ -88,5 +90,11 @@ class OutputBufferBackpressureTest {
         }
         assertThat(buffer.isFull()).isTrue();
         assertThat(buffer.getRemainingCapacity()).isEqualTo(0);
+    }
+
+    private static byte[] canonicalTaskBytes() {
+        return CanonicalTaskRequestTestFixture.builder(
+                "backpressure-task", "backpressure-query", 0, 0,
+                TaskKind.TASK_KIND_READ, new byte[]{1}).build().toByteArray();
     }
 }

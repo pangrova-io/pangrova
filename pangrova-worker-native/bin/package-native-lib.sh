@@ -3,7 +3,7 @@
 # package-native-lib.sh — Copy built native library into classpath resource dir
 #
 # Usage:
-#   ./pangrova-worker-native/bin/package-native-lib.sh [path-to-dylib-or-so]
+#   ./pangrova-worker-native/bin/package-native-lib.sh [--production] [path-to-dylib-or-so]
 #
 # If no argument is given, auto-detects from pangrova-worker-native/build/.
 #
@@ -34,7 +34,10 @@ detect_platform() {
 }
 
 find_native_lib() {
-    if [[ $# -ge 1 && -f "$1" ]]; then
+    if [[ $# -ge 1 ]]; then
+        [[ $# -eq 1 && -f "$1" ]] || {
+            echo "ERROR: Expected one existing native library path" >&2; exit 1;
+        }
         NATIVE_LIB="$1"
         return
     fi
@@ -50,9 +53,53 @@ find_native_lib() {
     fi
 }
 
+verify_lance_linkage() {
+    command -v nm >/dev/null 2>&1 || {
+        echo "ERROR: nm is required to verify the packaged native library" >&2
+        exit 1
+    }
+    if ! nm -j "$NATIVE_LIB" 2>/dev/null \
+        | grep -E '^_?lance_ffi_abi_version$' >/dev/null; then
+        echo "ERROR: Native library does not contain the required Lance C FFI ABI" >&2
+        exit 1
+    fi
+}
+
+verify_linux_production() {
+    [[ "$OS" == "linux" ]] || { echo "ERROR: Production validation requires Linux" >&2; exit 1; }
+    command -v readelf >/dev/null || { echo "ERROR: readelf is required for production packaging" >&2; exit 1; }
+    local header dynamic machine library
+    header="$(readelf -h "$NATIVE_LIB")"
+    case "$ARCH" in
+        x86_64) machine='Advanced Micro Devices X86-64' ;;
+        aarch64) machine='AArch64' ;;
+    esac
+    grep -F "Machine:" <<< "$header" | grep -F "$machine" >/dev/null || {
+        echo "ERROR: Native ELF architecture differs from the packaging platform" >&2; exit 1;
+    }
+    dynamic="$(readelf -d "$NATIVE_LIB")"
+    if grep -E '\((RPATH|RUNPATH)\)' <<< "$dynamic" >/dev/null; then
+        echo "ERROR: Production JNI must not depend on a build-tree RPATH" >&2; exit 1;
+    fi
+    while IFS= read -r library; do
+        case "$library" in
+            libc.so.6|libm.so.6|libpthread.so.0|libdl.so.2|librt.so.1|libresolv.so.2|\
+            libstdc++.so.6|libgcc_s.so.1|ld-linux-x86-64.so.2|ld-linux-aarch64.so.1) ;;
+            *) echo "ERROR: Production JNI requires non-system shared dependency: $library" >&2; exit 1 ;;
+        esac
+    done < <(sed -n 's/.*(NEEDED).*\[\([^]]*\)\].*/\1/p' <<< "$dynamic")
+}
+
 main() {
+    local production=false
+    if [[ "${1:-}" == "--production" ]]; then
+        production=true
+        shift
+    fi
     detect_platform
     find_native_lib "$@"
+    if $production; then verify_linux_production; fi
+    verify_lance_linkage
     local target_dir="$RESOURCE_BASE/$OS/$ARCH"
     local file_name
     file_name="$(basename "$NATIVE_LIB")"
@@ -61,6 +108,7 @@ main() {
     echo "Packaged: $NATIVE_LIB"
     echo "      -> $target_dir/$file_name"
     echo "Platform: $OS/$ARCH"
+    echo "Lance C FFI: linked and verified"
     file "$target_dir/$file_name"
 }
 

@@ -2,6 +2,14 @@
 
 Gate scripts live in `.pangrova/scripts/`; CI wiring is defined in `.github/workflows/ci.yml`.
 
+The JDK 17/21 daily jobs retain their documented filtered selection; they are not
+full regression. The production-regression job builds the canonical same-source
+Linux Bake image after Native and sanitizer gates, stages its verified classpath
+JNI classifier, and runs `native-runtime,full-regression,coverage`, full E2E and
+real activation smoke. Changed-line coverage uses that unfiltered run. Workflow
+configuration and syntax checks alone are not an executed image or deployment
+acceptance result; a missing build runner/image remains a blocker.
+
 ## Gate Scripts
 
 | Gate | Script | Purpose | Frequency |
@@ -17,6 +25,7 @@ Gate scripts live in `.pangrova/scripts/`; CI wiring is defined in `.github/work
 | ADR consistency | `adr-grep-check.sh` | Architecture Decision Records consistency | ADR changes |
 | Plan stability | `plan-stability-check.sh` | Golden query plan diffs flagged | Planner changes |
 | Distributed checklist | `distributed-checklist-check.sh` | Distributed correctness PR checklist enforced | Every PR |
+| E2E truthfulness | `check-e2e-truthfulness.sh` | Reject skipped/constant E2E and simulated workers labeled multi-worker | Every PR |
 
 ## Running Locally
 
@@ -67,7 +76,8 @@ Pre-existing unannotated types are tracked in `.pangrova/scripts/.spi-annotation
 | ASan findings | 0 leaks, 0 errors | `cmake --preset dev-asan + ctest` |
 | Dead stubs | 0 orphans | `detect-dead-stubs.sh` |
 | E2E tests | 100% pass | `pangrova-test-e2e` |
-| Smoke tests | 100% pass | `pangrova-test-smoke` |
+| E2E truthfulness | 0 assumptions, disabled tests, constant assertions, or simulated multi-worker claims | `check-e2e-truthfulness.sh` |
+| Smoke tests | 100% pass on real SQL/Native connectivity | `ActivationSmokeE2ETest` in `pangrova-test-e2e` |
 
 ## C++ Quality Gates
 

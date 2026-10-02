@@ -1,331 +1,245 @@
 package org.pangrova.worker.ai.embedding.provider;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.pangrova.spi.ai.AiInvocationException;
+import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
+import org.pangrova.worker.ai.context.AiProviderCallContext;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for {@link OpenAiCompatibleEmbeddingProvider} using an in-process HTTP server.
- */
+/** Pure production codec checks; real transport/fault tests use Ollama and Toxiproxy. */
 class OpenAiCompatibleEmbeddingProviderTest {
 
-    private HttpServer server;
-    private String endpoint;
-
-    @BeforeEach
-    void setUp() throws IOException {
-        server = HttpServer.create(new InetSocketAddress(0), 0);
-        int port = server.getAddress().getPort();
-        endpoint = "http://localhost:" + port + "/v1/embeddings";
+    @Test
+    void rawSingletonKeepsOriginalText() {
+        assertThat(provider(3, 10).prepareInputs(EmbeddingBatchRequest.text(
+                EmbeddingPurpose.RAW, List.of("hello")))).containsExactly("hello");
     }
 
-    @AfterEach
-    void tearDown() {
-        if (server != null) {
-            server.stop(0);
+    @Test
+    void purposeIsIndependentOfBatchCardinality() {
+        for (EmbeddingPurpose purpose : EmbeddingPurpose.values()) {
+            String prefix = switch (purpose) {
+                case RAW -> "";
+                case QUERY -> "query: ";
+                case DOCUMENT -> "doc: ";
+            };
+            assertThat(provider(3, 10).prepareInputs(EmbeddingBatchRequest.text(
+                    purpose, List.of("first", "second"))))
+                    .containsExactly(prefix + "first", prefix + "second");
+            assertThat(provider(3, 10).prepareInputs(EmbeddingBatchRequest.text(
+                    purpose, List.of("first")))).containsExactly(prefix + "first");
         }
     }
 
     @Test
-    void embedSingleText() {
-        server.createContext("/v1/embeddings", exchange -> {
-            String requestBody = readRequestBody(exchange);
-            assertThat(requestBody).contains("\"model\":\"test-model\"");
-            assertThat(requestBody).contains("\"input\":[\"query: hello\"]");
-
-            String response = buildEmbeddingResponse(new float[][]{{0.1f, 0.2f, 0.3f}});
-            sendResponse(exchange, 200, response);
-        });
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        float[] result = provider.embed("hello");
-
-        assertThat(result).hasSize(3);
-        assertThat(result[0]).isEqualTo(0.1f);
-        assertThat(result[1]).isEqualTo(0.2f);
-        assertThat(result[2]).isEqualTo(0.3f);
+    void parsesSingleVectorCoordinates() {
+        assertThat(provider(3, 10).parseResponse(
+                "{\"data\":[{\"embedding\":[0.1,0.2,0.3],\"index\":0}]}", 1, "")
+                .vectors().get(0)).containsExactly(0.1f, 0.2f, 0.3f);
     }
 
     @Test
-    void embedBatchTexts() {
-        server.createContext("/v1/embeddings", exchange -> {
-            String requestBody = readRequestBody(exchange);
-            assertThat(requestBody).contains("\"model\":\"test-model\"");
-            assertThat(requestBody).contains("doc: text1");
-            assertThat(requestBody).contains("doc: text2");
+    void carriesVectorAndRequestIdentityWithoutUsageStatistics() {
+        var result = provider(3, 10).parseResponse(
+                "{\"data\":[{\"embedding\":[1,2,3],\"index\":0}],"
+                        + "\"usage\":{\"prompt_tokens\":5,\"total_tokens\":5}}", 1, "request-7");
+        assertThat(result.vectors().get(0)).containsExactly(1, 2, 3);
+        assertThat(result.providerRequestId()).isEqualTo("request-7");
+    }
 
-            String response = buildEmbeddingResponse(new float[][]{
-                    {1.0f, 2.0f, 3.0f},
-                    {4.0f, 5.0f, 6.0f}
-            });
-            sendResponse(exchange, 200, response);
-        });
-        server.start();
+    @Test
+    void absentProviderRequestIdentityIsNotInvented() {
+        var result = provider(3, 10).parseResponse(
+                "{\"data\":[{\"embedding\":[1,2,3],\"index\":0}]}", 1, "");
+        assertThat(result.providerRequestId()).isEmpty();
+    }
 
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        List<float[]> results = provider.embedBatch(List.of("text1", "text2"));
+    @Test
+    void optionalUsageStatisticsDoNotChangeTheVectorContract() {
+        assertThat(provider(3, 10).parseResponse(
+                "{\"data\":[{\"embedding\":[1,2,3],\"index\":0}],"
+                        + "\"usage\":{\"prompt_tokens\":5,\"total_tokens\":4}}", 1, "").vectors().get(0))
+                .containsExactly(1, 2, 3);
+    }
 
+    @Test
+    void restoresProviderResultsToInputIndexOrder() {
+        var results = provider(3, 10).parseResponse("{\"data\":["
+                + "{\"embedding\":[4,5,6],\"index\":1},"
+                + "{\"embedding\":[1,2,3],\"index\":0}]}", 2, "").vectors();
         assertThat(results).hasSize(2);
-        assertThat(results.get(0)).containsExactly(1.0f, 2.0f, 3.0f);
-        assertThat(results.get(1)).containsExactly(4.0f, 5.0f, 6.0f);
+        assertThat(results.get(0)).containsExactly(1, 2, 3);
+        assertThat(results.get(1)).containsExactly(4, 5, 6);
     }
 
     @Test
-    void retryOn429() {
-        AtomicInteger callCount = new AtomicInteger(0);
-        server.createContext("/v1/embeddings", exchange -> {
-            int count = callCount.incrementAndGet();
-            if (count <= 2) {
-                sendResponse(exchange, 429, "rate limited");
-            } else {
-                String response = buildEmbeddingResponse(new float[][]{{0.5f, 0.6f, 0.7f}});
-                sendResponse(exchange, 200, response);
-            }
-        });
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        float[] result = provider.embed("retry test");
-
-        assertThat(result).containsExactly(0.5f, 0.6f, 0.7f);
-        assertThat(callCount.get()).isEqualTo(3);
+    void rejectsDuplicateOrExtraProviderIndexes() {
+        for (int secondIndex : List.of(0, 2, -1)) {
+            assertThatThrownBy(() -> provider(3, 10).parseResponse("{\"data\":["
+                    + "{\"embedding\":[1,2,3],\"index\":0},"
+                    + "{\"embedding\":[4,5,6],\"index\":" + secondIndex + "}]}", 2, ""))
+                    .isInstanceOf(AiInvocationException.class)
+                    .hasMessageContaining("duplicated or out of range");
+        }
     }
 
     @Test
-    void retryOn503() {
-        AtomicInteger callCount = new AtomicInteger(0);
-        server.createContext("/v1/embeddings", exchange -> {
-            int count = callCount.incrementAndGet();
-            if (count == 1) {
-                sendResponse(exchange, 503, "service unavailable");
-            } else {
-                String response = buildEmbeddingResponse(new float[][]{{0.1f, 0.2f, 0.3f}});
-                sendResponse(exchange, 200, response);
-            }
-        });
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        float[] result = provider.embed("503 test");
-
-        assertThat(result).hasSize(3);
-        assertThat(callCount.get()).isEqualTo(2);
+    void rejectsMissingAndNonIntegralIndexes() {
+        for (String index : List.of("", ",\"index\":0.5", ",\"index\":2147483648")) {
+            assertThatThrownBy(() -> provider(3, 10).parseResponse(
+                    "{\"data\":[{\"embedding\":[1,2,3]" + index + "}]}", 1, ""))
+                    .isInstanceOf(AiInvocationException.class)
+                    .hasMessageContaining("missing or non-integral");
+        }
     }
 
     @Test
-    void failsAfterMaxRetries() {
-        server.createContext("/v1/embeddings", exchange ->
-                sendResponse(exchange, 429, "always rate limited"));
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-
-        assertThatThrownBy(() -> provider.embed("fail test"))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("HTTP 429");
+    void rateLimitAndServiceFailuresAreRetryable() {
+        for (int status : List.of(408, 429, 500, 503, 504, 599)) {
+            assertThat(OpenAiCompatibleEmbeddingProvider.isRetryable(status)).isTrue();
+            assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).retryable()).isTrue();
+        }
+        assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(429).category())
+                .isEqualTo(AiInvocationException.Category.RATE_LIMIT);
     }
 
     @Test
-    void timeoutHandling() {
-        server.createContext("/v1/embeddings", exchange -> {
-            try {
-                Thread.sleep(5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            sendResponse(exchange, 200, "{}");
-        });
-        server.start();
+    void authenticationAndAuthorizationFailuresAreTerminal() {
+        assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(401).category())
+                .isEqualTo(AiInvocationException.Category.AUTHENTICATION);
+        assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(403).category())
+                .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
+        for (int status : List.of(400, 401, 403, 404)) {
+            assertThat(OpenAiCompatibleEmbeddingProvider.isRetryable(status)).isFalse();
+        }
+    }
 
-        OpenAiCompatibleEmbeddingProvider provider = new OpenAiCompatibleEmbeddingProvider(
-                new OpenAiEmbeddingConfig(endpoint, "test-model", "test-key", 3, 10,
-                        1000.0, "query: ", "doc: ", 1));
-
-        assertThatThrownBy(() -> provider.embed("timeout test"))
-                .isInstanceOf(RuntimeException.class);
+    @Test
+    void timeoutFailuresHaveExplicitCategory() {
+        for (int status : List.of(408, 504)) {
+            assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).category())
+                    .isEqualTo(AiInvocationException.Category.TIMEOUT);
+        }
     }
 
     @Test
     void invalidResponseHandling() {
-        server.createContext("/v1/embeddings", exchange ->
-                sendResponse(exchange, 200, "{\"data\": []}"));
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-
-        assertThatThrownBy(() -> provider.embed("invalid"))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("expected 1 embeddings");
+        assertThatThrownBy(() -> provider(3, 10).parseResponse("{\"data\":[]}", 1, ""))
+                .isInstanceOf(AiInvocationException.class).hasMessageContaining("expected 1 embeddings");
+        assertThatThrownBy(() -> provider(3, 10).parseResponse("not json", 1, ""))
+                .isInstanceOf(AiInvocationException.class).hasMessageContaining("not valid JSON");
+        for (String body : List.of("", "null", "[]", "1")) {
+            assertThatThrownBy(() -> provider(3, 10).parseResponse(body, 1, ""))
+                    .isInstanceOf(AiInvocationException.class)
+                    .hasMessageContaining("must be a JSON object");
+        }
     }
 
     @Test
     void dimensionMismatchThrows() {
-        server.createContext("/v1/embeddings", exchange -> {
-            String response = buildEmbeddingResponse(new float[][]{{0.1f, 0.2f}});
-            sendResponse(exchange, 200, response);
-        });
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-
-        assertThatThrownBy(() -> provider.embed("dim mismatch"))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Dimension mismatch");
+        assertThatThrownBy(() -> provider(3, 10).parseResponse(
+                "{\"data\":[{\"embedding\":[0.1,0.2],\"index\":0}]}", 1, ""))
+                .isInstanceOf(AiInvocationException.class).hasMessageContaining("Dimension mismatch");
     }
 
     @Test
-    void queryPrefixPrepended() {
-        server.createContext("/v1/embeddings", exchange -> {
-            String requestBody = readRequestBody(exchange);
-            assertThat(requestBody).contains("query: search text");
-
-            String response = buildEmbeddingResponse(new float[][]{{0.1f, 0.2f, 0.3f}});
-            sendResponse(exchange, 200, response);
-        });
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        provider.embed("search text");
+    void rejectsNonNumericOrNonFiniteCoordinates() {
+        for (String coordinate : List.of("null", "\"text\"", "1e100")) {
+            assertThatThrownBy(() -> provider(3, 10).parseResponse(
+                    "{\"data\":[{\"embedding\":[1,2," + coordinate + "],\"index\":0}]}", 1, ""))
+                    .isInstanceOf(AiInvocationException.class).extracting("category")
+                    .isEqualTo(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID);
+        }
     }
 
     @Test
-    void documentPrefixPrepended() {
-        server.createContext("/v1/embeddings", exchange -> {
-            String requestBody = readRequestBody(exchange);
-            assertThat(requestBody).contains("doc: document text");
-
-            String response = buildEmbeddingResponse(new float[][]{
-                    {0.1f, 0.2f, 0.3f}
-            });
-            sendResponse(exchange, 200, response);
-        });
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        provider.embedBatch(List.of("document text"));
-    }
-
-    @Test
-    void nullTextThrows() {
-        server.start();
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-
-        assertThatThrownBy(() -> provider.embed(null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("null");
+    void nullRequestThrowsBeforeProviderIo() {
+        assertThatThrownBy(() -> provider(3, 10).embed(null))
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("request required");
     }
 
     @Test
     void emptyBatchThrows() {
-        server.start();
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
+        assertThatThrownBy(() -> EmbeddingBatchRequest.text(EmbeddingPurpose.RAW, List.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("empty");
+    }
 
-        assertThatThrownBy(() -> provider.embedBatch(List.of()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("empty");
+    @Test
+    void nullBatchEntryThrowsBeforeProviderIo() {
+        assertThatThrownBy(() -> EmbeddingBatchRequest.text(
+                EmbeddingPurpose.RAW, java.util.Arrays.asList("valid", null)))
+                .isInstanceOf(NullPointerException.class);
     }
 
     @Test
     void batchExceedingMaxSizeThrows() {
-        server.start();
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 2);
-
-        assertThatThrownBy(() -> provider.embedBatch(List.of("a", "b", "c")))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("exceeds maxBatchSize");
+        assertThatThrownBy(() -> provider(3, 2).embed(EmbeddingBatchRequest.text(
+                EmbeddingPurpose.RAW, List.of("a", "b", "c"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("exceeds maxBatchSize");
     }
 
     @Test
-    void jsonSpecialCharactersEscaped() {
-        server.createContext("/v1/embeddings", exchange -> {
-            String requestBody = readRequestBody(exchange);
-            assertThat(requestBody).contains("\\\"");
-            assertThat(requestBody).contains("\\n");
-
-            String response = buildEmbeddingResponse(new float[][]{{0.1f, 0.2f, 0.3f}});
-            sendResponse(exchange, 200, response);
-        });
-        server.start();
-
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        provider.embed("text with \"quotes\" and \nnewlines");
+    void jsonSpecialCharactersEscaped() throws Exception {
+        String text = "text with \"quotes\" and \nnewlines\\汉字";
+        String body = provider(3, 10).buildRequestJson(List.of(text));
+        assertThat(body).contains("\\\"", "\\n", "\\\\");
+        var parsed = new ObjectMapper().readTree(body);
+        assertThat(parsed.path("model").asText()).isEqualTo("test-model");
+        assertThat(parsed.path("input").get(0).asText()).isEqualTo(text);
     }
 
     @Test
-    void authorizationHeaderSent() {
-        server.createContext("/v1/embeddings", exchange -> {
-            String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
-            assertThat(authHeader).isEqualTo("Bearer test-key");
-
-            String response = buildEmbeddingResponse(new float[][]{{0.1f, 0.2f, 0.3f}});
-            sendResponse(exchange, 200, response);
+    void authorizationAndIdempotencyHeadersSent() {
+        AiProviderCallContext.callWith("identity", Instant.now().plusSeconds(10), () -> {
+            var request = provider(3, 10).prepareHttpRequest(List.of("auth text"));
+            assertThat(request.headers().firstValue("Authorization")).contains("Bearer test-key");
+            assertThat(request.headers().firstValue("Idempotency-Key")).contains("identity:request-0");
+            assertThat(request.timeout().orElseThrow()).isLessThanOrEqualTo(Duration.ofSeconds(10));
+            return null;
         });
-        server.start();
+    }
 
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(3, 10);
-        provider.embed("auth test");
+    @Test
+    void anonymousEndpointOmitsAuthorizationHeader() {
+        var provider = new OpenAiCompatibleEmbeddingProvider(new OpenAiEmbeddingConfig(
+                "http://localhost:11434/v1/embeddings", "local-pinned", "", 3, 10,
+                1000.0, "", "", 30));
+        assertThat(provider.prepareHttpRequest(List.of("anonymous"))
+                .headers().firstValue("Authorization")).isEmpty();
     }
 
     @Test
     void modelNameAndDimensionsAccessors() {
-        server.start();
-        OpenAiCompatibleEmbeddingProvider provider = createProvider(768, 32);
-
+        var provider = provider(768, 32);
         assertThat(provider.modelName()).isEqualTo("test-model");
         assertThat(provider.dimensions()).isEqualTo(768);
         assertThat(provider.maxBatchSize()).isEqualTo(32);
+        assertThat(provider.supportedPurposes()).containsExactlyInAnyOrder(EmbeddingPurpose.values());
     }
 
-    private OpenAiCompatibleEmbeddingProvider createProvider(int dimension, int maxBatchSize) {
-        return new OpenAiCompatibleEmbeddingProvider(
-                new OpenAiEmbeddingConfig(endpoint, "test-model", "test-key", dimension, maxBatchSize,
-                        1000.0, "query: ", "doc: ", 30));
+    @Test
+    void rejectsBlobEmbeddingBecauseEndpointContractIsTextOnly() {
+        String checksum = "a".repeat(64);
+        BlobReference reference = new BlobReference("pangrova-blob://v2/" + "b".repeat(64)
+                + "/" + "c".repeat(64) + "/" + checksum, "image/png", 4, checksum);
+        assertThatThrownBy(() -> provider(3, 10).embed(EmbeddingBatchRequest.blob(
+                EmbeddingPurpose.DOCUMENT, List.of(reference))))
+                .isInstanceOf(AiInvocationException.class).extracting("category")
+                .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
     }
 
-    private static String buildEmbeddingResponse(float[][] embeddings) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("{\"data\":[");
-        for (int i = 0; i < embeddings.length; i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append("{\"embedding\":[");
-            for (int j = 0; j < embeddings[i].length; j++) {
-                if (j > 0) {
-                    sb.append(',');
-                }
-                sb.append(embeddings[i][j]);
-            }
-            sb.append("],\"index\":").append(i).append('}');
-        }
-        sb.append("]}");
-        return sb.toString();
-    }
-
-    private static String readRequestBody(HttpExchange exchange) throws IOException {
-        return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-    }
-
-    private static void sendResponse(HttpExchange exchange, int statusCode, String body)
-            throws IOException {
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(statusCode, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
-        }
+    private static OpenAiCompatibleEmbeddingProvider provider(int dimension, int maxBatchSize) {
+        return new OpenAiCompatibleEmbeddingProvider(new OpenAiEmbeddingConfig(
+                "http://localhost:11434/v1/embeddings", "test-model", "test-key", dimension,
+                maxBatchSize, 1000.0, "query: ", "doc: ", 30));
     }
 }

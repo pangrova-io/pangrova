@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.coordinator.scheduler.failure.TaskDispatchException;
+
+import org.pangrova.coordinator.scheduler.failure.ErrorCategory;
+
 import java.io.IOException;
 import java.net.ConnectException;
 import java.net.http.HttpConnectTimeoutException;

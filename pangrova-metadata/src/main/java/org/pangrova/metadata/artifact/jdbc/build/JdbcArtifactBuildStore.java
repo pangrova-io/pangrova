@@ -1,0 +1,500 @@
+package org.pangrova.metadata.artifact.jdbc.build;
+
+import org.pangrova.metadata.artifact.jdbc.ArtifactCurrentAuthority;
+import org.pangrova.metadata.artifact.jdbc.ArtifactExecutionFence;
+import org.pangrova.metadata.artifact.jdbc.ArtifactBuildRevocation;
+import org.pangrova.metadata.artifact.jdbc.CurrentDeferredExecutionContext;
+import org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore;
+
+import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
+import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
+import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
+import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
+import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
+import org.pangrova.metadata.artifact.build.ArtifactPageCompletion;
+import org.pangrova.metadata.artifact.build.ArtifactBuildPage;
+import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
+import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
+import org.pangrova.metadata.feature.FeatureCatalogStore.ExportRequest;
+import org.pangrova.metadata.artifact.jdbc.feature.JdbcCatalogExportJobInsertion;
+
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.pangrova.metadata.store.JdbcSupport.setInstant;
+import static org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildPageSelection.findPage;
+import static org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildPageSelection.selectClaimablePage;
+
+/** PostgreSQL-backed implementation of the durable artifact-build state machine. */
+@org.pangrova.spi.annotation.Internal
+public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport implements ArtifactBuildStore {
+
+    private final JdbcArtifactBuildReader reader;
+
+    public JdbcArtifactBuildStore(DataSource dataSource) {
+        super(dataSource);
+        this.reader = new JdbcArtifactBuildReader(dataSource);
+    }
+
+    @Override
+    public void createJob(
+            ArtifactBuildJob job, ArtifactBuildDispatchSpec dispatchSpec,
+            List<ArtifactBuildPage> pages) {
+        List<ArtifactBuildPage> immutablePages =
+                JdbcArtifactBuildPageLoader.validateNewJob(job, dispatchSpec, pages);
+        inTransaction("create artifact build job", connection -> {
+            createJob(connection, job, dispatchSpec, immutablePages);
+            return null;
+        });
+    }
+
+    @Override
+    public void createCatalogExportJob(
+            ExportRequest request, ArtifactBuildJob job,
+            ArtifactBuildDispatchSpec dispatchSpec, List<ArtifactBuildPage> pages) {
+        Objects.requireNonNull(request, "request must not be null");
+        if (!request.tenantId().equals(job.tenantId())
+                || !request.jobId().equals(job.jobId())
+                || !request.artifactId().equals(job.artifactId())
+                || !request.generation().equals(job.stagingGeneration())
+                || !request.dependencySha256().equalsIgnoreCase(
+                        job.dependencySet().sha256())) {
+            throw new IllegalArgumentException(
+                    "catalog export link differs from its artifact job identity");
+        }
+        List<ArtifactBuildPage> immutablePages =
+                JdbcArtifactBuildPageLoader.validateNewJob(job, dispatchSpec, pages);
+        inTransaction("create catalog export artifact job", connection -> {
+            createJob(connection, job, dispatchSpec, immutablePages);
+            JdbcCatalogExportJobInsertion.insert(connection, request);
+            return null;
+        });
+    }
+
+    private static void createJob(
+            Connection connection, ArtifactBuildJob job,
+            ArtifactBuildDispatchSpec dispatchSpec,
+            List<ArtifactBuildPage> immutablePages) throws SQLException {
+        ArtifactCurrentAuthority.requireCurrent(connection, dispatchSpec);
+        Optional<ArtifactBuildJob> existing = findJob(
+                connection, job.tenantId(), job.jobId(), true);
+        if (existing.isPresent()) {
+            validateIdempotentCreate(
+                    connection, existing.orElseThrow(), job, dispatchSpec, immutablePages);
+            return;
+        }
+        JdbcArtifactBuildJobInsertion.insertJob(connection, job);
+        ArtifactExecutionFence.insertRoute(connection, job.tenantId(), job.jobId());
+        insertDispatchSpec(connection, dispatchSpec);
+        JdbcArtifactStageExchangeStore.insertGraphEdges(connection, dispatchSpec);
+        for (ArtifactBuildPage page : immutablePages) {
+            insertPage(connection, job.tenantId(), page, job.createdAt());
+        }
+        for (ArtifactBuildPage page : immutablePages) {
+            insertSplits(connection, job.tenantId(), page);
+            insertDependencies(connection, job.tenantId(), page);
+        }
+    }
+
+    /**
+     * Inserts the canonical job, graph and page allocations in a caller-owned PostgreSQL transaction.
+     * Current authorization and idempotency use this same connection; the caller owns commit/rollback.
+     */
+    public static void createJobWithinTransaction(Connection connection, ArtifactBuildJob job,
+            ArtifactBuildDispatchSpec dispatchSpec, List<ArtifactBuildPage> pages) throws SQLException {
+        Objects.requireNonNull(connection, "connection");
+        if (connection.getAutoCommit()) {
+            throw new IllegalArgumentException("artifact creation requires an explicit caller-owned transaction");
+        }
+        createJob(connection, job, dispatchSpec,
+                JdbcArtifactBuildPageLoader.validateNewJob(job, dispatchSpec, pages));
+    }
+
+    @Override
+    public List<ArtifactBuildJobKey> listRunnableJobs(int limit, Instant now) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        Objects.requireNonNull(now, "now must not be null");
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT j.tenant_id,j.job_id FROM artifact_build_jobs j "
+                             + "WHERE j.state IN ('QUEUED','RUNNING') AND EXISTS ("
+                             + "SELECT 1 FROM artifact_build_pages p "
+                             + "WHERE p.tenant_id=j.tenant_id AND p.job_id=j.job_id "
+                             + "AND ((p.state='PENDING' AND p.next_available_at<=?) "
+                             + "OR (p.state='LEASED' AND p.lease_expires_at<?)) "
+                             + "AND NOT EXISTS (SELECT 1 FROM artifact_build_page_dependencies d "
+                             + "JOIN artifact_build_pages u ON u.tenant_id=d.tenant_id "
+                             + "AND u.job_id=d.job_id "
+                             + "AND u.page_id=d.dependency_page_id WHERE d.job_id=p.job_id "
+                             + "AND d.tenant_id=p.tenant_id AND d.page_id=p.page_id "
+                             + "AND u.state<>'SUCCEEDED') "
+                             + "AND NOT EXISTS (SELECT 1 FROM artifact_stage_exchanges e WHERE "
+                             + "e.tenant_id=p.tenant_id AND e.job_id=p.job_id AND e.consumer_stage_id=p.stage_id "
+                             + "AND NOT EXISTS (SELECT 1 FROM artifact_exchange_finalizations f WHERE "
+                             + "f.tenant_id=e.tenant_id AND f.job_id=e.job_id AND f.exchange_id=e.exchange_id))) "
+                             + "ORDER BY j.updated_at,j.tenant_id,j.job_id LIMIT ?")) {
+            setInstant(statement, 1, now);
+            setInstant(statement, 2, now);
+            statement.setInt(3, limit);
+            List<ArtifactBuildJobKey> jobs = new ArrayList<>();
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    jobs.add(new ArtifactBuildJobKey(
+                            result.getString(1), result.getString(2)));
+                }
+            }
+            return List.copyOf(jobs);
+        } catch (SQLException e) {
+            throw failure("list runnable artifact jobs", e);
+        }
+    }
+
+    @Override
+    public List<ArtifactBuildJobKey> listReadyForPublication(int limit, Instant now) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        Objects.requireNonNull(now, "now must not be null");
+        try (Connection connection = dataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT tenant_id,job_id FROM artifact_build_jobs "
+                             + "WHERE state='READY_TO_PUBLISH' AND "
+                             + "(publication_lease_expires_at IS NULL "
+                             + "OR publication_lease_expires_at<=?) "
+                             + "ORDER BY updated_at,tenant_id,job_id LIMIT ?")) {
+            setInstant(statement, 1, now);
+            statement.setInt(2, limit);
+            List<ArtifactBuildJobKey> jobs = new ArrayList<>();
+            try (ResultSet result = statement.executeQuery()) {
+                while (result.next()) {
+                    jobs.add(new ArtifactBuildJobKey(
+                            result.getString(1), result.getString(2)));
+                }
+            }
+            return List.copyOf(jobs);
+        } catch (SQLException e) {
+            throw failure("list publishable artifact jobs", e);
+        }
+    }
+
+    @Override
+    public Optional<ArtifactBuildLease> claimNextPage(
+            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            Duration leaseDuration, Instant now) {
+        String leaseOwner = Objects.requireNonNull(executionAnchor, "executionAnchor").ownerId();
+        if (!new ArtifactBuildJobKey(tenantId, jobId).executionId().equals(executionAnchor.executionId())) {
+            throw new IllegalArgumentException("execution anchor belongs to another artifact job");
+        }
+        requireLeaseRequest(tenantId, jobId, leaseOwner, ownerEpoch, leaseDuration, now);
+        return inTransaction("claim artifact build page", connection -> {
+            var context = CurrentDeferredExecutionContext.resolve(connection, tenantId, jobId,
+                    org.pangrova.metadata.artifact.build.ArtifactExecutionOwner.from(executionAnchor));
+            JdbcArtifactStageExchangeStore.lockValidatedBarriers(connection, context);
+            ArtifactBuildJob job = findJob(connection, tenantId, jobId, true).orElse(null);
+            if (job == null || terminal(job.state())) {
+                return Optional.empty();
+            }
+            PageRow page = selectClaimablePage(connection, new JdbcArtifactBuildPageSelection.Selection(
+                    tenantId, jobId, now, Optional.empty())).orElse(null);
+            if (page == null) {
+                return Optional.empty();
+            }
+            return JdbcArtifactBuildPageClaim.claim(connection, page, executionAnchor, ownerEpoch, leaseDuration, now);
+        });
+    }
+
+    @Override
+    public boolean renewPage(
+            ArtifactBuildLease lease, Duration leaseDuration, Instant now) {
+        Objects.requireNonNull(lease, "lease must not be null");
+        requirePositiveDuration(leaseDuration);
+        Objects.requireNonNull(now, "now must not be null");
+        return inTransaction("renew authorized artifact build page", connection -> {
+            ArtifactCurrentAuthority.requireCurrent(connection, lease.tenantId(), lease.jobId());
+            ArtifactExecutionFence.requireAnchor(connection, lease.tenantId(), lease.jobId(), lease.executionAnchor());
+            try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE artifact_build_pages SET lease_expires_at=?, updated_at=? "
+                        + "WHERE tenant_id=? AND job_id=? AND page_id=? AND state='LEASED' "
+                        + "AND fencing_token=? AND lease_owner=? AND owner_epoch=? "
+                        + "AND lease_expires_at>=?")) {
+                setInstant(statement, 1, now.plus(leaseDuration));
+                setInstant(statement, 2, now);
+                bindLeaseIdentity(statement, 3, lease);
+                setInstant(statement, 9, now);
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    @Override
+    public boolean completePage(ArtifactPageCompletion completion) {
+        requireCompletion(completion);
+        return inTransaction("complete artifact build page", connection ->
+                JdbcArtifactBuildCompletion.complete(connection, completion));
+    }
+
+    @Override
+    public boolean retryPage(
+            ArtifactBuildLease lease, Instant nextAvailableAt,
+            String failureReason, Instant now) {
+        Objects.requireNonNull(lease, "lease must not be null");
+        Objects.requireNonNull(nextAvailableAt, "nextAvailableAt must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        return inTransaction("retry artifact build page", connection -> {
+            ArtifactCurrentAuthority.requireCurrent(connection, lease.tenantId(), lease.jobId());
+            ArtifactExecutionFence.requireAnchor(connection, lease.tenantId(), lease.jobId(), lease.executionAnchor());
+            PageRow page = findPage(connection, lease.tenantId(), lease.jobId(),
+                    lease.pageId(), true).orElse(null);
+            if (!matchesLiveLease(page, lease, now)) {
+                return false;
+            }
+            if (page.attemptId() + 1 >= page.maxAttempts()) {
+                failPageInTransaction(connection, lease, failureReason, now);
+                return true;
+            }
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE artifact_build_pages SET state='PENDING', next_available_at=?, "
+                            + "lease_owner=NULL, lease_expires_at=NULL, failure_reason=?, "
+                            + "updated_at=? WHERE tenant_id=? AND job_id=? AND page_id=? "
+                            + "AND state='LEASED' "
+                            + "AND fencing_token=? AND owner_epoch=?")) {
+                setInstant(statement, 1, nextAvailableAt);
+                statement.setString(2, normalizeFailure(failureReason));
+                setInstant(statement, 3, now);
+                statement.setString(4, lease.tenantId());
+                statement.setString(5, lease.jobId());
+                statement.setString(6, lease.pageId());
+                statement.setLong(7, lease.fencingToken());
+                statement.setLong(8, lease.ownerEpoch());
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    @Override
+    public boolean failPage(
+            ArtifactBuildLease lease, String failureReason, Instant now) {
+        Objects.requireNonNull(lease, "lease must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        return inTransaction("fail artifact build page", connection -> {
+            ArtifactCurrentAuthority.requireCurrent(connection, lease.tenantId(), lease.jobId());
+            ArtifactExecutionFence.requireAnchor(connection, lease.tenantId(), lease.jobId(), lease.executionAnchor());
+            return failPageInTransaction(connection, lease, failureReason, now);
+        });
+    }
+
+    @Override
+    public Optional<ArtifactBuildJob> findJob(String tenantId, String jobId) {
+        return reader.findJob(tenantId, jobId);
+    }
+
+    @Override
+    public Optional<ArtifactBuildJobKey> findExecutionJob(String executionId) {
+        Objects.requireNonNull(executionId, "executionId");
+        try (var connection = dataSource.getConnection()) {
+            return ArtifactExecutionFence.findRoute(connection, executionId);
+        } catch (SQLException failure) {
+            throw failure("resolve artifact execution association", failure);
+        }
+    }
+
+    @Override
+    public Optional<ArtifactBuildDispatchSpec> findDispatchSpec(
+            String tenantId, String jobId) {
+        return reader.findDispatchSpec(tenantId, jobId);
+    }
+
+    @Override
+    public ArtifactBuildDispatchSpec loadAuthorizedDispatchSpec(String tenantId, String jobId) {
+        return inTransaction("load authorized artifact work", connection ->
+                ArtifactCurrentAuthority.requireCurrent(connection, tenantId, jobId));
+    }
+
+    @Override
+    public Optional<org.pangrova.metadata.artifact.ArtifactGenerationManifest>
+            findPublishedGeneration(
+                    String tenantId, String artifactId,
+                    String generation, String sourceSnapshot) {
+        return reader.findPublishedGeneration(
+                tenantId, artifactId, generation, sourceSnapshot);
+    }
+
+    @Override
+    public List<ArtifactBuildOutput> loadCompleteOutputs(String tenantId, String jobId) {
+        return reader.loadCompleteOutputs(tenantId, jobId);
+    }
+
+    @Override
+    public List<ArtifactBuildOutput> loadDependencyOutputs(
+            String tenantId, String jobId, List<String> dependencyPageIds) {
+        return reader.loadDependencyOutputs(tenantId, jobId, dependencyPageIds);
+    }
+
+    @Override
+    public List<ArtifactBuildOutput> loadPublishedOutputs(
+            String tenantId, String jobId, Set<String> sourceObjectIds) {
+        return reader.loadPublishedOutputs(tenantId, jobId, sourceObjectIds);
+    }
+
+    @Override
+    public boolean matchesPublishedSplits(
+            String tenantId, String jobId, Map<String, String> sourceSplitSha256) {
+        return reader.matchesPublishedSplits(tenantId, jobId, sourceSplitSha256);
+    }
+
+    @Override
+    public Optional<ArtifactBuildJob> claimReadyForPublication(
+            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            Duration leaseDuration, Instant now) {
+        String owner = Objects.requireNonNull(executionAnchor, "executionAnchor").ownerId();
+        requireLeaseRequest(tenantId, jobId, owner, ownerEpoch, leaseDuration, now);
+        return inTransaction("claim artifact publication", connection -> {
+            ArtifactCurrentAuthority.requireCurrent(connection, tenantId, jobId);
+            ArtifactExecutionFence.requireAnchor(connection, tenantId, jobId, executionAnchor);
+            ArtifactBuildJob job = findJob(connection, tenantId, jobId, true).orElse(null);
+            if (job == null || job.state() != ArtifactBuildJobState.READY_TO_PUBLISH) {
+                return Optional.empty();
+            }
+            PublicationLease current = loadPublicationLease(connection, tenantId, jobId);
+            if (current.expiresAt() != null && !current.expiresAt().isBefore(now)
+                    && (!owner.equals(current.owner()) || ownerEpoch != current.ownerEpoch())) {
+                return Optional.empty();
+            }
+            long nextFence = Math.addExact(job.publicationFencingToken(), 1L);
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE artifact_build_jobs SET publication_owner=?, "
+                            + "publication_owner_epoch=?, publication_fencing_token=?, "
+                            + "publication_lease_expires_at=?, updated_at=?, "
+                            + "publication_execution_owner_id=?, publication_execution_owner_incarnation=?, "
+                            + "publication_execution_owner_token=? "
+                            + "WHERE tenant_id=? AND job_id=? AND state='READY_TO_PUBLISH' "
+                            + "AND publication_fencing_token=?")) {
+                statement.setString(1, owner);
+                statement.setLong(2, ownerEpoch);
+                statement.setLong(3, nextFence);
+                setInstant(statement, 4, now.plus(leaseDuration));
+                setInstant(statement, 5, now);
+                statement.setString(6, executionAnchor.ownerId());
+                statement.setString(7, executionAnchor.ownerIncarnation());
+                statement.setLong(8, executionAnchor.fencingToken());
+                statement.setString(9, tenantId);
+                statement.setString(10, jobId);
+                statement.setLong(11, job.publicationFencingToken());
+                if (statement.executeUpdate() != 1) {
+                    throw new IllegalStateException("artifact publication fence was lost");
+                }
+            }
+            return findJob(connection, tenantId, jobId, false);
+        });
+    }
+
+    @Override
+    public boolean markPublished(
+            String tenantId, String jobId, String owner, long ownerEpoch,
+            long publicationFencingToken, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(jobId, "jobId");
+        requireText(owner, "owner");
+        Objects.requireNonNull(now, "now must not be null");
+        if (ownerEpoch <= 0 || publicationFencingToken <= 0) {
+            throw new IllegalArgumentException("publication epoch and fence must be positive");
+        }
+        return inTransaction("mark authorized artifact published", connection -> {
+            ArtifactCurrentAuthority.requireCurrent(connection, tenantId, jobId);
+            var candidate = findJob(connection, tenantId, jobId, false);
+            if (candidate.isEmpty() || candidate.orElseThrow().state() != ArtifactBuildJobState.READY_TO_PUBLISH) {
+                return false;
+            }
+            ArtifactExecutionFence.requirePublication(connection, tenantId, jobId);
+            try (var statement = connection.prepareStatement(
+                "UPDATE artifact_build_jobs SET state='PUBLISHED', "
+                        + "publication_lease_expires_at=NULL, failure_reason=NULL, updated_at=? "
+                        + "WHERE tenant_id=? AND job_id=? AND state='READY_TO_PUBLISH' "
+                        + "AND publication_owner=? AND publication_owner_epoch=? "
+                        + "AND publication_fencing_token=? "
+                        + "AND publication_lease_expires_at>=?")) {
+                setInstant(statement, 1, now);
+                statement.setString(2, tenantId);
+                statement.setString(3, jobId);
+                statement.setString(4, owner);
+                statement.setLong(5, ownerEpoch);
+                statement.setLong(6, publicationFencingToken);
+                setInstant(statement, 7, now);
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    @Override
+    public boolean deferPublication(
+            ArtifactBuildJob claim, String owner, long ownerEpoch,
+            Instant nextAvailableAt, String failureReason, Instant now) {
+        Objects.requireNonNull(claim, "claim must not be null");
+        String tenantId = claim.tenantId();
+        String jobId = claim.jobId();
+        long publicationFencingToken = claim.publicationFencingToken();
+        requireText(tenantId, "tenantId");
+        requireText(jobId, "jobId");
+        requireText(owner, "owner");
+        Objects.requireNonNull(nextAvailableAt, "nextAvailableAt must not be null");
+        Objects.requireNonNull(now, "now must not be null");
+        if (ownerEpoch <= 0 || publicationFencingToken <= 0) {
+            throw new IllegalArgumentException("publication epoch and fence must be positive");
+        }
+        if (!nextAvailableAt.isAfter(now)) {
+            throw new IllegalArgumentException("nextAvailableAt must be after now");
+        }
+        String normalizedFailure = normalizeFailure(failureReason);
+        return inTransaction("defer authorized artifact publication", connection -> {
+            ArtifactCurrentAuthority.requireCurrent(connection, tenantId, jobId);
+            ArtifactExecutionFence.requirePublication(connection, tenantId, jobId);
+            try (var statement = connection.prepareStatement(
+                "UPDATE artifact_build_jobs SET publication_lease_expires_at=?, "
+                        + "failure_reason=?, updated_at=? "
+                        + "WHERE tenant_id=? AND job_id=? AND state='READY_TO_PUBLISH' "
+                        + "AND publication_owner=? AND publication_owner_epoch=? "
+                        + "AND publication_fencing_token=?")) {
+                setInstant(statement, 1, nextAvailableAt);
+                statement.setString(2, normalizedFailure);
+                setInstant(statement, 3, now);
+                statement.setString(4, tenantId);
+                statement.setString(5, jobId);
+                statement.setString(6, owner);
+                statement.setLong(7, ownerEpoch);
+                statement.setLong(8, publicationFencingToken);
+                return statement.executeUpdate() == 1;
+            }
+        });
+    }
+
+    @Override
+    public boolean cancelJob(String tenantId, String jobId, String reason, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(jobId, "jobId");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("cancel revoked artifact work", connection ->
+                ArtifactBuildRevocation.cancel(connection, tenantId, jobId, normalizeFailure(reason), now));
+    }
+
+    @Override
+    public int cancelArtifactBuilds(String tenantId, String artifactId, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(artifactId, "artifactId");
+        Objects.requireNonNull(now, "now must not be null");
+        return inTransaction("cancel artifact builds", connection -> cancelBuilds(connection, tenantId, artifactId, now));
+    }
+
+}

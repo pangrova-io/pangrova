@@ -11,12 +11,13 @@ import org.pangrova.coordinator.index.lifecycle.IndexCommitContext;
 import org.pangrova.coordinator.index.lifecycle.IndexCommitHandler;
 import org.pangrova.coordinator.index.lifecycle.IndexConsistencyChecker;
 import org.pangrova.coordinator.index.lifecycle.IndexConsistencyContext;
-import org.pangrova.coordinator.index.lifecycle.IndexGarbageCollector;
-import org.pangrova.coordinator.index.lifecycle.IndexGcContext;
+import org.pangrova.coordinator.index.lifecycle.gc.IndexGarbageCollector;
+import org.pangrova.coordinator.index.lifecycle.gc.IndexGcContext;
 import org.pangrova.coordinator.index.lifecycle.IndexLifecycleMetrics;
 import org.pangrova.coordinator.index.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.coordinator.index.lifecycle.MetadataBackedGenerationChecker;
 import org.pangrova.coordinator.index.lifecycle.StuckBuildRecovery;
+import org.pangrova.coordinator.artifact.DurableArtifactPublisher;
 import org.pangrova.indexing.IndexEngineRegistry;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildContext;
@@ -26,7 +27,6 @@ import org.pangrova.indexing.metrics.IndexBuildMetrics;
 import org.pangrova.indexing.serde.IndexSerializer;
 import org.pangrova.indexing.serde.TypeSerializerRegistry;
 import org.pangrova.indexing.storage.IndexCache;
-import org.pangrova.indexing.storage.IndexStorageLayout;
 import org.pangrova.indexing.storage.IndexStorageManager;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.index.IndexMetadataStore;
@@ -41,6 +41,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -81,6 +82,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexDdlExecutor ddlExecutor;
     private IndexMetadataStore metadataStore;
     private ConnectorAccessorResolver accessorResolver;
+    private volatile java.util.Set<String> commitListenerCatalogs = java.util.Set.of();
 
     // Stuck build recovery (periodic)
     private StuckBuildRecovery stuckBuildRecovery;
@@ -89,9 +91,6 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     // Cache invalidation polling
     private ScheduledExecutorService cacheInvalidationScheduler;
 
-    // Lease stale cleanup (periodic)
-    private ScheduledExecutorService leaseCleanupScheduler;
-
     // Metrics (nullable — only created when MetricsProvider available)
     private IndexBuildMetrics buildMetrics;
     private IndexEvalMetrics evalMetrics;
@@ -99,6 +98,11 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     private final String baseIndexPath;
     private final DistributedLease distributedLease;
+    private final org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore;
+    private final org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore;
+    private final MaintenanceLeaderElection configuredLeaderElection;
+    private MaintenanceLeaderElection leaderElection;
+    private DurableArtifactPublisher artifactPublisher;
 
     /**
      * Creates an IndexingBootstrap with an externally-configured base index path
@@ -108,6 +112,32 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * @param distributedLease lease backend for leader election (must not be null)
      */
     IndexingBootstrap(String baseIndexPath, DistributedLease distributedLease) {
+        this(baseIndexPath, distributedLease, null, null, null);
+    }
+
+    IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore) {
+        this(baseIndexPath, distributedLease, artifactBuildStore, null, null);
+    }
+
+    /** Creates the complete production lifecycle with one durable build/publication state machine. */
+    public IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
+            org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, null);
+    }
+
+    IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore,
+            org.pangrova.metadata.artifact.ArtifactPublicationStore artifactPublicationStore,
+            MaintenanceLeaderElection configuredLeaderElection) {
         if (baseIndexPath == null || baseIndexPath.isBlank()) {
             throw new IllegalStateException(
                     "IndexingBootstrap requires baseIndexPath but received null or blank value");
@@ -118,22 +148,25 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
         this.baseIndexPath = baseIndexPath;
         this.distributedLease = distributedLease;
+        this.artifactBuildStore = artifactBuildStore;
+        this.artifactPublicationStore = artifactPublicationStore;
+        this.configuredLeaderElection = configuredLeaderElection;
     }
 
     /**
      * Initializes all indexing components using the constructor-injected distributed lease.
      *
-     * @param metadataStore   index metadata persistence
+     * @param indexMetadata   index metadata persistence
      * @param catalogRegistry catalog registry for connector resolution
      * @param metricsProvider metrics provider (nullable)
      * @param accessControl   access control (nullable)
      */
-    void start(IndexMetadataStore metadataStore,
+    public void start(IndexMetadataStore indexMetadata,
                CatalogRegistry catalogRegistry,
                MetricsProvider metricsProvider,
                AccessControl accessControl) {
 
-        if (metadataStore == null) {
+        if (indexMetadata == null) {
             throw new IllegalStateException(
                     "IndexingBootstrap requires metadataStore but received null");
         }
@@ -142,48 +175,54 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
                     "IndexingBootstrap requires catalogRegistry but received null");
         }
 
-        this.metadataStore = metadataStore;
-
+        this.metadataStore = indexMetadata;
         IndexingConfig config = new IndexingConfig(
                 baseIndexPath, true, null, null);
+        IndexSerializer serializer = initializeEngine(config, metricsProvider);
+        var buildServices = initializeBuildServices(config, catalogRegistry, serializer);
+        startLifecycle(config, buildServices);
+        startRecovery();
+        if (config.commitListenerEnabled()) {
+            registerCommitListeners(accessorResolver, catalogRegistry);
+        } else {
+            LOG.info("event=commit_listener_skipped reason=disabled_by_config");
+        }
+        startCacheInvalidation();
+        IndexDdlContext ddlDeps = new IndexDdlContext(
+                metadataStore, buildServices, catalogRegistry, accessorResolver);
+        ddlExecutor = new IndexDdlExecutor(ddlDeps, indexCache, accessControl);
+        LOG.info("event=indexing_bootstrap_completed");
+    }
 
-        // 1. Engine registry (ServiceLoader discovery)
+    private IndexSerializer initializeEngine(IndexingConfig config, MetricsProvider metricsProvider) {
         engineRegistry = new IndexEngineRegistry();
         LOG.info("event=indexing_phase phase=engine_registry providers={}", engineRegistry.size());
-
-        // 2. Cache
         indexCache = new IndexCache(config.cacheSizeBytes());
-
-        // 3. Storage
-        IndexStorageLayout layout = new IndexStorageLayout(config.baseIndexPath());
         storageManager = new IndexStorageManager();
-
-        // 4. Serializer
         TypeSerializerRegistry serdeRegistry = TypeSerializerRegistry.createDefault();
         IndexSerializer serializer = new IndexSerializer(serdeRegistry, config.checksumEnabled());
-
-        // 5. Metrics (if available)
         if (metricsProvider != null) {
             buildMetrics = new IndexBuildMetrics(metricsProvider);
             evalMetrics = new IndexEvalMetrics(metricsProvider);
             lifecycleMetrics = new IndexLifecycleMetrics(metricsProvider);
             new org.pangrova.indexing.metrics.IndexCacheMetrics(metricsProvider, indexCache);
         }
+        return serializer;
+    }
 
-        // 6. Connector accessor resolver (moved before build coordinator — requires accessorResolver)
+    private org.pangrova.coordinator.index.ddl.IndexBuildServices initializeBuildServices(
+            IndexingConfig config, CatalogRegistry catalogRegistry, IndexSerializer serializer) {
         accessorResolver = new ConnectorAccessorResolver(catalogRegistry);
-
-        // 7. Build coordinator with distributed coordination
         var claimHandler = new org.pangrova.coordinator.index.lifecycle.MetadataBackedBuildClaimHandler(metadataStore);
         var generationChecker = new MetadataBackedGenerationChecker(metadataStore);
         org.pangrova.spi.connector.index.SnapshotPinProvider snapshotPinProvider =
-                accessorResolver.resolveSnapshotPinProvider();
+                new org.pangrova.coordinator.index.ddl.DeferredSnapshotPinProvider(
+                        metadataStore, artifactBuildStore, accessorResolver);
         IndexBuildContext buildDeps = new IndexBuildContext(
                 config, engineRegistry, storageManager, serializer,
                 claimHandler, generationChecker, snapshotPinProvider, null);
         buildCoordinator = new IndexBuildCoordinator(buildDeps, buildMetrics);
 
-        // 8. Evaluation service with circuit breaker from config.
         // F-IDX-BREAKER: back the breaker with the shared metadata store so a
         // tripped circuit is observed cluster-wide (multi-coordinator Active-Active),
         // not just locally. Degrades to empty state when the metadata store is not
@@ -198,45 +237,57 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         evaluationService = new IndexEvaluationService(
                 engineRegistry, indexCache, storageManager, serializer, circuitBreaker);
 
-        // 9. Split filter (L0 + L1 only; L2 delegated to workers via hints)
         IndexDescriptorCache descriptorCache = new IndexDescriptorCache(metadataStore);
         var evalConfig = new IndexEvalConfig(
                 evalMetrics, config.evalTimeoutMs(), config.evalParallelism());
         splitFilter = new IndexSplitFilter(metadataStore, descriptorCache, evalConfig);
 
-        // 10. Commit handler (conditionally created based on commitListener config)
-        IndexCommitContext commitDeps = new IndexCommitContext(
-                metadataStore, buildCoordinator, accessorResolver);
+        // Scalar indexes use the Java builder; vector/BM25 artifacts use durable Native jobs.
+        var aiNativeBuildService = artifactBuildStore == null ? null
+                : new org.pangrova.coordinator.index.ddl.DurableIndexBuildService(
+                        artifactBuildStore, catalogRegistry, baseIndexPath);
+        return new org.pangrova.coordinator.index.ddl.IndexBuildServices(
+                buildCoordinator, aiNativeBuildService);
+    }
 
-        // 11. Garbage collector (created below after leader election at step 12)
+    private void startLifecycle(IndexingConfig config,
+                                org.pangrova.coordinator.index.ddl.IndexBuildServices buildServices) {
+        IndexCommitContext commitDeps = new IndexCommitContext(
+                metadataStore, buildServices, accessorResolver);
+
         IndexGcContext gcDeps = new IndexGcContext(
                 metadataStore, storageManager, accessorResolver, config);
 
-        // 12. Leader election (shared by consistency checker, commit handler, and GC)
-        String coordinatorId = java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
-        MaintenanceLeaderElection leaderElection = new MaintenanceLeaderElection(
-                distributedLease, coordinatorId);
+        String coordinatorId = configuredLeaderElection != null
+                ? configuredLeaderElection.holderId()
+                : java.lang.management.ManagementFactory.getRuntimeMXBean().getName();
+        leaderElection = configuredLeaderElection != null
+                ? configuredLeaderElection
+                : new MaintenanceLeaderElection(distributedLease, coordinatorId);
 
-        // 10b. Wire leader election into commit handler (skip when commitListener disabled)
+        if ((artifactBuildStore == null) != (artifactPublicationStore == null)) {
+            throw new IllegalStateException(
+                    "artifact build and publication stores must be configured together");
+        }
+        // Durable publication starts only after the actual Coordinator HA process is bound.
+
         if (config.commitListenerEnabled()) {
-            int queueCapacity = config.lifecycle().commitListener().queueCapacity();
-            int batchMax = config.lifecycle().commitListener().batchMax();
+            int pollBatchSize = config.lifecycle().commitListener().pollBatchSize();
             commitHandler = new IndexCommitHandler(
                     commitDeps, lifecycleMetrics, leaderElection,
-                    queueCapacity, batchMax);
+                    pollBatchSize);
         }
 
-        // 11b. Wire leader election into garbage collector
         garbageCollector = new IndexGarbageCollector(gcDeps, lifecycleMetrics, leaderElection);
         garbageCollector.start();
 
-        // 13. Consistency checker
         IndexConsistencyContext consistencyDeps = new IndexConsistencyContext(
-                metadataStore, buildCoordinator, accessorResolver, config, leaderElection);
+                metadataStore, buildServices, accessorResolver, config, leaderElection);
         consistencyChecker = new IndexConsistencyChecker(consistencyDeps, lifecycleMetrics);
         consistencyChecker.start();
+    }
 
-        // 14. Stuck build recovery with leader election
+    private void startRecovery() {
         stuckBuildRecovery = new StuckBuildRecovery(
                 metadataStore, DEFAULT_BUILD_TIMEOUT, DEFAULT_STUCK_DETECTION_MULTIPLIER,
                 leaderElection);
@@ -245,7 +296,6 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             LOG.info("event=indexing_phase phase=stuck_recovery recovered={}", recovered);
         }
 
-        // 14.1 Schedule periodic stuck build recovery (interval = buildTimeout / 2)
         long recoveryIntervalMinutes = DEFAULT_BUILD_TIMEOUT.toMinutes() / 2;
         if (recoveryIntervalMinutes < 1) {
             recoveryIntervalMinutes = 1;
@@ -257,22 +307,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
                 recoveryIntervalMinutes, recoveryIntervalMinutes, TimeUnit.MINUTES);
         LOG.info("event=indexing_phase phase=stuck_recovery_scheduled intervalMinutes={}",
                 recoveryIntervalMinutes);
+    }
 
-        // 14.2 Schedule periodic lease stale cleanup (every 5 minutes)
-        leaseCleanupScheduler = ManagedExecutorFactory
-                .newSingleThreadScheduledExecutor("pangrova-lease-cleanup");
-        leaseCleanupScheduler.scheduleWithFixedDelay(
-                distributedLease::expireStale, 5, 5, TimeUnit.MINUTES);
-        LOG.info("event=indexing_phase phase=lease_cleanup_scheduled intervalMinutes=5");
-
-        // 15. Register commit listener with all catalogs (skip when commitListener disabled)
-        if (config.commitListenerEnabled()) {
-            registerCommitListeners(accessorResolver, catalogRegistry);
-        } else {
-            LOG.info("event=commit_listener_skipped reason=disabled_by_config");
-        }
-
-        // 16. Cache invalidation polling
+    private void startCacheInvalidation() {
         cacheInvalidationScheduler = ManagedExecutorFactory
                 .newSingleThreadScheduledExecutor("index-cache-invalidation");
         final AtomicLong lastProcessedEventId = new AtomicLong(0);
@@ -288,27 +325,34 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
                 LOG.warn("action=cache_invalidation_poll_failed error={}", e.getMessage());
             }
         }, 5, 5, TimeUnit.SECONDS);
+    }
 
-        // 17. DDL executor
-        IndexDdlContext ddlDeps = new IndexDdlContext(
-                metadataStore, buildCoordinator, catalogRegistry, accessorResolver);
-        ddlExecutor = new IndexDdlExecutor(ddlDeps, indexCache, accessControl);
-
-        LOG.info("event=indexing_bootstrap_completed");
+    /** Starts metadata publication using the same real durable execution authority as query tasks. */
+    void wireExecutionAuthority(org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority authority) {
+        if (artifactBuildStore == null || artifactPublisher != null) {
+            return;
+        }
+        artifactPublisher = new DurableArtifactPublisher(artifactBuildStore,
+                artifactPublicationStores(artifactPublicationStore),
+                new org.pangrova.coordinator.artifact.ArtifactExecutionOwnership(authority));
+        artifactPublisher.start();
     }
 
     private void registerCommitListeners(
-            ConnectorAccessorResolver accessorResolver,
+            ConnectorAccessorResolver resolver,
             CatalogRegistry catalogRegistry) {
+        java.util.Set<String> registered = new java.util.HashSet<>();
         for (String catalogName : catalogRegistry.listCatalogNames()) {
             try {
-                accessorResolver.registerCommitListener(catalogName, commitHandler);
+                resolver.registerCommitListener(catalogName, commitHandler);
+                registered.add(catalogName);
                 LOG.info("event=commit_listener_registered catalog={}", catalogName);
-            } catch (Exception e) {
+            } catch (UnsupportedOperationException unsupported) {
                 LOG.debug("event=commit_listener_skip catalog={} reason={}",
-                        catalogName, e.getMessage());
+                        catalogName, unsupported.getMessage());
             }
         }
+        commitListenerCatalogs = java.util.Set.copyOf(registered);
     }
 
     /** Returns the split filter for query-time integration. */
@@ -326,33 +370,34 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     /** Returns the connector accessor resolver for split filtering. */
     public ConnectorAccessorResolver getAccessorResolver() { return accessorResolver; }
 
+    /** Returns the generic durable artifact store shared by build and query binding. */
+    public org.pangrova.metadata.artifact.build.ArtifactBuildStore getArtifactBuildStore() {
+        return artifactBuildStore;
+    }
+
+    static Map<String, org.pangrova.metadata.artifact.ArtifactPublicationStore>
+            artifactPublicationStores(
+                    org.pangrova.metadata.artifact.ArtifactPublicationStore store) {
+        return Map.of(
+                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.VECTOR_INDEX, store,
+                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TEXT_INDEX, store,
+                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TABULAR_EXPORT, store,
+                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.GENERATED_COLUMN_VALUES, store);
+    }
+
     /**
-     * Registers an additional commit listener alongside the existing index handler.
-     * The connector only supports a single listener, so this composes both into one.
+     * Registers an idempotent processor on the existing durable commit-log barrier.
+     * Connector callbacks continue to perform one operation only: append the event.
      */
-    public void registerAdditionalCommitListener(
-            org.pangrova.spi.connector.index.CommitListener additional,
-            CatalogRegistry catalogRegistry) {
+    public java.util.Set<String> registerDurableCommitProcessor(
+            org.pangrova.spi.connector.index.CommitListener additional) {
         if (commitHandler == null || accessorResolver == null || additional == null) {
-            return;
+            return java.util.Set.of();
         }
-        org.pangrova.spi.connector.index.CommitListener composed = event -> {
-            commitHandler.onCommit(event);
-            try {
-                additional.onCommit(event);
-            } catch (Exception e) {
-                LOG.warn("event=additional_commit_listener_failed error={}", e.getMessage());
-            }
-        };
-        for (String catalogName : catalogRegistry.listCatalogNames()) {
-            try {
-                accessorResolver.registerCommitListener(catalogName, composed);
-            } catch (Exception e) {
-                LOG.debug("event=additional_commit_listener_skip catalog={} reason={}",
-                        catalogName, e.getMessage());
-            }
-        }
-        LOG.info("event=additional_commit_listener_registered");
+        commitHandler.registerDurableCommitProcessor(additional);
+        LOG.info("event=durable_commit_processor_registered catalogs={}",
+                commitListenerCatalogs);
+        return commitListenerCatalogs;
     }
 
     /** Returns the build coordinator for auto-rebuild triggers. */
@@ -365,7 +410,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      */
     @Override
     public void onLeaderElected() {
-        commitHandler.startPolling();
+        if (commitHandler != null) {
+            commitHandler.startPolling();
+        }
         garbageCollector.startSchedule();
         buildCoordinator.resumePendingBuilds();
         LOG.info("event=indexing_leader_elected");
@@ -379,7 +426,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      */
     @Override
     public void onLeadershipLost() {
-        commitHandler.stopPolling();
+        if (commitHandler != null) {
+            commitHandler.stopPolling();
+        }
         garbageCollector.stopSchedule();
         buildCoordinator.pauseBuilds();
         LOG.info("event=indexing_leadership_lost");
@@ -389,11 +438,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public void close() {
         // LIFO shutdown order
         safeClose("DdlExecutor", ddlExecutor);
+        safeClose("ArtifactPublisher", artifactPublisher);
         safeClose("ConsistencyChecker", consistencyChecker);
-        if (leaseCleanupScheduler != null) {
-            leaseCleanupScheduler.shutdownNow();
-            LOG.info("event=indexing_phase_closed phase=LeaseCleanupScheduler");
-        }
         if (stuckBuildRecoveryScheduler != null) {
             stuckBuildRecoveryScheduler.shutdownNow();
             LOG.info("event=indexing_phase_closed phase=StuckBuildRecoveryScheduler");
@@ -406,6 +452,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         safeClose("CommitHandler", commitHandler);
         safeClose("SplitFilter", splitFilter);
         safeClose("BuildCoordinator", buildCoordinator);
+        if (leaderElection != null && configuredLeaderElection == null) {
+            leaderElection.release();
+        }
         if (indexCache != null) {
             indexCache = null;
         }

@@ -117,5 +117,29 @@ TEST(NativeMetricsCollectorConnectorTest, ConnectorMetricsIndependentOfBase) {
   EXPECT_EQ(snap.merge_reader_output_rows, 0);
 }
 
+TEST(NativeMetricsCollectorConnectorTest, CumulativeCopyObservationsAreNotDoubleCounted) {
+  NativeMetricsCollector collector;
+  collector.observeColumnarConversionCopiedBytes(24);
+  collector.observeColumnarConversionCopiedBytes(24);
+  collector.observeColumnarConversionCopiedBytes(56);
+  EXPECT_EQ(collector.snapshot().columnar_conversion_copied_bytes, 56);
+  collector.reset();
+  EXPECT_EQ(collector.snapshot().columnar_conversion_copied_bytes, 0);
+}
+
+TEST(NativeMetricsCollectorConnectorTest, ConcurrentCumulativeCopiesKeepTheActualMaximum) {
+  NativeMetricsCollector collector;
+  std::vector<std::thread> threads;
+  for (uint64_t worker = 0; worker < 4; ++worker) {
+    threads.emplace_back([&collector, worker] {
+      for (uint64_t count = 1; count <= 100; ++count) {
+        collector.observeColumnarConversionCopiedBytes(worker * 100 + count);
+      }
+    });
+  }
+  for (auto& thread : threads) thread.join();
+  EXPECT_EQ(collector.snapshot().columnar_conversion_copied_bytes, 400);
+}
+
 }  // namespace
 }  // namespace pangrova::observability::test

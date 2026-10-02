@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -53,7 +54,8 @@ public sealed interface ColumnValue {
 
     record ArrayValue(List<?> elements) implements ColumnValue {
         public ArrayValue {
-            elements = List.copyOf(elements);
+            // SQL arrays may contain NULL elements. List.copyOf rejects them.
+            elements = Collections.unmodifiableList(new ArrayList<>(elements));
         }
     }
 
@@ -71,7 +73,12 @@ public sealed interface ColumnValue {
 
     record MapValue(Map<?, ?> entries) implements ColumnValue {
         public MapValue {
-            entries = Map.copyOf(entries);
+            // SQL map keys are non-null, but values may be NULL. Preserve
+            // insertion order and detach from the caller's mutable map.
+            if (entries.keySet().stream().anyMatch(java.util.Objects::isNull)) {
+                throw new IllegalArgumentException("Map keys must not be null");
+            }
+            entries = Collections.unmodifiableMap(new LinkedHashMap<>(entries));
         }
     }
 

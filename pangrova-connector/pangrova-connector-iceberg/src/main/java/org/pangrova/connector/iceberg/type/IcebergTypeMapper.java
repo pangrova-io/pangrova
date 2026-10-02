@@ -300,7 +300,7 @@ public final class IcebergTypeMapper {
             case DATE -> PangrovaType.DATE;
             case TIME -> PangrovaType.TIME;
             case TIMESTAMP -> mapTimestamp((Types.TimestampType) primitive);
-            case TIMESTAMP_NANO -> PangrovaType.TIMESTAMP_NS;
+            case TIMESTAMP_NANO -> mapNanoTimestamp((Types.TimestampNanoType) primitive);
             case STRING -> PangrovaType.VARCHAR;
             case UUID -> PangrovaType.UUID;
             case FIXED -> PangrovaType.FIXED;
@@ -315,6 +315,14 @@ public final class IcebergTypeMapper {
 
     private static PangrovaType mapTimestamp(Types.TimestampType ts) {
         return ts.shouldAdjustToUTC() ? PangrovaType.TIMESTAMP_TZ : PangrovaType.TIMESTAMP;
+    }
+
+    private static PangrovaType mapNanoTimestamp(Types.TimestampNanoType ts) {
+        if (ts.shouldAdjustToUTC()) {
+            throw new IllegalArgumentException(
+                    "Nanosecond timestamp with timezone requires a precision-aware timestamp type contract");
+        }
+        return PangrovaType.TIMESTAMP_NS;
     }
 
     private static PangrovaType mapComplexToPangrova(Type.NestedType nested) {

@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.coordinator.query.statement.StatementConnectorSession;
 import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.coordinator.streaming.ConnectorPageSinkCdcWriter;
 import org.pangrova.coordinator.streaming.PageSinkStreamWriterContext;
@@ -19,8 +18,6 @@ import org.pangrova.metadata.streaming.StreamState;
 import org.pangrova.metadata.streaming.StreamStateStore;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
-import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.streaming.CdcWriteSink;
 import org.pangrova.streaming.cdc.CdcRecordConverterRegistry;
@@ -35,6 +32,7 @@ import org.slf4j.LoggerFactory;
 import javax.sql.DataSource;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Bootstraps the CDC ingestion stream subsystem: StreamDdlExecutor, StreamScheduler,
@@ -160,31 +158,55 @@ final class StreamingBootstrap implements AutoCloseable {
      * for real CDC writes. The previous no-op placeholder silently discarded all data.</p>
      *
      * <p>Resolution path: targetTable (catalog.schema.table) → CatalogRegistry.getCatalog
-     * → ConnectorMetadata.getTableHandle → beginInsert → ConnectorPageSinkCdcWriter.</p>
+     * → ConnectorMetadata.getTableHandle → ConnectorPageSinkCdcWriter. The writer obtains a
+     * fresh operation-specific handle only when a batch is staged.</p>
      */
     static CdcWriteSink createWriteSink(StreamState state, CatalogRegistry catalogRegistry) {
         String targetTable = state.targetTable();
         QualifiedTableName ref = QualifiedTableName.resolve(List.of(targetTable.split("\\.")));
-        ConnectorSession session = new StatementConnectorSession(ref.catalog(), ref.schema());
+        if (state.tenantId().isBlank()) {
+            throw new IllegalArgumentException("CDC stream tenant identity must not be blank");
+        }
+        ConnectorSession session = new StreamConnectorSession(
+                ref.catalog(), ref.schema(), state.tenantId());
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(ref.catalog());
         ConnectorMetadata metadata = catalogHandle.getMetadata(session);
-        ConnectorTableHandle tableHandle = TableResolver.requireTableHandle(metadata, session, ref);
-        ConnectorOutputTableHandle outputHandle = metadata.beginInsert(session, tableHandle);
+        TableResolver.requireTableHandle(metadata, session, ref);
 
         PageSinkStreamWriterContext writerDeps = new PageSinkStreamWriterContext(
                 metadata,
                 catalogHandle.getPageSinkProvider(),
                 session,
-                outputHandle,
                 targetTable);
-        // F-STREAM-02: Warn about control/data-plane bleed. When nativeTransform is null
-        // (the single-arg ctor default), ALL CDC batches are processed locally in the
-        // coordinator JVM instead of being dispatched to worker nodes. This violates the
-        // documented topology (§2.2/§8 DEF-138: CDC ingestion on Worker nodes).
-        // Production deployments should wire a non-null nativeTransform via config.
+        // CDC currently executes in the coordinator JVM. No Worker dispatch is wired;
+        // retain an explicit operational warning until the canonical task path exists.
         LOG.warn("event=cdc_write_sink_local_processing target={} catalog={} "
-                + "detail=CDC writes execute in coordinator JVM (data-plane bleed). "
-                + "Configure native dispatch for production workloads.", targetTable, ref.catalog());
+                + "detail=worker_dispatch_unavailable", targetTable, ref.catalog());
         return new ConnectorPageSinkCdcWriter(writerDeps);
+    }
+
+    /** Carries the persisted stream tenant into connector write and commit authorization. */
+    private record StreamConnectorSession(
+            String catalog, String schema, String tenantId) implements ConnectorSession {
+
+        @Override
+        public String getUser() {
+            return "system";
+        }
+
+        @Override
+        public Optional<String> getCatalog() {
+            return Optional.of(catalog);
+        }
+
+        @Override
+        public Optional<String> getSchema() {
+            return Optional.of(schema);
+        }
+
+        @Override
+        public Map<String, String> getProperties() {
+            return Map.of("tenant_id", tenantId);
+        }
     }
 }

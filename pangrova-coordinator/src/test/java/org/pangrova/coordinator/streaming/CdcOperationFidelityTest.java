@@ -187,9 +187,8 @@ class CdcOperationFidelityTest {
     private static ConnectorPageSinkCdcWriter buildWriter(RecordingMetadata metadata,
                                                            RecordingSinkProvider sinkProvider) {
         ConnectorSession session = new StatementConnectorSession("iceberg", "default");
-        ConnectorOutputTableHandle outputHandle = new OH("default.target");
         PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
-                metadata, sinkProvider, session, outputHandle, "iceberg.default.target");
+                metadata, sinkProvider, session, "iceberg.default.target");
         return new ConnectorPageSinkCdcWriter(deps);
     }
 

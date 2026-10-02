@@ -58,8 +58,10 @@ class HighAvailabilityBootstrapFailoverCallbackTest {
         haService.stepDown("coord-1");
 
         // Externally, a different coordinator takes the lease
-        recordingLease.getDelegate().tryAcquire(
-                "coordinator_leader", "coord-2", 10, Duration.ofMinutes(5));
+        LeaseEntry takeover = recordingLease.getDelegate().tryAcquire(
+                "coordinator_leader", "coord-2", Duration.ofMinutes(5)).orElseThrow();
+        recordingLease.getDelegate().release(
+                "coordinator_leader", "coord-2", takeover.epoch());
 
         // coord-1 re-acquires with higher epoch — triggers failover
         // because knownLeaderId was "coord-1" but now "coord-2" held it
@@ -128,10 +130,11 @@ class HighAvailabilityBootstrapFailoverCallbackTest {
         haService.stepDown("coord-1");
 
         // Different coordinator takes over externally
-        lease.tryAcquire("coordinator_leader", "coord-other", 100, Duration.ofMinutes(5));
+        LeaseEntry takeover = lease.tryAcquire(
+                "coordinator_leader", "coord-other", Duration.ofMinutes(5)).orElseThrow();
 
         // Force release so coord-1 can re-acquire
-        lease.release("coordinator_leader", "coord-other");
+        lease.release("coordinator_leader", "coord-other", takeover.epoch());
 
         // coord-1 re-acquires — stepDown cleared knownLeaderId, so
         // re-acquiring triggers failover (previousLeader == null != "coord-1")
@@ -164,21 +167,23 @@ class HighAvailabilityBootstrapFailoverCallbackTest {
         }
 
         @Override
-        public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
+        public Optional<LeaseEntry> tryAcquire(
+                String leaseKey, String holderId, Duration duration) {
             operations.add("tryAcquire:" + holderId);
-            return delegate.tryAcquire(leaseKey, holderId, epoch, duration);
+            return delegate.tryAcquire(leaseKey, holderId, duration);
         }
 
         @Override
-        public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
+        public boolean tryRenew(
+                String leaseKey, String holderId, long epoch, Duration duration) {
             operations.add("tryRenew:" + holderId);
-            return delegate.tryRenew(leaseKey, holderId, duration);
+            return delegate.tryRenew(leaseKey, holderId, epoch, duration);
         }
 
         @Override
-        public boolean release(String leaseKey, String holderId) {
+        public boolean release(String leaseKey, String holderId, long epoch) {
             operations.add("release:" + holderId);
-            return delegate.release(leaseKey, holderId);
+            return delegate.release(leaseKey, holderId, epoch);
         }
 
         @Override
@@ -186,9 +191,5 @@ class HighAvailabilityBootstrapFailoverCallbackTest {
             return delegate.currentHolder(leaseKey);
         }
 
-        @Override
-        public int expireStale() {
-            return delegate.expireStale();
-        }
     }
 }

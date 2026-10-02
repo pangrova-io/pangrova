@@ -4,6 +4,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 import static org.pangrova.common.util.Preconditions.checkState;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CountDownLatch;
 
 import org.pangrova.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
@@ -21,7 +22,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Orchestrates the full Worker startup/shutdown sequence.
- * Delegates to sub-bootstraps: Observability → NativeRuntime → Resource → Task → CDC → Transport → HTTP → Heartbeat.
+ * Delegates to sub-bootstraps: Observability → Resource → NativeRuntime → Task → CDC → Transport → HTTP → Heartbeat.
  * Shutdown runs in reverse order.
  */
 public final class WorkerBootstrap {
@@ -30,11 +31,21 @@ public final class WorkerBootstrap {
 
     private final WorkerBootstrapConfig config;
     private final AtomicBoolean started = new AtomicBoolean(false);
+    private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
     private final WorkerObservabilitySetup observability = new WorkerObservabilitySetup();
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
 
     public WorkerBootstrap(WorkerBootstrapConfig config) {
         this.config = checkNotNull(config, "config must not be null");
+    }
+
+    /** Installs the production Worker-local connector plugin runtime. */
+    public void installProductionCatalogRuntime() {
+        checkState(!started.get(), "Catalog runtime must be installed before start");
+        refs.setCatalogResourceResolver(
+                org.pangrova.worker.jni.write.WorkerCatalogRuntime.discover(
+                        config.coordinatorUrl(), config.internalAuthSecret(),
+                        Thread.currentThread().getContextClassLoader()));
     }
 
     /**
@@ -43,6 +54,15 @@ public final class WorkerBootstrap {
     public void start() {
         checkState(!started.get(), "WorkerBootstrap already started");
         LOG.info("event=worker_bootstrap_start workerId={}", config.workerId());
+        try {
+            startPhases();
+        } catch (RuntimeException | Error startupFailure) {
+            rollbackStartup(startupFailure);
+            throw startupFailure;
+        }
+    }
+
+    private void startPhases() {
         observability.initialize(config);
         // Task 148: create the shared MemoryArbitrator BEFORE native init
         // so NativeMemoryCoordinator and WorkerResourceBootstrap share a
@@ -54,11 +74,17 @@ public final class WorkerBootstrap {
         refs.setMemoryArbitrator(sharedArbitrator);
         refs.setTenantResourceTracker(tenantTracker);
         NativeCacheConfig nativeCacheConfig = buildNativeCacheConfig(config.cacheConfig());
-        NativeRuntimeBootstrap.initialize(config, refs, nativeCacheConfig);
-        loadNativeCapabilities(refs);
-        NativeFunctionBootstrap.initialize(refs,
-                org.pangrova.worker.jni.NativeFunctionConfig.DEFAULT);
+        // Create the node pool before installing the Native callback, so every
+        // subsequent Native allocation is charged to the same node cap as
+        // transport buffers and the Flight service lease.
         WorkerResourceBootstrap.startResources(config, refs);
+        NativeRuntimeBootstrap.initialize(config, refs, nativeCacheConfig);
+        WorkerResourceBootstrap.startShuffleServiceLease(config, refs);
+        NativeFunctionBootstrap.initialize(refs, config.nativeFunctionConfig());
+        // Capability admission is sampled only after every JVM callback has
+        // been installed successfully. A Worker must never advertise a
+        // governed relation whose callback registration failed or was disabled.
+        loadNativeCapabilities(refs, config.nativeFunctionConfig());
         WorkerResourceBootstrap.startNativeMetrics(refs, observability);
         WorkerResourceBootstrap.startWorkerMetrics(refs, observability);
         WorkerTaskBootstrap.startTaskManager(config, refs, observability);
@@ -70,6 +96,37 @@ public final class WorkerBootstrap {
         LOG.info("event=worker_bootstrap_completed workerId={}", config.workerId());
     }
 
+    private void rollbackStartup(Throwable startupFailure) {
+        LOG.error("event=worker_bootstrap_rollback workerId={} error={}",
+                config.workerId(), startupFailure.getMessage(), startupFailure);
+        runRollback("heartbeat", startupFailure,
+                () -> WorkerHeartbeatBootstrap.stopHeartbeat(refs));
+        runRollback("http", startupFailure,
+                () -> WorkerHttpBootstrap.stopHttp(refs));
+        runRollback("cdc", startupFailure, this::stopCdc);
+        runRollback("tasks", startupFailure,
+                () -> WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager()));
+        runRollback("task_manager", startupFailure,
+                () -> closeTaskManager(refs));
+        runRollback("native_writer", startupFailure,
+                () -> closeNativeWriteExecutor(refs));
+        runRollback("native_functions", startupFailure,
+                () -> NativeFunctionBootstrap.close(refs));
+        runRollback("native_resources", startupFailure,
+                () -> WorkerResourceBootstrap.releaseResources(refs, observability));
+    }
+
+    private static void runRollback(
+            String resource, Throwable startupFailure, Runnable action) {
+        try {
+            action.run();
+        } catch (RuntimeException | Error cleanupFailure) {
+            startupFailure.addSuppressed(cleanupFailure);
+            LOG.warn("event=worker_bootstrap_rollback_failed resource={} error={}",
+                    resource, cleanupFailure.getMessage(), cleanupFailure);
+        }
+    }
+
     /**
      * Executes the ordered shutdown sequence (reverse of startup).
      */
@@ -77,42 +134,51 @@ public final class WorkerBootstrap {
         if (!started.compareAndSet(true, false)) {
             return;
         }
-        LOG.info("event=worker_shutdown_start workerId={}", config.workerId());
-        WorkerHeartbeatBootstrap.deregister(refs, config.workerId());
-        WorkerHeartbeatBootstrap.stopHeartbeat(refs);
-        stopCdc();
-        WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager());
-        WorkerHttpBootstrap.stopHttp(refs);
-        closeNativeWriteExecutor(refs);
-        closeTaskManager(refs);
-        // Native shutdown is handled by WorkerShutdownSequence.releaseResources()
-        // via shutdownNative(). Calling it here would cause double-free of native
-        // thread pools and memory pools (P0-BUG-2).
-        WorkerResourceBootstrap.releaseResources(refs, observability);
-        LOG.info("event=worker_shutdown_completed workerId={}", config.workerId());
+        try {
+            LOG.info("event=worker_shutdown_start workerId={}", config.workerId());
+            WorkerHeartbeatBootstrap.deregister(refs, config.workerId());
+            WorkerHeartbeatBootstrap.stopHeartbeat(refs);
+            stopCdc();
+            WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager());
+            WorkerHttpBootstrap.stopHttp(refs);
+            closeTaskManager(refs);
+            closeNativeWriteExecutor(refs);
+            closeNativeFunctions(refs);
+            // Native shutdown is handled by WorkerShutdownSequence.releaseResources()
+            // via shutdownNative(). Calling it here would cause double-free of native
+            // thread pools and memory pools (P0-BUG-2).
+            WorkerResourceBootstrap.releaseResources(refs, observability);
+            LOG.info("event=worker_shutdown_completed workerId={}", config.workerId());
+        } finally {
+            shutdownCompleted.countDown();
+        }
     }
 
-    /**
-     * Loads native engine capabilities via JNI command channel.
-     * Best-effort: failure is logged but does not block startup.
-     */
-    private static void loadNativeCapabilities(WorkerComponentRefs refs) {
+    /** Keeps the process entry point alive until owned resources finish shutdown. */
+    public void awaitShutdown() throws InterruptedException {
+        shutdownCompleted.await();
+    }
+
+    /** Loads and fail-closed validates native capabilities via the JNI channel. */
+    private static void loadNativeCapabilities(
+            WorkerComponentRefs refs,
+            org.pangrova.worker.jni.NativeFunctionConfig functionConfig) {
         if (!refs.nativeAvailable()) {
             LOG.info("event=phase_skipped phase=native_capabilities reason=native_unavailable");
             return;
         }
         try {
-            java.util.List<String> allCapabilities = new java.util.ArrayList<>();
-            org.pangrova.worker.jni.NativeCapabilityLoader.loadCapabilities(
-                    (relTypes, exprTypes, functions) -> {
-                        allCapabilities.addAll(relTypes);
-                        allCapabilities.addAll(exprTypes);
-                        allCapabilities.addAll(functions);
-                    });
-            refs.setNativeCapabilities(allCapabilities);
-            LOG.info("event=native_capabilities_loaded count={}", allCapabilities.size());
+            NativeCapabilityAdvertisement.Advertisement advertisement =
+                    NativeCapabilityAdvertisement.load(functionConfig);
+            refs.setNativeCapabilityInventory(advertisement.encodedInventory());
+            LOG.info("event=native_capabilities_loaded genericCount={} modelCount={} engineVersion={}",
+                    advertisement.inventory().getCapabilitiesCount(),
+                    advertisement.inventory().getModelsCount(),
+                    advertisement.engineVersion());
         } catch (Exception e) {
-            LOG.warn("event=native_capabilities_load_failed error={}", e.getMessage());
+            LOG.error("event=native_capabilities_load_failed error={}", e.getMessage(), e);
+            throw new IllegalStateException(
+                    "Native capability negotiation failed; Worker cannot become ready", e);
         }
     }
 
@@ -138,6 +204,24 @@ public final class WorkerBootstrap {
         if (writer != null) {
             writer.close();
             LOG.info("event=native_write_executor_closed");
+        } else if (refs.catalogResourceResolver() instanceof AutoCloseable closeable) {
+            // Native registration may fail after the catalog runtime is installed.
+            // In that case the writer never acquired ownership of the resolver.
+            try {
+                closeable.close();
+            } catch (Exception failure) {
+                throw new IllegalStateException("Failed to close Worker catalog runtime", failure);
+            }
+        }
+    }
+
+    private static void closeNativeFunctions(WorkerComponentRefs refs) {
+        try {
+            NativeFunctionBootstrap.close(refs);
+            LOG.info("event=native_function_resources_closed");
+        } catch (RuntimeException failure) {
+            LOG.warn("event=native_function_resources_close_error error={}",
+                    failure.getMessage(), failure);
         }
     }
 
@@ -155,7 +239,10 @@ public final class WorkerBootstrap {
                 cc.ssdCachePath(),
                 cc.ssdCacheBytes(),
                 cc.ssdShards(),
-                cc.checkpointIntervalBytes());
+                cc.checkpointIntervalBytes(),
+                cc.artifactCachePath(),
+                cc.artifactCacheBytes(),
+                cc.artifactIndexMemoryBytes());
     }
 
     private void startCdc() {

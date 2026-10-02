@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink;
+import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
+
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -11,20 +14,27 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryWriteCommitJournal;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.coordination.QueryStateJournal;
 import org.pangrova.spi.coordination.TaskStateEvent;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.coordination.WriteCommitFingerprint;
+import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -48,6 +58,8 @@ public class TaskStatusReceiver {
     private final QueryManager queryManager;
     private final CoordinatorTaskTracker taskTracker;
     private final WorkerManager workerManager;
+    private final CanonicalTaskReportValidator taskReportValidator =
+            new CanonicalTaskReportValidator();
 
     // Optional speculation dependencies (null when speculation is disabled)
     private final SpeculativeTaskLauncher speculativeLauncher;
@@ -67,15 +79,21 @@ public class TaskStatusReceiver {
 
     // Write commit journal for idempotent distributed write commits
     private final WriteCommitJournal writeCommitJournal;
+    private final ArtifactWorkReportSink artifactWorkReportSink;
 
-    /** A-FENCE-01: optional leadership fence for the catalog-commit path (null = single-node/no HA). */
+    /** Optional durable execution fence for the catalog-commit path. */
     private volatile WriteCommitFencer writeCommitFencer;
 
-    /** Tracks the last accepted reportSequence per taskId for deduplication. */
-    private final ConcurrentHashMap<String, AtomicLong> lastAcceptedSequence = new ConcurrentHashMap<>();
+    /** Serializes report side effects and advances sequence only after durable prerequisites. */
+    private final ConcurrentHashMap<String, ReportSequenceGate> reportSequenceGates =
+            new ConcurrentHashMap<>();
 
     /** Single-finalizer guard: prevents concurrent finalization of the same query. */
     private final ConcurrentHashMap<String, Boolean> finalizationGuard = new ConcurrentHashMap<>();
+
+    /** Physical failures are held until both attempts of a logical partition fail. */
+    private final ConcurrentHashMap<String, Set<String>> speculativeFailures =
+            new ConcurrentHashMap<>();
 
     public TaskStatusReceiver(TaskStatusReceiverContext deps) {
         this.queryManager = deps.queryManager();
@@ -92,11 +110,12 @@ public class TaskStatusReceiver {
         this.lineageEmitter = deps.lineageEmitter();
         this.writeCommitJournal = deps.writeCommitJournal() != null
                 ? deps.writeCommitJournal() : InMemoryWriteCommitJournal.INSTANCE;
+        this.artifactWorkReportSink = deps.artifactWorkReportSink();
     }
 
     /**
-     * A-FENCE-01: installs the leadership fence used to reject catalog commits from a demoted
-     * (zombie) coordinator and to stamp the owning coordinator/term on durable write intents.
+     * Installs the durable query-owner fence used to reject catalog commits
+     * from a stale Coordinator process and stamp replayable write intents.
      * Optional — when unset (single-node / no HA), commits are never fenced.
      */
     public void setWriteCommitFencer(WriteCommitFencer fencer) {
@@ -114,32 +133,112 @@ public class TaskStatusReceiver {
     public boolean onTaskStatus(TaskStatusReport report) {
         checkNotNull(report, "report must not be null");
         rejectIfUnregistered(report.workerId());
+        var expectedRequest = taskTracker.getTaskRequest(report.taskId());
+        StatusValidation validation = validateBoundReport(report, expectedRequest);
+        if (!validation.accepted()) {
+            return false;
+        }
+        boolean durableWork = isBackgroundTask(expectedRequest);
 
-        if (!acceptSequence(report.taskId(), report.reportSequence())) {
+        ReportOwnership ownership = reportOwnership(report, durableWork);
+        if (!ownership.accepted()) return false;
+
+        ReportSequencePermit sequence = reserveSequence(
+                report.taskId(), report.reportSequence());
+        if (sequence == null) {
             LOG.warn("event=status_report_rejected_stale taskId={} reportSeq={}",
                     report.taskId(), report.reportSequence());
             return false;
         }
+        try (sequence) {
+            boolean accepted = processReservedReport(report, expectedRequest, validation,
+                    ownership.owner(), durableWork);
+            if (accepted) {
+                sequence.accept();
+            }
+            return accepted;
+        }
+    }
+
+    private StatusValidation validateBoundReport(TaskStatusReport report, SubmitTaskRequest expected) {
+        if (("BACKGROUND_BUILD".equals(report.taskType()) || "BACKGROUND_EXPORT".equals(report.taskType()))
+                && expected == null) {
+            LOG.warn("event=status_report_rejected_unbound_background_task taskId={}", report.taskId());
+            return StatusValidation.rejected();
+        }
+        return validateRegisteredTask(report);
+    }
+
+    private ReportOwnership reportOwnership(TaskStatusReport report, boolean durable) {
+        if (writeCommitFencer == null || durable) return new ReportOwnership(true, null);
+        try {
+            ExecutionAnchor anchor = writeCommitFencer.currentAnchor(report.queryId());
+            return new ReportOwnership(anchor != null, anchor == null ? null : anchor.ownerId());
+        } catch (IllegalStateException staleOwner) {
+            LOG.info("event=status_report_rejected_stale_owner queryId={} taskId={}",
+                    report.queryId(), report.taskId());
+            return new ReportOwnership(false, null);
+        }
+    }
+
+    private record ReportOwnership(boolean accepted, String owner) {}
+
+    private boolean processReservedReport(TaskStatusReport report, SubmitTaskRequest expected,
+            StatusValidation validation, String owner, boolean durable) {
+        if (taskAttemptIsNoLongerActive(report)) {
+            clearTaskSequence(report.taskId());
+            LOG.warn("event=status_report_rejected_settled taskId={} reportSeq={}",
+                    report.taskId(), report.reportSequence());
+            return false;
+        }
+        if (durable && isFinishedState(report.state())
+                && !commitDurableReport(expected, report, validation.canonicalStatus().orElseThrow())) {
+            LOG.warn("event=artifact_report_rejected_durable taskId={} attempt={}", report.taskId(), report.attempt());
+            return false;
+        }
+        return processAcceptedStatus(report, owner, durable);
+    }
+
+    private boolean commitDurableReport(SubmitTaskRequest request, TaskStatusReport report,
+            org.pangrova.protocol.v2.TaskReport status) {
+        try {
+            return artifactWorkReportSink.commit(request.taskRequest().getSecurity().getTenantId(),
+                    status, report.canonicalTaskReport());
+        } catch (org.pangrova.security.authz.AuthorizationDeniedException
+                | org.pangrova.metadata.artifact.jdbc.ArtifactExecutionFence.LostOwnerException fenced) {
+            LOG.warn("event=durable_report_rejected_authority queryId={} taskId={} reason={}",
+                    report.queryId(), report.taskId(), fenced.getMessage());
+            return false;
+        }
+    }
+
+    private boolean processAcceptedStatus(
+            TaskStatusReport report, String owningCoordinator, boolean durableWork) {
 
         String queryId = report.queryId();
         String taskId = report.taskId();
-        updateTaskState(queryId, taskId, report);
-
-        // Notify DAG engine of terminal task states BEFORE query-level transitions,
-        // so the DAG engine gets the event first and can drive stage state changes.
-        if (stageCompletionCallback != null && isTerminalTaskState(report.state())) {
-            try {
-                stageCompletionCallback.onTaskTerminal(queryId, taskId,
-                        report.state(), report.error());
-            } catch (Exception e) {
-                LOG.error("event=stage_completion_callback_failed queryId={} taskId={}"
-                        + " state={} error={}", queryId, taskId, report.state(),
-                        e.getMessage(), e);
-            }
+        if (shouldHandleSpeculativeFailure(report, durableWork)) {
+            return handleSpeculativeFailure(
+                    queryId, taskId, report, owningCoordinator);
+        }
+        if (!updateTaskState(queryId, taskId, report)) {
+            return false;
         }
 
+        // Durable producer and export reports are committed before the shared
+        // DAG sees their terminal state. They never enter user-query, DML,
+        // speculation, audit, or result-row transitions.
+        if (durableWork) {
+            processDurableTerminal(report);
+            return true;
+        }
+
+        // A speculative FINISHED report has not won its logical partition yet.
+        // Route only the elected completion to the DAG's original task slot.
+        notifyAcceptedTerminal(report);
+
         // Journal: sync for terminal states, async for non-terminal
-        journalTaskEvent(report);
+        journalTaskEvent(report, owningCoordinator);
 
         if (isFinishedState(report.state())) {
             return handleTaskCompletion(queryId, taskId, report);
@@ -149,26 +248,234 @@ public class TaskStatusReceiver {
         return true;
     }
 
-    /**
-     * Accepts the report sequence only if it is strictly greater than the last
-     * accepted sequence for this task. Thread-safe via CAS loop.
-     */
-    private boolean acceptSequence(String taskId, long sequence) {
-        AtomicLong last = lastAcceptedSequence.computeIfAbsent(taskId, k -> new AtomicLong(-1));
+    private boolean shouldHandleSpeculativeFailure(TaskStatusReport report, boolean durable) {
+        return !durable && isSpeculationActive() && isUnsuccessfulState(report.state())
+                && findCounterpartTaskId(report.taskId()) != null;
+    }
+
+    private void processDurableTerminal(TaskStatusReport report) {
+        if (isTerminalTaskState(report.state())) {
+            notifyStageTerminal(report.queryId(), report.taskId(), report);
+            taskTracker.removeDeadline(report.taskId());
+            taskTracker.signalTaskTerminal(report.queryId(), report.taskId());
+            clearTaskSequence(report.taskId());
+        }
+    }
+
+    private void notifyAcceptedTerminal(TaskStatusReport report) {
+        if (isTerminalTaskState(report.state())
+                && (!isFinishedState(report.state()) || !isSpeculationActive())) {
+            notifyStageTerminal(report.queryId(), report.taskId(), report);
+        }
+    }
+
+    private StatusValidation validateRegisteredTask(TaskStatusReport report) {
+        var expectedAttempt = taskTracker.getTaskAttempt(report.taskId());
+        if (expectedAttempt == null) {
+            LOG.warn("event=status_report_rejected_unknown_task taskId={} attempt={}",
+                    report.taskId(), report.attempt());
+            return StatusValidation.rejected();
+        }
+        if (!expectedAttempt.equals(report.attempt())) {
+            LOG.warn("event=status_report_rejected_fence taskId={} expected={} actual={}",
+                    report.taskId(), expectedAttempt, report.attempt());
+            return StatusValidation.rejected();
+        }
+        String expectedWorker = taskTracker.getWorkerForTask(report.taskId());
+        if (expectedWorker != null && !expectedWorker.equals(report.workerId())) {
+            LOG.warn("event=status_report_rejected_worker taskId={} expected={} actual={}",
+                    report.taskId(), expectedWorker, report.workerId());
+            return StatusValidation.rejected();
+        }
+        try {
+            return StatusValidation.accepted(taskReportValidator.validate(
+                    report, taskTracker.getTaskRequest(report.taskId())));
+        } catch (IllegalArgumentException e) {
+            LOG.warn("event=status_report_rejected_canonical taskId={} reason={}",
+                    report.taskId(), e.getMessage());
+            return StatusValidation.rejected();
+        }
+    }
+
+    private boolean taskAttemptIsNoLongerActive(TaskStatusReport report) {
+        var currentAttempt = taskTracker.getTaskAttempt(report.taskId());
+        if (currentAttempt == null || !currentAttempt.equals(report.attempt())) {
+            return true;
+        }
+        try {
+            var state = taskTracker.getTaskState(report.queryId(), report.taskId());
+            return settledOrUnsubmittedTerminal(state, report.state());
+        } catch (IllegalArgumentException notRegisteredYet) {
+            // Identity preparation alone is not proof that a task was submitted.
+            // Nonterminal reports retain the existing registration/retry behavior.
+            return isTerminalTaskState(report.state());
+        }
+    }
+
+    private static boolean settledOrUnsubmittedTerminal(
+            org.pangrova.coordinator.task.TaskStateMachine.State current, String reported) {
+        return current == org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED
+                || current == org.pangrova.coordinator.task.TaskStateMachine.State.FAILED
+                || current == org.pangrova.coordinator.task.TaskStateMachine.State.ABANDONED
+                || current == org.pangrova.coordinator.task.TaskStateMachine.State.PENDING
+                        && isTerminalTaskState(reported);
+    }
+
+    private record StatusValidation(
+            boolean accepted,
+            Optional<org.pangrova.protocol.v2.TaskReport> canonicalStatus) {
+
+        private static StatusValidation accepted(
+                Optional<org.pangrova.protocol.v2.TaskReport> status) {
+            return new StatusValidation(true, status);
+        }
+
+        private static StatusValidation rejected() {
+            return new StatusValidation(false, Optional.empty());
+        }
+    }
+
+    private ReportSequencePermit reserveSequence(String taskId, long sequence) {
         while (true) {
-            long current = last.get();
-            if (sequence <= current) {
-                return false;
+            ReportSequenceGate gate = reportSequenceGates.computeIfAbsent(
+                    taskId, ReportSequenceGate::new);
+            SequenceReservation reservation = gate.tryReserve(sequence);
+            if (reservation.retired()) {
+                reportSequenceGates.remove(taskId, gate);
+                continue;
             }
-            if (last.compareAndSet(current, sequence)) {
-                return true;
+            if (reservation.stale()) {
+                return null;
             }
+            if (reservation.permit() != null) {
+                return reservation.permit();
+            }
+            reservation.waitFor().join();
         }
     }
 
     /** Clears sequence tracking for a completed/cancelled task to prevent memory leak. */
     public void clearTaskSequence(String taskId) {
-        lastAcceptedSequence.remove(taskId);
+        ReportSequenceGate gate = reportSequenceGates.get(taskId);
+        if (gate != null && gate.retire()) {
+            reportSequenceGates.remove(taskId, gate);
+        }
+    }
+
+    private final class ReportSequencePermit implements AutoCloseable {
+        private final String taskId;
+        private final ReportSequenceGate gate;
+        private final long sequence;
+        private boolean closed;
+        private boolean accepted;
+
+        private ReportSequencePermit(
+                String taskId, ReportSequenceGate gate, long sequence) {
+            this.taskId = taskId;
+            this.gate = gate;
+            this.sequence = sequence;
+        }
+
+        private void accept() {
+            gate.accept(sequence);
+            accepted = true;
+        }
+
+        @Override
+        public void close() {
+            if (closed) {
+                return;
+            }
+            closed = true;
+            if (gate.release(sequence, accepted)) {
+                reportSequenceGates.remove(taskId, gate);
+            }
+        }
+    }
+
+    private final class ReportSequenceGate {
+        private final String taskId;
+        private long acceptedSequence = -1L;
+        private long highestSeenSequence = -1L;
+        private long activeSequence = -1L;
+        private CompletableFuture<Void> activeCompletion;
+        private boolean retired;
+
+        private ReportSequenceGate(String taskId) {
+            this.taskId = taskId;
+        }
+
+        private synchronized SequenceReservation tryReserve(long sequence) {
+            if (retired) {
+                return SequenceReservation.retiredReservation();
+            }
+            if (activeCompletion != null) {
+                return SequenceReservation.waiting(activeCompletion);
+            }
+            if (sequence <= acceptedSequence || sequence < highestSeenSequence) {
+                return SequenceReservation.staleReservation();
+            }
+            highestSeenSequence = sequence;
+            activeSequence = sequence;
+            activeCompletion = new CompletableFuture<>();
+            return SequenceReservation.acquired(
+                    new ReportSequencePermit(taskId, this, sequence));
+        }
+
+        private synchronized void accept(long sequence) {
+            requireActive(sequence);
+            acceptedSequence = sequence;
+        }
+
+        private boolean release(long sequence, boolean accepted) {
+            CompletableFuture<Void> completion;
+            boolean remove;
+            synchronized (this) {
+                requireActive(sequence);
+                // A failed durable commit may retry the same sequence, but an
+                // older report must not overtake the attempt that reached us.
+                completion = activeCompletion;
+                activeCompletion = null;
+                activeSequence = -1L;
+                remove = retired;
+            }
+            completion.complete(null);
+            return remove;
+        }
+
+        private synchronized boolean retire() {
+            retired = true;
+            return activeCompletion == null;
+        }
+
+        private void requireActive(long sequence) {
+            if (activeCompletion == null || activeSequence != sequence) {
+                throw new IllegalStateException("report sequence permit is not active");
+            }
+        }
+    }
+
+    private record SequenceReservation(
+            ReportSequencePermit permit,
+            CompletableFuture<Void> waitFor,
+            boolean stale,
+            boolean retired) {
+
+        private static SequenceReservation acquired(ReportSequencePermit permit) {
+            return new SequenceReservation(permit, null, false, false);
+        }
+
+        private static SequenceReservation waiting(CompletableFuture<Void> waitFor) {
+            return new SequenceReservation(null, waitFor, false, false);
+        }
+
+        private static SequenceReservation staleReservation() {
+            return new SequenceReservation(null, null, true, false);
+        }
+
+        private static SequenceReservation retiredReservation() {
+            return new SequenceReservation(null, null, false, true);
+        }
     }
 
     private void rejectIfUnregistered(String workerId) {
@@ -179,20 +486,80 @@ public class TaskStatusReceiver {
         }
     }
 
-    private void updateTaskState(String queryId, String taskId, TaskStatusReport report) {
+    private boolean updateTaskState(String queryId, String taskId, TaskStatusReport report) {
         try {
-            taskTracker.updateTaskState(queryId, taskId, report.state());
+            return taskTracker.updateTaskState(queryId, taskId, report.state());
         } catch (IllegalArgumentException e) {
-            LOG.debug("Task not yet registered, registering on-the-fly: queryId={}, taskId={}",
-                    queryId, taskId);
-            ensureTaskRegistered(queryId, taskId);
-            taskTracker.updateTaskState(queryId, taskId, report.state());
+            // The elected attempt can retire this loser after validation but
+            // before its in-flight status reaches the state machine.
+            if (taskTracker.getTaskAttempt(taskId) == null) {
+                return false;
+            }
+            throw e;
         }
     }
 
+    private void notifyStageTerminal(
+            String queryId, String logicalTaskId, TaskStatusReport report) {
+        if (stageCompletionCallback == null) {
+            return;
+        }
+        try {
+            stageCompletionCallback.onTaskTerminal(queryId, logicalTaskId,
+                    report.state(), report.error());
+        } catch (Exception e) {
+            LOG.error("event=stage_completion_callback_failed queryId={} taskId={}"
+                    + " state={} error={}", queryId, logicalTaskId, report.state(),
+                    e.getMessage(), e);
+        }
+    }
+
+    private boolean handleSpeculativeFailure(
+            String queryId, String taskId, TaskStatusReport report,
+            String owningCoordinator) {
+        if (!report.attempt().equals(taskTracker.getTaskAttempt(taskId))) {
+            return false;
+        }
+        String counterpart = findCounterpartTaskId(taskId);
+        if (counterpart == null) {
+            return false;
+        }
+        // Keep the logical task pending while its other physical attempt can
+        // still succeed. In particular, do not invoke the global failure callback.
+        journalTaskEvent(report, owningCoordinator);
+        Set<String> failed = speculativeFailures.computeIfAbsent(
+                queryId, ignored -> ConcurrentHashMap.newKeySet());
+        failed.add(taskId);
+        taskTracker.clearTaskTracking(taskId);
+        clearTaskSequence(taskId);
+        if (!failed.contains(counterpart)) {
+            return true;
+        }
+
+        String logicalTaskId = resolveOriginalTaskId(taskId);
+        String copyTaskId = taskId.equals(logicalTaskId) ? counterpart : taskId;
+        notifyStageTerminal(queryId, logicalTaskId, report);
+        taskTracker.updateTaskState(queryId, logicalTaskId, "FAILED");
+        taskTracker.retireSpeculativeLoser(queryId, copyTaskId);
+        clearSpeculativeFailures(queryId, logicalTaskId, copyTaskId);
+        speculativeLauncher.removePair(logicalTaskId);
+        evaluateQueryTransitions(queryId, report);
+        return true;
+    }
+
+    private void clearSpeculativeFailures(
+            String queryId, String originalTaskId, String copyTaskId) {
+        Set<String> failed = speculativeFailures.get(queryId);
+        if (failed == null) {
+            return;
+        }
+        failed.remove(originalTaskId);
+        failed.remove(copyTaskId);
+    }
+
     private boolean handleTaskCompletion(String queryId, String taskId, TaskStatusReport report) {
-        collectWriteCommitMetadata(queryId, report);
         if (!isSpeculationActive()) {
+            collectWriteCommitMetadata(queryId, report);
             evaluateQueryTransitions(queryId, report);
             return true;
         }
@@ -201,11 +568,28 @@ public class TaskStatusReceiver {
 
     private boolean resolveSpeculativeCompletion(String queryId, String taskId,
                                                   TaskStatusReport report) {
+        String stageId = String.valueOf(report.stageId());
         boolean isWinner = duplicateResolver.onTaskComplete(
-                taskId, String.valueOf(report.stageId()), report.partitionId());
+                queryId, taskId, stageId, report.partitionId());
 
         if (isWinner) {
+            if (!report.attempt().equals(taskTracker.getTaskAttempt(taskId))) {
+                // The other attempt may have fenced this one after the first
+                // status check but before it entered the winner election.
+                return false;
+            }
+            // A speculative loser may finish concurrently with its winner.
+            // Only the elected attempt contributes objects to the catalog commit.
+            collectWriteCommitMetadata(queryId, report);
+            String logicalTaskId = resolveOriginalTaskId(taskId);
+            String counterpart = findCounterpartTaskId(taskId);
             cancelLoserTask(queryId, taskId, report);
+            notifyStageTerminal(queryId, logicalTaskId, report);
+            if (counterpart != null) {
+                clearSpeculativeFailures(queryId, logicalTaskId,
+                        taskId.equals(logicalTaskId) ? counterpart : taskId);
+            }
+            speculativeLauncher.removePair(logicalTaskId);
             LOG.info("event=speculation_winner queryId={} taskId={} stageId={} partitionId={}",
                     queryId, taskId, report.stageId(), report.partitionId());
         } else {
@@ -228,22 +612,13 @@ public class TaskStatusReceiver {
     }
 
     private void cleanupLoserTask(String queryId, String taskId) {
-        taskTracker.removeDeadline(taskId);
-        taskTracker.clearTaskTracking(taskId);
+        taskTracker.retireSpeculativeLoser(queryId, taskId);
         clearTaskSequence(taskId);
-        speculativeLauncher.removePair(resolveOriginalTaskId(taskId));
     }
 
     private void cancelAndCleanup(String queryId, String taskId) {
         sendCancelToWorker(taskId);
-        try {
-            taskTracker.updateTaskState(queryId, taskId, "CANCELLED");
-        } catch (Exception e) {
-            LOG.debug("event=loser_cancel_state_update_failed queryId={} taskId={} error={}",
-                    queryId, taskId, e.getMessage());
-        }
-        taskTracker.removeDeadline(taskId);
-        taskTracker.clearTaskTracking(taskId);
+        taskTracker.retireSpeculativeLoser(queryId, taskId);
         clearTaskSequence(taskId);
     }
 
@@ -293,15 +668,15 @@ public class TaskStatusReceiver {
         return "FINISHED".equals(state);
     }
 
+    private static boolean isUnsuccessfulState(String state) {
+        return "FAILED".equals(state) || "CANCELLED".equals(state);
+    }
+
     private static boolean isTerminalTaskState(String state) {
         return "FINISHED".equals(state) || "FAILED".equals(state) || "CANCELLED".equals(state);
     }
 
-    private void journalTaskEvent(TaskStatusReport report) {
-        // SI-6: stamp the owning coordinator so owner-scoped failover recovery can
-        // filter task rows; sourced from the fencer (same identity as write intents).
-        WriteCommitFencer fencer = this.writeCommitFencer;
-        String owningCoordinator = fencer != null ? fencer.coordinatorId() : null;
+    private void journalTaskEvent(TaskStatusReport report, String owningCoordinator) {
         TaskStateEvent event = new TaskStateEvent(
                 report.queryId(), report.taskId(), report.workerId(),
                 report.state(), report.stageId(), report.reportSequence(),
@@ -311,6 +686,18 @@ public class TaskStatusReceiver {
         } else {
             stateJournal.appendTaskEvent(event);
         }
+    }
+
+    private boolean isBackgroundTask(SubmitTaskRequest expectedRequest) {
+        if (expectedRequest == null) {
+            return false;
+        }
+        TaskKind kind = expectedRequest.taskRequest().getTaskKind();
+        return kind == TaskKind.TASK_KIND_BACKGROUND_BUILD
+                || kind == TaskKind.TASK_KIND_BACKGROUND_EXPORT
+                || kind == TaskKind.TASK_KIND_SHUFFLE_WRITE && artifactWorkReportSink.ownsExecution(
+                        expectedRequest.taskRequest().getSecurity().getTenantId(),
+                        expectedRequest.taskRequest().getAttempt().getQueryOrJobId());
     }
 
     private void evaluateQueryTransitions(String queryId, TaskStatusReport report) {
@@ -392,11 +779,15 @@ public class TaskStatusReceiver {
         }
         try {
             try {
-                commitDistributedWriteIfNeeded(queryId);
+                if (!commitDistributedWriteIfNeeded(queryId)) {
+                    LOG.warn("event=query_finalization_deferred queryId={} "
+                            + "reason=execution_owner_fenced", queryId);
+                    return;
+                }
             } catch (Exception e) {
                 LOG.error("event=distributed_write_commit_failed queryId={} error={}",
                         queryId, e.getMessage(), e);
-                cleanupWriteStateOnFailure(queryId);
+                cleanupWriteStateAfterCommitFailure(queryId);
                 clearQuerySequences(queryId);
                 queryManager.onTaskFailed(queryId,
                         new org.pangrova.protocol.rest.error.ErrorDetail(
@@ -419,25 +810,16 @@ public class TaskStatusReceiver {
 
     /**
      * Removes all sequence tracking entries for tasks belonging to the given query.
-     * Prevents unbounded growth of {@link #lastAcceptedSequence} map.
+     * Prevents unbounded growth of the report-sequence gate map.
      */
     private void clearQuerySequences(String queryId) {
         for (String taskId : taskTracker.getTaskIds(queryId)) {
-            lastAcceptedSequence.remove(taskId);
+            clearTaskSequence(taskId);
         }
-    }
-
-    /**
-     * Ensures a task is registered in the tracker. Handles the race where
-     * Worker status arrives before Coordinator's registerDispatchedTask call.
-     */
-    private void ensureTaskRegistered(String queryId, String taskId) {
-        try {
-            taskTracker.registerTask(queryId, taskId);
-            taskTracker.markScheduled(queryId, taskId);
-        } catch (IllegalStateException e) {
-            // Already registered by another thread — safe to ignore
+        if (duplicateResolver != null) {
+            duplicateResolver.clearQuery(queryId);
         }
+        speculativeFailures.remove(queryId);
     }
 
     /**
@@ -475,17 +857,25 @@ public class TaskStatusReceiver {
      * <p>Integrates with {@link WriteCommitJournal} for idempotent recovery:
      * already-committed writes (detected via journal) are skipped.</p>
      */
-    private void commitDistributedWriteIfNeeded(String queryId) {
+    private boolean commitDistributedWriteIfNeeded(String queryId) {
         if (writeCommitTracker == null || catalogRegistry == null) {
-            return;
+            return true;
+        }
+
+        WriteCommitFencer fencer = this.writeCommitFencer;
+        ExecutionAnchor anchor = fencer != null
+                ? fencer.currentAnchor(queryId) : null;
+        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_journal_read")) {
+            return false;
         }
 
         // Idempotent recovery: skip if the journal says this write is already committed
         if (writeCommitJournal.isCommitted(queryId)) {
             LOG.info("event=distributed_write_already_committed queryId={}", queryId);
+            acknowledgeOrdinaryWrite(queryId);
             writeCommitTracker.removeWriteState(queryId);
             writeCommitJournal.purge(queryId);
-            return;
+            return true;
         }
 
         // WAL ordering (F-WRITE-001 / A-COMMIT-01): peek — do NOT remove the tracker
@@ -496,7 +886,7 @@ public class TaskStatusReceiver {
         NativeWriteCommitTracker.WriteCommitState writeState =
                 writeCommitTracker.peekWriteState(queryId);
         if (writeState == null) {
-            return;
+            return true;
         }
 
         // 1. Record a durable, REPLAYABLE PENDING intent BEFORE touching the catalog.
@@ -506,41 +896,38 @@ public class TaskStatusReceiver {
         //    a state marker. If this throws (journal store unavailable), the tracker state
         //    is still intact for a subsequent retry.
         List<byte[]> fragments = writeState.fragments();
-        var outputHandle = writeState.outputHandle();
-        // A-COMMIT-01: record STRUCTURED, rehydratable identity (schema.table + real write mode) so
-        // a replacement coordinator can reconstruct the handle and re-drive/skip the commit after a
-        // crash, instead of a lossy handle.toString() that cannot be reconstructed.
-        String structuredTable = outputHandle.targetTable()
-                .map(Object::toString)
-                .orElseGet(outputHandle::toString);
-        // A-FENCE-01: stamp the owning coordinator id + leadership term on the durable intent.
-        WriteCommitFencer fencer = this.writeCommitFencer;
-        String owningCoordinator = fencer != null ? fencer.coordinatorId() : null;
-        long owningTerm = fencer != null ? fencer.currentTerm() : 0L;
-        writeCommitJournal.recordIntent(new WriteCommitEntry(
-                queryId, writeState.catalogName(), structuredTable,
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis(),
-                fragments, outputHandle.writeMode(), queryId, owningCoordinator, owningTerm));
+        WriteCommitEntry intent = createWriteCommitIntent(queryId, writeState, fragments, anchor);
+        writeCommitJournal.recordIntent(intent);
 
-        // A-FENCE-01: fence a DEMOTED (zombie) leader BEFORE touching the catalog. If this
-        // coordinator is no longer the active leader, do NOT commit — leave the PENDING intent and
-        // tracker state for the new leader's WriteCommitReconciler to auto-finish (A-COMMIT-01).
-        if (fencer != null && !fencer.isActiveLeader()) {
-            LOG.error("event=distributed_write_fenced queryId={} owningTerm={} coordinator={} "
-                    + "reason=not_active_leader note=left_PENDING_for_new_leader_reconcile",
-                    queryId, owningTerm, owningCoordinator);
-            return;
+        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_catalog_commit")) {
+            return false;
         }
 
         // 2. Perform the single atomic catalog commit.
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(writeState.catalogName());
+        if (!(catalogHandle instanceof ConnectorCatalogHandle connectorCatalog)) {
+            throw new IllegalStateException(
+                    "Distributed write catalog is no longer a connector catalog");
+        }
+        var boundHandle = DefaultWriteCommitReconciler.decodeExactHandle(
+                intent, writeState.outputHandle().targetTable().orElseThrow(),
+                connectorCatalog);
         ConnectorMetadata metadata = catalogHandle.getMetadata(writeState.session());
-        metadata.finishDistributedWrite(writeState.session(), writeState.outputHandle(), fragments);
+        metadata.finishDistributedWrite(
+                writeState.session(), boundHandle, fragments, intent.commitContext());
+
+        // The external catalog commit is required to be idempotent. If ownership changed while it
+        // was in flight, leave the WAL entry PENDING: the new owner will reconcile the same
+        // idempotency key and determine/confirm the catalog outcome.
+        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_catalog_commit")) {
+            return false;
+        }
 
         // 3. Durably mark COMMITTED. Only after this record is it safe to drop the
         //    in-memory tracker state; a crash before this point leaves a PENDING
         //    journal entry plus the tracker state for the recovery path to reconcile.
         writeCommitJournal.markCommitted(queryId);
+        acknowledgeOrdinaryWrite(queryId);
 
         // 4. Commit is durable — release the in-memory tracker state and purge.
         writeCommitTracker.removeWriteState(queryId);
@@ -548,11 +935,102 @@ public class TaskStatusReceiver {
 
         LOG.info("event=distributed_write_committed queryId={} catalog={} fragmentCount={}",
                 queryId, writeState.catalogName(), fragments.size());
+        return true;
+    }
+
+    private void acknowledgeOrdinaryWrite(String queryId) {
+        var entry = writeCommitJournal.getEntry(queryId).orElseThrow(() ->
+                new IllegalStateException("COMMITTED write lost its declaration receipt"));
+        if (!entry.authorizationReceipt().declaration().hasGeneratedColumns()) {
+            writeCommitJournal.acknowledgeNoDeferredWork(entry.commitFingerprint());
+        }
+    }
+
+    private static WriteCommitEntry createWriteCommitIntent(
+            String queryId,
+            NativeWriteCommitTracker.WriteCommitState writeState,
+            List<byte[]> fragments,
+            ExecutionAnchor anchor) {
+        var outputHandle = writeState.outputHandle();
+        String tableName = outputHandle.targetTable()
+                .orElseThrow(() -> new IllegalStateException(
+                        "Distributed write handle lacks a recoverable target table"))
+                .toString();
+        String tenantId = writeState.session().getProperties().get("tenant_id");
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException(
+                    "Distributed write commit requires tenant_id in the connector session");
+        }
+        long baseSnapshotId = outputHandle.writeBaseSnapshotId().orElse(-1L);
+        byte[] writeOutputBinding = writeState.writeOutputBinding();
+        String fingerprint = WriteCommitFingerprint.compute(
+                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                        queryId,
+                        tenantId,
+                        writeState.catalogName(),
+                        tableName,
+                        outputHandle.writeMode(),
+                        baseSnapshotId,
+                        writeOutputBinding,
+                        writeState.session().getUser(),
+                        writeState.authorizationReceipt()),
+                fragments);
+        return new WriteCommitEntry(
+                queryId,
+                writeState.catalogName(),
+                tableName,
+                WriteCommitEntry.State.PENDING,
+                System.currentTimeMillis(),
+                fragments,
+                outputHandle.writeMode(),
+                fingerprint,
+                tenantId,
+                writeState.session().getUser(),
+                writeState.authorizationReceipt(),
+                baseSnapshotId,
+                writeOutputBinding,
+                fingerprint,
+                anchor != null ? anchor.ownerId() : null,
+                anchor != null ? anchor.ownerIncarnation() : null,
+                anchor != null ? anchor.fencingToken() : 0L,
+                null);
+    }
+
+    private static boolean isCurrentExecutionOwner(
+            String queryId,
+            WriteCommitFencer fencer,
+            ExecutionAnchor anchor,
+            String phase) {
+        if (fencer == null) {
+            return true;
+        }
+        if (anchor != null && fencer.isCurrent(queryId, anchor.fencingToken())) {
+            return true;
+        }
+        LOG.error("event=distributed_write_fenced queryId={} owner={} incarnation={} "
+                        + "fencingToken={} phase={} reason=stale_execution_owner",
+                queryId,
+                anchor != null ? anchor.ownerId() : "missing",
+                anchor != null ? anchor.ownerIncarnation() : "missing",
+                anchor != null ? anchor.fencingToken() : 0L,
+                phase);
+        return false;
+    }
+
+    /**
+     * An ambiguous catalog-commit failure must retain its durable PENDING intent for recovery.
+     * Only the JVM-only handle is released; purging the redo record here would turn a crash or
+     * timeout after catalog publication into silent data loss or duplicate publication.
+     */
+    private void cleanupWriteStateAfterCommitFailure(String queryId) {
+        if (writeCommitTracker != null) {
+            writeCommitTracker.clearWriteState(queryId);
+        }
     }
 
     /**
      * Cleans up write state when a query fails, preventing memory leaks.
-     * Also purges any pending journal entry for the query.
+     * Retains pending redo evidence because task failure cannot prove catalog abort.
      */
     private void cleanupWriteStateOnFailure(String queryId) {
         if (writeCommitTracker != null) {

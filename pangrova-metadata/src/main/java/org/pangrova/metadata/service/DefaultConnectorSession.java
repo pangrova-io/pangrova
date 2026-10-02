@@ -8,7 +8,7 @@ import java.util.Optional;
 
 /**
  * Converts engine MetadataSessionContext to connector-facing ConnectorSession.
- * Deliberately excludes tenantId, securityToken, queryId from propagation.
+ * Propagates the authoritative tenant, but never the security token or query ID.
  */
 public final class DefaultConnectorSession implements ConnectorSession {
 
@@ -25,8 +25,17 @@ public final class DefaultConnectorSession implements ConnectorSession {
     }
 
     public static ConnectorSession fromSessionContext(MetadataSessionContext ctx) {
+        return fromSessionContext(ctx, ctx.currentCatalog(), ctx.currentSchema());
+    }
+
+    /** Binds qualified metadata operations to their actual target scope. */
+    public static ConnectorSession fromSessionContext(MetadataSessionContext ctx, String catalog, String schema) {
         Map<String, String> props = buildProperties(ctx);
-        return new DefaultConnectorSession(ctx.user(), ctx.currentCatalog(), ctx.currentSchema(), props);
+        props.remove("catalog");
+        props.remove("schema");
+        if (catalog != null) props.put("catalog", catalog);
+        if (schema != null) props.put("schema", schema);
+        return new DefaultConnectorSession(ctx.user(), catalog, schema, props);
     }
 
     /**
@@ -62,6 +71,11 @@ public final class DefaultConnectorSession implements ConnectorSession {
 
     private static Map<String, String> buildProperties(MetadataSessionContext ctx) {
         Map<String, String> props = new HashMap<>(ctx.connectorProperties());
+        props.remove("tenant_id");
+        props.remove("pangrova.tenant_id");
+        if (ctx.tenantId() != null && !ctx.tenantId().isBlank()) {
+            props.put("tenant_id", ctx.tenantId());
+        }
         if (ctx.timezone() != null) {
             props.put("timezone", ctx.timezone());
         }

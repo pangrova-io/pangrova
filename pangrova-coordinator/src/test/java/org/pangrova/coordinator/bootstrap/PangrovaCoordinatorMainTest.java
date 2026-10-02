@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link PangrovaCoordinatorMain} config loading and CLI arg parsing.
@@ -40,7 +41,7 @@ class PangrovaCoordinatorMainTest {
     }
 
     @Test
-    void buildBootstrapConfig_defaultsEnableAllModulesExceptSecurity() {
+    void buildBootstrapConfig_defaultsDisableTenancyWithoutSecurity() {
         PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of());
         CoordinatorBootstrapConfig result = PangrovaCoordinatorMain.buildBootstrapConfig(config);
 
@@ -48,10 +49,37 @@ class PangrovaCoordinatorMainTest {
         assertThat(result.governanceEnabled()).isTrue();
         assertThat(result.resilienceEnabled()).isTrue();
         assertThat(result.streamingEnabled()).isTrue();
-        assertThat(result.tenantEnabled()).isTrue();
+        assertThat(result.tenantEnabled()).isFalse();
         assertThat(result.operationsEnabled()).isTrue();
         assertThat(result.observabilityEnabled()).isTrue();
         assertThat(result.securityEnabled()).isFalse();
+    }
+
+    @Test
+    void buildBootstrapConfig_rejectsTenancyWithoutAuthentication() {
+        PangrovaConfiguration noSecurity = PangrovaConfiguration.fromYaml(
+                Map.of("tenant.enabled", "true"));
+        assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(noSecurity))
+                .hasMessageContaining("requires security.enabled=true");
+
+        PangrovaConfiguration noOpSecurity = PangrovaConfiguration.fromYaml(Map.of(
+                "tenant.enabled", "true", "security.enabled", "true",
+                "security.auth.type", "NOOP"));
+        assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(noOpSecurity))
+                .hasMessageContaining("cannot use the NOOP authenticator");
+    }
+
+    @Test
+    void buildBootstrapConfig_allowsTenancyWithAuthenticatedSecurity() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
+                "tenant.enabled", "true", "security.enabled", "true",
+                "security.auth.type", "OAUTH2",
+                "security.auth.properties.issuer-uri", "http://127.0.0.1:9"));
+
+        CoordinatorBootstrapConfig result = PangrovaCoordinatorMain.buildBootstrapConfig(config);
+
+        assertThat(result.tenantEnabled()).isTrue();
+        assertThat(result.securityEnabled()).isTrue();
     }
 
     @Test
@@ -70,6 +98,7 @@ class PangrovaCoordinatorMainTest {
                 "coordinator.port", "9090",
                 "security.enabled", "true",
                 "security.auth.type", "OAUTH2",
+                "security.auth.properties.issuer-uri", "http://127.0.0.1:9",
                 "metadata.enabled", "false"
         ));
         CoordinatorBootstrapConfig result = PangrovaCoordinatorMain.buildBootstrapConfig(config);
@@ -88,6 +117,48 @@ class PangrovaCoordinatorMainTest {
         CoordinatorBootstrapConfig result = PangrovaCoordinatorMain.buildBootstrapConfig(config);
 
         assertThat(result.queryTimeoutSeconds()).isEqualTo(600);
+    }
+
+    @Test
+    void buildBootstrapConfigLoadsCompleteShuffleTlsMaterial() throws Exception {
+        Path certificate = Path.of(getClass()
+                .getResource("/tls/localhost-cert.pem").toURI());
+        Path privateKey = Path.of(getClass()
+                .getResource("/tls/localhost-key.pem").toURI());
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
+                "coordinator.transport.tls.enabled", "true",
+                "coordinator.transport.tls.certificate-chain-path",
+                certificate.toString(),
+                "coordinator.transport.tls.private-key-path", privateKey.toString(),
+                "coordinator.transport.tls.root-ca-path", certificate.toString(),
+                "coordinator.shuffle.tls.server-identity", "localhost"));
+
+        CoordinatorBootstrapConfig result =
+                PangrovaCoordinatorMain.buildBootstrapConfig(config);
+
+        assertThat(result.shuffleTlsConfig()).isNotNull();
+        assertThat(result.shuffleTlsConfig().serverIdentity()).isEqualTo("localhost");
+    }
+
+    @Test
+    void buildBootstrapConfigRejectsIncompleteShuffleTlsMaterial() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
+                "coordinator.transport.tls.enabled", "true",
+                "coordinator.transport.tls.root-ca-path", "/missing/ca.pem"));
+
+        assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(config))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("requires certificate");
+    }
+
+    @Test
+    void buildBootstrapConfigRejectsTlsMaterialWhenTlsIsDisabled() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
+                "coordinator.transport.tls.root-ca-path", "/secrets/ca.pem"));
+
+        assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(config))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("tls.enabled=true");
     }
 
     @Test

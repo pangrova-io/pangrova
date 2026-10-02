@@ -36,7 +36,7 @@ class ExplodeTest extends SqlE2ETestBase {
 
     @BeforeAll
     static void createTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.createTestTable(CATALOG, SCHEMA, TABLE,

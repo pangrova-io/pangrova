@@ -25,10 +25,27 @@ public record LeaseEntry(
         Objects.requireNonNull(holderId, "holderId must not be null");
         Objects.requireNonNull(acquiredAt, "acquiredAt must not be null");
         Objects.requireNonNull(expiresAt, "expiresAt must not be null");
+        if (leaseKey.isBlank() || holderId.isBlank()) {
+            throw new IllegalArgumentException("leaseKey and holderId must not be blank");
+        }
+        if (epoch <= 0) {
+            throw new IllegalArgumentException("epoch must be positive");
+        }
     }
 
     /** Whether this lease has expired based on current time. */
     public boolean isExpired() {
-        return Instant.now().isAfter(expiresAt);
+        return isExpired(Instant.now());
+    }
+
+    /**
+     * Determines whether this lease has expired at an explicit observation instant.
+     *
+     * @param observedAt instant at which the lease is observed
+     * @return true when the expiration instant has been reached or passed
+     */
+    public boolean isExpired(Instant observedAt) {
+        Objects.requireNonNull(observedAt, "observedAt must not be null");
+        return !observedAt.isBefore(expiresAt);
     }
 }

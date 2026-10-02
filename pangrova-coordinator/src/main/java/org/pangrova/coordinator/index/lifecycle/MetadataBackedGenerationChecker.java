@@ -2,7 +2,6 @@ package org.pangrova.coordinator.index.lifecycle;
 
 import org.pangrova.indexing.build.GenerationChecker;
 import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.spi.index.IndexDescriptor;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -21,9 +20,6 @@ public final class MetadataBackedGenerationChecker implements GenerationChecker 
 
     @Override
     public boolean isCurrentGeneration(String indexId, int expectedGeneration) {
-        return metadataStore.findIndex(indexId)
-                .map(IndexDescriptor::generation)
-                .map(current -> current == expectedGeneration)
-                .orElse(false);
+        return metadataStore.isIndexGenerationBuildable(indexId, expectedGeneration);
     }
 }

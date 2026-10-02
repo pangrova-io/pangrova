@@ -45,7 +45,8 @@ final class QueryAuditEventForwarder {
         if (auditEmitter == null) {
             return;
         }
-        auditEmitter.emitQueryCompleted(queryId, sm.getDurationMs());
+        auditEmitter.emitQueryCompleted(queryId, sm.getDurationMs(),
+                new QueryAuditEmitter.AuditSubject(sm.getAuditPrincipal(), sm.getTenantId()));
     }
 
     void emitAuditFailed(String queryId, QueryStateMachine sm, ErrorDetail error) {
@@ -53,7 +54,8 @@ final class QueryAuditEventForwarder {
             return;
         }
         String msg = error != null ? error.message() : "unknown";
-        auditEmitter.emitQueryFailed(queryId, msg, sm.getDurationMs());
+        auditEmitter.emitQueryFailed(queryId, msg, sm.getDurationMs(),
+                new QueryAuditEmitter.AuditSubject(sm.getAuditPrincipal(), sm.getTenantId()));
     }
 
     void emitTableAccessedAudit(String queryId, String catalog, String schema,

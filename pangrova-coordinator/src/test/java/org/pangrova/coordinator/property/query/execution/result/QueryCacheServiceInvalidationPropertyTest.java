@@ -48,8 +48,7 @@ class QueryCacheServiceInvalidationPropertyTest {
         QueryResultCache l1Cache = new QueryResultCache(l2Store);
         ResultCacheCoordinator coordinator = new ResultCacheCoordinator(
                 l1Cache, l2Store, null);
-        QueryCacheService service = new QueryCacheService(
-                coordinator, null, null);
+        QueryCacheService service = new QueryCacheService(coordinator);
 
         CacheKey key = CacheKey.of(
                 "SELECT * FROM " + tableName, "tenant1", principal,
@@ -80,8 +79,7 @@ class QueryCacheServiceInvalidationPropertyTest {
         QueryResultCache l1Cache = new QueryResultCache(l2Store);
         ResultCacheCoordinator coordinator = new ResultCacheCoordinator(
                 l1Cache, l2Store, null);
-        QueryCacheService service = new QueryCacheService(
-                coordinator, null, null);
+        QueryCacheService service = new QueryCacheService(coordinator);
 
         for (String table : tableNames) {
             CacheKey key = CacheKey.of(
@@ -119,8 +117,7 @@ class QueryCacheServiceInvalidationPropertyTest {
         QueryResultCache l1Cache = new QueryResultCache(l2Store);
         ResultCacheCoordinator coordinator = new ResultCacheCoordinator(
                 l1Cache, l2Store, null);
-        QueryCacheService service = new QueryCacheService(
-                coordinator, null, null);
+        QueryCacheService service = new QueryCacheService(coordinator);
 
         CacheKey targetKey = CacheKey.of(
                 "SELECT * FROM " + targetTable, "t1", "u1", Map.of(), null);
@@ -149,7 +146,7 @@ class QueryCacheServiceInvalidationPropertyTest {
     void nullCoordinatorIsNoOp(
             @ForAll("tableNames") String tableName) {
 
-        QueryCacheService service = new QueryCacheService(null, null, null);
+        QueryCacheService service = new QueryCacheService(null);
         service.invalidateByTable(tableName);
         service.invalidateAll();
     }
@@ -166,8 +163,7 @@ class QueryCacheServiceInvalidationPropertyTest {
         QueryResultCache l1Cache = new QueryResultCache(l2Store);
         ResultCacheCoordinator coordinator = new ResultCacheCoordinator(
                 l1Cache, l2Store, null);
-        QueryCacheService service = new QueryCacheService(
-                coordinator, null, null);
+        QueryCacheService service = new QueryCacheService(coordinator);
 
         CacheKey key = CacheKey.of(
                 "SELECT 1 FROM " + tableName, "t1", "u1", Map.of(), null);

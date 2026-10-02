@@ -83,13 +83,37 @@ endif()
 
 # 2) Velox mono library (libvelox.a)
 set(_VELOX_MONO_LIB "")
+# Sanitizer builds must link the matching instrumented Velox archive.  Using
+# the default Release archive can report false container overflows (and leaves
+# the dependency's own memory accesses invisible to the sanitizer).
+if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
+  if(NOT VELOX_BUILD_DIR
+      OR NOT EXISTS "${VELOX_BUILD_DIR}/lib/libvelox.a"
+      OR NOT EXISTS "${VELOX_BUILD_DIR}/CMakeCache.txt")
+    message(FATAL_ERROR
+      "ASan requires an instrumented Velox build in VELOX_BUILD_DIR")
+  endif()
+  file(STRINGS "${VELOX_BUILD_DIR}/CMakeCache.txt" _VELOX_CXX_FLAGS
+    REGEX "^CMAKE_CXX_FLAGS:.*=")
+  if(NOT _VELOX_CXX_FLAGS MATCHES "-fsanitize=address")
+    message(FATAL_ERROR
+      "ASan cannot link an uninstrumented Velox archive: ${VELOX_BUILD_DIR}")
+  endif()
+  set(_VELOX_MONO_LIB "${VELOX_BUILD_DIR}/lib/libvelox.a")
+  set(VELOX_MONO_STRIPPED FALSE)
+endif()
 # Prefer libvelox_core.a (stripped of optional modules with unavailable external deps)
 # over the full libvelox.a. The core version eliminates the need for
 # -undefined,dynamic_lookup since all referenced symbols are resolvable.
 set(_PANGROVA_DEPS_INSTALL "${CMAKE_CURRENT_SOURCE_DIR}/../deps-install")
-if(EXISTS "${_PANGROVA_DEPS_INSTALL}/lib/libvelox_core.a")
+if(NOT _VELOX_MONO_LIB AND EXISTS "${_PANGROVA_DEPS_INSTALL}/lib/libvelox_core.a")
   set(_VELOX_MONO_LIB "${_PANGROVA_DEPS_INSTALL}/lib/libvelox_core.a")
   set(VELOX_MONO_STRIPPED TRUE)
+endif()
+if(NOT _VELOX_MONO_LIB AND VELOX_BUILD_DIR
+    AND EXISTS "${VELOX_BUILD_DIR}/lib/libvelox.a")
+  set(_VELOX_MONO_LIB "${VELOX_BUILD_DIR}/lib/libvelox.a")
+  set(VELOX_MONO_STRIPPED FALSE)
 endif()
 if(NOT _VELOX_MONO_LIB)
   foreach(_prefix ${VELOX_INSTALL_PREFIX} ${VELOX_HOME})
@@ -105,6 +129,8 @@ if(NOT _VELOX_MONO_LIB)
   endforeach()
 endif()
 if(_VELOX_MONO_LIB)
+  include("${CMAKE_CURRENT_LIST_DIR}/PangrovaFunctionProvenance.cmake")
+  pangrova_verify_function_provenance("${VELOX_HOME}" "${VELOX_INCLUDE_DIR}" "${_VELOX_MONO_LIB}")
   message(STATUS "Velox mono lib: ${_VELOX_MONO_LIB} (stripped=${VELOX_MONO_STRIPPED})")
   set(VELOX_MONO_LIB "${_VELOX_MONO_LIB}" CACHE FILEPATH "" FORCE)
   set(VELOX_MONO_STRIPPED "${VELOX_MONO_STRIPPED}" CACHE BOOL "" FORCE)
@@ -254,8 +280,18 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/_deps")
     # libvelox.a references protobuf symbols but doesn't bundle them.
     # Link hermetic libprotobuf to resolve these symbols.
     if(PANGROVA_DEPS_PREFIX AND EXISTS "${PANGROVA_DEPS_PREFIX}/lib/libprotobuf.a")
-      target_link_libraries(velox_imported INTERFACE "${PANGROVA_DEPS_PREFIX}/lib/libprotobuf.a")
-      message(STATUS "Velox protobuf (hermetic): ${PANGROVA_DEPS_PREFIX}/lib/libprotobuf.a")
+      set(_VELOX_PROTOBUF_LIB "${PANGROVA_DEPS_PREFIX}/lib/libprotobuf.a")
+      if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
+        if(NOT PANGROVA_ASAN_PROTOBUF_LIB
+            OR NOT EXISTS "${PANGROVA_ASAN_PROTOBUF_LIB}")
+          message(FATAL_ERROR
+            "ASan requires an instrumented v25.3 libprotobuf.a in "
+            "PANGROVA_ASAN_PROTOBUF_LIB")
+        endif()
+        set(_VELOX_PROTOBUF_LIB "${PANGROVA_ASAN_PROTOBUF_LIB}")
+      endif()
+      target_link_libraries(velox_imported INTERFACE "${_VELOX_PROTOBUF_LIB}")
+      message(STATUS "Velox protobuf (hermetic): ${_VELOX_PROTOBUF_LIB}")
     endif()
     list(LENGTH _VENDORED_LIBS _N_VENDORED)
     message(STATUS "Velox vendored libs: ${_N_VENDORED} .a files from _deps/")
@@ -276,7 +312,12 @@ if(VELOX_INSTALL_PREFIX AND EXISTS "${VELOX_INSTALL_PREFIX}/lib")
 endif()
 
 # 6) glog + gflags (prefer shared to avoid dual-registration of gflags globals)
-if(_DEPS_INSTALL)
+if(_DEPS_INSTALL AND PANGROVA_PRODUCTION_BUILD)
+  find_library(_PRODUCTION_GFLAGS NAMES gflags PATHS "${_DEPS_INSTALL}/lib" REQUIRED)
+  target_link_libraries(velox_imported INTERFACE "${_PRODUCTION_GFLAGS}")
+endif()
+
+if(_DEPS_INSTALL AND NOT PANGROVA_PRODUCTION_BUILD)
   foreach(_glog_candidate
     "${_DEPS_INSTALL}/lib/libglog.dylib"
     "${_DEPS_INSTALL}/lib/libglog.so"

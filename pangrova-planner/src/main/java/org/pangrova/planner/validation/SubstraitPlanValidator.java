@@ -5,6 +5,7 @@ import io.substrait.expression.FieldReference;
 import io.substrait.plan.Plan;
 import io.substrait.relation.Aggregate;
 import io.substrait.relation.Filter;
+import io.substrait.relation.ExtensionLeaf;
 import io.substrait.relation.Join;
 import io.substrait.relation.Project;
 import io.substrait.relation.Rel;
@@ -15,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
 
 /**
  * Validates a Substrait {@link Plan} against the native engine's capability
@@ -44,6 +46,10 @@ public final class SubstraitPlanValidator {
             Map.entry("Sort", "SortRel"),
             Map.entry("Fetch", "FetchRel"),
             Map.entry("Set", "SetRel"),
+            Map.entry("ScatterExchange", "ExchangeRel"),
+            Map.entry("BroadcastExchange", "ExchangeRel"),
+            Map.entry("RoundRobinExchange", "ExchangeRel"),
+            Map.entry("ExtensionLeaf", "ExtensionLeafRel"),
             Map.entry("Cross", "JoinRel"),
             Map.entry("ExtensionMulti", "JoinRel")
     );
@@ -84,11 +90,16 @@ public final class SubstraitPlanValidator {
         String className = stripImmutablePrefix(rel.getClass().getSimpleName());
 
         String registryName = REL_TYPE_NAMES.get(className);
-        if (registryName == null || !registry.isRelSupported(registryName)) {
+        boolean unsupportedDetail = rel instanceof ExtensionLeaf leaf
+                && !(leaf.getDetail() instanceof ExchangeInputLeafDetail);
+        if (registryName == null || !registry.isRelSupported(registryName)
+                || unsupportedDetail) {
             unsupported.add(new UnsupportedNode(
                     registryName != null ? registryName : className,
-                    "Rel type not supported by native engine",
-                    depth));
+                    unsupportedDetail
+                            ? "Extension leaf detail not supported by native engine"
+                            : "Rel type not supported by native engine",
+                    depth, UnsupportedNode.Kind.RELATION));
         }
 
         // Validate expressions embedded in this Rel.
@@ -116,7 +127,7 @@ public final class SubstraitPlanValidator {
             unsupported.add(new UnsupportedNode(
                     registryName != null ? registryName : className,
                     "Expression type not supported by native engine",
-                    depth));
+                    depth, UnsupportedNode.Kind.EXPRESSION));
         }
 
         // Function-level validation: check if the specific function is supported.
@@ -141,7 +152,7 @@ public final class SubstraitPlanValidator {
             unsupported.add(new UnsupportedNode(
                     functionName,
                     "Function not supported by native engine",
-                    depth));
+                    depth, UnsupportedNode.Kind.FUNCTION));
         }
     }
 
@@ -291,7 +302,7 @@ public final class SubstraitPlanValidator {
         }
         // Count how many Rel nodes (not expressions) are unsupported.
         long unsupportedRelCount = unsupported.stream()
-                .filter(n -> n.reason().contains("Rel type"))
+                .filter(n -> n.kind() == UnsupportedNode.Kind.RELATION)
                 .count();
         if (totalRelCount > 0 && unsupportedRelCount >= totalRelCount) {
             return new PlanValidationResult(ValidationStatus.JAVA_ONLY, unsupported);

@@ -14,6 +14,15 @@ import org.pangrova.protocol.rest.task.SubmitTaskRequest;
  */
 public interface TaskDispatcher {
 
+    /**
+     * Binds coordinator-owned control identity before a request is registered
+     * and sent. Implementations that do not add transport identity return the
+     * immutable request unchanged.
+     */
+    default SubmitTaskRequest bindControlIdentity(SubmitTaskRequest request) {
+        return request;
+    }
+
     DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker);
 
     /**

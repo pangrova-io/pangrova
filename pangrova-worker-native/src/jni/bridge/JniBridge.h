@@ -125,7 +125,7 @@ JNIEXPORT void JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeCancelTask0(
     JNIEnv* env, jclass clazz, jlong executorHandle);
 
-JNIEXPORT void JNICALL
+JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeReleaseExecutor0(
     JNIEnv* env, jclass clazz, jlong executorHandle);
 
@@ -184,21 +184,11 @@ JNIEXPORT void JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeRegisterEgress0(
     JNIEnv* env, jclass clazz, jobject egress);
 
-// ---------------------------------------------------------------------------
-// DiskANN JNI entry points (DiskAnnEngine.java)
-// ---------------------------------------------------------------------------
-
-JNIEXPORT jbyteArray JNICALL
-Java_org_pangrova_worker_ai_vector_DiskAnnEngine_nativeBuildIndex(
-    JNIEnv* env, jclass clazz,
-    jobjectArray vectors, jint dimension, jstring metric,
-    jint maxDegree, jint buildListSize, jint pqSubvectors,
-    jstring outputDirectory);
-
-JNIEXPORT jbyteArray JNICALL
-Java_org_pangrova_worker_ai_vector_DiskAnnEngine_nativeSearch(
-    JNIEnv* env, jclass clazz,
-    jstring indexPath, jfloatArray queryVector, jint topK, jint searchListSize);
+// JVM-backed scalar functions: install the callback target and register all
+// serialized signatures before the worker accepts tasks.
+JNIEXPORT void JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeRegisterFunctions0(
+    JNIEnv* env, jclass clazz, jobject callback, jobjectArray descriptors);
 
 // ---------------------------------------------------------------------------
 // BM25 Native Scorer JNI entry points (Bm25NativeScorer.java)

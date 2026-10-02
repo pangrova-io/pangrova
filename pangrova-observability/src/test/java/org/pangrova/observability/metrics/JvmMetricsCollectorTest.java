@@ -10,6 +10,8 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,6 +23,38 @@ import static org.assertj.core.api.Assertions.assertThat;
  * registered as gauges via the Metrics SPI.
  */
 class JvmMetricsCollectorTest {
+
+    @Test
+    void platformBeansAreRetainedAsLiveManagementHandles() throws Exception {
+        MemoryMXBean memory = ManagementFactory.getMemoryMXBean();
+        ThreadMXBean threads = ManagementFactory.getThreadMXBean();
+        var collector = new JvmMetricsCollector(new NoOpMetricsProvider(), memory, threads,
+                ManagementFactory.getGarbageCollectorMXBeans());
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        Thread observed = new Thread(() -> {
+            entered.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        }, "jvm-metrics-live-handle-test");
+        try {
+            observed.start();
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(threads.getThreadInfo(observed.getId())).isNotNull();
+            long publicPeak = threads.getPeakThreadCount();
+            assertThat(collector.getPeakThreadCount()).isGreaterThanOrEqualTo((double) publicPeak);
+            long maximum = memory.getHeapMemoryUsage().getMax();
+            assertThat(collector.getHeapMax()).isEqualTo(maximum < 0 ? 0.0 : (double) maximum);
+        } finally {
+            release.countDown();
+            observed.join(5_000);
+            assertThat(observed.isAlive()).isFalse();
+        }
+    }
 
     @Test
     void heapUsedReturnsPositiveValue() {

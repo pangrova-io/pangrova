@@ -1,7 +1,8 @@
 package org.pangrova.worker.task;
 
 import org.pangrova.protocol.rest.task.OperatorStats;
-import org.pangrova.protocol.v1.TaskStats;
+import org.pangrova.protocol.rest.task.TaskStats;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,6 +15,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NativeOperatorStatsCollectorTest {
 
     @Test
+    void decodeTaskStats_preservesSemanticCacheUsage() {
+        byte[] rawStats = NativeTaskStats.newBuilder()
+                .setRowsRead(7)
+                .setCacheHitBytes(512)
+                .setCacheMissBytes(1024)
+                .setCacheHitCount(3)
+                .setCacheMissCount(2)
+                .setCacheEvictionCount(1)
+                .setCacheAdmissionRejectionCount(4)
+                .build()
+                .toByteArray();
+
+        TaskStats result = NativeOperatorStatsCollector.decodeTaskStats(rawStats);
+
+        assertThat(result.rowsRead()).isEqualTo(7);
+        assertThat(result.cacheHitBytes()).isEqualTo(512);
+        assertThat(result.cacheMissBytes()).isEqualTo(1024);
+        assertThat(result.cacheHitCount()).isEqualTo(3);
+        assertThat(result.cacheMissCount()).isEqualTo(2);
+        assertThat(result.cacheEvictionCount()).isEqualTo(1);
+        assertThat(result.cacheAdmissionRejectionCount()).isEqualTo(4);
+    }
+
+    @Test
     void decodeOperatorStats_emptyBytes_returnsEmptyList() {
         assertThat(NativeOperatorStatsCollector.decodeOperatorStats(null)).isEmpty();
         assertThat(NativeOperatorStatsCollector.decodeOperatorStats(new byte[0])).isEmpty();
@@ -22,7 +47,7 @@ class NativeOperatorStatsCollectorTest {
     @Test
     void decodeOperatorStats_noOperators_returnsEmptyList() {
         // TaskStats with only aggregate fields, no operator_stats
-        byte[] rawStats = TaskStats.newBuilder()
+        byte[] rawStats = NativeTaskStats.newBuilder()
                 .setRowsRead(100)
                 .setBytesRead(1024)
                 .build()
@@ -34,8 +59,8 @@ class NativeOperatorStatsCollectorTest {
 
     @Test
     void decodeOperatorStats_singleOperator_decodesAllFields() {
-        org.pangrova.protocol.v1.OperatorStats protoOp =
-                org.pangrova.protocol.v1.OperatorStats.newBuilder()
+        org.pangrova.protocol.v2.OperatorStats protoOp =
+                org.pangrova.protocol.v2.OperatorStats.newBuilder()
                         .setOperatorType("TableScan")
                         .setInputRows(1000)
                         .setOutputRows(950)
@@ -49,7 +74,7 @@ class NativeOperatorStatsCollectorTest {
                         .setSpillBytes(0)
                         .build();
 
-        byte[] rawStats = TaskStats.newBuilder()
+        byte[] rawStats = NativeTaskStats.newBuilder()
                 .setRowsRead(1000)
                 .addOperatorStats(protoOp)
                 .build()
@@ -74,24 +99,24 @@ class NativeOperatorStatsCollectorTest {
 
     @Test
     void decodeOperatorStats_multipleOperators_decodesAll() {
-        org.pangrova.protocol.v1.OperatorStats scan =
-                org.pangrova.protocol.v1.OperatorStats.newBuilder()
+        org.pangrova.protocol.v2.OperatorStats scan =
+                org.pangrova.protocol.v2.OperatorStats.newBuilder()
                         .setOperatorType("TableScan")
                         .setInputRows(10_000)
                         .setOutputRows(10_000)
                         .setPlanNodeId("0")
                         .build();
 
-        org.pangrova.protocol.v1.OperatorStats filter =
-                org.pangrova.protocol.v1.OperatorStats.newBuilder()
+        org.pangrova.protocol.v2.OperatorStats filter =
+                org.pangrova.protocol.v2.OperatorStats.newBuilder()
                         .setOperatorType("FilterProject")
                         .setInputRows(10_000)
                         .setOutputRows(5_000)
                         .setPlanNodeId("1")
                         .build();
 
-        org.pangrova.protocol.v1.OperatorStats agg =
-                org.pangrova.protocol.v1.OperatorStats.newBuilder()
+        org.pangrova.protocol.v2.OperatorStats agg =
+                org.pangrova.protocol.v2.OperatorStats.newBuilder()
                         .setOperatorType("HashAggregation")
                         .setInputRows(5_000)
                         .setOutputRows(100)
@@ -100,7 +125,7 @@ class NativeOperatorStatsCollectorTest {
                         .setSpillBytes(10_000_000L)
                         .build();
 
-        byte[] rawStats = TaskStats.newBuilder()
+        byte[] rawStats = NativeTaskStats.newBuilder()
                 .addOperatorStats(scan)
                 .addOperatorStats(filter)
                 .addOperatorStats(agg)
@@ -130,12 +155,12 @@ class NativeOperatorStatsCollectorTest {
 
     @Test
     void decodeOperatorStats_returnsImmutableList() {
-        org.pangrova.protocol.v1.OperatorStats protoOp =
-                org.pangrova.protocol.v1.OperatorStats.newBuilder()
+        org.pangrova.protocol.v2.OperatorStats protoOp =
+                org.pangrova.protocol.v2.OperatorStats.newBuilder()
                         .setOperatorType("Project")
                         .build();
 
-        byte[] rawStats = TaskStats.newBuilder()
+        byte[] rawStats = NativeTaskStats.newBuilder()
                 .addOperatorStats(protoOp)
                 .build()
                 .toByteArray();

@@ -65,13 +65,13 @@ class StateEnumUniquenessPropertyTest {
      */
     private static final Set<String> KNOWN_INTERNAL_STATE_ENUMS = Set.of(
             "pangrova-coordinator:QueryStateMachine.State",
+            "pangrova-coordinator:ConnectorPageSinkCdcWriter.PublicationState",
             "pangrova-coordinator:TaskStateMachine.State",
             "pangrova-coordinator:StageStateMachine.State",
             "pangrova-coordinator:HealthState",
-            "pangrova-coordinator:BackfillCoordinator.BackfillState",
-            "pangrova-coordinator:MergeWriteAheadLog.PhaseState",
             "pangrova-worker:TaskManager.TaskState",
             "pangrova-worker:ExchangeClient.State",
+            "pangrova-worker:RemoteShuffleProducerStream.State",
             "pangrova-operations:DdlJob.DdlJobState",
             "pangrova-metadata:CatalogState",
             "pangrova-streaming:CdcStreamState",
@@ -90,7 +90,6 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-security:AuthenticatorHealthStatus",
             "pangrova-worker:TaskCancelResult.Status",
             "pangrova-spi:BatchResult.Status",
-            "pangrova-worker:ShuffleBatchResult.Status",
             "pangrova-metadata:StreamLifecycleState",
             "pangrova-spi:ClusteringState",
             "pangrova-spi:IndexState",
@@ -104,10 +103,12 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-operations:JfrState",  // JFR profiling lifecycle
             "pangrova-spi:TransportStatus",  // gRPC transport status
             "pangrova-spi:QueryState",  // SPI query lifecycle
-            "pangrova-coordinator:EmbeddingWorkStore.WorkItemStatus",  // AI embedding work item lifecycle
             "pangrova-coordinator:SettableDynamicFilter.State",  // adaptive dynamic filter state
             "pangrova-indexing:IndexFileReadResult.Status",  // index file read result status
-            "pangrova-spi:WriteCommitEntry.State"  // distributed write commit lifecycle
+            "pangrova-spi:WriteCommitEntry.State",  // distributed write commit lifecycle
+            "pangrova-metadata:SemanticViewValidationState",
+            "pangrova-metadata:EvaluationRunState",
+            "pangrova-metadata:ArtifactBuildJobState"
     );
 
     private static final Pattern ENUM_STATE_PATTERN =
@@ -142,7 +143,7 @@ class StateEnumUniquenessPropertyTest {
      * Any new state enum must be registered in the known inventory to prevent
      * untracked fragmentation.
      */
-    @Property(tries = 10)
+    @Property(tries = 200)
     @Tag("Feature: fragmentation-audit, Property 32: State enum authoritative uniqueness")
     void allStateEnumsAreInKnownInventory(@ForAll("stateEnumEntries") StateEnumEntry entry) {
         String key = entry.module + ":" + entry.qualifiedEnumName;

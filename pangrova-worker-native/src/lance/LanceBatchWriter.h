@@ -2,27 +2,20 @@
 //
 // Accepts Velox RowVector batches, exports them to Arrow C Data Interface
 // structs, and writes to Lance format via the Lance C FFI static library.
-// Produces .lance files compatible with the table schema and partition spec.
+// Produces task-attempt-private uncommitted Lance fragments. finish() never
+// publishes a dataset version; the connector owns the one atomic aggregate
+// commit and recovery decision.
 //
-// Used by two paths:
-//   - C++ hot path (INSERT SELECT, UPDATE, DELETE WHERE): called directly
-//     by Velox write operators.
-//   - Java cold path (INSERT VALUES): called via NativeBridge JNI from Java.
-//
-// Thread model: single-threaded. One writer per partition output file.
+// Thread model: single-threaded. One writer per isolated dataset URI.
 // The caller must not invoke methods concurrently.
 //
-// Lifecycle: open → writeBatch (0..N) → finish → destructor.
-// If finish() is not called before destruction, buffered data is discarded.
-//
-// Compile guard: only available when PANGROVA_LANCE_AVAILABLE=1 (Lance C FFI
-// linked into libpangrova_native). Callers must check the macro before use.
+// Lifecycle: open → writeBatch (0..N) → finish(metadata) → explicit close.
+// Failed cleanup retains the writer for task-owned retry and observation.
 //
 // Placement: lance/ — Lance file format integration layer.
 #pragma once
 
-#if PANGROVA_LANCE_AVAILABLE
-
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -44,13 +37,33 @@ struct LanceWriteStats {
   int32_t batchesWritten = 0;
 };
 
+enum class LanceWriteOperation : int32_t {
+  kCreate = 1,
+  kAppend = 2,
+  kOverwrite = 3,
+};
+
 // Configuration for LanceBatchWriter construction.
 struct LanceWriterConfig {
-  // Output path for the .lance file (local path or object store URI).
+  // Output URI for the Lance dataset (local path or object store URI).
   std::string outputPath;
 
-  // Whether to append to an existing dataset (true) or create new (false).
-  bool append = false;
+  LanceWriteOperation operation = LanceWriteOperation::kCreate;
+
+  // Exact Lance snapshot used to create the transaction. CREATE requires 0;
+  // APPEND and OVERWRITE require a non-zero version.
+  uint64_t expectedReadVersion = 0;
+
+  // Connector-owned schema fence and idempotency identity. The worker echoes
+  // these into typed commit metadata; the connector validates them again.
+  std::array<uint8_t, 32> schemaFenceSha256{};
+  std::string writeId;
+  std::string tenantId;
+  std::string generation;
+  std::string transactionStagingPrefix;
+  // Deterministically serialized canonical v2 TaskAttemptId.
+  std::vector<uint8_t> taskAttempt;
+  std::string storageBinding;
 };
 
 // Writes Velox RowVector batches to Lance file format via Lance C FFI.
@@ -67,7 +80,7 @@ class LanceBatchWriter {
   // @param outputType Schema of the data to be written.
   // @param config     Writer configuration (output path, append mode).
   LanceBatchWriter(
-      facebook::velox::memory::MemoryPool* pool,
+      std::shared_ptr<facebook::velox::memory::MemoryPool> pool,
       const facebook::velox::RowTypePtr& outputType,
       const LanceWriterConfig& config);
 
@@ -90,13 +103,21 @@ class LanceBatchWriter {
   // @throws std::runtime_error on write failure.
   void writeBatch(const facebook::velox::RowVectorPtr& batch);
 
-  // Flushes all buffered data and finalizes the .lance file on storage.
+  // Flushes buffered data files and returns typed uncommitted metadata.
   //
-  // Must be called exactly once before destruction to produce a valid
-  // .lance file. Calling writeBatch() after finish() is undefined behavior.
+  // This never publishes a live manifest. Connector-owned commit must collect
+  // the returned fragment and call the aggregate commit API exactly once.
   //
   // @throws std::runtime_error on flush/finalize failure.
-  void finish();
+  std::vector<uint8_t> finish();
+
+  // Stops new input and explicitly joins SDK work before releasing the handle.
+  // Errors retain the full owner and must be reflected in the task outcome.
+  void close();
+  // Releases verified local owners after an already-observed operation error.
+  // Does not delete or authorize deletion of Dataset objects or sidecars.
+  void releaseDrained();
+  bool isDrainedAndCleaned() const { return encoders_joined_ && private_stage_cleaned_; }
 
   // Returns cumulative write statistics.
   const LanceWriteStats& stats() const { return stats_; }
@@ -108,7 +129,7 @@ class LanceBatchWriter {
   // Exports the output type to an ArrowSchema for writer initialization.
   void exportSchemaToArrow();
 
-  facebook::velox::memory::MemoryPool* pool_;
+  std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
   facebook::velox::RowTypePtr output_type_;
   LanceWriterConfig config_;
   LanceWriteStats stats_;
@@ -119,8 +140,8 @@ class LanceBatchWriter {
 
   // Whether finish() has been called successfully.
   bool finished_ = false;
+  bool encoders_joined_ = false;
+  bool private_stage_cleaned_ = false;
 };
 
 }  // namespace pangrova::lance
-
-#endif  // PANGROVA_LANCE_AVAILABLE

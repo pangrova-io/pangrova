@@ -1,5 +1,5 @@
 // TaskOutputRouter: Queue management and batch routing extracted from
-// TaskExecutor. Owns OutputQueue, SerializedShuffleQueue, and ExchangeBuffer.
+// TaskExecutor. Owns OutputQueue and SerializedShuffleQueue.
 // Routes output batches to the correct destination.
 #include "executor/driver/TaskOutputRouter.h"
 
@@ -11,22 +11,22 @@ TaskOutputRouter::TaskOutputRouter(
     int32_t num_shuffle_partitions,
     size_t output_queue_capacity,
     size_t shuffle_queue_capacity,
+    size_t shuffle_buffer_bytes,
     std::chrono::milliseconds queue_poll_timeout)
     : num_shuffle_partitions_(num_shuffle_partitions),
       queue_poll_timeout_(queue_poll_timeout) {
   output_queue_ = std::make_unique<OutputQueue>(output_queue_capacity);
-  exchange_buffer_ = std::make_unique<ExchangeBuffer>(output_queue_capacity);
   if (num_shuffle_partitions > 0) {
     serialized_shuffle_queue_ =
         std::make_unique<pangrova::shuffle::SerializedShuffleQueue>(
-            shuffle_queue_capacity);
+            shuffle_queue_capacity, shuffle_buffer_bytes);
   }
 }
 
 bool TaskOutputRouter::routeOutputBatch(
     facebook::velox::RowVectorPtr row_vector) {
-  // Shuffle partitioning is handled by Velox PartitionedOutputNode internally.
-  // All output RowVectors go directly to the output queue.
+  // Producer ExchangeRel output is partitioned by VeloxTaskRunner's callback
+  // into SerializedShuffleQueue. This method handles result-task rows only.
   return output_queue_->push(std::move(row_vector), queue_poll_timeout_);
 }
 
@@ -35,30 +35,6 @@ bool TaskOutputRouter::getNextBatch(
     std::chrono::milliseconds timeout) {
   if (!output_queue_) return false;
   return output_queue_->pop(row_vector, timeout) == PopResult::DATA;
-}
-
-bool TaskOutputRouter::getSerializedShuffleBatch(
-    pangrova::shuffle::ShuffleBatch& batch,
-    std::chrono::milliseconds timeout) {
-  if (!serialized_shuffle_queue_) return false;
-  return serialized_shuffle_queue_->pop(batch, timeout) == PopResult::DATA;
-}
-
-bool TaskOutputRouter::addExchangeBatch(
-    const std::string& source_id,
-    facebook::velox::RowVectorPtr row_vector) {
-  if (exchange_buffer_) {
-    return exchange_buffer_->addBatch(source_id, std::move(row_vector));
-  }
-  return false;
-}
-
-void TaskOutputRouter::noMoreExchangeData(const std::string& source_id) {
-  if (exchange_buffer_) exchange_buffer_->markSourceComplete(source_id);
-}
-
-void TaskOutputRouter::noMoreExchangeSources() {
-  if (exchange_buffer_) exchange_buffer_->markNoMoreSources();
 }
 
 OutputQueue* TaskOutputRouter::outputQueue() {
@@ -70,19 +46,19 @@ TaskOutputRouter::serializedShuffleQueue() {
   return serialized_shuffle_queue_.get();
 }
 
-ExchangeBuffer* TaskOutputRouter::exchangeBuffer() {
-  return exchange_buffer_.get();
-}
-
 void TaskOutputRouter::closeAll() {
   if (output_queue_) output_queue_->close();
-  if (serialized_shuffle_queue_) serialized_shuffle_queue_->close();
-  if (exchange_buffer_) exchange_buffer_->close();
+  if (serialized_shuffle_queue_) serialized_shuffle_queue_->abort();
+}
+
+bool TaskOutputRouter::abortShuffle() {
+  return !serialized_shuffle_queue_ || serialized_shuffle_queue_->abort();
 }
 
 void TaskOutputRouter::drainOutputQueue() {
-  // F-NATIVE-EXEC-05: Drain output + shuffle queues so RowVector memory
-  // pools are released while still alive. close() must be called first.
+  // Both RowVectors and serialized IOBufs can own Velox StreamArena memory.
+  // JNI/Java must quiesce Flight's borrowed source before reaching this point;
+  // then drain while the runner and its pools are still alive.
   if (output_queue_) {
     output_queue_->close();
     facebook::velox::RowVectorPtr discard;
@@ -90,7 +66,7 @@ void TaskOutputRouter::drainOutputQueue() {
            PopResult::DATA) {}
   }
   if (serialized_shuffle_queue_) {
-    serialized_shuffle_queue_->close();
+    serialized_shuffle_queue_->abort();
     pangrova::shuffle::ShuffleBatch discard;
     while (serialized_shuffle_queue_->pop(discard, std::chrono::milliseconds(0)) ==
            PopResult::DATA) {}

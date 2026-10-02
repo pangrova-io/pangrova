@@ -1,11 +1,11 @@
 package org.pangrova.testing.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
 import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,8 +14,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,7 +34,7 @@ class LeaderElectionFailoverE2ETest extends SqlE2ETestBase {
     private static final long LEASE_MS = 5000;
 
     private DataSource leaderDs;
-    private LeaseBackedLeaderElection backend;
+    private FencedLeaderElectionTestDriver backend;
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -48,10 +46,10 @@ class LeaderElectionFailoverE2ETest extends SqlE2ETestBase {
     void initLeaderElection() throws Exception {
         leaderDs = MetadataSchemaInitializer.createDataSource(
                 mysqlJdbcUrl(), mysqlUsername(), mysqlPassword());
-        createDistributedLeaseTable(leaderDs);
-        truncateDistributedLeaseTable(leaderDs);
-        DistributedLease lease = new JdbcDistributedLease(leaderDs);
-        backend = new LeaseBackedLeaderElection(lease);
+        MetadataSchemaInitializer.createSchema(leaderDs);
+        DistributedLease lease = new TestLeaseNamespace().jdbc(leaderDs);
+        backend = new FencedLeaderElectionTestDriver(
+                new LeaseBackedLeaderElection(lease));
     }
 
     @AfterEach
@@ -206,25 +204,4 @@ class LeaderElectionFailoverE2ETest extends SqlE2ETestBase {
     // Schema setup helpers
     // -----------------------------------------------------------------------
 
-    private static void createDistributedLeaseTable(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS distributed_lease (
-                        lease_key   VARCHAR(255) PRIMARY KEY,
-                        holder_id   VARCHAR(255) NOT NULL,
-                        epoch       BIGINT       NOT NULL DEFAULT 0,
-                        acquired_at TIMESTAMP(3) NOT NULL,
-                        expires_at  TIMESTAMP(3) NOT NULL,
-                        version     BIGINT       NOT NULL DEFAULT 0
-                    )""");
-        }
-    }
-
-    private static void truncateDistributedLeaseTable(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DELETE FROM distributed_lease");
-        }
-    }
 }

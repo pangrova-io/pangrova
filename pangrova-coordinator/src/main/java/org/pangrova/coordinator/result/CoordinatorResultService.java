@@ -2,7 +2,6 @@ package org.pangrova.coordinator.result;
 
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.spi.connector.data.page.NativePage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,36 +9,22 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Facade for coordinator-local result dispatch.
+ * Facade for small coordinator control-plane statement responses.
  *
- * <p>Supports three result paths (all columnar, no row-based fallback):</p>
- * <ul>
- *   <li>Pre-serialized columnar IPC bytes → buffer</li>
- *   <li>DDL/DML TypedRow: columnar fill → IPC → buffer</li>
- *   <li>NativePage passthrough → buffer (deferred IPC access)</li>
- * </ul>
- *
- * <p>Encapsulates buffer + writer + transport endpoint, eliminating
- * duplicated state-transition + buffer-write + DispatchResult construction.</p>
+ * <p>This service is deliberately not part of relational query execution.
+ * SELECT, constant, LIMIT 0, cache and system-table query results must be
+ * produced by a Worker/Native task and served from its direct endpoint.</p>
  */
 public final class CoordinatorResultService {
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorResultService.class);
 
     /**
-     * Callback to transition query state to FINISHED.
-     * Breaks the cyclic dependency between result and query packages.
-     */
-    @FunctionalInterface
-    public interface QueryFinisher {
-        void transitionToFinished();
-    }
-
-    /**
-     * Lightweight result descriptor produced by local dispatch.
+     * Lightweight result descriptor produced by bounded control-plane dispatch.
      * Mirrors DispatchResult semantics without depending on the query.execution.dispatch package.
      */
-    public record LocalDispatchResult(String workerHost, String taskId, ResultEndpoint resultEndpoint) {}
+    public record ControlPlaneDispatchResult(
+            String workerHost, String taskId, ResultEndpoint resultEndpoint) {}
 
     private final CoordinatorResultBuffer buffer;
     private final CoordinatorResultWriter writer;
@@ -54,56 +39,30 @@ public final class CoordinatorResultService {
     }
 
     /**
-     * Buffers pre-serialized columnar IPC bytes and transitions the query to FINISHED.
-     *
-     * @return LocalDispatchResult pointing to the coordinator-local transport endpoint
+     * Serializes a bounded DDL/SHOW/DML acknowledgement response and transitions
+     * the control-plane statement to FINISHED.
      */
-    public LocalDispatchResult dispatchLocal(String queryId, byte[] resultBytes, QueryFinisher finisher) {
+    public ControlPlaneDispatchResult dispatchControlPlaneRows(
+            String queryId, List<TypedRow> rows, List<String> columnNames,
+            Runnable finisher) {
         Objects.requireNonNull(queryId, "queryId");
-        Objects.requireNonNull(resultBytes, "resultBytes");
+        Objects.requireNonNull(rows, "rows");
+        Objects.requireNonNull(columnNames, "columnNames");
         Objects.requireNonNull(finisher, "finisher");
+        byte[] resultBytes = writer.serializeTypedRows(rows, columnNames);
         buffer.put(queryId, resultBytes);
-        finisher.transitionToFinished();
-        LOG.debug("event=local_dispatch_complete queryId={} bytes={}", queryId, resultBytes.length);
+        finisher.run();
+        LOG.debug("event=control_plane_result_complete queryId={} bytes={}",
+                queryId, resultBytes.length);
         return buildResult(queryId);
     }
 
-    /**
-     * Buffers an ArrowPage directly, deferring IPC serialization to retrieval time.
-     */
-    public LocalDispatchResult dispatchLocalFromNativePage(String queryId, NativePage nativePage,
-                                                           QueryFinisher finisher) {
-        Objects.requireNonNull(nativePage, "nativePage");
-        buffer.putArrowPage(queryId, nativePage);
-        finisher.transitionToFinished();
-        LOG.debug("event=local_arrow_page_dispatch queryId={} rows={}", queryId, nativePage.getRowCount());
-        return buildResult(queryId);
-    }
-
-
-    /**
-     * Converts TypedRow list to columnar IPC via columnar fill, buffers, and dispatches.
-     */
-    public LocalDispatchResult dispatchLocalFromTypedRows(String queryId,
-                                                          List<TypedRow> rows,
-                                                          List<String> columnNames,
-                                                          QueryFinisher finisher) {
-        return dispatchLocal(queryId, writer.serializeTypedRows(rows, columnNames), finisher);
-    }
-
-    /**
-     * Retrieves buffered result bytes for a query, or null if not available.
-     */
-    public byte[] getResultBytes(String queryId) {
-        return buffer.get(queryId);
-    }
-
-    private LocalDispatchResult buildResult(String queryId) {
+    private ControlPlaneDispatchResult buildResult(String queryId) {
         ResultEndpoint endpoint = new ResultEndpoint(
                 transportEndpoint.host(),
                 transportEndpoint.port(),
                 queryId,
                 transportEndpoint.protocol());
-        return new LocalDispatchResult("coordinator-local", queryId, endpoint);
+        return new ControlPlaneDispatchResult("coordinator-control", queryId, endpoint);
     }
 }

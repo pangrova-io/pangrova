@@ -26,16 +26,6 @@ package org.pangrova.worker.jni.write;
 public interface NativeWriter {
 
     /**
-     * Returns the bridge protocol version. The native side checks
-     * compatibility before issuing any write operations.
-     *
-     * @return protocol version number (currently 2 — columnar IPC write path)
-     */
-    default int protocolVersion() {
-        return 2;
-    }
-
-    /**
      * Begins a write transaction against the specified target table.
      *
      * @param descriptor write target metadata (table FQN, write mode,
@@ -45,43 +35,21 @@ public interface NativeWriter {
     long beginWrite(WriteDescriptor descriptor);
 
     /**
-     * Appends a pre-serialized columnar IPC batch to the write session.
-     *
-     * <p>The native side serializes the batch to columnar IPC stream format
-     * in C++ and passes the raw bytes here. This is the primary write path,
-     * consistent with the read path which also uses columnar IPC.
-     *
-     * @param writeHandle handle returned by {@link #beginWrite}
-     * @param data        serialized columnar IPC stream format bytes
-     * @param rowCount    number of rows in the batch
-     * @param columnCount number of columns in the batch
-     */
-    void appendSerializedBatch(long writeHandle, byte[] data, int rowCount, int columnCount);
-
-    /**
-     * Zero-copy variant of {@link #appendSerializedBatch} using a direct ByteBuffer.
+     * Appends one serialized columnar IPC batch through a borrowed direct buffer.
      *
      * <p>The native side wraps its serialized Arrow IPC buffer as a
      * {@link java.nio.ByteBuffer} via JNI {@code NewDirectByteBuffer()},
-     * eliminating the byte-array copy overhead (L4-3A optimization).
+     * eliminating a payload-sized byte-array copy in columnar implementations.
      * The ByteBuffer is only valid for the duration of this call — the
      * implementation must not retain references to it.</p>
-     *
-     * <p>Default implementation falls back to byte-array copy for backward
-     * compatibility with older NativeWriter implementations.</p>
      *
      * @param writeHandle handle returned by {@link #beginWrite}
      * @param data        direct ByteBuffer wrapping native Arrow IPC bytes
      * @param rowCount    number of rows in the batch
      * @param columnCount number of columns in the batch
      */
-    default void appendDirectBatch(long writeHandle, java.nio.ByteBuffer data,
-                                   int rowCount, int columnCount) {
-        // Fallback: copy from ByteBuffer to byte[] and delegate
-        byte[] bytes = new byte[data.remaining()];
-        data.get(bytes);
-        appendSerializedBatch(writeHandle, bytes, rowCount, columnCount);
-    }
+    void appendDirectBatch(long writeHandle, java.nio.ByteBuffer data,
+                           int rowCount, int columnCount);
 
     /**
      * Commits the write transaction, making all appended data visible.

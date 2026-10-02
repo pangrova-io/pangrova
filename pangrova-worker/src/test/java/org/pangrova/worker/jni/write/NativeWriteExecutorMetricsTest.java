@@ -78,14 +78,15 @@ class NativeWriteExecutorMetricsTest {
 
     @Test
     void commitFailureIncreasesNoActiveSessions() {
-        NativeWriteExecutor executor = new NativeWriteExecutor(
-                catalogName -> {
+        NativeWriteExecutor executor = new NativeWriteExecutor(new TestCatalogResourceResolver(
+                (taskId, catalogName) -> {
                     ConnectorMetadata metadata = new StubMetadata();
                     ConnectorPageSinkProvider sinkProvider = (txn, session, outputHandle) ->
                             new FailingPageSink();
                     return new CatalogResourceResolver.CatalogResources(
-                            metadata, sinkProvider, new StubSession());
-                });
+                            metadata, sinkProvider, new StubSession(),
+                            TestOutputHandles.outputHandle(), List.of("id"));
+                }));
 
         long handle = executor.beginWrite(descriptor("t1"));
 
@@ -102,14 +103,15 @@ class NativeWriteExecutorMetricsTest {
     // --- Test infrastructure ---
 
     private static NativeWriteExecutor createExecutor() {
-        return new NativeWriteExecutor(
-                catalogName -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver(
+                (taskId, catalogName) -> {
                     ConnectorMetadata metadata = new StubMetadata();
                     ConnectorPageSinkProvider sinkProvider = (txn, session, outputHandle) ->
                             new TrackingPageSink();
                     return new CatalogResourceResolver.CatalogResources(
-                            metadata, sinkProvider, new StubSession());
-                });
+                            metadata, sinkProvider, new StubSession(),
+                            TestOutputHandles.outputHandle(), List.of("id"));
+                }));
     }
 
     private static WriteDescriptor descriptor(String tableName) {
@@ -117,7 +119,7 @@ class NativeWriteExecutorMetricsTest {
                 "test-catalog", "test-schema", tableName,
                 WriteDescriptor.DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")),
-                Map.of());
+                Map.of("taskId", "metrics-task"));
     }
 
     private static final class TrackingPageSink implements ConnectorPageSink {

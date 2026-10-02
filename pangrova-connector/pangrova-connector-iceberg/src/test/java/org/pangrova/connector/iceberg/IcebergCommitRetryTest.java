@@ -166,7 +166,9 @@ class IcebergCommitRetryTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() {
+            return Map.of("tenant_id", "iceberg-retry-test");
+        }
     };
 
     private static final Schema TEST_SCHEMA = new Schema(

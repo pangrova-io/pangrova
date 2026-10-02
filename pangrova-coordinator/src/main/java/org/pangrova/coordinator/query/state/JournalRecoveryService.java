@@ -120,6 +120,19 @@ public final class JournalRecoveryService {
      * @return the number of queries successfully recovered (not failed)
      */
     public int recover() {
+        return recover(null);
+    }
+
+    /**
+     * Recovers only the supplied query IDs. A null set retains the configured
+     * owner/all scope; an empty set performs no recovery. This query fence is
+     * required by active-active recovery so a restarted owner ID cannot cause
+     * live queries from its new incarnation to be replayed.
+     */
+    public int recover(Set<String> queryIds) {
+        if (queryIds != null && queryIds.isEmpty()) {
+            return 0;
+        }
         List<QueryStateEvent> queryEvents;
         List<TaskStateEvent> taskEvents;
         if (previousLeaderId != null) {
@@ -130,6 +143,14 @@ public final class JournalRecoveryService {
         } else {
             queryEvents = journal.replayActiveQueries();
             taskEvents = journal.replayActiveTasks();
+        }
+        if (queryIds != null) {
+            queryEvents = queryEvents.stream()
+                    .filter(event -> queryIds.contains(event.queryId()))
+                    .toList();
+            taskEvents = taskEvents.stream()
+                    .filter(event -> queryIds.contains(event.queryId()))
+                    .toList();
         }
 
         int queriesRecovered = recoverQueries(queryEvents);

@@ -4,6 +4,7 @@ import org.pangrova.spi.ai.inference.GenerationParameters;
 import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.FunctionMetadata;
+import org.pangrova.protocol.function.FunctionBindingDeclarations;
 import org.pangrova.spi.function.ScalarFunction;
 
 import java.util.List;
@@ -20,12 +21,8 @@ import java.util.Set;
  */
 public final class AiFilterFunction implements ScalarFunction {
 
-    private static final FunctionMetadata METADATA = new FunctionMetadata(
-            "ai_filter",
-            "BOOLEAN",
-            List.of("VARCHAR", "VARCHAR", "VARCHAR"),
-            false,
-            "Filters rows using LLM-based evaluation of criteria against text");
+    private static final FunctionMetadata METADATA =
+            FunctionBindingDeclarations.callbackMetadata("ai_filter");
 
     private static final Set<String> TRUE_TOKENS = Set.of("true", "yes", "1");
 
@@ -36,7 +33,7 @@ public final class AiFilterFunction implements ScalarFunction {
      *
      * @param providerLookup resolves model names to inference providers
      */
-    public AiFilterFunction(
+    AiFilterFunction(
             java.util.function.Function<String, InferenceProvider> providerLookup) {
         if (providerLookup == null) {
             throw new IllegalArgumentException("providerLookup required");

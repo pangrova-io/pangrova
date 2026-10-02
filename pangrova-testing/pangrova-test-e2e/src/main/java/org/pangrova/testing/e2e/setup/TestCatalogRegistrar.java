@@ -12,9 +12,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Registers ConnectorTestConfig entries as CONNECTOR catalogs in CatalogRegistry.
@@ -27,10 +26,11 @@ public final class TestCatalogRegistrar {
     private TestCatalogRegistrar() {}
 
     /** Register each ConnectorTestConfig as a CONNECTOR catalog and create default schema. */
-    public static void registerAll(CatalogRegistry registry, List<ConnectorTestConfig> configs) {
+    public static void registerAll(CatalogRegistry registry, List<ConnectorTestConfig> configs,
+            Function<String, ConnectorSession> sessions) {
         for (ConnectorTestConfig config : configs) {
             register(registry, config);
-            ensureDefaultSchema(registry, config);
+            ensureDefaultSchema(registry, config, sessions.apply(config.catalogName()));
         }
     }
 
@@ -48,27 +48,16 @@ public final class TestCatalogRegistrar {
                 config.catalogName(), config.connectorType());
     }
 
-    private static void ensureDefaultSchema(CatalogRegistry registry, ConnectorTestConfig config) {
+    private static void ensureDefaultSchema(CatalogRegistry registry, ConnectorTestConfig config,
+            ConnectorSession session) {
         try {
             CatalogHandle handle = registry.getCatalog(config.catalogName());
-            ConnectorSession session = new SimpleSession(config.catalogName());
             ConnectorMetadata metadata = handle.getMetadata(session);
             metadata.createSchema(session, config.schemaName());
             LOG.info("Created default schema '{}' for catalog '{}'",
                     config.schemaName(), config.catalogName());
         } catch (UnsupportedOperationException e) {
             LOG.debug("Catalog '{}' does not support createSchema", config.catalogName());
-        } catch (Exception e) {
-            LOG.warn("Failed to create schema '{}' for catalog '{}': {}",
-                    config.schemaName(), config.catalogName(), e.getMessage());
         }
-    }
-
-    /** Minimal ConnectorSession for schema initialization. */
-    private record SimpleSession(String catalog) implements ConnectorSession {
-        @Override public String getUser() { return "system"; }
-        @Override public Optional<String> getCatalog() { return Optional.of(catalog); }
-        @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
     }
 }

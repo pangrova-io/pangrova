@@ -36,7 +36,7 @@ class DynamicTableAggregateE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void prepareSourceTable() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         try { sqlRunner.execute("DROP TABLE IF EXISTS " + SOURCE_TABLE); } catch (Exception ignored) { }

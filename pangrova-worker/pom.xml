@@ -17,6 +17,11 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-lance</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-shuffle-core</artifactId>
         </dependency>        <dependency>
             <groupId>org.pangrova</groupId>
@@ -53,6 +58,10 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
         </dependency>
         <!-- Jetty HTTP -->
         <dependency>
@@ -163,6 +172,11 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>net.jqwik</groupId>
             <artifactId>jqwik</artifactId>
             <scope>test</scope>
@@ -193,9 +207,14 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>toxiproxy</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
-            <scope>test</scope>
+            <scope>runtime</scope>
         </dependency>
     </dependencies>
 
@@ -231,10 +250,10 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>-Xmx1g --add-opens=java.base/java.nio=ALL-UNNAMED -XX:MaxDirectMemorySize=2g -Dio.netty.allocator.type=unpooled</argLine>
+                    <argLine>@{jacoco.agent.argLine} -Xmx1g --add-opens=java.base/java.nio=ALL-UNNAMED -XX:MaxDirectMemorySize=2g -Dio.netty.allocator.type=unpooled</argLine>
                     <forkedProcessExitTimeoutInSeconds>60</forkedProcessExitTimeoutInSeconds>
                     <rerunFailingTestsCount>1</rerunFailingTestsCount>
-                    <excludedGroups>native-required</excludedGroups>
+                    <excludedGroups>${pangrova.worker.excludedTestGroups}</excludedGroups>
                     <includes>
                         <include>**/*Test.java</include>
                         <include>**/*PropertyTest.java</include>
@@ -247,14 +266,27 @@
                     </excludes>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>io.github.ascopes</groupId>
-                <artifactId>protobuf-maven-plugin</artifactId>
-            </plugin>
         </plugins>
     </build>
 
     <profiles>
+        <profile>
+            <id>full-regression</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes combine.self="override">
+                                <exclude>none</exclude>
+                            </excludes>
+                            <rerunFailingTestsCount>0</rerunFailingTestsCount>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <!--
           native-runtime: activated by CI/release builds (-Pnative-runtime) to include
           the per-platform classifier JAR on the runtime classpath. This JAR contains
@@ -264,10 +296,7 @@
         <profile>
             <id>native-runtime</id>
             <dependencies>
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-core</artifactId>
-        </dependency>                <dependency>
+                <dependency>
                     <groupId>org.pangrova</groupId>
                     <artifactId>pangrova-native-bundle</artifactId>
                     <classifier>${os.detected.classifier}</classifier>

@@ -17,12 +17,26 @@ public record BuildFileMapping(
         if (indexSizeBytes < 0) {
             throw new IllegalArgumentException("indexSizeBytes must not be negative, got " + indexSizeBytes);
         }
-        checksum = checksum == null ? "" : checksum;
+        requireSha256(checksum);
     }
 
     private static void requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " must not be null or blank");
         }
+    }
+
+    private static void requireSha256(String value) {
+        if (value == null || value.length() != 64
+                || !value.chars().allMatch(BuildFileMapping::isHexDigit)) {
+            throw new IllegalArgumentException(
+                    "checksum must be a 64-character SHA-256 hex digest");
+        }
+    }
+
+    private static boolean isHexDigit(int value) {
+        return value >= '0' && value <= '9'
+                || value >= 'a' && value <= 'f'
+                || value >= 'A' && value <= 'F';
     }
 }

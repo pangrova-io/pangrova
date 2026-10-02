@@ -1,5 +1,6 @@
 package org.pangrova.spi.coordination;
 
+import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 
@@ -15,7 +16,6 @@ public record WorkerSnapshot(
         int httpPort,
         int transportPort,
         int protocolVersion,
-        List<String> capabilities,
         String rackId,
         List<String> dataLocality,
         String memoryPressure,
@@ -25,35 +25,31 @@ public record WorkerSnapshot(
         long lastHeartbeatMs,
         long registeredAtMs,
         int resultServerPort,
-        CacheCatalogSummary cacheSummary
+        CacheCatalogSummary cacheSummary,
+        String capabilityInventory
 ) {
-
-    public WorkerSnapshot(
-            String workerId, String host, int httpPort, int transportPort,
-            int protocolVersion, List<String> capabilities, String rackId,
-            List<String> dataLocality, String memoryPressure, double cpuUtilization,
-            int runningTaskCount, long availableMemoryBytes,
-            long lastHeartbeatMs, long registeredAtMs) {
-        this(workerId, host, httpPort, transportPort, protocolVersion, capabilities,
-                rackId, dataLocality, memoryPressure, cpuUtilization, runningTaskCount,
-                availableMemoryBytes, lastHeartbeatMs, registeredAtMs, 0, null);
-    }
-
-    public WorkerSnapshot(
-            String workerId, String host, int httpPort, int transportPort,
-            int protocolVersion, List<String> capabilities, String rackId,
-            List<String> dataLocality, String memoryPressure, double cpuUtilization,
-            int runningTaskCount, long availableMemoryBytes,
-            long lastHeartbeatMs, long registeredAtMs, int resultServerPort) {
-        this(workerId, host, httpPort, transportPort, protocolVersion, capabilities,
-                rackId, dataLocality, memoryPressure, cpuUtilization, runningTaskCount,
-                availableMemoryBytes, lastHeartbeatMs, registeredAtMs, resultServerPort, null);
-    }
 
     public WorkerSnapshot {
         Objects.requireNonNull(workerId, "workerId must not be null");
         Objects.requireNonNull(host, "host must not be null");
-        capabilities = List.copyOf(capabilities);
+        Objects.requireNonNull(memoryPressure, "memoryPressure must not be null");
+        if (protocolVersion != 2) {
+            throw new IllegalArgumentException("protocolVersion must equal canonical v2");
+        }
         dataLocality = List.copyOf(dataLocality);
+        if (capabilityInventory == null || capabilityInventory.isBlank()) {
+            throw new IllegalArgumentException("capabilityInventory must not be blank");
+        }
+        byte[] decodedInventory;
+        try {
+            decodedInventory = Base64.getDecoder().decode(capabilityInventory);
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException(
+                    "capabilityInventory must be valid Base64", failure);
+        }
+        if (decodedInventory.length == 0) {
+            throw new IllegalArgumentException(
+                    "capabilityInventory must encode a non-empty inventory");
+        }
     }
 }

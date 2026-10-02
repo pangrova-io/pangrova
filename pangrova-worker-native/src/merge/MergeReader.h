@@ -45,6 +45,11 @@ struct MergeStats {
   int64_t spilled_bytes = 0;
 };
 
+struct MergeDeletePolicy {
+  bool ignore_delete = false;
+  bool remove_record_on_delete = false;
+};
+
 // Abstract wrapper around a RowReader that produces RowVectorPtr.
 class RowReaderWrapper {
  public:

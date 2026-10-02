@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class JdbcQualityRuleStoreTest {
@@ -21,9 +20,8 @@ class JdbcQualityRuleStoreTest {
     private JdbcQualityRuleStore store;
 
     @BeforeEach
-    void setUp() {
-        assumeTrue(SharedPostgresContainer.isAvailable());
-        store = new JdbcQualityRuleStore(SharedPostgresContainer.dataSource());
+    void setUp() throws Exception {
+        store = new JdbcQualityRuleStore(SharedPostgresContainer.isolatedDataSource("quality_rules"));
         store.initSchema();
     }
 

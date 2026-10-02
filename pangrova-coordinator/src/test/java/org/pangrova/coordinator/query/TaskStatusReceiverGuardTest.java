@@ -78,7 +78,8 @@ class TaskStatusReceiverGuardTest {
     void taskStatusReportRecordFieldsPreserved() {
         TaskStatusReport report = new TaskStatusReport(
                 "t1", "q1", 0, 0, "COMPUTE", "w1", "RUNNING",
-                null, null, null, 1, System.currentTimeMillis());
+                null, null, null, 1, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
 
         assertEquals("q1", report.queryId());
         assertEquals("t1", report.taskId());

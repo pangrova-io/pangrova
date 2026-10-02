@@ -32,7 +32,9 @@ import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
 import org.pangrova.spi.connector.metadata.table.ColumnHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
@@ -41,6 +43,7 @@ import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.spi.coordination.WriteCommitJournal;
+import org.pangrova.spi.coordination.WriteCommitFingerprint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -71,6 +74,7 @@ class WriteCommitJournalIdempotencyTest {
     private NativeWriteCommitTracker writeCommitTracker;
     private RecordingConnectorMetadata recordingMetadata;
     private InMemoryWriteCommitJournal writeCommitJournal;
+    private CatalogRegistry catalogRegistry;
     private TaskStatusReceiver receiver;
 
     private long sequenceCounter = 100;
@@ -85,7 +89,7 @@ class WriteCommitJournalIdempotencyTest {
         recordingMetadata = new RecordingConnectorMetadata();
         writeCommitJournal = new InMemoryWriteCommitJournal();
 
-        CatalogRegistry catalogRegistry = buildCatalogRegistry(
+        catalogRegistry = buildCatalogRegistry(
                 CATALOG_NAME, recordingMetadata);
         catalogRegistry.initialize();
 
@@ -102,8 +106,14 @@ class WriteCommitJournalIdempotencyTest {
     void commitRecordsIntentAndMarksCompleted() {
         byte[] fragment = {1, 2, 3};
 
-        writeCommitTracker.registerWriteContext(QUERY_ID, CATALOG_NAME,
-                new TestOutputTableHandle(), new TestConnectorSession());
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID,
+                CATALOG_NAME,
+                new TestOutputTableHandle(),
+                new TestConnectorSession(),
+                binding(),
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
 
         registerSingleTask("t-1");
         receiver.onTaskStatus(finishedWithWriteResult("t-1", fragment));
@@ -120,13 +130,19 @@ class WriteCommitJournalIdempotencyTest {
         byte[] fragment = {1, 2, 3};
 
         // Pre-mark the query as committed (simulates crash recovery scenario)
-        writeCommitJournal.recordIntent(new WriteCommitEntry(
+        writeCommitJournal.recordIntent(entry(
                 QUERY_ID, CATALOG_NAME, "test-table",
                 WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
         writeCommitJournal.markCommitted(QUERY_ID);
 
-        writeCommitTracker.registerWriteContext(QUERY_ID, CATALOG_NAME,
-                new TestOutputTableHandle(), new TestConnectorSession());
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID,
+                CATALOG_NAME,
+                new TestOutputTableHandle(),
+                new TestConnectorSession(),
+                binding(),
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
 
         registerSingleTask("t-1");
         receiver.onTaskStatus(finishedWithWriteResult("t-1", fragment));
@@ -136,22 +152,32 @@ class WriteCommitJournalIdempotencyTest {
     }
 
     @Test
-    void failedQueryPurgesJournalEntry() {
-        writeCommitTracker.registerWriteContext(QUERY_ID, CATALOG_NAME,
-                new TestOutputTableHandle(), new TestConnectorSession());
+    void failedQueryRetainsPendingRedoEvidenceForReconciliation() {
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID,
+                CATALOG_NAME,
+                new TestOutputTableHandle(),
+                new TestConnectorSession(),
+                binding(),
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
 
         // Manually record an intent
-        writeCommitJournal.recordIntent(new WriteCommitEntry(
+        writeCommitJournal.recordIntent(entry(
                 QUERY_ID, CATALOG_NAME, "test-table",
                 WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
 
         tracker.registerTask(QUERY_ID, "t-1");
+        registerCanonicalRequest("t-1");
         tracker.markScheduled(QUERY_ID, "t-1");
 
         receiver.onTaskStatus(failedReport("t-1"));
 
-        // Journal entry should be purged on failure
-        assertThat(writeCommitJournal.getEntry(QUERY_ID)).isEmpty();
+        // Task failure cannot prove that an external catalog did not publish the intent.
+        assertThat(writeCommitJournal.getEntry(QUERY_ID)).get()
+                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(writeCommitJournal.replayPendingEntries(Set.of(QUERY_ID)))
+                .extracting(WriteCommitEntry::queryId).containsExactly(QUERY_ID);
         // Write state should also be cleaned up
         assertThat(writeCommitTracker.hasWriteContext(QUERY_ID)).isFalse();
     }
@@ -162,18 +188,19 @@ class WriteCommitJournalIdempotencyTest {
         String queryId2 = "q-pending-2";
         String queryId3 = "q-committed-3";
 
-        writeCommitJournal.recordIntent(new WriteCommitEntry(
+        writeCommitJournal.recordIntent(entry(
                 queryId1, CATALOG_NAME, "table1",
                 WriteCommitEntry.State.PENDING, 1000L));
-        writeCommitJournal.recordIntent(new WriteCommitEntry(
+        writeCommitJournal.recordIntent(entry(
                 queryId2, CATALOG_NAME, "table2",
                 WriteCommitEntry.State.PENDING, 2000L));
-        writeCommitJournal.recordIntent(new WriteCommitEntry(
+        writeCommitJournal.recordIntent(entry(
                 queryId3, CATALOG_NAME, "table3",
                 WriteCommitEntry.State.PENDING, 3000L));
         writeCommitJournal.markCommitted(queryId3);
 
-        List<WriteCommitEntry> pending = writeCommitJournal.replayPendingEntries();
+        List<WriteCommitEntry> pending = writeCommitJournal.replayPendingEntries(
+                Set.of(queryId1, queryId2, queryId3));
         assertThat(pending).hasSize(2);
         assertThat(pending.get(0).queryId()).isEqualTo(queryId1);
         assertThat(pending.get(1).queryId()).isEqualTo(queryId2);
@@ -184,13 +211,39 @@ class WriteCommitJournalIdempotencyTest {
         // A-COMMIT-01: fragments (the replay payload) must survive recordIntent, be preserved by
         // markCommitted, and pending replay must exclude committed entries.
         java.util.List<byte[]> fragments = java.util.List.of(new byte[]{9, 8, 7});
+        String fingerprint = WriteCommitFingerprint.compute(
+                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                        "q-replayable",
+                        "tenant-test",
+                        CATALOG_NAME,
+                        "analytics.events",
+                        "OVERWRITE",
+                        11L,
+                        new byte[]{42},
+                        "alice",
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
+                fragments);
         writeCommitJournal.recordIntent(new WriteCommitEntry(
-                "q-replayable", CATALOG_NAME, "analytics.events",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis(),
-                fragments, "OVERWRITE", "q-replayable", "coord-A", 3L));
+                "q-replayable",
+                CATALOG_NAME,
+                "analytics.events",
+                WriteCommitEntry.State.PENDING,
+                System.currentTimeMillis(),
+                fragments,
+                "OVERWRITE",
+                fingerprint,
+                "tenant-test",
+                "alice",
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                11L,
+                new byte[]{42},
+                fingerprint,
+                "coord-A",
+                "process-A",
+                3L,
+                null));
 
         WriteCommitEntry pendingEntry = writeCommitJournal.getEntry("q-replayable").orElseThrow();
-        assertThat(pendingEntry.isReplayable()).isTrue();
         assertThat(pendingEntry.fragments().get(0)).isEqualTo(new byte[]{9, 8, 7});
         assertThat(pendingEntry.writeMode()).isEqualTo("OVERWRITE");
 
@@ -199,10 +252,10 @@ class WriteCommitJournalIdempotencyTest {
         assertThat(committed.state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
         // Replay payload preserved across the state transition (not dropped).
         assertThat(committed.fragments().get(0)).isEqualTo(new byte[]{9, 8, 7});
-        assertThat(committed.idempotencyKey()).isEqualTo("q-replayable");
+        assertThat(committed.idempotencyKey()).isEqualTo(fingerprint);
 
         // Committed entries are excluded from pending replay.
-        assertThat(writeCommitJournal.replayPendingEntries())
+        assertThat(writeCommitJournal.replayPendingEntries(Set.of("q-replayable")))
                 .extracting(WriteCommitEntry::queryId)
                 .doesNotContain("q-replayable");
     }
@@ -212,7 +265,7 @@ class WriteCommitJournalIdempotencyTest {
         InMemoryWriteCommitJournal journal = InMemoryWriteCommitJournal.INSTANCE;
 
         // Operations should not throw
-        journal.recordIntent(new WriteCommitEntry(
+        journal.recordIntent(entry(
                 "q-1", "cat", "table",
                 WriteCommitEntry.State.PENDING, System.currentTimeMillis()));
         assertThat(journal.isCommitted("q-1")).isFalse();
@@ -220,6 +273,7 @@ class WriteCommitJournalIdempotencyTest {
         journal.markCommitted("q-1");
         assertThat(journal.isCommitted("q-1")).isTrue();
 
+        journal.acknowledgeNoDeferredWork(journal.getEntry("q-1").orElseThrow().commitFingerprint());
         journal.purge("q-1");
         assertThat(journal.isCommitted("q-1")).isFalse();
     }
@@ -229,8 +283,14 @@ class WriteCommitJournalIdempotencyTest {
         byte[] fragment1 = {1, 2, 3};
         byte[] fragment2 = {4, 5, 6};
 
-        writeCommitTracker.registerWriteContext(QUERY_ID, CATALOG_NAME,
-                new TestOutputTableHandle(), new TestConnectorSession());
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID,
+                CATALOG_NAME,
+                new TestOutputTableHandle(),
+                new TestConnectorSession(),
+                binding(),
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", java.util.Map.of()));
 
         registerTwoTasks();
 
@@ -252,15 +312,59 @@ class WriteCommitJournalIdempotencyTest {
 
     // --- Helpers ---
 
+    private byte[] binding() {
+        return CanonicalWriteCommitTestBinding.create(
+                catalogRegistry.getCatalog(CATALOG_NAME), new TestOutputTableHandle());
+    }
+
     private void registerSingleTask(String taskId) {
         tracker.registerTask(QUERY_ID, taskId);
+        registerCanonicalRequest(taskId);
         tracker.markScheduled(QUERY_ID, taskId);
         tracker.updateTaskState(QUERY_ID, taskId, "RUNNING");
+    }
+
+    private static WriteCommitEntry entry(
+            String queryId, String catalog, String table,
+            WriteCommitEntry.State state, long timestampMs) {
+        String mode = "INSERT";
+        String fingerprint = WriteCommitFingerprint.compute(
+                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                        queryId,
+                        "tenant-test",
+                        catalog,
+                        table,
+                        mode,
+                        -1L,
+                        new byte[]{42},
+                        "alice",
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
+                List.of());
+        return new WriteCommitEntry(
+                queryId,
+                catalog,
+                table,
+                state,
+                timestampMs,
+                List.of(),
+                mode,
+                fingerprint,
+                "tenant-test",
+                "alice",
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                -1L,
+                new byte[]{42},
+                fingerprint,
+                null,
+                null,
+                0L,
+                null);
     }
 
     private void registerTwoTasks() {
         for (String taskId : List.of("t-1", "t-2")) {
             tracker.registerTask(QUERY_ID, taskId);
+            registerCanonicalRequest(taskId);
             tracker.markScheduled(QUERY_ID, taskId);
             tracker.updateTaskState(QUERY_ID, taskId, "RUNNING");
         }
@@ -270,21 +374,65 @@ class WriteCommitJournalIdempotencyTest {
         WriteResultDescriptor wr = new WriteResultDescriptor(
                 List.of(), 100, 1024, commitMetadata);
         return new TaskStatusReport(
-                taskId, QUERY_ID, 0, 0, "COMPUTE", WORKER_ID, "FINISHED",
-                null, null, wr, sequenceCounter++, System.currentTimeMillis());
+                taskId, QUERY_ID, 0, 0, "WRITE", WORKER_ID, "FINISHED",
+                null, null, wr, sequenceCounter++, System.currentTimeMillis(),
+                null, null, canonicalAttempt(taskId), canonicalReport(taskId, "FINISHED"));
     }
 
     private TaskStatusReport failedReport(String taskId) {
         return new TaskStatusReport(
-                taskId, QUERY_ID, 0, 0, "COMPUTE", WORKER_ID, "FAILED",
-                null, null, null, sequenceCounter++, System.currentTimeMillis());
+                taskId, QUERY_ID, 0, 0, "WRITE", WORKER_ID, "FAILED",
+                null, null, null, sequenceCounter++, System.currentTimeMillis(),
+                null, null, canonicalAttempt(taskId), canonicalReport(taskId, "FAILED"));
+    }
+
+    private void registerCanonicalRequest(String taskId) {
+        var request = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                taskId, QUERY_ID, 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE, new byte[]{1});
+        tracker.registerTaskRequest(taskId, request);
+        tracker.registerTaskAttempt(taskId,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        request.taskRequest().getAttempt()));
+    }
+
+    private org.pangrova.protocol.rest.task.TaskAttemptDescriptor canonicalAttempt(
+            String taskId) {
+        return org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                tracker.getTaskRequest(taskId).taskRequest().getAttempt());
+    }
+
+    private byte[] canonicalReport(String taskId, String state) {
+        var attempt = tracker.getTaskRequest(taskId).taskRequest().getAttempt();
+        var coverage = org.pangrova.protocol.v2.CoverageReport.newBuilder()
+                .setExpectedWorkUnits(1);
+        var report = org.pangrova.protocol.v2.TaskReport.newBuilder()
+                .setAttempt(attempt)
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
+                        .TASK_REPORT_ORIGIN_NATIVE);
+        if ("FINISHED".equals(state)) {
+            coverage.setCompletedWorkUnits(1).setCoverageRatio(1.0)
+                    .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                            .COMPLETION_STATE_COMPLETE);
+            report.setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
+        } else {
+            coverage.addFailedWorkUnitIds(taskId)
+                    .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                            .COMPLETION_STATE_PARTIAL);
+            report.setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED)
+                    .setError(org.pangrova.protocol.v2.ExecutionError.newBuilder()
+                            .setErrorClass(org.pangrova.protocol.v2.ErrorClass.ERROR_CLASS_INTERNAL)
+                            .setCode("TEST_FAILURE").setMessage("failed"));
+        }
+        return report.setCoverage(coverage).build().toByteArray();
     }
 
     private static WorkerInfo workerInfo(String workerId) {
         return new WorkerInfo(workerId, "host-1", 8080, 8081, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0,
-                1024L * 1024 * 1024, Instant.now(), 1.0, null, 1,
-                List.of(), null, List.of());
+                1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
+                null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 
     private static QueryManager buildQueryManager(WorkerManager wm,
@@ -295,7 +443,7 @@ class WriteCommitJournalIdempotencyTest {
         QueryDispatcherContext qdDeps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null,
                 td, scheduler, wm, tracker,
-                null, null, null, null, 0L);
+                null, null, null, 0L);
         QueryDispatcher dispatcher = new QueryDispatcher(
                 qdDeps, null, null);
         return new QueryManager(
@@ -325,6 +473,14 @@ class WriteCommitJournalIdempotencyTest {
                                            ConnectorOutputTableHandle outputHandle,
                                            List<byte[]> fragments) {
             finishCalls.add(new FinishCall(session, outputHandle, List.copyOf(fragments)));
+        }
+
+        @Override
+        public void finishDistributedWrite(ConnectorSession session,
+                                           ConnectorOutputTableHandle outputHandle,
+                                           List<byte[]> fragments,
+                                           DistributedWriteCommitContext context) {
+            finishDistributedWrite(session, outputHandle, fragments);
         }
 
         record FinishCall(ConnectorSession session,
@@ -378,19 +534,31 @@ class WriteCommitJournalIdempotencyTest {
         }
 
         @Override
+        public ConnectorOutputHandleCodec getOutputHandleCodec() {
+            return CanonicalWriteCommitTestBinding.codec();
+        }
+
+        @Override
         public ConnectorSplitManager getSplitManager() { return null; }
 
         @Override
         public ConnectorPageSourceProvider getPageSourceProvider() { return null; }
     }
 
-    static final class TestOutputTableHandle implements ConnectorOutputTableHandle {}
+    static final class TestOutputTableHandle implements ConnectorOutputTableHandle {
+        @Override public Optional<SchemaTableName> targetTable() {
+            return Optional.of(new SchemaTableName("default", "events"));
+        }
+        @Override public String writeMode() { return "INSERT"; }
+    }
 
     static final class TestConnectorSession implements ConnectorSession {
         @Override public String getUser() { return "test-user"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.of("default"); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() {
+            return Map.of("tenant_id", "tenant-test");
+        }
     }
 
     static final class ReadOnlyMetadataStore implements MetadataStore {

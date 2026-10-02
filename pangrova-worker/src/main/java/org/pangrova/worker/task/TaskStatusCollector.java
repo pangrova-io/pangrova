@@ -3,6 +3,7 @@ package org.pangrova.worker.task;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.spi.execution.TaskDescriptor;
@@ -38,26 +39,54 @@ final class TaskStatusCollector {
     }
 
     void reportStatus(TaskInfo info, String state, ErrorDetail error) {
+        reportStatus(info, state, error, info.terminalTaskReport());
+    }
+
+    void reportWorkerTerminalStatus(TaskInfo info, String state, ErrorDetail error) {
+        if (reporter == null) {
+            return;
+        }
+        if (!"FAILED".equals(state) && !"CANCELLED".equals(state)) {
+            throw new IllegalArgumentException("Worker terminal status must be unsuccessful");
+        }
+        var taskState = "CANCELLED".equals(state)
+                ? org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED
+                : org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED;
+        byte[] canonical = org.pangrova.protocol.WorkerTerminalTaskReports.unsuccessful(
+                info.request().taskRequest(), taskState, error,
+                info.terminalTaskReport());
+        reportStatus(info, state, error, canonical);
+    }
+
+    private void reportStatus(
+            TaskInfo info, String state, ErrorDetail error, byte[] terminalReport) {
         if (reporter == null) {
             return;
         }
         long seq = info.nextReportSequence();
-        TaskStats taskStats = collectTaskStats(info);
-        WriteResultDescriptor writeResult = collectWriteResult(info);
+        TaskStats taskStats = collectTaskStats(info, state);
+        WriteResultDescriptor writeResult = collectWriteResult(info, state);
         SubmitTaskRequest req = info.request();
-        int stageId = req != null ? req.stageId() : 0;
-        int partitionId = req != null ? req.partitionId() : 0;
-        String taskType = req != null ? req.taskType() : "COMPUTE";
+        if (req == null || !req.taskRequest().hasAttempt()) {
+            throw new IllegalStateException(
+                    "Cannot report task status without fenced request identity: task="
+                            + info.taskId());
+        }
+        var canonical = req.taskRequest();
+        int stageId = canonical.getAttempt().getStageId();
+        int partitionId = canonical.getAttempt().getPartitionId();
+        String taskType = info.descriptor().taskType();
         // Use coordinator's taskId from the request for status reporting.
         // The coordinator registers tasks by this ID in CoordinatorTaskTracker.
         // Using the worker's internal taskId would cause a mismatch and the
         // coordinator's awaitTaskCompletion future would never complete.
-        String reportTaskId = (req != null && req.taskId() != null && !req.taskId().isBlank())
-                ? req.taskId() : info.taskId();
+        String reportTaskId = canonical.getAttempt().getTaskId();
         TaskStatusReport report = new TaskStatusReport(
                 reportTaskId, info.queryId(), stageId, partitionId, taskType,
                 workerId, state, taskStats, error, writeResult,
-                seq, System.currentTimeMillis(), null, null);
+                seq, System.currentTimeMillis(), null, null,
+                TaskAttemptDescriptor.from(canonical.getAttempt()),
+                terminalReport);
         reporter.report(report);
         logStatusReport(info, state, seq);
     }
@@ -75,7 +104,46 @@ final class TaskStatusCollector {
                 taskId, workerId, cause.getMessage(), cause);
     }
 
-    private TaskStats collectTaskStats(TaskInfo info) {
+    private TaskStats collectTaskStats(TaskInfo info, String state) {
+        TaskStats captured = decodeCapturedTaskStats(info);
+        if (captured != null) {
+            logCacheUsage(info.taskId(), captured);
+            return captured;
+        }
+        if (isReleasedTerminalWithoutStats(info, state)) {
+            if ("FAILED".equals(state)) {
+                LOG.error("event=terminal_native_stats_unavailable taskId={}", info.taskId());
+                return null;
+            }
+            throw new IllegalStateException(
+                    "Terminal task has no captured canonical NativeTaskStats: "
+                            + info.taskId());
+        }
+        return collectInProgressTaskStats(info);
+    }
+
+    private static TaskStats decodeCapturedTaskStats(TaskInfo info) {
+        byte[] terminalStats = info.terminalTaskStats();
+        if (terminalStats != null && terminalStats.length > 0) {
+            return NativeOperatorStatsCollector.decodeTaskStats(terminalStats);
+        }
+        return null;
+    }
+
+    private static boolean isReleasedTerminalWithoutStats(TaskInfo info, String state) {
+        return info.executorHandle() == 0
+                && ("FINISHED".equals(state) || "FAILED".equals(state));
+    }
+
+    private static void logCacheUsage(String taskId, TaskStats taskStats) {
+        LOG.info("event=native_task_stats taskId={} cache_hit_count={} "
+                        + "cache_miss_count={} cache_eviction_count={} "
+                        + "cache_admission_rejection_count={}",
+                taskId, taskStats.cacheHitCount(), taskStats.cacheMissCount(),
+                taskStats.cacheEvictionCount(), taskStats.cacheAdmissionRejectionCount());
+    }
+
+    private TaskStats collectInProgressTaskStats(TaskInfo info) {
         long elapsed = java.time.Duration.between(info.startTime(), Instant.now()).toMillis();
         long outputRows = info.outputBatches();
         long outputBytes = info.outputBytes();
@@ -85,24 +153,38 @@ final class TaskStatusCollector {
             memoryAllocator.logMemoryWarningIfNeeded(info, memoryBytes);
         }
         return new TaskStats(outputRows, outputBytes, outputRows, outputBytes,
-                elapsed, 0, memoryBytes, peakMemory, 0, 0, 0);
+                elapsed, 0, memoryBytes, peakMemory, 0, 0, 0,
+                0, 0, List.of(), 0, 0, 0, 0, 0);
     }
 
-    private WriteResultDescriptor collectWriteResult(TaskInfo info) {
+    private WriteResultDescriptor collectWriteResult(TaskInfo info, String state) {
         if (!info.isWriteTask()) {
             return null;
         }
         long totalRows = info.outputBatches();
         long totalBytes = info.outputBytes();
-        byte[] metadata = info.commitMetadata();
-        // If TaskInfo has no commit metadata (common path: native WriteOperator
-        // calls commitWrite via JNI but the result is not propagated back to
-        // TaskInfo), drain from NativeWriteExecutor by taskId for per-task isolation.
-        if (metadata == null || metadata.length == 0) {
-            metadata = drainCommitMetadata(info);
-        }
+        byte[] metadata = retainedCommitMetadata(info, state);
         return new WriteResultDescriptor(List.of(), totalRows, totalBytes,
                 metadata != null ? metadata : new byte[0]);
+    }
+
+    private byte[] retainedCommitMetadata(TaskInfo info, String state) {
+        byte[] metadata = info.commitMetadata();
+        if (!"FINISHED".equals(state) || (metadata != null && metadata.length > 0)) {
+            return metadata;
+        }
+        // Cache the fragment before reporting. Retries and subsequent terminal
+        // reports must carry the identical payload; in-progress reports never drain it.
+        synchronized (info) {
+            metadata = info.commitMetadata();
+            if (metadata == null || metadata.length == 0) {
+                metadata = drainCommitMetadata(info);
+                if (metadata != null && metadata.length > 0) {
+                    info.setCommitMetadata(metadata);
+                }
+            }
+            return metadata;
+        }
     }
 
     /**
@@ -116,7 +198,8 @@ final class TaskStatusCollector {
             return null;
         }
         SubmitTaskRequest req = info.request();
-        String taskId = (req != null && req.taskId() != null) ? req.taskId() : info.taskId();
+        String taskId = req != null
+                ? req.taskRequest().getAttempt().getTaskId() : info.taskId();
         byte[] metadata = executor.drainCommitMetadataForTask(taskId);
         LOG.debug("event=collect_write_result_drained taskId={} bytes={}",
                 taskId, metadata != null ? metadata.length : 0);

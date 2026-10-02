@@ -13,6 +13,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import java.util.function.LongConsumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.http.HttpClientFactory;
@@ -72,6 +73,7 @@ public class HeartbeatSender {
     private volatile int consecutiveFailures;
     private volatile Runnable reRegistrationCallback;
     private volatile Runnable degradationCallback;
+    private volatile LongConsumer coordinatorEpochObserver;
     private final AtomicBoolean degraded = new AtomicBoolean(false);
     private final String internalAuthSecret;
 
@@ -188,6 +190,14 @@ public class HeartbeatSender {
     }
 
     /**
+     * Sets the sink for authenticated Coordinator epochs returned by heartbeat.
+     * The sink is invoked before a response is counted as successful.
+     */
+    public void setCoordinatorEpochObserver(LongConsumer observer) {
+        this.coordinatorEpochObserver = observer;
+    }
+
+    /**
      * Returns true if the worker has entered degraded mode due to
      * sustained heartbeat failures.
      */
@@ -275,7 +285,7 @@ public class HeartbeatSender {
 
     private void handleResponse(HttpResponse<String> response) {
         if (response.statusCode() == HTTP_OK) {
-            handleSuccessResponse();
+            handleSuccessResponse(response.body());
         } else if (isReRegistrationRequired(response)) {
             handleReRegistrationResponse();
         } else {
@@ -283,7 +293,25 @@ public class HeartbeatSender {
         }
     }
 
-    private void handleSuccessResponse() {
+    private void handleSuccessResponse(String responseBody) {
+        try {
+            org.pangrova.protocol.rest.worker.WorkerControlResponse controlResponse =
+                    mapper.readValue(responseBody,
+                            org.pangrova.protocol.rest.worker.WorkerControlResponse.class);
+            controlResponse.requireStatus("ok");
+            long epoch = controlResponse.requireCoordinatorEpoch();
+            LongConsumer observer = coordinatorEpochObserver;
+            if (observer != null) {
+                observer.accept(epoch);
+            }
+        } catch (Exception e) {
+            int failures = ++consecutiveFailures;
+            LOG.warn("event=heartbeat_control_response_invalid workerId={} "
+                            + "consecutiveFailures={} error={}",
+                    config.workerId(), failures, e.getMessage());
+            checkDegradationThreshold(failures);
+            return;
+        }
         if (consecutiveFailures > 0) {
             LOG.info("event=heartbeat_recovered workerId={} previousFailures={}",
                     config.workerId(), consecutiveFailures);

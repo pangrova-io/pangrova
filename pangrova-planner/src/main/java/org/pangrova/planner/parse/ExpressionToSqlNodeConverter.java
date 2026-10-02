@@ -49,7 +49,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
-import org.apache.calcite.util.TimestampString;
 
 /**
  * Converts Pangrova AST expression nodes to Calcite SqlNode.
@@ -120,10 +119,9 @@ final class ExpressionToSqlNodeConverter {
                     SqlLiteral.createExactNumeric(((LiteralValue.DecimalValue) v).value().toPlainString(), POS),
             LiteralValue.StringValue.class,
                     v -> SqlLiteral.createCharString(((LiteralValue.StringValue) v).value(), POS),
-            LiteralValue.DateValue.class, v -> convertDateLiteral((LiteralValue.DateValue) v),
+            LiteralValue.DateValue.class, v -> TemporalLiteralSqlNodes.date((LiteralValue.DateValue) v),
             LiteralValue.TimestampValue.class, v ->
-                    SqlLiteral.createTimestamp(
-                            new TimestampString(((LiteralValue.TimestampValue) v).value()), 3, POS),
+                    TemporalLiteralSqlNodes.timestamp((LiteralValue.TimestampValue) v),
             LiteralValue.BooleanValue.class,
                     v -> SqlLiteral.createBoolean(((LiteralValue.BooleanValue) v).value(), POS),
             LiteralValue.IntervalValue.class, v -> convertIntervalLiteral((LiteralValue.IntervalValue) v),
@@ -135,15 +133,6 @@ final class ExpressionToSqlNodeConverter {
         var handler = literalDispatch.get(lit.value().getClass());
         if (handler != null) return handler.apply(lit.value());
         throw new IllegalArgumentException("Unknown literal type: " + lit.value().getClass());
-    }
-
-    private SqlNode convertDateLiteral(LiteralValue.DateValue v) {
-        String[] parts = v.value().split("-");
-        int year = Integer.parseInt(parts[0]);
-        int month = Integer.parseInt(parts[1]);
-        int day = Integer.parseInt(parts[2]);
-        return SqlLiteral.createDate(
-                new org.apache.calcite.util.DateString(year, month, day), POS);
     }
 
     // ── Binary / Unary ──
@@ -272,7 +261,9 @@ final class ExpressionToSqlNodeConverter {
             upperBound = convertFrameBound(frame.upperBound());
         }
         SqlWindow sqlWindow = SqlWindow.create(
-                null, null, partitionList, orderList, SqlLiteral.createBoolean(false, POS),
+                null, null, partitionList, orderList, SqlLiteral.createBoolean(
+                        window.frame().map(frame -> frame.frameType() == WindowSpec.FrameType.ROWS)
+                                .orElse(false), POS),
                 lowerBound, upperBound, null, POS);
         return SqlStdOperatorTable.OVER.createCall(POS, agg, sqlWindow);
     }
@@ -403,7 +394,10 @@ final class ExpressionToSqlNodeConverter {
         SqlNode[] operands = arr.elements().stream()
                 .map(this::convert)
                 .toArray(SqlNode[]::new);
-        return SqlStdOperatorTable.ARRAY_VALUE_CONSTRUCTOR.createCall(POS, operands);
+        SqlOperator constructor = operands.length == 0
+                ? EmptyArraySqlOperator.INSTANCE
+                : SqlStdOperatorTable.ARRAY_VALUE_CONSTRUCTOR;
+        return constructor.createCall(POS, operands);
     }
 
     private SqlNode convertStructConstructor(StructConstructor struct) {
@@ -427,13 +421,18 @@ final class ExpressionToSqlNodeConverter {
         String baseName = parenIdx >= 0 ? typeName.substring(0, parenIdx) : typeName;
         int precision = -1;
         int scale = -1;
+        boolean scaleSpecified = false;
         if (parenIdx >= 0) {
             String params = typeName.substring(parenIdx + 1, typeName.length() - 1);
             String[] parts = params.split(",");
             precision = Integer.parseInt(parts[0].trim());
             if (parts.length > 1) {
                 scale = Integer.parseInt(parts[1].trim());
+                scaleSpecified = true;
             }
+        }
+        if (baseName.equals("TIMESTAMP_NS")) {
+            precision = 9;
         }
         SqlTypeName sqlType = switch (baseName) {
             case "BIGINT" -> SqlTypeName.BIGINT;
@@ -453,9 +452,14 @@ final class ExpressionToSqlNodeConverter {
             case "TIME" -> SqlTypeName.TIME;
             default -> throw new IllegalArgumentException("Unsupported CAST type: " + typeName);
         };
-        SqlBasicTypeNameSpec spec = (precision >= 0)
-                ? new SqlBasicTypeNameSpec(sqlType, precision, scale, POS)
-                : new SqlBasicTypeNameSpec(sqlType, POS);
+        SqlBasicTypeNameSpec spec;
+        if (precision < 0) {
+            spec = new SqlBasicTypeNameSpec(sqlType, POS);
+        } else if (scaleSpecified) {
+            spec = new SqlBasicTypeNameSpec(sqlType, precision, scale, POS);
+        } else {
+            spec = new SqlBasicTypeNameSpec(sqlType, precision, POS);
+        }
         return new SqlDataTypeSpec(spec, POS);
     }
 

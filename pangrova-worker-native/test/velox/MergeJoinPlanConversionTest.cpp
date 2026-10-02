@@ -20,16 +20,13 @@
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalOutputAssertions.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
-#include "pangrova/native/protocol/v1/plan_hints.pb.h"
 #include "substrait/algebra.pb.h"
-#include "substrait/extensions/extensions.pb.h"
 #include "substrait/plan.pb.h"
 
 #include "velox/core/PlanNode.h"
-
-#include <google/protobuf/any.pb.h>
 
 namespace pangrova::velox::test {
 namespace {
@@ -71,8 +68,36 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 void setJoinKeyRef(
     substrait::Expression::FieldReference* ref,
     int field_index) {
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
+}
+
+void addStandardJoinKey(
+    substrait::MergeJoinRel* join,
+    int left_index,
+    int right_index) {
+  auto* key = join->add_keys();
+  setJoinKeyRef(key->mutable_left(), left_index);
+  setJoinKeyRef(key->mutable_right(), right_index);
+  key->mutable_comparison()->set_simple(
+      substrait::ComparisonJoinKey::SIMPLE_COMPARISON_TYPE_EQ);
+}
+
+substrait::ReadRel* addMergeJoinInput(
+    substrait::Rel* input,
+    bool already_sorted) {
+  if (already_sorted) {
+    return input->mutable_read();
+  }
+  auto* sort = input->mutable_sort();
+  auto* sort_field = sort->add_sorts();
+  auto* selection = sort_field->mutable_expr()->mutable_selection();
+  selection->mutable_root_reference();
+  selection->mutable_direct_reference()->mutable_struct_field()->set_field(0);
+  sort_field->set_direction(
+      substrait::SortField::SORT_DIRECTION_ASC_NULLS_LAST);
+  return sort->mutable_input()->mutable_read();
 }
 
 // Build a Substrait Plan containing a MergeJoinRel with the given parameters.
@@ -99,7 +124,8 @@ std::vector<uint8_t> buildMergeJoinPlan(
   auto* merge_join = root->mutable_input()->mutable_merge_join();
 
   // Left input: ReadRel with key_count keys + 1 payload
-  auto* left_read = merge_join->mutable_left()->mutable_read();
+  auto* left_read = addMergeJoinInput(
+      merge_join->mutable_left(), inputs_pre_sorted);
   left_read->mutable_named_table()->add_names("left_table");
   auto* left_schema = left_read->mutable_base_schema();
   for (int i = 0; i < key_count; ++i) {
@@ -108,7 +134,8 @@ std::vector<uint8_t> buildMergeJoinPlan(
   addI64Column(left_schema, "left_payload");
 
   // Right input: ReadRel with key_count keys + 1 payload
-  auto* right_read = merge_join->mutable_right()->mutable_read();
+  auto* right_read = addMergeJoinInput(
+      merge_join->mutable_right(), inputs_pre_sorted);
   right_read->mutable_named_table()->add_names("right_table");
   auto* right_schema = right_read->mutable_base_schema();
   for (int i = 0; i < key_count; ++i) {
@@ -118,18 +145,11 @@ std::vector<uint8_t> buildMergeJoinPlan(
 
   // Set join keys: left_key_i joins with right_key_i
   for (int i = 0; i < key_count; ++i) {
-    setJoinKeyRef(merge_join->add_left_keys(), i);
-    setJoinKeyRef(merge_join->add_right_keys(), i);
+    addStandardJoinKey(merge_join, i, i);
   }
 
   // Set join type
   merge_join->set_type(join_type);
-
-  // Set MergeJoinHint in advanced_extension.enhancement
-  pangrova::native::protocol::v1::MergeJoinHint hint;
-  hint.set_inputs_pre_sorted(inputs_pre_sorted);
-  merge_join->mutable_advanced_extension()->mutable_enhancement()->PackFrom(
-      hint);
 
   std::string bytes;
   plan.SerializeToString(&bytes);
@@ -286,24 +306,25 @@ TEST_P(MergeJoinPlanConversionTest, PlanStructureCorrect) {
   collectNodeNames(plan, node_names);
 
   if (param.inputs_pre_sorted) {
-    // Expected: MergeJoin, TableScan, TableScan
-    ASSERT_EQ(node_names.size(), 3u)
-        << "Expected 3 nodes (MergeJoin + 2 TableScans) for pre-sorted "
+    // The right input rebases its local ordinals into the combined schema.
+    ASSERT_EQ(node_names.size(), 4u)
+        << "Expected MergeJoin, left scan, right ordinal Project and scan for pre-sorted "
         << param.name;
     EXPECT_EQ(node_names[0], "MergeJoin");
     EXPECT_EQ(node_names[1], "TableScan");
-    EXPECT_EQ(node_names[2], "TableScan");
+    EXPECT_EQ(node_names[2], "Project");
+    EXPECT_EQ(node_names[3], "TableScan");
   } else {
-    // Expected: MergeJoin, OrderBy, TableScan, OrderBy, TableScan
-    ASSERT_EQ(node_names.size(), 5u)
-        << "Expected 5 nodes (MergeJoin + 2x(OrderBy + TableScan)) for "
+    ASSERT_EQ(node_names.size(), 6u)
+        << "Expected MergeJoin, two sorted scans and one right ordinal Project for "
            "unsorted "
         << param.name;
     EXPECT_EQ(node_names[0], "MergeJoin");
     EXPECT_EQ(node_names[1], "OrderBy");
     EXPECT_EQ(node_names[2], "TableScan");
-    EXPECT_EQ(node_names[3], "OrderBy");
-    EXPECT_EQ(node_names[4], "TableScan");
+    EXPECT_EQ(node_names[3], "Project");
+    EXPECT_EQ(node_names[4], "OrderBy");
+    EXPECT_EQ(node_names[5], "TableScan");
   }
 }
 
@@ -331,23 +352,17 @@ TEST_P(MergeJoinPlanConversionTest, OutputSchemaColumnsCorrect) {
 
   // Verify left-side columns are present at the beginning.
   for (int i = 0; i < param.key_count; ++i) {
-    EXPECT_EQ(output_type->nameOf(i), "left_key_" + std::to_string(i))
-        << "Left key column name mismatch at index " << i;
+    expectCanonicalOutputField(converter, output_type, i, "left_key_" + std::to_string(i));
   }
-  EXPECT_EQ(output_type->nameOf(param.key_count), "left_payload")
-      << "Left payload column name mismatch";
+  expectCanonicalOutputField(converter, output_type, param.key_count, "left_payload");
 
   // Verify right-side columns follow left-side columns.
   int right_start = param.key_count + 1;
   for (int i = 0; i < param.key_count; ++i) {
-    EXPECT_EQ(
-        output_type->nameOf(right_start + i),
-        "right_key_" + std::to_string(i))
-        << "Right key column name mismatch at index " << i;
+    expectCanonicalOutputField(converter, output_type, right_start + i,
+        "right_key_" + std::to_string(i));
   }
-  EXPECT_EQ(
-      output_type->nameOf(right_start + param.key_count), "right_payload")
-      << "Right payload column name mismatch";
+  expectCanonicalOutputField(converter, output_type, right_start + param.key_count, "right_payload");
 
   // Verify all columns are BIGINT type.
   for (size_t i = 0; i < output_type->size(); ++i) {

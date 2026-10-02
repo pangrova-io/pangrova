@@ -12,6 +12,7 @@
 #include <chrono>
 #include <memory>
 #include <thread>
+#include <future>
 
 #include "executor/driver/PlanExecutionDriver.h"
 #include "executor/driver/TaskExecutor.h"
@@ -211,8 +212,11 @@ std::vector<uint8_t> buildValuesPlan() {
   substrait::Plan plan;
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
+  root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();
-  read->mutable_virtual_table();
+  read->mutable_base_schema()->add_names("value");
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_virtual_table()->add_expressions()->add_fields()->mutable_literal()->set_i64(42);
   return serialize(plan);
 }
 
@@ -243,10 +247,31 @@ TEST(PlanExecutionDriverCancelTest, CancelDuringVeloxExecution) {
   // VALUES plan is fast, so either CANCELLED (cancel won) or
   // FINISHED (execution completed before cancel). Both are valid.
   EXPECT_TRUE(s == ExecutorState::CANCELLED ||
-              s == ExecutorState::FINISHED ||
-              s == ExecutorState::FAILED);
+              s == ExecutorState::FINISHED);
 
   // Output queue should be closed regardless.
+  EXPECT_TRUE(exec.outputQueue()->isClosed());
+}
+
+TEST(PlanExecutionDriverCancelTest, FailedPlanClosesOutputBeforePublishingTerminalState) {
+  auto config = makeDriverConfig({0xff, 0xfe});
+  TaskExecutor exec(config);
+  auto output = std::async(std::launch::async, [&] {
+    facebook::velox::RowVectorPtr row;
+    return exec.outputQueue()->pop(row, milliseconds(2000));
+  });
+  exec.start();
+  const auto deadline = std::chrono::steady_clock::now() + milliseconds(2000);
+  while (exec.state() != ExecutorState::FAILED &&
+         std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+  }
+  ASSERT_EQ(exec.state(), ExecutorState::FAILED);
+  EXPECT_TRUE(exec.outputQueue()->isClosed());
+  ASSERT_EQ(output.wait_for(milliseconds(100)), std::future_status::ready);
+  EXPECT_EQ(output.get(), PopResult::CLOSED);
+  exec.cancel();
+  EXPECT_EQ(exec.state(), ExecutorState::FAILED);
   EXPECT_TRUE(exec.outputQueue()->isClosed());
 }
 
@@ -271,11 +296,9 @@ TEST(PlanExecutionDriverCancelTest, CancelAfterCompletionIsNoop) {
   // Now cancel after completion — should be safe.
   exec.cancel();
 
-  // State should remain terminal (FINISHED or FAILED, not change to CANCELLED
-  // because terminal states are monotonic).
+  // A valid completed VALUES execution must not turn into a failure or cancellation.
   auto s = exec.state();
-  EXPECT_TRUE(s == ExecutorState::FINISHED || s == ExecutorState::FAILED ||
-              s == ExecutorState::CANCELLED);
+  EXPECT_EQ(s, ExecutorState::FINISHED);
 }
 
 #endif  // PANGROVA_HAS_SUBSTRAIT_PROTO

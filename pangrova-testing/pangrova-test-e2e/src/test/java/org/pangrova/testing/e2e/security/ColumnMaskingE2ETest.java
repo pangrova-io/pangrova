@@ -2,7 +2,8 @@ package org.pangrova.testing.e2e.security;
 
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMask;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EnrichedColumnMaskStore;
@@ -23,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+
+import static org.pangrova.testing.e2e.security.E2eRoleFixtures.mappedRoles;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -87,8 +90,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(
-                    RESTRICTED_USER, CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary");
 
             assertThat(mask).isPresent();
             assertThat(mask.get()).isEqualTo("'***'");
@@ -107,8 +109,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(ssnMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(
-                    RESTRICTED_USER, CATALOG, SCHEMA, tableName, "ssn");
+            Optional<String> mask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "ssn");
 
             assertThat(mask).isPresent();
             assertThat(mask.get()).isEqualTo("'XXX-XX-' || SUBSTRING(ssn, 8)");
@@ -136,8 +137,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(
-                    ADMIN_USER, CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = processor.getMask(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName, "salary");
 
             // Admin is exempt — no mask applied, sees raw data
             assertThat(mask).isEmpty();
@@ -156,8 +156,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(ssnMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(
-                    ADMIN_USER, CATALOG, SCHEMA, tableName, "ssn");
+            Optional<String> mask = processor.getMask(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName, "ssn");
 
             assertThat(mask).isEmpty();
         }
@@ -185,14 +184,12 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
             // Intern — masked
-            Optional<String> internMask = processor.getMask(
-                    RESTRICTED_USER, CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> internMask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary");
             assertThat(internMask).isPresent();
             assertThat(internMask.get()).isEqualTo("'REDACTED'");
 
             // Analyst — not in applyToRoles, mask does not apply
-            Optional<String> analystMask = processor.getMask(
-                    ANALYST_USER, CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> analystMask = processor.getMask(ANALYST_USER, java.util.Set.of("analysts"), CATALOG, SCHEMA, tableName, "salary");
             assertThat(analystMask).isEmpty();
         }
 
@@ -210,15 +207,15 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
             // Intern — masked
-            assertThat(processor.getMask(RESTRICTED_USER, CATALOG, SCHEMA, tableName, "salary"))
+            assertThat(processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary"))
                     .isPresent().hasValue("0");
 
             // Analyst — masked
-            assertThat(processor.getMask(ANALYST_USER, CATALOG, SCHEMA, tableName, "salary"))
+            assertThat(processor.getMask(ANALYST_USER, java.util.Set.of("analysts"), CATALOG, SCHEMA, tableName, "salary"))
                     .isPresent().hasValue("0");
 
             // Admin — exempt
-            assertThat(processor.getMask(ADMIN_USER, CATALOG, SCHEMA, tableName, "salary"))
+            assertThat(processor.getMask(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName, "salary"))
                     .isEmpty();
         }
 
@@ -235,14 +232,13 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(disabledMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(
-                    RESTRICTED_USER, CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary");
             assertThat(mask).isEmpty();
         }
     }
 
     // -----------------------------------------------------------------------
-    // AccessControl Integration — getColumnMask via RbacAccessControl
+    // AccessControl Integration — getColumnMask via DynamicRbacAccessControl
     // -----------------------------------------------------------------------
 
     @Nested
@@ -250,7 +246,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
     class AccessControlIntegration {
 
         @Test
-        @DisplayName("RbacAccessControl.getColumnMask returns mask for restricted user")
+        @DisplayName("DynamicRbacAccessControl.getColumnMask returns mask for restricted user")
         void rbacAccessControl_returnsMaskForRestrictedUser() {
             ColumnMask salaryMask = new ColumnMask(
                     1L, "salary_mask", CATALOG, SCHEMA, tableName, "salary",
@@ -264,7 +260,11 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("interns", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, processor);
+            AccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(grants),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("interns", "interns"), java.util.Map.entry("admins", "admins"), java.util.Map.entry("analysts", "analysts"))),
+                NO_RLS,
+                processor);
 
             Optional<String> mask = ac.getColumnMask(
                     RESTRICTED_USER, CATALOG, SCHEMA, tableName, "salary");
@@ -272,7 +272,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("RbacAccessControl.getColumnMask returns empty for admin")
+        @DisplayName("DynamicRbacAccessControl.getColumnMask returns empty for admin")
         void rbacAccessControl_returnsEmptyForAdmin() {
             ColumnMask salaryMask = new ColumnMask(
                     1L, "salary_mask", CATALOG, SCHEMA, tableName, "salary",
@@ -286,7 +286,11 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("admins", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, processor);
+            AccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(grants),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("interns", "interns"), java.util.Map.entry("admins", "admins"), java.util.Map.entry("analysts", "analysts"))),
+                NO_RLS,
+                processor);
 
             Optional<String> mask = ac.getColumnMask(
                     ADMIN_USER, CATALOG, SCHEMA, tableName, "salary");
@@ -308,7 +312,11 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("interns", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, processor);
+            AccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(grants),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("interns", "interns"), java.util.Map.entry("admins", "admins"), java.util.Map.entry("analysts", "analysts"))),
+                NO_RLS,
+                processor);
 
             // "name" column has no mask defined
             Optional<String> mask = ac.getColumnMask(

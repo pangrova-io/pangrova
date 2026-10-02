@@ -6,26 +6,31 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.AiInvocationException;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchResult;
 import org.pangrova.spi.ai.embedding.EmbeddingProvider;
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
+import org.pangrova.worker.ai.context.AiHttpTransport;
+import org.pangrova.worker.ai.context.AiProviderCallContext;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Embedding provider that calls any OpenAI-compatible /v1/embeddings endpoint.
  *
- * <p>Handles rate limiting via token bucket, exponential backoff on 429/503,
- * configurable timeout, and batch splitting for large input sets.</p>
+ * <p>Handles send-rate limiting, bounded retries and an absolute task deadline.
+ * Batch splitting belongs to the invoking operator; semantic purpose is explicit.</p>
  *
  * <p>Thread-safe: uses java.net.http.HttpClient with no mutable shared state
  * beyond the atomic token bucket.</p>
@@ -36,8 +41,13 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
     private static final int MAX_RETRIES = 3;
     private static final long INITIAL_BACKOFF_MS = 500;
     private static final int HTTP_OK = 200;
+    private static final int HTTP_UNAUTHORIZED = 401;
+    private static final int HTTP_FORBIDDEN = 403;
+    private static final int HTTP_REQUEST_TIMEOUT = 408;
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
-    private static final int HTTP_SERVICE_UNAVAILABLE = 503;
+    private static final int HTTP_SERVER_ERROR_MIN = 500;
+    private static final int HTTP_SERVER_ERROR_MAX = 599;
+    private static final int HTTP_GATEWAY_TIMEOUT = 504;
     private static final double NANOS_PER_SECOND = 1_000_000_000.0;
     private static final long NANOS_PER_MILLI = 1_000_000;
 
@@ -61,7 +71,8 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
      * @param config endpoint, model and tuning configuration
      */
     public OpenAiCompatibleEmbeddingProvider(OpenAiEmbeddingConfig config) {
-        this(config, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
+        this(config, HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10)).build());
     }
 
     /**
@@ -71,16 +82,8 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
      * @param httpClient HTTP client used for endpoint calls
      */
     OpenAiCompatibleEmbeddingProvider(OpenAiEmbeddingConfig config, HttpClient httpClient) {
-        if (config == null) {
-            throw new IllegalArgumentException("config required");
-        }
-        requireText(config.endpoint(), "endpoint");
-        requireText(config.modelName(), "modelName");
-        requireText(config.apiKey(), "apiKey");
-        validatePositiveValues(config);
-        if (httpClient == null) {
-            throw new IllegalArgumentException("httpClient required");
-        }
+        validateDependencies(config, httpClient);
+        validateEndpoint(config.endpoint());
 
         this.endpoint = config.endpoint();
         this.modelName = config.modelName();
@@ -93,6 +96,34 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
         this.httpClient = httpClient;
         this.lastRequestNanos = new AtomicLong(0);
         this.minIntervalNanos = (long) (NANOS_PER_SECOND / config.maxRequestsPerSecond());
+    }
+
+    private static void validateDependencies(
+            OpenAiEmbeddingConfig config,
+            HttpClient httpClient) {
+        if (config == null) {
+            throw new IllegalArgumentException("config required");
+        }
+        requireText(config.endpoint(), "endpoint");
+        requireText(config.modelName(), "modelName");
+        if (config.apiKey() == null) {
+            throw new IllegalArgumentException("apiKey must not be null");
+        }
+        validatePositiveValues(config);
+        if (httpClient == null) {
+            throw new IllegalArgumentException("httpClient required");
+        }
+    }
+
+    private static void validateEndpoint(String endpoint) {
+        URI endpointUri = URI.create(endpoint);
+        String scheme = endpointUri.getScheme();
+        boolean httpScheme = "http".equalsIgnoreCase(scheme)
+                || "https".equalsIgnoreCase(scheme);
+        if (!httpScheme || endpointUri.getHost() == null || endpointUri.getUserInfo() != null) {
+            throw new IllegalArgumentException(
+                    "endpoint must be an absolute HTTP(S) URI without user-info");
+        }
     }
 
     private static void requireText(String value, String name) {
@@ -108,7 +139,7 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
         if (config.maxBatchSize() <= 0) {
             throw new IllegalArgumentException("maxBatchSize must be positive");
         }
-        if (config.maxRequestsPerSecond() <= 0) {
+        if (!Double.isFinite(config.maxRequestsPerSecond()) || config.maxRequestsPerSecond() <= 0) {
             throw new IllegalArgumentException("maxRequestsPerSecond must be positive");
         }
         if (config.timeoutSeconds() <= 0) {
@@ -117,41 +148,34 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
     }
 
     @Override
-    public float[] embed(String text) {
-        if (text == null) {
-            throw new IllegalArgumentException("text must not be null");
-        }
-        String prefixed = queryPrefix + text;
-        List<float[]> results = callEmbeddingEndpoint(List.of(prefixed));
-        return results.get(0);
+    public EmbeddingBatchResult embed(EmbeddingBatchRequest request) {
+        return callEmbeddingEndpoint(prepareInputs(request));
     }
 
-    @Override
-    public List<float[]> embedBatch(List<String> texts) {
-        if (texts == null || texts.isEmpty()) {
-            throw new IllegalArgumentException("texts must not be null or empty");
-        }
-        if (texts.size() > maxBatchSize) {
+    List<String> prepareInputs(EmbeddingBatchRequest request) {
+        java.util.Objects.requireNonNull(request, "request required");
+        if (request.inputs().size() > maxBatchSize) {
             throw new IllegalArgumentException(
-                    "batch size " + texts.size() + " exceeds maxBatchSize " + maxBatchSize);
+                    "batch size " + request.inputs().size() + " exceeds maxBatchSize " + maxBatchSize);
         }
-        List<String> prefixed = new ArrayList<>(texts.size());
-        for (String text : texts) {
-            prefixed.add(documentPrefix + text);
+        if (!(request.inputs().get(0) instanceof EmbeddingBatchRequest.TextInput)) {
+            throw new AiInvocationException(
+                    AiInvocationException.Category.CAPABILITY_MISMATCH,
+                    false, "OpenAI-compatible /v1/embeddings accepts only text input");
         }
-        return callEmbeddingEndpoint(prefixed);
+        String prefix = switch (request.purpose()) {
+            case RAW -> "";
+            case QUERY -> queryPrefix;
+            case DOCUMENT -> documentPrefix;
+        };
+        return request.inputs().stream()
+                .map(EmbeddingBatchRequest.TextInput.class::cast)
+                .map(input -> prefix + input.text()).toList();
     }
 
     @Override
-    public List<float[]> embedBlob(List<BlobReference> refs) {
-        if (refs == null || refs.isEmpty()) {
-            throw new IllegalArgumentException("refs must not be null or empty");
-        }
-        List<String> base64Inputs = new ArrayList<>(refs.size());
-        for (BlobReference ref : refs) {
-            base64Inputs.add(downloadAndEncode(ref));
-        }
-        return callEmbeddingEndpoint(base64Inputs);
+    public Set<EmbeddingPurpose> supportedPurposes() {
+        return Set.of(EmbeddingPurpose.RAW, EmbeddingPurpose.QUERY, EmbeddingPurpose.DOCUMENT);
     }
 
     @Override
@@ -169,20 +193,13 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
         return maxBatchSize;
     }
 
-    private List<float[]> callEmbeddingEndpoint(List<String> inputs) {
-        List<float[]> allResults = new ArrayList<>();
-        for (int i = 0; i < inputs.size(); i += maxBatchSize) {
-            int end = Math.min(i + maxBatchSize, inputs.size());
-            List<String> chunk = inputs.subList(i, end);
-            List<float[]> chunkResults = callWithRetry(chunk);
-            allResults.addAll(chunkResults);
-        }
-        return allResults;
+    private EmbeddingBatchResult callEmbeddingEndpoint(List<String> inputs) {
+        return callWithRetry(inputs);
     }
 
-    private List<float[]> callWithRetry(List<String> inputs) {
+    private EmbeddingBatchResult callWithRetry(List<String> inputs) {
         long backoffMs = INITIAL_BACKOFF_MS;
-        Exception lastException = null;
+        IOException lastException = null;
 
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
             if (attempt > 0) {
@@ -200,10 +217,16 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RuntimeException("Embedding request interrupted", e);
+                throw new AiInvocationException(
+                        AiInvocationException.Category.TIMEOUT,
+                        false,
+                        "Embedding request was interrupted",
+                        e);
             }
         }
-        throw new RuntimeException(
+        throw new AiInvocationException(
+                AiInvocationException.Category.PROVIDER_UNAVAILABLE,
+                true,
                 "Embedding request failed after " + (MAX_RETRIES + 1) + " attempts",
                 lastException);
     }
@@ -212,30 +235,35 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
      * Sends a single embedding request. Throws {@link IOException} for
      * retryable HTTP failures and {@link RuntimeException} for terminal ones.
      */
-    private List<float[]> sendOnce(List<String> inputs, int attempt)
+    private EmbeddingBatchResult sendOnce(List<String> inputs, int attempt)
             throws IOException, InterruptedException {
-        String requestBody = buildRequestJson(inputs);
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(endpoint))
-                .timeout(timeout)
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(
-                request, HttpResponse.BodyHandlers.ofString());
+        HttpRequest request = prepareHttpRequest(inputs);
+        HttpResponse<String> response = AiHttpTransport.send(httpClient, request);
         int statusCode = response.statusCode();
-
         if (statusCode == HTTP_OK) {
-            return parseResponse(response.body(), inputs.size());
+            return parseResponse(response.body(), inputs.size(),
+                    response.headers().firstValue("x-request-id").orElse(""));
         }
         if (isRetryable(statusCode) && attempt < MAX_RETRIES) {
             throw new IOException("HTTP " + statusCode + " from embedding endpoint");
         }
-        throw new RuntimeException(
-                "Embedding request failed with HTTP " + statusCode
-                        + ": " + response.body());
+        throw responseFailure(statusCode);
+    }
+
+    HttpRequest prepareHttpRequest(List<String> inputs) {
+        String requestBody = buildRequestJson(inputs);
+        HttpRequest.Builder request = HttpRequest.newBuilder()
+                .uri(URI.create(endpoint))
+                .timeout(AiProviderCallContext.remainingTimeout(timeout))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody));
+        if (!apiKey.isBlank()) {
+            request.header("Authorization", "Bearer " + apiKey);
+        }
+        AiProviderCallContext.currentIdempotencyKey().ifPresent(
+                value -> request.header("Idempotency-Key", value));
+
+        return request.build();
     }
 
     private void waitForRateLimit() {
@@ -254,7 +282,7 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
         }
     }
 
-    private String buildRequestJson(List<String> inputs) {
+    String buildRequestJson(List<String> inputs) {
         ObjectNode root = MAPPER.createObjectNode();
         ArrayNode inputArray = root.putArray("input");
         for (String input : inputs) {
@@ -268,76 +296,124 @@ public final class OpenAiCompatibleEmbeddingProvider implements EmbeddingProvide
         }
     }
 
-    private List<float[]> parseResponse(String responseBody, int expectedCount) {
+    EmbeddingBatchResult parseResponse(
+            String responseBody, int expectedCount, String providerRequestId) {
         try {
             JsonNode root = MAPPER.readTree(responseBody);
+            if (root == null || !root.isObject()) {
+                throw invalidResponse("embedding response must be a JSON object");
+            }
             JsonNode data = root.path("data");
-            if (!data.isArray()) {
-                throw new RuntimeException("Invalid response: missing 'data' array");
+            if (!data.isArray() || data.size() != expectedCount) {
+                throw invalidResponse(
+                        "expected " + expectedCount + " embeddings, found "
+                                + (data.isArray() ? data.size() : "no data array"));
             }
-            List<float[]> results = new ArrayList<>(expectedCount);
-            for (int i = 0; i < expectedCount; i++) {
-                if (i >= data.size()) {
-                    throw new RuntimeException(
-                            "Invalid response: expected " + expectedCount
-                                    + " embeddings, found " + data.size());
-                }
-                JsonNode embeddingNode = data.get(i).path("embedding");
-                if (!embeddingNode.isArray()) {
-                    throw new RuntimeException(
-                            "Invalid response: missing embedding array at index " + i);
-                }
-                float[] embedding = new float[embeddingNode.size()];
-                for (int d = 0; d < embeddingNode.size(); d++) {
-                    embedding[d] = (float) embeddingNode.get(d).asDouble();
-                }
-                if (embedding.length != dimension) {
-                    throw new RuntimeException(
-                            "Dimension mismatch: expected " + dimension
-                                    + ", got " + embedding.length);
-                }
-                results.add(embedding);
+            float[][] results = new float[expectedCount][];
+            for (JsonNode item : data) {
+                parseEmbeddingItem(item, expectedCount, results);
             }
-            return results;
+            if (Arrays.stream(results).anyMatch(java.util.Objects::isNull)) {
+                throw invalidResponse("embedding response omitted an input index");
+            }
+            return new EmbeddingBatchResult(
+                    List.copyOf(Arrays.asList(results)),
+                    providerRequestId);
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Invalid response: failed to parse JSON", e);
+            throw invalidResponse("embedding response is not valid JSON", e);
         }
     }
 
-    private String downloadAndEncode(BlobReference ref) {
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(ref.uri()))
-                    .timeout(timeout)
-                    .GET()
-                    .build();
-            HttpResponse<InputStream> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() != HTTP_OK) {
-                throw new IOException(
-                        "Failed to download blob " + ref.uri()
-                                + ": HTTP " + response.statusCode());
+    private void parseEmbeddingItem(
+            JsonNode item, int expectedCount, float[][] results) {
+        int index = requireEmbeddingIndex(item, expectedCount, results);
+        float[] embedding = parseCoordinates(item.path("embedding"), index);
+        requireDimension(embedding);
+        results[index] = embedding;
+    }
+
+    private static int requireEmbeddingIndex(
+            JsonNode item, int expectedCount, float[][] results) {
+        JsonNode indexNode = item.path("index");
+        if (!indexNode.isIntegralNumber() || !indexNode.canConvertToInt()) {
+            throw invalidResponse("embedding index is missing or non-integral");
+        }
+        int index = indexNode.intValue();
+        if (index < 0 || index >= expectedCount || results[index] != null) {
+            throw invalidResponse("embedding indexes are duplicated or out of range");
+        }
+        return index;
+    }
+
+    private static float[] parseCoordinates(JsonNode embeddingNode, int index) {
+        if (!embeddingNode.isArray()) {
+            throw invalidResponse("missing embedding array at index " + index);
+        }
+        float[] embedding = new float[embeddingNode.size()];
+        for (int d = 0; d < embeddingNode.size(); d++) {
+            JsonNode coordinate = embeddingNode.get(d);
+            if (!coordinate.isNumber()) {
+                throw invalidResponse("embedding coordinate is not numeric");
             }
-            try (InputStream is = response.body()) {
-                byte[] bytes = is.readAllBytes();
-                return Base64.getEncoder().encodeToString(bytes);
+            embedding[d] = (float) coordinate.doubleValue();
+            if (!Float.isFinite(embedding[d])) {
+                throw invalidResponse("embedding coordinate is not finite");
             }
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to download blob: " + ref.uri(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Blob download interrupted: " + ref.uri(), e);
+        }
+        return embedding;
+    }
+
+    private void requireDimension(float[] embedding) {
+        if (embedding.length != dimension) {
+            throw invalidResponse(
+                    "Dimension mismatch: expected " + dimension
+                            + ", got " + embedding.length);
         }
     }
 
-    private static boolean isRetryable(int statusCode) {
-        return statusCode == HTTP_TOO_MANY_REQUESTS || statusCode == HTTP_SERVICE_UNAVAILABLE;
+    static AiInvocationException responseFailure(int statusCode) {
+        AiInvocationException.Category category = switch (statusCode) {
+            case HTTP_UNAUTHORIZED -> AiInvocationException.Category.AUTHENTICATION;
+            case HTTP_FORBIDDEN -> AiInvocationException.Category.AUTHORIZATION;
+            case HTTP_REQUEST_TIMEOUT, HTTP_GATEWAY_TIMEOUT ->
+                    AiInvocationException.Category.TIMEOUT;
+            case HTTP_TOO_MANY_REQUESTS -> AiInvocationException.Category.RATE_LIMIT;
+            default -> AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+        };
+        boolean retryable = isRetryable(statusCode);
+        return new AiInvocationException(
+                category, retryable,
+                "Embedding provider returned HTTP " + statusCode);
+    }
+
+    private static AiInvocationException invalidResponse(String message) {
+        return invalidResponse(message, null);
+    }
+
+    private static AiInvocationException invalidResponse(
+            String message, Throwable cause) {
+        return new AiInvocationException(
+                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                false,
+                message,
+                cause);
+    }
+
+    static boolean isRetryable(int statusCode) {
+        return statusCode == HTTP_TOO_MANY_REQUESTS
+                || statusCode == HTTP_REQUEST_TIMEOUT
+                || statusCode >= HTTP_SERVER_ERROR_MIN
+                        && statusCode <= HTTP_SERVER_ERROR_MAX;
     }
 
     private static void sleep(long millis) {
-        ThreadUtils.sleepQuietly(Math.max(1, millis));
+        ThreadUtils.sleepQuietly(AiProviderCallContext.remainingWaitMillis(
+                Math.max(1, millis)));
         if (Thread.currentThread().isInterrupted()) {
-            throw new RuntimeException("Interrupted during backoff");
+            throw new AiInvocationException(
+                    AiInvocationException.Category.TIMEOUT,
+                    false,
+                    "Embedding retry was interrupted");
         }
     }
 }

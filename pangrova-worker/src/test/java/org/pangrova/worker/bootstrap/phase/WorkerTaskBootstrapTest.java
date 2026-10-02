@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap.phase;
 
+import java.util.Arrays;
+
 import org.pangrova.operations.bootstrap.BootstrapFailedException;
 import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.WorkerComponentRefs;
@@ -40,7 +42,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null);
+                null, null, null);
 
         assertThatThrownBy(() -> WorkerTaskBootstrap.createStatusReporter(config, NOOP_OBSERVABILITY))
                 .isInstanceOf(BootstrapFailedException.class)
@@ -56,7 +58,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null);
+                null, null, null);
 
         var reporter = WorkerTaskBootstrap.createStatusReporter(config, NOOP_OBSERVABILITY);
         assertThat(reporter).isNotNull();
@@ -64,7 +66,8 @@ class WorkerTaskBootstrapTest {
 
     @Test
     void createTaskExecutor_throwsWhenNativeUnavailable() {
-        assertThatThrownBy(() -> WorkerTaskBootstrap.createTaskExecutor(false))
+        assertThatThrownBy(() -> WorkerTaskBootstrap.createTaskExecutor(
+                false, WorkerBootstrapConfig.withDefaults("worker-test")))
                 .isInstanceOf(BootstrapFailedException.class)
                 .hasMessageContaining("Native library unavailable");
     }
@@ -78,7 +81,7 @@ class WorkerTaskBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null);
+                null, null, null);
         WorkerComponentRefs refs = new WorkerComponentRefs();
         refs.setNativeAvailable(false);
 
@@ -100,5 +103,46 @@ class WorkerTaskBootstrapTest {
     @Test
     void warnIfSingleHostUrl_allowsDnsName() {
         assertThat(WorkerTaskBootstrap.looksLikeSingleHost("coordinator-lb.internal")).isFalse();
+    }
+
+    @Test
+    void resolveShuffleHmacKeys_generatesIndependentProcessLocalKeys() {
+        var first = WorkerTaskBootstrap.resolveShuffleHmacKeys(null, null);
+        var second = WorkerTaskBootstrap.resolveShuffleHmacKeys(null, null);
+
+        assertThat(first.current()).hasSize(32);
+        assertThat(first.previous()).isEmpty();
+        assertThat(Arrays.equals(first.current(), second.current())).isFalse();
+    }
+
+    @Test
+    void resolveShuffleHmacKeys_preservesManagedRotationWindow() {
+        byte[] current = new byte[48];
+        byte[] previous = new byte[32];
+        Arrays.fill(current, (byte) 7);
+        Arrays.fill(previous, (byte) 9);
+
+        var keys = WorkerTaskBootstrap.resolveShuffleHmacKeys(current, previous);
+        current[0] = 1;
+        previous[0] = 1;
+
+        assertThat(keys.current()).containsOnly((byte) 7);
+        assertThat(keys.previous()).containsOnly((byte) 9);
+    }
+
+    @Test
+    void resolveShuffleHmacKeys_rejectsWeakCurrentKey() {
+        assertThatThrownBy(() -> WorkerTaskBootstrap.resolveShuffleHmacKeys(
+                new byte[31], null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least 32 bytes");
+    }
+
+    @Test
+    void resolveShuffleHmacKeys_rejectsWeakPreviousKey() {
+        assertThatThrownBy(() -> WorkerTaskBootstrap.resolveShuffleHmacKeys(
+                new byte[32], new byte[31]))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("previous shuffle HMAC key");
     }
 }

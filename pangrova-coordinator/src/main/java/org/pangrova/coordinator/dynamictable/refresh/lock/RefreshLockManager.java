@@ -2,11 +2,13 @@ package org.pangrova.coordinator.dynamictable.refresh.lock;
 
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.spi.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -28,11 +30,13 @@ public final class RefreshLockManager {
     }
 
     /** Attempts to acquire the refresh lock for the given Dynamic Table. */
-    public boolean tryAcquire(String dtName, String coordinatorId, long epoch, Duration timeout) {
-        boolean acquired = lease.tryAcquire(leaseKey(dtName), coordinatorId, epoch, timeout);
-        if (acquired) {
+    public Optional<LeaseEntry> tryAcquire(
+            String dtName, String coordinatorId, Duration timeout) {
+        Optional<LeaseEntry> acquired = lease.tryAcquire(
+                leaseKey(dtName), coordinatorId, timeout);
+        if (acquired.isPresent()) {
             LOG.debug("event=dt_lock_acquired dtName={} coordinatorId={} epoch={}",
-                    dtName, coordinatorId, epoch);
+                    dtName, coordinatorId, acquired.orElseThrow().epoch());
         }
         return acquired;
     }
@@ -52,24 +56,23 @@ public final class RefreshLockManager {
      * @param duration      new TTL from now
      * @return true if the lease was renewed
      */
-    public boolean tryRenew(String dtName, String coordinatorId, Duration duration) {
-        boolean renewed = lease.tryRenew(leaseKey(dtName), coordinatorId, duration);
+    public boolean tryRenew(LeaseEntry held, Duration duration) {
+        Objects.requireNonNull(held, "held must not be null");
+        boolean renewed = lease.tryRenew(
+                held.leaseKey(), held.holderId(), held.epoch(), duration);
         if (renewed) {
             LOG.debug("event=dt_lock_renewed dtName={} coordinatorId={} duration={}",
-                    dtName, coordinatorId, duration);
+                    held.leaseKey(), held.holderId(), duration);
         } else {
             LOG.debug("event=dt_lock_renew_failed dtName={} coordinatorId={}",
-                    dtName, coordinatorId);
+                    held.leaseKey(), held.holderId());
         }
         return renewed;
     }
 
-    public void release(String dtName, String coordinatorId) {
-        lease.release(leaseKey(dtName), coordinatorId);
-    }
-
-    public void expireStale() {
-        lease.expireStale();
+    public void release(LeaseEntry held) {
+        Objects.requireNonNull(held, "held must not be null");
+        lease.release(held.leaseKey(), held.holderId(), held.epoch());
     }
 
     /**
@@ -79,7 +82,7 @@ public final class RefreshLockManager {
      */
     public OptionalInt lockCount() {
         if (lease instanceof InMemoryDistributedLease mem) {
-            return OptionalInt.of(mem.leaseCount());
+            return OptionalInt.of(mem.activeLeaseCount());
         }
         return OptionalInt.empty();
     }

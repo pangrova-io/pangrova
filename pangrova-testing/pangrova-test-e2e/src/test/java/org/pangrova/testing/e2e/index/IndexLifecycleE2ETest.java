@@ -29,9 +29,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * E2E tests for index lifecycle operations: CREATE INDEX, DROP INDEX,
  * index-accelerated queries, and index correctness invariants.
  *
- * <p>Exercises: IndexDdlExecutor → IndexBuildCoordinator → VectorStrategyProvider
- * → HnswEngine/IvfpqEngine → IndexCommitHandler → IndexEvaluationService →
- * native scan with index hints.
+ * <p>Exercises: Index DDL → durable canonical artifact build → Native ANN
+ * retrieval → index lifecycle cleanup. No JVM ANN implementation participates.
  */
 class IndexLifecycleE2ETest extends SqlE2ETestBase {
 
@@ -47,9 +46,7 @@ class IndexLifecycleE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void registerConnectors() {
-        if (!isDockerReady()) {
-            return;
-        }
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
     }

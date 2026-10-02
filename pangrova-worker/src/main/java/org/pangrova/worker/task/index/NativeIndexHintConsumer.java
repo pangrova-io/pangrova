@@ -1,7 +1,8 @@
 package org.pangrova.worker.task.index;
 
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.spi.index.eval.IndexEvalHint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,14 +10,14 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 /**
- * Ensures index evaluation hints embedded in {@link SplitInfo} protos are
+ * Ensures index evaluation hints embedded in v2 {@link DataSplit} protos are
  * preserved and accessible for native engine page-level data skipping.
  *
  * <p>The coordinator serializes {@code IndexEvalHintInfo} messages into each
  * split via {@link IndexEvalHintProtoCodec}. This class validates that hints
  * survive the worker-side processing pipeline and logs them for native engine
  * consumption. The C++ native engine reads the {@code index_eval_hints}
- * repeated field directly from the serialized {@code SplitInfo} proto.</p>
+ * repeated field from the typed {@code FileSplitDetail} extension.</p>
  *
  * <p>Thread-safe: stateless utility.</p>
  */
@@ -35,12 +36,12 @@ public final class NativeIndexHintConsumer {
      * @param stageId stage identifier for structured logging
      * @return total hint count across all splits
      */
-    public static int validateHintsForNativeEngine(List<SplitInfo> splits,
+    public static int validateHintsForNativeEngine(List<DataSplit> splits,
                                                     String queryId, int stageId) {
         int totalHints = 0;
         int splitsWithHints = 0;
-        for (SplitInfo split : splits) {
-            int hintCount = split.getIndexEvalHintsCount();
+        for (DataSplit split : splits) {
+            int hintCount = DataSplitProtoCodec.fileDetail(split).getIndexEvalHintsCount();
             if (hintCount > 0) {
                 totalHints += hintCount;
                 splitsWithHints++;
@@ -55,12 +56,12 @@ public final class NativeIndexHintConsumer {
         return totalHints;
     }
 
-    private static void logHintDetails(SplitInfo split, String queryId, int stageId) {
+    private static void logHintDetails(DataSplit split, String queryId, int stageId) {
         List<IndexEvalHint> hints = IndexEvalHintProtoCodec.extractHints(split);
         for (IndexEvalHint hint : hints) {
             LOG.debug("event=native_hint_detail queryId={} stageId={} "
                             + "file={} indexId={} indexType={} generation={}",
-                    queryId, stageId, split.getFilePath(),
+                    queryId, stageId, split.getOpaqueLocation(),
                     hint.indexId(), hint.indexType(), hint.generation());
         }
     }

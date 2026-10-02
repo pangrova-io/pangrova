@@ -34,7 +34,7 @@ class NativePaimonPartitionE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.paimon(CATALOG, SCHEMA,
                         paimonWarehouse().toString())));

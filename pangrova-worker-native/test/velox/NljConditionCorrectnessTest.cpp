@@ -6,11 +6,11 @@
 // TEST_P over join types (INNER, LEFT, RIGHT, OUTER) × condition types
 // (lt, gt, between, compound) × dataset sizes (5, 50, 500).
 // Verifies:
-//   - convertCrossRel correctly creates NestedLoopJoinNode with the filter
+//   - convertJoinRel correctly creates NestedLoopJoinNode with the filter
 //     expression and correct join type.
 //   - Output schema has correct column count (left + right).
 //   - Filter expression is non-null and references correct function name.
-//   - Join type is correctly mapped from CrossRel::JoinType.
+//   - Join type is correctly mapped from JoinRel::JoinType.
 //
 // **Validates: Requirements 4.1, 4.2, 4.3**
 
@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalOutputAssertions.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
 #include "substrait/algebra.pb.h"
@@ -50,18 +51,18 @@ std::string joinTypeName(NljJoinType jt) {
   return "Unknown";
 }
 
-substrait::CrossRel::JoinType toSubstraitJoinType(NljJoinType jt) {
+substrait::JoinRel::JoinType toSubstraitJoinType(NljJoinType jt) {
   switch (jt) {
     case NljJoinType::kInner:
-      return substrait::CrossRel::JOIN_TYPE_INNER;
+      return substrait::JoinRel::JOIN_TYPE_INNER;
     case NljJoinType::kLeft:
-      return substrait::CrossRel::JOIN_TYPE_LEFT;
+      return substrait::JoinRel::JOIN_TYPE_LEFT;
     case NljJoinType::kRight:
-      return substrait::CrossRel::JOIN_TYPE_RIGHT;
+      return substrait::JoinRel::JOIN_TYPE_RIGHT;
     case NljJoinType::kOuter:
-      return substrait::CrossRel::JOIN_TYPE_OUTER;
+      return substrait::JoinRel::JOIN_TYPE_OUTER;
   }
-  return substrait::CrossRel::JOIN_TYPE_INNER;
+  return substrait::JoinRel::JOIN_TYPE_INNER;
 }
 
 core::JoinType expectedVeloxJoinType(NljJoinType jt) {
@@ -106,6 +107,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
   auto* ref = expr->mutable_selection();
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
 }
@@ -116,7 +118,7 @@ std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
   return {bytes.begin(), bytes.end()};
 }
 
-// Build a CrossRel plan with the given join type and condition type.
+// Build a standard JoinRel plan with the given join type and condition type.
 // Left table has `dataset_size` conceptual rows with columns (left_key, left_val).
 // Right table has columns (right_key, right_val).
 // Combined schema: [left_key(0), left_val(1), right_key(2), right_val(3)].
@@ -180,29 +182,32 @@ std::vector<uint8_t> buildNljPlan(
 
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
-  root->add_names("output");
-  auto* cross = root->mutable_input()->mutable_cross();
+  root->add_names("left_key");
+  root->add_names("left_val");
+  root->add_names("right_key");
+  root->add_names("right_val");
+  auto* join = root->mutable_input()->mutable_join();
 
   // Left input: left_table (left_key: I64, left_val: I64).
-  auto* left_read = cross->mutable_left()->mutable_read();
+  auto* left_read = join->mutable_left()->mutable_read();
   left_read->mutable_named_table()->add_names("left_table");
   auto* left_schema = left_read->mutable_base_schema();
   addI64Column(left_schema, "left_key");
   addI64Column(left_schema, "left_val");
 
   // Right input: right_table (right_key: I64, right_val: I64).
-  auto* right_read = cross->mutable_right()->mutable_read();
+  auto* right_read = join->mutable_right()->mutable_read();
   right_read->mutable_named_table()->add_names("right_table");
   auto* right_schema = right_read->mutable_base_schema();
   addI64Column(right_schema, "right_key");
   addI64Column(right_schema, "right_val");
 
   // Set join type.
-  cross->set_type(toSubstraitJoinType(join_type));
+  join->set_type(toSubstraitJoinType(join_type));
 
   // Build condition expression based on condition type.
   // Combined schema: [left_key(0), left_val(1), right_key(2), right_val(3)].
-  auto* expr = cross->mutable_expression();
+  auto* expr = join->mutable_expression();
 
   switch (condition_type) {
     case ConditionType::kLt: {
@@ -315,8 +320,8 @@ class NljConditionCorrectnessTest
 // ===========================================================================
 // Property 8.1: NestedLoopJoinNode Created with Correct Join Type
 //
-// For any CrossRel with a condition expression and a specified join type,
-// convertCrossRel SHALL produce a NestedLoopJoinNode with the corresponding
+// For any JoinRel with a condition expression and a specified join type,
+// convertJoinRel SHALL produce a NestedLoopJoinNode with the corresponding
 // Velox join type.
 //
 // **Validates: Requirements 4.1, 4.2**
@@ -351,7 +356,7 @@ TEST_P(NljConditionCorrectnessTest, CorrectJoinTypeMapping) {
 // ===========================================================================
 // Property 8.2: Filter Expression Present and Correct
 //
-// For any CrossRel with a condition expression, the resulting
+// For any JoinRel with a condition expression, the resulting
 // NestedLoopJoinNode SHALL have a non-null joinCondition with the correct
 // top-level function name matching the condition type.
 //
@@ -394,7 +399,7 @@ TEST_P(NljConditionCorrectnessTest, FilterExpressionPresent) {
 // ===========================================================================
 // Property 8.3: Output Schema Correctness
 //
-// For any CrossRel with left (N cols) and right (M cols) inputs, the
+// For any JoinRel with left (N cols) and right (M cols) inputs, the
 // NestedLoopJoinNode output schema SHALL have exactly N+M columns with
 // left columns first, then right columns.
 //
@@ -424,10 +429,10 @@ TEST_P(NljConditionCorrectnessTest, OutputSchemaCorrectness) {
       << "Output schema should have 4 columns for " << param.name;
 
   // Verify column ordering: left columns first, then right.
-  EXPECT_EQ(output_type->nameOf(0), "left_key");
-  EXPECT_EQ(output_type->nameOf(1), "left_val");
-  EXPECT_EQ(output_type->nameOf(2), "right_key");
-  EXPECT_EQ(output_type->nameOf(3), "right_val");
+  expectCanonicalOutputField(converter, output_type, 0, "left_key");
+  expectCanonicalOutputField(converter, output_type, 1, "left_val");
+  expectCanonicalOutputField(converter, output_type, 2, "right_key");
+  expectCanonicalOutputField(converter, output_type, 3, "right_val");
 
   // All columns should be BIGINT.
   for (size_t i = 0; i < output_type->size(); ++i) {
@@ -440,7 +445,8 @@ TEST_P(NljConditionCorrectnessTest, OutputSchemaCorrectness) {
 // Property 8.4: Two Source Inputs Present
 //
 // The NestedLoopJoinNode SHALL have exactly two source inputs (left and
-// right), both being TableScan nodes in this test configuration.
+// right), both reading TableScan nodes. The right ordinal-rebase Project is
+// explicit and preserves every original input column.
 //
 // **Validates: Requirements 4.1**
 // ===========================================================================
@@ -465,7 +471,13 @@ TEST_P(NljConditionCorrectnessTest, TwoSourceInputsPresent) {
   ASSERT_EQ(result->sources().size(), 2)
       << "NestedLoopJoin must have 2 sources for " << param.name;
   EXPECT_EQ(result->sources()[0]->name(), "TableScan");
-  EXPECT_EQ(result->sources()[1]->name(), "TableScan");
+  const auto& right = result->sources()[1];
+  EXPECT_EQ(right->name(), "Project");
+  ASSERT_EQ(right->sources().size(), 1);
+  EXPECT_EQ(right->sources()[0]->name(), "TableScan");
+  ASSERT_EQ(right->outputType()->size(), 2);
+  EXPECT_EQ(right->outputType()->nameOf(0), physicalFieldAlias(2));
+  EXPECT_EQ(right->outputType()->nameOf(1), physicalFieldAlias(3));
 }
 
 // ===========================================================================

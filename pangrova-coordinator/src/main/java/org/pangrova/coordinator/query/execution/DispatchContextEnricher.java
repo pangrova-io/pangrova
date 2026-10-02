@@ -13,7 +13,8 @@
  */
 package org.pangrova.coordinator.query.execution;
 
-import com.google.protobuf.ByteString;
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.query.CoordinatorSessionContext;
 import org.pangrova.parser.ast.Expression;
@@ -25,18 +26,17 @@ import org.pangrova.parser.ast.TableRef;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.rerank.RerankerInjectionRule;
 import org.pangrova.planner.rerank.RerankerPlanNode;
+import org.pangrova.planner.rerank.FullTextScoringNode;
 import org.pangrova.planner.vector.VectorSearchNode;
-import org.pangrova.protocol.v1.VectorSearchOperator;
-import org.pangrova.protocol.v1.VectorValue;
 import org.pangrova.spi.index.IndexDescriptor;
+import org.pangrova.spi.index.IndexState;
+import org.pangrova.spi.index.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Comparator;
+import java.util.Locale;
 
 /**
  * Enriches a {@link DispatchQueryContext} with vector search and reranker metadata
@@ -53,106 +53,47 @@ final class DispatchContextEnricher {
     }
 
     DispatchQueryContext enrichWithVectorSearch(
-            PlannedQuery plannedQuery, DispatchQueryContext ctx, String queryId) {
-        var vectorNode = plannedQuery.tryDetectVectorSearch(this::lookupVectorIndexes);
+            PlannedQuery plannedQuery, DispatchQueryContext ctx,
+            String queryId, String tenantId) {
+        var vectorNode = plannedQuery.tryDetectVectorSearch(
+                (table, column) -> lookupVectorIndexes(tenantId, table, column));
         if (vectorNode.isEmpty()) {
             return ctx;
         }
-        var vsNode = vectorNode.get();
+        var vsNode = bindVectorSearchMetadata(vectorNode.get(), ctx, tenantId);
         LOG.info("event=vector_search_detected queryId={} table={} column={} topK={} metric={} indexId={}",
                 queryId, vsNode.tableName(), vsNode.vectorColumn(),
                 vsNode.topK(), vsNode.metric(), vsNode.indexId());
         return ctx.withVectorSearch(vsNode);
     }
 
-    DispatchQueryContext enrichWithReranker(DispatchQueryContext ctx, String queryId) {
+    DispatchQueryContext enrichWithReranker(
+            DispatchQueryContext ctx, String queryId, String tenantId) {
         if (ctx.originalSql() == null || ctx.originalSql().isBlank()) {
             return ctx;
         }
         if (ctx.compiler() == null) {
             return ctx;
         }
-        try {
-            Statement stmt = ctx.compiler().parseToAst(ctx.originalSql());
-            if (!(stmt instanceof Query query)) {
-                return ctx;
-            }
-            String tableName = extractTableName(query);
-            int topK = extractTopK(query);
-            var rerankerPlan = RerankerInjectionRule.analyze(query, tableName, topK);
-            if (rerankerPlan.isEmpty()) {
-                return ctx;
-            }
-            LOG.info("event=reranker_detected queryId={} strategy={} sources={} topK={} hybrid={}",
-                    queryId,
-                    rerankerPlan.get().strategy().getClass().getSimpleName(),
-                    rerankerPlan.get().sources().size(),
-                    rerankerPlan.get().topK(),
-                    rerankerPlan.get().isHybrid());
-            return ctx.withRerankerPlan(rerankerPlan.get());
-        } catch (Exception e) {
-            LOG.debug("event=reranker_analysis_skipped queryId={} reason={}", queryId, e.getMessage());
+        Statement stmt = ctx.compiler().parseToAst(ctx.originalSql());
+        if (!(stmt instanceof Query query)) {
             return ctx;
         }
+        String tableName = extractTableName(query);
+        int topK = extractTopK(query);
+        var rerankerPlan = RerankerInjectionRule.analyze(query, tableName, topK);
+        if (rerankerPlan.isEmpty()) {
+            return ctx;
+        }
+        LOG.info("event=reranker_detected queryId={} strategy={} sources={} topK={} hybrid={}",
+                queryId,
+                rerankerPlan.get().strategy().getClass().getSimpleName(),
+                rerankerPlan.get().sources().size(),
+                rerankerPlan.get().topK(),
+                rerankerPlan.get().isHybrid());
+        return ctx.withRerankerPlan(bindFullTextIndexes(rerankerPlan.get(), ctx, tenantId));
     }
 
-    static CoordinatorSessionContext injectVectorSearchProperties(
-            CoordinatorSessionContext session, VectorSearchNode vsNode) {
-        VectorValue queryVec = VectorValue.newBuilder()
-                .addAllValues(toFloatList(vsNode.queryVector()))
-                .setDimension(vsNode.queryVector().length)
-                .build();
-        var builder = VectorSearchOperator.newBuilder()
-                .setTableName(vsNode.tableName())
-                .setVectorColumn(vsNode.vectorColumn())
-                .setQueryVector(queryVec)
-                .setTopK(vsNode.topK())
-                .setDistanceMetric(vsNode.metric().name());
-        if (vsNode.indexId() != null) {
-            builder.setIndexId(vsNode.indexId());
-        }
-        if (vsNode.indexGeneration() >= 0) {
-            builder.putSearchParams("_index_generation", String.valueOf(vsNode.indexGeneration()));
-        }
-        for (String preFilter : vsNode.serializedPreFilters()) {
-            builder.addFilterExpressions(ByteString.copyFromUtf8(preFilter));
-        }
-        byte[] operatorBytes = builder.build().toByteArray();
-        String encoded = Base64.getEncoder().encodeToString(operatorBytes);
-        Map<String, String> augmented = new HashMap<>(session.sessionProperties());
-        augmented.put("pangrova.vector_search_operator", encoded);
-        return new CoordinatorSessionContext(
-                session.queryId(), Map.copyOf(augmented),
-                session.userIdentity(), session.tenantId());
-    }
-
-    static CoordinatorSessionContext injectRerankerProperties(
-            CoordinatorSessionContext session, RerankerPlanNode rerankerPlan) {
-        Map<String, String> augmented = new HashMap<>(session.sessionProperties());
-        augmented.put("pangrova.reranker_strategy", strategyToPropertyValue(rerankerPlan.strategy()));
-        augmented.put("pangrova.reranker_top_k", String.valueOf(rerankerPlan.topK()));
-        if (rerankerPlan.queryText() != null) {
-            augmented.put("pangrova.reranker_query_text", rerankerPlan.queryText());
-        }
-        augmented.put("pangrova.reranker_source_count", String.valueOf(rerankerPlan.sources().size()));
-        augmented.put("pangrova.reranker_hybrid", String.valueOf(rerankerPlan.isHybrid()));
-        return new CoordinatorSessionContext(
-                session.queryId(), Map.copyOf(augmented),
-                session.userIdentity(), session.tenantId());
-    }
-
-    private static String strategyToPropertyValue(RerankerPlanNode.RerankerStrategy strategy) {
-        if (strategy instanceof RerankerPlanNode.RrfStrategy rrf) {
-            return "rrf:" + rrf.k();
-        } else if (strategy instanceof RerankerPlanNode.LinearCombinationStrategy lc) {
-            return "weighted:" + lc.weight1() + ":" + lc.weight2();
-        } else if (strategy instanceof RerankerPlanNode.CrossEncoderStrategy ce) {
-            return "cross_encoder:" + ce.modelName() + ":" + ce.topN();
-        } else if (strategy instanceof RerankerPlanNode.CascadeStrategy cascade) {
-            return "cascade:" + cascade.stages().size();
-        }
-        return "unknown";
-    }
 
     private static String extractTableName(Query query) {
         if (query.from().isEmpty()) {
@@ -174,24 +115,106 @@ final class DispatchContextEnricher {
         return 0;
     }
 
-    private static List<Float> toFloatList(float[] arr) {
-        List<Float> list = new ArrayList<>(arr.length);
-        for (float v : arr) {
-            list.add(v);
-        }
-        return list;
+    private List<IndexDescriptor> lookupVectorIndexes(
+            String tenantId, String tableName, String columnName) {
+        return lookupIndexes(tenantId, tableName, columnName);
     }
 
-    private List<IndexDescriptor> lookupVectorIndexes(String tableName, String columnName) {
+    private org.pangrova.planner.vector.VectorSearchNode bindVectorSearchMetadata(
+            org.pangrova.planner.vector.VectorSearchNode node,
+            DispatchQueryContext ctx,
+            String tenantId) {
+        IndexDescriptor descriptor = lookupIndexes(
+                tenantId, node.tableName(), node.vectorColumn()).stream()
+                .filter(index -> index.indexType() == IndexType.VECTOR)
+                .filter(index -> index.state() == IndexState.READY)
+                .filter(index -> node.indexId() == null || node.indexId().equals(index.indexId()))
+                .findFirst()
+                .orElse(null);
+        if (descriptor == null) {
+            return node;
+        }
+        return node.withSearchMetadata(
+                sourceSnapshot(ctx, node.tableName()),
+                indexSnapshot(descriptor),
+                freshnessEpochMillis(descriptor));
+    }
+
+    private RerankerPlanNode bindFullTextIndexes(
+            RerankerPlanNode plan, DispatchQueryContext ctx, String tenantId) {
+        List<RerankerPlanNode.RetrievalSource> boundSources = plan.sources().stream()
+                .map(source -> bindFullTextSource(source, ctx, tenantId))
+                .toList();
+        return new RerankerPlanNode(
+                plan.strategy(), boundSources, plan.topK(),
+                plan.queryText(), plan.targetColumns());
+    }
+
+    private RerankerPlanNode.RetrievalSource bindFullTextSource(
+            RerankerPlanNode.RetrievalSource source,
+            DispatchQueryContext ctx,
+            String tenantId) {
+        if (!(source instanceof RerankerPlanNode.FullTextSource fullText)) {
+            return source;
+        }
+        FullTextScoringNode node = fullText.scoringNode();
+        IndexDescriptor descriptor = lookupIndexes(
+                tenantId, node.tableName(), node.column()).stream()
+                .filter(index -> index.indexType() == IndexType.INVERTED)
+                .filter(index -> index.state() == IndexState.READY)
+                .filter(DispatchContextEnricher::isNativeBm25)
+                .filter(index -> !indexSnapshot(index).isBlank())
+                .max(Comparator.comparingInt(IndexDescriptor::generation)
+                        .thenComparing(IndexDescriptor::indexId))
+                .orElseThrow(() -> new PangrovaException(
+                        PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                        "MATCH/BM25_SCORE requires a READY Native BM25 index with "
+                                + "analyzer=standard-v1 for " + node.tableName()
+                                + "." + node.column()));
+        FullTextScoringNode bound = node.withIndexBinding(
+                descriptor.indexId(),
+                descriptor.generation(),
+                sourceSnapshot(ctx, node.tableName()),
+                indexSnapshot(descriptor),
+                freshnessEpochMillis(descriptor));
+        return new RerankerPlanNode.FullTextSource(bound);
+    }
+
+    private List<IndexDescriptor> lookupIndexes(
+            String tenantId, String tableName, String columnName) {
         if (indexAwareSplitFetcher == null) {
             return List.of();
         }
-        try {
-            return indexAwareSplitFetcher.lookupIndexes(tableName, columnName);
-        } catch (Exception e) {
-            LOG.debug("event=vector_index_lookup_failed table={} column={} error={}",
-                    tableName, columnName, e.getMessage());
-            return List.of();
-        }
+        return indexAwareSplitFetcher.lookupIndexes(tenantId, tableName, columnName);
     }
+
+    private static boolean isNativeBm25(IndexDescriptor descriptor) {
+        String algorithm = descriptor.properties().getOrDefault("algorithm", "BM25")
+                .trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        String analyzer = descriptor.properties().getOrDefault(
+                "analyzer", "standard-v1").trim().toLowerCase(Locale.ROOT);
+        return algorithm.equals("BM25") && analyzer.equals("standard-v1");
+    }
+
+    private static String sourceSnapshot(DispatchQueryContext ctx, String tableName) {
+        Long snapshot = ctx.snapshotOverrides().get(tableName);
+        return snapshot == null ? "" : String.valueOf(snapshot);
+    }
+
+    private static String indexSnapshot(IndexDescriptor descriptor) {
+        if (descriptor.lastIndexedSnapshotId() != null
+                && !descriptor.lastIndexedSnapshotId().isBlank()) {
+            return descriptor.lastIndexedSnapshotId();
+        }
+        if (descriptor.buildSnapshotId() != null
+                && !descriptor.buildSnapshotId().isBlank()) {
+            return descriptor.buildSnapshotId();
+        }
+        return "";
+    }
+
+    private static long freshnessEpochMillis(IndexDescriptor descriptor) {
+        return descriptor.updatedAt() == null ? 0 : descriptor.updatedAt().toEpochMilli();
+    }
+
 }

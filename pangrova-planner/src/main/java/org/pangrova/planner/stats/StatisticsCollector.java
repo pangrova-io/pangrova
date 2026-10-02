@@ -134,6 +134,8 @@ public class StatisticsCollector {
                     store.put(tableName, stats);
                     return Optional.of(stats);
                 }
+            } catch (org.pangrova.common.exception.PangrovaException authorityFailure) {
+                throw authorityFailure;
             } catch (Exception e) {
                 LOG.warn("event=connector_statistics_load_failed table={} reason={}", tableName, e.getMessage());
             }

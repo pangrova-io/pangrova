@@ -7,6 +7,8 @@
 
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/FlatVector.h"
+#include "merge/SequenceNumberReader.h"
+#include "merge/MergeVersionGroup.h"
 
 namespace pangrova::merge {
 
@@ -48,10 +50,10 @@ bool FirstRowHeapComparator::operator()(
 FirstRowMergeReader::FirstRowMergeReader(
     std::vector<facebook::velox::column_index_t> primary_key_indices,
     facebook::velox::column_index_t sequence_column_index,
-    facebook::velox::RowTypePtr output_type)
+    facebook::velox::RowTypePtr output_type, MergeDeletePolicy delete_policy)
     : key_indices_(std::move(primary_key_indices)),
       sequence_index_(sequence_column_index),
-      output_type_(std::move(output_type)) {
+      output_type_(std::move(output_type)), delete_policy_(delete_policy) {
   if (key_indices_.empty()) {
     throw std::invalid_argument(
         "FirstRowMergeReader requires at least one primary key column");
@@ -111,28 +113,25 @@ facebook::velox::RowVectorPtr FirstRowMergeReader::next(
   output_rows.reserve(std::min(batch_size, static_cast<uint64_t>(1024)));
 
   while (!heap_->empty() && output_rows.size() < batch_size) {
-    // Pop the entry with the smallest key and lowest sequence (first row).
-    auto winner = heap_->top();
-    heap_->pop();
-    stats_.input_rows++;
-
-    // Skip all subsequent entries with the same primary key (they have
-    // higher sequence numbers, so the winner is the first occurrence).
-    while (!heap_->empty() && keysEqual(winner, heap_->top())) {
-      auto dup = heap_->top();
-      heap_->pop();
-      stats_.input_rows++;
-      stats_.merged_rows++;
-
-      readers_[dup.reader_index].current_row = dup.row + 1;
-      advanceReader(dup.reader_index, pool);
+    auto versions = collectKeyVersions(*heap_, stats_,
+        [&](const auto& first, const auto& second) { return keysEqual(first, second); },
+        [&](const auto& entry) {
+          readers_[entry.reader_index].current_row = entry.row + 1;
+          advanceReader(entry.reader_index, pool);
+        });
+    std::optional<HeapEntry> first;
+    for (const auto& version : versions) {
+      const auto kind = persistedValueKind(version);
+      if (kind == 1 || kind == 3) {
+        if (!delete_policy_.ignore_delete) throw std::invalid_argument("First-row merge rejects DELETE/UPDATE_BEFORE");
+        continue;
+      }
+      if (!first) first = version;
     }
-
-    output_rows.push_back(copyRow(winner, pool));
-    stats_.output_rows++;
-
-    readers_[winner.reader_index].current_row = winner.row + 1;
-    advanceReader(winner.reader_index, pool);
+    if (first) {
+      output_rows.push_back(copyRow(*first, pool));
+      stats_.output_rows++;
+    }
   }
 
   if (output_rows.empty()) {
@@ -212,6 +211,7 @@ void FirstRowMergeReader::pushCurrentRow(int reader_index) {
   entry.reader_index = reader_index;
   entry.row = state.current_row;
   entry.batch = state.current_batch;
+  validatePrimaryKey(entry, key_indices_);
   entry.sequence_num = extractSequenceNumber(entry);
 
   heap_->push(std::move(entry));
@@ -243,42 +243,7 @@ int64_t FirstRowMergeReader::extractSequenceNumber(
     // so reader_index directly gives oldest files priority.
     return static_cast<int64_t>(entry.reader_index);
   }
-  auto seq_vector = entry.batch->childAt(sequence_index_);
-  // P1-TC-10: Dispatch on typeKind for INTEGER/SMALLINT/TINYINT, widen to int64_t.
-  switch (seq_vector->typeKind()) {
-    case facebook::velox::TypeKind::BIGINT: {
-      auto flat = seq_vector->asFlatVector<int64_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return flat->valueAt(entry.row);
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::INTEGER: {
-      auto flat = seq_vector->asFlatVector<int32_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::SMALLINT: {
-      auto flat = seq_vector->asFlatVector<int16_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::TINYINT: {
-      auto flat = seq_vector->asFlatVector<int8_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    default:
-      break;
-  }
-  // Null sequence treated as minimum priority (earliest).
-  return std::numeric_limits<int64_t>::min();
+  return decodedSequenceNumber(entry.batch, sequence_index_, entry.row);
 }
 
 facebook::velox::RowVectorPtr FirstRowMergeReader::copyRow(

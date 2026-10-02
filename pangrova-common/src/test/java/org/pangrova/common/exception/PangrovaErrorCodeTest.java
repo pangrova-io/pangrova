@@ -24,10 +24,14 @@ class PangrovaErrorCodeTest {
         assertThat(PangrovaErrorCode.SPI_MULTIPLE_PROVIDERS.getCode()).isEqualTo("SPI-0002");
         assertThat(PangrovaErrorCode.PROTOCOL_SERIALIZATION_FAILED.getCode()).isEqualTo("PROTOCOL-0001");
         assertThat(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED.getCode()).isEqualTo("PROTOCOL-0002");
+        assertThat(PangrovaErrorCode.AI_INVOCATION_AUTHORIZATION_DENIED.getCode())
+                .isEqualTo("AI-3017");
+        assertThat(PangrovaErrorCode.AI_EMBEDDING_MODEL_DROP_UNAVAILABLE.getCode())
+                .isEqualTo("AI-0007");
     }
 
     @Test
     void enumHasExpectedSize() {
-        assertThat(PangrovaErrorCode.values()).hasSize(163);
+        assertThat(PangrovaErrorCode.values()).hasSize(164);
     }
 }

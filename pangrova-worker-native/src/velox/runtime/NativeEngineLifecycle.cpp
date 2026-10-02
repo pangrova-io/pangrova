@@ -8,23 +8,33 @@
 #include <iostream>
 
 #include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
+
+#include "lance_c_ffi.h"
 
 #include "jni/RuntimeInitializer.h"
 #include "jni/registry/HandleRegistry.h"
+#include "artifact/ImmutableArtifactCache.h"
+#include "capability/BuiltinFunctionRegistration.h"
 #include "memory/PangrovaArbitrator.h"
 #include "memory/MemoryPressure.h"
 #include "result/ArrowBatchVectorSerde.h"
+#include "text/bm25/TextSearchFunctions.h"
 #include "velox/connector/PangrovaVeloxConnector.h"
 #include "velox/exchange/PangrovaExchangeSource.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
 #include "velox/plan/GenerateSeriesOperator.h"
 #include "velox/plan/LateralTableFunctionOperator.h"
+#include "velox/plan/RetrievalMergeOperator.h"
+#include "velox/plan/ArtifactBuildOperator.h"
+#include "velox/plan/GeneratedValuesOverlayOperator.h"
 #include "velox/runtime/TableFunctionRegistry.h"
 #include "memory/PangrovaAllocationListener.h"
 #include "memory/BlockAllocationListener.h"
 #include "memory/PangrovaArbitrator.h"
 #include "udf/NativeUdfRegistry.h"
 #include "variant/VariantPathExpression.h"
+#include "vector/diskann/DiskAnnIndexCache.h"
 #include "vector/VectorDistanceFunctions.h"
 
 // Velox connector registry.
@@ -129,8 +139,16 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
   if (initialized_.load(std::memory_order_relaxed)) {
     shutdownInternal();
   }
-  initVeloxMemory(config, env, allocationListener);
-  initCommon(config);
+  try {
+    initVeloxMemory(config, env, allocationListener);
+    initCommon(config);
+  } catch (...) {
+    // Runtime initialization is one atomic readiness transition. Tear down all
+    // partially-created pools, caches, registrations and memory listeners so a
+    // failed node can be repaired and retried without process restart.
+    shutdownInternal();
+    throw;
+  }
   initialized_.store(true, std::memory_order_release);
 
   std::cerr << "level=INFO event=native_engine_lifecycle_initialized"
@@ -145,8 +163,13 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config) {
   if (initialized_.load(std::memory_order_relaxed)) {
     shutdownInternal();
   }
-  initVeloxMemoryTestMode(config);
-  initCommon(config);
+  try {
+    initVeloxMemoryTestMode(config);
+    initCommon(config);
+  } catch (...) {
+    shutdownInternal();
+    throw;
+  }
   initialized_.store(true, std::memory_order_release);
 
   std::cerr << "level=INFO event=native_engine_lifecycle_initialized_test_mode"
@@ -197,6 +220,11 @@ std::shared_ptr<folly::Executor> NativeEngineLifecycle::executor() {
   return executor_;
 }
 
+std::shared_ptr<folly::Executor> NativeEngineLifecycle::ioExecutor() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return io_executor_;
+}
+
 void NativeEngineLifecycle::initVeloxMemory(
     const NativeRuntimeConfig& config,
     JNIEnv* env, jobject allocationListener) {
@@ -245,18 +273,7 @@ void NativeEngineLifecycle::initVeloxMemoryTestMode(
 }
 
 void NativeEngineLifecycle::registerVeloxFunctions() {
-#if PANGROVA_HAS_VELOX_SCALAR_FUNCS
-  facebook::velox::functions::prestosql::registerAllScalarFunctions();
-#endif
-
-#if PANGROVA_HAS_VELOX_AGG_FUNCS
-  facebook::velox::aggregate::prestosql::registerAllAggregateFunctions(
-      /*prefix=*/"", /*withCompanionFunctions=*/true);
-#endif
-
-#if PANGROVA_HAS_VELOX_WINDOW_FUNCS
-  facebook::velox::window::prestosql::registerAllWindowFunctions();
-#endif
+  pangrova::capability::registerBuiltinFunctions();
 
 #if PANGROVA_HAS_PRESTO_SERDE
   if (!facebook::velox::isRegisteredVectorSerde()) {
@@ -281,20 +298,6 @@ void NativeEngineLifecycle::registerVeloxFunctions() {
     pangrova::result::ArrowBatchVectorSerde::registerNamedVectorSerde();
   }
 
-  try {
-    pangrova::vector::registerVectorDistanceFunctions();
-  } catch (const std::exception& e) {
-    std::cerr << "level=ERROR event=vector_distance_registration_failed"
-              << " error=" << e.what() << std::endl;
-  }
-
-  try {
-    pangrova::variant::registerVariantPathFunctions();
-  } catch (const std::exception& e) {
-    std::cerr << "level=ERROR event=variant_path_registration_failed"
-              << " error=" << e.what() << std::endl;
-  }
-
 #if PANGROVA_HAS_FLIGHT
   pangrova::velox::PangrovaExchangeSource::registerExchangeSourceFactory();
 #endif
@@ -302,6 +305,9 @@ void NativeEngineLifecycle::registerVeloxFunctions() {
   // Register custom table function operators with Velox's execution framework.
   pangrova::velox::registerGenerateSeriesOperator();
   pangrova::velox::registerLateralTableFunctionOperator();
+  pangrova::velox::registerRetrievalMergeOperator();
+  pangrova::velox::registerArtifactBuildOperator();
+  pangrova::velox::registerGeneratedValuesOverlayOperator();
 
   bool dwio_fresh = !dwio_factories_registered_;
   if (dwio_fresh) {
@@ -426,6 +432,19 @@ void NativeEngineLifecycle::initAsyncDataCache(
 }
 
 void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
+  // Lance is part of the mandatory Native data plane. A Worker must never
+  // become ready and advertise execution when the linked Rust ABI or its
+  // process runtime is unusable.
+  if (lance_ffi_abi_version() != PANGROVA_LANCE_C_FFI_ABI_VERSION) {
+    throw std::runtime_error("Lance C FFI ABI version mismatch");
+  }
+  if (lance_ffi_runtime_init() != 0) {
+    const char* error = lance_ffi_last_error();
+    throw std::runtime_error(
+        std::string("Lance FFI runtime initialization failed") +
+        (error == nullptr ? "" : std::string(": ") + error));
+  }
+
   if (config.pressure_threshold_low > 0 &&
       config.pressure_threshold_medium > 0 &&
       config.pressure_threshold_high > 0 &&
@@ -440,7 +459,6 @@ void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
   registerVeloxFunctions();
 
   udf_registry_ = std::make_unique<pangrova::udf::NativeUdfRegistry>();
-  udf_registry_->registerAllWithVelox();
 
   table_function_registry_ = std::make_unique<pangrova::velox::TableFunctionRegistry>();
   table_function_registry_->registerBuiltins();
@@ -461,9 +479,16 @@ void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
       : std::max(config.num_drivers * 4, 32);
   executor_ =
       std::make_shared<folly::CPUThreadPoolExecutor>(task_threads + driver_threads);
+  io_executor_ = std::make_shared<folly::IOThreadPoolExecutor>(
+      std::max(config.io_thread_count, 1));
 
   if (config.cache_enabled) {
     initAsyncDataCache(config);
+    pangrova::artifact::ImmutableArtifactCache::instance().configure(
+        config.artifact_cache_path,
+        static_cast<uint64_t>(config.artifact_cache_bytes));
+    pangrova::vector::diskann::DiskAnnIndexCache::instance().configure(
+        static_cast<uint64_t>(config.artifact_index_memory_bytes));
   }
 
   registerVeloxConnector(config);
@@ -472,14 +497,26 @@ void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
 void NativeEngineLifecycle::shutdownInternal() {
   HandleRegistry::instance().destroyAll();
 
-  // Join the executor thread pool BEFORE destroying memory bridge.
-  // Velox Task destruction may happen asynchronously on executor threads;
-  // those destructors reference memory pools owned by the bridge.
-  // Joining first ensures all async work completes while pools are alive.
+  // Handle destruction closes exchange sources and cancels their Flight RPCs.
+  // Drain the blocking-I/O pool before the CPU pool and memory bridge so no
+  // late network callback can enqueue a page into a destroyed Velox task.
+  if (io_executor_) {
+    io_executor_->join();
+    io_executor_.reset();
+  }
+
+  // Join the CPU executor BEFORE destroying the memory bridge. Velox Task
+  // destruction may happen asynchronously on executor threads; those
+  // destructors reference memory pools owned by the bridge.
   if (executor_) {
     executor_->join();
     executor_.reset();
   }
+
+  // Handles and executors no longer use Lance. Drop the process-wide Tokio
+  // reference before static destruction; any independently open FFI handle
+  // retains its own Arc until that handle is closed.
+  lance_ffi_runtime_shutdown();
 
 #if PANGROVA_HAS_VELOX_ASYNC_CACHE
   async_data_cache_ = nullptr;
@@ -487,6 +524,13 @@ void NativeEngineLifecycle::shutdownInternal() {
   async_data_cache_holder_.reset();
   ssd_cache_.reset();
 #endif
+
+  if (pangrova::vector::diskann::DiskAnnIndexCache::instance().enabled()) {
+    pangrova::vector::diskann::DiskAnnIndexCache::instance().shutdown();
+  }
+  if (pangrova::artifact::ImmutableArtifactCache::instance().enabled()) {
+    pangrova::artifact::ImmutableArtifactCache::instance().shutdown();
+  }
 
   if (velox_memory_governor_ && velox_memory_governor_->veloxMemoryManager()) {
     int64_t used = velox_memory_governor_->usedMemory();

@@ -1,12 +1,16 @@
 package org.pangrova.coordinator.query;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
@@ -14,12 +18,14 @@ import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.query.SubmitQueryResponse;
 import org.pangrova.testing.TestObservability;
 import org.junit.jupiter.api.AfterEach;
@@ -191,6 +197,165 @@ class QueryManagerAsyncSubmitTest {
         assertThat(endpoint).isPresent();
     }
 
+    @Test
+    @DisplayName("publishing an endpoint before RUNNING does not return an intermediate state")
+    void endpointAloneDoesNotCompleteAsyncSubmit() throws Exception {
+        CountDownLatch endpointPublished = new CountDownLatch(1);
+        CountDownLatch allowRunning = new CountDownLatch(1);
+        QueryDispatcher dispatcher = new SlowQueryDispatcher(
+                new CountDownLatch(1), new CountDownLatch(1)) {
+            @Override
+            public DispatchResult execute(QueryStateMachine sm, String sql,
+                                          CoordinatorSessionContext session) {
+                var endpoint = new ResultEndpoint(
+                        "localhost", 9090, "ticket-early", "arrow-flight");
+                sm.tryTransition(QueryStateMachine.State.PLANNING);
+                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
+                sm.setResultEndpoint(endpoint);
+                endpointPublished.countDown();
+                await(allowRunning);
+                sm.tryTransition(QueryStateMachine.State.RUNNING);
+                return new DispatchResult("localhost", "task-early", endpoint);
+            }
+        };
+        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+                dispatcher, TestObservability.TRACING,
+                AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
+        ExecutorService submitter = Executors.newSingleThreadExecutor();
+        try {
+            Future<SubmitQueryResponse> submitted = submitter.submit(() ->
+                    manager.submitQuery("endpoint-before-running", "SELECT 1",
+                            testSession("endpoint-before-running")));
+            assertThat(endpointPublished.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> submitted.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            allowRunning.countDown();
+            SubmitQueryResponse response = submitted.get(5, TimeUnit.SECONDS);
+            assertThat(response.state()).isEqualTo("RUNNING");
+            assertThat(response.resultEndpoint()).isNotNull();
+        } finally {
+            allowRunning.countDown();
+            submitter.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("FINISHED before DispatchResult waits for the control-plane endpoint")
+    void terminalBeforeEndpointDoesNotReturnNullEndpoint() throws Exception {
+        CountDownLatch terminalReached = new CountDownLatch(1);
+        CountDownLatch allowResult = new CountDownLatch(1);
+        QueryDispatcher dispatcher = new SlowQueryDispatcher(
+                new CountDownLatch(1), new CountDownLatch(1)) {
+            @Override
+            public DispatchResult execute(QueryStateMachine sm, String sql,
+                                          CoordinatorSessionContext session) {
+                sm.tryTransition(QueryStateMachine.State.PLANNING);
+                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
+                sm.tryTransition(QueryStateMachine.State.RUNNING);
+                sm.tryTransition(QueryStateMachine.State.FINISHING);
+                sm.tryTransition(QueryStateMachine.State.FINISHED);
+                terminalReached.countDown();
+                await(allowResult);
+                return new DispatchResult("localhost", "task-ddl",
+                        new ResultEndpoint("localhost", 9090,
+                                "ticket-ddl", "arrow-flight"));
+            }
+        };
+        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+                dispatcher, TestObservability.TRACING,
+                AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
+        ExecutorService submitter = Executors.newSingleThreadExecutor();
+        try {
+            Future<SubmitQueryResponse> submitted = submitter.submit(() ->
+                    manager.submitQuery("ddl-before-endpoint", "SHOW TABLES",
+                            testSession("ddl-before-endpoint")));
+            assertThat(terminalReached.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> submitted.get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            allowResult.countDown();
+            SubmitQueryResponse response = submitted.get(5, TimeUnit.SECONDS);
+            assertThat(response.state()).isEqualTo("FINISHED");
+            assertThat(response.resultEndpoint()).isNotNull();
+            assertThat(response.resultEndpoint().ticket()).isEqualTo("ticket-ddl");
+        } finally {
+            allowResult.countDown();
+            submitter.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("dispatch failure before endpoint is published propagates to submitter")
+    void failedDispatchDoesNotReturnSuccessfulSubmit() {
+        QueryDispatcher unavailable = new SlowQueryDispatcher(
+                new CountDownLatch(1), new CountDownLatch(1)) {
+            @Override
+            public DispatchResult execute(QueryStateMachine sm, String sql,
+                                          CoordinatorSessionContext session) {
+                sm.tryTransition(QueryStateMachine.State.PLANNING);
+                sm.tryTransition(QueryStateMachine.State.FAILED);
+                throw new NoAvailableWorkerException();
+            }
+        };
+        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+                unavailable, TestObservability.TRACING,
+                AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
+
+        assertThatThrownBy(() -> manager.submitQuery(
+                "no-worker", "SELECT 1", testSession("no-worker")))
+                .isInstanceOf(NoAvailableWorkerException.class);
+        assertThat(manager.getQueryState("no-worker"))
+                .contains(QueryStateMachine.State.FAILED);
+        assertThat(manager.getResultEndpoint("no-worker")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("terminal write failure wakes submit before endpoint timeout")
+    void terminalFailurePreservesCommitErrorBeforeEndpointTimeout() throws Exception {
+        CountDownLatch dispatched = new CountDownLatch(1);
+        CountDownLatch blocked = new CountDownLatch(1);
+        QueryDispatcher dispatcher = new SlowQueryDispatcher(dispatched, blocked) {
+            @Override
+            public DispatchResult execute(QueryStateMachine sm, String sql,
+                                          CoordinatorSessionContext session) {
+                sm.tryTransition(QueryStateMachine.State.PLANNING);
+                sm.tryTransition(QueryStateMachine.State.SCHEDULING);
+                sm.tryTransition(QueryStateMachine.State.RUNNING);
+                dispatched.countDown();
+                await(blocked);
+                throw new IllegalStateException("dispatch should be interrupted");
+            }
+        };
+        QueryManager manager = new QueryManager(QueryManagerContext.minimalAsync(
+                dispatcher, TestObservability.TRACING,
+                new AsyncSubmitConfig(true, 5_000), asyncExecutor));
+        ExecutorService submitter = Executors.newSingleThreadExecutor();
+        try {
+            Future<SubmitQueryResponse> submitted = submitter.submit(() ->
+                    manager.submitQuery("write-commit-failed", "INSERT INTO t VALUES (1)",
+                            testSession("write-commit-failed")));
+            assertThat(dispatched.await(2, TimeUnit.SECONDS)).isTrue();
+            manager.onTaskFailed("write-commit-failed", new ErrorDetail(
+                    "RUNTIME-0001", "CATALOG_COMMIT_FAILED", "catalog commit rejected"));
+            assertThatThrownBy(() -> submitted.get(2, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasRootCauseMessage("catalog commit rejected");
+        } finally {
+            blocked.countDown();
+            submitter.shutdownNow();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Test dispatch gate timed out");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Test dispatch interrupted", e);
+        }
+    }
+
     // ── Helpers ──
 
     private boolean awaitQueryTerminal(String queryId, long timeoutMs) throws Exception {
@@ -298,7 +463,7 @@ class QueryManagerAsyncSubmitTest {
                     new WorkerManager(20_000, 60_000,
                             new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()),
                     new CoordinatorTaskTracker(),
-                    null, null, null, null, 0L);
+                    null, null, null, 0L);
         }
     }
 }

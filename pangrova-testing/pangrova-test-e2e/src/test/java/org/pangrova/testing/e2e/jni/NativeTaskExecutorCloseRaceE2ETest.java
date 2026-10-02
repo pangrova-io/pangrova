@@ -65,7 +65,7 @@ class NativeTaskExecutorCloseRaceE2ETest extends SqlE2ETestBase {
         void sequentialCreateClose_noLeak() {
             assertTimeoutPreemptively(Duration.ofSeconds(60), () -> {
                 for (int i = 0; i < 50; i++) {
-                    long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+                    long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
                     NativeRuntime.nativeReleaseExecutor(handle);
                 }
             }, "50 sequential create-close cycles must complete within 60s");
@@ -90,7 +90,7 @@ class NativeTaskExecutorCloseRaceE2ETest extends SqlE2ETestBase {
                     for (int i = 0; i < cyclesPerThread; i++) {
                         try {
                             long handle = NativeRuntime.nativeCreateTaskExecutor(
-                                    new byte[0]);
+                                    CanonicalNativeTask.valuesRequest());
                             NativeRuntime.nativeReleaseExecutor(handle);
                         } catch (Throwable e) {
                             errors.add(e);
@@ -117,7 +117,7 @@ class NativeTaskExecutorCloseRaceE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("Two threads closing same handle: exactly one succeeds, one gets exception")
         void doubleClose_oneSucceedsOneThrows() throws Exception {
-            long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+            long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
 
             CountDownLatch startLatch = new CountDownLatch(1);
             AtomicInteger successCount = new AtomicInteger(0);
@@ -165,7 +165,7 @@ class NativeTaskExecutorCloseRaceE2ETest extends SqlE2ETestBase {
         void cancelThenClose_noDeadlock() {
             assertTimeoutPreemptively(Duration.ofSeconds(30), () -> {
                 for (int i = 0; i < 20; i++) {
-                    long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+                    long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
                     NativeRuntime.nativeCancelTask(handle);
                     NativeRuntime.nativeReleaseExecutor(handle);
                 }
@@ -181,7 +181,7 @@ class NativeTaskExecutorCloseRaceE2ETest extends SqlE2ETestBase {
             CopyOnWriteArrayList<Throwable> unexpectedErrors = new CopyOnWriteArrayList<>();
 
             for (int i = 0; i < iterations; i++) {
-                long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+                long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
                 CountDownLatch startLatch = new CountDownLatch(1);
                 ExecutorService executor = Executors.newFixedThreadPool(2);
                 List<Future<?>> futures = new ArrayList<>();
@@ -230,7 +230,7 @@ class NativeTaskExecutorCloseRaceE2ETest extends SqlE2ETestBase {
             // Heavy churn phase
             for (int i = 0; i < 30; i++) {
                 try {
-                    long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+                    long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
                     NativeRuntime.nativeReleaseExecutor(handle);
                 } catch (NativeRuntimeException ignored) {
                     // Tolerate individual failures during churn

@@ -14,6 +14,8 @@ import org.pangrova.parser.ast.statement.CreateBranchStatement;
 import org.pangrova.parser.ast.statement.CreateEmbeddingModelStatement;
 import org.pangrova.parser.ast.statement.CreateIndexStatement;
 import org.pangrova.parser.ast.statement.CreateSchemaStatement;
+import org.pangrova.parser.ast.statement.CreateSemanticViewStatement;
+import org.pangrova.parser.ast.statement.CreateFeatureViewStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.statement.CreateTagStatement;
 import org.pangrova.parser.ast.statement.CreateViewStatement;
@@ -32,6 +34,9 @@ import org.pangrova.parser.ast.statement.ExplainStatement;
 import org.pangrova.parser.ast.statement.GrantTenantStatement;
 import org.pangrova.parser.ast.statement.IncrementalReadStatement;
 import org.pangrova.parser.ast.statement.ReclusterTableStatement;
+import org.pangrova.parser.ast.statement.PublishSemanticViewStatement;
+import org.pangrova.parser.ast.statement.PublishFeatureViewStatement;
+import org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
 import org.pangrova.parser.ast.statement.RevokeTenantStatement;
 import org.pangrova.parser.ast.statement.SetClusteringOrderStatement;
 import org.pangrova.parser.ast.statement.ShowBackfillStatusStatement;
@@ -41,6 +46,7 @@ import org.pangrova.parser.ast.statement.ShowClusteringStatusStatement;
 import org.pangrova.parser.ast.statement.ShowDynamicTablesStatement;
 import org.pangrova.parser.ast.statement.ShowEmbeddingModelsStatement;
 import org.pangrova.parser.ast.statement.ShowIndexesStatement;
+import org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
 import org.pangrova.parser.ast.statement.ShowMetadataStatement;
 import org.pangrova.parser.ast.statement.ShowTablesStatement;
 import org.pangrova.parser.ast.statement.ShowTagsStatement;
@@ -121,6 +127,8 @@ final class StatementTypeRegistry {
             Map.entry(CreateEmbeddingModelStatement.class, StatementType.CREATE_EMBEDDING_MODEL),
             Map.entry(CreateIndexStatement.class, StatementType.CREATE_INDEX),
             Map.entry(CreateSchemaStatement.class, StatementType.CREATE_SCHEMA),
+            Map.entry(CreateSemanticViewStatement.class, StatementType.CREATE_SEMANTIC_VIEW),
+            Map.entry(CreateFeatureViewStatement.class, StatementType.CREATE_FEATURE_VIEW),
             Map.entry(CreateTableStatement.class, StatementType.CREATE_TABLE),
                 Map.entry(
                     org.pangrova.parser.ast.statement.CreateTableAsSelectStatement.class,
@@ -142,6 +150,9 @@ final class StatementTypeRegistry {
             Map.entry(GrantTenantStatement.class, StatementType.GRANT_TENANT),
             Map.entry(IncrementalReadStatement.class, StatementType.INCREMENTAL_READ),
             Map.entry(ReclusterTableStatement.class, StatementType.RECLUSTER_TABLE),
+            Map.entry(PublishSemanticViewStatement.class, StatementType.PUBLISH_SEMANTIC_VIEW),
+            Map.entry(PublishFeatureViewStatement.class, StatementType.PUBLISH_FEATURE_VIEW),
+            Map.entry(MaterializeFeatureViewStatement.class, StatementType.MATERIALIZE_FEATURE_VIEW),
             Map.entry(RevokeTenantStatement.class, StatementType.REVOKE_TENANT),
             Map.entry(SetClusteringOrderStatement.class, StatementType.SET_CLUSTERING_ORDER),
             Map.entry(ShowBackfillStatusStatement.class, StatementType.SHOW_BACKFILL_STATUS),
@@ -151,6 +162,7 @@ final class StatementTypeRegistry {
             Map.entry(ShowDynamicTablesStatement.class, StatementType.SHOW_DYNAMIC_TABLES),
             Map.entry(ShowEmbeddingModelsStatement.class, StatementType.SHOW_EMBEDDING_MODELS),
             Map.entry(ShowIndexesStatement.class, StatementType.SHOW_INDEXES),
+            Map.entry(ShowSemanticViewsStatement.class, StatementType.SHOW_SEMANTIC_VIEWS),
             Map.entry(ShowTablesStatement.class, StatementType.SHOW_TABLES),
             Map.entry(ShowTagsStatement.class, StatementType.SHOW_TAGS),
             Map.entry(ShowViewsStatement.class, StatementType.SHOW_VIEWS),

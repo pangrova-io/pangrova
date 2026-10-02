@@ -13,8 +13,8 @@
  */
 package org.pangrova.coordinator.query.stage;
 
-import org.pangrova.planner.PlanFragment;
-import org.pangrova.protocol.rest.task.ExchangeSourceDescriptor;
+import org.pangrova.planner.StagePlanAccess;
+import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
 
 import java.util.List;
 
@@ -29,7 +29,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  */
 public record StageNode(
         int stageId,
-        PlanFragment planFragment,
+        StagePlanAccess stagePlan,
         int parallelism,
         String taskType,
         List<ExchangeSourceDescriptor> exchangeSources,
@@ -37,11 +37,25 @@ public record StageNode(
         long estimatedShuffleRows) {
 
     public StageNode {
-        checkNotNull(planFragment, "planFragment must not be null");
+        checkNotNull(stagePlan, "stagePlan must not be null");
         checkNotNull(taskType, "taskType must not be null");
         exchangeSources = exchangeSources == null ? List.of() : List.copyOf(exchangeSources);
         if (parallelism < 1) {
             throw new IllegalArgumentException("parallelism must be >= 1, got " + parallelism);
+        }
+        if (stagePlan instanceof org.pangrova.planner.AuthorizedStageGraph.SerializedStage replay
+                && (stageId != replay.stageId() || parallelism != replay.parallelism()
+                        || !taskType.equals(replay.taskType()))) {
+            throw new IllegalArgumentException("Durable stage coordinates differ from its persisted graph identity");
+        }
+        requirePersistedCoordinates(stagePlan, stageId, parallelism, taskType);
+    }
+
+    private static void requirePersistedCoordinates(StagePlanAccess plan, int stage, int parallelism, String type) {
+        if (plan instanceof org.pangrova.coordinator.artifact.template.PersistedStagePlan persisted
+                && (stage != persisted.stage().stageId() || parallelism != persisted.stage().parallelism()
+                        || !type.equals(persisted.taskType()))) {
+            throw new IllegalArgumentException("Durable stage coordinates differ from its immutable metadata graph");
         }
     }
 
@@ -49,24 +63,30 @@ public record StageNode(
      * Convenience constructor without planner statistics.
      * Estimated values default to -1 (unavailable).
      */
-    public StageNode(int stageId, PlanFragment planFragment, int parallelism,
+    public StageNode(int stageId, StagePlanAccess stagePlan, int parallelism,
                      String taskType, List<ExchangeSourceDescriptor> exchangeSources) {
-        this(stageId, planFragment, parallelism, taskType, exchangeSources, -1L, -1L);
+        this(stageId, stagePlan, parallelism, taskType, exchangeSources, -1L, -1L);
     }
 
     /**
      * Returns a copy with adjusted parallelism for adaptive dynamic parallelism.
      */
     public StageNode withParallelism(int newParallelism) {
-        return new StageNode(stageId, planFragment, newParallelism, taskType,
+        if (stagePlan.mode() == StagePlanAccess.Mode.DURABLE_REPLAY && newParallelism != parallelism) {
+            throw new IllegalStateException("Durable stage parallelism is part of its persisted graph identity");
+        }
+        return new StageNode(stageId, stagePlan, newParallelism, taskType,
                 exchangeSources, estimatedShuffleBytes, estimatedShuffleRows);
     }
 
     /**
      * Returns a copy with a reoptimized plan fragment for sub-plan re-optimization.
      */
-    public StageNode withPlanFragment(PlanFragment newPlanFragment) {
-        return new StageNode(stageId, newPlanFragment, parallelism, taskType,
+    public StageNode withStagePlan(StagePlanAccess newStagePlan) {
+        if (stagePlan.mode() == StagePlanAccess.Mode.DURABLE_REPLAY) {
+            throw new IllegalStateException("Durable stage plan cannot be adaptively replaced");
+        }
+        return new StageNode(stageId, newStagePlan, parallelism, taskType,
                 exchangeSources, estimatedShuffleBytes, estimatedShuffleRows);
     }
 }

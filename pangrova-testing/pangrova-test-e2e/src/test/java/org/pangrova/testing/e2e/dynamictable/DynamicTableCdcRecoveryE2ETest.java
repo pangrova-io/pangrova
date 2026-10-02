@@ -38,7 +38,7 @@ class DynamicTableCdcRecoveryE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void prepareSourceTable() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         cdcAvailableFlag = true;
         registerTestConnectors(List.of(
                 ConnectorTestConfig.paimon(PAIMON_CATALOG, SCHEMA,

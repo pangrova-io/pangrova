@@ -40,7 +40,7 @@ class QueryDispatcherStageLineageTest {
                         new org.pangrova.coordinator.worker.WorkerPerformanceScorer()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
-                null, null, null, null, 0L);
+                null, null, null, 0L);
 
         assertThat(deps.lineageEmitter()).isNull();
     }
@@ -75,7 +75,7 @@ class QueryDispatcherStageLineageTest {
                         new org.pangrova.coordinator.worker.WorkerPerformanceScorer()),
                 new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
-                null, null, emitter, null, 0L);
+                null, null, emitter, 0L);
 
         assertThat(deps.lineageEmitter()).isSameAs(emitter);
     }

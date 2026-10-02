@@ -9,7 +9,7 @@ import org.pangrova.shuffle.exchange.ExchangeChannelManager;
  * the fault-tolerance guarantees it backs (ADR-002 D1).
  *
  * <p>Built by a {@link ShuffleManagerFactory} discovered via {@code ServiceLoader}; selected by name
- * ({@code shuffle.manager = native | local-spill | object-store | celeborn | <plugin>}) rather than a
+ * ({@code shuffle.manager = native | local-spill | object-store | <plugin>}) rather than a
  * closed enum.
  */
 @Experimental(reason = "ADR-002 D1 pluggable shuffle SPI; evolving alongside D4 providers")

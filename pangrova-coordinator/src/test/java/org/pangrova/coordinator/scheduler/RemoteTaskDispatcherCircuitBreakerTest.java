@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.coordinator.scheduler.failure.CircuitBreakerOpenException;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -71,10 +73,10 @@ class RemoteTaskDispatcherCircuitBreakerTest {
     }
 
     private static SubmitTaskRequest dummyRequest() {
-        return new SubmitTaskRequest(
-                "task-cb-1", "q-1", 0, 0, "COMPUTE", "cGxhbg==",
-                List.of(), List.of(), null, Map.of(), null, null,
-                null, null, null, null, null, null, null);
+        return org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                "task-cb-1", "q-1", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static WorkerInfo unreachableWorker() {
@@ -82,7 +84,8 @@ class RemoteTaskDispatcherCircuitBreakerTest {
                 "w-unreachable", "unreachable-host", 99999, 0, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.1, 0, 4L * 1024 * 1024 * 1024,
-                Instant.now(), 0.9, null, 1, List.of(),
-                null, List.of());
+                Instant.now(), 0.9, null, 2,
+                null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

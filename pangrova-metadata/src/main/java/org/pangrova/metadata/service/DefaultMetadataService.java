@@ -71,12 +71,9 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     private final MetadataCache cache;
     private final MetadataEventDispatcher eventDispatcher;
     private final SchemaEvolutionValidator schemaValidator;
-    private final Cache<QualifiedTableRef, ResolvedTable> resolvedTableCache;
+    private final Cache<MetadataResolutionCacheKey, ResolvedTable> resolvedTableCache;
     private final Set<String> activeQueries = ConcurrentHashMap.newKeySet();
-    private volatile ColumnTagService columnTagService;
-    /** Pluggable column tag store: in-memory by default, JDBC-backed in production. */
-    private volatile org.pangrova.metadata.tag.ColumnTagStore tagStore =
-            new org.pangrova.metadata.tag.InMemoryColumnTagStore();
+    private final MetadataTagOperations tagOperations = new MetadataTagOperations();
 
     /** Guards alterTable against concurrent schema modifications on the same table. */
     private final Object alterTableLock = new Object();
@@ -120,7 +117,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
      * Tag persistence remains local to this service (in-memory store).
      */
     public void setColumnTagService(ColumnTagService columnTagService) {
-        this.columnTagService = columnTagService;
+        tagOperations.setColumnTagService(columnTagService);
     }
 
     /**
@@ -130,58 +127,25 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
      * configured.
      */
     public void setColumnTagStore(org.pangrova.metadata.tag.ColumnTagStore store) {
-        this.tagStore = java.util.Objects.requireNonNull(store, "store");
-        LOG.info("event=column_tag_store_installed type={}", store.getClass().getSimpleName());
+        tagOperations.setColumnTagStore(store);
     }
 
     @Override
     public void setTag(MetadataSessionContext session, QualifiedTableRef tableRef,
                        String columnName, String tagKey, String value) {
-        java.util.Objects.requireNonNull(tableRef, "tableRef");
-        java.util.Objects.requireNonNull(columnName, "columnName");
-        java.util.Objects.requireNonNull(tagKey, "tagKey");
-        java.util.Objects.requireNonNull(value, "value");
-        String storeKey = tagStoreKey(tableRef, columnName);
-        String oldValue = tagStore.put(storeKey, tagKey, value);
-        ColumnTagService svc = columnTagService;
-        if (svc != null) {
-            svc.assignTag(tableRef.catalog(), tableRef.schema(), tableRef.table(),
-                    columnName, tagKey, oldValue, value);
-        }
-        LOG.info("event=column_tag_set catalog={} schema={} table={} column={} tagKey={}",
-                tableRef.catalog(), tableRef.schema(), tableRef.table(), columnName, tagKey);
+        tagOperations.setTag(tableRef, columnName, tagKey, value);
     }
 
     @Override
     public void unsetTag(MetadataSessionContext session, QualifiedTableRef tableRef,
                          String columnName, String tagKey) {
-        java.util.Objects.requireNonNull(tableRef, "tableRef");
-        java.util.Objects.requireNonNull(columnName, "columnName");
-        java.util.Objects.requireNonNull(tagKey, "tagKey");
-        String storeKey = tagStoreKey(tableRef, columnName);
-        String removed = tagStore.remove(storeKey, tagKey);
-        if (removed == null) {
-            return;
-        }
-        ColumnTagService svc = columnTagService;
-        if (svc != null) {
-            svc.removeTag(tableRef.catalog(), tableRef.schema(), tableRef.table(),
-                    columnName, tagKey, removed);
-        }
-        LOG.info("event=column_tag_unset catalog={} schema={} table={} column={} tagKey={}",
-                tableRef.catalog(), tableRef.schema(), tableRef.table(), columnName, tagKey);
+        tagOperations.unsetTag(tableRef, columnName, tagKey);
     }
 
     @Override
     public Map<String, String> listTags(MetadataSessionContext session,
                                         QualifiedTableRef tableRef, String columnName) {
-        java.util.Objects.requireNonNull(tableRef, "tableRef");
-        java.util.Objects.requireNonNull(columnName, "columnName");
-        return tagStore.list(tagStoreKey(tableRef, columnName));
-    }
-
-    private static String tagStoreKey(QualifiedTableRef ref, String columnName) {
-        return ref.catalog() + "|" + ref.schema() + "|" + ref.table() + "|" + columnName;
+        return tagOperations.listTags(tableRef, columnName);
     }
 
     @Override
@@ -201,16 +165,28 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     @Override
+    public java.util.Optional<CatalogDescriptor> getCatalogDescriptor(String catalogName) {
+        return java.util.Optional.of(catalogRegistry.getCatalog(catalogName).getDescriptor());
+    }
+
+    @Override
+    public java.util.Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String catalogName, String incarnationId, long revision) {
+        return catalogRegistry.findCatalogDescriptorRevision(catalogName, incarnationId, revision);
+    }
+
+    @Override
     public List<String> listSchemas(MetadataSessionContext session, String catalogName) {
         CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(session);
+        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(session, catalogName, null);
         ConnectorMetadata metadata = handle.getMetadata(connSession);
         return metadata.listSchemaNames(connSession);
     }
 
     @Override
     public ResolvedTable resolveTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
-        ResolvedTable cached = resolvedTableCache.getIfPresent(tableRef);
+        MetadataResolutionCacheKey cacheKey = MetadataResolutionCacheKey.of(session, tableRef);
+        ResolvedTable cached = resolvedTableCache.getIfPresent(cacheKey);
         if (cached != null) {
             LOG.debug("event=resolve_cache_hit catalog={} schema={} table={}",
                     tableRef.catalog(), tableRef.schema(), tableRef.table());
@@ -219,23 +195,22 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         LOG.debug("event=resolve_cache_miss catalog={} schema={} table={}",
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
         ResolvedTable resolved = resolveFromCatalog(session, tableRef);
-        resolvedTableCache.put(tableRef, resolved);
-        TableMetadata metadata = toTableMetadata(tableRef, resolved.tableMetadata());
-        cache.putTable(tableRef.catalog(), tableRef.schema(), tableRef.table(), metadata);
+        resolvedTableCache.put(cacheKey, resolved);
         return resolved;
     }
 
     @Override
     public void createTable(MetadataSessionContext session, QualifiedTableRef tableRef, TableMetadata metadata) {
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
-        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(session);
+        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
+                session, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata connMetadata = catalogHandle.getMetadata(connSession);
         SchemaTableName schemaTable = new SchemaTableName(tableRef.schema(), tableRef.table());
         List<String> columnNames = metadata.columns().stream().map(ColumnMetadata::name).toList();
         ConnectorTableMetadata connTableMeta = new ConnectorTableMetadata(
                 schemaTable, columnNames, metadata.properties());
         connMetadata.createTable(connSession, connTableMeta);
-        cache.putTable(tableRef.catalog(), tableRef.schema(), tableRef.table(), metadata);
+        invalidateTableCaches(tableRef);
         eventDispatcher.dispatch(new MetadataEvent.TableCreatedEvent(tableRef, metadata));
         LOG.info("event=table_created catalog={} schema={} table={}",
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
@@ -244,7 +219,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     @Override
     public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
-        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(session);
+        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
+                session, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata connMetadata = catalogHandle.getMetadata(connSession);
         SchemaTableName schemaTable = new SchemaTableName(tableRef.schema(), tableRef.table());
         ConnectorTableHandle tableHandle = connMetadata.getTableHandle(connSession, schemaTable);
@@ -266,10 +242,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
             TableMetadata current = resolveTableMetadata(session, tableRef);
             validateSchemaChanges(current, changes);
             applySchemaChangesToConnector(session, tableRef, changes);
-            // F-META-05: Re-resolve and persist updated metadata so offline catalog reads
-            // return the post-alter schema after restart.
-            TableMetadata updatedMetadata = resolveTableMetadata(session, tableRef);
-            cache.putTable(tableRef.catalog(), tableRef.schema(), tableRef.table(), updatedMetadata);
+            // Re-read connector authority, not the unscoped inventory projection.
+            resolveTableMetadata(session, tableRef);
             invalidateTableCaches(tableRef);
             eventDispatcher.dispatch(new MetadataEvent.TableAlteredEvent(tableRef, changes));
         }
@@ -278,7 +252,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     private void applySchemaChangesToConnector(
             MetadataSessionContext session, QualifiedTableRef tableRef, List<SchemaChange> changes) {
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(tableRef.catalog());
-        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(session);
+        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
+                session, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata connMetadata = catalogHandle.getMetadata(connSession);
         SchemaTableName schemaTable = new SchemaTableName(tableRef.schema(), tableRef.table());
         ConnectorTableHandle tableHandle = connMetadata.getTableHandle(connSession, schemaTable);
@@ -306,8 +281,6 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
         } else if (change instanceof SchemaChange.ChangeType changeType) {
             metadata.changeColumnType(session, table, changeType.name(),
                     PangrovaType.fromSqlTypeName(changeType.newType().baseType()));
-        } else if (change instanceof SchemaChange.ChangeNullability) {
-            LOG.debug("event=change_nullability_skipped reason=not_supported_by_connector_spi");
         }
     }
 
@@ -316,7 +289,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
      * cache and the tiered metadata cache. Called on DDL operations.
      */
     public void invalidateTableCaches(QualifiedTableRef tableRef) {
-        resolvedTableCache.invalidate(tableRef);
+        resolvedTableCache.asMap().keySet().removeIf(key -> key.tableRef().equals(tableRef));
         cache.invalidateTable(tableRef.catalog(), tableRef.schema(), tableRef.table());
     }
 
@@ -325,7 +298,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
      */
     public void invalidateCatalogCaches(String catalogName) {
         resolvedTableCache.asMap().keySet()
-                .removeIf(ref -> ref.catalog().equals(catalogName));
+                .removeIf(key -> key.tableRef().catalog().equals(catalogName));
         cache.invalidateCatalog(catalogName);
     }
 
@@ -458,7 +431,8 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
 
     private ResolvedTable resolveFromCatalog(MetadataSessionContext session, QualifiedTableRef tableRef) {
         CatalogHandle handle = catalogRegistry.getCatalog(tableRef.catalog());
-        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(session);
+        ConnectorSession connSession = DefaultConnectorSession.fromSessionContext(
+                session, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata connMetadata = handle.getMetadata(connSession);
         SchemaTableName schemaTable = new SchemaTableName(tableRef.schema(), tableRef.table());
         ConnectorTableHandle tableHandle = connMetadata.getTableHandle(connSession, schemaTable);
@@ -474,8 +448,9 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     private TableMetadata resolveTableMetadata(MetadataSessionContext session, QualifiedTableRef tableRef) {
-        return cache.getTable(tableRef.catalog(), tableRef.schema(), tableRef.table())
-                .orElseGet(() -> toTableMetadata(tableRef, resolveFromCatalog(session, tableRef).tableMetadata()));
+        // The tiered store has no authenticated scope. Never use it as authority
+        // for tenant-specific DDL validation, or to read back an ALTER result.
+        return toTableMetadata(tableRef, resolveFromCatalog(session, tableRef).tableMetadata());
     }
 
     private static TableMetadata toTableMetadata(QualifiedTableRef ref, ConnectorTableMetadata connMeta) {
@@ -488,6 +463,19 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     private void validateSchemaChanges(TableMetadata current, List<SchemaChange> changes) {
+        for (SchemaChange change : changes) {
+            if (change instanceof SchemaChange.AddColumn add && !add.nullable()) {
+                throw new MetadataException(
+                        PangrovaErrorCode.METADATA_SCHEMA_INCOMPATIBLE,
+                        "Adding a NOT NULL column is not supported by the connector metadata SPI: " + add.name());
+            }
+            if (change instanceof SchemaChange.ChangeNullability nullability) {
+                throw new MetadataException(
+                        PangrovaErrorCode.METADATA_SCHEMA_INCOMPATIBLE,
+                        "Changing column nullability is not supported by the connector metadata SPI: "
+                                + nullability.name());
+            }
+        }
         SchemaValidationResult result = schemaValidator.validate(current, changes);
         if (!result.compatible()) {
             throw new MetadataException(

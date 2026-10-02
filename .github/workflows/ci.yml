@@ -72,6 +72,9 @@ jobs:
       - name: Setup native build environment
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh
 
+      - name: Build required Lance C FFI
+        run: ./pangrova-worker-native/bin/build-lance-ffi.sh
+
       - name: CMake configure
         run: |
           source ~/.pangrova/env.sh
@@ -128,6 +131,10 @@ jobs:
         run: |
           mvn -B install -pl pangrova-native-bundle \
             -Dnative.platform.classifier=${{ matrix.platform.classifier }} \
+            -Dnative.resource.dir=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }} \
+            -Dnative.resource.os=${{ matrix.platform.os }} \
+            -Dnative.resource.arch=${{ matrix.platform.arch }} \
+            -Dnative.library.path=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}/libpangrova_native.${{ matrix.platform.lib-ext }} \
             -DskipTests
 
       - name: Upload native library
@@ -198,8 +205,11 @@ jobs:
           chmod +x .pangrova/scripts/check-spi-annotations.sh
           .pangrova/scripts/check-spi-annotations.sh
 
-      - name: Install protoc (for descriptor diff gate)
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: E2E truthfulness gate
+        run: bash .pangrova/scripts/check-e2e-truthfulness.sh
+
+      - name: Fetch pinned proto descriptor toolchain
+        run: .pangrova/scripts/proto-descriptor-diff.sh --prepare-only
 
       - name: Proto descriptor diff gate
         run: |
@@ -209,17 +219,10 @@ jobs:
       - name: Build with Maven
         run: mvn -B clean verify -DskipTests -pl '!pangrova-native-bundle'
 
-      - name: Run Tests
+      - name: Run daily filtered tests
         run: mvn -B verify -Pcoverage -Djava.library.path=${{ env.NATIVE_LIB_DIR }} -pl '!pangrova-native-bundle'
         env:
           LD_LIBRARY_PATH: ${{ env.NATIVE_LIB_DIR }}
-
-      - name: Diff Coverage Gate
-        if: github.event_name == 'pull_request' && matrix.java == '17'
-        run: |
-          git fetch origin ${{ github.base_ref }} --depth=1
-          chmod +x .pangrova/scripts/diff-coverage-check.sh
-          .pangrova/scripts/diff-coverage-check.sh --threshold 60 --base-ref origin/${{ github.base_ref }}
 
       - name: Upload Coverage
         if: matrix.java == '17'
@@ -227,6 +230,58 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  production-regression:
+    name: Production image and full regression (JDK 17)
+    runs-on: ubuntu-latest
+    needs: [native-build, native-sanitizers]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build the canonical same-source Linux production image
+        run: |
+          docker buildx version
+          docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
+
+      - name: Stage the production classifier and matching host JNI
+        run: |
+          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh pangrova/pangrova:latest)
+          mvn -B install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
+            -Dclassifier=linux-x86_64
+
+      - name: Compile the complete Java reactor
+        run: mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
+
+      - name: Run full regression with real coverage
+        run: mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle'
+
+      - name: Run full E2E and real activation smoke
+        run: |
+          mvn -B -Pnative-runtime,full-regression \
+            -pl pangrova-testing/pangrova-test-e2e -am test
+          mvn -B -Pnative-runtime -pl pangrova-testing/pangrova-test-e2e \
+            -Dtest=ActivationSmokeE2ETest test
+
+      - name: Diff Coverage Gate
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin ${{ github.base_ref }} --depth=1
+          bash .pangrova/scripts/diff-coverage-check.sh --threshold 60 --base-ref origin/${{ github.base_ref }}
+
+      - name: Upload full regression reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-regression-reports
+          path: |
+            **/target/surefire-reports/
+            **/target/site/jacoco/
 
   tpch-performance:
     name: TPC-H Performance Regression
@@ -268,7 +323,7 @@ jobs:
 
       - name: Run TPC-H Q1, Q5, Q9 performance tests
         run: |
-          mvn -B test \
+          mvn -B test -Pfull-regression \
             -pl pangrova-testing/pangrova-test-e2e \
             -Dgroups=performance \
             -Dtest="SqlLatencyBaselineTest" \
@@ -304,12 +359,8 @@ jobs:
         sanitizer:
           - name: asan
             preset: dev-asan
-            env_var: ASAN_OPTIONS
-            env_val: "detect_leaks=1:halt_on_error=1:suppressions=sanitizer-suppressions/asan.supp"
           - name: ubsan
             preset: dev-ubsan
-            env_var: UBSAN_OPTIONS
-            env_val: "halt_on_error=1:print_stacktrace=1:suppressions=sanitizer-suppressions/ubsan.supp"
     steps:
       - uses: actions/checkout@v7
 
@@ -323,6 +374,18 @@ jobs:
           restore-keys: |
             pangrova-native-${{ runner.os }}-${{ runner.arch }}-
 
+      - name: Cache ASan Velox + ABI dependencies
+        if: matrix.sanitizer.name == 'asan'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/native-deps-asan
+            ~/.pangrova/velox/_build/asan-ci/CMakeCache.txt
+            ~/.pangrova/velox/_build/asan-ci/lib/libvelox.a
+            ~/.pangrova/velox/_build/asan-ci/_deps
+            ~/.pangrova/velox/_build/asan-ci/CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install
+          key: pangrova-native-asan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/bin/setup-native-build-env.sh', 'pangrova-worker-native/bin/setup-native-asan-env.sh') }}
+
       - name: Install build tools
         run: |
           sudo apt-get update
@@ -331,10 +394,26 @@ jobs:
       - name: Setup native build environment
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh
 
+      - name: Build instrumented Velox, Protobuf and Abseil
+        if: matrix.sanitizer.name == 'asan'
+        run: |
+          PANGROVA_ASAN_CI_PRUNE_RELEASE=1 \
+            ./pangrova-worker-native/bin/setup-native-asan-env.sh
+
+      - name: Build required Lance C FFI
+        run: ./pangrova-worker-native/bin/build-lance-ffi.sh
+
       - name: CMake configure (${{ matrix.sanitizer.preset }})
         run: |
           source ~/.pangrova/env.sh
-          cmake --preset ${{ matrix.sanitizer.preset }}
+          if [[ "${{ matrix.sanitizer.name }}" == "asan" ]]; then
+            source ~/.pangrova/asan-env.sh
+            cmake --preset ${{ matrix.sanitizer.preset }} \
+              -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB" \
+              -Dabsl_DIR="$PANGROVA_ASAN_ABSL_DIR"
+          else
+            cmake --preset ${{ matrix.sanitizer.preset }}
+          fi
         working-directory: pangrova-worker-native
 
       - name: CMake build
@@ -342,10 +421,8 @@ jobs:
         working-directory: pangrova-worker-native
 
       - name: Run tests with ${{ matrix.sanitizer.name }}
-        run: ctest --test-dir build-${{ matrix.sanitizer.name }} --output-on-failure --timeout 300
+        run: ctest --preset ${{ matrix.sanitizer.preset }} --timeout 300
         working-directory: pangrova-worker-native
-        env:
-          ${{ matrix.sanitizer.env_var }}: ${{ matrix.sanitizer.env_val }}
 
   fuzzer:
     name: Query Fuzzer (60s)

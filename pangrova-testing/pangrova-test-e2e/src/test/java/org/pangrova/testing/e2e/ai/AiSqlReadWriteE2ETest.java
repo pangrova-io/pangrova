@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -157,8 +158,17 @@ class AiSqlReadWriteE2ETest extends PangrovaE2ETestBase {
             executeDml(oneHotInsert(20, 4));
             executeDdl("CREATE INDEX idx_ai_hnsw ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
-            List<TypedRow> indexes = executeQuery("SHOW INDEXES FROM " + fqn());
-            assertThat(indexes).isNotEmpty();
+            // CREATE returns after durable submission. Verify that a real Worker
+            // built and published the generation before exercising retrieval.
+            org.awaitility.Awaitility.await("HNSW index published")
+                    .atMost(Duration.ofSeconds(60))
+                    .pollInterval(Duration.ofMillis(500))
+                    .untilAsserted(() -> assertThat(executeQuery(
+                            "SHOW INDEXES FROM " + fqn()).stream()
+                            .filter(row -> "idx_ai_hnsw".equals(
+                                    row.getRaw("index_name")))
+                            .map(row -> row.getRaw("state")))
+                            .containsExactly("READY"));
             List<TypedRow> rows = executeQuery(
                     "SELECT id, l2_distance(embedding, ARRAY[1.0, 0.0, 0.0, 0.0]) AS dist"
                             + " FROM " + fqn()
@@ -319,101 +329,6 @@ class AiSqlReadWriteE2ETest extends PangrovaE2ETestBase {
             assertThat(rows).hasSize(1);
             assertThat(((Number) rows.get(0).getRaw("dist")).doubleValue())
                     .isCloseTo(0.0, within(0.01));
-            executeDdl("DROP TABLE " + fqn());
-        }
-    }
-
-    @Nested
-    @DisplayName("Model DDL Operations")
-    class ModelDdlOperations {
-
-        @Test
-        @DisplayName("SHOW EMBEDDING MODELS returns empty or a valid result")
-        void showModelsEmpty() {
-            try {
-                List<TypedRow> rows = executeQuery("SHOW EMBEDDING MODELS");
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError("SHOW EMBEDDING MODELS");
-                assertThat(error).isNotEmpty();
-            }
-        }
-
-        @Test
-        @DisplayName("CREATE EMBEDDING MODEL parses and executes or returns clear error")
-        void createAndShowModel() {
-            String createSql = "CREATE EMBEDDING MODEL test_ai_model_" + System.nanoTime()
-                    + " (provider = 'openai-compatible',"
-                    + " endpoint = 'http://localhost:11434/api/embed',"
-                    + " dimension = '384')";
-            try {
-                executeDdl(createSql);
-                List<TypedRow> models = executeQuery("SHOW EMBEDDING MODELS");
-                assertThat(models).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(createSql);
-                assertThat(error).isNotEmpty();
-            }
-        }
-    }
-
-    @Nested
-    @DisplayName("Hybrid Search Syntax")
-    class HybridSearchSyntax {
-
-        @Test
-        @DisplayName("RERANK BY rrf() syntax is accepted by the parser/planner")
-        void rerankBySyntaxAccepted() {
-            executeDdl("CREATE TABLE " + fqn()
-                    + " (id BIGINT, content VARCHAR, embedding VECTOR(4))");
-            executeDml("INSERT INTO " + fqn() + " VALUES"
-                    + " (1, 'hello world', ARRAY[1.0, 0.0, 0.0, 0.0]),"
-                    + " (2, 'test data',   ARRAY[0.0, 1.0, 0.0, 0.0])");
-            String sql = "SELECT id FROM " + fqn()
-                    + " ORDER BY l2_distance(embedding, ARRAY[1.0, 0.0, 0.0, 0.0]) ASC"
-                    + " LIMIT 10 RERANK BY rrf(60)";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
-            executeDdl("DROP TABLE " + fqn());
-        }
-
-        @Test
-        @DisplayName("MATCH function syntax is recognized by the parser")
-        void matchFunctionSyntaxAccepted() {
-            executeDdl("CREATE TABLE " + fqn()
-                    + " (id BIGINT, content VARCHAR, embedding VECTOR(4))");
-            executeDml("INSERT INTO " + fqn() + " VALUES"
-                    + " (1, 'hello world', ARRAY[1.0, 0.0, 0.0, 0.0]),"
-                    + " (2, 'test data',   ARRAY[0.0, 1.0, 0.0, 0.0])");
-            String sql = "SELECT id FROM " + fqn() + " WHERE MATCH(content, 'hello')";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
-            executeDdl("DROP TABLE " + fqn());
-        }
-    }
-
-    @Nested
-    @DisplayName("Conversational SQL")
-    class ConversationSql {
-
-        @Test
-        @DisplayName("Context markers in SQL produce a clear error, not a crash")
-        void contextMarkersInSql() {
-            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, val VARCHAR)");
-            executeDml("INSERT INTO " + fqn() + " VALUES (1, 'hello')");
-            assertQueryReturnsRows("SELECT * FROM " + fqn(), 1);
-            String error = executeExpectingError("SELECT * FROM $LAST_RESULT");
-            assertThat(error).isNotEmpty();
             executeDdl("DROP TABLE " + fqn());
         }
     }

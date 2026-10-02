@@ -5,7 +5,6 @@ import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.e2e.setup.TestConnectorFactory;
 import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -20,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * End-to-end tests verifying the Native Velox shuffle pipeline.
  *
  * <p>Shuffle is triggered implicitly by multi-stage queries (GROUP BY,
- * ORDER BY with distributed execution). These queries exercise the Velox
+ * ORDER BY with multi-stage execution). These queries exercise the Velox
  * {@code PartitionedOutputNode} for shuffle write and
  * {@code PangrovaExchangeSource} for shuffle read through the complete chain:
  * SQL → Parser → Planner → Substrait → Coordinator dispatch →
@@ -52,7 +51,7 @@ class NativeShuffleE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         dataSetup.loadTpcHDataViaConnector(
@@ -114,7 +113,6 @@ class NativeShuffleE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @Tag("multi-worker")
         @DisplayName("JOIN + GROUP BY triggers multi-stage shuffle across join and aggregation")
         void joinGroupByTriggersMultiStageShuffle() {
             List<TypedRow> rows = sqlRunner.execute(
@@ -159,7 +157,6 @@ class NativeShuffleE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @Tag("multi-worker")
         @DisplayName("Aggregation over UNION ALL verifies shuffle data integrity")
         void aggregationOverUnionAllVerifiesShuffleIntegrity() {
             List<TypedRow> rows = sqlRunner.execute(
@@ -401,7 +398,6 @@ class NativeShuffleE2ETest extends SqlE2ETestBase {
             }
 
             @Test
-            @Tag("multi-worker")
             @DisplayName("Multi-stage JOIN + aggregation propagates independent shuffle configs per stage")
             void multiStageJoinAggregationPropagatesIndependentConfigs() {
                 List<TypedRow> rows = sqlRunner.execute(
@@ -425,7 +421,6 @@ class NativeShuffleE2ETest extends SqlE2ETestBase {
             class DynamicFilterDuringShuffle {
 
                 @Test
-                @Tag("multi-worker")
                 @DisplayName("JOIN with selective filter exercises DPP through shuffle pipeline")
                 void joinWithSelectiveFilterExercisesDppThroughShuffle() {
                     List<TypedRow> rows = sqlRunner.execute(
@@ -438,7 +433,6 @@ class NativeShuffleE2ETest extends SqlE2ETestBase {
                 }
 
                 @Test
-                @Tag("multi-worker")
                 @DisplayName("Aggregation with DPP-filtered join produces correct results")
                 void aggregationWithDppFilteredJoinProducesCorrectResults() {
                     List<TypedRow> filteredRows = sqlRunner.execute(

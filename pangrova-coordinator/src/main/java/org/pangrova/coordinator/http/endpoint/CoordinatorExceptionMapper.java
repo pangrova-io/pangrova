@@ -6,9 +6,11 @@ import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.task.UnregisteredWorkerException;
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.AuthenticationRequiredException;
+import org.pangrova.security.tenant.quota.TenantQuotaExceededException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +21,7 @@ import org.slf4j.LoggerFactory;
  * <ul>
  *   <li>{@link IllegalArgumentException} → 400 BAD_REQUEST</li>
  *   <li>{@link AccessDeniedException} → 403 ACCESS_DENIED</li>
+ *   <li>{@link TenantQuotaExceededException} → 429 USER_ERROR</li>
  *   <li>Not-found exceptions (catalog/table) → 404 NOT_FOUND</li>
  *   <li>All other exceptions → 500 INTERNAL_ERROR</li>
  * </ul>
@@ -35,6 +38,8 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
     private static final int HTTP_STATUS_FORBIDDEN = 403;
     private static final int HTTP_STATUS_NOT_FOUND = 404;
     private static final int HTTP_STATUS_CONFLICT = 409;
+    private static final int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
+    private static final int HTTP_STATUS_SERVICE_UNAVAILABLE = 503;
     private static final int HTTP_STATUS_INTERNAL_ERROR = 500;
 
     @Override
@@ -58,10 +63,14 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
                     IllegalArgumentException.class, HTTP_STATUS_BAD_REQUEST,
                     AuthenticationRequiredException.class, HTTP_STATUS_UNAUTHORIZED,
                     AccessDeniedException.class, HTTP_STATUS_FORBIDDEN,
-                    UnregisteredWorkerException.class, HTTP_STATUS_CONFLICT
+                    UnregisteredWorkerException.class, HTTP_STATUS_CONFLICT,
+                    NoAvailableWorkerException.class, HTTP_STATUS_SERVICE_UNAVAILABLE
             );
 
     private static int resolveHttpStatus(Exception exception) {
+        if (exception instanceof TenantQuotaExceededException) {
+            return HTTP_STATUS_TOO_MANY_REQUESTS;
+        }
         Integer status = HTTP_STATUS_MAP.get(exception.getClass());
         if (status != null) {
             return status;

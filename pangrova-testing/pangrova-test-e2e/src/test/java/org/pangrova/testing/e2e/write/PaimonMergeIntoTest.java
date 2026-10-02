@@ -159,31 +159,27 @@ class PaimonMergeIntoTest extends SqlE2ETestBase {
     class MergeIntoComplete {
 
         @Test
-        @DisplayName("MERGE INTO with UPDATE, INSERT, and DELETE in a single statement")
+        @DisplayName("MERGE with multiple actions fails before changing the table")
         void mergeCompleteStatement() {
             seedTarget();
             seedSource("id BIGINT, name VARCHAR, amount DOUBLE",
                     "(2, 'bob_v2', 250.0), (3, 'carol_del', 999.0), (4, 'dave', 400.0)");
 
-            sqlRunner.execute("MERGE INTO " + targetFqn() + " t "
+            var error = sqlRunner.executeExpectingError("MERGE INTO " + targetFqn() + " t "
                     + "USING " + sourceFqn() + " s ON t.id = s.id "
                     + "WHEN MATCHED AND s.amount > 500.0 THEN DELETE "
                     + "WHEN MATCHED THEN UPDATE SET name = s.name, amount = s.amount "
                     + "WHEN NOT MATCHED THEN INSERT (id, name, amount) "
                     + "VALUES (s.id, s.name, s.amount)");
+            assertThat(error.message()).contains("one atomic native write");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + targetFqn() + " ORDER BY id");
 
-            // id=1: untouched (not in source)
-            // id=2: updated to bob_v2/250.0 (matched, amount <= 500)
-            // id=3: should be deleted (matched, source amount > 500)
-            // id=4: inserted (not matched)
-            // Note: Paimon multi-clause MERGE INTO DELETE may not fully execute;
-            // accept either 3 rows (correct) or 4 rows (DELETE clause not applied).
-            assertThat(rows.size()).isBetween(3, 4);
+            assertThat(rows).hasSize(3);
             assertRowValues(rows.get(0), 1L, "alice", 100.0);
-            assertRowValues(rows.get(1), 2L, "bob_v2", 250.0);
+            assertRowValues(rows.get(1), 2L, "bob", 200.0);
+            assertRowValues(rows.get(2), 3L, "carol", 300.0);
         }
     }
 

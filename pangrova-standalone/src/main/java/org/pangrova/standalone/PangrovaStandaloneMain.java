@@ -123,7 +123,19 @@ public final class PangrovaStandaloneMain {
                 config.getString(WorkerOptions.WORKER_HOST),
                 config.getString(WorkerOptions.INTERNAL_AUTH_SECRET),
                 null, null,
-                config.getString(WorkerOptions.WORKER_ADVERTISED_HOST));
+                config.getString(WorkerOptions.WORKER_ADVERTISED_HOST),
+                null,
+                buildTransportSecurityConfig(config));
+    }
+
+    private static WorkerBootstrapConfig.TransportSecurityConfig buildTransportSecurityConfig(
+            PangrovaConfiguration config) {
+        return new WorkerBootstrapConfig.TransportSecurityConfig(
+                config.getBoolean(WorkerOptions.TRANSPORT_TLS_ENABLED),
+                config.getString(WorkerOptions.TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH),
+                config.getString(WorkerOptions.TRANSPORT_TLS_PRIVATE_KEY_PATH),
+                config.getString(WorkerOptions.TRANSPORT_TLS_ROOT_CA_PATH),
+                config.getString(WorkerOptions.TRANSPORT_TLS_IDENTITY));
     }
 
     private static WorkerBootstrapConfig.ResourceConfig buildResourceConfig(PangrovaConfiguration config) {
@@ -138,7 +150,12 @@ public final class PangrovaStandaloneMain {
                 config.getDouble(WorkerOptions.MEMORY_PRESSURE_THRESHOLD_LOW),
                 config.getDouble(WorkerOptions.MEMORY_PRESSURE_THRESHOLD_MEDIUM),
                 config.getDouble(WorkerOptions.MEMORY_PRESSURE_THRESHOLD_HIGH),
-                config.getDouble(WorkerOptions.MEMORY_PRESSURE_THRESHOLD_CRITICAL));
+                config.getDouble(WorkerOptions.MEMORY_PRESSURE_THRESHOLD_CRITICAL),
+                config.getLong(WorkerOptions.SHUFFLE_SERVICE_RETENTION_BYTES),
+                config.getLong(WorkerOptions.SHUFFLE_SERVICE_TRANSIT_BYTES),
+                config.getLong(WorkerOptions.SHUFFLE_SERVICE_SPILL_BYTES),
+                config.getInt(WorkerOptions.SHUFFLE_SERVICE_SPILL_FILES),
+                config.getString(WorkerOptions.SHUFFLE_SERVICE_SPILL_DIRECTORY));
     }
 
     private static WorkerBootstrapConfig.ObservabilityBootstrapConfig buildObsConfig(PangrovaConfiguration config) {

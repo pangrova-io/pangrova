@@ -3,6 +3,8 @@ package org.pangrova.coordinator.property.query;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Map;
+import java.util.Set;
+import java.time.Instant;
 
 import net.jqwik.api.Arbitraries;
 
@@ -28,12 +30,12 @@ import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
-import org.pangrova.testing.TestObservability;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.testing.TestExchangeTransport;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.spi.security.UserIdentity;
 
 /**
  * Property test for CoordinatorTaskTracker registration after dispatch.
@@ -43,6 +45,8 @@ class TaskTrackerRegistrationPropertyTest {
 
     private static final int TRANSPORT_PORT = 0;
     private static final long WORKER_MEMORY = 4L * 1024 * 1024 * 1024;
+    private static final UserIdentity TEST_IDENTITY = new UserIdentity(
+            "test-user", Set.of("public"), Map.of(), Instant.EPOCH);
 
     private WorkerHttpServer workerHttpServer;
     private QueryDispatcher orchestrator;
@@ -86,7 +90,8 @@ class TaskTrackerRegistrationPropertyTest {
     void dispatchedTaskIsRegisteredAsScheduled(
             @ForAll("queryIds") String queryId) {
         QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), null, null);
+        CoordinatorSessionContext session = new CoordinatorSessionContext(
+                queryId, Map.of(), TEST_IDENTITY, "test-tenant");
 
         DispatchResult result = orchestrator.execute(sm, "SELECT 1", session);
 
@@ -120,14 +125,21 @@ class TaskTrackerRegistrationPropertyTest {
     private QueryDispatcher buildOrchestrator(int workerPort) {
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         wm.registerWorker(workerInfo(workerPort));
+        RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
+                CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
+        dispatcher.setControlEpochSupplier(() -> 1L);
+        dispatcher.setExecutionOwnerResolver(ignored ->
+                new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
+                        "test-coordinator", "test-incarnation", 1L));
         return new QueryDispatcher(
+                org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies(
                 QueryDispatcherContext.withDefaults(
                         new SqlCompiler(), null, null, null,
-                        new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING),
+                        dispatcher,
                         new TaskScheduler(new WorkerPerformanceScorer()),
                         wm,
                         taskTracker,
-                        null, null, null, null, 0L),
+                        null, null, null, 0L)),
                 null, null);
     }
 

@@ -4,11 +4,15 @@
 // Placement: velox/ — Velox integration adapters.
 #pragma once
 
+#include "result/ResultOwnershipState.h"
+
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include <folly/futures/Future.h>
@@ -18,6 +22,8 @@
 #include "shuffle/SerializedShuffleQueue.h"
 #include "shuffle/ShuffleBatchSerializer.h"
 #include "shuffle/ShufflePartitionAccumulator.h"
+#include "velox/plan/ShuffleOutputSpec.h"
+#include "result/ResultColumnType.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/core/PlanNode.h"
 #include "velox/type/Filter.h"
@@ -32,8 +38,23 @@ namespace pangrova::velox {
 
 // Configuration for VeloxTaskRunner.
 struct VeloxTaskRunnerConfig {
+  int64_t executor_handle = 0;
+  std::string callback_context;
   std::string task_id;
   std::string query_id;
+  std::string tenant_id;
+  std::string principal;
+  std::string policy_context_hash;
+  std::string dependency_scope_hash;
+  std::string dependency_version_hash;
+  std::string trace_id;
+  int64_t deadline_epoch_ms = 0;
+  int32_t max_provider_concurrency = 0;
+  int64_t max_provider_items = 0;
+  int64_t max_provider_attempts = 0;
+  int64_t max_provider_request_bytes = 0;
+  int64_t max_provider_response_bytes = 0;
+  int64_t max_media_bytes = 0;
   // Minimum 2: Velox serial mode (max_drivers=1) uses Task::next() which
   // deadlocks on multi-pipeline plans (JOIN/agg) because the single driver
   // thread blocks waiting for the build side. Parallel mode (Task::start()
@@ -56,6 +77,7 @@ struct VeloxTaskRunnerConfig {
   // Shuffle configuration.
   bool is_shuffle_task = false;
   int32_t num_shuffle_partitions = 0;
+  std::optional<ShuffleOutputSpec> shuffle_output_spec;
   std::string shuffle_compression_codec = "lz4";
   // Indices of columns used for shuffle partition hash computation.
   // When empty, the first column is used as the default partition key.
@@ -71,6 +93,8 @@ struct VeloxTaskRunnerConfig {
   // output through OutputBufferManager. No consumer callback is set, and
   // OutputQueue is not used for the result path.
   bool is_result_task = false;
+  std::vector<pangrova::result::ResultColumnVectorDimension> result_column_types;
+  std::vector<std::string> result_column_labels;
 
   // P0-VELOX-2: Per-task memory limit from Java-side ResourceLimit.
   // When > 0, used as createTaskPool max_bytes instead of totalMemory().
@@ -78,11 +102,6 @@ struct VeloxTaskRunnerConfig {
 
   // Session properties from TaskRequest, forwarded to Velox connector configs.
   std::unordered_map<std::string, std::string> session_properties;
-
-  // Result serialization mode: "presto" (legacy PrestoVectorSerde) or
-  // "arrow_batch" (Arrow IPC direct serving via ArrowBatchVectorSerde).
-  // Overridable via session property "velox.result_serde_mode".
-  std::string result_serde_mode = "presto";
 
   // Performance tuning knobs (Req 6: QueryConfig tuning).
   // All boolean knobs default to true (enabled); overridable via session
@@ -151,7 +170,9 @@ class VeloxTaskRunner
       std::shared_ptr<const facebook::velox::core::PlanNode> plan,
       const std::vector<split::SplitConfig>& splits,
       pangrova::executor::OutputQueue* output_queue,
-      pangrova::shuffle::SerializedShuffleQueue* shuffle_queue = nullptr);
+      pangrova::shuffle::SerializedShuffleQueue* shuffle_queue = nullptr,
+      std::unordered_map<std::string, std::vector<split::SplitConfig>>
+          scan_split_overrides = {});
 
   ~VeloxTaskRunner();
 
@@ -181,12 +202,15 @@ class VeloxTaskRunner
   // Returns true if the task has finished (success or failure).
   bool isFinished() const;
 
+  pangrova::result::ResultOwnershipState::Evidence resultDrainEvidence() const;
+  bool hasResultOutput() const { return static_cast<bool>(result_ownership_); }
+
   // Returns error message if task failed, empty otherwise.
   std::string errorMessage() const;
 
   // Inject a dynamic filter for external injection (Java → JNI path).
-  // Pushes the filter to the process-global PendingFilterRegistry keyed
-  // by task_id. PangrovaVeloxDataSource drains the registry on each next()
+  // Pushes the filter to the process-global PendingFilterRegistry keyed by
+  // task_id + exact scan plan_node_id. Only the matching DataSource drains it.
   // call and applies accumulated filters as row-level predicates.
   // If column_index is out of bounds for the scan node's output schema,
   // logs WARN and ignores the filter without aborting the query.
@@ -198,7 +222,6 @@ class VeloxTaskRunner
   // Returns true if the task failed due to an unsupported type in the
   // result serde (ArrowBatch mode). Used by PlanExecutionDriver to detect
   // when serde fallback to PrestoVectorSerde is needed.
-  bool isResultSerdeUnsupportedTypeError() const;
 
   // Collect Velox TaskStats after completion.
   // Returns serialized proto (TaskStats message) for Java-side consumption.
@@ -208,19 +231,24 @@ class VeloxTaskRunner
   // Access the underlying Velox Task (for direct dynamic filter injection).
   facebook::velox::exec::Task* veloxTask() const;
 
-  // Attach memory pool holders from plan conversion. Must be called before
-  // start() to ensure pools outlive the PlanNode tree during async Task
-  // destruction on Velox's thread pool.
-  void attachPoolHolders(
-      std::vector<std::shared_ptr<facebook::velox::memory::MemoryPool>>
-          holders);
-
  private:
+  void revokeResultOutput();
   // Idempotent cleanup: unregister profiler + close output queue.
   // Public: PlanExecutionDriver calls cleanup() after drainOutputToWriter
   // to ensure RowVector memory pools are still alive during the drain.
  public:
+  // Commit every buffered shuffle row before the producer can publish a
+  // successful terminal state. A failed flush must leave the stream abortable.
+  void finalizeShuffleOutput();
+
   void cleanup();
+
+  // Releases the underlying Velox Task and waits until its destructor has
+  // finished. Task completion alone is insufficient: the final Driver may
+  // still hold a Task reference while unwinding on Velox's executor. Callers
+  // that own plan-conversion memory pools must keep them alive through this
+  // barrier because Task::~Task() destroys the plan and its vectors.
+  void releaseTaskAndWaitForDeletion();
 
  private:
   // Completion handler invoked from startAsync() continuation.
@@ -229,27 +257,18 @@ class VeloxTaskRunner
   bool handleTaskCompletion();
 
   const VeloxTaskRunnerConfig config_;
-  // Memory pools created during plan conversion (e.g., for ArrayVector in
-  // list literals). Must outlive the PlanNode tree because ArrayVector buffers
-  // reference these pools for deallocation. Stored here so that even if the
-  // Velox Task is destroyed asynchronously on a thread pool thread (after
-  // PlanExecutionDriver is already destroyed), the pools remain alive.
-  // DECLARATION ORDER IS LOAD-BEARING: members destruct in reverse declaration
-  // order, so this MUST be declared before plan_ (and velox_task_) so the
-  // pools are destroyed AFTER the plan tree. Declaring it after plan_ caused
-  // a SIGSEGV in NonPODAlignedBuffer::freeToPool() when ~VeloxTaskRunner
-  // destroyed the pools first, then the plan's ConstantTypedExpr array
-  // literals tried to free their buffers into the dead pools.
-  std::vector<std::shared_ptr<facebook::velox::memory::MemoryPool>>
-      plan_pool_holders_;
   std::shared_ptr<const facebook::velox::core::PlanNode> plan_;
   std::vector<split::SplitConfig> splits_;
+  std::unordered_map<std::string, std::vector<split::SplitConfig>>
+      scan_split_overrides_;
   std::shared_ptr<facebook::velox::exec::Task> velox_task_;
   pangrova::executor::OutputQueue* output_queue_;
   pangrova::shuffle::SerializedShuffleQueue* shuffle_queue_{nullptr};
   std::unique_ptr<pangrova::shuffle::ShuffleBatchSerializer> shuffle_writer_;
   std::unique_ptr<pangrova::shuffle::ShufflePartitionAccumulator>
       shuffle_accumulator_;
+  // Cancellation cleanup may race the successful completion continuation.
+  std::mutex shuffle_accumulator_mutex_;
   // Pre-computed shuffle partition key channel indices. Populated in start()
   // from config_.shuffle_partition_key_indices to avoid recomputing per batch.
   std::vector<facebook::velox::column_index_t> shuffle_key_channels_;
@@ -258,10 +277,12 @@ class VeloxTaskRunner
   // After construction the partitioner is stateless (partition() is a pure
   // function), so concurrent reads from multiple Driver threads are safe.
   std::atomic<bool> shuffle_partitioner_ready_{false};
+  std::atomic<uint64_t> shuffle_next_row_{0};
   std::mutex shuffle_partitioner_mutex_;
   std::shared_ptr<facebook::velox::exec::HashPartitionFunction>
       shuffle_partitioner_;
   std::atomic<bool> finished_{false};
+  std::shared_ptr<pangrova::result::ResultOwnershipState> result_ownership_;
   std::atomic<bool> cancelled_{false};
   mutable std::mutex error_mutex_;
   std::string error_message_;

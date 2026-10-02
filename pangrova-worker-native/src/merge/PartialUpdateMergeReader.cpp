@@ -8,6 +8,8 @@
 
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/FlatVector.h"
+#include "merge/SequenceNumberReader.h"
+#include "merge/MergeVersionGroup.h"
 
 namespace pangrova::merge {
 
@@ -18,10 +20,10 @@ namespace pangrova::merge {
 PartialUpdateMergeReader::PartialUpdateMergeReader(
     std::vector<facebook::velox::column_index_t> primary_key_indices,
     facebook::velox::column_index_t sequence_column_index,
-    facebook::velox::RowTypePtr output_type)
+    facebook::velox::RowTypePtr output_type, MergeDeletePolicy delete_policy)
     : key_indices_(std::move(primary_key_indices)),
       sequence_index_(sequence_column_index),
-      output_type_(std::move(output_type)) {
+      output_type_(std::move(output_type)), delete_policy_(delete_policy) {
   if (key_indices_.empty()) {
     throw std::invalid_argument(
         "PartialUpdateMergeReader requires at least one primary key "
@@ -82,38 +84,36 @@ facebook::velox::RowVectorPtr PartialUpdateMergeReader::next(
   output_rows.reserve(std::min(batch_size, static_cast<uint64_t>(1024)));
 
   while (!heap_->empty() && output_rows.size() < batch_size) {
-    // Pop the entry with the smallest key (and highest sequence for that key).
-    // The heap comparator ensures that for equal keys, the entry with the
-    // highest sequence number is popped first — this is the "latest" version.
-    auto winner = heap_->top();
-    heap_->pop();
-    stats_.input_rows++;
-
-    // Start with the latest version as the merged row.
-    auto merged = copyRow(winner, pool);
-
-    // Advance the winner's reader.
-    readers_[winner.reader_index].current_row = winner.row + 1;
-    advanceReader(winner.reader_index, pool);
-
-    // Consume all subsequent entries with the same primary key.
-    // These have lower sequence numbers (older versions).
-    // Merge their non-null fields into the merged row where the merged
-    // row still has null fields.
-    while (!heap_->empty() && keysEqual(winner, heap_->top())) {
-      auto older = heap_->top();
-      heap_->pop();
-      stats_.input_rows++;
-      stats_.merged_rows++;
-
-      mergeNonNullFields(merged, older);
-
-      readers_[older.reader_index].current_row = older.row + 1;
-      advanceReader(older.reader_index, pool);
+    auto versions = collectKeyVersions(*heap_, stats_,
+        [&](const auto& first, const auto& second) { return keysEqual(first, second); },
+        [&](const auto& entry) {
+          readers_[entry.reader_index].current_row = entry.row + 1;
+          advanceReader(entry.reader_index, pool);
+        });
+    facebook::velox::RowVectorPtr merged;
+    bool live = false;
+    for (const auto& version : versions) {
+      const auto kind = persistedValueKind(version);
+      if (kind == 1 || kind == 3) {
+        if (delete_policy_.ignore_delete) continue;
+        if (!delete_policy_.remove_record_on_delete) {
+          throw std::invalid_argument("Partial update rejects retracts without an explicit table delete policy");
+        }
+        if (kind == 3) {
+          merged = copyRow(version, pool);
+          live = false;
+        }
+        continue;
+      }
+      auto latest = copyRow(version, pool);
+      if (merged) mergeNonNullFields(latest, HeapEntry{0, 0, 0, merged});
+      merged = std::move(latest);
+      live = true;
     }
-
-    output_rows.push_back(std::move(merged));
-    stats_.output_rows++;
+    if (merged && live) {
+      output_rows.push_back(std::move(merged));
+      stats_.output_rows++;
+    }
   }
 
   if (output_rows.empty()) {
@@ -193,6 +193,7 @@ void PartialUpdateMergeReader::pushCurrentRow(int reader_index) {
   entry.reader_index = reader_index;
   entry.row = state.current_row;
   entry.batch = state.current_batch;
+  validatePrimaryKey(entry, key_indices_);
   entry.sequence_num = extractSequenceNumber(entry);
 
   heap_->push(std::move(entry));
@@ -224,41 +225,7 @@ int64_t PartialUpdateMergeReader::extractSequenceNumber(
     // to overlay non-null fields onto older records.
     return static_cast<int64_t>(entry.reader_index);
   }
-  auto seq_vector = entry.batch->childAt(sequence_index_);
-  // P1-TC-10: Dispatch on typeKind for INTEGER/SMALLINT/TINYINT, widen to int64_t.
-  switch (seq_vector->typeKind()) {
-    case facebook::velox::TypeKind::BIGINT: {
-      auto flat = seq_vector->asFlatVector<int64_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return flat->valueAt(entry.row);
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::INTEGER: {
-      auto flat = seq_vector->asFlatVector<int32_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::SMALLINT: {
-      auto flat = seq_vector->asFlatVector<int16_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    case facebook::velox::TypeKind::TINYINT: {
-      auto flat = seq_vector->asFlatVector<int8_t>();
-      if (flat && !flat->isNullAt(entry.row)) {
-        return static_cast<int64_t>(flat->valueAt(entry.row));
-      }
-      break;
-    }
-    default:
-      break;
-  }
-  return std::numeric_limits<int64_t>::min();
+  return decodedSequenceNumber(entry.batch, sequence_index_, entry.row);
 }
 
 facebook::velox::RowVectorPtr PartialUpdateMergeReader::copyRow(
@@ -302,7 +269,7 @@ void PartialUpdateMergeReader::mergeNonNullFields(
 
 bool PartialUpdateMergeReader::isKeyOrSequenceColumn(
     facebook::velox::column_index_t col) const {
-  if (col == sequence_index_) {
+  if (col == sequence_index_ || output_type_->nameOf(col) == "_VALUE_KIND") {
     return true;
   }
   return std::find(key_indices_.begin(), key_indices_.end(), col) !=

@@ -59,6 +59,9 @@ class TagImmutabilityPropertyTest {
     private static final String TABLE = "test_table";
     private static final UserIdentity TEST_USER = new UserIdentity(
             "admin", Set.of("ADMIN"), Map.of(), Instant.now());
+    private static final org.pangrova.coordinator.query.CoordinatorSessionContext TEST_SESSION =
+            new org.pangrova.coordinator.query.CoordinatorSessionContext(
+                    "branch-query", Map.of("catalog", CATALOG, "schema", SCHEMA), TEST_USER, "tenant-a");
 
     @Provide
     Arbitrary<String> tagNames() {
@@ -78,11 +81,11 @@ class TagImmutabilityPropertyTest {
                 tagName, Identifier.of(CATALOG, SCHEMA, TABLE));
 
         // First creation succeeds
-        executor.executeCreateTag(stmt, TEST_USER);
+        executor.executeCreateTag(stmt, TEST_SESSION);
         assertThat(connector.tagExists(tagName)).isTrue();
 
         // Second creation with same name fails (tag is immutable)
-        assertThatThrownBy(() -> executor.executeCreateTag(stmt, TEST_USER))
+        assertThatThrownBy(() -> executor.executeCreateTag(stmt, TEST_SESSION))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("already exists");
 
@@ -107,9 +110,9 @@ class TagImmutabilityPropertyTest {
         BranchDdlExecutor executor = buildExecutor(connector);
 
         executor.executeCreateTag(
-                new CreateTagStatement(tagA, Identifier.of(CATALOG, SCHEMA, TABLE)), TEST_USER);
+                new CreateTagStatement(tagA, Identifier.of(CATALOG, SCHEMA, TABLE)), TEST_SESSION);
         executor.executeCreateTag(
-                new CreateTagStatement(tagB, Identifier.of(CATALOG, SCHEMA, TABLE)), TEST_USER);
+                new CreateTagStatement(tagB, Identifier.of(CATALOG, SCHEMA, TABLE)), TEST_SESSION);
 
         assertThat(connector.tagExists(tagA)).isTrue();
         assertThat(connector.tagExists(tagB)).isTrue();
@@ -127,12 +130,12 @@ class TagImmutabilityPropertyTest {
                 tagName, Identifier.of(CATALOG, SCHEMA, TABLE));
 
         // Create the tag — captures current snapshot
-        executor.executeCreateTag(stmt, TEST_USER);
+        executor.executeCreateTag(stmt, TEST_SESSION);
         long snapshotAtCreation = connector.getTagSnapshot(tagName);
 
         // Multiple attempts to recreate all fail
         for (int i = 0; i < 3; i++) {
-            assertThatThrownBy(() -> executor.executeCreateTag(stmt, TEST_USER))
+            assertThatThrownBy(() -> executor.executeCreateTag(stmt, TEST_SESSION))
                     .isInstanceOf(PangrovaException.class)
                     .hasMessageContaining("already exists");
         }

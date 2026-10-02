@@ -43,9 +43,20 @@ public final class ColumnMaskApplier {
     private static final Logger LOG = LoggerFactory.getLogger(ColumnMaskApplier.class);
 
     private final AccessControl accessControl;
+    private final PolicyObservationSink observations;
 
     public ColumnMaskApplier(AccessControl accessControl) {
-        this.accessControl = accessControl;
+        this(accessControl, null);
+    }
+
+    private ColumnMaskApplier(AccessControl accessControl, PolicyObservationSink observations) {
+        this.accessControl = java.util.Objects.requireNonNull(accessControl, "accessControl");
+        this.observations = observations;
+    }
+
+    /** Binds observations to this query without changing the policy authority. */
+    public ColumnMaskApplier observing(PolicyObservationSink sink) {
+        return new ColumnMaskApplier(accessControl, java.util.Objects.requireNonNull(sink, "sink"));
     }
 
     /**
@@ -61,6 +72,12 @@ public final class ColumnMaskApplier {
     }
 
     private RelNode applyMasksRecursive(RelNode node, UserIdentity identity) {
+        if (node instanceof org.apache.calcite.rel.logical.LogicalTableModify modify
+                && MutationPolicyInputs.modifiesExistingRows(modify)) {
+            return MutationPolicyInputs.columnMasks(modify,
+                    input -> applyMasksRecursive(input, identity),
+                    scan -> applyMasksToScan(scan, identity));
+        }
         if (node instanceof TableScan scan) {
             return applyMasksToScan(scan, identity);
         }
@@ -94,6 +111,9 @@ public final class ColumnMaskApplier {
                                             List<RexNode> projects) {
         Optional<String> mask = accessControl.getColumnMask(
                 identity, ref.catalog(), ref.schema(), ref.table(), field.getName());
+        if (observations != null) {
+            observations.columnMask(ref, field.getName(), mask);
+        }
         if (mask.isPresent()) {
             RexNode maskNode = MaskExpressionParser.parse(mask.get(), scan);
             RexNode castNode = ensureTypeCompatible(rexBuilder, maskNode, field.getType());

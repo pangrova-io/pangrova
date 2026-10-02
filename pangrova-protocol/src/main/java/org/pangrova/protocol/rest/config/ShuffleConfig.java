@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * REST DTO for shuffle configuration.
  *
- * <p>Independent of native proto — {@code TaskRequestBuilder} handles
+ * <p>Independent REST DTO — {@code TaskRequestBuilder} handles
  * DTO-to-proto conversion following the same pattern as {@code WriteConfig}.</p>
  */
 public record ShuffleConfig(

@@ -51,10 +51,14 @@ class NativeFunctionConfigTest {
     @Test
     void pluginConfigsAreDefensivelyCopied() {
         var mutable = new java.util.HashMap<String, Map<String, String>>();
-        mutable.put("plugin", Map.of("k", "v"));
+        var nested = new java.util.HashMap<String, String>();
+        nested.put("k", "v");
+        mutable.put("plugin", nested);
         var config = new NativeFunctionConfig(true, mutable);
 
         mutable.put("new_plugin", Map.of("x", "y"));
+        nested.put("new", "value");
         assertThat(config.pluginConfigs()).hasSize(1);
+        assertThat(config.configForPlugin("plugin")).containsOnlyKeys("k");
     }
 }

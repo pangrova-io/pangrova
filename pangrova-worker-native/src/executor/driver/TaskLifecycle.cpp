@@ -24,6 +24,13 @@ void TaskLifecycle::setError(const std::string& message) {
   error_message_ = message;
 }
 
+void TaskLifecycle::appendError(const std::string& message) {
+  if (message.empty()) return;
+  std::lock_guard<std::mutex> lock(error_mutex_);
+  if (!error_message_.empty()) error_message_ += "; ";
+  error_message_ += message;
+}
+
 void TaskLifecycle::setError(const std::string& message,
                              const std::string& stack_trace) {
   std::lock_guard<std::mutex> lock(error_mutex_);
@@ -51,10 +58,13 @@ void TaskLifecycle::notifyTaskFailed(const std::string& message) {
   // is still empty (the transition publishes the terminal state atomically,
   // but setError was previously called after the publish).
   auto stack_trace = pangrova::jni::captureNativeStackTrace();
-  // Only set error message if the transition to FAILED succeeds.
-  // This ensures the first error wins (monotonic terminal state).
+  // Hold the error lock across the terminal-state publication. A reader that
+  // observes FAILED and then asks for the error blocks until both fields are
+  // populated, eliminating the previous FAILED-with-empty-error race.
+  std::lock_guard<std::mutex> lock(error_mutex_);
   if (transitionTo(ExecutorState::FAILED)) {
-    setError(message, stack_trace);
+    error_message_ = message;
+    native_stack_trace_ = stack_trace;
   }
 }
 

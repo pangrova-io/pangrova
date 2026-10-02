@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -151,6 +152,12 @@ public class CatalogRegistry {
 
     public List<String> listCatalogNames() {
         return List.copyOf(catalogs.keySet());
+    }
+
+    /** Historical deployments are read from the durable store, not the live handle cache. */
+    public Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String name, String incarnationId, long revision) {
+        return store.findCatalogDescriptorRevision(name, incarnationId, revision);
     }
 
     /** Shuts down the health monitor and all registered catalogs. */

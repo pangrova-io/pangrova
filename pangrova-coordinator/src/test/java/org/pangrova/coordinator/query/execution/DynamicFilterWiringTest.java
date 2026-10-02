@@ -98,7 +98,8 @@ class DynamicFilterWiringTest {
         // Fire build-side stage completion
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-dpp-wiring");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-dpp-wiring", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-dpp-wiring",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         // Verify: filter was generated and registered
@@ -148,7 +149,8 @@ class DynamicFilterWiringTest {
 
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-no-dpp");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-no-dpp", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-no-dpp",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         // No filter targets registered → no injection
@@ -191,7 +193,8 @@ class DynamicFilterWiringTest {
 
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-bloom-wiring");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-bloom-wiring", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-bloom-wiring",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         // Verify Bloom filter generated

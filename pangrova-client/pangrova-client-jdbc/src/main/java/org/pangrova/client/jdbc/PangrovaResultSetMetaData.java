@@ -62,6 +62,11 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
 
     @Override
     public String getColumnClassName(int column) throws SQLException {
+        ColumnDescriptor descriptor = getColumn(column);
+        if (descriptor.sqlType() == Types.ARRAY
+                && descriptor.typeName().startsWith("VECTOR(")) {
+            return float[].class.getName();
+        }
         return switch (getColumnType(column)) {
             case Types.BOOLEAN -> Boolean.class.getName();
             case Types.INTEGER -> Integer.class.getName();

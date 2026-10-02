@@ -22,6 +22,13 @@ import org.slf4j.LoggerFactory;
  */
 public final class QueryAuditEmitter {
 
+    /** Bounded attribution metadata, never a retained authentication token or session-property map. */
+    public record AuditSubject(String principal, String tenantId) {
+        public AuditSubject {
+            java.util.Objects.requireNonNull(principal, "principal");
+        }
+    }
+
     private static final Logger LOG = LoggerFactory.getLogger(QueryAuditEmitter.class);
 
     private final AuditEventEmitter emitter;
@@ -48,21 +55,26 @@ public final class QueryAuditEmitter {
             return;
         }
         emitter.emit(buildEvent(AuditEventType.QUERY_SUBMITTED, queryId, sql,
-                principalFrom(session), true, null, 0));
+                new AuditSubject(principalFrom(session), session != null ? session.tenantId() : null),
+                true, null, 0));
     }
 
-    public void emitQueryCompleted(String queryId, long durationMs) {
+    /** Emits completion with the query-owned submitting identity and resolved tenant. */
+    public void emitQueryCompleted(String queryId, long durationMs, AuditSubject subject) {
+        java.util.Objects.requireNonNull(subject, "subject");
         if (emitter != null) {
             emitter.emit(buildEvent(AuditEventType.QUERY_COMPLETED, queryId, null,
-                    null, true, null, durationMs));
+                    subject, true, null, durationMs));
         }
         persistAuditRecord(queryId, durationMs, true);
     }
 
-    public void emitQueryFailed(String queryId, String errorMessage, long durationMs) {
+    /** Emits failure with the same attribution as the query, including anonymous rejection. */
+    public void emitQueryFailed(String queryId, String errorMessage, long durationMs, AuditSubject subject) {
+        java.util.Objects.requireNonNull(subject, "subject");
         if (emitter != null) {
             emitter.emit(buildEvent(AuditEventType.QUERY_FAILED, queryId, null,
-                    null, false, errorMessage, durationMs));
+                    subject, false, errorMessage, durationMs));
         }
         persistAuditRecord(queryId, durationMs, false);
     }
@@ -92,12 +104,13 @@ public final class QueryAuditEmitter {
     }
 
     private static AuditEvent buildEvent(AuditEventType type, String queryId,
-                                         String sql, String principal,
+                                         String sql, AuditSubject subject,
                                          boolean success, String error, long durationMs) {
         return new AuditEvent(
                 UUID.randomUUID().toString(), type, Instant.now(),
-                principal, null, null, null, queryId, sql,
-                null, null, List.of(), success, error, durationMs, 0, 0, Map.of());
+                subject.principal(), null, null, null, queryId, sql,
+                null, null, List.of(), success, error, durationMs, 0, 0,
+                subject.tenantId() != null ? Map.of("tenant_id", subject.tenantId()) : Map.of());
     }
 
     private static String principalFrom(CoordinatorSessionContext session) {

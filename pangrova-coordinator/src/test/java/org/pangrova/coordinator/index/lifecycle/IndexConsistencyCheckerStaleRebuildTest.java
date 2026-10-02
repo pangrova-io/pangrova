@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.index.lifecycle;
 
 import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
+import org.pangrova.coordinator.index.ddl.IndexBuildServices;
+import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.config.ConsistencyConfig;
@@ -34,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Verifies that {@link IndexConsistencyChecker} treats STALE as a transient
  * (recoverable) state rather than a terminal one: each cycle scans STALE
- * indexes and drives them back to READY when auto-rebuild is enabled.
+ * indexes and never publishes them READY when source enumeration fails.
  *
  * <p>Regression for architecture-remediation #161 — previously the checker only
  * paginated READY indexes, so STALE (e.g. parked by {@link StuckBuildRecovery})
@@ -53,8 +55,8 @@ class IndexConsistencyCheckerStaleRebuildTest {
     }
 
     @Test
-    @DisplayName("STALE index is automatically rebuilt back to READY in a cycle")
-    void staleIndexRebuiltToReady() {
+    @DisplayName("STALE index remains STALE when source enumeration fails")
+    void staleIndexFailsClosedWhenSourceEnumerationFails() {
         var store = new RecoveryTrackingStore();
         store.addDescriptor(buildDescriptor("idx-1", IndexState.STALE));
 
@@ -62,10 +64,8 @@ class IndexConsistencyCheckerStaleRebuildTest {
         checker.checkAll();
 
         assertThat(store.findIndex("idx-1")).isPresent();
-        assertThat(store.findIndex("idx-1").get().state()).isEqualTo(IndexState.READY);
-        // It transitioned through BUILDING rather than jumping straight to READY.
-        assertThat(store.transitions("idx-1"))
-                .containsExactly(IndexState.BUILDING, IndexState.READY);
+        assertThat(store.findIndex("idx-1").get().state()).isEqualTo(IndexState.STALE);
+        assertThat(store.transitions("idx-1")).isEmpty();
     }
 
     @Test
@@ -90,8 +90,11 @@ class IndexConsistencyCheckerStaleRebuildTest {
         var buildCoordinator = new IndexBuildCoordinator(
                 new IndexBuildContext(config, null, new IndexStorageManager(), null), null);
         var resolver = buildResolver();
+        var leaderElection = new MaintenanceLeaderElection(
+                new InMemoryDistributedLease(), "consistency-test");
         var deps = new org.pangrova.coordinator.index.lifecycle.IndexConsistencyContext(
-                store, buildCoordinator, resolver, config);
+                store, new IndexBuildServices(buildCoordinator, null),
+                resolver, config, leaderElection);
         return new IndexConsistencyChecker(deps, null);
     }
 
@@ -167,6 +170,39 @@ class IndexConsistencyCheckerStaleRebuildTest {
         }
 
         @Override
+        public boolean beginIndexGeneration(
+                String indexId, int newGeneration, String snapshot,
+                Instant timestamp, Instant expectedUpdatedAt,
+                IndexState expectedState, int expectedGeneration) {
+            IndexDescriptor descriptor = descriptors.get(indexId);
+            if (descriptor == null
+                    || !descriptor.updatedAt().equals(expectedUpdatedAt)
+                    || descriptor.state() != expectedState
+                    || descriptor.generation() != expectedGeneration
+                    || newGeneration != expectedGeneration + 1) {
+                return false;
+            }
+            IndexDescriptor rebuilding = descriptor.withGeneration(newGeneration, timestamp)
+                    .withState(IndexState.BUILDING, timestamp);
+            descriptors.put(indexId, rebuilding);
+            transitions.computeIfAbsent(indexId, ignored -> new ArrayList<>())
+                    .add(IndexState.BUILDING);
+            return true;
+        }
+
+        @Override
+        public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.metadata.index.model.IndexPublicationRequest request) {
+            throw new AssertionError("unexpected publication");
+        }
+
+        @Override
+        public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+                findActiveIndexGeneration(String id) {
+            return Optional.empty();
+        }
+
+        @Override
         public Optional<IndexDescriptor> findIndex(String indexId) {
             return Optional.ofNullable(descriptors.get(indexId));
         }
@@ -192,9 +228,9 @@ class IndexConsistencyCheckerStaleRebuildTest {
 
         // ── Unused interface methods ──
         @Override public void registerIndex(IndexDescriptor d) {}
-        @Override public List<IndexDescriptor> findIndexesByTable(String c, String s, String t) { return List.of(); }
+        @Override public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) { return List.of(); }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(
-                String c, String s, String t, List<String> cols, boolean includeStale) { return List.of(); }
+                String tenantId, String c, String s, String t, List<String> cols, boolean includeStale) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) {}
         @Override public void registerIndexFile(IndexFileMapping m) {}
@@ -207,10 +243,10 @@ class IndexConsistencyCheckerStaleRebuildTest {
         @Override public List<IndexFileMapping> listStaleFileMappings(long ms) { return List.of(); }
         @Override public void updateLastVerifiedAt(String id, String path, long ts) {}
         @Override public List<IndexDescriptor> findIndexesByColumn(
-                String c, String s, String t, String col) { return List.of(); }
-        @Override public void renameColumnInIndexes(String c, String s, String t, String o, String n) {}
-        @Override public void dropAllIndexesForTable(String c, String s, String t, Instant ts) {}
-        @Override public void renameTable(String c, String s, String o, String n) {}
+                String tenantId, String c, String s, String t, String col) { return List.of(); }
+        @Override public void renameColumnInIndexes(String tenantId, String c, String s, String t, String o, String n) {}
+        @Override public void dropAllIndexesForTable(String tenantId, String c, String s, String t, Instant ts) {}
+        @Override public void renameTable(String tenantId, String c, String s, String o, String n) {}
         @Override public void updateLastIndexedSnapshotId(String id, String snap) {}
     }
 

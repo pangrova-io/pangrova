@@ -650,6 +650,32 @@ public class ProfilerEndpoint {
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+### Resource audit admission and shutdown
+
+`JdbcAuditStore.save` admits records into a bounded in-memory queue without caller-thread
+JDBC. Capacity includes queued and in-flight records: failed batches keep their permits
+and are retried without competing with new producers for space. Exhausted capacity or
+five consecutive flush failures explicitly rejects new admissions; `QueryAuditService`
+wraps rejection as `OBS_AUDIT_PERSISTENCE_FAILED`. A successful flush releases capacity
+and resets the failure count.
+
+Flush ownership is claimed atomically; JDBC executes without holding a monitor.
+Concurrent flush requests do not wait on database I/O. Shutdown joins the actual
+in-flight completion before draining subsequent batches.
+
+Shutdown prevents further admissions, waits for in-flight flushing, and drains all
+remaining batches. If persistence still fails, `close` reports unpersisted records rather
+than acknowledging a successful drain. This is not a durable audit ledger: a process
+crash can lose admitted in-memory records, and an ambiguous database commit response
+does not provide exactly-once retry semantics. Those guarantees require a durable
+admission and reconciliation design beyond this queue.
+
+Metric getters intentionally expose the same registered live instrument, JVM collectors
+retain live management beans, and no-op instruments are stateless shared singletons.
+Immutable profile and alert-rule collections are defensively copied; native metrics
+arrays are copied on capture and access. Static-analysis exceptions for these shared
+handles and immutable lists match exact classes, methods, fields, and bug patterns only.
+
 ## 5. Native-Layer Metrics
 
 ### 5.1 Native Metric Definitions
@@ -997,6 +1023,24 @@ Pangrova has two complementary audit subsystems:
 | Owner | SecurityModule | ObservabilityModule |
 
 Both tables share a common `AuditEvent` base schema (see [12 §6.3](./security.md)) and can be joined via `query_id` for full audit trail.
+
+Query lifecycle security events retain the submitting principal in the query-owned
+state machine before ownership acquisition. Completion and failure use that captured
+principal and the resolved tenant (`properties.tenant_id`), rather than an emitter-side
+identity cache or the thread's current request context. Anonymous rejection is
+explicitly attributed to `anonymous`. Authentication tokens and arbitrary session
+properties are not retained for terminal audit attribution.
+
+This in-process attribution is not a durable audit guarantee. The current session
+journal does not persist the principal for recovery, and early admission/ownership
+rejections can precede terminal-event emission. Those paths and process-loss delivery
+require separate recovery and durability verification.
+
+The Coordinator module owner also closes and joins its metadata invalidation
+poller before the metadata data source is released. Ownership is registered
+before schema validation or scheduler startup, so a later bootstrap failure still
+enters the same cleanup path. Canceling only the leader-gated cleanup timer is
+insufficient: the poller owns a separate scheduled executor.
 
 ### OpenLineage Trace Correlation
 

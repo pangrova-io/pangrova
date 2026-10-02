@@ -77,11 +77,11 @@ class WorkerCdcBootstrapTest {
     }
 
     private static WorkerBootstrap createCdcEnabledBootstrap() {
-        return new WorkerBootstrap(buildConfig(true));
+        return TestWorkerBootstrap.create(buildConfig(true));
     }
 
     private static WorkerBootstrap createCdcDisabledBootstrap() {
-        return new WorkerBootstrap(buildConfig(false));
+        return TestWorkerBootstrap.create(buildConfig(false));
     }
 
     private static WorkerBootstrapConfig buildConfig(boolean cdcEnabled) {
@@ -91,6 +91,6 @@ class WorkerCdcBootstrapTest {
                 false, null, null, 0, cdcEnabled,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
+                null, null, null);
     }
 }

@@ -76,6 +76,20 @@ class RemoteTaskStatusReporterRetryTest {
     }
 
     @Test
+    void cancelledReport_retriesOnTransientFailure() throws Exception {
+        FailThenSucceedServlet servlet = new FailThenSucceedServlet(2);
+        int port = startServer(servlet);
+        CountingMetricsProvider metrics = new CountingMetricsProvider();
+        RemoteTaskStatusReporter reporter = createReporterWithNoSleep(port, metrics);
+
+        reporter.report(cancelledReport(3));
+
+        assertThat(servlet.totalRequests.get()).isEqualTo(3);
+        assertThat(servlet.successRequests.get()).isEqualTo(1);
+        assertThat(metrics.failedCounter.count.get()).isZero();
+    }
+
+    @Test
     void nonFinalStateReport_doesNotRetry() throws Exception {
         AlwaysFailServlet servlet = new AlwaysFailServlet();
         int port = startServerWithWarmup(servlet, () -> servlet.totalRequests.set(0));
@@ -95,7 +109,7 @@ class RemoteTaskStatusReporterRetryTest {
     void finalStateReport_unreachableHost_exhaustsRetriesAndRecordsMetric() {
         CountingMetricsProvider metrics = new CountingMetricsProvider();
         RemoteTaskStatusReporter reporter = new RemoteTaskStatusReporter(
-                "http://localhost:1", TestObservability.TRACING) {
+                "http://localhost:1", TestObservability.TRACING, null) {
             @Override
             void sleep(long millis) {
                 // skip sleep for fast test
@@ -122,7 +136,7 @@ class RemoteTaskStatusReporterRetryTest {
     }
 
     @Test
-    void finalStateReport_http409_treatedAsSuccess_noRetry() throws Exception {
+    void finalStateReport_http409IsUndeliveredAndRetries() throws Exception {
         ConflictServlet servlet = new ConflictServlet();
         int port = startServer(servlet);
 
@@ -131,8 +145,26 @@ class RemoteTaskStatusReporterRetryTest {
 
         reporter.report(finishedReport(1));
 
-        assertThat(servlet.totalRequests.get()).isEqualTo(1);
-        assertThat(metrics.failedCounter.count.get()).isEqualTo(0);
+        assertThat(servlet.totalRequests.get())
+                .isEqualTo(RemoteTaskStatusReporter.MAX_RETRY_ATTEMPTS);
+        assertThat(metrics.failedCounter.count.get()).isEqualTo(1);
+    }
+
+    @Test
+    void statusReportCarriesWorkerInternalBearerCredential() throws Exception {
+        AuthorizationCapturingServlet servlet = new AuthorizationCapturingServlet();
+        int port = startServer(servlet);
+        RemoteTaskStatusReporter reporter = new RemoteTaskStatusReporter(
+                "http://localhost:" + port,
+                java.net.http.HttpClient.newHttpClient(),
+                TestObservability.TRACING,
+                new CountingMetricsProvider(),
+                "worker-service-secret");
+
+        reporter.report(scheduledReport(1));
+
+        assertThat(servlet.authorization)
+                .isEqualTo("Bearer worker-service-secret");
     }
 
     // --- Helpers ---
@@ -170,7 +202,7 @@ class RemoteTaskStatusReporterRetryTest {
     private RemoteTaskStatusReporter createReporterWithNoSleep(int port, CountingMetricsProvider metrics) {
         return new RemoteTaskStatusReporter("http://localhost:" + port,
                 java.net.http.HttpClient.newHttpClient(),
-                TestObservability.TRACING, metrics) {
+                TestObservability.TRACING, metrics, null) {
             @Override
             void sleep(long millis) {
                 // skip sleep for fast test execution
@@ -181,25 +213,36 @@ class RemoteTaskStatusReporterRetryTest {
     private static TaskStatusReport finishedReport(long sequence) {
         return new TaskStatusReport(
                 "task-1", "q-1", 0, 0, "COMPUTE", "w-1", "FINISHED",
-                null, null, null, sequence, System.currentTimeMillis(), null, null);
+                null, null, null, sequence, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
     }
 
     private static TaskStatusReport failedReport(long sequence) {
         return new TaskStatusReport(
                 "task-1", "q-1", 0, 0, "COMPUTE", "w-1", "FAILED",
-                null, null, null, sequence, System.currentTimeMillis(), null, null);
+                null, null, null, sequence, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
+    }
+
+    private static TaskStatusReport cancelledReport(long sequence) {
+        return new TaskStatusReport(
+                "task-1", "q-1", 0, 0, "COMPUTE", "w-1", "CANCELLED",
+                null, null, null, sequence, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
     }
 
     private static TaskStatusReport runningReport(long sequence) {
         return new TaskStatusReport(
                 "task-1", "q-1", 0, 0, "COMPUTE", "w-1", "RUNNING",
-                null, null, null, sequence, System.currentTimeMillis(), null, null);
+                null, null, null, sequence, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
     }
 
     private static TaskStatusReport scheduledReport(long sequence) {
         return new TaskStatusReport(
                 "task-1", "q-1", 0, 0, "COMPUTE", "w-1", "SCHEDULED",
-                null, null, null, sequence, System.currentTimeMillis(), null, null);
+                null, null, null, sequence, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
     }
 
     // --- Test Servlets (real HTTP behavior, no mocks) ---
@@ -249,6 +292,16 @@ class RemoteTaskStatusReporterRetryTest {
             totalRequests.incrementAndGet();
             resp.setStatus(409);
             resp.getWriter().write("worker not registered");
+        }
+    }
+
+    private static final class AuthorizationCapturingServlet extends HttpServlet {
+        volatile String authorization;
+
+        @Override
+        protected void doPost(HttpServletRequest req, HttpServletResponse resp) {
+            authorization = req.getHeader("Authorization");
+            resp.setStatus(200);
         }
     }
 

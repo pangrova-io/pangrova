@@ -1134,6 +1134,14 @@ See [14 §7](./observability.md) for structured logging format.
 
 ## 15. Plan Cache (Coordinator-Side)
 
+Implementation status: the following compiled-plan cache is a design, not a
+production capability. The unconnected Java RelNode cache and its unregistered
+metadata listener were removed: copying a root node does not detach its cluster
+or children. Current queries plan in a query-owned cluster. A future plan cache
+must store immutable canonical plans, bind exact metadata/security/model versions,
+and prove invalidation and concurrent isolation before wiring. The separately
+wired query-result cache is not removed by this change.
+
 
 
 While §1–§13 cover the **data cache** (Worker-side, caching file data blocks), this section describes the **plan cache** — a Coordinator-side optimization that caches compiled Substrait query plans to avoid repeated optimization of identical SQL patterns.

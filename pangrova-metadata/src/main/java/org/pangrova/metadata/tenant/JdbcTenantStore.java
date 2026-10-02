@@ -65,7 +65,8 @@ public final class JdbcTenantStore implements TenantStore {
     private static final int PARAM_RESOURCE_POOL = 14;
     private static final int PARAM_PROPERTIES = 15;
     private static final int PARAM_CREATED_AT = 16;
-    private static final int PARAM_CREATED_BY = 17;
+    private static final int PARAM_UPDATED_AT = 17;
+    private static final int PARAM_CREATED_BY = 18;
 
     /** All-zero quota used when a tenant carries no explicit quota. */
     private static final ResourceQuota EMPTY_QUOTA = new ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0);
@@ -90,6 +91,7 @@ public final class JdbcTenantStore implements TenantStore {
                 resource_pool      VARCHAR(255),
                 properties         TEXT,
                 created_at         TIMESTAMP      NOT NULL,
+                updated_at         TIMESTAMP      NOT NULL,
                 created_by         VARCHAR(255)
             )
             """;
@@ -108,8 +110,8 @@ public final class JdbcTenantStore implements TenantStore {
                     + "max_cpu_time_per_query_ms, max_scan_bytes_per_query, "
                     + "max_daily_query_count, max_daily_scan_bytes, max_storage_bytes, "
                     + "allowed_catalogs, allowed_schemas, resource_pool, properties, "
-                    + "created_at, created_by) "
-                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                    + "created_at, updated_at, created_by) "
+                    + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
                     + "ON CONFLICT (tenant_id) DO UPDATE SET "
                     + "name=EXCLUDED.name, status=EXCLUDED.status, "
                     + "max_memory_bytes=EXCLUDED.max_memory_bytes, "
@@ -123,7 +125,8 @@ public final class JdbcTenantStore implements TenantStore {
                     + "allowed_catalogs=EXCLUDED.allowed_catalogs, "
                     + "allowed_schemas=EXCLUDED.allowed_schemas, "
                     + "resource_pool=EXCLUDED.resource_pool, "
-                    + "properties=EXCLUDED.properties";
+                    + "properties=EXCLUDED.properties, "
+                    + "updated_at=EXCLUDED.updated_at";
 
     private static final String SQL_GET_TENANT =
             "SELECT * FROM tenants WHERE tenant_id = ?";
@@ -158,11 +161,43 @@ public final class JdbcTenantStore implements TenantStore {
     public void initSchema() {
         try (Connection conn = dataSource.getConnection();
              var stmt = conn.createStatement()) {
+            conn.setAutoCommit(false);
+            org.pangrova.security.store.AuthorizationTransactionGate.lockMutation(conn);
             stmt.execute(DDL_TENANTS);
             stmt.execute(DDL_MEMBERSHIPS);
+            org.pangrova.security.store.AuthorizationTransactionGate.initialize(conn);
+            conn.commit();
             LOG.info("event=tenant_schema_initialized");
         } catch (SQLException e) {
             throw new MetastoreException("Failed to initialize tenant schema", e);
+        }
+    }
+
+    /** Validates the exact current tenant membership and namespace on the publication connection. */
+    public static void requireDeferredTenant(
+            Connection connection, String principal, String tenantId,
+            org.pangrova.security.authz.DeferredAuthorizationScope scope) throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "SELECT t.* FROM tenants t JOIN tenant_user_memberships m ON m.tenant_id=t.tenant_id "
+                        + "WHERE t.tenant_id=? AND m.user_principal=? AND t.status='ACTIVE'")) {
+            statement.setString(1, tenantId);
+            statement.setString(2, principal);
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new org.pangrova.security.authz.AuthorizationDeniedException(
+                            "Deferred subject no longer belongs to the exact active tenant");
+                }
+                Tenant tenant = mapTenant(result);
+                for (var permission : scope.permissions()) {
+                    var table = permission.table();
+                    if ((!tenant.allowedCatalogs().isEmpty() && !tenant.allowedCatalogs().contains(table.catalog()))
+                            || (!tenant.allowedSchemas().isEmpty()
+                            && !tenant.allowedSchemas().contains(table.schema()))) {
+                        throw new org.pangrova.security.authz.AuthorizationDeniedException(
+                                "Deferred resource is outside the current tenant namespace");
+                    }
+                }
+            }
         }
     }
 
@@ -303,8 +338,10 @@ public final class JdbcTenantStore implements TenantStore {
         ps.setString(PARAM_ALLOWED_SCHEMAS, serializeList(tenant.allowedSchemas()));
         ps.setString(PARAM_RESOURCE_POOL, tenant.resourcePool());
         ps.setString(PARAM_PROPERTIES, serializeMap(tenant.properties()));
+        Timestamp now = Timestamp.from(Instant.now());
         ps.setTimestamp(PARAM_CREATED_AT, tenant.createdAt() != null
-                ? Timestamp.from(tenant.createdAt()) : Timestamp.from(Instant.now()));
+                ? Timestamp.from(tenant.createdAt()) : now);
+        ps.setTimestamp(PARAM_UPDATED_AT, now);
         ps.setString(PARAM_CREATED_BY, tenant.createdBy());
     }
 

@@ -29,16 +29,28 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.COORDINATOR_PORT.typeClass()).isEqualTo(Integer.class);
     }
 
-    // ---- Feature flags: all true except security ----
+    @Test
+    void coordinatorTransportTlsIsExplicitAndDisabledByDefault() {
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_ENABLED.defaultValue()).isFalse();
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH.defaultValue())
+                .isEmpty();
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_PRIVATE_KEY_PATH.defaultValue())
+                .isEmpty();
+        assertThat(CoordinatorOptions.TRANSPORT_TLS_ROOT_CA_PATH.defaultValue())
+                .isEmpty();
+        assertThat(CoordinatorOptions.SHUFFLE_TLS_SERVER_IDENTITY.defaultValue())
+                .isEmpty();
+    }
+
+    // ---- Feature flags: tenancy and security require explicit activation ----
 
     @Test
-    void allFeatureFlagsDefaultTrueExceptSecurity() {
+    void remainingFeatureFlagsDefaultTrue() {
         List<ConfigOption<Boolean>> enabledByDefault = List.of(
                 CoordinatorOptions.METADATA_ENABLED,
                 CoordinatorOptions.GOVERNANCE_ENABLED,
                 CoordinatorOptions.RESILIENCE_ENABLED,
                 CoordinatorOptions.STREAMING_ENABLED,
-                CoordinatorOptions.TENANT_ENABLED,
                 CoordinatorOptions.INDEXING_ENABLED,
                 CoordinatorOptions.OPERATIONS_ENABLED,
                 CoordinatorOptions.OBSERVABILITY_ENABLED);
@@ -56,6 +68,12 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.SECURITY_ENABLED.defaultValue()).isFalse();
         assertThat(CoordinatorOptions.SECURITY_ENABLED.key()).isEqualTo("security.enabled");
         assertThat(CoordinatorOptions.SECURITY_ENABLED.typeClass()).isEqualTo(Boolean.class);
+    }
+
+    @Test
+    void tenantEnabledDefaultsToFalseWithoutAuthentication() {
+        assertThat(CoordinatorOptions.TENANT_ENABLED.defaultValue()).isFalse();
+        assertThat(CoordinatorOptions.TENANT_ENABLED.key()).isEqualTo("tenant.enabled");
     }
 
     // ---- HA defaults ----
@@ -140,17 +158,17 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.METADATA_CACHE_L1_TTL.defaultValue()).isEqualTo(Duration.ofSeconds(60));
     }
 
-    // ---- R1.3: Empty config enables all modules except security ----
+    // ---- R1.3: Empty config keeps unauthenticated tenancy disabled ----
 
     @Test
-    void emptyConfigEnablesAllModulesExceptSecurity() {
+    void emptyConfigDisablesSecurityAndTenancy() {
         PangrovaConfiguration emptyConfig = PangrovaConfiguration.fromYaml(Map.of());
 
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.METADATA_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.GOVERNANCE_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.RESILIENCE_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.STREAMING_ENABLED)).isTrue();
-        assertThat(emptyConfig.getBoolean(CoordinatorOptions.TENANT_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.TENANT_ENABLED)).isFalse();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.INDEXING_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.OBSERVABILITY_ENABLED)).isTrue();

@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.query.QueryStatusResponse;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.ResultPage;
 import org.pangrova.protocol.rest.query.SubmitQueryRequest;
 import org.pangrova.protocol.rest.query.SubmitQueryResponse;
 import org.slf4j.Logger;
@@ -259,32 +258,16 @@ public final class PangrovaRestClient implements AutoCloseable {
         return resultFetcher.fetch(endpoint);
     }
 
+    /** Fetches results while honoring the caller's absolute query deadline. */
+    public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+        return resultFetcher.fetch(endpoint, deadlineEpochMs);
+    }
+
     /**
      * Streams query result via transport, invoking the consumer for each batch.
      */
     public void fetchResultStream(ResultEndpoint endpoint, ResultBatchConsumer consumer) {
         resultFetcher.fetchStream(endpoint, consumer);
-    }
-
-    /**
-     * Fetches a single page of query results with cursor-based pagination.
-     */
-    public ResultPage fetchResultPage(String queryId, int maxRows, String nextToken) {
-        if (queryId == null || queryId.isBlank()) {
-            throw new IllegalArgumentException("queryId must not be null or blank");
-        }
-        if (maxRows <= 0) {
-            throw new IllegalArgumentException("maxRows must be positive, got " + maxRows);
-        }
-        StringBuilder path = new StringBuilder("/v1/query/")
-                .append(queryId)
-                .append("/result?max_rows=")
-                .append(maxRows);
-        if (nextToken != null && !nextToken.isEmpty()) {
-            path.append("&next_token=").append(
-                    java.net.URLEncoder.encode(nextToken, java.nio.charset.StandardCharsets.UTF_8));
-        }
-        return get(path.toString(), ResultPage.class);
     }
 
     @Override

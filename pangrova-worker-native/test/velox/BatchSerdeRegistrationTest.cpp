@@ -5,12 +5,11 @@
 //   1. The "ArrowBatch" named serde is registered after runtime initialization.
 //   2. Serialize/deserialize round-trip produces correct data for supported
 //      types (integers, strings, mixed columns with nulls).
-//   3. Unsupported types throw specific exception for graceful fallback
-//      to PrestoVectorSerde.
-//
-// Requirements: G.3
+//   3. Unsupported types fail explicitly without another execution path.
 
 #include <gtest/gtest.h>
+#include <arrow/array.h>
+#include <arrow/buffer.h>
 
 #include <cstdint>
 #include <memory>
@@ -19,6 +18,7 @@
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "columnar/CanonicalBatchStream.h"
 #include "result/ArrowBatchVectorSerde.h"
 
 #include "velox/common/memory/ByteStream.h"
@@ -83,24 +83,31 @@ TEST_F(BatchSerdeRegistrationTest, SerializeProducesValidArrowBatch) {
       folly::Range<const IndexRange*>(ranges.data(), ranges.size()),
       outputStream.get());
 
-  // Verify serialized bytes are non-empty and contain valid Arrow IPC data.
+  // Decode the actual canonical stream rather than a private length prefix.
   auto iobuf = outputStream->getIOBuf();
   ASSERT_NE(iobuf, nullptr);
-  ASSERT_GT(iobuf->computeChainDataLength(), sizeof(int32_t))
-      << "Serialized output must contain at least length prefix + data";
-
-  // Read the 4-byte length prefix and verify it's reasonable.
-  auto data = iobuf->data();
-  int32_t length = *reinterpret_cast<const int32_t*>(data);
-  EXPECT_GT(length, 0) << "Arrow IPC message length must be positive";
-  EXPECT_EQ(
-      static_cast<size_t>(length) + sizeof(int32_t),
-      iobuf->computeChainDataLength())
-      << "Length prefix must match actual data size";
+  ASSERT_GT(iobuf->computeChainDataLength(), 8);
+  iobuf->coalesce();
+  auto buffer = arrow::Buffer::Wrap(iobuf->data(), iobuf->length());
+  auto columnar_pool = std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool_);
+  auto decoded = pangrova::columnar::decodeBatchStream(buffer, columnar_pool);
+  ASSERT_TRUE(decoded.ok()) << decoded.status().ToString();
+  ASSERT_EQ(decoded->size(), 1);
+  const auto& batch = decoded->front();
+  ASSERT_TRUE(batch->ValidateFull().ok());
+  ASSERT_EQ(batch->num_columns(), 1);
+  EXPECT_EQ(batch->schema()->field(0)->name(), "id");
+  ASSERT_EQ(batch->num_rows(), int_values.size());
+  ASSERT_EQ(batch->column(0)->type_id(), arrow::Type::INT64);
+  auto values = std::static_pointer_cast<arrow::Int64Array>(batch->column(0));
+  EXPECT_EQ(values->null_count(), 0);
+  for (size_t row = 0; row < int_values.size(); ++row) {
+    EXPECT_EQ(values->Value(row), int_values[row]);
+  }
 }
 
-// Verifies unsupported type throws specific exception for graceful fallback.
-TEST_F(BatchSerdeRegistrationTest, UnsupportedTypeThrowsForFallback) {
+// Unsupported values cannot enter the canonical wire representation.
+TEST_F(BatchSerdeRegistrationTest, UnsupportedTypeFailsWithoutWritingPayload) {
   auto opaqueType = OpaqueType::create<int>();
   auto rowType = ROW({"opaque_col"}, {opaqueType});
   auto opaqueVector =
@@ -123,8 +130,8 @@ TEST_F(BatchSerdeRegistrationTest, UnsupportedTypeThrowsForFallback) {
           folly::Range<const IndexRange*>(ranges.data(), ranges.size()),
           outputStream.get()),
       pangrova::result::ArrowBatchUnsupportedTypeException)
-      << "Unsupported type must throw specific exception "
-         "for graceful fallback to PrestoVectorSerde";
+      << "Unsupported type must fail before publishing any payload";
+  EXPECT_EQ(outputStream->tellp(), std::streampos(0));
 }
 
 }  // namespace

@@ -79,7 +79,7 @@ public final class PangrovaDistribution implements RelTrait {
      * Non-empty only for HASH distributions.
      */
     public List<Integer> keys() {
-        return keys;
+        return List.copyOf(keys);
     }
 
     @Override

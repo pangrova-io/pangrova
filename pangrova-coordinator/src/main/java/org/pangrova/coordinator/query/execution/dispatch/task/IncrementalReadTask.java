@@ -63,16 +63,12 @@ public final class IncrementalReadTask implements MetadataTask<IncrementalReadSt
 
     @Override
     public StatementResult execute(IncrementalReadStatement statement, StatementExecutionContext context) {
-        QualifiedTableName ref = QualifiedTableName.resolveOrNull(statement.tableName());
-        if (ref == null) {
-            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "Cannot resolve table name: " + statement.tableName());
-        }
+        QualifiedTableName ref = TableResolver.resolveTableRef(statement.tableName(), context.session());
 
         long fromSnapshot = extractSnapshotId(statement.fromSnapshot(), "fromSnapshot");
         long toSnapshot = extractSnapshotId(statement.toSnapshot(), "toSnapshot");
 
-        ConnectorSession session = TableResolver.buildSession(ref.catalog());
+        ConnectorSession session = TableResolver.buildSession(context.session(), ref.catalog(), ref.schema());
         CatalogHandle catalogHandle = catalogRegistry.getCatalog(ref.catalog());
         ConnectorMetadata metadata = catalogHandle.getMetadata(session);
         ConnectorTableHandle tableHandle = TableResolver.requireTableHandle(metadata, session, ref);

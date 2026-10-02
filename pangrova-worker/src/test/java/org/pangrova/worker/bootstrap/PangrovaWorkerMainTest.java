@@ -55,6 +55,38 @@ class PangrovaWorkerMainTest {
 
         assertThat(result.observabilityEnabled()).isTrue();
         assertThat(result.cdcEnabled()).isTrue();
+        assertThat(result.transportSecurityConfig().enabled()).isFalse();
+    }
+
+    @Test
+    void buildBootstrapConfigWiresCompleteMutualTlsConfiguration() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
+                "worker.transport.tls.enabled", "true",
+                "worker.transport.tls.certificate-chain-path", "/secrets/worker.crt",
+                "worker.transport.tls.private-key-path", "/secrets/worker.key",
+                "worker.transport.tls.root-ca-path", "/secrets/ca.crt",
+                "worker.transport.tls.identity", "worker-1.internal"));
+
+        WorkerBootstrapConfig.TransportSecurityConfig security =
+                PangrovaWorkerMain.buildBootstrapConfig(config).transportSecurityConfig();
+
+        assertThat(security.enabled()).isTrue();
+        assertThat(security.certificateChainPath()).isEqualTo("/secrets/worker.crt");
+        assertThat(security.privateKeyPath()).isEqualTo("/secrets/worker.key");
+        assertThat(security.rootCaPath()).isEqualTo("/secrets/ca.crt");
+        assertThat(security.tlsIdentity()).isEqualTo("worker-1.internal");
+    }
+
+    @Test
+    void buildBootstrapConfigRejectsPartialTransportTlsConfiguration() {
+        PangrovaConfiguration config = PangrovaConfiguration.fromYaml(Map.of(
+                "worker.transport.tls.enabled", "true",
+                "worker.transport.tls.certificate-chain-path", "/secrets/worker.crt"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> PangrovaWorkerMain.buildBootstrapConfig(config))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("requires certificate, private key, root CA and identity");
     }
 
     @Test
@@ -73,6 +105,91 @@ class PangrovaWorkerMainTest {
         assertThat(result.transportPort()).isEqualTo(5555);
         assertThat(result.coordinatorUrl()).isEqualTo("http://coordinator:8080");
         assertThat(result.cdcEnabled()).isFalse();
+    }
+
+    @Test
+    void buildBootstrapConfigWiresFailClosedAiAuthorization() {
+        PangrovaConfiguration defaults = PangrovaConfiguration.fromYaml(Map.of());
+        WorkerBootstrapConfig denied = PangrovaWorkerMain.buildBootstrapConfig(defaults);
+
+        assertThat(denied.nativeFunctionConfig().configForPlugin("ai-inference"))
+                .containsEntry("authorization.mode", "deny");
+        assertThat(org.pangrova.worker.ai.function.AiFunctionActivation
+                .hasModels(denied.nativeFunctionConfig()
+                        .configForPlugin("ai-inference"))).isFalse();
+        assertThat(org.pangrova.worker.ai.function.AiFunctionActivation
+                .hasFileStorage(denied.nativeFunctionConfig()
+                        .configForPlugin("ai-inference"))).isFalse();
+
+        PangrovaConfiguration enabled = PangrovaConfiguration.fromYaml(Map.of(
+                "worker.ai.authorization.mode", "authenticated",
+                "worker.ai.authorization.allowed-models", "model-a",
+                "worker.ai.authorization.allowed-capabilities", "inference:model-a",
+                "worker.ai.authorization.granted-permissions", "AI_MODEL_USAGE"));
+        WorkerBootstrapConfig configured = PangrovaWorkerMain.buildBootstrapConfig(enabled);
+
+        assertThat(configured.nativeFunctionConfig().configForPlugin("ai-inference"))
+                .containsEntry("authorization.mode", "authenticated")
+                .containsEntry("authorization.allowed-models", "model-a");
+    }
+
+    @Test
+    void defaultYamlFunctionBootstrapUsesServiceLoaderWithoutRequiringFileStorage() {
+        WorkerBootstrapConfig defaults = PangrovaWorkerMain.buildBootstrapConfig(
+                PangrovaConfiguration.fromYaml(Map.of()));
+        WorkerComponentRefs refs = new WorkerComponentRefs();
+
+        org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.initialize(
+                refs, defaults.nativeFunctionConfig());
+
+        assertThat(refs.nativeFunctionBridge()).isNotNull();
+        assertThat(refs.nativeFunctionBridge().scalarCount()).isZero();
+        org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.close(refs);
+    }
+
+    @Test
+    void buildBootstrapConfigPassesDynamicAiModelDescriptorsWithoutSecrets() {
+        PangrovaConfiguration source = PangrovaConfiguration.fromYaml(Map.of(
+                "worker.ai.models.chat.provider", "openai-compatible",
+                "worker.ai.models.chat.provider-model", "chat-deployment-v1",
+                "worker.ai.models.chat.version", "2026-08-01",
+                "worker.ai.models.chat.endpoint", "https://models.example/v1/chat/completions",
+                "worker.ai.models.chat.secret-reference", "env://MODEL_KEY",
+                "worker.ai.models.chat.capabilities", "inference,multimodal"));
+
+        Map<String, String> pluginConfig = PangrovaWorkerMain.buildBootstrapConfig(source)
+                .nativeFunctionConfig()
+                .configForPlugin("ai-inference");
+
+        assertThat(pluginConfig)
+                .containsEntry("models.chat.provider", "openai-compatible")
+                .containsEntry("models.chat.version", "2026-08-01")
+                .containsEntry("models.chat.secret-reference", "env://MODEL_KEY");
+    }
+
+    @Test
+    void buildBootstrapConfigWiresDistributedFileStorageWithoutSecrets() {
+        PangrovaConfiguration source = PangrovaConfiguration.fromYaml(Map.ofEntries(
+                Map.entry("worker.ai.file.storage-backend", "s3"),
+                Map.entry("worker.ai.file.storage-staging-root", "/var/tmp/files"),
+                Map.entry("worker.ai.file.capability-secret-reference", "env://FILE_KEY"),
+                Map.entry("worker.ai.file.storage.s3.bucket", "governed-files"),
+                Map.entry("worker.ai.file.storage.s3.region", "us-east-1"),
+                Map.entry("worker.ai.file.storage.s3.sse", "AES256"),
+                Map.entry("worker.ai.file.url.max-connections", "512")));
+
+        Map<String, String> pluginConfig = PangrovaWorkerMain.buildBootstrapConfig(source)
+                .nativeFunctionConfig().configForPlugin("ai-inference");
+
+        assertThat(pluginConfig)
+                .containsEntry("file.storage-backend", "s3")
+                .containsEntry("file.storage-staging-root", "/var/tmp/files")
+                .containsEntry("file.capability-secret-reference", "env://FILE_KEY")
+                .containsEntry("file.storage.s3.bucket", "governed-files")
+                .containsEntry("file.storage.s3.region", "us-east-1")
+                .containsEntry("file.storage.s3.sse", "AES256")
+                .containsEntry("file.url.max-connections", "512")
+                .doesNotContainKey("file.storage-root");
     }
 
     @Test

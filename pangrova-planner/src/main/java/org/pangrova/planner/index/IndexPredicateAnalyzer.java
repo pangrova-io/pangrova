@@ -244,7 +244,7 @@ public final class IndexPredicateAnalyzer {
             case INVERTED -> predicate instanceof TextMatch;
             case R_TREE -> predicate instanceof SpatialQuery;
             case GIN -> predicate instanceof ContainsElement;
-            case VECTOR -> false; // Vector uses VectorSearchRequest, not IndexPredicate
+            case VECTOR -> false; // Native ANN artifacts are not file-pruning predicates.
         };
     }
 

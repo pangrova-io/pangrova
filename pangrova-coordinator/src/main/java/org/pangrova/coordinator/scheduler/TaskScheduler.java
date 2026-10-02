@@ -1,13 +1,20 @@
 package org.pangrova.coordinator.scheduler;
 
 import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.ToDoubleFunction;
 
 import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.coordinator.worker.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
+import org.pangrova.protocol.v2.ArtifactFormatRef;
+import org.pangrova.protocol.v2.CapabilityRef;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.resource.QueueType;
 import org.pangrova.resource.scheduler.WeightedFairScheduler;
@@ -31,6 +38,7 @@ public class TaskScheduler {
 
     private final WorkerPerformanceScorer scorer;
     private final WeightedFairScheduler fairScheduler;
+    private final AtomicLong equalScoreCursor = new AtomicLong();
 
     public TaskScheduler(WorkerPerformanceScorer scorer) {
         this(scorer, null);
@@ -68,19 +76,43 @@ public class TaskScheduler {
      */
     public Optional<WorkerInfo> selectWorker(
             long estimatedMemoryBytes, List<WorkerInfo> candidates, String resourcePoolId) {
-        if (resourcePoolId == null) {
-            return selectFromCandidates(estimatedMemoryBytes, candidates);
-        }
-        List<WorkerInfo> poolCandidates = candidates.stream()
-                .filter(w -> resourcePoolId.equals(w.resourcePoolId()))
-                .toList();
+        List<WorkerInfo> poolCandidates = eligibleWorkers(
+                estimatedMemoryBytes, candidates, resourcePoolId);
         if (poolCandidates.isEmpty()) {
-            return selectFromCandidates(estimatedMemoryBytes, candidates);
+            return Optional.empty();
         }
-        if (fairScheduler != null) {
+        if (fairScheduler != null && resourcePoolId != null) {
             return selectWithFairShare(estimatedMemoryBytes, poolCandidates, resourcePoolId);
         }
         return selectFromCandidates(estimatedMemoryBytes, poolCandidates);
+    }
+
+    /**
+     * Returns the exact set eligible for placement before locality is applied.
+     * Keeping this predicate in the scheduler prevents cache affinity from
+     * bypassing health, memory-pressure, memory-fit, or resource-pool rules.
+     */
+    public List<WorkerInfo> eligibleWorkers(
+            long estimatedMemoryBytes,
+            List<WorkerInfo> candidates,
+            String resourcePoolId) {
+        List<WorkerInfo> scoped = candidates;
+        if (resourcePoolId != null) {
+            List<WorkerInfo> poolCandidates = candidates.stream()
+                    .filter(worker -> resourcePoolId.equals(
+                            worker.resourcePoolId()))
+                    .toList();
+            if (!poolCandidates.isEmpty()) {
+                scoped = poolCandidates;
+            }
+        }
+        return scoped.stream()
+                .filter(worker -> worker.healthState() == HealthState.ACTIVE)
+                .filter(worker -> worker.memoryPressure()
+                        != MemoryPressure.CRITICAL)
+                .filter(worker -> isMemoryAcceptable(
+                        worker, estimatedMemoryBytes))
+                .toList();
     }
 
     /**
@@ -101,12 +133,13 @@ public class TaskScheduler {
                 resourcePoolId, queueType, share);
 
         final double effectiveShare = Math.max(share, 0.1); // floor to prevent starvation
-        return candidates.stream()
+        List<WorkerInfo> eligible = candidates.stream()
                 .filter(w -> w.healthState() == HealthState.ACTIVE)
                 .filter(w -> w.memoryPressure() != MemoryPressure.CRITICAL)
                 .filter(w -> isMemoryAcceptable(w, estimatedMemoryBytes))
-                .max(Comparator.comparingDouble(w ->
-                        scorer.computeScore(toWorkerStats(w)) * effectiveShare));
+                .toList();
+        return bestByScore(eligible, worker ->
+                scorer.computeScore(toWorkerStats(worker)) * effectiveShare);
     }
 
     /**
@@ -190,8 +223,30 @@ public class TaskScheduler {
     }
 
     private Optional<WorkerInfo> bestByScore(List<WorkerInfo> workers) {
-        return workers.stream()
-                .max(Comparator.comparingDouble(w -> scorer.computeScore(toWorkerStats(w))));
+        return bestByScore(workers, worker -> scorer.computeScore(toWorkerStats(worker)));
+    }
+
+    private Optional<WorkerInfo> bestByScore(
+            List<WorkerInfo> workers, ToDoubleFunction<WorkerInfo> score) {
+        double highestScore = Double.NEGATIVE_INFINITY;
+        List<WorkerInfo> tied = new ArrayList<>();
+        for (WorkerInfo worker : workers) {
+            double value = score.applyAsDouble(worker);
+            int comparison = Double.compare(value, highestScore);
+            if (comparison > 0) {
+                highestScore = value;
+                tied.clear();
+                tied.add(worker);
+            } else if (comparison == 0) {
+                tied.add(worker);
+            }
+        }
+        if (tied.size() <= 1) {
+            return tied.stream().findFirst();
+        }
+        tied.sort(Comparator.comparing(WorkerInfo::workerId));
+        int index = (int) Math.floorMod(equalScoreCursor.getAndIncrement(), tied.size());
+        return Optional.of(tied.get(index));
     }
 
     private static boolean hasDataLocality(WorkerInfo worker, List<String> preferredLocations) {
@@ -213,26 +268,42 @@ public class TaskScheduler {
     }
 
     /**
-     * Selects the best active Worker that can accommodate the estimated memory
-     * and supports all required capabilities.
-     *
-     * @param estimatedMemoryBytes estimated memory for the task
-     * @param candidates           all candidate workers
-     * @param requiredCapabilities capabilities the task requires (e.g. function names)
-     * @return best matching worker, or empty if none eligible
+     * Selects against the complete canonical v2 inventory.
      */
-    public Optional<WorkerInfo> selectWorkerWithCapabilities(
-            long estimatedMemoryBytes, List<WorkerInfo> candidates,
-            List<String> requiredCapabilities) {
-        if (requiredCapabilities == null || requiredCapabilities.isEmpty()) {
-            return selectFromCandidates(estimatedMemoryBytes, candidates);
-        }
+    public Optional<WorkerInfo> selectWorkerWithCapability(
+            long estimatedMemoryBytes,
+            List<WorkerInfo> candidates,
+            CapabilityRef required,
+            ArtifactFormatRef requiredFormat) {
         List<WorkerInfo> capable = candidates.stream()
-                .filter(w -> w.capabilities().containsAll(requiredCapabilities))
+                .filter(worker -> WorkerCapabilityMatcher.supports(
+                        worker, required, requiredFormat))
                 .toList();
         if (capable.isEmpty()) {
-            LOG.warn("event=no_capable_workers requiredCapabilities={} candidateCount={}",
-                    requiredCapabilities, candidates.size());
+            LOG.warn("event=no_exact_capable_workers capabilityId={} semanticVersion={} "
+                            + "formatId={} candidateCount={}",
+                    required.getCapabilityId(), required.getSemanticVersion(),
+                    requiredFormat == null ? "" : requiredFormat.getFormatId(),
+                    candidates.size());
+            return Optional.empty();
+        }
+        return selectFromCandidates(estimatedMemoryBytes, capable);
+    }
+
+    /** Selects a Worker that satisfies every capability, format and exact model binding. */
+    public Optional<WorkerInfo> selectWorkerWithBindings(
+            long estimatedMemoryBytes,
+            List<WorkerInfo> candidates,
+            List<OperatorBinding> bindings) {
+        if (bindings == null || bindings.isEmpty()) {
+            throw new IllegalArgumentException("bindings must not be empty");
+        }
+        List<WorkerInfo> capable = candidates.stream()
+                .filter(worker -> WorkerCapabilityMatcher.supports(worker, bindings))
+                .toList();
+        if (capable.isEmpty()) {
+            LOG.warn("event=no_exact_capable_workers bindingCount={} candidateCount={}",
+                    bindings.size(), candidates.size());
             return Optional.empty();
         }
         return selectFromCandidates(estimatedMemoryBytes, capable);
@@ -240,11 +311,12 @@ public class TaskScheduler {
 
     private Optional<WorkerInfo> selectFromCandidates(
             long estimatedMemoryBytes, List<WorkerInfo> candidates) {
-        return candidates.stream()
+        List<WorkerInfo> eligible = candidates.stream()
                 .filter(w -> w.healthState() == HealthState.ACTIVE)
                 .filter(w -> w.memoryPressure() != MemoryPressure.CRITICAL)
                 .filter(w -> isMemoryAcceptable(w, estimatedMemoryBytes))
-                .max(Comparator.comparingDouble(w -> scorer.computeScore(toWorkerStats(w))));
+                .toList();
+        return bestByScore(eligible);
     }
 
     private WorkerPerformanceScorer.WorkerStats toWorkerStats(WorkerInfo worker) {

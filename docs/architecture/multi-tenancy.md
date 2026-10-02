@@ -537,6 +537,13 @@ Tenant context is propagated as span attributes on all query-related spans:
 - Tenant throttle activation/deactivation events (INFO)
 - Tenant resource isolation boundary violations (ERROR)
 
+The Coordinator HTTP query endpoint returns `429` with `error_code=TENANT-0001`
+and `error_type=USER_ERROR` when tenant admission rejects a query for exceeding a
+quota. This is distinct from an unexpected service failure (`500`). No
+`Retry-After` is fabricated: concurrency, daily limits and administrator changes
+do not share a known reset time. Clients must use bounded backoff or operator
+intervention, not retry an unchanged admission rejection without a limit.
+
 See [14 §7](./observability.md) for structured logging format.
 
 

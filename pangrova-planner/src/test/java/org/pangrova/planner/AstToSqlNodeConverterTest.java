@@ -2,6 +2,7 @@ package org.pangrova.planner;
 
 import org.pangrova.parser.ast.*;
 import org.pangrova.parser.ast.expression.BinaryExpression;
+import org.pangrova.parser.ast.expression.ArrayConstructor;
 import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.expression.NotExpression;
 import org.pangrova.parser.ast.statement.AlterTableStatement;
@@ -19,6 +20,7 @@ import org.pangrova.parser.ast.statement.dml.UpdateStatement;
 import org.pangrova.parser.ast.statement.maintenance.OptimizeStatement;
 import org.pangrova.parser.ast.statement.maintenance.VacuumStatement;
 import org.pangrova.planner.parse.AstToSqlNodeConverter;
+import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.apache.calcite.sql.*;
 import org.junit.jupiter.api.Test;
 
@@ -151,7 +153,81 @@ class AstToSqlNodeConverterTest {
                 Identifier.of("db", "tbl"), Optional.empty(),
                 List.of(List.of(Literal.ofInteger(1))));
         SqlNode node = converter.convert(stmt);
-        assertThat(node).isInstanceOf(SqlBasicCall.class);
+        assertThat(node).isInstanceOf(SqlInsert.class);
+        assertThat(node.toString()).containsIgnoringCase("VALUES").contains("1");
+    }
+
+    @Test
+    void convertInsertValuesPreservesBatchAndColumns() {
+        InsertStatement stmt = new InsertStatement(
+                Identifier.of("db", "tbl"), Optional.of(List.of("id", "name")),
+                List.of(
+                        List.of(Literal.ofInteger(1), Literal.ofString("first")),
+                        List.of(Literal.ofInteger(2), Literal.ofNull())));
+
+        SqlNode node = converter.convert(stmt);
+
+        assertThat(node).isInstanceOf(SqlInsert.class);
+        assertThat(node.toString())
+                .containsIgnoringCase("INSERT INTO")
+                .containsIgnoringCase("VALUES")
+                .contains("first")
+                .containsIgnoringCase("NULL");
+    }
+
+    @Test
+    void convertInsertValuesPreservesTypedVectorFileAndTemporalExpressions() {
+        InsertStatement stmt = new InsertStatement(
+                Identifier.of("db", "typed_values"),
+                Optional.of(List.of("amount", "created_at", "embedding", "asset")),
+                List.of(List.of(
+                        Literal.ofDecimal(new java.math.BigDecimal("123.450")),
+                        Literal.ofTimestamp("2026-09-19 08:30:00"),
+                        new ArrayConstructor(List.of(
+                                Literal.ofDecimal(new java.math.BigDecimal("0.25")),
+                                Literal.ofDecimal(new java.math.BigDecimal("0.75")))),
+                        new FunctionCall(Identifier.of("FILE_FROM_URL"),
+                                List.of(Literal.ofString("https://example.invalid/a.pdf"))))));
+
+        String sql = converter.convert(stmt).toString();
+
+        assertThat(sql).contains("123.450", "2026-09-19 08:30:00", "0.25", "0.75")
+                .containsIgnoringCase("FILE_FROM_URL")
+                .containsIgnoringCase("VALUES");
+    }
+
+    @Test
+    void convertInsertValuesPreservesEmptyArrayLiteral() {
+        InsertStatement stmt = new InsertStatement(
+                Identifier.of("db", "typed_values"), Optional.of(List.of("tags")),
+                List.of(List.of(new ArrayConstructor(List.of()))));
+
+        SqlInsert node = (SqlInsert) converter.convert(stmt);
+
+        assertThat(node.toString()).contains("ARRAY[]");
+        SqlCall values = (SqlCall) node.getSource();
+        SqlCall row = values.operand(0);
+        SqlCall array = row.operand(0);
+        assertThat(array.getOperator().getClass().getSimpleName())
+                .isEqualTo("EmptyArraySqlOperator");
+        assertThat(array.operandCount()).isZero();
+
+        SqlInsert parsed = (SqlInsert) new PangrovaParserFactory()
+                .parseToSqlNode("INSERT INTO db.typed_values (tags) VALUES (ARRAY[])");
+        SqlCall parsedRow = ((SqlCall) parsed.getSource()).operand(0);
+        SqlCall parsedArray = parsedRow.operand(0);
+        assertThat(parsedArray.getOperator().getClass().getSimpleName())
+                .isEqualTo("EmptyArraySqlOperator");
+    }
+
+    @Test
+    void convertInsertValuesRejectsEmptyBatch() {
+        InsertStatement stmt = new InsertStatement(
+                Identifier.of("db", "tbl"), Optional.empty(), List.of());
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> converter.convert(stmt))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("at least one row");
     }
 
     @Test

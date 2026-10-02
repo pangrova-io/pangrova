@@ -13,7 +13,6 @@
  */
 package org.pangrova.testing.e2e.sql;
 
-import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
@@ -24,8 +23,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Full-stack E2E tests for COPY INTO SQL statement.
@@ -70,13 +67,7 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
             String sql = "COPY INTO " + fqn()
                     + " FROM 's3://test-bucket/data/sample.parquet'"
                     + " FILE_FORMAT = 'PARQUET'";
-            try {
-                executeDdl(sql);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("mismatched input");
-            }
+            executeDdl(sql);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -90,13 +81,7 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
                     + " FROM 's3://test-bucket/data/users.csv'"
                     + " FILE_FORMAT = 'CSV'"
                     + " WITH ('header'='true', 'delimiter'=',')";
-            try {
-                executeDdl(sql);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("mismatched input");
-            }
+            executeDdl(sql);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -109,13 +94,7 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
             String sql = "COPY INTO " + fqn()
                     + " FROM 's3://test-bucket/events/events.json'"
                     + " FILE_FORMAT = 'JSON'";
-            try {
-                executeDdl(sql);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("mismatched input");
-            }
+            executeDdl(sql);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -136,13 +115,8 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
 
             String sql = "COPY INTO " + fqn()
                     + " FROM (SELECT id, name FROM " + sourceTable + " WHERE active = true)";
-            try {
-                executeDdl(sql);
-                assertQueryReturnsRows("SELECT * FROM " + fqn(), 2);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            executeDdl(sql);
+            assertQueryReturnsRows("SELECT * FROM " + fqn(), 2);
 
             executeDdl("DROP TABLE " + fqn());
             executeDdl("DROP TABLE " + sourceTable);
@@ -162,13 +136,7 @@ class CopyIntoE2ETest extends PangrovaE2ETestBase {
                     + " FROM 's3://test-bucket/logs/'"
                     + " FILE_FORMAT = 'PARQUET'"
                     + " PATTERN = '*.parquet'";
-            try {
-                executeDdl(sql);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("mismatched input");
-            }
+            executeDdl(sql);
 
             executeDdl("DROP TABLE " + fqn());
         }

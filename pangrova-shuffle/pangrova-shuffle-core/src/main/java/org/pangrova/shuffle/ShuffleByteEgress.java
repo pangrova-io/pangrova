@@ -10,7 +10,7 @@ import org.pangrova.spi.annotation.Experimental;
  * <p>Today the native shuffle path is <em>purely control-channel</em>: {@code NativeShuffleTransport}
  * sends START/CONNECT/STOP commands via {@code executeCommand}, and all shuffle bytes stay entirely
  * in C++ (native engine -> SerializedShuffleQueue -> FlightShuffleServer -> Arrow Flight). For the
- * JVM-resident providers ({@code local-spill}, {@code object-store}, {@code celeborn}), committed
+ * JVM-resident providers ({@code local-spill}, {@code object-store}, or a wired plugin), committed
  * partition bytes must cross from native to JVM so they can be written to {@code SpoolStore} or
  * pushed to an external RSS.
  *

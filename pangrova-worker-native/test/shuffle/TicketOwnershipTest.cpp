@@ -42,19 +42,15 @@ TEST(TicketOwnershipTest, MismatchedStageIdIsRejected) {
                                     /*registered_stage_id=*/3));
 }
 
-// Empty registered query_id -> identity not recorded (legacy path) -> accept
-// regardless of the ticket's claimed identity.
-TEST(TicketOwnershipTest, UnrecordedIdentityIsNotEnforced) {
-  EXPECT_TRUE(ticketOwnershipValid(/*ticket_query_id=*/"anything",
+TEST(TicketOwnershipTest, UnrecordedIdentityIsRejected) {
+  EXPECT_FALSE(ticketOwnershipValid(/*ticket_query_id=*/"anything",
                                    /*ticket_stage_id=*/7,
                                    /*registered_query_id=*/"",
                                    /*registered_stage_id=*/-1));
 }
 
-// stage_id < 0 means stage was not recorded -> query_id is still enforced, but
-// the stage is ignored (matches the native producer path which has no stage id).
-TEST(TicketOwnershipTest, UnrecordedStageEnforcesQueryOnly) {
-  EXPECT_TRUE(ticketOwnershipValid(/*ticket_query_id=*/"q1",
+TEST(TicketOwnershipTest, UnrecordedStageIsRejected) {
+  EXPECT_FALSE(ticketOwnershipValid(/*ticket_query_id=*/"q1",
                                    /*ticket_stage_id=*/99,
                                    /*registered_query_id=*/"q1",
                                    /*registered_stage_id=*/-1));

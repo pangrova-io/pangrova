@@ -14,10 +14,13 @@ import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.spi.connector.data.page.BatchFormat;
 import org.pangrova.spi.connector.data.page.NativePage;
+import org.pangrova.shuffle.exchange.ExchangeChannelContext;
 import org.pangrova.shuffle.exchange.ExchangeChannelManager;
+import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
 import org.pangrova.shuffle.exchange.ExchangeSink;
 import org.pangrova.shuffle.exchange.ExchangeSource;
+import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -40,8 +43,8 @@ class ExchangeSpiPropertyTest {
             @ForAll @IntRange(min = 0, max = 5) int partitionId) throws IOException {
 
         var manager = new InMemoryExchangeManager();
-        var sink = manager.createSink("prop-query", partitionId);
-        var source = manager.createSource("prop-query", partitionId);
+        var sink = manager.createSink(context("prop-query", partitionId));
+        var source = manager.createSource(context("prop-query", partitionId));
 
         List<byte[]> written = new ArrayList<>();
         for (int i = 0; i < pageCount; i++) {
@@ -78,8 +81,8 @@ class ExchangeSpiPropertyTest {
             @ForAll @IntRange(min = 1, max = 10) int pageCount) throws IOException {
 
         var manager = new InMemoryExchangeManager();
-        var sink = manager.createSink("abort-query", 0);
-        var source = manager.createSource("abort-query", 0);
+        var sink = manager.createSink(context("abort-query", 0));
+        var source = manager.createSource(context("abort-query", 0));
 
         for (int i = 0; i < pageCount; i++) {
             sink.addNativePage(new NativePage(
@@ -101,19 +104,34 @@ class ExchangeSpiPropertyTest {
         private final ConcurrentHashMap<String, InMemoryChannel> channels = new ConcurrentHashMap<>();
 
         @Override
-        public ExchangeSink createSink(String queryId, int partitionId) {
+        public ExchangeSink createSink(ExchangeChannelContext context) {
             return new InMemorySink(
-                    channels.computeIfAbsent(queryId + ":" + partitionId, k -> new InMemoryChannel()));
+                    channels.computeIfAbsent(
+                            context.queryId() + ":" + context.exchangePartitionId(),
+                            k -> new InMemoryChannel()));
         }
 
         @Override
-        public ExchangeSource createSource(String queryId, int partitionId, ExchangeReadMode readMode) {
+        public ExchangeSource createSource(
+                ExchangeChannelContext context, ExchangeReadMode readMode) {
             return new InMemorySource(
-                    channels.computeIfAbsent(queryId + ":" + partitionId, k -> new InMemoryChannel()));
+                    channels.computeIfAbsent(
+                            context.queryId() + ":" + context.exchangePartitionId(),
+                            k -> new InMemoryChannel()));
         }
 
         @Override
         public void close() { channels.clear(); }
+    }
+
+    private static ExchangeChannelContext context(String queryId, int partitionId) {
+        return new ExchangeChannelContext(
+                new ExchangeTaskAttempt(
+                        queryId, 0, 0, "task-0", 1L,
+                        new ExchangeAttemptFence(1L, 0, 1L),
+                        new ShuffleExecutionOwner("owner", "incarnation", 1L)),
+                partitionId,
+                Long.MAX_VALUE);
     }
 
     private static final class InMemoryChannel {

@@ -106,6 +106,8 @@ class NativeMetricsPayloadForwardCompatibilityTest {
         assertThat(payload.getLong("operatorRowsProcessed")).isEqualTo(7777L);
         assertThat(payload.getLong("ioBytesRead")).isEqualTo(0L);
         assertThat(payload.getDouble("cacheHitRatio")).isEqualTo(0.0);
+        assertThat(payload.fields().get("ioBytesRead")).isInstanceOf(Long.class);
+        assertThat(payload.fields().get("cacheHitRatio")).isInstanceOf(Double.class);
     }
 
     @Test
@@ -125,6 +127,10 @@ class NativeMetricsPayloadForwardCompatibilityTest {
 
         assertThat(payload.schemaVersion()).isEqualTo(NativeMetricsPayload.LEGACY_VERSION);
         assertThat(payload.getLong("memoryUsedBytes")).isEqualTo(0L);
+        assertThat(payload.fields().get("memoryUsedBytes")).isInstanceOf(Long.class);
+        assertThat(payload.fields().get("operatorRowsProcessed")).isInstanceOf(Long.class);
+        assertThat(payload.fields().get("ioBytesRead")).isInstanceOf(Long.class);
+        assertThat(payload.fields().get("cacheHitRatio")).isInstanceOf(Double.class);
     }
 
     @Test

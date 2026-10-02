@@ -214,6 +214,8 @@ public final class IndexSplitFilter implements AutoCloseable {
                         catalogName);
             }
             return evaluator;
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+            throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=native_evaluator_resolve_failed catalog={} error={} "
                     + "detail=L1 index filtering disabled, only L0 statistics pruning active",
@@ -229,6 +231,8 @@ public final class IndexSplitFilter implements AutoCloseable {
             String catalogName, ConnectorAccessorResolver resolver) {
         try {
             return resolver.resolveNativeCapabilities(catalogName);
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+            throw authorityFailure;
         } catch (Exception e) {
             LOG.debug("event=native_capabilities_resolve_failed catalog={}", catalogName);
             return List.of();

@@ -7,6 +7,7 @@ import org.pangrova.metadata.schema.SchemaChange;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Top-level metadata operations: catalog lifecycle, schema browsing, table resolution, and DDL.
@@ -18,6 +19,17 @@ public interface MetadataService {
     void dropCatalog(MetadataSessionContext session, String catalogName, boolean cascade);
 
     List<String> listCatalogs(MetadataSessionContext session);
+
+    /** Returns the unresolved authoritative catalog descriptor for internal deployment. */
+    default Optional<CatalogDescriptor> getCatalogDescriptor(String catalogName) {
+        return Optional.empty();
+    }
+
+    /** Resolves only the requested durable catalog incarnation and revision. */
+    default Optional<CatalogDescriptor> findCatalogDescriptorRevision(
+            String catalogName, String incarnationId, long revision) {
+        return Optional.empty();
+    }
 
     List<String> listSchemas(MetadataSessionContext session, String catalogName);
 

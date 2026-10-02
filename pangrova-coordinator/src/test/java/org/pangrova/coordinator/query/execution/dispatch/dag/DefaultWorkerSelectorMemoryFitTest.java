@@ -1,7 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.coordinator.scheduler.NoAvailableWorkerException;
+import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
@@ -9,6 +10,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.spi.coordination.CacheCatalogSummary;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -60,6 +62,86 @@ class DefaultWorkerSelectorMemoryFitTest {
                 .isInstanceOf(NoAvailableWorkerException.class);
     }
 
+    @Test
+    void registeredWorkerWithoutResourceHeartbeatDoesNotInflateStageCapacity() {
+        WorkerManager wm = buildWorkerManager();
+        wm.registerWorker(worker("ready", 2L * 1024 * 1024 * 1024));
+        wm.registerWorker(worker("registered-only", 0));
+        DefaultWorkerSelector selector = newSelector(wm);
+
+        assertThat(wm.getActiveWorkers()).hasSize(2);
+        assertThat(selector.activeWorkerCount()).isEqualTo(1);
+        var grant = selector.computeResourceLimit(1, 1, wm.getWorker("ready"));
+        assertThat(grant.getNativeMemoryBytes() + grant.getShuffleBufferBytes())
+                .isEqualTo(2L * 1024 * 1024 * 1024);
+        assertThat(grant.getShuffleBufferBytes()).isEqualTo(32L * 1024 * 1024);
+    }
+
+    @Test
+    void resourceGrantFitsTheExactSelectedWorker() {
+        WorkerManager wm = buildWorkerManager();
+        wm.registerWorker(worker("large", 2L * 1024 * 1024 * 1024));
+        wm.registerWorker(worker("small", 512L * 1024 * 1024));
+        DefaultWorkerSelector selector = newSelector(wm);
+
+        var small = selector.computeResourceLimit(1, 1, wm.getWorker("small"));
+        var large = selector.computeResourceLimit(1, 1, wm.getWorker("large"));
+        assertThat(small.getNativeMemoryBytes() + small.getShuffleBufferBytes())
+                .isEqualTo(512L * 1024 * 1024);
+        assertThat(large.getNativeMemoryBytes() + large.getShuffleBufferBytes())
+                .isEqualTo(2L * 1024 * 1024 * 1024);
+    }
+
+    @Test
+    void noResourceHeartbeatFailsStageGrantClosed() {
+        WorkerManager wm = buildWorkerManager();
+        wm.registerWorker(worker("registered-only", 0));
+        DefaultWorkerSelector selector = newSelector(wm);
+
+        assertThat(selector.activeWorkerCount()).isZero();
+        assertThatThrownBy(() -> selector.computeResourceLimit(
+                1, 1, wm.getWorker("registered-only")))
+                .isInstanceOf(NoAvailableWorkerException.class);
+    }
+
+    @Test
+    void selectedWorkerIsRevalidatedAfterItsAvailableMemoryFalls() {
+        WorkerManager wm = buildWorkerManager();
+        wm.registerWorker(worker("selected", 2L * 1024 * 1024 * 1024));
+        WorkerInfo staleSelection = wm.getWorker("selected");
+        DefaultWorkerSelector selector = newSelector(wm);
+        wm.onHeartbeat("selected", new WorkerManager.HeartbeatData(
+                MemoryPressure.CRITICAL, 1.0, 1, 0));
+
+        assertThatThrownBy(() -> selector.computeResourceLimit(
+                1, 1, staleSelection))
+                .isInstanceOf(NoAvailableWorkerException.class);
+    }
+
+    @Test
+    void cacheAffinityCannotBypassMemoryAdmission() {
+        WorkerManager wm = buildWorkerManager();
+        String path = "/data/cached.parquet";
+        wm.registerWorker(worker(
+                "tiny",
+                MIN_TASK_MEMORY_BYTES - 1,
+                new CacheCatalogSummary(
+                        List.of(path), 1, 1, 1, 0)));
+        wm.registerWorker(worker("fit", MIN_TASK_MEMORY_BYTES, null));
+        CacheAffinityAssigner affinity = new CacheAffinityAssigner();
+        affinity.updateTopology(wm.getActiveWorkers());
+        DefaultWorkerSelector selector = new DefaultWorkerSelector(
+                wm,
+                new TaskScheduler(new WorkerPerformanceScorer()),
+                new SplitAssignmentManager(60_000, affinity),
+                new SpillBudget(0L, ""));
+
+        WorkerInfo selected = selector.selectWithCacheAffinity(
+                null, List.of(path));
+
+        assertThat(selected.workerId()).isEqualTo("fit");
+    }
+
     private static DefaultWorkerSelector newSelector(WorkerManager wm) {
         return new DefaultWorkerSelector(
                 wm,
@@ -73,10 +155,18 @@ class DefaultWorkerSelectorMemoryFitTest {
     }
 
     private static WorkerInfo worker(String id, long availableMemoryBytes) {
+        return worker(id, availableMemoryBytes, null);
+    }
+
+    private static WorkerInfo worker(
+            String id,
+            long availableMemoryBytes,
+            CacheCatalogSummary cacheSummary) {
         return new WorkerInfo(
                 id, "host-" + id, 8080, 9090, 9091,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
                 availableMemoryBytes, Instant.now(), 1.0,
-                "default", 1, List.of(), null, List.of());
+                "default", 2, null, List.of(), cacheSummary,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

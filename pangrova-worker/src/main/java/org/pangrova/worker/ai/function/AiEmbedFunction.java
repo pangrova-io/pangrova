@@ -13,25 +13,33 @@
  */
 package org.pangrova.worker.ai.function;
 
-import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.worker.ai.function.file.FileStructHelper;
+import org.pangrova.worker.ai.context.AiExecutionContext;
+import org.pangrova.worker.ai.embedding.EmbeddingResultValidator;
+
+import org.pangrova.protocol.function.FunctionBindingDeclarations;
+
+import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
+import org.pangrova.spi.ai.embedding.EmbeddingPurpose;
 import org.pangrova.spi.ai.embedding.EmbeddingProvider;
+import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.BatchableScalarFunction;
 import org.pangrova.spi.function.FunctionMetadata;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
 /**
- * Scalar SQL function: {@code ai_embed(model, text_or_file) -> VARCHAR}.
+ * Normalized SQL function: {@code ai_embed(model, text_or_file, purpose) -> VECTOR}.
  *
  * <p>Generates an embedding vector for the input text or FILE via
  * {@link EmbeddingProvider}. When the second argument is a ROW (FILE struct),
- * delegates to {@link EmbeddingProvider#embedBlob(List)} for multimodal embedding.
- * Returns a JSON array of floats. Example:
+ * uses the same ordered provider batch contract for multimodal embedding.
+ * Returns a first-class dense vector. Example:
  * <pre>
  *   SELECT ai_embed('text-embedding-3-small', title) FROM articles
  *   SELECT ai_embed('clip-vit-large', photo) FROM products
@@ -41,12 +49,8 @@ import java.util.function.Function;
  */
 public final class AiEmbedFunction implements BatchableScalarFunction {
 
-    private static final FunctionMetadata METADATA = new FunctionMetadata(
-            "ai_embed",
-            "VARCHAR",
-            List.of("VARCHAR", "VARCHAR"),
-            false,
-            "Generates an embedding vector for the input text or FILE");
+    private static final FunctionMetadata METADATA =
+            FunctionBindingDeclarations.callbackMetadata("ai_embed");
 
     private final Function<String, EmbeddingProvider> embeddingLookup;
 
@@ -55,7 +59,7 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
      *
      * @param embeddingLookup resolves model names to embedding providers
      */
-    public AiEmbedFunction(Function<String, EmbeddingProvider> embeddingLookup) {
+    AiEmbedFunction(Function<String, EmbeddingProvider> embeddingLookup) {
         if (embeddingLookup == null) {
             throw new IllegalArgumentException("embeddingLookup required");
         }
@@ -68,127 +72,113 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
     }
 
     @Override
+    public List<List<String>> getArgumentSignatures() {
+        return FunctionBindingDeclarations.callbackArgumentSignatures("ai_embed");
+    }
+
+    @Override
     public ColumnValue invoke(List<ColumnValue> arguments) {
-        if (arguments.size() < 2) {
-            throw new IllegalArgumentException(
-                    "ai_embed requires 2 arguments: model, text_or_file");
-        }
-        String modelName = extractString(arguments.get(0), "model");
-        if (modelName == null) {
-            return new ColumnValue.NullValue();
-        }
-
-        ColumnValue inputArg = arguments.get(1);
-        if (inputArg instanceof ColumnValue.NullValue) {
-            return new ColumnValue.NullValue();
-        }
-
-        EmbeddingProvider provider = embeddingLookup.apply(modelName);
-        if (provider == null) {
-            throw new IllegalStateException(
-                    "No EmbeddingProvider found for model: " + modelName);
-        }
-
-        // Handle FILE (ROW) input — multimodal blob embedding
-        if (inputArg instanceof ColumnValue.RowValue) {
-            BlobReference ref = FileStructHelper.extractBlobReference(inputArg);
-            if (ref == null) {
-                return new ColumnValue.NullValue();
-            }
-            List<float[]> results = provider.embedBlob(List.of(ref));
-            return new ColumnValue.StringValue(floatsToJson(results.get(0)));
-        }
-
-        // Handle text input
-        String text = extractString(inputArg, "text");
-        if (text == null) {
-            return new ColumnValue.NullValue();
-        }
-
-        float[] embedding = provider.embed(text);
-        return new ColumnValue.StringValue(floatsToJson(embedding));
+        return invokeBatch(List.of(arguments)).get(0);
     }
 
     @Override
     public List<ColumnValue> invokeBatch(List<List<ColumnValue>> argumentsBatch) {
-        // Group by model for efficient batching
-        Map<String, List<Integer>> modelToIndices = new HashMap<>();
-        String[] texts = new String[argumentsBatch.size()];
-        String[] models = new String[argumentsBatch.size()];
-
-        for (int i = 0; i < argumentsBatch.size(); i++) {
-            List<ColumnValue> args = argumentsBatch.get(i);
-            if (args.size() < 2) {
-                throw new IllegalArgumentException("ai_embed requires 2 arguments: model, text_or_file");
-            }
-            models[i] = extractString(args.get(0), "model");
-            // For batch, only handle text inputs; FILE inputs fall through to per-row invoke
-            texts[i] = batchTextFor(args.get(1));
-            if (models[i] != null && texts[i] != null) {
-                modelToIndices.computeIfAbsent(models[i], k -> new ArrayList<>()).add(i);
-            }
-        }
-
+        Map<BatchKey, List<IndexedInput>> groups = prepareInputs(argumentsBatch);
         ColumnValue[] results = new ColumnValue[argumentsBatch.size()];
         for (int i = 0; i < results.length; i++) {
             results[i] = new ColumnValue.NullValue();
         }
 
-        embedFileRows(argumentsBatch, results);
-
-        // Handle text inputs in batch
-        for (Map.Entry<String, List<Integer>> entry : modelToIndices.entrySet()) {
-            embedTextsForModel(entry.getKey(), entry.getValue(), texts, results);
+        for (var group : groups.entrySet()) {
+            embedGroup(group.getKey(), group.getValue(), results);
         }
         return List.of(results);
     }
 
-    /**
-     * Returns the text input for batch embedding, or null for FILE/NULL inputs.
-     */
-    private static String batchTextFor(ColumnValue inputArg) {
-        if (inputArg instanceof ColumnValue.StringValue sv) {
-            return sv.value();
-        }
-        return null;
-    }
-
-    private void embedFileRows(List<List<ColumnValue>> argumentsBatch, ColumnValue[] results) {
-        // Handle FILE inputs per-row
-        for (int i = 0; i < argumentsBatch.size(); i++) {
-            List<ColumnValue> args = argumentsBatch.get(i);
-            if (args.size() >= 2 && args.get(1) instanceof ColumnValue.RowValue) {
-                results[i] = invoke(args);
+    private static Map<BatchKey, List<IndexedInput>> prepareInputs(
+            List<List<ColumnValue>> argumentsBatch) {
+        Map<BatchKey, List<IndexedInput>> groups = new LinkedHashMap<>();
+        for (int index = 0; index < argumentsBatch.size(); index++) {
+            List<ColumnValue> arguments = argumentsBatch.get(index);
+            if (arguments.size() != 3) {
+                throw new IllegalArgumentException("ai_embed requires normalized model, input and purpose");
             }
+            String purpose = extractString(arguments.get(2), "purpose");
+            if (purpose == null) throw new IllegalArgumentException("ai_embed purpose must not be NULL");
+            EmbeddingPurpose semanticPurpose = requirePurpose(purpose);
+            String model = extractString(arguments.get(0), "model");
+            EmbeddingBatchRequest.Input input = embeddingInput(arguments.get(1));
+            if (model == null || input == null) continue;
+            var key = new BatchKey(model, semanticPurpose, input.getClass());
+            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(new IndexedInput(index, input));
+        }
+        return groups;
+    }
+
+    private static EmbeddingPurpose requirePurpose(String purpose) {
+        try {
+            return EmbeddingPurpose.valueOf(purpose);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("ai_embed purpose must be RAW, QUERY or DOCUMENT", exception);
         }
     }
 
-    private void embedTextsForModel(String modelName, List<Integer> indices, String[] texts,
-                                    ColumnValue[] results) {
-        EmbeddingProvider provider = embeddingLookup.apply(modelName);
+    private static EmbeddingBatchRequest.Input embeddingInput(ColumnValue input) {
+        if (input instanceof ColumnValue.NullValue) return null;
+        if (input instanceof ColumnValue.StringValue text) {
+            return new EmbeddingBatchRequest.TextInput(text.value());
+        }
+        if (input instanceof ColumnValue.RowValue) {
+            var reference = FileStructHelper.extractBlobReference(input);
+            return reference == null ? null : new EmbeddingBatchRequest.BlobInput(reference);
+        }
+        throw new IllegalArgumentException("ai_embed input must be VARCHAR or FILE");
+    }
+
+    private void embedGroup(BatchKey key, List<IndexedInput> rows, ColumnValue[] results) {
+        EmbeddingProvider provider = embeddingLookup.apply(key.model());
         if (provider == null) {
             throw new IllegalStateException(
-                    "No EmbeddingProvider found for model: " + modelName);
+                    "No EmbeddingProvider found for model: " + key.model());
         }
-        List<String> batchTexts = indices.stream().map(i -> texts[i]).toList();
-        List<float[]> embeddings = provider.embedBatch(batchTexts);
-        for (int j = 0; j < indices.size(); j++) {
-            results[indices.get(j)] = new ColumnValue.StringValue(
-                    floatsToJson(embeddings.get(j)));
+        if (!provider.supportedPurposes().contains(key.purpose())) {
+            throw new IllegalStateException("Embedding provider does not support purpose " + key.purpose());
+        }
+        requireExactOutputBinding(provider, key.model());
+        int maxBatchSize = provider.maxBatchSize();
+        for (int offset = 0; offset < rows.size();) {
+            int end = offset + Math.min(maxBatchSize, rows.size() - offset);
+            List<IndexedInput> chunk = rows.subList(offset, end);
+            var batch = new EmbeddingBatchRequest(key.purpose(), chunk.stream().map(IndexedInput::input).toList());
+            var response = provider.embed(batch);
+            if (response == null) {
+                throw new AiInvocationException(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                        false, "Embedding provider returned null batch result");
+            }
+            List<ColumnValue> embeddings = EmbeddingResultValidator.validateBatch(
+                    provider, response.vectors(), chunk.size(), key.model()).stream()
+                    .map(ColumnValue.VectorValue::new).map(ColumnValue.class::cast).toList();
+            for (int index = 0; index < chunk.size(); index++) {
+                results[chunk.get(index).index()] = embeddings.get(index);
+            }
+            offset = end;
         }
     }
 
-    static String floatsToJson(float[] values) {
-        StringBuilder sb = new StringBuilder(values.length * 8 + 2);
-        sb.append('[');
-        for (int i = 0; i < values.length; i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(values[i]);
+    private record BatchKey(String model, EmbeddingPurpose purpose, Class<?> inputRepresentation) {}
+    private record IndexedInput(int index, EmbeddingBatchRequest.Input input) {}
+
+    private static void requireExactOutputBinding(EmbeddingProvider provider, String modelName) {
+        int expectedDimensions = EmbeddingResultValidator.requireProviderContract(provider, modelName);
+        int boundDimension = AiExecutionContext.boundInvocation()
+                .orElseThrow(() -> new IllegalStateException(
+                        "ai_embed requires an exact model output binding"))
+                .outputVectorDimension();
+        if (expectedDimensions != boundDimension) {
+            throw new IllegalStateException("Embedding provider '" + modelName
+                    + "' dimension " + expectedDimensions
+                    + " differs from exact model binding " + boundDimension);
         }
-        sb.append(']');
-        return sb.toString();
     }
 
     private static String extractString(ColumnValue cv, String argName) {

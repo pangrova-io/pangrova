@@ -13,10 +13,12 @@
  */
 package org.pangrova.coordinator.ai.index.lifecycle;
 
+import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.spi.coordination.DistributedLease;
+import org.pangrova.spi.coordination.LeaseEntry;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexType;
-import org.pangrova.spi.index.data.vector.VectorIndexData.VectorAlgorithmType;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,12 +38,10 @@ import java.util.function.BiFunction;
  * same index across coordinators, following the same pattern as
  * {@link org.pangrova.coordinator.clustering.ClusteringScheduler}.</p>
  *
- * <p>Rebuild strategy is algorithm-dependent:
+ * <p>Every published ANN generation is immutable:
  * <ul>
- *   <li>HNSW: full rebuild (graph is not incrementally updatable)</li>
- *   <li>IVFPQ: incremental encoding into existing codebook when staleness
- *       is below 30%; full rebuild otherwise</li>
- *   <li>DISK_ANN: full rebuild via native C++ path</li>
+ *   <li>HNSW, IVF_PQ, and DISK_ANN rebuild into a new complete generation.</li>
+ *   <li>Publication atomically swaps the active generation after validation.</li>
  * </ul></p>
  */
 @ThreadSafe
@@ -49,7 +49,6 @@ public final class IndexRebuildScheduler {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexRebuildScheduler.class);
     private static final Duration DEFAULT_LEASE_DURATION = Duration.ofMinutes(60);
-    private static final double INCREMENTAL_THRESHOLD = 0.30;
     static final String LEASE_KEY_PREFIX = "index_rebuild:";
 
     private final ExecutorService executor;
@@ -145,14 +144,14 @@ public final class IndexRebuildScheduler {
     private RebuildResult executeWithLease(IndexDescriptor descriptor,
                                            VectorIndexHealthAssessor.HealthAssessment assessment) {
         String leaseKey = LEASE_KEY_PREFIX + descriptor.indexId();
-        boolean leaseAcquired = false;
+        LeaseEntry heldLease = null;
         activeRebuilds.incrementAndGet();
         long startMs = System.currentTimeMillis();
         try {
             if (distributedLease != null) {
-                leaseAcquired = distributedLease.tryAcquire(
-                        leaseKey, coordinatorId, 0, DEFAULT_LEASE_DURATION);
-                if (!leaseAcquired) {
+                heldLease = distributedLease.tryAcquire(
+                        leaseKey, coordinatorId, DEFAULT_LEASE_DURATION).orElse(null);
+                if (heldLease == null) {
                     LOG.warn("event=rebuild_lease_denied indexId={} coordinatorId={}",
                             descriptor.indexId(), coordinatorId);
                     return new RebuildResult(descriptor.indexId(), RebuildAction.SKIPPED,
@@ -161,7 +160,7 @@ public final class IndexRebuildScheduler {
                 LOG.info("event=rebuild_lease_acquired indexId={} coordinatorId={}",
                         descriptor.indexId(), coordinatorId);
             }
-            RebuildAction action = determineAction(descriptor, assessment);
+            RebuildAction action = determineAction(descriptor);
             LOG.info("event=rebuild_started indexId={} action={} algorithm={} staleness={}%",
                     descriptor.indexId(), action,
                     descriptor.properties().getOrDefault("algorithm", "HNSW"),
@@ -181,36 +180,35 @@ public final class IndexRebuildScheduler {
             throw new RuntimeException("Index rebuild failed for " + descriptor.indexId(), e);
         } finally {
             activeRebuilds.decrementAndGet();
-            if (distributedLease != null && leaseAcquired) {
-                distributedLease.release(leaseKey, coordinatorId);
+            if (distributedLease != null && heldLease != null) {
+                distributedLease.release(
+                        leaseKey, coordinatorId, heldLease.epoch());
                 LOG.info("event=rebuild_lease_released indexId={} coordinatorId={}",
                         descriptor.indexId(), coordinatorId);
             }
         }
     }
 
-    private RebuildAction determineAction(IndexDescriptor descriptor,
-                                          VectorIndexHealthAssessor.HealthAssessment assessment) {
+    private RebuildAction determineAction(IndexDescriptor descriptor) {
         String algorithmStr = descriptor.properties().getOrDefault("algorithm", "HNSW");
-        VectorAlgorithmType algorithm;
-        try {
-            algorithm = VectorAlgorithmType.valueOf(algorithmStr.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            algorithm = VectorAlgorithmType.HNSW;
+        CapabilityRef capability =
+                BuiltInCapabilityCatalog.vectorRetrievalPlanRef(algorithmStr);
+        String capabilityId = capability.getCapabilityId();
+        if (BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
+            return RebuildAction.FULL_REBUILD;
         }
-
-        return switch (algorithm) {
-            case HNSW -> RebuildAction.FULL_REBUILD;
-            case IVFPQ -> assessment.stalenessRatio() < INCREMENTAL_THRESHOLD
-                    ? RebuildAction.INCREMENTAL
-                    : RebuildAction.FULL_REBUILD;
-            case DISK_ANN -> RebuildAction.FULL_REBUILD;
-        };
+        if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
+            return RebuildAction.FULL_REBUILD;
+        }
+        if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+            return RebuildAction.FULL_REBUILD;
+        }
+        throw new IllegalArgumentException(
+                "Unsupported Native vector retrieval capability: " + capabilityId);
     }
 
     public enum RebuildAction {
         FULL_REBUILD,
-        INCREMENTAL,
         SKIPPED
     }
 

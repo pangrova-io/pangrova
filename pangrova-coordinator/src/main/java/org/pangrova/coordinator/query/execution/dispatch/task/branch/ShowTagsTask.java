@@ -23,7 +23,7 @@ public final class ShowTagsTask implements MetadataTask<ShowTagsStatement> {
 
     @Override
     public StatementResult execute(ShowTagsStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeShowTags(statement);
+        List<TypedRow> rows = executor.executeShowTags(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
     }
 

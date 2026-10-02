@@ -9,6 +9,7 @@ import org.pangrova.metadata.exception.MetadataSyncException;
 import org.pangrova.metadata.model.TableMetadata;
 import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.store.MetadataStore;
+import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -279,10 +280,7 @@ class MetadataSyncServiceTest {
 
     @Test
     void incrementalSyncWritesToInvalidationLog() throws Exception {
-        var dataSource = new org.pangrova.metadata.store.EmbeddedDataSource(
-                "jdbc:h2:mem:sync_inv_test_" + System.nanoTime()
-                        + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
-                "sa", "");
+        var dataSource = SharedPostgresContainer.migratedDataSource("sync_invalidation");
         var pollerCache = new RecordingCache();
         var poller = new org.pangrova.metadata.cache.JdbcInvalidationPoller(dataSource, pollerCache, 1);
         poller.initSchema();
@@ -312,16 +310,12 @@ class MetadataSyncServiceTest {
             }
         } finally {
             poller.close();
-            dataSource.close();
         }
     }
 
     @Test
     void fullSyncWritesToInvalidationLogForEachTable() throws Exception {
-        var dataSource = new org.pangrova.metadata.store.EmbeddedDataSource(
-                "jdbc:h2:mem:sync_inv_full_" + System.nanoTime()
-                        + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
-                "sa", "");
+        var dataSource = SharedPostgresContainer.migratedDataSource("sync_full");
         var pollerCache = new RecordingCache();
         var poller = new org.pangrova.metadata.cache.JdbcInvalidationPoller(dataSource, pollerCache, 1);
         poller.initSchema();
@@ -347,7 +341,6 @@ class MetadataSyncServiceTest {
             }
         } finally {
             poller.close();
-            dataSource.close();
         }
     }
 

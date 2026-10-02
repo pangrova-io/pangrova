@@ -57,13 +57,9 @@ class WorkerShutdownPropertyTest {
      * P24b: Starting and then shutting down WorkerBootstrap leaves
      * isStarted() == false with no exceptions.
      *
-     * <p>Single start→shutdown cycle only. Velox global singletons cannot
-     * be safely re-initialized after shutdown in the same JVM process,
-     * so repeated start→shutdown cycles are not supported.</p>
-     *
      * <p><b>Validates: Requirements 48.2</b></p>
      */
-    @Property(tries = 1)
+    @Property(tries = 5)
     @Tag("Feature: e2e-pipeline-integration, Property 24: Graceful shutdown completeness")
     void workerShutdownTerminatesCleanly(
             @ForAll("workerIds") String workerId) {
@@ -74,8 +70,8 @@ class WorkerShutdownPropertyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        WorkerBootstrap bootstrap = org.pangrova.worker.bootstrap.TestWorkerBootstrap.create(config);
 
         try {
             bootstrap.start();
@@ -103,7 +99,7 @@ class WorkerShutdownPropertyTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
+                null, null, null);
         WorkerBootstrap bootstrap = new WorkerBootstrap(config);
 
         assertThatCode(bootstrap::shutdown).doesNotThrowAnyException();

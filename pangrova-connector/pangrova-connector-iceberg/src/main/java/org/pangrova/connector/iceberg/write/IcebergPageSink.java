@@ -43,6 +43,13 @@ public class IcebergPageSink extends AbstractIcebergPageSink {
                 writerClosed = true;
             }
             DataFile dataFile = unpartitionedWriter().toDataFile();
+            if (dataFile.recordCount() == 0) {
+                // Closing an unused Parquet writer can yield a descriptor for
+                // a path that was never created. An empty append is a no-op;
+                // never publish that descriptor for the coordinator to commit.
+                LOG.debug("event=unpartitioned_append_empty");
+                return new byte[0];
+            }
             LOG.debug("event=append_metadata_collected dataFile={}", dataFile.path());
             return serializeDataFiles(List.of(dataFile));
         } catch (IOException e) {

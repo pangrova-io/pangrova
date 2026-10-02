@@ -134,7 +134,8 @@ class WebUiResourceIntegrationTest {
                 "worker-001", "localhost", 8080, 9090, 9091,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.5, 3, 1024L * 1024 * 512,
-                Instant.now(), 0.9, null, 1, List.of(), null, List.of());
+                Instant.now(), 0.9, null, 2, null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
         workerManager.registerWorker(worker);
 
         try {

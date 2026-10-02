@@ -50,8 +50,8 @@ import static org.assertj.core.api.Assertions.*;
  *
  * <p><b>Property 33: Streaming/governance chain from main() to CDC pipeline</b></p>
  */
-@Tag("Feature: e2e-pipeline-integration - Property 33: Streaming/governance chain from main() to CDC pipeline")
-class StreamingGovernanceChainTest {
+@Tag("streaming-governance-component")
+class StreamingGovernanceChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -88,7 +88,7 @@ class StreamingGovernanceChainTest {
 
     /** P33a: emitStartEvent + emitCompleteEvent does not throw for any queryId. */
     @Property(tries = 5)
-    @net.jqwik.api.Tag("Feature: e2e-pipeline-integration - Property 33: Streaming/governance chain from main() to CDC pipeline")
+    @net.jqwik.api.Tag("streaming-governance-component")
     void lineageEmissionPipelineWorksEndToEnd(
             @ForAll("queryIds") String queryId) {
 
@@ -101,7 +101,7 @@ class StreamingGovernanceChainTest {
 
     /** P33b: updateWatermark advances watermark and transitions state to ACTIVE. */
     @Property(tries = 5)
-    @net.jqwik.api.Tag("Feature: e2e-pipeline-integration - Property 33: Streaming/governance chain from main() to CDC pipeline")
+    @net.jqwik.api.Tag("streaming-governance-component")
     void watermarkUpdateAdvancesStateToActive(
             @ForAll("watermarkInstants") Instant watermark) {
 
@@ -156,7 +156,8 @@ class StreamingGovernanceChainTest {
         int port = coordinatorBootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
     }
 
     /** DebeziumJsonConverter parses a Debezium JSON message into correct CdcEnvelope fields. */
@@ -181,8 +182,7 @@ class StreamingGovernanceChainTest {
         shutdownCoordinator();
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 coordinatorId, 0);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
-        coordinatorBootstrap.start();
+        coordinatorBootstrap = startAuthorizedCoordinator(config);
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
         assertThat(coordinatorBootstrap.getHttpPort()).isGreaterThan(0);
     }
@@ -236,11 +236,12 @@ class StreamingGovernanceChainTest {
 
     // -- HTTP helpers --
 
-    private static HttpResponse<String> submitQuery(int port, String sql) throws Exception {
+    private HttpResponse<String> submitQuery(int port, String sql) throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

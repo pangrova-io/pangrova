@@ -1,13 +1,13 @@
 // DynamicFilterConverter: Proto → Velox Filter direct conversion.
 //
-// Converts DynamicFilterEntry proto messages to velox::common::Filter
+// Converts canonical v2 RuntimeFilter messages to velox::common::Filter
 // subclasses, bypassing Arrow Expression intermediate layer.
 //
 // Supported mappings:
 //   IN_LIST (bigint)  → BigintValuesUsingHashTable
 //   IN_LIST (string)  → BytesValues
 //   RANGE   (bigint)  → BigintRange
-//   RANGE   (double)  → BigintRange on raw bit representation
+//   RANGE   (double)  → DoubleRange
 //
 // Error handling: column index out of bounds → WARN log + skip filter.
 //
@@ -18,14 +18,8 @@
 #include <string>
 #include <vector>
 
+#include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/type/Filter.h"
-
-#if __has_include("pangrova/native/protocol/v1/dynamic_filter.pb.h")
-#include "pangrova/native/protocol/v1/dynamic_filter.pb.h"
-#define PANGROVA_HAS_FILTER_PROTO 1
-#else
-#define PANGROVA_HAS_FILTER_PROTO 0
-#endif
 
 namespace facebook::velox {
 class RowType;
@@ -34,25 +28,21 @@ using RowTypePtr = std::shared_ptr<const RowType>;
 
 namespace pangrova::velox {
 
-// Result of converting a single DynamicFilterEntry.
+// Result of converting a single RuntimeFilter.
 struct ConvertedDynamicFilter {
   std::string column_name;
   std::unique_ptr<facebook::velox::common::Filter> filter;
 };
 
-#if PANGROVA_HAS_FILTER_PROTO
-
-// Convert a DynamicFilterEntry proto to a Velox Filter.
+// Convert a RuntimeFilter proto to a Velox Filter.
 // Returns nullptr if the filter type is unsupported or data is invalid.
 std::unique_ptr<facebook::velox::common::Filter> convertDynamicFilterEntry(
-    const pangrova::native::protocol::v1::DynamicFilterEntry& entry);
+    const pangrova::protocol::v2::RuntimeFilter& entry);
 
-// Convert all DynamicFilterEntry messages from an InjectDynamicFilterPayload.
-// Filters with unsupported types are skipped with a WARN log.
+// Convert all RuntimeFilter messages from an InjectRuntimeFilterRequest.
+// DPP-only entries are skipped explicitly. Unsupported Native entries throw.
 std::vector<ConvertedDynamicFilter> convertDynamicFilters(
-    const pangrova::native::protocol::v1::InjectDynamicFilterPayload& payload);
-
-#endif  // PANGROVA_HAS_FILTER_PROTO
+    const pangrova::protocol::v2::InjectRuntimeFilterRequest& payload);
 
 // Resolve column name to column index in the given output type.
 // Returns -1 if column not found (caller should log WARN and skip).

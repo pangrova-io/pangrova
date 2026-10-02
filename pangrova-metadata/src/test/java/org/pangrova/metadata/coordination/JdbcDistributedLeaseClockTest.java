@@ -17,94 +17,78 @@
  */
 package org.pangrova.metadata.coordination;
 
-import org.pangrova.metadata.store.EmbeddedDataSource;
+import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.coordination.LeaseEntry;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.sql.Connection;
-import java.sql.Statement;
 import java.time.Duration;
 import java.util.Optional;
+
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * H2-backed unit test for A-LEASE-01 / A-HA-01: {@link JdbcDistributedLease} must anchor every
+ * PostgreSQL test for A-LEASE-01 / A-HA-01: {@link JdbcDistributedLease} must anchor every
  * lease-expiry decision on the DATABASE server clock ({@code CURRENT_TIMESTAMP}), not the caller's
  * JVM clock. Otherwise coordinator clock skew or a GC pause can make two nodes disagree about
  * whether a lease has expired, opening a double-active-leader (split-brain) window.
  *
- * <p>Runs against in-memory H2 in PostgreSQL-compatibility mode (no Docker). The full PostgreSQL
- * contract is covered by {@code JdbcDistributedLeaseIntegrationTest}. These tests exercise the
- * DB-clock timing path end-to-end (acquire / renew / query / expire) with no reliance on the
- * caller's {@code Instant.now()}.
+ * <p>These tests exercise the production DB-clock timing path end-to-end (acquire / renew / query /
+ * takeover) with no reliance on the caller's {@code Instant.now()}.
  */
 class JdbcDistributedLeaseClockTest {
 
-    private EmbeddedDataSource dataSource;
     private JdbcDistributedLease lease;
 
     @BeforeEach
     void setUp() throws Exception {
-        dataSource = new EmbeddedDataSource(
-                "jdbc:h2:mem:lease_clock_" + System.nanoTime()
-                        + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL",
-                "sa", "");
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS distributed_lease (
-                        lease_key   VARCHAR(255) PRIMARY KEY,
-                        holder_id   VARCHAR(255) NOT NULL,
-                        epoch       BIGINT       NOT NULL DEFAULT 0,
-                        acquired_at TIMESTAMP(3) NOT NULL,
-                        expires_at  TIMESTAMP(3) NOT NULL,
-                        version     BIGINT       NOT NULL DEFAULT 0
-                    )""");
-        }
+        DataSource dataSource = SharedPostgresContainer.migratedDataSource("lease_clock");
         lease = new JdbcDistributedLease(dataSource);
-    }
-
-    @AfterEach
-    void tearDown() {
-        dataSource.close();
     }
 
     @Test
     void acquireRenewAndQueryOperateAgainstDbClock() {
-        assertThat(lease.tryAcquire("k", "A", 1L, Duration.ofSeconds(30))).isTrue();
-        // A holds an unexpired, non-fenced lease — B (same epoch) must be rejected.
-        assertThat(lease.tryAcquire("k", "B", 1L, Duration.ofSeconds(30))).isFalse();
+        LeaseEntry acquired = lease.tryAcquire(
+                "k", "A", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(lease.tryAcquire("k", "B", Duration.ofSeconds(30))).isEmpty();
 
         Optional<LeaseEntry> holder = lease.currentHolder("k");
         assertThat(holder).isPresent();
         assertThat(holder.get().holderId()).isEqualTo("A");
 
         // Renewal validity is judged against the DB clock (expires_at >= CURRENT_TIMESTAMP).
-        assertThat(lease.tryRenew("k", "A", Duration.ofSeconds(30))).isTrue();
+        assertThat(lease.tryRenew(
+                "k", "A", acquired.epoch(), Duration.ofSeconds(30))).isTrue();
     }
 
     @Test
     void expiryIsJudgedByDatabaseClockAllowingTakeover() throws InterruptedException {
         // Very short lease: expiry is evaluated against the DB's CURRENT_TIMESTAMP, not the caller.
-        assertThat(lease.tryAcquire("k", "A", 1L, Duration.ofMillis(50))).isTrue();
+        LeaseEntry first = lease.tryAcquire(
+                "k", "A", Duration.ofMillis(50)).orElseThrow();
         Thread.sleep(200);
 
         // Past expiry per the DB clock: no current holder, and a new node can take over.
         assertThat(lease.currentHolder("k")).isEmpty();
-        assertThat(lease.tryAcquire("k", "B", 2L, Duration.ofSeconds(30))).isTrue();
-        assertThat(lease.currentHolder("k").orElseThrow().holderId()).isEqualTo("B");
+        LeaseEntry second = lease.tryAcquire(
+                "k", "B", Duration.ofSeconds(30)).orElseThrow();
+        assertThat(second.holderId()).isEqualTo("B");
+        assertThat(second.epoch()).isEqualTo(first.epoch() + 1);
     }
 
     @Test
-    void expireStaleRemovesLeasesPastDatabaseClock() throws InterruptedException {
-        assertThat(lease.tryAcquire("k", "A", 1L, Duration.ofMillis(50))).isTrue();
+    void staleEpochCannotRenewOrReleaseReplacement() throws InterruptedException {
+        LeaseEntry first = lease.tryAcquire(
+                "k", "A", Duration.ofMillis(50)).orElseThrow();
         Thread.sleep(200);
+        LeaseEntry second = lease.tryAcquire(
+                "k", "B", Duration.ofSeconds(30)).orElseThrow();
 
-        // expireStale compares expires_at < CURRENT_TIMESTAMP entirely inside the DB.
-        assertThat(lease.expireStale()).isEqualTo(1);
-        assertThat(lease.currentHolder("k")).isEmpty();
+        assertThat(lease.tryRenew(
+                "k", "A", first.epoch(), Duration.ofSeconds(30))).isFalse();
+        assertThat(lease.release("k", "A", first.epoch())).isFalse();
+        assertThat(lease.currentHolder("k")).contains(second);
     }
 }

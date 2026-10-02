@@ -9,7 +9,8 @@ import org.pangrova.security.authn.OAuth2Authenticator;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
@@ -39,6 +40,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import static org.pangrova.testing.e2e.security.E2eRoleFixtures.mappedRoles;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -76,7 +79,7 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
 
     @BeforeAll
     static void startMockIdpAndLdap() throws Exception {
-        if (!isDockerReady()) return;
+        isDockerReady();
         // Generate RSA key pair for JWT signing in mock IdP
         KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
         keyGen.initialize(2048);
@@ -449,7 +452,11 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         void userWithoutGrant_deniedAccess() {
             UserIdentity unauthorized = new UserIdentity(
                     "intruder", Set.of("unknown_group"), Map.of(), Instant.now());
-            AccessControl ac = new RbacAccessControl(List.of(), NO_RLS, NO_MASK);
+            AccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("analysts", "analysts"))),
+                NO_RLS,
+                NO_MASK);
 
             assertThatThrownBy(() ->
                     ac.checkCanSelectFromTable(unauthorized, CATALOG, SCHEMA, testTable))
@@ -464,7 +471,11 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, testTable, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(grants),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("analysts", "analysts"))),
+                NO_RLS,
+                NO_MASK);
 
             // SELECT granted — should pass
             ac.checkCanSelectFromTable(analyst, CATALOG, SCHEMA, testTable);

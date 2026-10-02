@@ -35,7 +35,7 @@ class StageDAGTest {
         // — distinct from a non-null fragment whose inner RelNode is null.
         assertThatThrownBy(() -> new StageNode(0, null, 1, "COMPUTE", List.of()))
                 .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("planFragment");
+                .hasMessageContaining("stagePlan");
     }
 
     @Test

@@ -115,7 +115,8 @@ class TaskSchedulerFairShareSelectionTest {
                 id, "host-" + id, 8080, 9090, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 cpuUtilization, 0, 8L * 1024 * 1024 * 1024,
-                Instant.now(), performanceScore, resourcePoolId, 1, List.of(),
-                null, List.of());
+                Instant.now(), performanceScore, resourcePoolId, 2,
+                null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

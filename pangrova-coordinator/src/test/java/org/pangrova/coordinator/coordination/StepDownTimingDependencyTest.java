@@ -9,8 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies R10.3: timing dependency in stepDown() — demotion callbacks fire
- * and role transitions to STANDBY BEFORE ownership is cleared.
+ * Verifies active-active control demotion: callbacks fire and the singleton
+ * role transitions while local query ownership remains intact.
  */
 class StepDownTimingDependencyTest {
 
@@ -24,7 +24,7 @@ class StepDownTimingDependencyTest {
     }
 
     @Test
-    void stepDown_demotionCallbackFiresBeforeOwnershipCleared() {
+    void stepDown_demotionCallbackFiresWithoutClearingQueryOwnership() {
         haService = new HighAvailabilityCoordinationService(
                 new InMemoryDistributedLease(),
                 new HighAvailabilityCoordinationService.CoordinationConfig(5000, 1000));
@@ -42,6 +42,8 @@ class StepDownTimingDependencyTest {
         assertThat(demotionFired.get()).isTrue();
         assertThat(haService.getRole())
                 .isEqualTo(HighAvailabilityCoordinationService.Role.STANDBY);
+        assertThat(haService.releaseQueryOwnership("q-1", "node-1")).isTrue();
+        assertThat(haService.releaseQueryOwnership("q-2", "node-1")).isTrue();
     }
 
     @Test

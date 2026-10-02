@@ -7,6 +7,7 @@ import java.time.Instant;
  */
 public record CommitLogEntry(
         long eventId,
+        String tenantId,
         String catalogName,
         String schemaName,
         String tableName,
@@ -14,5 +15,12 @@ public record CommitLogEntry(
         String addedFilesJson,
         String removedFilesJson,
         String eventType,
-        Instant createdAt
-) {}
+        Instant createdAt,
+        String commitFingerprint) {
+
+    public CommitLogEntry {
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalArgumentException("tenantId must not be blank");
+        }
+    }
+}

@@ -40,6 +40,23 @@ class StageBarrierSchedulingTest {
     }
 
     @Test
+    @DisplayName("Pipeline does not start a consumer before producer task records exist")
+    void schedulingProducerDoesNotMakeConsumerReady() {
+        StageDAG dag = buildLinearDAG();
+        transitionTo(dag, 0, StageStateMachine.State.SCHEDULING);
+
+        Set<Integer> activeIds = DAGCompletionEvaluator.collectActiveStageIds(dag);
+        assertFalse(activeIds.contains(0));
+        assertTrue(dag.readyStageEntities(activeIds).stream()
+                .noneMatch(stage -> stage.stageId() == 1));
+
+        transitionTo(dag, 0, StageStateMachine.State.RUNNING);
+        assertTrue(dag.readyStageEntities(
+                DAGCompletionEvaluator.collectActiveStageIds(dag)).stream()
+                .anyMatch(stage -> stage.stageId() == 1));
+    }
+
+    @Test
     @DisplayName("collectActiveStageIds includes FINISHED stages")
     void activeIdsIncludesFinishedStages() {
         StageDAG dag = buildLinearDAG();

@@ -4,7 +4,8 @@ import java.util.Map;
 
 /**
  * Engine-level session representation carrying user identity, scope, and properties.
- * tenantId, securityToken, queryId are engine-internal and must NOT propagate to connectors.
+ * tenantId is the authoritative namespace identity propagated to connectors;
+ * securityToken and queryId are engine-internal and must not propagate.
  */
 public record MetadataSessionContext(
         String user,

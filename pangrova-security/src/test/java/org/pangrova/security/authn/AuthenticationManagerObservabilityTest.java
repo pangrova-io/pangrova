@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests cover:
  * - Per-authenticator success/failure counters and latency tracking
  * - Health status transitions (HEALTHY → DEGRADED → UNHEALTHY)
- * - Degradation strategy: unhealthy authenticators are skipped
+ * - Unhealthy authenticators remain authoritative and cannot downgrade authentication
  * - Periodic health check recovers status
  * - Structured logging (verified indirectly via metrics)
  */
@@ -118,7 +118,7 @@ class AuthenticationManagerObservabilityTest {
     }
 
     @Test
-    void skipsUnhealthyAuthenticatorAndTriesNext() {
+    void unhealthyAuthenticatorCannotSelectBypass() {
         Authenticator unhealthyAuth = failingAuthenticator("primary");
         BypassAuthenticator fallback = new BypassAuthenticator();
         fallback.init(Map.of("bypass.enabled", "true"));
@@ -130,14 +130,14 @@ class AuthenticationManagerObservabilityTest {
             }
             assertThat(manager.getHealthStatus("primary")).isEqualTo(AuthenticatorHealthStatus.UNHEALTHY);
 
-            // Next request should skip primary and use fallback
+            // Backend health must not change the authoritative authenticator.
             AuthenticationResult result = manager.authenticate(PASSWORD_REQUEST);
-            assertThat(result.success()).isTrue();
-            assertThat(result.userIdentity().principal()).isEqualTo("anonymous");
+            assertThat(result.success()).isFalse();
+            assertThat(result.errorMessage()).isEqualTo(AuthenticationManager.GENERIC_FAILURE_MESSAGE);
 
-            // Primary failure count should not increase (it was skipped)
             AuthenticatorMetrics primaryMetrics = manager.getMetrics().get("primary");
-            assertThat(primaryMetrics.failureCount()).isEqualTo(AuthenticationManager.UNHEALTHY_THRESHOLD);
+            assertThat(primaryMetrics.failureCount()).isEqualTo(AuthenticationManager.UNHEALTHY_THRESHOLD + 1);
+            assertThat(manager.getMetrics().get("bypass").successCount()).isZero();
         }
     }
 
@@ -149,7 +149,7 @@ class AuthenticationManagerObservabilityTest {
             @Override public void init(Map<String, String> config) {}
             @Override public AuthenticationResult authenticate(AuthenticationRequest r) {
                 callCount.incrementAndGet();
-                return AuthenticationResult.failure("temporarily unavailable");
+                throw new IllegalStateException("backend temporarily unavailable");
             }
             @Override public boolean supports(AuthenticationRequest r) { return true; }
             @Override public boolean isHealthy() { return false; }
@@ -304,6 +304,8 @@ class AuthenticationManagerObservabilityTest {
             AuthenticatorMetrics m = manager.getMetrics().get("soft-fail");
             assertThat(m.failureCount()).isEqualTo(3);
             assertThat(m.successCount()).isZero();
+            assertThat(m.healthStatus()).isEqualTo(AuthenticatorHealthStatus.HEALTHY);
+            assertThat(m.consecutiveFailures()).isZero();
         }
     }
 

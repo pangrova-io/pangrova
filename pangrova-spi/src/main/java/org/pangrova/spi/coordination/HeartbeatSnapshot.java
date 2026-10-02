@@ -6,7 +6,7 @@ import java.util.Objects;
  * Immutable snapshot of a worker's heartbeat payload.
  *
  * <p>Carries the dynamic runtime metrics that a worker reports on each
- * heartbeat cycle. Static identity fields (host, ports, capabilities) are
+ * heartbeat cycle. Static identity fields (host, ports, capability inventory) are
  * not included — they are captured once at registration time in
  * {@link WorkerSnapshot}.
  *

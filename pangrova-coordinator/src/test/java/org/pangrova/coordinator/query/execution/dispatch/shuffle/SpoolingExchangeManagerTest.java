@@ -27,7 +27,8 @@ class SpoolingExchangeManagerTest {
         SpoolingExchangeManager manager = new SpoolingExchangeManager(
                 store, ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL));
 
-        ShuffleRegistration reg = new ShuffleRegistration("q1", 0, 4, 1024L, false);
+        ShuffleRegistration reg = new ShuffleRegistration(
+                "q1", 0, 4, 1024L, false, 1L, 4, new byte[32]);
         ShuffleHandle handle = manager.registerShuffle(reg);
 
         assertThat(handle).isEqualTo(ShuffleHandle.LOCAL);
@@ -49,7 +50,8 @@ class SpoolingExchangeManagerTest {
         SpoolingExchangeManager manager = new SpoolingExchangeManager(
                 store, ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL));
 
-        manager.registerShuffle(new ShuffleRegistration("q1", 0, 4, 1024L, false));
+        manager.registerShuffle(new ShuffleRegistration(
+                "q1", 0, 4, 1024L, false, 1L, 4, new byte[32]));
         ShuffleCommitResult result = manager.commitShuffle("q1", 0);
 
         // Coordinator-side commit is a no-op for spool-backed shuffles
@@ -62,7 +64,8 @@ class SpoolingExchangeManagerTest {
         SpoolingExchangeManager manager = new SpoolingExchangeManager(
                 store, ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL));
 
-        manager.registerShuffle(new ShuffleRegistration("q1", 0, 4, 1024L, false));
+        manager.registerShuffle(new ShuffleRegistration(
+                "q1", 0, 4, 1024L, false, 1L, 4, new byte[32]));
         manager.cleanupShuffle("q1");
 
         assertThat(store.deletedQueryId).isEqualTo("q1");
@@ -128,7 +131,8 @@ class SpoolingExchangeManagerTest {
         SpoolingExchangeManager manager = new SpoolingExchangeManager(
                 store, ShuffleCapabilities.of(ShuffleDurability.LOCAL_SPILL));
 
-        manager.registerShuffle(new ShuffleRegistration("q1", 0, 4, 1024L, false));
+        manager.registerShuffle(new ShuffleRegistration(
+                "q1", 0, 4, 1024L, false, 1L, 4, new byte[32]));
         manager.close();
 
         assertThat(store.closed).isTrue();

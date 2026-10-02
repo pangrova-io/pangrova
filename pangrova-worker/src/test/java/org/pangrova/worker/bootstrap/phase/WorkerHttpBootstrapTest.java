@@ -21,7 +21,8 @@ class WorkerHttpBootstrapTest {
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                 false, null, null,
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
-                false, null, httpHost, null, null, null, advertisedHost);
+                false, null, httpHost, null, null, null, advertisedHost,
+                null, null);
     }
 
     @Test

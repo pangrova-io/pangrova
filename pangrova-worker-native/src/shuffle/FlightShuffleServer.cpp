@@ -6,22 +6,22 @@
 
 #include "shuffle/FlightShuffleServer.h"
 
+#include <algorithm>
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
+#include <vector>
 
 // gRPC headers must precede glog to avoid macro redefinition conflicts
 // between abseil-logging (pulled by grpcpp) and Velox's bundled glog.
 #include <grpc/impl/channel_arg_names.h>
 #include <grpcpp/grpcpp.h>
 
-#include <arrow/buffer.h>
-#include <arrow/builder.h>
-#include <arrow/record_batch.h>
-#include <arrow/type.h>
 #include <glog/logging.h>
 
 #include "observability/PangrovaLog.h"
+#include "shuffle/ShuffleFlightBatchReader.h"
 
 namespace pangrova::shuffle {
 
@@ -35,29 +35,24 @@ bool ticketOwnershipValid(
     int32_t ticket_stage_id,
     const std::string& registered_query_id,
     int32_t registered_stage_id) {
-  // Identity not recorded (legacy path) -> accept regardless.
-  if (registered_query_id.empty() && registered_stage_id < 0) {
-    return true;
-  }
-  // Query ID mismatch -> reject.
-  if (registered_query_id != ticket_query_id) {
-    return false;
-  }
-  // Stage not recorded -> query_id alone is sufficient.
-  if (registered_stage_id < 0) {
-    return true;
-  }
-  // Both recorded -> must match.
-  return registered_stage_id == ticket_stage_id;
+  return !registered_query_id.empty() && registered_stage_id >= 0 &&
+      registered_query_id == ticket_query_id &&
+      registered_stage_id == ticket_stage_id;
 }
 
 }  // namespace detail
 
 // ── PartitionDemuxer ────────────────────────────────────────────────
 
-PartitionDemuxer::PartitionDemuxer(SerializedShuffleQueue* source)
-    : source_(source) {
-  CHECK(source_ != nullptr) << "SerializedShuffleQueue must not be null";
+PartitionDemuxer::PartitionDemuxer(
+    SerializedShuffleQueue* source, std::shared_ptr<ShuffleBufferStore> store)
+    : source_(source), store_(std::move(store)),
+      max_partitions_(store_ ? store_->limits().partitions_per_handle : 0),
+      completed_partitions_(max_partitions_, false) {
+  if (!source_ || !store_) throw std::invalid_argument("shuffle requires source and store");
+  auto reservation = store_->acquireHandle();
+  if (!reservation.ok()) throw std::runtime_error(reservation.status().ToString());
+  handle_reservation_ = std::move(*reservation);
 }
 
 PartitionDemuxer::~PartitionDemuxer() {
@@ -65,397 +60,366 @@ PartitionDemuxer::~PartitionDemuxer() {
 }
 
 void PartitionDemuxer::start() {
-  CHECK(!running_.load()) << "PartitionDemuxer already running";
+  if (running_.load() || drain_thread_.joinable()) {
+    throw std::logic_error("PartitionDemuxer already started");
+  }
   running_.store(true);
-  drain_exited_.store(false);
   drain_thread_ = std::thread([this]() { drainLoop(); });
 }
 
 void PartitionDemuxer::stop() {
-  if (!running_.exchange(false)) {
-    return;
-  }
-  // Wake drain thread from backpressure wait if stuck.
   {
-    std::lock_guard<std::mutex> lock(backpressure_mutex_);
-    backpressure_cv_.notify_all();
+    std::unique_lock<std::mutex> lock(stop_mutex_);
+    if (stopping_) stop_cv_.wait(lock, [this] { return stopped_; });
+    if (stopped_) return;
+    stopping_ = true;
   }
-  if (drain_thread_.joinable()) {
-    drain_thread_.join();
-  }
-  // Mark source closed and notify all partition waiters.
-  source_closed_.store(true);
-  drain_exited_.store(true);
+  if (!isFullyConsumed()) fail(arrow::Status::Cancelled("shuffle stopped before consumption"));
+  running_.store(false);
+  if (drain_thread_.joinable()) drain_thread_.join();
+  finishDrain(false);
+  // Release anonymous files outside all locks, including on TTL expiry with
+  // still-live Flight readers. An in-progress replay owns its separate entry.
+  std::unordered_map<int32_t, PartitionBuffer> discarded;
   {
-    std::lock_guard<std::mutex> lock(quiesce_mutex_);
-    quiesce_cv_.notify_all();
+    std::lock_guard<std::mutex> lock(mutex_);
+    discarded.swap(partitions_);
   }
-  std::lock_guard<std::mutex> reg_lock(registry_mutex_);
-  for (auto& [pid, buf] : partitions_) {
-    std::lock_guard<std::mutex> lock(buf->mutex);
-    buf->cv.notify_all();
+  discarded.clear();
+  {
+    std::lock_guard<std::mutex> lock(stop_mutex_);
+    stopped_ = true;
+    stop_cv_.notify_all();
   }
 }
 
-PartitionDemuxer::PartitionBuffer& PartitionDemuxer::getOrCreatePartition(
-    int32_t partition_id) {
-  std::lock_guard<std::mutex> lock(registry_mutex_);
-  auto it = partitions_.find(partition_id);
-  if (it == partitions_.end()) {
-    auto buf = std::make_unique<PartitionBuffer>();
-    auto& ref = *buf;
-    partitions_[partition_id] = std::move(buf);
-    return ref;
+arrow::Status PartitionDemuxer::status() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return status_;
+}
+
+bool PartitionDemuxer::validPartition(int32_t partition_id) const {
+  return partition_id >= 0 && partition_id < max_partitions_;
+}
+
+void PartitionDemuxer::fail(arrow::Status error) {
+  std::unordered_map<int32_t, PartitionBuffer> discarded;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (status_.ok()) status_ = std::move(error);
+    running_.store(false);
+    discarded.swap(partitions_);
+    cv_.notify_all();
   }
-  return *it->second;
+  cancellation_.requestStop();
+}
+
+void PartitionDemuxer::finishDrain(bool complete) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  source_complete_ = source_complete_ || (complete && status_.ok());
+  source_closed_ = true;
+  drain_exited_ = true;
+  cv_.notify_all();
 }
 
 bool PartitionDemuxer::pop(int32_t partition_id, ShuffleBatch& batch,
-                           std::chrono::milliseconds timeout) {
-  // Partition bound check.
-  int32_t max_p = max_partitions_.load();
-  if (max_p > 0 && (partition_id < 0 || partition_id >= max_p)) {
-    PANGROVA_LOG(ERROR) << "event=partition_pop_out_of_range"
-                      << " partition_id=" << partition_id
-                      << " max_partitions=" << max_p;
-    return false;
-  }
-  auto& buf = getOrCreatePartition(partition_id);
-  std::unique_lock<std::mutex> lock(buf.mutex);
-  bool ok = buf.cv.wait_for(lock, timeout, [&] {
-    return !buf.batches.empty() || source_closed_.load();
-  });
-  if (!ok) {
-    return false;  // Timeout
-  }
-  if (buf.batches.empty()) {
-    return false;  // Source closed and partition buffer empty
-  }
-  batch = std::move(buf.batches.front());
-  buf.batches.pop_front();
-  buf.popped_count++;
-  buf.approx_size.fetch_sub(1, std::memory_order_release);
-  // Release buf.mutex BEFORE acquiring backpressure_mutex_ to prevent
-  // lock-order inversion with drainLoop (F-NATIVE-02).
-  lock.unlock();
-  // Wake drain thread from backpressure wait (slot freed).
+                           std::chrono::milliseconds timeout,
+                           const std::function<bool()>& reader_cancelled) {
+  if (!validPartition(partition_id)) return false;
+  std::unique_ptr<ShuffleBufferStore::Entry> entry;
   {
-    std::lock_guard<std::mutex> bp_lock(backpressure_mutex_);
-    backpressure_cv_.notify_all();
+    std::unique_lock<std::mutex> lock(mutex_);
+    auto ready = [&] {
+      const auto it = partitions_.find(partition_id);
+      return !status_.ok() || (it == partitions_.end() ? source_closed_ :
+          !it->second.reading && (!it->second.batches.empty() || source_closed_));
+    };
+    if (!cv_.wait_for(lock, timeout, ready) || !status_.ok()) return false;
+    auto it = partitions_.find(partition_id);
+    if (it == partitions_.end() || it->second.batches.empty()) return false;
+    entry = std::move(it->second.batches.front());
+    it->second.batches.pop_front();
+    it->second.reading = true;
   }
-  return true;
+  try {
+    // Acquire transit credit before replaying spill or releasing retention.
+    // The two independent pools ensure a full resident store can drain.
+    auto transit = store_->acquireTransit(
+        entry->payload_bytes, cancellation_.token(), reader_cancelled);
+    if (!transit.ok()) {
+      if (transit.status().IsCancelled() && reader_cancelled &&
+          reader_cancelled() && !cancellation_.token().stopRequested()) {
+        // This Flight reader alone went away. Preserve the unread record for
+        // another authorized reader; retention credit stays with the entry.
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = partitions_.find(partition_id);
+        if (it != partitions_.end() && status_.ok()) {
+          it->second.batches.push_front(std::move(entry));
+          it->second.reading = false;
+          cv_.notify_all();
+          return false;
+        }
+      }
+      fail(transit.status());
+    } else {
+      auto result = ShuffleBufferStore::replay(*entry, cancellation_.token());
+      if (!result.ok()) fail(result.status());
+      else {
+        batch = std::move(*result);
+        batch.transit_lease = std::move(*transit);
+      }
+    }
+  } catch (const std::exception& error) {
+    fail(arrow::Status::IOError("shuffle replay failed: ", error.what()));
+  }
+  entry.reset();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = partitions_.find(partition_id);
+    if (it != partitions_.end()) it->second.reading = false;
+    cv_.notify_all();
+    if (status_.ok()) return true;
+  }
+  batch.data.reset();
+  batch.transit_lease.reset();
+  return false;
 }
 
 bool PartitionDemuxer::isPartitionDrained(int32_t partition_id) {
-  if (!source_closed_.load()) {
-    return false;
-  }
-  std::lock_guard<std::mutex> reg_lock(registry_mutex_);
-  auto it = partitions_.find(partition_id);
-  if (it == partitions_.end()) {
-    return true;
-  }
-  std::lock_guard<std::mutex> lock(it->second->mutex);
-  return it->second->batches.empty();
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = partitions_.find(partition_id);
+  return source_closed_ && (it == partitions_.end() ||
+      (it->second.batches.empty() && !it->second.reading));
 }
 
 void PartitionDemuxer::drainLoop() {
-  // PERF-T5: Adaptive backoff — busy-poll when data flows, back off when idle.
-  // Reduces shuffle end-to-end latency from ~100ms to <1ms in burst scenarios.
-  std::chrono::milliseconds timeout(0);
-  static constexpr std::chrono::milliseconds kMaxBackoff(10);
-
-  while (running_.load()) {
-    ShuffleBatch batch;
-    auto result = source_->pop(batch, timeout);
-
-    if (result == pangrova::executor::PopResult::CLOSED) {
-      source_closed_.store(true);
-      source_complete_.store(true);  // Clean producer close
-      // Notify all partition waiters.
-      std::lock_guard<std::mutex> reg_lock(registry_mutex_);
-      for (auto& [pid, buf] : partitions_) {
-        std::lock_guard<std::mutex> lock(buf->mutex);
-        buf->cv.notify_all();
+  bool complete = false;
+  try {
+    while (running_.load()) {
+      ShuffleBatch batch;
+      const auto result = source_->pop(batch, std::chrono::milliseconds(10));
+      if (result == pangrova::executor::PopResult::CLOSED) {
+        if (source_->isAborted()) {
+          fail(arrow::Status::IOError("shuffle producer aborted before commit"));
+        } else if (!source_->isCommitted()) {
+          fail(arrow::Status::IOError("shuffle producer closed without commit"));
+        } else {
+          complete = true;
+        }
+        break;
       }
-      drain_exited_.store(true);
-      {
-        std::lock_guard<std::mutex> lock(quiesce_mutex_);
-        quiesce_cv_.notify_all();
+      if (result == pangrova::executor::PopResult::TIMEOUT) continue;
+      if (!running_.load()) break;
+      if (!validPartition(batch.partition_id)) {
+        fail(arrow::Status::Invalid("shuffle producer partition out of range"));
+        break;
       }
-      return;
+      const auto partition_id = batch.partition_id;
+      auto stored = store_->store(std::move(batch), cancellation_.token());
+      if (!stored.ok()) {
+        fail(stored.status());
+        break;
+      }
+      auto entry = std::move(*stored);
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!running_.load()) break;
+      auto& partition = partitions_[partition_id];
+      partition.batches.push_back(std::move(entry));
+      ++partition.committed_count;
+      cv_.notify_all();
     }
-
-    if (result == pangrova::executor::PopResult::DATA) {
-      // Partition bound check on production side.
-      int32_t max_p = max_partitions_.load();
-      if (max_p > 0 && (batch.partition_id < 0 || batch.partition_id >= max_p)) {
-        PANGROVA_LOG(ERROR) << "event=invalid_partition_id"
-                          << " partition_id=" << batch.partition_id
-                          << " max_partitions=" << max_p
-                          << " action=skip_batch";
-        continue;
-      }
-
-      auto& buf = getOrCreatePartition(batch.partition_id);
-
-      // Backpressure: wait if partition is at cap.
-      size_t cap = max_buffered_per_partition_.load();
-      if (cap > 0) {
-        std::unique_lock<std::mutex> bp_lock(backpressure_mutex_);
-        backpressure_cv_.wait(bp_lock, [&] {
-          if (!running_.load()) return true;
-          // Read atomic approx_size instead of locking buf.mutex to avoid
-          // lock-order inversion with pop() (F-NATIVE-02).
-          return buf.approx_size.load(std::memory_order_acquire) < cap;
-        });
-        if (!running_.load()) break;
-      }
-
-      std::lock_guard<std::mutex> lock(buf.mutex);
-      buf.batches.push_back(std::move(batch));
-      buf.committed_count++;
-      buf.approx_size.fetch_add(1, std::memory_order_release);
-      buf.cv.notify_all();
-      // PERF-T5: Data received — reset to busy-poll for low-latency drain.
-      timeout = std::chrono::milliseconds(0);
-    }
-    // TIMEOUT: adaptive backoff to avoid excessive CPU spin.
-    if (result == pangrova::executor::PopResult::TIMEOUT) {
-      timeout = std::min(timeout + std::chrono::milliseconds(1), kMaxBackoff);
+  } catch (const std::exception& error) {
+    fail(arrow::Status::IOError("shuffle buffering failed: ", error.what()));
+  }
+  if (!complete || !status().ok()) {
+    // Only the drain thread touches the borrowed source during cancellation.
+    // Abort wins against a late producer commit and wakes blocked producers;
+    // a failed demux must never be published as a successful Flight EOF.
+    try {
+      source_->abort();
+      source_->drain();
+    } catch (const std::exception& error) {
+      fail(arrow::Status::IOError("shuffle source cancellation failed: ", error.what()));
     }
   }
-  // Running set to false externally — mark source closed (forced, not complete).
-  source_closed_.store(true);
-  drain_exited_.store(true);
-  {
-    std::lock_guard<std::mutex> lock(quiesce_mutex_);
-    quiesce_cv_.notify_all();
-  }
-  std::lock_guard<std::mutex> reg_lock(registry_mutex_);
-  for (auto& [pid, buf] : partitions_) {
-    std::lock_guard<std::mutex> lock(buf->mutex);
-    buf->cv.notify_all();
-  }
+  finishDrain(complete);
 }
 
 bool PartitionDemuxer::quiesce(std::chrono::milliseconds timeout) {
   {
-    std::unique_lock<std::mutex> lock(quiesce_mutex_);
-    bool exited = quiesce_cv_.wait_for(lock, timeout, [this] {
-      return drain_exited_.load();
-    });
-    if (exited) {
-      return source_complete_.load();
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (drain_exited_) return source_complete_ && status_.ok();
+  }
+  if (!source_->isClosed()) {
+    stop();
+    return false;
+  }
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (cv_.wait_for(lock, timeout, [this] { return drain_exited_; })) {
+      return source_complete_ && status_.ok();
     }
   }
-  // Lock released before stop() to avoid deadlock (stop() also acquires
-  // quiesce_mutex_ to notify waiters).
   stop();
   return false;
 }
 
 bool PartitionDemuxer::isComplete() const {
-  return source_complete_.load();
+  std::lock_guard<std::mutex> lock(mutex_);
+  return source_complete_ && status_.ok();
 }
 
 bool PartitionDemuxer::isFullyConsumed() const {
-  if (!source_closed_.load()) return false;
-  std::lock_guard<std::mutex> reg_lock(
-      const_cast<std::mutex&>(registry_mutex_));
-  for (auto& [pid, buf] : partitions_) {
-    std::lock_guard<std::mutex> lock(buf->mutex);
-    if (!buf->batches.empty()) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!source_closed_) return false;
+  for (const auto& [pid, buf] : partitions_) {
+    if (!buf.batches.empty() || buf.reading) return false;
   }
   return true;
 }
 
-bool PartitionDemuxer::isPartitionTruncated(int32_t partition_id) {
-  if (source_complete_.load()) {
-    return false;  // Clean close means no truncation.
+bool PartitionDemuxer::markPartitionReadComplete(int32_t partition_id) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!validPartition(partition_id) || !source_complete_ || !status_.ok()) {
+    return false;
   }
-  return isPartitionDrained(partition_id);
+  const auto it = partitions_.find(partition_id);
+  if (it != partitions_.end() &&
+      (!it->second.batches.empty() || it->second.reading)) {
+    return false;
+  }
+  completed_partitions_[partition_id] = true;
+  return true;
 }
 
-void PartitionDemuxer::setMaxBufferedBatchesPerPartition(size_t cap) {
-  max_buffered_per_partition_.store(cap);
+bool PartitionDemuxer::allPartitionsReadComplete() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return std::all_of(
+      completed_partitions_.begin(), completed_partitions_.end(),
+      [](bool completed) { return completed; });
+}
+
+bool PartitionDemuxer::isPartitionTruncated(int32_t partition_id) {
+  return !isComplete() && isPartitionDrained(partition_id);
 }
 
 size_t PartitionDemuxer::bufferedBatchCount(int32_t partition_id) {
-  std::lock_guard<std::mutex> reg_lock(registry_mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   auto it = partitions_.find(partition_id);
   if (it == partitions_.end()) return 0;
-  std::lock_guard<std::mutex> lock(it->second->mutex);
-  return it->second->batches.size();
+  return it->second.batches.size();
 }
 
 int64_t PartitionDemuxer::committedBatchCount(int32_t partition_id) {
-  std::lock_guard<std::mutex> reg_lock(registry_mutex_);
+  std::lock_guard<std::mutex> lock(mutex_);
   auto it = partitions_.find(partition_id);
   if (it == partitions_.end()) return 0;
-  std::lock_guard<std::mutex> lock(it->second->mutex);
-  return it->second->committed_count;
+  return it->second.committed_count;
 }
 
 void PartitionDemuxer::setMaxPartitions(int32_t max_partitions) {
-  max_partitions_.store(max_partitions);
+  if (running_.load() || drain_thread_.joinable() || max_partitions <= 0 ||
+      max_partitions > store_->limits().partitions_per_handle) {
+    throw std::invalid_argument("invalid shuffle partition limit or already started");
+  }
+  max_partitions_ = max_partitions;
+  completed_partitions_.assign(max_partitions, false);
 }
 
 // ── FlightShuffleServer ─────────────────────────────────────────────
 
 namespace {
 
-// Schema for streaming serialized shuffle data over Flight.
-// Single binary column carries the PrestoVectorSerde bytes.
-std::shared_ptr<arrow::Schema> shuffleSchema() {
-  static auto schema = arrow::schema({
-      arrow::field("data", arrow::binary()),
-  });
-  return schema;
-}
-
-// Parse a multiplexed ticket into (handle, query_id, stage_id, partition_id).
-// Wire format: "handle\nquery_id\nstage_id\npartition_id"
+// Parse a multiplexed ticket into its producer-owned routing and attempt
+// identity. Wire format:
+// handle\nquery_id\nstage_id\noutput_partition_id\nplan_epoch\nattempt_id\nfencing_token
 bool parseTicket(const std::string& ticket,
                  int64_t& handle,
                  std::string& query_id,
                  int32_t& stage_id,
-                 int32_t& partition_id) {
+                 int32_t& partition_id,
+                 uint64_t& plan_epoch,
+                 uint32_t& attempt_id,
+                 uint64_t& fencing_token) {
   std::istringstream iss(ticket);
-  std::string handle_str, stage_str, part_str;
+  std::string handle_str, stage_str, part_str, epoch_str, attempt_str,
+      fence_str, trailing;
   if (!std::getline(iss, handle_str) ||
       !std::getline(iss, query_id) ||
       !std::getline(iss, stage_str) ||
-      !std::getline(iss, part_str)) {
+      !std::getline(iss, part_str) ||
+      !std::getline(iss, epoch_str) ||
+      !std::getline(iss, attempt_str) ||
+      !std::getline(iss, fence_str) ||
+      std::getline(iss, trailing)) {
     return false;
   }
   try {
     handle = std::stoll(handle_str);
     stage_id = std::stoi(stage_str);
     partition_id = std::stoi(part_str);
+    plan_epoch = std::stoull(epoch_str);
+    const auto parsed_attempt = std::stoull(attempt_str);
+    if (parsed_attempt > std::numeric_limits<uint32_t>::max()) {
+      return false;
+    }
+    attempt_id = static_cast<uint32_t>(parsed_attempt);
+    fencing_token = std::stoull(fence_str);
   } catch (...) {
     return false;
   }
-  return true;
+  return handle > 0 && !query_id.empty() && stage_id >= 0 &&
+      partition_id >= 0 && plan_epoch > 0 && fencing_token > 0;
 }
-
-// RecordBatchReader that reads from a specific partition via PartitionDemuxer.
-class ShuffleQueueBatchReader : public arrow::RecordBatchReader {
- public:
-  ShuffleQueueBatchReader(
-      PartitionDemuxer* demuxer,
-      int32_t partition_id,
-      int64_t max_batch_bytes)
-      : demuxer_(demuxer),
-        partition_id_(partition_id),
-        max_batch_bytes_(max_batch_bytes),
-        schema_(shuffleSchema()) {}
-
-  std::shared_ptr<arrow::Schema> schema() const override { return schema_; }
-
-  arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override {
-    ShuffleBatch batch;
-    while (true) {
-      if (demuxer_->pop(partition_id_, batch, std::chrono::milliseconds(500))) {
-        break;
-      }
-      if (demuxer_->isPartitionDrained(partition_id_)) {
-        *out = nullptr;
-        return arrow::Status::OK();
-      }
-    }
-
-    arrow::BinaryBuilder builder;
-    int64_t total_bytes = 0;
-
-    if (batch.data) {
-      const uint8_t* data_ptr;
-      size_t data_len;
-      std::unique_ptr<folly::IOBuf> coalesced_holder;
-      if (batch.data->isChained()) {
-        coalesced_holder = batch.data->cloneCoalesced();
-        data_ptr = coalesced_holder->data();
-        data_len = coalesced_holder->length();
-      } else {
-        data_ptr = batch.data->data();
-        data_len = batch.data->length();
-      }
-      // Per-entry size guard: reject entries exceeding INT32_MAX to
-      // prevent BinaryBuilder overflow (arrow uses int32 offsets).
-      if (data_len > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-        return arrow::Status::Invalid(
-            "Shuffle entry exceeds max size: " + std::to_string(data_len));
-      }
-      ARROW_RETURN_NOT_OK(builder.Append(
-          data_ptr, static_cast<int32_t>(data_len)));
-      total_bytes += static_cast<int64_t>(data_len);
-    }
-
-    // Drain more batches for this partition up to max_batch_bytes_.
-    while (total_bytes < max_batch_bytes_) {
-      ShuffleBatch extra;
-      if (!demuxer_->pop(partition_id_, extra, std::chrono::milliseconds(0))) {
-        break;
-      }
-      if (extra.data) {
-        const uint8_t* extra_ptr;
-        size_t extra_len;
-        std::unique_ptr<folly::IOBuf> extra_holder;
-        if (extra.data->isChained()) {
-          extra_holder = extra.data->cloneCoalesced();
-          extra_ptr = extra_holder->data();
-          extra_len = extra_holder->length();
-        } else {
-          extra_ptr = extra.data->data();
-          extra_len = extra.data->length();
-        }
-        // Per-entry size guard: reject entries exceeding INT32_MAX to
-        // prevent BinaryBuilder overflow (arrow uses int32 offsets).
-        if (extra_len > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
-          return arrow::Status::Invalid(
-              "Shuffle entry exceeds max size: " + std::to_string(extra_len));
-        }
-        ARROW_RETURN_NOT_OK(builder.Append(
-            extra_ptr, static_cast<int32_t>(extra_len)));
-        total_bytes += static_cast<int64_t>(extra_len);
-      }
-    }
-
-    if (total_bytes == 0) {
-      *out = nullptr;
-      return arrow::Status::OK();
-    }
-
-    std::shared_ptr<arrow::Array> data_array;
-    ARROW_RETURN_NOT_OK(builder.Finish(&data_array));
-
-    *out = arrow::RecordBatch::Make(schema_, data_array->length(), {data_array});
-    return arrow::Status::OK();
-  }
-
- private:
-  PartitionDemuxer* demuxer_;
-  int32_t partition_id_;
-  int64_t max_batch_bytes_;
-  std::shared_ptr<arrow::Schema> schema_;
-};
 
 }  // namespace
 
 FlightShuffleServer::FlightShuffleServer(FlightShuffleServerConfig config)
     : config_(std::move(config)) {
+  if (config_.max_batch_bytes <= 0 ||
+      config_.max_batch_bytes > static_cast<int64_t>(kCanonicalShuffleBatchBytes) ||
+      config_.lingering_ttl_ms <= 0) {
+    throw std::invalid_argument("shuffle response size and linger TTL must be positive");
+  }
+  config_.buffer_limits.max_payload_bytes = static_cast<uint64_t>(config_.max_batch_bytes);
+  constexpr uint64_t kFlightMetadataBytes = 64 * 1024;
+  if (config_.buffer_limits.transit_bytes <
+      3 * config_.buffer_limits.max_payload_bytes + kFlightMetadataBytes) {
+    throw std::invalid_argument(
+        "shuffle transit grant cannot serve a canonical maximum-size batch");
+  }
+  buffer_store_ = std::make_shared<ShuffleBufferStore>(config_.buffer_limits);
   if (!config_.hmac_current_key.empty()) {
-    ticket_verifier_ = std::make_unique<TicketVerifier>(
+    ticket_verifier_ = std::make_shared<TicketVerifier>(
         config_.hmac_current_key, config_.hmac_previous_key);
     PANGROVA_LOG(INFO) << "event=ticket_verifier_enabled"
                       << " has_previous_key=" << !config_.hmac_previous_key.empty();
   }
 }
 
-FlightShuffleServer::~FlightShuffleServer() {
-  if (running_.load()) {
-    stop();
+void FlightShuffleServer::setHmacKeys(std::string current_key,
+                                      std::string previous_key) {
+  if (current_key.size() < 32) {
+    throw std::invalid_argument(
+        "shuffle HMAC key must contain at least 32 bytes");
   }
+  if (!previous_key.empty() && previous_key.size() < 32) {
+    throw std::invalid_argument(
+        "previous shuffle HMAC key must contain at least 32 bytes");
+  }
+  auto replacement = std::make_shared<TicketVerifier>(
+      current_key, previous_key);
+  const bool has_previous_key = !previous_key.empty();
+  {
+    std::lock_guard<std::mutex> lock(ticket_verifier_mutex_);
+    ticket_verifier_ = std::move(replacement);
+  }
+  PANGROVA_LOG(INFO) << "event=flight_shuffle_hmac_keys_updated"
+                    << " has_previous_key=" << has_previous_key;
+}
+
+FlightShuffleServer::~FlightShuffleServer() {
+  stop();
   // Safety net: if Serve() already flipped running_=false (so stop() early-
   // returned or was never called), the evictor thread may still be joinable.
   {
@@ -472,12 +436,21 @@ FlightShuffleServer::~FlightShuffleServer() {
 static constexpr std::chrono::seconds kLingeringEvictInterval{10};
 
 int FlightShuffleServer::start() {
-  CHECK(!running_.load()) << "FlightShuffleServer already running";
+  if (running_.load()) {
+    throw std::logic_error("FlightShuffleServer already running");
+  }
 
-  auto location_result =
-      arrow::flight::Location::ForGrpcTcp("0.0.0.0", config_.port);
-  CHECK(location_result.ok())
-      << "Failed to create Flight location: " << location_result.status().ToString();
+  const bool any_tls_path = !config_.tls_cert_chain_path.empty() ||
+      !config_.tls_private_key_path.empty() ||
+      !config_.tls_root_ca_path.empty();
+  auto location_result = any_tls_path
+      ? arrow::flight::Location::ForGrpcTls("0.0.0.0", config_.port)
+      : arrow::flight::Location::ForGrpcTcp("0.0.0.0", config_.port);
+  if (!location_result.ok()) {
+    throw std::runtime_error(
+        "Failed to create Flight location: " +
+        location_result.status().ToString());
+  }
 
   arrow::flight::FlightServerOptions options(*location_result);
 
@@ -490,33 +463,37 @@ int FlightShuffleServer::start() {
   }
 
   // Configure TLS if certificate paths are provided.
-  if (!config_.tls_cert_chain_path.empty()) {
+  if (any_tls_path) {
+    if (config_.tls_cert_chain_path.empty() ||
+        config_.tls_private_key_path.empty() ||
+        config_.tls_root_ca_path.empty()) {
+      throw std::invalid_argument(
+          "Flight shuffle mutual TLS requires certificate chain, private key and root CA");
+    }
     std::ifstream cert_file(config_.tls_cert_chain_path);
     std::ifstream key_file(config_.tls_private_key_path);
     if (!cert_file.good() || !key_file.good()) {
-      PANGROVA_LOG(ERROR) << "event=flight_shuffle_server_tls_error"
-                        << " cert=" << config_.tls_cert_chain_path
-                        << " key=" << config_.tls_private_key_path;
-    } else {
-      std::string cert_pem((std::istreambuf_iterator<char>(cert_file)),
-                            std::istreambuf_iterator<char>());
-      std::string key_pem((std::istreambuf_iterator<char>(key_file)),
-                           std::istreambuf_iterator<char>());
-      arrow::flight::CertKeyPair cert_key{cert_pem, key_pem};
-      options.tls_certificates.push_back(cert_key);
-
-      if (!config_.tls_root_ca_path.empty()) {
-        std::ifstream ca_file(config_.tls_root_ca_path);
-        if (ca_file.good()) {
-          std::string ca_pem((std::istreambuf_iterator<char>(ca_file)),
-                              std::istreambuf_iterator<char>());
-          options.root_certificates = ca_pem;
-          options.verify_client = true;
-        }
-      }
-      PANGROVA_LOG(INFO) << "event=flight_shuffle_server_tls_enabled"
-                        << " port=" << config_.port;
+      throw std::runtime_error(
+          "Failed to read Flight shuffle TLS certificate or private key");
     }
+    std::string cert_pem((std::istreambuf_iterator<char>(cert_file)),
+                          std::istreambuf_iterator<char>());
+    std::string key_pem((std::istreambuf_iterator<char>(key_file)),
+                         std::istreambuf_iterator<char>());
+    arrow::flight::CertKeyPair cert_key{cert_pem, key_pem};
+    options.tls_certificates.push_back(cert_key);
+
+    std::ifstream ca_file(config_.tls_root_ca_path);
+    if (!ca_file.good()) {
+      throw std::runtime_error(
+          "Failed to read Flight shuffle TLS root CA");
+    }
+    std::string ca_pem((std::istreambuf_iterator<char>(ca_file)),
+                        std::istreambuf_iterator<char>());
+    options.root_certificates = ca_pem;
+    options.verify_client = true;
+    PANGROVA_LOG(INFO) << "event=flight_shuffle_server_tls_enabled"
+                      << " port=" << config_.port;
   } else {
     PANGROVA_LOG(WARNING) << "event=flight_shuffle_server_no_tls"
                         << " port=" << config_.port
@@ -524,8 +501,10 @@ int FlightShuffleServer::start() {
   }
 
   auto init_status = Init(options);
-  CHECK(init_status.ok())
-      << "Failed to init Flight server: " << init_status.ToString();
+  if (!init_status.ok()) {
+    throw std::runtime_error(
+        "Failed to init Flight server: " + init_status.ToString());
+  }
 
   bound_port_ = port();
   running_.store(true);
@@ -566,9 +545,7 @@ int FlightShuffleServer::start() {
 }
 
 void FlightShuffleServer::stop() {
-  if (!running_.exchange(false)) {
-    return;
-  }
+  running_.store(false);
 
   // F-SHUF-LINGER: wake and join the background evictor before tearing down
   // demuxers so it never touches lingering_demuxers_ concurrently with cleanup.
@@ -580,20 +557,22 @@ void FlightShuffleServer::stop() {
     lingering_evictor_thread_.join();
   }
 
-  // Stop all registered demuxers.
+  // Drop routing under the maps' locks, then stop demuxers outside the locks.
+  // stop() joins the drain thread and must never serialize unrelated routing.
+  std::vector<std::shared_ptr<PartitionDemuxer>> demuxers_to_stop;
   {
     std::lock_guard<std::mutex> lock(handles_mutex_);
-    for (auto& [handle, demuxer] : handle_demuxers_) {
-      demuxer->stop();
+    for (auto& [handle, route] : handle_routes_) {
+      demuxers_to_stop.push_back(route.demuxer);
     }
-    handle_demuxers_.clear();
+    handle_routes_.clear();
   }
 
   // Clean up lingering demuxers to prevent resource leaks on shutdown.
   {
     std::lock_guard<std::mutex> lock(lingering_mutex_);
     for (auto& [handle, entry] : lingering_demuxers_) {
-      entry.demuxer->stop();
+      demuxers_to_stop.push_back(entry.route.demuxer);
     }
     size_t count = lingering_demuxers_.size();
     lingering_demuxers_.clear();
@@ -601,118 +580,159 @@ void FlightShuffleServer::stop() {
       PANGROVA_LOG(INFO) << "event=lingering_demuxers_cleaned count=" << count;
     }
   }
+  for (const auto& demuxer : demuxers_to_stop) {
+    demuxer->stop();
+  }
 
-  auto status = Shutdown();
-  if (!status.ok()) {
-    PANGROVA_LOG(ERROR) << "event=flight_shutdown_error error=" << status.ToString();
+  arrow::Status shutdown_status = arrow::Status::OK();
+  if (bound_port_ > 0) {
+    shutdown_status = Shutdown();
+    bound_port_ = 0;
   }
 
   if (server_thread_.joinable()) {
     server_thread_.join();
   }
 
+  if (!shutdown_status.ok()) {
+    throw std::runtime_error(
+        "Native Flight shuffle shutdown failed: " + shutdown_status.ToString());
+  }
+
   PANGROVA_LOG(INFO) << "event=flight_shuffle_server_stopped port=" << bound_port_;
 }
 
-size_t FlightShuffleServer::evictFullyConsumedLingering() {
-  auto now = std::chrono::steady_clock::now();
-  std::lock_guard<std::mutex> lock(lingering_mutex_);
+size_t FlightShuffleServer::evictFullyConsumedLingering(
+    std::chrono::steady_clock::time_point now) {
+  std::vector<std::shared_ptr<PartitionDemuxer>> evicted_demuxers;
   size_t evicted = 0;
-  for (auto it = lingering_demuxers_.begin(); it != lingering_demuxers_.end();) {
-    bool fully_consumed = it->second.demuxer->isFullyConsumed();
-    bool ttl_expired = config_.lingering_ttl_ms > 0 &&
-        std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - it->second.entered_at).count() >= config_.lingering_ttl_ms;
-    if (fully_consumed || ttl_expired) {
-      if (ttl_expired && !fully_consumed) {
-        it->second.demuxer->stop();
-        PANGROVA_LOG(WARNING) << "event=lingering_demuxer_ttl_evicted handle=" << it->first;
+  {
+    std::lock_guard<std::mutex> lock(lingering_mutex_);
+    for (auto it = lingering_demuxers_.begin();
+         it != lingering_demuxers_.end();) {
+      bool fully_consumed = it->second.route.demuxer->isFullyConsumed() &&
+          it->second.route.demuxer->allPartitionsReadComplete();
+      bool ttl_expired = config_.lingering_ttl_ms > 0 &&
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              now - it->second.entered_at).count() >=
+              config_.lingering_ttl_ms;
+      if (fully_consumed || ttl_expired) {
+        if (ttl_expired && !fully_consumed) {
+          PANGROVA_LOG(WARNING)
+              << "event=lingering_demuxer_ttl_evicted handle=" << it->first;
+        } else {
+          PANGROVA_LOG(INFO)
+              << "event=lingering_demuxer_evicted handle=" << it->first;
+        }
+        evicted_demuxers.push_back(it->second.route.demuxer);
+        it = lingering_demuxers_.erase(it);
+        ++evicted;
       } else {
-        PANGROVA_LOG(INFO) << "event=lingering_demuxer_evicted handle=" << it->first;
+        ++it;
       }
-      it = lingering_demuxers_.erase(it);
-      ++evicted;
-    } else {
-      ++it;
     }
+  }
+  for (const auto& demuxer : evicted_demuxers) {
+    demuxer->stop();
   }
   return evicted;
 }
 
 void FlightShuffleServer::registerHandle(int64_t handle,
-                                         SerializedShuffleQueue* queue) {
-  CHECK(queue != nullptr) << "queue must not be null for handle=" << handle;
-  evictFullyConsumedLingering();
-  auto demuxer = std::make_unique<PartitionDemuxer>(queue);
-  demuxer->start();
-
-  std::lock_guard<std::mutex> lock(handles_mutex_);
-  handle_demuxers_[handle] = std::move(demuxer);
-  PANGROVA_LOG(INFO) << "event=shuffle_handle_registered handle=" << handle
-                    << " total_handles=" << handle_demuxers_.size();
-}
-
-void FlightShuffleServer::registerHandle(int64_t handle,
                                          SerializedShuffleQueue* queue,
                                          const std::string& query_id,
-                                         int32_t /*stage_id*/,
-                                         int32_t num_partitions) {
-  CHECK(queue != nullptr) << "queue must not be null for handle=" << handle;
-  evictFullyConsumedLingering();
-  auto demuxer = std::make_unique<PartitionDemuxer>(queue);
-  if (num_partitions > 0) {
-    demuxer->setMaxPartitions(num_partitions);
+                                         int32_t stage_id,
+                                         int32_t num_partitions,
+                                         uint64_t plan_epoch,
+                                         uint32_t attempt_id,
+                                         uint64_t fencing_token) {
+  if (handle <= 0 || queue == nullptr || query_id.empty() || stage_id < 0 ||
+      num_partitions <= 0 || plan_epoch == 0 || fencing_token == 0) {
+    throw std::invalid_argument(
+        "shuffle registration requires exact fenced producer identity");
   }
-  demuxer->start();
+  evictFullyConsumedLingering();
+  auto demuxer = std::make_shared<PartitionDemuxer>(queue, buffer_store_);
+  demuxer->setMaxPartitions(num_partitions);
 
-  std::lock_guard<std::mutex> lock(handles_mutex_);
-  handle_demuxers_[handle] = std::move(demuxer);
-  if (!query_id.empty()) {
-    handle_query_ids_[handle] = query_id;
+  {
+    std::scoped_lock lock(handles_mutex_, lingering_mutex_);
+    if (handle_routes_.contains(handle) ||
+        lingering_demuxers_.contains(handle)) {
+      throw std::logic_error(
+          "shuffle handle is already registered: " +
+          std::to_string(handle));
+    }
+    handle_routes_.emplace(
+        handle, HandleRoute{
+            demuxer, query_id, stage_id, plan_epoch, attempt_id,
+            fencing_token});
+  }
+  try {
+    demuxer->start();
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(handles_mutex_);
+    handle_routes_.erase(handle);
+    throw;
   }
   PANGROVA_LOG(INFO) << "event=shuffle_handle_registered handle=" << handle
+                    << " query_id=" << query_id
+                    << " stage_id=" << stage_id
+                    << " plan_epoch=" << plan_epoch
+                    << " attempt_id=" << attempt_id
+                    << " fencing_token=" << fencing_token
                     << " num_partitions=" << num_partitions
-                    << " total_handles=" << handle_demuxers_.size();
+                    << " total_handles=" << handleCount();
 }
 
 void FlightShuffleServer::unregisterHandle(int64_t handle) {
-  std::unique_ptr<PartitionDemuxer> demuxer;
+  HandleRoute route;
+  bool already_lingering = false;
   {
     std::lock_guard<std::mutex> lock(handles_mutex_);
-    auto it = handle_demuxers_.find(handle);
-    if (it == handle_demuxers_.end()) {
+    auto it = handle_routes_.find(handle);
+    if (it == handle_routes_.end()) {
       // Check lingering set — reap if fully consumed.
       std::lock_guard<std::mutex> ling_lock(lingering_mutex_);
       auto lit = lingering_demuxers_.find(handle);
-      if (lit != lingering_demuxers_.end() && lit->second.demuxer->isFullyConsumed()) {
+      if (lit != lingering_demuxers_.end() &&
+          lit->second.route.demuxer->isFullyConsumed() &&
+          lit->second.route.demuxer->allPartitionsReadComplete()) {
+        route = std::move(lit->second.route);
         lingering_demuxers_.erase(lit);
       }
-      return;
+      already_lingering = true;
+    } else {
+      route = std::move(it->second);
+      handle_routes_.erase(it);
     }
-    demuxer = std::move(it->second);
-    handle_demuxers_.erase(it);
-    handle_query_ids_.erase(handle);
   }
-  if (!demuxer) return;
+  if (!route.demuxer) return;
+  if (already_lingering) {
+    route.demuxer->stop();
+    return;
+  }
 
   // Quiesce outside the lock: bounded wait for clean producer close.
-  bool clean = demuxer->quiesce(std::chrono::milliseconds(500));
-  if (clean && !demuxer->isFullyConsumed()) {
-    // Producer done cleanly but data unconsumed — linger for late consumers.
+  bool clean = route.demuxer->quiesce(std::chrono::milliseconds(500));
+  if (clean && !(route.demuxer->isFullyConsumed() &&
+                 route.demuxer->allPartitionsReadComplete())) {
+    // A clean producer must remain routable until every partition, including
+    // zero-row partitions, has delivered EOF to its downstream reader.
     std::lock_guard<std::mutex> ling_lock(lingering_mutex_);
     lingering_demuxers_[handle] = LingeringEntry{
-        std::move(demuxer), std::chrono::steady_clock::now()};
+        std::move(route), std::chrono::steady_clock::now()};
     PANGROVA_LOG(INFO) << "event=shuffle_handle_lingering handle=" << handle;
   } else {
     // Un-clean or already consumed — drop.
-    if (demuxer) demuxer->stop();
+    route.demuxer->stop();
     PANGROVA_LOG(INFO) << "event=shuffle_handle_unregistered handle=" << handle;
   }
 }
 
 size_t FlightShuffleServer::handleCount() const {
   std::lock_guard<std::mutex> lock(handles_mutex_);
-  return handle_demuxers_.size();
+  return handle_routes_.size();
 }
 
 size_t FlightShuffleServer::lingeringHandleCount() const {
@@ -723,21 +743,27 @@ size_t FlightShuffleServer::lingeringHandleCount() const {
 bool FlightShuffleServer::popForHandle(int64_t handle, int32_t partition_id,
                                        ShuffleBatch& batch,
                                        std::chrono::milliseconds timeout) {
+  std::shared_ptr<PartitionDemuxer> demuxer;
   // Check active handles first.
   {
     std::lock_guard<std::mutex> lock(handles_mutex_);
-    auto it = handle_demuxers_.find(handle);
-    if (it != handle_demuxers_.end()) {
-      return it->second->pop(partition_id, batch, timeout);
+    auto it = handle_routes_.find(handle);
+    if (it != handle_routes_.end()) {
+      demuxer = it->second.demuxer;
     }
   }
   // Check lingering handles.
-  {
+  if (!demuxer) {
     std::lock_guard<std::mutex> lock(lingering_mutex_);
     auto it = lingering_demuxers_.find(handle);
     if (it != lingering_demuxers_.end()) {
-      return it->second.demuxer->pop(partition_id, batch, timeout);
+      demuxer = it->second.route.demuxer;
     }
+  }
+  if (!demuxer) return false;
+  if (demuxer->pop(partition_id, batch, timeout)) return true;
+  if (demuxer->isComplete() && demuxer->isPartitionDrained(partition_id)) {
+    demuxer->markPartitionReadComplete(partition_id);
   }
   return false;
 }
@@ -746,9 +772,16 @@ arrow::Status FlightShuffleServer::DoGet(
     const arrow::flight::ServerCallContext& context,
     const arrow::flight::Ticket& request,
     std::unique_ptr<arrow::flight::FlightDataStream>* stream) {
-  // Verify ticket HMAC signature and expiry before processing.
-  if (ticket_verifier_) {
-    auto verify_result = ticket_verifier_->verify(request.ticket);
+  std::string routing_ticket = request.ticket;
+  // Verify ticket HMAC signature and expiry before processing. Parse routing
+  // fields from the verified payload, never from the signed envelope.
+  std::shared_ptr<TicketVerifier> ticket_verifier;
+  {
+    std::lock_guard<std::mutex> lock(ticket_verifier_mutex_);
+    ticket_verifier = ticket_verifier_;
+  }
+  if (ticket_verifier) {
+    auto verify_result = ticket_verifier->verify(request.ticket);
     if (!verify_result.ok()) {
       PANGROVA_LOG(WARNING) << "event=ticket_verification_failed"
                            << " peer=" << context.peer();
@@ -756,48 +789,80 @@ arrow::Status FlightShuffleServer::DoGet(
           arrow::flight::FlightStatusCode::Unauthenticated,
           "Ticket verification failed");
     }
+    routing_ticket = std::move(verify_result->payload);
   }
 
   int64_t handle = 0;
   std::string query_id;
   int32_t stage_id = 0;
   int32_t partition_id = 0;
-  if (!parseTicket(request.ticket, handle, query_id, stage_id, partition_id)) {
+  uint64_t plan_epoch = 0;
+  uint32_t attempt_id = 0;
+  uint64_t fencing_token = 0;
+  if (!parseTicket(
+          routing_ticket, handle, query_id, stage_id, partition_id,
+          plan_epoch, attempt_id, fencing_token)) {
     return arrow::Status::Invalid(
-        "Invalid ticket format. Expected: handle\\nquery_id\\nstage_id\\npartition_id");
+        "Invalid fenced shuffle ticket format");
   }
 
-  PartitionDemuxer* demuxer = nullptr;
+  HandleRoute route;
   {
     std::lock_guard<std::mutex> lock(handles_mutex_);
-    auto it = handle_demuxers_.find(handle);
-    if (it == handle_demuxers_.end()) {
-      return arrow::Status::KeyError(
-          "Unknown executor handle in ticket: " + std::to_string(handle));
-    }
-    demuxer = it->second.get();
-    // Verify ticket ownership: the query_id in the ticket must match
-    // the query_id associated with this handle to prevent cross-query
-    // data leaks via forged or stale tickets.
-    auto qit = handle_query_ids_.find(handle);
-    if (qit != handle_query_ids_.end() && qit->second != query_id) {
-      PANGROVA_LOG(WARNING) << "event=ticket_ownership_rejected"
-                          << " handle=" << handle
-                          << " ticket_query_id=" << query_id
-                          << " peer=" << context.peer();
-      return arrow::flight::MakeFlightError(
-          arrow::flight::FlightStatusCode::Unauthorized,
-          "Ticket query_id does not match handle owner");
+    auto it = handle_routes_.find(handle);
+    if (it != handle_routes_.end()) {
+      route = it->second;
     }
   }
+  if (!route.demuxer) {
+    std::lock_guard<std::mutex> lock(lingering_mutex_);
+    auto it = lingering_demuxers_.find(handle);
+    if (it != lingering_demuxers_.end()) {
+      route = it->second.route;
+    }
+  }
+  if (!route.demuxer) {
+    return arrow::Status::KeyError(
+        "Unknown executor handle in ticket: " + std::to_string(handle));
+  }
+  if (!detail::ticketOwnershipValid(
+          query_id, stage_id, route.query_id, route.stage_id)) {
+    PANGROVA_LOG(WARNING) << "event=ticket_ownership_rejected"
+                        << " handle=" << handle
+                        << " ticket_query_id=" << query_id
+                        << " ticket_stage_id=" << stage_id
+                        << " registered_query_id=" << route.query_id
+                        << " registered_stage_id=" << route.stage_id
+                        << " peer=" << context.peer();
+    return arrow::flight::MakeFlightError(
+        arrow::flight::FlightStatusCode::Unauthorized,
+        "Ticket query/stage identity does not match handle owner");
+  }
+  if (route.plan_epoch != plan_epoch || route.attempt_id != attempt_id ||
+      route.fencing_token != fencing_token) {
+    PANGROVA_LOG(WARNING) << "event=ticket_attempt_rejected"
+                        << " handle=" << handle
+                        << " ticket_plan_epoch=" << plan_epoch
+                        << " ticket_attempt_id=" << attempt_id
+                        << " ticket_fencing_token=" << fencing_token
+                        << " peer=" << context.peer();
+    return arrow::flight::MakeFlightError(
+        arrow::flight::FlightStatusCode::Unauthorized,
+        "Ticket attempt identity does not match handle owner");
+  }
+  if (!route.demuxer->validPartition(partition_id)) {
+    return arrow::Status::Invalid("shuffle ticket partition out of range");
+  }
+  ARROW_RETURN_NOT_OK(route.demuxer->status());
 
   PANGROVA_LOG_DEBUG << "event=flight_doget handle=" << handle
                   << " query_id=" << query_id
                   << " stage_id=" << stage_id
                   << " partition_id=" << partition_id;
 
-  auto reader = std::make_shared<ShuffleQueueBatchReader>(
-      demuxer, partition_id, config_.max_batch_bytes);
+  ARROW_ASSIGN_OR_RAISE(auto reservation, buffer_store_->acquireStream());
+  auto reader = std::make_shared<detail::ShuffleFlightBatchReader>(
+      std::move(route.demuxer), partition_id, context, std::move(reservation));
 
   *stream = std::make_unique<arrow::flight::RecordBatchStream>(reader);
 

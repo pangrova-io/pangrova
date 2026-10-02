@@ -15,6 +15,7 @@ import org.pangrova.common.exception.SerializationException;
 import org.pangrova.common.http.HttpClientFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,7 +86,7 @@ public final class WorkerRegistrationClient implements AutoCloseable {
     }
 
     /** Registers this worker with the coordinator. */
-    public void register(WorkerRegistrationRequest request) {
+    public WorkerControlResponse register(WorkerRegistrationRequest request) {
         byte[] body = serialize(request);
         String url = coordinatorUrl + REGISTER_PATH;
         HttpRequest.Builder builder = HttpRequest.newBuilder()
@@ -96,7 +97,7 @@ public final class WorkerRegistrationClient implements AutoCloseable {
         if (internalAuthSecret != null && !internalAuthSecret.isBlank()) {
             builder.header("Authorization", "Bearer " + internalAuthSecret);
         }
-        send(builder.build(), "register");
+        return sendControlRequest(builder.build(), "register");
     }
 
     /** Deregisters this worker from the coordinator. */
@@ -107,6 +108,11 @@ public final class WorkerRegistrationClient implements AutoCloseable {
                 .timeout(HTTP_TIMEOUT)
                 .DELETE()
                 .build();
+        if (internalAuthSecret != null && !internalAuthSecret.isBlank()) {
+            httpReq = HttpRequest.newBuilder(httpReq, (name, value) -> true)
+                    .header("Authorization", "Bearer " + internalAuthSecret)
+                    .build();
+        }
         sendDeregister(httpReq, workerId);
     }
 
@@ -141,19 +147,23 @@ public final class WorkerRegistrationClient implements AutoCloseable {
         return false;
     }
 
-    private void send(HttpRequest request, String operation) {
+    private WorkerControlResponse sendControlRequest(HttpRequest request, String operation) {
         try {
             HttpResponse<String> response = httpClient.send(
                     request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= HTTP_SUCCESS_MIN && response.statusCode() < HTTP_SUCCESS_MAX_EXCLUSIVE) {
                 LOG.info("event=worker_{}_succeeded statusCode={}", operation, response.statusCode());
-            } else {
-                LOG.warn("event=worker_{}_http_error statusCode={} body={}",
-                        operation, response.statusCode(), response.body());
-                throw new java.io.IOException(
-                        "Worker " + operation + " failed: HTTP " + response.statusCode()
-                                + " — " + response.body());
+                WorkerControlResponse controlResponse = mapper.readValue(
+                        response.body(), WorkerControlResponse.class);
+                controlResponse.requireStatus("registered");
+                controlResponse.requireCoordinatorEpoch();
+                return controlResponse;
             }
+            LOG.warn("event=worker_{}_http_error statusCode={} body={}",
+                    operation, response.statusCode(), response.body());
+            throw new java.io.IOException(
+                    "Worker " + operation + " failed: HTTP " + response.statusCode()
+                            + " — " + response.body());
         } catch (java.io.IOException e) {
             LOG.warn("event=worker_{}_io_error error={}", operation, e.getMessage());
             throw new RuntimeException("Worker " + operation + " failed: " + e.getMessage(), e);

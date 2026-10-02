@@ -13,6 +13,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 class NativeMetricsPullerTest {
 
     @Test
+    void supplierAndReturnedArraysCannotMutateLastSuccessfulSnapshot() {
+        byte[] supplied = {1, 2, 3};
+        var puller = new NativeMetricsPuller(timeoutMs -> supplied);
+        byte[] pulled = puller.pull();
+        supplied[0] = 9;
+        pulled[1] = 8;
+        byte[] inspected = puller.getLastStats();
+        inspected[2] = 7;
+
+        assertThat(puller.getLastStats()).containsExactly(1, 2, 3);
+        assertThat(pulled).isNotSameAs(supplied);
+        assertThat(puller.getLastStats()).isNotSameAs(inspected);
+    }
+
+    @Test
+    void nullSupplierPayloadRemainsNull() {
+        var puller = new NativeMetricsPuller(timeoutMs -> null);
+        assertThat(puller.getLastStats()).isNull();
+        assertThat(puller.pull()).isNull();
+        assertThat(puller.getLastStats()).isNull();
+        assertThat(puller.getConsecutiveFailures()).isZero();
+    }
+
+    @Test
     void successfulPullReturnsStatsAndResetsFailures() {
         byte[] expected = {1, 2, 3};
         var puller = new NativeMetricsPuller(timeoutMs -> expected);

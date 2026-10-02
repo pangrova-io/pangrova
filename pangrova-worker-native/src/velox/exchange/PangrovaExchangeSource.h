@@ -1,27 +1,22 @@
 // PangrovaExchangeSource: Velox ExchangeSource implementation for Pangrova's
 // distributed shuffle protocol.
 //
-// Active mode (production): C++ Flight client pulls data via Arrow Flight DoGet.
-// Mode is activated by calling setFlightEndpoint() before request().
-//
-// Passive mode (Flight fallback): Java ExchangeClient pushes data via
-// enqueueData(). Retained as a degradation path when Flight DoGet fails
-// after exhausting retries (e.g., upstream server unreachable). The active
-// mode fetchViaFlight() falls back to waitForPushedData() automatically.
-// Once all workers reliably support native Flight, passive mode can be
-// removed. Target removal: v0.3.0.
+// C++ Flight client pulls data via Arrow Flight DoGet. Missing endpoints and
+// transport failures fail the Velox task; there is no JVM data fallback.
 //
 // Registered as a factory with Velox's ExchangeSource::registerFactory()
 // during runtime initialization.
 #pragma once
 
 #include <atomic>
-#include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <string_view>
 
 #include <arrow/flight/client.h>
+#include <folly/futures/SharedPromise.h>
 
 #include "velox/exec/ExchangeQueue.h"
 #include "velox/exec/ExchangeSource.h"
@@ -49,24 +44,15 @@ StreamCompletion decideStreamCompletion(
     int64_t received,
     int64_t expected);
 
-// Decides whether a Flight DoGet read has been idle long enough to cancel
-// (F-CHAIN-SHUFFLE-05). Returns true if cancellation is warranted.
-bool flightShouldCancelOnIdle(
-    bool next_in_flight,
-    int64_t now_ms,
-    int64_t next_started_ms,
-    int64_t idle_budget_ms);
+// Prevents endpoint metadata loss from becoming a silent TLS downgrade.
+bool flightTransportSecurityCompatible(
+    bool local_tls_enabled, std::string_view endpoint_tls_identity);
 
 }  // namespace detail
 
 // ExchangeSource that bridges Pangrova's exchange service with Velox.
 //
-// Passive mode (default): Remote task data is pushed via enqueueData()
-// from the Pangrova exchange client (JNI side), and Velox pulls via request().
-//
-// Active mode (Flight): When setFlightEndpoint() is called, request()
-// actively fetches data from the upstream worker's FlightShuffleServer
-// via Arrow Flight DoGet, bypassing Java entirely.
+// Reads an upstream worker's FlightShuffleServer directly from Native code.
 class PangrovaExchangeSource
     : public facebook::velox::exec::ExchangeSource {
  public:
@@ -78,6 +64,10 @@ class PangrovaExchangeSource
 
   bool shouldRequestLocked() override;
 
+  folly::F14FastMap<std::string, int64_t> stats() const override {
+    return {};
+  }
+
   folly::SemiFuture<Response> request(
       uint32_t maxBytes,
       std::chrono::microseconds maxWait) override;
@@ -86,20 +76,6 @@ class PangrovaExchangeSource
       std::chrono::microseconds maxWait) override;
 
   void close() override;
-
-  // --- Passive mode (deprecated — use Flight active mode) ---
-
-  // Called from JNI/exchange client to push serialized data pages.
-  // Thread-safe: may be called from any thread.
-  // Returns false if the queue is closed, at end, or full (backpressure).
-  [[deprecated("Use active Flight mode via setFlightEndpoint() instead")]]
-  bool enqueueData(std::unique_ptr<folly::IOBuf> data, int64_t numRows);
-
-  // Signal that no more data will arrive from this source.
-  [[deprecated("Use active Flight mode via setFlightEndpoint() instead")]]
-  void noMoreData();
-
-  // --- Active mode (Flight pull) ---
 
   // Set the upstream Flight endpoint for active fetch mode.
   // Must be called before the first request() if Flight mode is desired.
@@ -113,47 +89,81 @@ class PangrovaExchangeSource
   // Factory registration — call during runtime init.
   static void registerExchangeSourceFactory();
 
- private:
-  // Passive mode: wait for Java to push data via enqueueData()
-  folly::SemiFuture<Response> waitForPushedData(
-      uint32_t maxBytes, std::chrono::microseconds maxWait);
+  // Configures process-local mutual TLS credentials for every Native exchange
+  // client. Configuration is replaced atomically during runtime init.
+  static void configureTransportSecurity(
+      bool enabled,
+      const std::string& certificate_chain_path,
+      const std::string& private_key_path,
+      const std::string& root_ca_path,
+      const std::string& local_tls_identity);
 
+ private:
   // Active mode: fetch data from upstream Flight server
   folly::SemiFuture<Response> fetchViaFlight(
-      uint32_t maxBytes, std::chrono::microseconds maxWait);
+      uint32_t maxBytes,
+      std::chrono::microseconds maxWait,
+      bool dataSizesOnly = false);
+  folly::SemiFuture<Response> fetchViaExternal(
+      uint32_t maxBytes,
+      std::chrono::microseconds maxWait,
+      bool dataSizesOnly = false);
+  void performExternalRead(
+      uint32_t maxBytes,
+      std::chrono::microseconds maxWait,
+      bool dataSizesOnly,
+      std::shared_ptr<folly::SharedPromise<Response>> promise);
 
-  // Consolidated pending entry replacing three independent queues.
-  // Eliminates sync risk from independent queue operations.
-  struct PendingEntry {
-    std::unique_ptr<folly::IOBuf> data;
-    int64_t num_rows;
-    int64_t size_bytes;
-  };
+  // Runs on the lifecycle-owned blocking-I/O executor. Exactly one invocation
+  // may be in flight for a source; all callers wait on flight_read_promise_.
+  void performFlightRead(
+      uint32_t maxBytes,
+      bool dataSizesOnly,
+      std::shared_ptr<folly::SharedPromise<Response>> promise,
+      std::shared_ptr<arrow::StopSource> stopSource);
+  Response enqueueFlightBatch(
+      std::shared_ptr<arrow::RecordBatch> batch,
+      uint32_t maxBytes);
+  Response enqueueExternalBatch(std::string data, uint32_t maxBytes);
+  folly::SemiFuture<Response> waitForFlightRead(
+      std::shared_ptr<folly::SharedPromise<Response>> promise,
+      std::chrono::microseconds maxWait);
+  void finishFlightReadSuccess(
+      const std::shared_ptr<folly::SharedPromise<Response>>& promise,
+      Response response);
+  void finishFlightReadFailure(
+      const std::shared_ptr<folly::SharedPromise<Response>>& promise,
+      std::string message);
+  void clearRequestPending();
 
   std::mutex data_mutex_;
-  std::deque<PendingEntry> pending_entries_;
-  bool at_end_ = false;
-  bool closed_ = false;
-  bool request_pending_ = false;
+  std::atomic<bool> closed_{false};
 
   // Flight client state (active mode)
-  static constexpr int kMaxFlightRetries = 3;
-  static constexpr int kFlightRetryBaseMs = 100;
-  // Timeout for individual Flight DoGet and Next() calls. Prevents
-  // indefinite blocking when the upstream server is unreachable.
-  static constexpr int kFlightCallTimeoutMs = 30000;
+  // Transport liveness is enforced by gRPC keepalive, not a Flight call
+  // deadline. A call deadline would cap the lifetime of a healthy long query.
+  static constexpr int kFlightKeepaliveTimeMs = 30000;
+  static constexpr int kFlightKeepaliveTimeoutMs = 10000;
   std::atomic<bool> flight_configured_{false};
-  std::atomic<int> flight_consecutive_failures_{0};
   std::string flight_host_;
   int flight_port_ = 0;
-  int64_t flight_executor_handle_ = 0;
-  std::string flight_query_id_;
-  int flight_stage_id_ = 0;
+  std::string flight_ticket_;
+  std::string flight_source_task_id_;
+  std::string flight_tls_identity_;
   int flight_partition_id_ = 0;
-  std::unique_ptr<arrow::flight::FlightClient> flight_client_;
-  // Persistent stream reader for the DoGet call (reused across request() calls).
-  std::unique_ptr<arrow::flight::FlightStreamReader> flight_reader_;
+  std::shared_ptr<arrow::flight::FlightClient> flight_client_;
+  // Persistent stream reader for the DoGet call. Shared ownership lets close()
+  // safely call Cancel while the I/O executor is blocked in Next().
+  std::shared_ptr<arrow::flight::FlightStreamReader> flight_reader_;
+  std::shared_ptr<arrow::StopSource> flight_stop_source_;
+  std::shared_ptr<folly::SharedPromise<Response>> flight_read_promise_;
+  bool flight_read_in_flight_ = false;
   bool flight_stream_exhausted_ = false;
+  std::string flight_terminal_error_;
+  std::shared_ptr<arrow::RecordBatch> flight_prefetched_batch_;
+  int64_t flight_prefetched_bytes_ = 0;
+  std::shared_ptr<ExternalShuffleIngress> external_ingress_;
+  std::optional<std::string> external_prefetched_batch_;
 };
 
 }  // namespace pangrova::velox

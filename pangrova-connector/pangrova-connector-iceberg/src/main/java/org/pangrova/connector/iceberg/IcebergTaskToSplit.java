@@ -39,7 +39,7 @@ final class IcebergTaskToSplit {
 
     /** Converts one planned file scan task into an executable split. */
     IcebergSplit convert(FileScanTask task, String qualifiedTableName,
-                         String readMode, long fromSnapshotId, long toSnapshotId,
+                         String readMode, long snapshotId, long fromSnapshotId, long toSnapshotId,
                          Schema tableSchema, List<ColumnMapping> columnMappings) {
         byte[] residualPredicate = expressionConverter.convert(task.residual(), tableSchema)
                 .orElse(new byte[0]);
@@ -53,7 +53,7 @@ final class IcebergTaskToSplit {
                 .tableName(qualifiedTableName)
                 .dataFileSizeBytes(task.file().fileSizeInBytes())
                 .partitionValues(extractPartitionValues(task))
-                .snapshotId(dataSeqNum)
+                .snapshotId(snapshotId)
                 .dataSequenceNumber(dataSeqNum)
                 .specId(task.spec().specId())
                 .content("DATA")

@@ -119,6 +119,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
   auto* ref = expr->mutable_selection();
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
 }
@@ -126,8 +127,20 @@ void setFieldRef(substrait::Expression* expr, int field_index) {
 void setJoinKeyRef(
     substrait::Expression::FieldReference* ref,
     int field_index) {
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
+}
+
+void addStandardJoinKey(
+    substrait::HashJoinRel* join,
+    int left_index,
+    int right_index) {
+  auto* key = join->add_keys();
+  setJoinKeyRef(key->mutable_left(), left_index);
+  setJoinKeyRef(key->mutable_right(), right_index);
+  key->mutable_comparison()->set_simple(
+      substrait::ComparisonJoinKey::SIMPLE_COMPARISON_TYPE_EQ);
 }
 
 std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
@@ -158,7 +171,8 @@ std::vector<uint8_t> buildFilterPlan() {
 
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
-  root->add_names("output");
+  root->add_names("col_a");
+  root->add_names("col_b");
   auto* filter = root->mutable_input()->mutable_filter();
   auto* read = filter->mutable_input()->mutable_read();
   read->mutable_named_table()->add_names("test_table");
@@ -180,7 +194,9 @@ std::vector<uint8_t> buildHashJoinPlan() {
   substrait::Plan plan;
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
-  root->add_names("output");
+  root->add_names("probe_key");
+  root->add_names("payload");
+  root->add_names("build_key");
 
   auto* join = root->mutable_input()->mutable_hash_join();
   auto* left_read = join->mutable_left()->mutable_read();
@@ -194,8 +210,7 @@ std::vector<uint8_t> buildHashJoinPlan() {
   auto* right_schema = right_read->mutable_base_schema();
   addI64Column(right_schema, "build_key");
 
-  setJoinKeyRef(join->add_left_keys(), 0);
-  setJoinKeyRef(join->add_right_keys(), 0);
+  addStandardJoinKey(join, 0, 0);
   join->set_type(substrait::HashJoinRel::JOIN_TYPE_INNER);
 
   return serializePlan(plan);
@@ -220,13 +235,14 @@ std::vector<uint8_t> buildAggregationPlan() {
   addI64Column(schema, "amount");
 
   auto* grouping = agg->add_groupings();
-  setFieldRef(grouping->add_grouping_expressions(), 0);
+  setFieldRef(agg->add_grouping_expressions(), 0);
+  grouping->add_expression_references(0);
 
   auto* measure = agg->add_measures();
   auto* agg_func = measure->mutable_measure();
   agg_func->set_function_reference(1);
-  agg_func->add_arguments()->mutable_value()->mutable_selection()
-      ->mutable_direct_reference()->mutable_struct_field()->set_field(1);
+  setFieldRef(agg_func->add_arguments()->mutable_value(), 1);
+  agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   agg_func->mutable_output_type()->mutable_i64();
 
   return serializePlan(plan);

@@ -24,8 +24,8 @@ public final class CreateTableTask implements MetadataTask<CreateTableStatement>
 
     @Override
     public StatementResult execute(CreateTableStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeCreateTable(statement);
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeCreateTable(statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
     }
 

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.bootstrap;
 
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +12,8 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
@@ -21,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <p>Validates: Requirements 4.2</p>
  */
-class ModuleIntegrationWiringTest {
+class ModuleIntegrationWiringTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -140,7 +143,7 @@ class ModuleIntegrationWiringTest {
     void observabilityInitializedWithNoOpFallback() {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-obs", 0);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.getTracingProvider()).isNotNull();
@@ -159,7 +162,7 @@ class ModuleIntegrationWiringTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -180,7 +183,7 @@ class ModuleIntegrationWiringTest {
 
     @Test
     void fullBootstrapWithAllModulesStartsSuccessfully() {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        bootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -190,7 +193,7 @@ class ModuleIntegrationWiringTest {
 
     @Test
     void fullBootstrapWithAllModulesAcceptsQueryOrRejectsGracefully() throws Exception {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        bootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         bootstrap.start();
 
         HttpResponse<String> resp = submitQuery(bootstrap.getHttpPort(), "SELECT 1");
@@ -203,7 +206,7 @@ class ModuleIntegrationWiringTest {
 
     @Test
     void shutdownWithAllModulesCompletesCleanly() {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        bootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         bootstrap.start();
 
         assertThatCode(() -> bootstrap.shutdown()).doesNotThrowAnyException();
@@ -214,7 +217,7 @@ class ModuleIntegrationWiringTest {
 
     @Test
     void modulesWiredBeforeQueryManagerReceivesOutputs() {
-        bootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        bootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         bootstrap.start();
 
         assertThat(bootstrap.getQueryManager()).isNotNull();
@@ -297,17 +300,19 @@ class ModuleIntegrationWiringTest {
 
     // -- Helpers --
 
-    private static CoordinatorBootstrapConfig buildAllModulesEnabled() {
+    private CoordinatorBootstrapConfig buildAllModulesEnabled() {
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-all-modules", 0,
                         CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
                 new CoordinatorBootstrapConfig.FeatureFlags(
-                        false, false, false, true, true, true, true, true),
+                        false, true, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, null, null);
+                null, new CoordinatorBootstrapConfig.SecurityConfig(
+                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                        "bootstrap-test-internal-secret", java.util.Map.of("issuerUri", issuerUri())), null);
     }
 
     private static HttpResponse<String> submitQuery(int port, String sql)

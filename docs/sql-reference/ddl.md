@@ -208,6 +208,33 @@ SHOW VIEWS [FROM | IN schema_name];
 SHOW VIEWS FROM prod.analytics;
 ```
 
+### Semantic Views
+
+A Semantic View definition is immutable and explicitly versioned. It is stored as
+governed metadata; the Coordinator does not scan or combine source-table data while
+executing these statements. Every `logicalTables[].source` value must use the
+fully-qualified `catalog.schema.table` form.
+
+```sql
+CREATE SEMANTIC VIEW [IF NOT EXISTS] [catalog.][schema.]view_name
+VERSION positive_integer
+AS '<definition-json>';
+
+ALTER SEMANTIC VIEW [catalog.][schema.]view_name
+PUBLISH VERSION positive_integer
+[EXPECTING VERSION current_active_version];
+
+SHOW SEMANTIC VIEWS [FROM | IN [catalog.]schema];
+```
+
+The first publication omits `EXPECTING VERSION` and succeeds only when no active
+version exists. Later publications must name the current active version; a stale
+fence fails without changing the active pointer. `IF NOT EXISTS` is idempotent only
+when the requested version already contains the same canonical definition.
+`SHOW SEMANTIC VIEWS` is control-plane bounded and fails when a schema contains
+more than 10,000 stored versions; use narrower schemas rather than treating it as
+a data export interface.
+
 ---
 
 ## Storage Profile

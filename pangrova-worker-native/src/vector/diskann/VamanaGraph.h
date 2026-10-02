@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -62,9 +63,17 @@ class VamanaIndex {
   void build(const float* vectors, int64_t numVectors, int64_t dimension);
 
   std::vector<SearchResult> search(
-      const float* query, int64_t topK, int64_t beamWidth = 0) const;
+      const float* query,
+      int64_t topK,
+      int64_t beamWidth = 0,
+      int64_t searchListSize = 0) const;
 
-  bool loadFromDisk(const std::string& path);
+  /** Reads the immutable graph's declared process-resident footprint. */
+  static std::optional<uint64_t> residentBytesFromDisk(
+      const std::string& path, int64_t expectedDimension);
+
+  /** Loads only when every resident allocation fits inside maxResidentBytes. */
+  bool loadFromDisk(const std::string& path, uint64_t maxResidentBytes);
   bool saveToDisk(const std::string& path) const;
 
   // Read a full-precision vector from the companion .vecs file on SSD.
@@ -75,6 +84,8 @@ class VamanaIndex {
   int64_t dimension() const { return config_.dimension; }
   int64_t medoid() const { return medoid_; }
   const std::string& indexPath() const { return indexPath_; }
+  /** Process-resident graph/PQ bytes used for node-level cache admission. */
+  uint64_t memoryBytes() const;
 
  private:
   void buildVamanaGraph(const float* vectors);

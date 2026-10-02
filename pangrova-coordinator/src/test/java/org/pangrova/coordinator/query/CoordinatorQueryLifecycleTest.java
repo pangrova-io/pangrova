@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Map;
 import java.util.Optional;
@@ -60,7 +61,7 @@ class CoordinatorQueryLifecycleTest {
                 new TaskScheduler(new WorkerPerformanceScorer()),
                 workerManager,
                 new CoordinatorTaskTracker(),
-                null, null, null, null, 0L);
+                null, null, null, 0L);
         QueryDispatcher orchestrator = new QueryDispatcher(
                 deps, null, null);
 
@@ -81,23 +82,29 @@ class CoordinatorQueryLifecycleTest {
     }
 
     @Test
-    void createQueryReturnsUniqueId() {
-        QueryId id1 = lifecycle.createQuery(testSession(), "SELECT 1");
-        QueryId id2 = lifecycle.createQuery(testSession(), "SELECT 2");
-        assertThat(id1.id()).isNotEqualTo(id2.id());
+    void createQueryRejectsUntrustedSpiSession() {
+        assertThatThrownBy(() -> lifecycle.createQuery(testSession(Map.of()), "SELECT 1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("authenticated tenant and principal");
     }
 
     @Test
-    void createQueryRegistersInQueryManager() {
-        QueryId id = lifecycle.createQuery(testSession(), "SELECT 1");
-        assertThat(queryManager.getQueryState(id.id())).isPresent();
+    void createQueryFailureDoesNotLeaveActiveQuery() {
+        assertThatThrownBy(() -> lifecycle.createQuery(testSession(Map.of()), "SELECT 1"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(queryManager.getActiveQueryIds()).isEmpty();
+        assertThat(queryManager.getActiveQueryCount()).isZero();
     }
 
     @Test
-    void newQueryReachesRunningForConstantQuery() {
-        // Without CoordinatorResultService, constant queries dispatch to worker and reach RUNNING.
-        QueryId id = lifecycle.createQuery(testSession(), "SELECT 1");
-        assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.RUNNING);
+    void tenantPropertyCannotAuthenticateSpiSession() {
+        // The SPI has no trusted identity carrier; caller-controlled properties
+        // cannot become a principal or tenant for Worker task dispatch.
+        assertThatThrownBy(() -> lifecycle.createQuery(
+                testSession(Map.of("tenant_id", "spoofed-tenant", "user", "spoofed-user")),
+                "SELECT 1"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("authenticated tenant and principal");
     }
 
     @Test
@@ -109,7 +116,7 @@ class CoordinatorQueryLifecycleTest {
 
     @Test
     void getQueryStateMapsFinished() {
-        QueryId id = lifecycle.createQuery(testSession(), "SELECT 1");
+        QueryId id = createAndForceToRunning();
         forceTransition(id, QueryStateMachine.State.FINISHING);
         forceTransition(id, QueryStateMachine.State.FINISHED);
         assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.FINISHED);
@@ -192,7 +199,7 @@ class CoordinatorQueryLifecycleTest {
         };
     }
 
-    private static SessionContext testSession() {
+    private static SessionContext testSession(Map<String, String> properties) {
         return new SessionContext() {
             @Override
             public String getUser() { return "test-user"; }
@@ -204,7 +211,7 @@ class CoordinatorQueryLifecycleTest {
             public Optional<String> getSchema() { return Optional.empty(); }
 
             @Override
-            public Map<String, String> getProperties() { return Map.of(); }
+            public Map<String, String> getProperties() { return properties; }
         };
     }
 

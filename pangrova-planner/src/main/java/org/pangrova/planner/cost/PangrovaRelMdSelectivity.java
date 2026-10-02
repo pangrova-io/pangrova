@@ -1,5 +1,7 @@
 package org.pangrova.planner.cost;
 
+import org.pangrova.planner.PlanTable;
+
 import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Filter;
@@ -239,7 +241,7 @@ public final class PangrovaRelMdSelectivity
 
     private static String resolveTableName(RelNode node) {
         if (node instanceof TableScan scan) {
-            List<String> names = scan.getTable().getQualifiedName();
+            List<String> names = PlanTable.require(scan).getQualifiedName();
             return String.join(".", names);
         }
         if (!node.getInputs().isEmpty()) {

@@ -165,12 +165,6 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <version>${h2.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-test-common</artifactId>
             <scope>test</scope>
@@ -188,7 +182,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <excludedGroups>integration</excludedGroups>
+                    <excludedGroups>${pangrova.metadata.excludedTestGroups}</excludedGroups>
                     <environmentVariables>
                         <DOCKER_API_VERSION>1.44</DOCKER_API_VERSION>
                         <TESTCONTAINERS_RYUK_DISABLED>true</TESTCONTAINERS_RYUK_DISABLED>

@@ -83,7 +83,7 @@ RowTypePtr makeTestType() {
 
 TEST(MergeReaderMemoryGovernanceTest, CloseIsIdempotent) {
   auto type = makeTestType();
-  DeduplicateMergeReader reader({0}, 1, type);
+  DeduplicateMergeReader reader({0}, 1, type, MergeDeletePolicy{});
 
   auto pool = pangrova::test::testLeafPool("test-close-idempotent");
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
@@ -105,7 +105,7 @@ TEST(MergeReaderMemoryGovernanceTest, DestructorReleasesResources) {
   auto pool = pangrova::test::testLeafPool("test-destructor");
 
   {
-    DeduplicateMergeReader reader({0}, 1, type);
+    DeduplicateMergeReader reader({0}, 1, type, MergeDeletePolicy{});
     std::vector<std::unique_ptr<RowReaderWrapper>> readers;
     readers.push_back(
         std::make_unique<StubRowReader>(type, 2, 10));
@@ -127,7 +127,7 @@ TEST(MergeReaderMemoryGovernanceTest, FirstRowDestructorReleasesResources) {
   auto pool = pangrova::test::testLeafPool("test-firstrow-dtor");
 
   {
-    FirstRowMergeReader reader({0}, 1, type);
+    FirstRowMergeReader reader({0}, 1, type, MergeDeletePolicy{});
     std::vector<std::unique_ptr<RowReaderWrapper>> readers;
     readers.push_back(
         std::make_unique<StubRowReader>(type, 1, 5));
@@ -143,7 +143,7 @@ TEST(MergeReaderMemoryGovernanceTest, PartialUpdateDestructorReleasesResources) 
   auto pool = pangrova::test::testLeafPool("test-partial-dtor");
 
   {
-    PartialUpdateMergeReader reader({0}, 1, type);
+    PartialUpdateMergeReader reader({0}, 1, type, MergeDeletePolicy{});
     std::vector<std::unique_ptr<RowReaderWrapper>> readers;
     readers.push_back(
         std::make_unique<StubRowReader>(type, 1, 5));
@@ -158,7 +158,7 @@ TEST(MergeReaderMemoryGovernanceTest, StatsReflectMergeActivity) {
   auto type = makeTestType();
   auto pool = pangrova::test::testLeafPool("test-stats");
 
-  DeduplicateMergeReader reader({0}, 1, type);
+  DeduplicateMergeReader reader({0}, 1, type, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   readers.push_back(
       std::make_unique<StubRowReader>(type, 1, 5));
@@ -181,7 +181,7 @@ TEST(MergeReaderMemoryGovernanceTest, CloseAfterPartialReadReleasesResources) {
   auto type = makeTestType();
   auto pool = pangrova::test::testLeafPool("test-partial-close");
 
-  DeduplicateMergeReader reader({0}, 1, type);
+  DeduplicateMergeReader reader({0}, 1, type, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   readers.push_back(
       std::make_unique<StubRowReader>(type, 10, 100));

@@ -10,7 +10,9 @@ import org.pangrova.spi.connector.metadata.ConnectorSplit;
 import org.pangrova.spi.connector.metadata.ConnectorSplitSource;
 import org.pangrova.spi.connector.metadata.Constraint;
 import org.pangrova.spi.connector.metadata.DynamicFilter;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.IcebergReadMode;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
@@ -255,9 +257,10 @@ class IcebergSplitManagerTest {
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
+        DataSplit info = DataSplit.parseFrom(protoBytes);
 
-        assertThat(info.getPartitionValuesMap()).containsEntry("region", "us-east");
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info))
+                .containsEntry("region", "us-east");
     }
 
     // -- incremental + time-travel tests (R7.1, R7.2, R7.3, R7.4, R7.5) --
@@ -333,12 +336,16 @@ class IcebergSplitManagerTest {
         List<ConnectorSplit> splits = drainSplits(handle);
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        assertThat(info.getIcebergInfo().getReadMode())
-                .isEqualTo(org.pangrova.protocol.v1.IcebergReadMode.ICEBERG_READ_INCREMENTAL);
-        assertThat(info.getIcebergInfo().getFromSnapshotId()).isEqualTo(snapshot1);
-        assertThat(info.getIcebergInfo().getToSnapshotId()).isEqualTo(snapshot2);
+        var detail = DataSplitProtoCodec.fileDetail(info).getIceberg();
+        assertThat(detail.getReadMode())
+                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_INCREMENTAL);
+        assertThat(detail.getFromSnapshotId()).isEqualTo(snapshot1);
+        assertThat(detail.getToSnapshotId()).isEqualTo(snapshot2);
+        assertThat(info.getSourceSnapshot()).isEqualTo(Long.toString(snapshot2));
+        assertThat(info.getSourceId()).isEqualTo("test_catalog.db.incr_proto");
+        assertThat(detail.getSnapshotId()).isEqualTo(snapshot2);
     }
 
     /**
@@ -381,11 +388,36 @@ class IcebergSplitManagerTest {
         List<ConnectorSplit> splits = drainSplits(handle);
 
         IcebergSplit split = (IcebergSplit) splits.get(0);
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        assertThat(info.getIcebergInfo().getReadMode())
-                .isEqualTo(org.pangrova.protocol.v1.IcebergReadMode.ICEBERG_READ_TIME_TRAVEL);
-        assertThat(info.getIcebergInfo().getSnapshotId()).isGreaterThan(0);
+        var detail = DataSplitProtoCodec.fileDetail(info).getIceberg();
+        assertThat(detail.getReadMode())
+                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_TIME_TRAVEL);
+        assertThat(detail.getSnapshotId()).isEqualTo(snapshot1);
+        assertThat(info.getSourceSnapshot()).isEqualTo(Long.toString(snapshot1));
+        assertThat(info.getSourceId()).isEqualTo("test_catalog.db.tt_proto");
+    }
+
+    @Test
+    void getSplits_fullSnapshotIdentifiesReadSnapshotForOlderFiles() throws Exception {
+        Table table = createTable("db", "full_snapshot_identity", TEST_SCHEMA);
+        appendDataFile(table, "/data/old.parquet", 512L);
+        long firstSnapshot = table.currentSnapshot().snapshotId();
+        appendDataFile(table, "/data/new.parquet", 1024L);
+        long readSnapshot = table.currentSnapshot().snapshotId();
+
+        List<ConnectorSplit> splits = drainSplits(handleFor("db", "full_snapshot_identity", table));
+
+        assertThat(readSnapshot).isNotEqualTo(firstSnapshot);
+        assertThat(splits).hasSize(2);
+        for (ConnectorSplit split : splits) {
+            DataSplit proto = DataSplit.parseFrom(split.toSplitInfoProto());
+            assertThat(proto.getSourceId())
+                    .isEqualTo("test_catalog.db.full_snapshot_identity");
+            assertThat(proto.getSourceSnapshot()).isEqualTo(Long.toString(readSnapshot));
+            assertThat(DataSplitProtoCodec.fileDetail(proto).getIceberg().getSnapshotId())
+                    .isEqualTo(readSnapshot);
+        }
     }
 
     // -- split constraint tests (H.5) --
@@ -422,9 +454,8 @@ class IcebergSplitManagerTest {
 
         // Verify proto-level split_constraint carries partition values
         byte[] protoBytes = split.toSplitInfoProto();
-        SplitInfo info = SplitInfo.parseFrom(protoBytes);
-        assertThat(info.getSplitConstraint().getPartitionValuesCount()).isGreaterThan(0);
-        assertThat(info.getSplitConstraint().getPartitionValuesMap())
+        DataSplit info = DataSplit.parseFrom(protoBytes);
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info))
                 .containsEntry("country", "US");
     }
 

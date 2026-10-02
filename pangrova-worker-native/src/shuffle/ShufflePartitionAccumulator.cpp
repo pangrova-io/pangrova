@@ -66,20 +66,21 @@ bool ShufflePartitionAccumulator::flushPartition(
     auto subVector = std::make_shared<facebook::velox::RowVector>(
         pool, buf.vectors[0]->type(), nullptr, cnt,
         std::move(wrappedChildren));
-    auto serialized = writer_->serialize(subVector, pool);
-    ShuffleBatch batch;
-    batch.partition_id = partition_id;
-    batch.data = std::move(serialized);
-    batch.row_count = buf.total_rows;
+    auto serialized_batches = writer_->serializeBatches(subVector, pool);
     buf = PartitionBuffer{};
-    return queue_->push(std::move(batch), push_timeout_);
+    for (auto& serialized : serialized_batches) {
+      ShuffleBatch batch;
+      batch.partition_id = partition_id;
+      batch.data = std::move(serialized.data);
+      batch.row_count = serialized.row_count;
+      if (!queue_->push(std::move(batch), push_timeout_)) {
+        return false;
+      }
+    }
+    return true;
   }
 
-  // Multi-vector path: serialize each source's rows separately and
-  // chain the IOBufs. PrestoVectorSerde produces self-contained pages,
-  // so chaining is safe — the downstream deserializer reads page by page.
-  std::unique_ptr<folly::IOBuf> chain;
-  int64_t totalRows = 0;
+  // Multi-vector path: serialize each source's rows into bounded pages.
   for (size_t v = 0; v < buf.vectors.size(); ++v) {
     const auto& rows = buf.indices[v];
     if (rows.empty()) continue;
@@ -99,21 +100,20 @@ bool ShufflePartitionAccumulator::flushPartition(
     auto subVector = std::make_shared<facebook::velox::RowVector>(
         vpool, buf.vectors[v]->type(), nullptr, cnt,
         std::move(wrappedChildren));
-    auto serialized = writer_->serialize(subVector, vpool);
-    totalRows += static_cast<int64_t>(rows.size());
-    if (!chain) {
-      chain = std::move(serialized);
-    } else {
-      chain->prependChain(std::move(serialized));
+    auto serialized_batches = writer_->serializeBatches(subVector, vpool);
+    for (auto& serialized : serialized_batches) {
+      ShuffleBatch batch;
+      batch.partition_id = partition_id;
+      batch.data = std::move(serialized.data);
+      batch.row_count = serialized.row_count;
+      if (!queue_->push(std::move(batch), push_timeout_)) {
+        buf = PartitionBuffer{};
+        return false;
+      }
     }
   }
-
-  ShuffleBatch batch;
-  batch.partition_id = partition_id;
-  batch.data = std::move(chain);
-  batch.row_count = totalRows;
   buf = PartitionBuffer{};
-  return queue_->push(std::move(batch), push_timeout_);
+  return true;
 }
 
 bool ShufflePartitionAccumulator::flushAll(

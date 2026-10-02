@@ -68,9 +68,9 @@ public record AutoEmbeddingColumnDescriptor(
      * The type of source data used for embedding computation.
      */
     public enum SourceType {
-        /** Source columns contain text data — concatenated and embedded via embedBatch(texts). */
+        /** Text sources are concatenated and embedded with DOCUMENT purpose. */
         TEXT,
-        /** Source column is a FILE (Claim-Check struct) — embedded via embedBlob(refs). */
+        /** A FILE source is embedded with DOCUMENT purpose through the same batch contract. */
         FILE
     }
 }

@@ -40,8 +40,13 @@ public final class ResultStreamFetcher implements AutoCloseable {
      * Fetches all result batches and returns them as a single Arrow IPC byte array.
      */
     public byte[] fetch(ResultEndpoint endpoint) {
+        return fetch(endpoint, Long.MAX_VALUE);
+    }
+
+    /** Fetches all batches while honoring an optional absolute query deadline. */
+    public byte[] fetch(ResultEndpoint endpoint, long deadlineEpochMs) {
         try {
-            return delegate.fetch(endpoint);
+            return delegate.fetch(endpoint, deadlineEpochMs);
         } catch (TransportConnectionException e) {
             throw new PangrovaConnectionException(e.transportErrorCode(), e.getMessage(), e);
         } catch (TransportServerException e) {

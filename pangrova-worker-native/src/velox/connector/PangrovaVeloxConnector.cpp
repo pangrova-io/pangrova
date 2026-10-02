@@ -6,7 +6,10 @@
 #include "velox/connector/PangrovaVeloxConnector.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -21,11 +24,15 @@
 #include "delete/io/DeleteFileReader.h"
 #include "delete/RowDeleteFilterFactory.h"
 #include "delete/DeletionVectorRowFilter.h"
+#include "delete/PaimonSnapshotDeletionFilter.h"
 #include "delete/io/DeletionVectorReader.h"
 #include "executor/NativeUnsupportedFeatureException.h"
 #include "velox/connector/PangrovaTableHandle.h"
+#include "velox/connector/ColumnAssignmentDataSource.h"
 #include "velox/connector/PartitionColumnInjector.h"
 #include "velox/connector/SchemaEvolution.h"
+#include "velox/connector/PhysicalFileSchema.h"
+#include "velox/connector/SourceObjectIdentityInjector.h"
 #include "velox/connector/DynamicFilterEvaluator.h"
 #include "velox/filter/PendingFilterRegistry.h"
 #include "velox/runtime/NativeEngineLifecycle.h"
@@ -34,6 +41,7 @@
 
 #if PANGROVA_HAS_VELOX_DWIO
 #include "velox/common/file/File.h"
+#include "velox/common/file/FileSystems.h"
 #include "velox/dwio/common/Options.h"
 #include "velox/dwio/common/ReaderFactory.h"
 #include "velox/dwio/common/ScanSpec.h"
@@ -60,6 +68,37 @@ namespace pangrova::velox {
 
 namespace {
 
+class LanceMergeBatchReader final : public merge::RowReaderWrapper {
+ public:
+  LanceMergeBatchReader(std::unique_ptr<pangrova::lance::LanceBatchReader> reader,
+      std::unique_ptr<delete_filter::RowDeleteFilter> deletion)
+      : reader_(std::move(reader)), deletion_(std::move(deletion)) {}
+  facebook::velox::RowVectorPtr next(uint64_t size,
+      facebook::velox::memory::MemoryPool* pool) override {
+    while (reader_->hasNext()) {
+      auto batch = reader_->next(size);
+      if (!batch || !deletion_) return batch;
+      facebook::velox::SelectivityVector rows(batch->size());
+      deletion_->apply(*batch, rows, static_cast<int64_t>(reader_->lastBatchRowStart()));
+      const auto count = rows.countSelected();
+      if (count == 0) continue;
+      if (count == batch->size()) return batch;
+      auto indices = facebook::velox::allocateIndices(count, pool);
+      auto* raw = indices->asMutable<facebook::velox::vector_size_t>();
+      facebook::velox::vector_size_t next = 0;
+      rows.applyToSelected([&](auto row) { raw[next++] = row; });
+      auto children = batch->children();
+      for (auto& child : children) child = facebook::velox::BaseVector::wrapInDictionary(nullptr, indices, count, child);
+      return std::make_shared<facebook::velox::RowVector>(pool, batch->type(), nullptr, count, std::move(children));
+    }
+    return nullptr;
+  }
+  bool hasNext() const override { return reader_->hasNext(); }
+ private:
+  std::unique_ptr<pangrova::lance::LanceBatchReader> reader_;
+  std::unique_ptr<delete_filter::RowDeleteFilter> deletion_;
+};
+
 // Determine Velox file format from split config enum.
 #if PANGROVA_HAS_VELOX_DWIO
 facebook::velox::dwio::common::FileFormat resolveFileFormat(
@@ -73,6 +112,10 @@ facebook::velox::dwio::common::FileFormat resolveFileFormat(
       throw pangrova::executor::NativeUnsupportedFeatureException(
           "file_format:lance_via_dwio", "lance",
           "Lance files use LanceBatchReader, not Velox DWIO");
+    case split::FileFormatType::METADATA_JSON:
+      throw pangrova::executor::NativeUnsupportedFeatureException(
+          "file_format:metadata_json_via_dwio", "metadata_json",
+          "Metadata tables use the Native metadata reader, not Velox DWIO");
   }
   throw pangrova::executor::NativeUnsupportedFeatureException(
       "file_format:unknown", "unknown", "");
@@ -122,15 +165,20 @@ bool VeloxBatchReader::hasNext() const {
 PangrovaVeloxDataSource::PangrovaVeloxDataSource(
     facebook::velox::memory::MemoryPool* pool,
     const facebook::velox::RowTypePtr& outputType,
+    const facebook::velox::RowTypePtr& scanSchema,
     const std::string& taskId,
+    const std::string& planNodeId,
     std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter,
     int64_t preferredOutputBatchBytes,
     int64_t eagerFirstStripeThresholdBytes)
     : pool_(pool),
       output_type_(outputType),
+      scan_schema_(scanSchema),
       eager_first_stripe_threshold_bytes_(eagerFirstStripeThresholdBytes),
       task_id_(taskId),
+      plan_node_id_(planNodeId),
       remaining_filter_(std::move(remainingFilter)) {
+  if (!scan_schema_) throw std::invalid_argument("Native scan requires its canonical logical base schema");
   // Compute initial adaptive batch size from output schema column widths,
   // using the operator-level preferred output batch bytes as the target.
   batch_sizer_.computeOptimalBatchSize(output_type_, preferredOutputBatchBytes);
@@ -144,6 +192,16 @@ void PangrovaVeloxDataSource::addSplit(
 
   const auto& splitConfig = pangrovaSplit->splitConfig;
 
+  const bool physical_identity_requested =
+      output_type_->containsChild(kPhysicalRowPositionColumnName) ||
+      output_type_->containsChild(kSourceObjectIdColumnName);
+
+  if ((splitConfig.row_position_filter_enabled || physical_identity_requested) &&
+      splitConfig.paimon.has_value() && splitConfig.paimon->needs_merge) {
+    throw std::runtime_error(
+        "Physical source identity cannot follow a merge of distinct physical objects");
+  }
+
   // Store file path for structured logging.
   current_file_path_ = splitConfig.file_path;
 
@@ -153,10 +211,26 @@ void PangrovaVeloxDataSource::addSplit(
 
   // Reset merge reader from any previous split.
   merge_reader_.reset();
+  metadata_reader_.reset();
+  lance_reader_.reset();
+#if PANGROVA_HAS_VELOX_DWIO
+  velox_row_reader_.reset();
+  velox_reader_.reset();
+#endif
 
   // Reset batch calibration for the new split — different files may have
   // different actual row widths (e.g., different VARCHAR lengths).
   batch_calibrated_ = false;
+
+  if (splitConfig.system_table.has_value()) {
+    if (splitConfig.file_format != split::FileFormatType::METADATA_JSON) {
+      throw std::runtime_error("System table split requires metadata JSON format");
+    }
+    metadata_reader_ = std::make_unique<IcebergMetadataJsonReader>(
+        splitConfig.file_path, splitConfig.length, *splitConfig.system_table,
+        output_type_, pool_);
+    return;
+  }
 
   // Paimon MOR merge: when needs_merge=true, create per-level readers
   // and feed them into a MergeReader. The single Velox reader is
@@ -170,19 +244,10 @@ void PangrovaVeloxDataSource::addSplit(
   // Lance file format: dispatch to LanceBatchReader instead of Velox DWIO.
   // Supports mixed-format scans where some splits are Parquet/ORC and
   // others are Lance within the same table.
-#if PANGROVA_LANCE_AVAILABLE
   if (splitConfig.file_format == split::FileFormatType::LANCE) {
     openLanceReader(splitConfig);
     return;
   }
-#else
-  if (splitConfig.file_format == split::FileFormatType::LANCE) {
-    throw std::runtime_error(
-        "Lance file format requested but Lance C FFI is not linked. "
-        "Rebuild with LANCE_C_FFI to enable Lance support. "
-        "file_path=" + splitConfig.file_path);
-  }
-#endif
 
   // COW / read-optimized path: when needs_merge=false the split is
   // fully compacted — read as a plain scan via openVeloxReader().
@@ -191,6 +256,27 @@ void PangrovaVeloxDataSource::addSplit(
 
 void PangrovaVeloxDataSource::prepareSplitState(
     const split::SplitConfig& config) {
+  file_evolution_output_type_.reset();
+  physical_lance_file_ = config.physical_lance_file;
+  current_data_object_id_ = config.data_object_id;
+  source_object_identity_requested_ = false;
+  for (size_t channel = 0; channel < output_type_->size(); ++channel) {
+    if (output_type_->nameOf(channel) != kSourceObjectIdColumnName) {
+      continue;
+    }
+    if (source_object_identity_requested_ ||
+        output_type_->childAt(channel)->kind() !=
+            facebook::velox::TypeKind::VARCHAR) {
+      throw std::runtime_error(
+          "Native source-object identity column must occur once and be VARCHAR");
+    }
+    source_object_identity_requested_ = true;
+  }
+  if (source_object_identity_requested_ && current_data_object_id_.empty()) {
+    throw std::runtime_error(
+        "Native source-object identity column requires split data_object_id");
+  }
+
   // Store partition values for injection in next().
   // For Iceberg: uses SplitConfig.partition_values (identity + hidden
   // transforms pre-evaluated on Java side).
@@ -208,6 +294,37 @@ void PangrovaVeloxDataSource::prepareSplitState(
   // the SplitInfo proto SchemaEvolution message on the Java side.
   current_column_mappings_ = config.column_mappings;
   current_type_promotions_ = config.type_promotions;
+  artifact_candidate_filter_enabled_ = config.row_position_filter_enabled;
+  artifact_candidate_positions_.clear();
+  artifact_candidate_positions_.insert(
+      config.row_position_allowlist.begin(),
+      config.row_position_allowlist.end());
+  if (artifact_candidate_positions_.size() !=
+      config.row_position_allowlist.size()) {
+    throw std::runtime_error(
+        "Artifact retrieval row-position allowlist contains duplicates");
+  }
+  materialized_retrieval_score_enabled_ =
+      config.materialized_retrieval_score_enabled;
+  materialized_retrieval_scores_ = config.materialized_retrieval_scores;
+  if (materialized_retrieval_score_enabled_) {
+    if (!artifact_candidate_filter_enabled_ ||
+        materialized_retrieval_scores_.size() !=
+            artifact_candidate_positions_.size()) {
+      throw std::runtime_error(
+          "Materialized retrieval scores differ from the candidate allowlist");
+    }
+    for (const auto& [position, score] : materialized_retrieval_scores_) {
+      if (!artifact_candidate_positions_.contains(position) ||
+          !std::isfinite(score)) {
+        throw std::runtime_error(
+            "Materialized retrieval score is non-finite or has no candidate");
+      }
+    }
+  } else if (!materialized_retrieval_scores_.empty()) {
+    throw std::runtime_error(
+        "Materialized retrieval scores require an enabled score contract");
+  }
 
   // Build Iceberg delete filter if applicable.
   // Clear any filters from a previous split first.
@@ -248,31 +365,19 @@ void PangrovaVeloxDataSource::prepareSplitState(
   // and create a DeletionVectorRowFilter. The existing applyDeleteFilter()
   // in next() applies it automatically.
   if (config.paimon.has_value()) {
-    loadPaimonDeletionVector(config.paimon.value());
+    loadPaimonDeletionVector(config);
   }
 }
 
 void PangrovaVeloxDataSource::loadPaimonDeletionVector(
-    const split::PaimonConfig& paimon) {
-  if (!paimon.deletion_vectors_enabled ||
-      paimon.deletion_vector_file_path.empty()) {
-    return;
+    const split::SplitConfig& split) {
+  protocol::v2::FileSplitDetail detail;
+  if (!detail.ParseFromString(split.file_scan_detail)) {
+    throw std::invalid_argument("Paimon split requires canonical physical file metadata");
   }
-  try {
-    auto bitmap = delete_filter::io::DeletionVectorReader::readPaimonDV(
-        paimon.deletion_vector_file_path);
-    delete_filters_.push_back(
-        std::make_unique<delete_filter::DeletionVectorRowFilter>(
-            std::move(bitmap)));
-  } catch (const std::exception& e) {
-    PANGROVA_LOG_ERROR << "dv_parse_failed"
-                     << " file_path=" << current_file_path_
-                     << " dv_path=" << paimon.deletion_vector_file_path
-                     << " error_detail=" << e.what();
-    throw std::runtime_error(
-        "Failed to load Paimon deletion vector: dv_path=" +
-        paimon.deletion_vector_file_path +
-        ", error=" + e.what());
+  if (detail.physical_file_scan().has_deletion_vector()) {
+    delete_filters_.push_back(std::make_unique<delete_filter::PaimonSnapshotDeletionFilter>(
+        detail.physical_file_scan().deletion_vector(), split.storage_binding));
   }
 }
 
@@ -281,8 +386,10 @@ void PangrovaVeloxDataSource::createReaderPair(
     split::FileFormatType fileFormat,
     std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
     std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
-    std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec) {
+    std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec,
+    facebook::velox::RowTypePtr requestedType) {
 #if PANGROVA_HAS_VELOX_DWIO
+  const auto& target_type = requestedType ? requestedType : output_type_;
   auto cleanPath = split::normalizeToS3Uri(
       split::stripFilePrefix(filePath));
   auto format = resolveFileFormat(fileFormat);
@@ -294,7 +401,7 @@ void PangrovaVeloxDataSource::createReaderPair(
   // computation: while the current batch is being processed, the next row
   // group is prefetched in the background.
   auto ioExecutor =
-      pangrova::jni::NativeEngineLifecycle::instance().executor();
+      pangrova::jni::NativeEngineLifecycle::instance().ioExecutor();
   if (ioExecutor) {
     readerOpts.setIOExecutor(std::move(ioExecutor));
   }
@@ -311,7 +418,13 @@ void PangrovaVeloxDataSource::createReaderPair(
   readerOpts.setMaxCoalesceDistance(kMaxCoalesceDistance);
   readerOpts.setMaxCoalesceBytes(kMaxCoalesceBytes);
 
-  auto readFile = std::make_shared<facebook::velox::LocalReadFile>(cleanPath);
+  auto fileSystem = facebook::velox::filesystems::getFileSystem(cleanPath, nullptr);
+  if (!fileSystem) {
+    throw std::runtime_error(
+        "No registered Velox filesystem for data object: " + cleanPath);
+  }
+  std::shared_ptr<facebook::velox::ReadFile> readFile(
+      fileSystem->openFileForRead(cleanPath));
   std::unique_ptr<facebook::velox::dwio::common::BufferedInput> input;
 #if PANGROVA_HAS_CACHED_BUFFERED_INPUT && PANGROVA_HAS_VELOX_ASYNC_CACHE
   auto* cache = facebook::velox::cache::AsyncDataCache::getInstance();
@@ -347,35 +460,83 @@ void PangrovaVeloxDataSource::createReaderPair(
   // that uses source (physical) column names from the file schema. The Parquet
   // reader matches columns by name, so renamed columns would fail without this.
   // Post-processing (applyColumnMapping) renames back to target names.
-  auto readerType = output_type_;
-  if (!current_column_mappings_.empty()) {
-    std::unordered_map<std::string, std::string> target_to_source;
+  std::unordered_map<std::string, std::string> target_to_source;
+  if (!requestedType) {
     for (const auto& cm : current_column_mappings_) {
       auto lower_target = cm.target_name;
       std::transform(lower_target.begin(), lower_target.end(),
                      lower_target.begin(), ::tolower);
       target_to_source[lower_target] = cm.source_name;
     }
-    std::vector<std::string> reader_names;
-    std::vector<facebook::velox::TypePtr> reader_types;
-    reader_names.reserve(output_type_->size());
-    reader_types.reserve(output_type_->size());
-    for (size_t i = 0; i < output_type_->size(); ++i) {
-      auto col_name = output_type_->nameOf(i);
-      auto lower_col = col_name;
-      std::transform(lower_col.begin(), lower_col.end(),
-                     lower_col.begin(), ::tolower);
-      auto it = target_to_source.find(lower_col);
-      if (it != target_to_source.end()) {
-        reader_names.push_back(it->second);
-      } else {
-        reader_names.push_back(col_name);
-      }
-      reader_types.push_back(output_type_->childAt(i));
+  }
+  std::vector<std::string> reader_names;
+  std::vector<facebook::velox::TypePtr> reader_types;
+  auto evolved_types = target_type->children();
+  reader_names.reserve(target_type->size() + 1);
+  reader_types.reserve(target_type->size() + 1);
+  bool score_column_requested = false;
+  for (size_t i = 0; i < target_type->size(); ++i) {
+    auto col_name = target_type->nameOf(i);
+    if (col_name == kSourceObjectIdColumnName) {
+      continue;
     }
+    if (col_name == kMaterializedRetrievalScoreColumnName) {
+      if (score_column_requested || target_type->childAt(i)->kind() !=
+              facebook::velox::TypeKind::DOUBLE) {
+        throw std::runtime_error(
+            "Materialized retrieval score column is duplicated or not DOUBLE");
+      }
+      score_column_requested = true;
+      continue;
+    }
+    auto lower_col = col_name;
+    std::transform(lower_col.begin(), lower_col.end(),
+                   lower_col.begin(), ::tolower);
+    auto it = target_to_source.find(lower_col);
+    auto physical_type = target_type->childAt(i);
+    if (!requestedType) {
+      for (const auto& mapping : current_column_mappings_) {
+        if (mapping.target_name == col_name && mapping.source_id < 0) {
+          col_name.clear();
+          break;
+        }
+      }
+      for (const auto& promotion : current_type_promotions_) {
+        if (promotion.column_name == target_type->nameOf(i)) {
+          physical_type = resolveSchemaEvolutionType(promotion.source_type);
+          evolved_types[i] = physical_type;
+          break;
+        }
+      }
+    }
+    if (col_name.empty()) continue;
+    reader_names.push_back(
+        it == target_to_source.end() ? col_name : it->second);
+    reader_types.push_back(physical_type);
+  }
+  if (!requestedType) {
+    file_evolution_output_type_ = facebook::velox::ROW(target_type->names(), std::move(evolved_types));
+  }
+  if (score_column_requested != materialized_retrieval_score_enabled_) {
+    throw std::runtime_error(
+        "Query plan and split disagree on materialized retrieval scoring");
+  }
+  auto readerType = facebook::velox::ROW(
+      std::move(reader_names), std::move(reader_types));
+
+  if (artifact_candidate_filter_enabled_) {
+    if (readerType->containsChild(kPhysicalRowPositionColumnName)) {
+      throw std::runtime_error(
+          "Artifact retrieval hidden row-position column collides with query schema");
+    }
+    auto reader_names = readerType->names();
+    auto reader_types = readerType->children();
+    reader_names.emplace_back(kPhysicalRowPositionColumnName);
+    reader_types.push_back(facebook::velox::BIGINT());
     readerType = facebook::velox::ROW(
         std::move(reader_names), std::move(reader_types));
   }
+  current_reader_output_type_ = readerType;
 
   rowOpts.select(
       std::make_shared<facebook::velox::dwio::common::ColumnSelector>(
@@ -422,6 +583,16 @@ void PangrovaVeloxDataSource::createReaderPair(
   // When required_subfields is empty, add all fields recursively (default).
   for (facebook::velox::column_index_t i = 0; i < readerType->size(); ++i) {
     const auto& colName = readerType->nameOf(i);
+    if (colName == kPhysicalRowPositionColumnName) {
+      VELOX_USER_CHECK(
+          readerType->childAt(i)->kind() ==
+              facebook::velox::TypeKind::BIGINT,
+          "Native physical row-position column must be BIGINT");
+      auto* row_position = scanSpec->addField(colName, i);
+      row_position->setColumnType(
+          facebook::velox::common::ScanSpec::ColumnType::kRowIndex);
+      continue;
+    }
     auto it = current_required_subfields_.find(colName);
     if (it != current_required_subfields_.end() && !it->second.empty()) {
       // Pruned path: add only the top-level field without recursing into
@@ -520,7 +691,6 @@ void PangrovaVeloxDataSource::openVeloxReader(
 #endif
 }
 
-#if PANGROVA_LANCE_AVAILABLE
 void PangrovaVeloxDataSource::openLanceReader(
     const split::SplitConfig& split) {
   reader_exhausted_ = false;
@@ -530,19 +700,88 @@ void PangrovaVeloxDataSource::openLanceReader(
 #endif
   lance_reader_.reset();
 
-  auto filePath = split::normalizeToS3Uri(
-      split::stripFilePrefix(split.file_path));
-
-  // Build projected column list from output type.
-  std::vector<std::string> projectedColumns;
-  projectedColumns.reserve(output_type_->size());
-  for (auto i = 0; i < output_type_->size(); ++i) {
-    projectedColumns.push_back(output_type_->nameOf(i));
+  const auto& filePath = split.file_path;
+  uint64_t version = 0;
+  const auto& snapshot = split.source_snapshot;
+  const auto [end, error] = std::from_chars(
+      snapshot.data(), snapshot.data() + snapshot.size(), version);
+  if (error != std::errc{} || end != snapshot.data() + snapshot.size() ||
+      version == 0) {
+    throw std::invalid_argument(
+        "Lance split requires a non-zero decimal source_snapshot version");
   }
+
+  std::unordered_map<std::string, const split::ColumnMappingConfig*>
+      mappingsByTarget;
+  for (const auto& mapping : current_column_mappings_) {
+    auto target = mapping.target_name;
+    std::transform(target.begin(), target.end(), target.begin(), ::tolower);
+    mappingsByTarget[target] = &mapping;
+  }
+  std::unordered_map<std::string, const split::TypePromotionConfig*>
+      promotionsByColumn;
+  for (const auto& promotion : current_type_promotions_) {
+    auto column = promotion.column_name;
+    std::transform(column.begin(), column.end(), column.begin(), ::tolower);
+    promotionsByColumn[column] = &promotion;
+  }
+
+  std::vector<std::string> physicalNames;
+  std::vector<facebook::velox::TypePtr> physicalTypes;
+  std::vector<std::string> dataNames;
+  std::vector<facebook::velox::TypePtr> dataTypes;
+  for (uint32_t index = 0; index < output_type_->size(); ++index) {
+    const auto& targetName = output_type_->nameOf(index);
+    if (targetName == kPhysicalRowPositionColumnName || targetName == kSourceObjectIdColumnName) {
+      continue;
+    }
+    if (current_partition_values_.contains(targetName)) {
+      continue;
+    }
+
+    auto normalizedTarget = targetName;
+    std::transform(
+        normalizedTarget.begin(), normalizedTarget.end(),
+        normalizedTarget.begin(), ::tolower);
+    auto sourceName = targetName;
+    bool present = true;
+    if (auto mapping = mappingsByTarget.find(normalizedTarget);
+        mapping != mappingsByTarget.end()) {
+      sourceName = mapping->second->source_name;
+      present = mapping->second->source_id >= 0;
+    }
+
+    auto sourceType = output_type_->childAt(index);
+    if (auto promotion = promotionsByColumn.find(normalizedTarget);
+        promotion != promotionsByColumn.end()) {
+      sourceType = resolveSchemaEvolutionType(promotion->second->source_type);
+    }
+    dataNames.push_back(targetName);
+    dataTypes.push_back(sourceType);
+    if (!present) continue;
+    if (std::find(physicalNames.begin(), physicalNames.end(), sourceName) !=
+        physicalNames.end()) {
+      throw std::runtime_error(
+          "Lance physical projection contains duplicate column '" +
+          sourceName + "'");
+    }
+    physicalNames.push_back(sourceName);
+    physicalTypes.push_back(sourceType);
+  }
+  if (!split.physical_lance_file &&
+      (output_type_->containsChild(kPhysicalRowPositionColumnName) || artifact_candidate_filter_enabled_)) {
+    physicalNames.emplace_back(kPhysicalRowPositionColumnName);
+    physicalTypes.push_back(facebook::velox::BIGINT());
+  }
+  auto physicalType = facebook::velox::ROW(physicalNames, physicalTypes);
+  lance_data_output_type_ =
+      facebook::velox::ROW(std::move(dataNames), std::move(dataTypes));
 
   try {
     lance_reader_ = std::make_unique<pangrova::lance::LanceBatchReader>(
-        pool_, output_type_, filePath, projectedColumns);
+        pool_, physicalType, filePath, version, physicalNames,
+        split.storage_binding, split.file_scan_detail, split.physical_lance_file ? split.length : 0);
+    current_reader_output_type_ = lance_reader_->outputType();
   } catch (const std::exception& e) {
     PANGROVA_LOG_ERROR << "lance_reader_open_failed"
                      << " file_path=" << filePath
@@ -552,27 +791,43 @@ void PangrovaVeloxDataSource::openLanceReader(
         ", error=" + e.what());
   }
 
-  // Pass remaining filter to Lance reader for predicate pushdown.
-  // Lance C FFI accepts SQL-like filter expressions.
-  if (remaining_filter_) {
-    auto filterStr = remaining_filter_->toString();
-    lance_reader_->setFilter(filterStr);
-    PANGROVA_LOG_INFO << "lance_predicate_pushdown=active"
-                    << " file_path=" << filePath
-                    << " filter=" << filterStr;
-  }
+  // remaining_filter_ is intentionally not serialized to Lance SQL. Velox
+  // expression toString() has no syntax contract with Lance/DataFusion. The
+  // canonical relational FilterNode remains responsible for exact filtering.
 }
-#endif
 
 void PangrovaVeloxDataSource::initializeMergeReader(
     const split::SplitConfig& split) {
 #if PANGROVA_HAS_VELOX_DWIO
   const auto& paimon = split.paimon.value();
+  auto merge_config = paimon;
+  merge_reader_output_type_ = output_type_;
+  {
+    auto names = output_type_->names();
+    auto types = output_type_->children();
+    for (const auto& key : paimon.primary_keys) {
+      if (output_type_->containsChild(key)) continue;
+      if (!scan_schema_->containsChild(key)) throw std::invalid_argument("Paimon primary key absent from canonical base schema");
+      names.push_back(key);
+      types.push_back(scan_schema_->childAt(scan_schema_->getChildIdx(key)));
+    }
+    for (auto iterator = merge_config.aggregation_specs.begin(); iterator != merge_config.aggregation_specs.end();) {
+      if (!scan_schema_->containsChild(iterator->first)) throw std::invalid_argument("Paimon aggregation field absent from canonical base schema");
+      if (!output_type_->containsChild(iterator->first)) iterator = merge_config.aggregation_specs.erase(iterator);
+      else ++iterator;
+    }
+    names.emplace_back("_SEQUENCE_NUMBER");
+    types.push_back(facebook::velox::BIGINT());
+    names.emplace_back("_VALUE_KIND");
+    types.push_back(facebook::velox::TINYINT());
+    merge_reader_output_type_ = facebook::velox::ROW(std::move(names), std::move(types));
+    merge_config.sequence_column = "_SEQUENCE_NUMBER";
+  }
 
   // Create the merge reader from factory (resolves engine type).
   try {
     merge_reader_ =
-        merge::MergeReaderFactory::create(paimon, output_type_);
+        merge::MergeReaderFactory::create(merge_config, merge_reader_output_type_);
   } catch (const pangrova::executor::NativeUnsupportedFeatureException&) {
     // Re-throw NativeUnsupportedFeatureException as-is for fallback reporting.
     throw;
@@ -587,9 +842,7 @@ void PangrovaVeloxDataSource::initializeMergeReader(
   }
 
   if (!merge_reader_) {
-    // Factory returned nullptr — fallback to single-file read.
-    openVeloxReader(split);
-    return;
+    throw std::logic_error("Paimon MOR admission must produce exactly one merge reader");
   }
 
   // Create one RowReaderWrapper per LSM level file.
@@ -599,17 +852,35 @@ void PangrovaVeloxDataSource::initializeMergeReader(
   // eliminate row groups via column statistics.
   std::vector<std::unique_ptr<merge::RowReaderWrapper>> readers;
   for (const auto& level : paimon.lsm_levels) {
-    for (const auto& path : level.file_paths) {
+    for (const auto& file : level.files) {
+      const auto& path = file.file_path;
       try {
+        PhysicalFileSchema schema(merge_reader_output_type_, file.column_mappings, file.type_promotions);
+        const auto& physical_type = schema.physicalType();
+        if (file.file_format == split::FileFormatType::LANCE) {
+          protocol::v2::FileSplitDetail read;
+          if (!read.ParseFromString(file.file_scan_detail)) throw std::invalid_argument("Malformed physical file read unit");
+          std::unique_ptr<delete_filter::RowDeleteFilter> deletion;
+          if (read.physical_file_scan().has_deletion_vector()) {
+            deletion = std::make_unique<delete_filter::PaimonSnapshotDeletionFilter>(
+                read.physical_file_scan().deletion_vector(), split.storage_binding);
+          }
+          readers.push_back(std::make_unique<EvolvedMergeBatchReader>(
+              std::make_unique<LanceMergeBatchReader>(
+                  std::make_unique<pangrova::lance::LanceBatchReader>(pool_, physical_type, path,
+                      paimon.snapshot_id, physical_type->names(), split.storage_binding,
+                      file.file_scan_detail, file.file_size), std::move(deletion)), std::move(schema)));
+          continue;
+        }
         std::unique_ptr<facebook::velox::dwio::common::Reader> reader;
         std::unique_ptr<facebook::velox::dwio::common::RowReader> rowReader;
         std::shared_ptr<facebook::velox::common::ScanSpec> scanSpec;
-        createReaderPair(path, split.file_format, reader, rowReader, &scanSpec);
-        if (remaining_filter_ && scanSpec) {
-          decomposeFilterToScanSpec(remaining_filter_, scanSpec, output_type_);
-        }
-        readers.push_back(std::make_unique<VeloxBatchReader>(
-            std::move(reader), std::move(rowReader), output_type_));
+        createReaderPair(path, file.file_format, reader, rowReader, &scanSpec, physical_type);
+        // Filtering an update before primary-key merge can resurrect older rows.
+        // Keep non-key predicates in the relational FilterNode after the merge.
+        readers.push_back(std::make_unique<EvolvedMergeBatchReader>(
+            std::make_unique<VeloxBatchReader>(std::move(reader), std::move(rowReader), physical_type),
+            std::move(schema)));
       } catch (const std::exception& e) {
         PANGROVA_LOG_ERROR << "merge_level_file_open_failed"
                          << " file_path=" << path
@@ -653,6 +924,12 @@ PangrovaVeloxDataSource::nextFromMergeReader(uint64_t batchSize) {
 
   completed_rows_ += rowVector->size();
   completed_bytes_ += rowVector->estimateFlatSize();
+  if (rowVector->childrenSize() > output_type_->size()) {
+    auto children = rowVector->children();
+    children.resize(output_type_->size());
+    rowVector = std::make_shared<facebook::velox::RowVector>(pool_, output_type_, nullptr,
+        rowVector->size(), std::move(children));
+  }
   return rowVector;
 }
 
@@ -665,8 +942,20 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       static_cast<uint64_t>(batch_sizer_.getCurrentBatchSize());
   auto batchSize = std::min(size, effectiveSize);
 
+  if (metadata_reader_) {
+    auto rowVector = metadata_reader_->next(batchSize);
+    if (!rowVector) {
+      metadata_reader_.reset();
+      return facebook::velox::RowVectorPtr(nullptr);
+    }
+    completed_rows_ += rowVector->size();
+    completed_bytes_ += rowVector->estimateFlatSize();
+    return rowVector;
+  }
+
   // Paimon MOR merge path: pull from merge reader when present.
-  // After merge, still apply partition injection and schema evolution.
+  // Each immutable file was evolved before primary-key merge. Reapplying one
+  // primary file's mapping here could misbind a newly-added reused column name.
   if (merge_reader_) {
     auto merged = nextFromMergeReader(batchSize);
     if (!merged.value()) {
@@ -674,14 +963,13 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       return merged;
     }
     auto rowVector = merged.value();
-    return applyPostProcessing(std::move(rowVector));
+    return injectPartitionColumns(rowVector, current_partition_values_, output_type_, pool_);
   }
 
   // Lance file format path: pull from Lance reader when present.
   // After read, apply partition injection and schema evolution (same as
   // Parquet/ORC path). This enables mixed-format scans where some splits
   // are Parquet and others are Lance within the same table.
-#if PANGROVA_LANCE_AVAILABLE
   if (lance_reader_) {
     if (!lance_reader_->hasNext()) {
       lance_reader_.reset();
@@ -694,9 +982,22 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     }
     completed_rows_ += rowVector->size();
     completed_bytes_ += rowVector->estimateFlatSize();
-    return applyPostProcessing(std::move(rowVector));
+    facebook::velox::VectorPtr datasetPositions;
+    if (!physical_lance_file_) {
+      auto channel = rowVector->type()->asRow().getChildIdxIfExists(kPhysicalRowPositionColumnName);
+      if (channel) datasetPositions = rowVector->childAt(*channel);
+    }
+    rowVector = applyLancePostProcessing(std::move(rowVector));
+    rowVector = applyLanceIdentity(std::move(rowVector), std::move(datasetPositions));
+    if (!task_id_.empty() && !plan_node_id_.empty()) {
+      auto pending = PendingFilterRegistry::instance().drain(task_id_, plan_node_id_);
+      std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
+      for (auto& entry : pending) dynamic_filters_.emplace_back(entry.column_index, std::move(entry.filter));
+    }
+    if (!rowVector) return std::dynamic_pointer_cast<facebook::velox::RowVector>(
+        facebook::velox::BaseVector::create(output_type_, 0, pool_));
+    return applyDynamicFilters(std::move(rowVector));
   }
-#endif
 
   if (reader_exhausted_ || !velox_row_reader_) {
     // Reader already exhausted or not initialized — signal split completion.
@@ -709,7 +1010,10 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   // zero Arrow conversion overhead.
   // L2-7: Measure IO latency to feed AdaptiveBatchSizer.
   auto io_start = std::chrono::steady_clock::now();
-  auto result = facebook::velox::BaseVector::create(output_type_, 0, pool_);
+  auto result = facebook::velox::BaseVector::create(
+      current_reader_output_type_ ? current_reader_output_type_ : output_type_,
+      0,
+      pool_);
   uint64_t rowsRead = velox_row_reader_->next(batchSize, result);
   auto io_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - io_start).count();
@@ -728,6 +1032,28 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     reader_exhausted_ = true;
     // Cast failed — treat as exhausted, signal split completion.
     return facebook::velox::RowVectorPtr(nullptr);
+  }
+
+  if (source_object_identity_requested_) {
+    auto requested_reader_names = output_type_->names();
+    auto requested_reader_types = output_type_->children();
+    if (materialized_retrieval_score_enabled_) {
+      const auto score_channel = output_type_->getChildIdx(
+          kMaterializedRetrievalScoreColumnName);
+      requested_reader_names.erase(requested_reader_names.begin() + score_channel);
+      requested_reader_types.erase(requested_reader_types.begin() + score_channel);
+    }
+    if (artifact_candidate_filter_enabled_ &&
+        !output_type_->containsChild(kPhysicalRowPositionColumnName)) {
+      requested_reader_names.emplace_back(kPhysicalRowPositionColumnName);
+      requested_reader_types.push_back(facebook::velox::BIGINT());
+    }
+    rowVector = injectSourceObjectIdentity(
+        rowVector, current_data_object_id_,
+        facebook::velox::ROW(
+            std::move(requested_reader_names),
+            std::move(requested_reader_types)),
+        pool_);
   }
 
   completed_rows_ += rowVector->size();
@@ -776,7 +1102,20 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   // row_index_offset_ tracks the file-level position and must advance
   // by the original batch size (before any filtering).
   auto originalBatchSize = rowVector->size();
-  if (!delete_filters_.empty()) {
+  if (artifact_candidate_filter_enabled_) {
+    // The immutable index was built from the exact serialized split (including
+    // delete metadata) and contains only live row locators. Reapplying a
+    // position-delete filter after candidate compaction would use local batch
+    // offsets and corrupt physical identity, so candidate filtering subsumes
+    // delete filtering for this exact source snapshot.
+    rowVector = applyArtifactCandidateFilter(std::move(rowVector));
+    row_index_offset_ += originalBatchSize;
+    if (!rowVector || rowVector->size() == 0) {
+      auto emptyVector = facebook::velox::BaseVector::create(
+          output_type_, 0, pool_);
+      return std::dynamic_pointer_cast<facebook::velox::RowVector>(emptyVector);
+    }
+  } else if (!delete_filters_.empty()) {
     rowVector = applyDeleteFilter(rowVector, originalBatchSize);
     if (!rowVector || rowVector->size() == 0) {
       // All rows deleted — return empty vector (not nullopt, which
@@ -795,8 +1134,9 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   // Dynamic filter column indices use output_type_ which matches the raw
   // reader schema. After delete filter compaction (dictionary wrapping),
   // column structure is preserved — only row count changes.
-  if (!task_id_.empty()) {
-    auto pending = PendingFilterRegistry::instance().drain(task_id_);
+  if (!task_id_.empty() && !plan_node_id_.empty()) {
+    auto pending = PendingFilterRegistry::instance().drain(
+        task_id_, plan_node_id_);
     if (!pending.empty()) {
       std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
       for (auto& entry : pending) {
@@ -842,6 +1182,87 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
 #endif
 }
 
+facebook::velox::RowVectorPtr
+PangrovaVeloxDataSource::applyArtifactCandidateFilter(
+    facebook::velox::RowVectorPtr rowVector) {
+  if (!artifact_candidate_filter_enabled_ || !rowVector) {
+    return rowVector;
+  }
+  auto reader_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
+      rowVector->type());
+  const size_t expected_reader_size = output_type_->size() +
+      (materialized_retrieval_score_enabled_ ? 0 : 1);
+  if (!reader_type || reader_type->size() != expected_reader_size ||
+      reader_type->nameOf(reader_type->size() - 1) !=
+          kPhysicalRowPositionColumnName ||
+      reader_type->childAt(reader_type->size() - 1)->kind() !=
+          facebook::velox::TypeKind::BIGINT) {
+    throw std::runtime_error(
+        "Artifact retrieval reader did not produce the physical row-position column");
+  }
+
+  facebook::velox::DecodedVector positions(
+      *rowVector->childAt(reader_type->size() - 1));
+  facebook::velox::SelectivityVector selected(rowVector->size(), false);
+  for (facebook::velox::vector_size_t row = 0; row < rowVector->size(); ++row) {
+    if (positions.isNullAt(row)) {
+      throw std::runtime_error(
+          "Artifact retrieval physical row position must not be null");
+    }
+    const int64_t value = positions.valueAt<int64_t>(row);
+    if (value < 0) {
+      throw std::runtime_error(
+          "Artifact retrieval physical row position must not be negative");
+    }
+    if (artifact_candidate_positions_.contains(static_cast<uint64_t>(value))) {
+      selected.setValid(row, true);
+    }
+  }
+  selected.updateBounds();
+  const auto count = selected.countSelected();
+  if (count == 0) {
+    return std::dynamic_pointer_cast<facebook::velox::RowVector>(
+        facebook::velox::BaseVector::create(output_type_, 0, pool_));
+  }
+  auto indices = facebook::velox::allocateIndices(count, pool_);
+  auto* raw_indices = indices->asMutable<facebook::velox::vector_size_t>();
+  facebook::velox::vector_size_t next = 0;
+  selected.applyToSelected([&](auto row) { raw_indices[next++] = row; });
+  std::vector<facebook::velox::VectorPtr> children(output_type_->size());
+  size_t reader_channel = 0;
+  for (size_t index = 0; index < output_type_->size(); ++index) {
+    if (output_type_->nameOf(index) ==
+        kMaterializedRetrievalScoreColumnName) {
+      auto scores = facebook::velox::BaseVector::create(
+          facebook::velox::DOUBLE(), count, pool_);
+      auto* flat_scores = scores->asFlatVector<double>();
+      for (facebook::velox::vector_size_t output_row = 0;
+           output_row < count; ++output_row) {
+        auto input_row = raw_indices[output_row];
+        const auto position = static_cast<uint64_t>(
+            positions.valueAt<int64_t>(input_row));
+        auto score = materialized_retrieval_scores_.find(position);
+        if (score == materialized_retrieval_scores_.end()) {
+          throw std::runtime_error(
+              "Selected artifact candidate has no materialized score");
+        }
+        flat_scores->set(output_row, score->second);
+      }
+      children[index] = std::move(scores);
+      continue;
+    }
+    if (reader_channel >= reader_type->size() - 1) {
+      throw std::runtime_error(
+          "Artifact retrieval output column is absent from the reader schema");
+    }
+    children[index] = facebook::velox::BaseVector::wrapInDictionary(
+        nullptr, indices, count, rowVector->childAt(reader_channel));
+    ++reader_channel;
+  }
+  return std::make_shared<facebook::velox::RowVector>(
+      pool_, output_type_, nullptr, count, std::move(children));
+}
+
 facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyPostProcessing(
     facebook::velox::RowVectorPtr rowVector) {
   // Inject partition column values for columns present in the output
@@ -860,7 +1281,8 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyPostProcessing(
   // null-fill by field ID, then type promotion casts, regardless of source.
   if (!current_column_mappings_.empty()) {
     rowVector = applyColumnMapping(
-        rowVector, current_column_mappings_, output_type_, pool_);
+        rowVector, current_column_mappings_,
+        file_evolution_output_type_ ? file_evolution_output_type_ : output_type_, pool_);
   }
   if (!current_type_promotions_.empty()) {
     rowVector = applyTypePromotion(
@@ -868,6 +1290,84 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyPostProcessing(
   }
 
   return rowVector;
+}
+
+facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyLanceIdentity(
+    facebook::velox::RowVectorPtr rows, facebook::velox::VectorPtr positions) {
+  if (!physical_lance_file_ && !source_object_identity_requested_ &&
+      !output_type_->containsChild(kPhysicalRowPositionColumnName) && !artifact_candidate_filter_enabled_) {
+    return rows;
+  }
+  const auto size = rows->size();
+  if (physical_lance_file_) {
+    const auto start = lance_reader_->lastBatchRowStart();
+    if (size <= 0 ||
+        start > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - static_cast<uint64_t>(size - 1)) {
+      throw std::runtime_error("Physical Lance row position exceeds the signed locator bounds");
+    }
+    row_index_offset_ = static_cast<int64_t>(start);
+    positions = facebook::velox::BaseVector::create(facebook::velox::BIGINT(), size, pool_);
+    for (facebook::velox::vector_size_t row = 0; row < size; ++row) {
+      positions->asFlatVector<int64_t>()->set(row, static_cast<int64_t>(row_index_offset_ + row));
+    }
+  }
+  auto names = output_type_->names();
+  auto types = output_type_->children();
+  const auto& inputType = rows->type()->asRow();
+  if (rows->childrenSize() != inputType.size()) {
+    throw std::runtime_error("Lance logical row vector does not match its declared input schema");
+  }
+  std::vector<facebook::velox::VectorPtr> children(output_type_->size());
+  for (size_t channel = 0; channel < output_type_->size(); ++channel) {
+    const auto& name = names[channel];
+    if (name == kPhysicalRowPositionColumnName || name == kSourceObjectIdColumnName) continue;
+    const auto inputChannel = inputType.getChildIdxIfExists(name);
+    if (!inputChannel || !rows->childAt(*inputChannel) ||
+        !rows->childAt(*inputChannel)->type()->equivalent(*types[channel])) {
+      throw std::runtime_error("Lance logical output column is absent or differs from its declared type: " + name);
+    }
+    children[channel] = rows->childAt(*inputChannel);
+  }
+  auto positionChannel = output_type_->getChildIdxIfExists(kPhysicalRowPositionColumnName);
+  if (positionChannel || artifact_candidate_filter_enabled_) {
+    if (!positions || positions->size() != size ||
+        positions->typeKind() != facebook::velox::TypeKind::BIGINT ||
+        (positionChannel && types[*positionChannel]->kind() != facebook::velox::TypeKind::BIGINT)) {
+      throw std::runtime_error("Lance identity read did not produce exact BIGINT physical positions");
+    }
+    if (positionChannel) children[*positionChannel] = positions;
+    else {
+      names.emplace_back(kPhysicalRowPositionColumnName);
+      types.push_back(facebook::velox::BIGINT());
+      children.push_back(positions);
+    }
+  }
+  for (size_t channel = 0; channel < names.size(); ++channel) {
+    if (names[channel] == kSourceObjectIdColumnName) {
+      children[channel] = facebook::velox::BaseVector::createConstant(
+          facebook::velox::VARCHAR(), facebook::velox::variant(current_data_object_id_), size, pool_);
+    }
+  }
+  rows = std::make_shared<facebook::velox::RowVector>(pool_, facebook::velox::ROW(names, types),
+      nullptr, size, std::move(children));
+  if (artifact_candidate_filter_enabled_) return applyArtifactCandidateFilter(std::move(rows));
+  return physical_lance_file_ ? applyDeleteFilter(std::move(rows), size) : rows;
+}
+
+facebook::velox::RowVectorPtr
+PangrovaVeloxDataSource::applyLancePostProcessing(
+    facebook::velox::RowVectorPtr rowVector) {
+  if (!lance_data_output_type_) {
+    throw std::runtime_error("Lance logical data schema is not initialized");
+  }
+  rowVector = applyColumnMapping(
+      rowVector, current_column_mappings_, lance_data_output_type_, pool_);
+  if (!current_type_promotions_.empty()) {
+    rowVector = applyTypePromotion(
+        rowVector, current_type_promotions_, pool_);
+  }
+  return injectPartitionColumns(
+      rowVector, current_partition_values_, output_type_, pool_);
 }
 
 facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyDeleteFilter(
@@ -983,11 +1483,15 @@ PangrovaVeloxConnector::createDataSource(
   // RowReaderOptions so the DWIO reader can skip row groups whose
   // statistics prove no matching rows.
   std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter;
+  facebook::velox::RowTypePtr scanSchema;
+  std::string planNodeId;
   if (tableHandle) {
     auto pangrovaHandle =
         std::dynamic_pointer_cast<const PangrovaTableHandle>(tableHandle);
     if (pangrovaHandle) {
       remainingFilter = pangrovaHandle->remainingFilter();
+      planNodeId = pangrovaHandle->planNodeId();
+      scanSchema = pangrovaHandle->scanSchema();
     }
   }
 
@@ -1010,12 +1514,17 @@ PangrovaVeloxConnector::createDataSource(
     }
   }
 
-  return std::make_unique<PangrovaVeloxDataSource>(
-      connectorQueryCtx->memoryPool(), outputType,
+  const auto sourceType = assignedSourceType(outputType, columnHandles);
+  auto source = std::make_unique<PangrovaVeloxDataSource>(
+      connectorQueryCtx->memoryPool(), sourceType,
+      scanSchema,
       connectorQueryCtx->taskId(),
-      std::move(remainingFilter),
+      planNodeId,
+      assignedSourceFilter(remainingFilter, outputType, sourceType),
       preferredBatchBytes,
       eagerFirstStripeThreshold);
+  return std::make_unique<ColumnAssignmentDataSource>(
+      std::move(source), outputType, sourceType);
 }
 
 std::unique_ptr<facebook::velox::connector::DataSink>

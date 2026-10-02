@@ -17,29 +17,23 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Golden + cross-boundary alignment tests for protobuf <em>message field numbers and types</em>.
+ * Golden tests for canonical protobuf <em>message field numbers and types</em>.
  *
  * <p>The sibling {@link ProtoEnumGoldenPropertyTest} pins enum (name, number) pairs. That guard alone
- * leaves message field numbers unprotected: a native↔Java field-number or wire-type drift on a
+ * leaves message field numbers unprotected: a field-number or wire-type drift on a
  * cross-boundary message (TaskRequest, WriteConfig, ResourceLimit, ShuffleConfig, SplitInfo) would
  * silently corrupt deserialization without any test failing (F-PROTO-01).
  *
- * <p>This test closes that gap two ways:
- * <ol>
- *   <li><b>Golden snapshot</b> — each cross-boundary message's (field-number → wire-type) map is pinned
- *       on the native side; a reorder/retype fails immediately.</li>
- *   <li><b>Cross-boundary alignment</b> — for every field number present on <em>both</em> the native and
- *       Java protos, the declared type must be identical. Field <em>names</em> are intentionally NOT
- *       compared because the contract is name-blind (e.g. field 3 is {@code substrait_plan} natively and
- *       {@code plan_fragment} on the Java side — same number, same {@code bytes} type).</li>
- * </ol>
+ * <p>Each canonical cross-runtime message's (field-number → wire-type) map is
+ * pinned. Maven and CMake consume this same file; the descriptor handshake and
+ * Native capability tests prove that the generated runtimes use the same
+ * dependency-complete descriptor set.
  *
  * <p><b>Validates: Requirements R45.3 (T13.3) · Finding F-PROTO-01</b></p>
  */
@@ -47,39 +41,28 @@ class ProtoMessageFieldGoldenPropertyTest {
 
     private static final Path ROOT = TestProjectPaths.findProjectRoot();
 
-    private static final Path NATIVE_TASK_PROTO = ROOT.resolve(
-            "pangrova-worker-native/proto/pangrova/native/protocol/v1/task.proto");
-    private static final Path NATIVE_COMMON_PROTO = ROOT.resolve(
-            "pangrova-worker-native/proto/pangrova/native/protocol/v1/common.proto");
-    private static final Path NATIVE_SHUFFLE_PROTO = ROOT.resolve(
-            "pangrova-worker-native/proto/pangrova/native/protocol/v1/shuffle.proto");
-    private static final Path NATIVE_SPLIT_PROTO = ROOT.resolve(
-            "pangrova-worker-native/proto/pangrova/native/protocol/v1/split.proto");
+    private static final Path CANONICAL_TASK_PROTO = ROOT.resolve(
+            "pangrova-protocol/src/main/proto/pangrova/protocol/v2/task.proto");
+    private static final Path CANONICAL_COMMON_PROTO = ROOT.resolve(
+            "pangrova-protocol/src/main/proto/pangrova/protocol/v2/execution_binding.proto");
 
-    private static final Path JAVA_TASK_PROTO = ROOT.resolve(
-            "pangrova-protocol/src/main/proto/pangrova/protocol/v1/task.proto");
-    private static final Path JAVA_COMMON_PROTO = ROOT.resolve(
-            "pangrova-protocol/src/main/proto/pangrova/protocol/v1/common.proto");
-
-    // ── Golden (field-number → wire-type) snapshots, taken from the native proto ──
+    // ── Golden (field-number → wire-type) snapshots of the canonical source ──
 
     private static final Map<Integer, String> TASK_REQUEST_GOLDEN = new LinkedHashMap<>();
     static {
-        TASK_REQUEST_GOLDEN.put(1, "string");
-        TASK_REQUEST_GOLDEN.put(2, "string");
-        TASK_REQUEST_GOLDEN.put(3, "bytes");
-        TASK_REQUEST_GOLDEN.put(4, "repeated SplitInfo");
-        TASK_REQUEST_GOLDEN.put(5, "ResourceLimit");
-        TASK_REQUEST_GOLDEN.put(6, "map<string,string>");
-        TASK_REQUEST_GOLDEN.put(7, "TaskType");
-        TASK_REQUEST_GOLDEN.put(8, "int32");
-        // 9 is permanently reserved (was java_split_bytes) — absent on purpose.
-        TASK_REQUEST_GOLDEN.put(10, "int32");
-        TASK_REQUEST_GOLDEN.put(11, "WriteConfig");
-        TASK_REQUEST_GOLDEN.put(12, "ShuffleConfig");
-        TASK_REQUEST_GOLDEN.put(13, "string");
-        TASK_REQUEST_GOLDEN.put(14, "string");
-        TASK_REQUEST_GOLDEN.put(15, "int64");
+        TASK_REQUEST_GOLDEN.put(1, "ProtocolVersion");
+        TASK_REQUEST_GOLDEN.put(2, "TaskAttemptId");
+        TASK_REQUEST_GOLDEN.put(3, "TaskKind");
+        TASK_REQUEST_GOLDEN.put(4, "SecurityContext");
+        TASK_REQUEST_GOLDEN.put(5, "bytes");
+        TASK_REQUEST_GOLDEN.put(6, "Checksum");
+        TASK_REQUEST_GOLDEN.put(7, "repeated DataSplit");
+        TASK_REQUEST_GOLDEN.put(8, "repeated OperatorBinding");
+        TASK_REQUEST_GOLDEN.put(9, "StageResourceGrant");
+        TASK_REQUEST_GOLDEN.put(10, "uint64");
+        TASK_REQUEST_GOLDEN.put(11, "TraceContext");
+        TASK_REQUEST_GOLDEN.put(12, "string");
+        TASK_REQUEST_GOLDEN.put(13, "TaskExecutionOptions");
     }
 
     private static final Map<Integer, String> WRITE_CONFIG_GOLDEN = new LinkedHashMap<>();
@@ -87,30 +70,37 @@ class ProtoMessageFieldGoldenPropertyTest {
         WRITE_CONFIG_GOLDEN.put(1, "string");
         WRITE_CONFIG_GOLDEN.put(2, "string");
         WRITE_CONFIG_GOLDEN.put(3, "repeated string");
-        WRITE_CONFIG_GOLDEN.put(4, "string");
-        WRITE_CONFIG_GOLDEN.put(5, "FileFormat");
-        WRITE_CONFIG_GOLDEN.put(6, "int64");
+        WRITE_CONFIG_GOLDEN.put(4, "FileFormat");
+        WRITE_CONFIG_GOLDEN.put(5, "int64");
     }
 
     private static final Map<Integer, String> RESOURCE_LIMIT_GOLDEN = new LinkedHashMap<>();
     static {
-        RESOURCE_LIMIT_GOLDEN.put(1, "int64");
-        RESOURCE_LIMIT_GOLDEN.put(2, "int32");
-        RESOURCE_LIMIT_GOLDEN.put(3, "int64");
-        RESOURCE_LIMIT_GOLDEN.put(4, "string");
+        RESOURCE_LIMIT_GOLDEN.put(1, "string");
+        RESOURCE_LIMIT_GOLDEN.put(2, "uint32");
+        RESOURCE_LIMIT_GOLDEN.put(3, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(4, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(5, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(6, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(7, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(8, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(9, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(10, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(11, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(12, "uint32");
+        RESOURCE_LIMIT_GOLDEN.put(13, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(14, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(15, "uint64");
     }
 
     private static final Map<Integer, String> SHUFFLE_CONFIG_GOLDEN = new LinkedHashMap<>();
     static {
-        SHUFFLE_CONFIG_GOLDEN.put(1, "ShuffleSerdeFormat");
+        SHUFFLE_CONFIG_GOLDEN.put(1, "BatchSerde");
         SHUFFLE_CONFIG_GOLDEN.put(2, "string");
-        SHUFFLE_CONFIG_GOLDEN.put(3, "int32");
+        SHUFFLE_CONFIG_GOLDEN.put(3, "uint32");
         SHUFFLE_CONFIG_GOLDEN.put(4, "ShufflePersistenceMode");
-        SHUFFLE_CONFIG_GOLDEN.put(5, "int32");
+        SHUFFLE_CONFIG_GOLDEN.put(5, "uint32");
         SHUFFLE_CONFIG_GOLDEN.put(6, "repeated int32");
-        // Field 7 (max_buffered_batches_per_partition) is native-only; the Java side does not
-        // declare it yet, so it is excluded from the cross-boundary alignment intersection.
-        SHUFFLE_CONFIG_GOLDEN.put(7, "int32");
     }
 
     private static final Map<Integer, String> SPLIT_INFO_GOLDEN = new LinkedHashMap<>();
@@ -118,126 +108,63 @@ class ProtoMessageFieldGoldenPropertyTest {
         SPLIT_INFO_GOLDEN.put(1, "string");
         SPLIT_INFO_GOLDEN.put(2, "string");
         SPLIT_INFO_GOLDEN.put(3, "string");
-        SPLIT_INFO_GOLDEN.put(4, "FileFormat");
-        SPLIT_INFO_GOLDEN.put(5, "int64");
-        SPLIT_INFO_GOLDEN.put(6, "int64");
-        SPLIT_INFO_GOLDEN.put(7, "repeated ColumnMapping");
-        SPLIT_INFO_GOLDEN.put(8, "map<string,string>");
-        SPLIT_INFO_GOLDEN.put(9, "IcebergSplitInfo");   // oneof connector_info
-        SPLIT_INFO_GOLDEN.put(10, "PaimonSplitInfo");   // oneof connector_info
-        SPLIT_INFO_GOLDEN.put(11, "SchemaEvolution");
-        SPLIT_INFO_GOLDEN.put(12, "string");
-        SPLIT_INFO_GOLDEN.put(13, "repeated IndexEvalHintInfo");
-        SPLIT_INFO_GOLDEN.put(14, "SplitConstraintInfo");
+        SPLIT_INFO_GOLDEN.put(4, "string");
+        SPLIT_INFO_GOLDEN.put(5, "string");
+        SPLIT_INFO_GOLDEN.put(6, "string");
+        SPLIT_INFO_GOLDEN.put(7, "uint64");
+        SPLIT_INFO_GOLDEN.put(8, "uint64");
+        SPLIT_INFO_GOLDEN.put(9, "repeated PartitionValue");
+        SPLIT_INFO_GOLDEN.put(10, "google.protobuf.Any");
     }
 
-    // ── 1. Native golden snapshot checks ──
+    // ── Canonical golden snapshot checks ──
 
     @Property(tries = 10)
-    @Tag("Feature: full-review-fix, Property: Proto message field golden compatibility")
-    void nativeTaskRequestFieldsMatchGolden(@ForAll("taskRequestEntries") Map.Entry<Integer, String> e) {
-        Map<Integer, String> parsed = parseMessageFields(NATIVE_TASK_PROTO, "TaskRequest");
+    @Tag("proto-golden")
+    void canonicalTaskRequestFieldsMatchGolden(@ForAll("taskRequestEntries") Map.Entry<Integer, String> e) {
+        Map<Integer, String> parsed = parseMessageFields(CANONICAL_TASK_PROTO, "TaskRequest");
         assertThat(parsed)
-                .as("Native TaskRequest field %d must be type '%s'", e.getKey(), e.getValue())
+                .as("Canonical TaskRequest field %d must be type '%s'", e.getKey(), e.getValue())
                 .containsEntry(e.getKey(), e.getValue());
     }
 
     @Property(tries = 10)
-    @Tag("Feature: full-review-fix, Property: Proto message field golden compatibility")
-    void nativeWriteConfigFieldsMatchGolden(@ForAll("writeConfigEntries") Map.Entry<Integer, String> e) {
-        Map<Integer, String> parsed = parseMessageFields(NATIVE_TASK_PROTO, "WriteConfig");
+    @Tag("proto-golden")
+    void canonicalWriteConfigFieldsMatchGolden(@ForAll("writeConfigEntries") Map.Entry<Integer, String> e) {
+        Map<Integer, String> parsed = parseMessageFields(CANONICAL_TASK_PROTO, "WriteTaskOptions");
         assertThat(parsed)
-                .as("Native WriteConfig field %d must be type '%s'", e.getKey(), e.getValue())
+                .as("Canonical WriteConfig field %d must be type '%s'", e.getKey(), e.getValue())
                 .containsEntry(e.getKey(), e.getValue());
     }
 
     @Property(tries = 10)
-    @Tag("Feature: full-review-fix, Property: Proto message field golden compatibility")
-    void nativeResourceLimitFieldsMatchGolden(@ForAll("resourceLimitEntries") Map.Entry<Integer, String> e) {
-        Map<Integer, String> parsed = parseMessageFields(NATIVE_COMMON_PROTO, "ResourceLimit");
+    @Tag("proto-golden")
+    void canonicalResourceLimitFieldsMatchGolden(@ForAll("resourceLimitEntries") Map.Entry<Integer, String> e) {
+        Map<Integer, String> parsed = parseMessageFields(CANONICAL_COMMON_PROTO, "StageResourceGrant");
         assertThat(parsed)
-                .as("Native ResourceLimit field %d must be type '%s'", e.getKey(), e.getValue())
+                .as("Canonical ResourceLimit field %d must be type '%s'", e.getKey(), e.getValue())
                 .containsEntry(e.getKey(), e.getValue());
     }
 
     @Property(tries = 10)
-    @Tag("Feature: full-review-fix, Property: Proto message field golden compatibility")
-    void nativeShuffleConfigFieldsMatchGolden(@ForAll("shuffleConfigEntries") Map.Entry<Integer, String> e) {
-        Map<Integer, String> parsed = parseMessageFields(NATIVE_SHUFFLE_PROTO, "ShuffleConfig");
+    @Tag("proto-golden")
+    void canonicalShuffleConfigFieldsMatchGolden(@ForAll("shuffleConfigEntries") Map.Entry<Integer, String> e) {
+        Map<Integer, String> parsed = parseMessageFields(CANONICAL_TASK_PROTO, "ShuffleTaskOptions");
         assertThat(parsed)
-                .as("Native ShuffleConfig field %d must be type '%s'", e.getKey(), e.getValue())
+                .as("Canonical ShuffleConfig field %d must be type '%s'", e.getKey(), e.getValue())
                 .containsEntry(e.getKey(), e.getValue());
     }
 
     @Property(tries = 10)
-    @Tag("Feature: full-review-fix, Property: Proto message field golden compatibility")
-    void nativeSplitInfoFieldsMatchGolden(@ForAll("splitInfoEntries") Map.Entry<Integer, String> e) {
-        Map<Integer, String> parsed = parseMessageFields(NATIVE_SPLIT_PROTO, "SplitInfo");
+    @Tag("proto-golden")
+    void canonicalSplitInfoFieldsMatchGolden(@ForAll("splitInfoEntries") Map.Entry<Integer, String> e) {
+        Map<Integer, String> parsed = parseMessageFields(CANONICAL_TASK_PROTO, "DataSplit");
         assertThat(parsed)
-                .as("Native SplitInfo field %d must be type '%s'", e.getKey(), e.getValue())
+                .as("Canonical SplitInfo field %d must be type '%s'", e.getKey(), e.getValue())
                 .containsEntry(e.getKey(), e.getValue());
     }
 
-    // ── 2. Native ↔ Java cross-boundary alignment (name-blind, by field number) ──
-
-    @Test
-    void taskRequestFieldNumbersAlignAcrossBoundary() {
-        assertFieldNumbersAlign(NATIVE_TASK_PROTO, JAVA_TASK_PROTO, "TaskRequest");
-    }
-
-    @Test
-    void writeConfigFieldNumbersAlignAcrossBoundary() {
-        assertFieldNumbersAlign(NATIVE_TASK_PROTO, JAVA_TASK_PROTO, "WriteConfig");
-    }
-
-    @Test
-    void resourceLimitFieldNumbersAlignAcrossBoundary() {
-        assertFieldNumbersAlign(NATIVE_COMMON_PROTO, JAVA_COMMON_PROTO, "ResourceLimit");
-    }
-
-    @Test
-    void shuffleConfigFieldNumbersAlignAcrossBoundary() {
-        // Native ShuffleConfig lives in shuffle.proto; the Java mirror lives in task.proto.
-        // Java is a prefix subset (no field 7), so only the intersection is asserted.
-        assertFieldNumbersAlign(NATIVE_SHUFFLE_PROTO, JAVA_TASK_PROTO, "ShuffleConfig");
-    }
-
-    @Test
-    void splitInfoFieldNumbersAlignAcrossBoundary() {
-        assertFieldNumbersAlign(NATIVE_SPLIT_PROTO, JAVA_TASK_PROTO, "SplitInfo");
-    }
-
-    /**
-     * For every field number present on BOTH sides, the declared wire type must be identical.
-     * Field numbers unique to one side (e.g. a native-only trailing field) are allowed, since proto3
-     * tolerates unknown fields — but a shared number with a different type is a silent corruption bug.
-     */
-    private static void assertFieldNumbersAlign(Path nativeProto, Path javaProto, String message) {
-        Map<Integer, String> nativeFields = parseMessageFields(nativeProto, message);
-        Map<Integer, String> javaFields = parseMessageFields(javaProto, message);
-
-        assertThat(nativeFields)
-                .as("Native proto %s must declare at least one field", message)
-                .isNotEmpty();
-        assertThat(javaFields)
-                .as("Java proto %s must declare at least one field", message)
-                .isNotEmpty();
-
-        TreeSet<Integer> shared = new TreeSet<>(nativeFields.keySet());
-        shared.retainAll(javaFields.keySet());
-        assertThat(shared)
-                .as("%s must share at least one field number across the boundary", message)
-                .isNotEmpty();
-
-        for (Integer number : shared) {
-            assertThat(javaFields.get(number))
-                    .as("%s field %d: Java type '%s' must equal native type '%s'",
-                            message, number, javaFields.get(number), nativeFields.get(number))
-                    .isEqualTo(nativeFields.get(number));
-        }
-    }
-
-    // ── 3. Negative self-test: the comparator must actually catch a drift ──
+    // ── Negative self-test: the parser must actually expose a drift ──
 
     @Test
     void parserDetectsFieldNumberDrift() {

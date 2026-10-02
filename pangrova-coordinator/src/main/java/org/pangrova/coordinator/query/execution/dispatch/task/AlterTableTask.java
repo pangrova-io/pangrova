@@ -24,8 +24,9 @@ public final class AlterTableTask implements MetadataTask<AlterTableStatement> {
 
     @Override
     public StatementResult execute(AlterTableStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeAlterTable(statement);
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeAlterTable(
+                statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
     }
 

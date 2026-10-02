@@ -62,8 +62,11 @@ public final class TaskCompletionMonitor {
                                 Consumer<Exception> onError) {
         deps.completionMonitorExecutor().submit(() -> {
             Thread.currentThread().setName("completion-monitor-" + taskId);
+            boolean metadataCaptureAttempted = false;
             try {
-                pollUntilFinished(taskId, handle);
+                pollUntilFinished(taskId, info, handle);
+                metadataCaptureAttempted = true;
+                captureTerminalMetadata(info, handle);
                 onCompleted.accept(taskId);
             } catch (InterruptedException e) {
                 // Normal shutdown signal — TaskManager.close() interrupts
@@ -72,25 +75,124 @@ public final class TaskCompletionMonitor {
                 LOG.debug("event=completion_monitor_shutdown taskId={} queryId={}",
                         taskId, info.queryId());
             } catch (Exception e) {
+                if (!metadataCaptureAttempted) {
+                    try {
+                        captureTerminalMetadata(info, handle);
+                    } catch (Exception metadataFailure) {
+                        e.addSuppressed(metadataFailure);
+                        LOG.error("event=terminal_metadata_capture_failed taskId={} handle={} error={}",
+                                info.taskId(), handle, metadataFailure.getMessage(), metadataFailure);
+                    }
+                }
                 onError.accept(e);
             }
         });
+    }
+
+    /**
+     * Freezes canonical Native status and task statistics before resource
+     * release. A successful execution fails closed if either envelope is
+     * absent or malformed. For an already-failed execution, capture failure is
+     * attached to the original failure by the caller and remains observable.
+     */
+    private void captureTerminalMetadata(TaskInfo info, long handle) {
+        if (info.executorHandle() == 0) {
+            var released = requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            if (released.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
+                throw new IllegalStateException("Released Native task did not finish successfully: " + released.getState());
+            }
+            return;
+        }
+        byte[] status;
+        try {
+            status = deps.taskExecutor().getTaskStatus(handle);
+        } catch (IllegalStateException failure) {
+            if (info.executorHandle() != 0) throw failure;
+            status = info.executorReleaseReport();
+        }
+        var parsed = requireCanonicalTaskReport(info.request().taskRequest(), status);
+        info.setTerminalTaskReport(status);
+        captureTaskStats(info, handle, parsed);
+        if (parsed.getState()
+                != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
+            throw new IllegalStateException(
+                    "Native task did not finish successfully: task="
+                            + info.taskId() + " state=" + parsed.getState());
+        }
+    }
+
+    private void captureTaskStats(TaskInfo info, long handle,
+                                  org.pangrova.protocol.v2.TaskReport report) {
+        byte[] stats = report.hasNativeTaskStats() ? report.getNativeTaskStats().toByteArray() : null;
+        if (stats == null) {
+            try {
+                stats = deps.taskExecutor().getTaskStats(handle);
+            } catch (IllegalStateException failure) {
+                if (info.executorHandle() != 0) throw failure;
+                var receipt = requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+                if (receipt.hasNativeTaskStats()) stats = receipt.getNativeTaskStats().toByteArray();
+            }
+        }
+        if (stats == null || stats.length == 0) {
+            throw new IllegalStateException("Native task completed without actual statistics: " + info.taskId());
+        }
+        try {
+            var parsed = org.pangrova.protocol.v2.NativeTaskStats.parseFrom(stats);
+            if (!parsed.getUnknownFields().asMap().isEmpty()) {
+                throw new IllegalStateException("Native task statistics contain unknown fields: " + info.taskId());
+            }
+            info.setTerminalTaskStats(stats);
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new IllegalStateException("Native task statistics are malformed: " + info.taskId(), failure);
+        }
+    }
+
+    static org.pangrova.protocol.v2.TaskReport requireCanonicalTaskReport(
+            org.pangrova.protocol.v2.TaskRequest request, byte[] status) {
+        if (status == null || status.length == 0) {
+            throw new IllegalStateException(
+                    "Native task completed without a canonical TaskReport: " + request.getAttempt().getTaskId());
+        }
+        org.pangrova.protocol.v2.TaskReport parsed;
+        try {
+            parsed = org.pangrova.protocol.v2.TaskReport.parseFrom(status);
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            throw new IllegalStateException(
+                    "Native task returned a malformed canonical TaskReport: "
+                            + request.getAttempt().getTaskId(), malformed);
+        }
+        if (!parsed.getUnknownFields().asMap().isEmpty()
+                || !parsed.getAttempt().equals(request.getAttempt())
+                || parsed.getReportOrigin() != org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                || (parsed.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED && parsed.hasError())
+                || (parsed.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED && !parsed.hasError())
+                || (parsed.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                    && parsed.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
+                    && parsed.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED)) {
+            throw new IllegalStateException("Native canonical TaskReport violates its terminal task authority");
+        }
+        return parsed;
     }
 
     void onTaskCompleted(String taskId, TaskInfo info,
                          TaskLifecycleManager.LifecycleCallback callback,
                          Runnable releaseResources) {
         if (!callback.transition(taskId, TaskManager.TaskState.FINISHING)) {
-            // Task may already be CANCELLED or FAILED.
+            // Task may already be CANCELLING or FAILED.
             // Still release resources to prevent native handle / memory leaks.
-            releaseResources.run();
+            releaseThen(info, releaseResources, () -> reportCancelledAfterRelease(info, callback));
             return;
         }
-        releaseResources.run();
-        reportStatus(info, "FINISHED");
+        releaseThen(info, releaseResources, () -> finishCompletedTask(taskId, info, callback));
+    }
+
+    private void finishCompletedTask(String taskId, TaskInfo info,
+                                     TaskLifecycleManager.LifecycleCallback callback) {
         if (!callback.transition(taskId, TaskManager.TaskState.FINISHED)) {
+            reportCancelledAfterRelease(info, callback);
             return;
         }
+        reportStatus(info, "FINISHED");
         logTaskCompleted(taskId);
         callback.clearCoordinatorIndex(info);
         callback.notifyCompletion(info.queryId());
@@ -99,14 +201,51 @@ public final class TaskCompletionMonitor {
     void onTaskError(String taskId, TaskInfo info, Exception cause,
                      TaskLifecycleManager.LifecycleCallback callback,
                      Runnable releaseResources) {
+        if (info.getState() == TaskManager.TaskState.CANCELLING) {
+            releaseThen(info, releaseResources, () -> reportCancelledAfterRelease(info, callback));
+            return;
+        }
         boolean nativeUnsupported = isNativeUnsupportedFeature(cause);
         logTaskError(taskId, info, cause, nativeUnsupported);
         logTaskErrorToCollector(taskId, cause);
-        releaseResources.run();
-        reportErrorStatus(info, cause, nativeUnsupported);
+        releaseThen(info, releaseResources, () -> finishFailedTask(taskId, info, callback, cause, nativeUnsupported));
+    }
+
+    private void finishFailedTask(String taskId, TaskInfo info,
+                                  TaskLifecycleManager.LifecycleCallback callback,
+                                  Exception cause, boolean nativeUnsupported) {
         if (callback.transition(taskId, TaskManager.TaskState.FAILED)) {
+            reportErrorStatus(info, cause, nativeUnsupported);
             callback.clearCoordinatorIndex(info);
+        } else {
+            reportCancelledAfterRelease(info, callback);
         }
+    }
+
+    private static void releaseThen(TaskInfo info, Runnable release, Runnable continuation) {
+        try {
+            release.run();
+        } catch (RuntimeException failure) {
+            info.retainCleanupRetry(() -> releaseThen(info, release, continuation));
+            throw failure;
+        }
+        continuation.run();
+    }
+
+    private void reportCancelledAfterRelease(
+            TaskInfo info, TaskLifecycleManager.LifecycleCallback callback) {
+        if (info.getState() != TaskManager.TaskState.CANCELLING
+                || !callback.transition(info.taskId(), TaskManager.TaskState.CANCELLED)
+                || !info.markCancellationReported()) {
+            return;
+        }
+        if (statusCollector != null && info.request() != null) {
+            statusCollector.reportWorkerTerminalStatus(info, "CANCELLED",
+                    new org.pangrova.protocol.rest.error.ErrorDetail(
+                            "TASK_CANCELLED", "Cancellation",
+                            "Task cancelled by control plane"));
+        }
+        callback.clearCoordinatorIndex(info);
     }
 
     private static final int MAX_TRANSIENT_RETRIES = 3;
@@ -126,12 +265,12 @@ public final class TaskCompletionMonitor {
      */
     private static final long INITIAL_BACKOFF_MS = 50;
 
-    private void pollUntilFinished(String taskId, long handle) throws Exception {
+    private void pollUntilFinished(String taskId, TaskInfo info, long handle) throws Exception {
         int transientRetries = 0;
         long backoffMs = INITIAL_BACKOFF_MS;
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                if (deps.taskExecutor().isFinished(handle)) {
+                if (isFinishedOrReleased(info, handle)) {
                     return;
                 }
                 // Stage boundary quota check: verify tenant hasn't exceeded runtime limits
@@ -145,6 +284,21 @@ public final class TaskCompletionMonitor {
                 transientRetries++;
                 backoffMs = handlePollFailure(handle, e, transientRetries, backoffMs);
             }
+        }
+        throw new InterruptedException("Task completion monitor interrupted before Native termination");
+    }
+
+    private boolean isFinishedOrReleased(TaskInfo info, long handle) {
+        if (info.executorHandle() == 0) {
+            requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            return true;
+        }
+        try {
+            return deps.taskExecutor().isFinished(handle);
+        } catch (IllegalStateException failure) {
+            if (info.executorHandle() != 0) throw failure;
+            requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            return true;
         }
     }
 
@@ -239,10 +393,37 @@ public final class TaskCompletionMonitor {
         String errorCode = nativeUnsupported
                 ? PangrovaErrorCode.NATIVE_FALLBACK_REQUIRED.getCode()
                 : "INTERNAL_ERROR";
-        ErrorDetail error = new ErrorDetail(
+        ErrorDetail error = nativeFailureDetail(info);
+        if (error == null) {
+            error = new ErrorDetail(
                 errorCode, cause.getClass().getSimpleName(), cause.getMessage());
+        }
         if (statusCollector != null) {
-            statusCollector.reportStatus(info, "FAILED", error);
+            // A Native report may be absent, malformed, or describe a different
+            // state (for example FINISHED before stats capture failed). The
+            // Worker owns its failure and reports conservative zero coverage.
+            statusCollector.reportWorkerTerminalStatus(info, "FAILED", error);
+        }
+    }
+
+    private static ErrorDetail nativeFailureDetail(TaskInfo info) {
+        byte[] encoded = info.terminalTaskReport();
+        if (encoded == null || encoded.length == 0 || info.request() == null) {
+            return null;
+        }
+        try {
+            var status = org.pangrova.protocol.v2.TaskReport.parseFrom(encoded);
+            if (status.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
+                    || !status.hasError()
+                    || !status.getAttempt().equals(info.request().taskRequest().getAttempt())
+                    || status.getError().getCode().isBlank()) {
+                return null;
+            }
+            var nativeError = status.getError();
+            return new ErrorDetail(nativeError.getCode(),
+                    nativeError.getErrorClass().name(), nativeError.getMessage());
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            return null;
         }
     }
 

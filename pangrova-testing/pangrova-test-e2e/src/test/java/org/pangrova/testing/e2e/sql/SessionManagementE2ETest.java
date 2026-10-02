@@ -51,26 +51,14 @@ class SessionManagementE2ETest extends PangrovaE2ETestBase {
         @DisplayName("SET session property syntax is accepted")
         void setSessionProperty() {
             String sql = "SET 'query.max-execution-time' = '300s'";
-            try {
-                executeDdl(sql);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("mismatched input");
-            }
+            executeDdl(sql);
         }
 
         @Test
         @DisplayName("SET catalog property")
         void setCatalogProperty() {
             String sql = "SET 'catalog.default' = '" + CATALOG + "'";
-            try {
-                executeDdl(sql);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("mismatched input");
-            }
+            executeDdl(sql);
         }
 
         @Test
@@ -78,14 +66,8 @@ class SessionManagementE2ETest extends PangrovaE2ETestBase {
         void setMultipleProperties() {
             String sql1 = "SET 'query.max-memory' = '4GB'";
             String sql2 = "SET 'task.concurrency' = '16'";
-            try {
-                executeDdl(sql1);
-                executeDdl(sql2);
-            } catch (AssertionError e) {
-                // At least one should be accepted syntactically
-                String error = executeExpectingError(sql1);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            executeDdl(sql1);
+            executeDdl(sql2);
         }
     }
 
@@ -97,14 +79,8 @@ class SessionManagementE2ETest extends PangrovaE2ETestBase {
         @DisplayName("SHOW SESSION syntax is accepted")
         void showSession() {
             String sql = "SHOW SESSION";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("mismatched input");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).isNotNull();
         }
     }
 }

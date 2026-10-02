@@ -13,6 +13,8 @@
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
+#include "velox/vector/DecodedVector.h"
+#include "velox/type/DecimalUtil.h"
 
 namespace pangrova::velox {
 
@@ -77,14 +79,14 @@ template <typename SourceCppType, typename TargetCppType>
 void widenValues(
     const facebook::velox::VectorPtr& source,
     const facebook::velox::VectorPtr& target) {
-  auto src = source->asFlatVector<SourceCppType>();
+  facebook::velox::DecodedVector src(*source);
   auto dst = target->asFlatVector<TargetCppType>();
   auto size = source->size();
   for (facebook::velox::vector_size_t i = 0; i < size; ++i) {
-    if (source->isNullAt(i)) {
+    if (src.isNullAt(i)) {
       target->setNull(i, true);
     } else {
-      dst->set(i, static_cast<TargetCppType>(src->valueAt(i)));
+      dst->set(i, static_cast<TargetCppType>(src.valueAt<SourceCppType>(i)));
     }
   }
 }
@@ -97,6 +99,31 @@ facebook::velox::VectorPtr castColumn(
     facebook::velox::memory::MemoryPool* pool) {
   auto size = source->size();
   auto result = facebook::velox::BaseVector::create(target_type, size, pool);
+
+  if (source->type()->isDecimal() && target_type->isDecimal()) {
+    const auto [source_precision, source_scale] = facebook::velox::getDecimalPrecisionScale(*source->type());
+    const auto [target_precision, target_scale] = facebook::velox::getDecimalPrecisionScale(*target_type);
+    if (target_scale < source_scale || target_precision - target_scale < source_precision - source_scale) {
+      throw std::invalid_argument("Physical decimal schema evolution must preserve precision and scale");
+    }
+    facebook::velox::DecodedVector decoded(*source);
+    for (facebook::velox::vector_size_t row = 0; row < size; ++row) {
+      if (decoded.isNullAt(row)) {
+        result->setNull(row, true);
+        continue;
+      }
+      facebook::velox::int128_t value = source->type()->isShortDecimal()
+          ? decoded.valueAt<int64_t>(row) : decoded.valueAt<facebook::velox::int128_t>(row);
+      if (__builtin_mul_overflow(value,
+              facebook::velox::DecimalUtil::kPowersOfTen[target_scale - source_scale], &value)
+          || !facebook::velox::DecimalUtil::valueInPrecisionRange(value, target_precision)) {
+        throw std::overflow_error("Physical decimal schema evolution exceeds target precision");
+      }
+      if (target_type->isShortDecimal()) result->asFlatVector<int64_t>()->set(row, static_cast<int64_t>(value));
+      else result->asFlatVector<facebook::velox::int128_t>()->set(row, value);
+    }
+    return result;
+  }
 
   using TK = facebook::velox::TypeKind;
   using WidenFn = void(*)(const facebook::velox::VectorPtr&,
@@ -197,6 +224,11 @@ facebook::velox::VectorPtr createDefaultConstantVector(
 
 }  // namespace
 
+facebook::velox::TypePtr resolveSchemaEvolutionType(
+    const std::string& type_name) {
+  return resolveType(type_name);
+}
+
 // Resolve missing column: check default_value from mapping config,
 // then fall back to null constant.
 facebook::velox::VectorPtr resolveMissingColumn(
@@ -220,7 +252,8 @@ facebook::velox::RowVectorPtr applyColumnMapping(
     const std::vector<split::ColumnMappingConfig>& column_mappings,
     const facebook::velox::RowTypePtr& output_type,
     facebook::velox::memory::MemoryPool* pool) {
-  if (column_mappings.empty()) {
+  if (column_mappings.empty() &&
+      input->type()->equivalent(*output_type)) {
     return input;
   }
 
@@ -264,6 +297,10 @@ facebook::velox::RowVectorPtr applyColumnMapping(
 
     // Try mapped source column.
     if (mapping) {
+      if (mapping->source_id < 0) {
+        output_children.push_back(resolveMissingColumn(mapping, target_col_type, num_rows, pool));
+        continue;
+      }
       auto source_it = input_name_to_index.find(toLower(mapping->source_name));
       if (source_it != input_name_to_index.end()) {
         output_children.push_back(input->childAt(source_it->second));

@@ -32,6 +32,100 @@ Class, package, and proto names must not leak framework names into modules that 
 - **C7**: No `Simple*`/`Legacy*` in SPI.
 - **C8**: No `NoOp*` in SPI — belongs in impl modules.
 
+## Java package architecture
+
+These rules apply immediately to new or moved code. Existing violations must be
+tracked as a ratcheted baseline: they may decrease, never increase. The target
+ownership map is defined in `docs/architecture/long-term-modular-architecture.md`.
+
+### Ownership and visibility
+
+- Every code-bearing Maven leaf owns one or more explicit package roots. Roots
+  owned by different leaves MUST NOT be equal or prefix-overlap.
+- A multi-leaf product family root (for example `org.pangrova.worker`,
+  `org.pangrova.shuffle`, `org.pangrova.connector`, or
+  `org.pangrova.testing`) MUST NOT be claimed by more than one leaf. Sibling
+  leaves use non-overlapping roots such as `.runtime`, `.service`, or
+  `.testkit`.
+- Domain API, Core, Store, Assembly, and Server are logical package boundaries
+  inside one owner artifact by default. They become separate artifacts only
+  for an independently published contract, dependency/classloader isolation,
+  a process/distribution boundary, or JNI/native packaging. Directory symmetry
+  and a single implementation are not sufficient reasons to split.
+- A merged owner artifact MUST keep adapter-only libraries non-transitive
+  (`optional` or app-supplied runtime dependencies) and prove that every
+  exported API compiles, links, and loads on its declared minimal classpath.
+  JDBC pools/drivers, Flyway, Curator, cloud SDKs, JWT implementations, and
+  provider SDKs must never arrive transitively at an API-only consumer.
+- Cross-module imports are default-deny. They must be allowed by the Maven
+  dependency graph, the source module's per-target `allowedImports`, and the
+  target module's `exports` or `friendExports` entry in
+  `.pangrova/modules.yaml`.
+- Cross-bounded-context code may depend only on a registered shared primitive
+  library, API, SPI, protocol, or producer-owned event package. Importing
+  another context's `.core`,
+  `.internal`, `.store`, `.bootstrap`, `.endpoint`, or `.server` package is
+  forbidden. The same dependency direction must be enforced between packages
+  inside a merged owner artifact. A separate adapter may use only its
+  explicitly listed friend port.
+- A generic `event-api` artifact is forbidden. `org.pangrova.common.event` may
+  contain only the stable envelope, identity, timestamp, schema/version, and
+  minimal publication primitives; event payloads remain in the producing
+  owner's exported capability package.
+- `pangrova-metadata` owns technical object identity, schema, version, binding,
+  and statistics references only. Business concepts, terms, metrics,
+  relationships, semantic views, ontologies, and their publication state MUST
+  be owned by `pangrova-semantic`; AI grounding/evaluation state MUST be owned
+  by `pangrova-ai-control`. Metadata MUST NOT import either implementation.
+- `pangrova-semantic` is one owner artifact with internal model, relationship,
+  ontology, compiler, projection, adapter, and JDBC-store package boundaries.
+  A generic `pangrova-graph` artifact is forbidden. RDF/SKOS/OWL/SHACL,
+  reasoner, and graph-database types may occur only in semantic adapter
+  packages and MUST NOT leak into exported API, Planner, Query, Execution, JNI,
+  or Connector SPI signatures.
+- Metadata dependency graphs, Semantic knowledge graphs, Governance lineage
+  graphs, and Indexing/AI retrieval graphs are distinct facts with distinct
+  owners. A projection or index is rebuildable and MUST NOT become the
+  authority for semantic definitions, permissions, or publication pointers.
+- AI-produced SQL or actions MUST pass through a versioned grounding snapshot,
+  deterministic semantic compilation, Planner validation, Security decision,
+  and the applicable approval/action policy. LLM output is never an execution
+  authorization and AI Worker MUST NOT persist semantic or ontology authority.
+- A capability/runtime leaf MUST NOT depend on a process artifact's assembly,
+  server, resource, or bootstrap packages. A same-family host port may be used
+  only as a `provided` dependency through a declared friend export; promote it
+  to a dedicated SPI artifact when it gains external compatibility or a second
+  independent provider family.
+- Split packages are forbidden across main, test fixture, generated, shaded,
+  and plugin runtime artifacts. Every code-bearing JAR must have a stable,
+  unique `Automatic-Module-Name`.
+
+### Package structure and naming
+
+- Under API and Core roots, organize by business capability first and technical
+  role second, for example `metadata.api.catalog`,
+  `query.core.lifecycle.policy`, and `metadata.store.jdbc.catalog`.
+- Do not create horizontal catch-all packages named `service`, `manager`,
+  `util`, `impl`, `model`, or `store`. `model` may only be a local subgroup
+  below a named capability; `store.jdbc` is allowed only as a registered
+  adapter root.
+- Framework or technology names belong only at an adapter boundary, such as
+  `connector.iceberg`, `coordination.zookeeper`, `store.jdbc`, or
+  `planner.substrait`; they must not appear in domain or public API packages.
+- `internal` is documentation, not a Java access boundary. Architecture tests
+  must reject imports of internal packages from any other leaf.
+- Every owned root and every exported/friend-exported package must contain a
+  `package-info.java` documenting its owner, stability, allowed consumers, and
+  prohibited responsibilities.
+- Tests inside a production leaf may mirror that leaf's package to exercise
+  package-private behavior. Reusable test utilities belong under an exclusive
+  testing root such as `org.pangrova.testing.testkit`; they must not create a
+  split package with production code.
+- `pangrova-common` must remain dependency-minimal: no Jetty/Jersey, Jackson,
+  YAML parser, JDBC/Flyway, Curator, cloud SDK, table-format SDK, or provider
+  SDK. Such dependencies belong to Config, wire/serde adapters, owner stores,
+  plugins, or process assembly.
+
 ## Quality gates
 
 - Class ≤ 500 lines. Method ≤ 50 lines, ≤ 8 branches, ≤ 4 indent levels.

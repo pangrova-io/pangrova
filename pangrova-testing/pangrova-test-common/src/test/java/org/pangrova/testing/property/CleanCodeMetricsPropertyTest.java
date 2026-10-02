@@ -71,7 +71,6 @@ class CleanCodeMetricsPropertyTest {
             "StuckBuildRecovery.recoverStuckBuilds",  // inherently multi-branch recovery logic
             "IndexConsistencyChecker.checkSingleIndex",  // inherently multi-branch consistency check
             "IndexCommitHandler.onCommit",  // inherently multi-branch event handler
-            "HnswEngine.expandCandidates",  // inherently multi-branch graph traversal
             "IndexCommitHandler.processLoop",  // inherently multi-branch event loop
             "IndexCommitHandler.processTableCommit",  // inherently multi-branch commit handler
             "IndexCommitHandler.triggerIncrementalBuilds",  // inherently multi-branch build trigger
@@ -84,7 +83,6 @@ class CleanCodeMetricsPropertyTest {
             "CdcConsumer.writeWithRetry",  // inherently multi-branch retry logic
             "L0StatisticsPruner.canSkipByStatistics",  // inherently multi-branch statistics check
             "DmlExpressionEvaluator.extractLiteralColumnValue",  // inherently multi-branch type dispatch
-            "ShuffleDrainThread.run",  // inherently multi-branch drain loop
             "IncrementalAnalyzer.analyze",  // inherently multi-branch incremental analysis
             "DynamicTableRewriter.resolve",  // inherently multi-branch rewrite logic
             "DynamicTableRewriter.tryMergeOnRead",  // inherently multi-branch merge logic
@@ -98,16 +96,12 @@ class CleanCodeMetricsPropertyTest {
             "RowPageConverter.detectColumnType",  // inherently multi-branch type mapping via value class dispatch
             "SplitFetcher.tryExtractOrAsInList",  // inherently multi-branch OR→IN list extraction
             "MemoryArbitrator.decrementQueryAllocation",  // inherently multi-branch memory arbitration
-            "VectorStrategyProvider.build",  // inherently multi-branch vector strategy selection
-            "HnswEngine.shrinkIfNeeded",  // inherently multi-branch HNSW graph maintenance
-            "PartitionPruningRelOptRule.canPruneEntirePartition",  // input-shape guard clauses for column/literal extraction
             "StructuralSubsumptionMatcher.match",  // inherently multi-branch structural pattern matcher
-            "CoordinatorJdbcQueryExecutor.extractValue",  // inherently multi-branch JDBC type dispatch
             "Expression.type",  // inherently multi-branch expression-kind dispatcher
             "IcebergExpressionToSubstrait.convertLiteral",  // inherently multi-branch literal type dispatch
             "IndexPredicateProtoConverter.toProto",  // inherently multi-branch predicate-kind proto serialization
             "IndexPredicateJsonSerializer.toJson",  // inherently multi-branch predicate-kind JSON serialization
-            "DmlExecutor.convertToDeleteFilter",  // inherently multi-branch delete filter conversion
+            "DeleteFilterConverter.convert",  // inherently multi-branch delete filter conversion
             "SqlParser.normalizeCacheKey"  // inherently multi-branch char-by-char SQL literal/quote state machine
     );
 
@@ -123,8 +117,7 @@ class CleanCodeMetricsPropertyTest {
             "PangrovaSort",  // Calcite Sort signature (cluster, traitSet, input, collation, offset, fetch)
             "PangrovaAggregate",  // Calcite Aggregate signature (cluster, traitSet, hints, input, groupSet, groupSets, aggCalls)
             "CteTempTableScan",  // Calcite TableScan-shaped signature
-            "OpenAiCompatibleEmbeddingProvider",  // wraps full OpenAI client config — burndown tracked
-            "DefaultVectorIndexLoader"  // DI bundle: 7 deps for engine+cache+storage+serializer+fs+path+reader
+            "OpenAiCompatibleEmbeddingProvider"  // wraps full OpenAI client config — burndown tracked
     );
 
     /** Methods excluded from line count check (exhaustive type mapping switches). */
@@ -142,7 +135,6 @@ class CleanCodeMetricsPropertyTest {
             "DdlPropagationWaiter.waitForPropagation",  // inherently multi-step propagation wait
             "MetadataSyncService.detectSchemaChanges",  // inherently multi-step schema change detection
             "IncrementalMerger.merge",  // inherently multi-step merge logic
-            "WorkerResultFetcher.fetchWithRetry",  // inherently multi-step retry logic
             "HighAvailabilityBootstrap.startHA",  // inherently multi-step HA bootstrap
             "CoordinatorBootstrap.start",  // inherently multi-step coordinator bootstrap
             "CoordinatorBootstrap.shutdown",  // inherently multi-step coordinator shutdown
@@ -204,11 +196,9 @@ class CleanCodeMetricsPropertyTest {
             "SplitFetcher",  // 583 lines, split fetcher — needs dedicated split spec
             "AstToSqlNodeConverter",  // AST converter — buildExtensionDispatch inherently multi-branch
             "PlanNodeConverter",  // 625 lines, Substrait↔RelNode converter — needs dedicated split spec
-            "ColumnarQueryService",  // 536 lines, columnar query orchestrator — needs dedicated split spec
             "RemoteTaskDispatcher",  // 505 lines, remote task dispatcher — needs dedicated split spec
             "AstBuilder",  // 652 lines, AST builder — needs dedicated split spec
             "PangrovaRestClient",  // 590 lines, REST client — needs dedicated split spec
-            "HnswEngine",  // 519 lines, HNSW vector engine — needs dedicated split spec
             "PangrovaPreparedStatement",  // 532 lines, JDBC prepared statement — JDBC API surface area
             "IcebergSplitManager",  // 505 lines, Iceberg split manager — needs dedicated split spec
             "QueryManager",  // 506 lines, query manager — needs dedicated split spec

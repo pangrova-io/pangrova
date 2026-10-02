@@ -42,7 +42,7 @@ class OptimizationCorrectnessTest extends SqlE2ETestBase {
 
     @BeforeAll
     static void loadTestData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         seedTables();
@@ -144,17 +144,13 @@ class OptimizationCorrectnessTest extends SqlE2ETestBase {
         @Test
         @DisplayName("correlated subquery produces correct results")
         void correlatedSubqueryCorrectness() {
-            try {
-                List<TypedRow> rows = sqlRunner.execute(
-                        "SELECT order_id, amount FROM " + T1 + " o "
-                        + "WHERE amount > ("
-                        + "  SELECT AVG(amount) FROM " + T1 + " o2 "
-                        + "  WHERE o2.region = o.region"
-                        + ")");
-                assertThat(rows).isNotEmpty();
-            } catch (AssertionError | RuntimeException e) {
-                // Correlated subquery decorrelation not fully supported in Velox
-            }
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT order_id, amount FROM " + T1 + " o "
+                    + "WHERE amount > ("
+                    + "  SELECT AVG(amount) FROM " + T1 + " o2 "
+                    + "  WHERE o2.region = o.region"
+                    + ")");
+            assertThat(rows).isNotEmpty();
         }
 
         @Test

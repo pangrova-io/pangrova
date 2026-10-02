@@ -113,6 +113,7 @@ jobs:
         run: |
           ./pangrova-worker-native/bin/setup-native-build-env.sh
           source ~/.pangrova/env.sh
+          ./pangrova-worker-native/bin/build-lance-ffi.sh
           cd pangrova-worker-native
           cmake --preset dev-release
           cmake --build build --target all
@@ -122,7 +123,13 @@ jobs:
           RESOURCE_DIR=pangrova-native-bundle/src/main/resources/META-INF/native/linux/x86_64
           mkdir -p "${RESOURCE_DIR}"
           cp pangrova-worker-native/build/libpangrova_native.so "${RESOURCE_DIR}/"
-          mvn -B install -pl pangrova-native-bundle -Dnative.platform.classifier=linux-x86_64 -DskipTests
+          mvn -B install -pl pangrova-native-bundle \
+            -Dnative.platform.classifier=linux-x86_64 \
+            -Dnative.resource.dir=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/linux/x86_64 \
+            -Dnative.resource.os=linux \
+            -Dnative.resource.arch=x86_64 \
+            -Dnative.library.path=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/linux/x86_64/libpangrova_native.so \
+            -DskipTests
           mvn -B package -DskipTests -pl '!pangrova-native-bundle'
 
       - name: Upload build artifacts

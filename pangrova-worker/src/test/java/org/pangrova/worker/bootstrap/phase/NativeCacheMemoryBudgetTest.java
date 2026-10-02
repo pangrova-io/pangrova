@@ -2,14 +2,14 @@ package org.pangrova.worker.bootstrap.phase;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.protocol.v1.NativeInitConfig;
+import org.pangrova.protocol.v2.RuntimeInitConfig;
 import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
 import org.pangrova.worker.cache.NativeCacheConfig;
 import org.junit.jupiter.api.Test;
 
 /**
  * Validates cache memory budget wiring: NativeCacheConfig fields are
- * propagated to the NativeInitConfig proto via buildNativeInitConfigBytes.
+ * propagated to the canonical RuntimeInitConfig proto via buildNativeInitConfigBytes.
  */
 class NativeCacheMemoryBudgetTest {
 
@@ -20,23 +20,30 @@ class NativeCacheMemoryBudgetTest {
                 4L * 1024 * 1024 * 1024,
                 "/mnt/nvme0/cache",
                 100L * 1024 * 1024 * 1024,
-                8);
+                8,
+                0,
+                "/mnt/nvme0/artifacts",
+                200L * 1024 * 1024 * 1024,
+                3L * 1024 * 1024 * 1024);
 
         WorkerBootstrapConfig config = WorkerBootstrapConfig.withDefaults("w-cache");
         byte[] bytes = NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, cacheConfig);
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(bytes);
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(bytes);
 
         assertThat(parsed.getCacheEnabled()).isTrue();
         assertThat(parsed.getRamCacheBytes()).isEqualTo(4L * 1024 * 1024 * 1024);
         assertThat(parsed.getSsdCacheBytes()).isEqualTo(100L * 1024 * 1024 * 1024);
         assertThat(parsed.getSsdCachePath()).isEqualTo("/mnt/nvme0/cache");
+        assertThat(parsed.getArtifactCachePath()).isEqualTo("/mnt/nvme0/artifacts");
+        assertThat(parsed.getArtifactCacheBytes()).isEqualTo(200L * 1024 * 1024 * 1024);
+        assertThat(parsed.getArtifactIndexMemoryBytes()).isEqualTo(3L * 1024 * 1024 * 1024);
     }
 
     @Test
     void disabledCacheIsReflectedInProto() throws Exception {
         WorkerBootstrapConfig config = WorkerBootstrapConfig.withDefaults("w-disabled");
         byte[] bytes = NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED);
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(bytes);
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(bytes);
 
         assertThat(parsed.getCacheEnabled()).isFalse();
         assertThat(parsed.getRamCacheBytes()).isZero();
@@ -47,7 +54,7 @@ class NativeCacheMemoryBudgetTest {
     void defaultConfigPropagatesExpectedValues() throws Exception {
         WorkerBootstrapConfig config = WorkerBootstrapConfig.withDefaults("w-defaults");
         byte[] bytes = NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DEFAULT);
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(bytes);
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(bytes);
 
         assertThat(parsed.getCacheEnabled()).isTrue();
         assertThat(parsed.getRamCacheBytes()).isEqualTo(8L * 1024 * 1024 * 1024);
@@ -58,21 +65,28 @@ class NativeCacheMemoryBudgetTest {
         // Task 157: checkpointIntervalBytes enables SSD warm restart
         assertThat(parsed.getCheckpointIntervalBytes())
                 .isEqualTo(NativeCacheConfig.DEFAULT_CHECKPOINT_INTERVAL_BYTES);
+        assertThat(parsed.getArtifactCachePath())
+                .isEqualTo("/mnt/nvme0/pangrova-artifacts");
+        assertThat(parsed.getArtifactCacheBytes())
+                .isEqualTo(100L * 1024 * 1024 * 1024);
+        assertThat(parsed.getArtifactIndexMemoryBytes())
+                .isEqualTo(2L * 1024 * 1024 * 1024);
     }
 
     @Test
     void customRamCacheBytesConsistentThroughProto() throws Exception {
         NativeCacheConfig cacheConfig = new NativeCacheConfig(
                 true, 2L * 1024 * 1024 * 1024, "/mnt/nvme0/cache",
-                50L * 1024 * 1024 * 1024, 4);
+                50L * 1024 * 1024 * 1024, 4, 0,
+                "/mnt/nvme0/artifacts", 50L * 1024 * 1024 * 1024,
+                512L * 1024 * 1024);
 
         WorkerBootstrapConfig config = WorkerBootstrapConfig.withDefaults("w-custom");
         byte[] bytes = NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, cacheConfig);
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(bytes);
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(bytes);
 
         assertThat(parsed.getRamCacheBytes()).isEqualTo(2L * 1024 * 1024 * 1024);
         assertThat(parsed.getSsdCacheBytes()).isEqualTo(50L * 1024 * 1024 * 1024);
-        // 5-arg ctor defaults checkpointIntervalBytes to 0
         assertThat(parsed.getSsdShards()).isEqualTo(4);
         assertThat(parsed.getCheckpointIntervalBytes()).isZero();
     }
@@ -85,11 +99,14 @@ class NativeCacheMemoryBudgetTest {
                 "/mnt/nvme0/cache",
                 100L * 1024 * 1024 * 1024,
                 16,
+                2L * 1024 * 1024 * 1024,
+                "/mnt/nvme0/artifacts",
+                100L * 1024 * 1024 * 1024,
                 2L * 1024 * 1024 * 1024);
 
         WorkerBootstrapConfig config = WorkerBootstrapConfig.withDefaults("w-shards");
         byte[] bytes = NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, cacheConfig);
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(bytes);
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(bytes);
 
         assertThat(parsed.getSsdShards()).isEqualTo(16);
         assertThat(parsed.getCheckpointIntervalBytes()).isEqualTo(2L * 1024 * 1024 * 1024);
@@ -109,9 +126,9 @@ class NativeCacheMemoryBudgetTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null);
+                null, null, null);
 
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED));
 
         assertThat(parsed.getSpillDirectory()).isEqualTo("/mnt/nvme0/spill");
@@ -122,7 +139,7 @@ class NativeCacheMemoryBudgetTest {
     void unsetSpillDirectoryLeavesSpillDisabled() throws Exception {
         WorkerBootstrapConfig config = WorkerBootstrapConfig.withDefaults("w-no-spill");
 
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED));
 
         assertThat(parsed.getSpillDirectory()).isEmpty();
@@ -138,13 +155,43 @@ class NativeCacheMemoryBudgetTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, null, null, null,
                 null, null,
-                null);
+                null, null, null);
 
-        NativeInitConfig parsed = NativeInitConfig.parseFrom(
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
                 NativeRuntimeBootstrap.buildNativeInitConfigBytes(config, NativeCacheConfig.DISABLED));
 
         assertThat(parsed.getSpillDirectory()).isEmpty();
         assertThat(parsed.getSpillEnabled()).isFalse();
+    }
+
+    @Test
+    void transportSecurityPropagatesThroughCanonicalV2RuntimeConfig() throws Exception {
+        WorkerBootstrapConfig defaults = WorkerBootstrapConfig.withDefaults("w-tls");
+        WorkerBootstrapConfig config = new WorkerBootstrapConfig(
+                defaults.workerId(), defaults.httpPort(), defaults.transportPort(),
+                defaults.coordinatorUrl(), defaults.heartbeatIntervalMs(),
+                defaults.observabilityEnabled(), defaults.observabilityBootstrapConfig(),
+                defaults.resourceConfig(), defaults.resultRetentionSeconds(),
+                defaults.cdcEnabled(), defaults.registrationRetryConfig(),
+                defaults.httpHost(), defaults.internalAuthSecret(), defaults.shuffleMode(),
+                defaults.cacheConfig(), defaults.advertisedHost(), defaults.nativeFunctionConfig(),
+                new WorkerBootstrapConfig.TransportSecurityConfig(
+                        true, "/secrets/worker.crt", "/secrets/worker.key",
+                        "/secrets/ca.crt", "worker-1.internal"));
+
+        RuntimeInitConfig parsed = RuntimeInitConfig.parseFrom(
+                NativeRuntimeBootstrap.buildNativeInitConfigBytes(
+                        config, NativeCacheConfig.DISABLED));
+
+        assertThat(parsed.getTransportSecurity().getTlsEnabled()).isTrue();
+        assertThat(parsed.getTransportSecurity().getCertificateChainPath())
+                .isEqualTo("/secrets/worker.crt");
+        assertThat(parsed.getTransportSecurity().getPrivateKeyPath())
+                .isEqualTo("/secrets/worker.key");
+        assertThat(parsed.getTransportSecurity().getRootCaPath())
+                .isEqualTo("/secrets/ca.crt");
+        assertThat(parsed.getTransportSecurity().getTlsIdentity())
+                .isEqualTo("worker-1.internal");
     }
 
     private static WorkerBootstrapConfig.ResourceConfig resourceConfigWithSpillDir(String spillDir) {
@@ -154,6 +201,8 @@ class NativeCacheMemoryBudgetTest {
                 defaults.queryThreads(), defaults.ioThreads(), defaults.schedulerThreads(),
                 spillDir, defaults.nodeMemoryBytes(),
                 defaults.pressureThresholdLow(), defaults.pressureThresholdMedium(),
-                defaults.pressureThresholdHigh(), defaults.pressureThresholdCritical());
+                defaults.pressureThresholdHigh(), defaults.pressureThresholdCritical(),
+                defaults.shuffleRetentionBytes(), defaults.shuffleTransitBytes(),
+                defaults.shuffleSpillBytes(), defaults.shuffleSpillFiles(), spillDir);
     }
 }

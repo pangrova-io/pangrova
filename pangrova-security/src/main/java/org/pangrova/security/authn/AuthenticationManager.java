@@ -8,6 +8,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -26,10 +27,9 @@ import org.slf4j.LoggerFactory;
  * Tracks per-authenticator metrics: success/failure counts, latency, and health status.
  * All auth events are logged in structured key=value format.
  *
- * <h3>Degradation Strategy</h3>
- * If an authenticator is {@link AuthenticatorHealthStatus#UNHEALTHY}, it is skipped
- * during authentication and the next authenticator in the chain is tried. This prevents
- * slow/failing backends from blocking the entire authentication flow.
+ * <p>Health is observable, never an authorization routing decision. A matching
+ * authenticator remains authoritative even when its backend is unhealthy; failure
+ * must not select a less restrictive authenticator.
  *
  * <h3>Periodic Health Check</h3>
  * Optionally runs periodic health checks against all authenticators to update their
@@ -52,6 +52,7 @@ public class AuthenticationManager implements AutoCloseable {
     private final List<Authenticator> authenticators;
     private final ConcurrentHashMap<String, AuthenticatorState> stateByName;
     private final ScheduledExecutorService healthCheckScheduler;
+    private final AtomicBoolean closed = new AtomicBoolean();
 
     /**
      * Immutable snapshot of health state: consecutive failures + derived status.
@@ -146,7 +147,7 @@ public class AuthenticationManager implements AutoCloseable {
 
     /**
      * Iterates authenticators in order; delegates to the first that supports the request.
-     * Unhealthy authenticators are skipped with structured logging.
+     * Health status never changes which matching authenticator is authoritative.
      *
      * @param request the authentication request
      * @return the authentication result
@@ -154,14 +155,11 @@ public class AuthenticationManager implements AutoCloseable {
      */
     public AuthenticationResult authenticate(AuthenticationRequest request) {
         Objects.requireNonNull(request, "request must not be null");
+        if (closed.get()) {
+            return AuthenticationResult.failure("Authentication manager is closed");
+        }
         for (Authenticator auth : authenticators) {
             if (!auth.supports(request)) {
-                continue;
-            }
-            AuthenticatorState state = stateByName.get(auth.getName());
-            if (state != null && state.health.get().status() == AuthenticatorHealthStatus.UNHEALTHY) {
-                LOG.warn("event=authenticator_skipped authenticator={} reason=unhealthy clientIp={}",
-                        auth.getName(), request.clientIp());
                 continue;
             }
             return safeAuthenticate(auth, request);
@@ -196,7 +194,9 @@ public class AuthenticationManager implements AutoCloseable {
             LOG.info("event=authentication_success authenticator={} clientIp={} latencyMs={}",
                     authName, clientIp, latencyMs);
         } else {
-            recordFailure(state, authName, clientIp, latencyMs);
+            state.failureCount.incrementAndGet();
+            LOG.info("event=authentication_denied authenticator={} clientIp={} latencyMs={}",
+                    authName, clientIp, latencyMs);
         }
     }
 
@@ -244,6 +244,9 @@ public class AuthenticationManager implements AutoCloseable {
      * Called periodically by the health check scheduler, or can be invoked manually.
      */
     public void runHealthChecks() {
+        if (closed.get()) {
+            return;
+        }
         for (Authenticator auth : authenticators) {
             AuthenticatorState state = stateByName.computeIfAbsent(auth.getName(), k -> new AuthenticatorState());
             checkSingleAuthenticator(auth, state);
@@ -315,8 +318,26 @@ public class AuthenticationManager implements AutoCloseable {
 
     @Override
     public void close() {
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
         if (healthCheckScheduler != null) {
             healthCheckScheduler.shutdownNow();
+        }
+        RuntimeException failure = null;
+        for (Authenticator authenticator : authenticators) {
+            try {
+                authenticator.close();
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) {
+                    failure = closeFailure;
+                } else {
+                    failure.addSuppressed(closeFailure);
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 }

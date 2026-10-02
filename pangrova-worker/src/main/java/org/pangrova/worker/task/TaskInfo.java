@@ -26,6 +26,7 @@ public final class TaskInfo {
 
     // --- Mutable execution state (delegated) ---
     private final TaskExecutionState execution = new TaskExecutionState();
+    private final TaskCleanupRetry cleanupRetry = new TaskCleanupRetry();
 
     TaskInfo(String taskId, String queryId, SubmitTaskRequest request,
              TaskDescriptor descriptor, Instant startTime) {
@@ -43,6 +44,9 @@ public final class TaskInfo {
     public SubmitTaskRequest request() { return request; }
     public TaskDescriptor descriptor() { return descriptor; }
     public Instant startTime() { return startTime; }
+
+    void retainCleanupRetry(Runnable continuation) { cleanupRetry.retain(continuation); }
+    boolean retryCleanup() { return cleanupRetry.retry(); }
 
     // --- State machine (delegated) ---
 
@@ -73,6 +77,22 @@ public final class TaskInfo {
         return execution.compareAndSetExecutorHandle(expected, update);
     }
 
+    java.util.concurrent.CompletableFuture<byte[]> claimExecutorRelease(
+            java.util.concurrent.CompletableFuture<byte[]> candidate) {
+        return execution.claimExecutorRelease(candidate);
+    }
+
+    byte[] executorReleaseReport() { return execution.executorReleaseReport(); }
+
+    java.util.concurrent.CompletableFuture<Void> claimResourcesRelease(
+            java.util.concurrent.CompletableFuture<Void> candidate) {
+        return execution.claimResourcesRelease(candidate);
+    }
+
+    boolean markCancellationReported() {
+        return execution.markCancellationReported();
+    }
+
     // --- Report sequencing (delegated) ---
 
     long nextReportSequence() { return execution.nextReportSequence(); }
@@ -101,7 +121,9 @@ public final class TaskInfo {
     // --- Derived queries ---
 
     public boolean isWriteTask() {
-        return request != null && request.writeConfig() != null;
+        return request != null
+                && request.taskRequest().hasExecutionOptions()
+                && request.taskRequest().getExecutionOptions().hasWrite();
     }
 
     // --- Write commit metadata (delegated) ---
@@ -109,8 +131,28 @@ public final class TaskInfo {
     public byte[] commitMetadata() { return execution.commitMetadata(); }
     public void setCommitMetadata(byte[] metadata) { execution.setCommitMetadata(metadata); }
 
+    // --- Canonical terminal status (delegated) ---
+
+    public byte[] terminalTaskReport() { return execution.terminalTaskReport(); }
+    public void setTerminalTaskReport(byte[] status) {
+        execution.setTerminalTaskReport(status);
+    }
+    public byte[] terminalTaskStats() { return execution.terminalTaskStats(); }
+    public void setTerminalTaskStats(byte[] stats) {
+        execution.setTerminalTaskStats(stats);
+    }
+    void setReleasedTaskStats(byte[] stats) {
+        execution.setReleasedTaskStats(stats);
+    }
+
     // --- Shuffle port (delegated) ---
 
     public int shufflePort() { return execution.shufflePort(); }
     public void setShufflePort(int port) { execution.setShufflePort(port); }
+    public org.pangrova.shuffle.ShuffleServerHandle shuffleServerHandle() {
+        return execution.shuffleServerHandle();
+    }
+    public void setShuffleServerHandle(org.pangrova.shuffle.ShuffleServerHandle handle) {
+        execution.setShuffleServerHandle(handle);
+    }
 }

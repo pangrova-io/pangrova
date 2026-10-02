@@ -13,6 +13,7 @@
  */
 package org.pangrova.transport;
 
+import org.apache.arrow.flight.CallOptions;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStatusCode;
@@ -137,10 +138,15 @@ public final class FlightResultFetcher implements AutoCloseable {
      * @throws TransportServerException     on server-reported error
      */
     public byte[] fetch(ResultEndpoint endpoint) {
+        return fetch(endpoint, Long.MAX_VALUE);
+    }
+
+    /** Fetches the stream under an optional absolute caller deadline. */
+    public byte[] fetch(ResultEndpoint endpoint, long deadlineEpochMs) {
         String poolKey = poolKey(endpoint);
         FlightClient client = getOrCreateClient(poolKey, resolveLocation(endpoint));
-        try (FlightStream stream = client.getStream(ticket(endpoint))) {
-            return serializeStream(stream, endpoint);
+        try (FlightStream stream = openStream(client, endpoint, deadlineEpochMs)) {
+            return serializeStream(stream, endpoint, deadlineEpochMs);
         } catch (TransportException e) {
             if (isConnectionError(e)) {
                 evictClient(poolKey);
@@ -151,12 +157,31 @@ public final class FlightResultFetcher implements AutoCloseable {
             throw connectionError("TRANSPORT_CONNECTION_FAILED",
                     "Transport connection failed to " + detail(endpoint), e);
         } catch (Exception e) {
-            TransportException classified = classifyError(endpoint, e);
+            TransportException classified = deadlineEpochMs != Long.MAX_VALUE
+                    && (System.currentTimeMillis() >= deadlineEpochMs
+                            || e instanceof FlightRuntimeException flightFailure
+                                    && flightFailure.status().code()
+                                    == FlightStatusCode.TIMED_OUT)
+                    ? queryDeadlineExceeded(endpoint, e)
+                    : classifyError(endpoint, e);
             if (isConnectionError(classified)) {
                 evictClient(poolKey);
             }
             throw classified;
         }
+    }
+
+    private static FlightStream openStream(
+            FlightClient client, ResultEndpoint endpoint, long deadlineEpochMs) {
+        if (deadlineEpochMs == Long.MAX_VALUE) {
+            return client.getStream(ticket(endpoint));
+        }
+        long remainingMs = deadlineEpochMs - System.currentTimeMillis();
+        if (remainingMs <= 0) {
+            throw queryDeadlineExceeded(endpoint, null);
+        }
+        return client.getStream(ticket(endpoint),
+                CallOptions.timeout(remainingMs, TimeUnit.MILLISECONDS));
     }
 
     /**
@@ -191,14 +216,15 @@ public final class FlightResultFetcher implements AutoCloseable {
         }
     }
 
-    private static byte[] serializeStream(FlightStream stream, ResultEndpoint endpoint)
+    private static byte[] serializeStream(
+            FlightStream stream, ResultEndpoint endpoint, long deadlineEpochMs)
             throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         VectorSchemaRoot root = stream.getRoot();
         try (ArrowStreamWriter writer = new ArrowStreamWriter(
                 root, null, Channels.newChannel(baos))) {
             writer.start();
-            while (awaitNextBatch(stream, endpoint)) {
+            while (awaitNextBatch(stream, endpoint, deadlineEpochMs)) {
                 writer.writeBatch();
             }
             writer.end();
@@ -238,11 +264,24 @@ public final class FlightResultFetcher implements AutoCloseable {
      * @throws TransportConnectionException if idle timeout exceeded
      */
     private static boolean awaitNextBatch(FlightStream stream, ResultEndpoint endpoint) {
+        return awaitNextBatch(stream, endpoint, Long.MAX_VALUE);
+    }
+
+    private static boolean awaitNextBatch(
+            FlightStream stream, ResultEndpoint endpoint, long deadlineEpochMs) {
+        long waitNanos = readWaitNanos(deadlineEpochMs);
+        if (waitNanos <= 0) {
+            throw queryDeadlineExceeded(endpoint, null);
+        }
         Future<Boolean> future = BATCH_READ_EXECUTOR.submit(stream::next);
         try {
-            return future.get(BATCH_IDLE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            return future.get(waitNanos, TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
             future.cancel(true); // interrupt the blocked gRPC read
+            if (deadlineEpochMs != Long.MAX_VALUE
+                    && System.currentTimeMillis() >= deadlineEpochMs) {
+                throw queryDeadlineExceeded(endpoint, e);
+            }
             throw new TransportConnectionException("TRANSPORT_IDLE_TIMEOUT",
                     "Flight DoGet idle timeout: no batch received within "
                     + BATCH_IDLE_TIMEOUT_SECONDS + "s from " + detail(endpoint)
@@ -260,10 +299,29 @@ public final class FlightResultFetcher implements AutoCloseable {
         }
     }
 
+    static long readWaitNanos(long deadlineEpochMs) {
+        long idleNanos = TimeUnit.SECONDS.toNanos(BATCH_IDLE_TIMEOUT_SECONDS);
+        if (deadlineEpochMs == Long.MAX_VALUE) {
+            return idleNanos;
+        }
+        long remainingMs = deadlineEpochMs - System.currentTimeMillis();
+        if (remainingMs <= 0) {
+            return 0;
+        }
+        return Math.min(idleNanos, TimeUnit.MILLISECONDS.toNanos(remainingMs));
+    }
+
+    private static TransportConnectionException queryDeadlineExceeded(
+            ResultEndpoint endpoint, Throwable cause) {
+        return new TransportConnectionException(
+                "TRANSPORT_QUERY_DEADLINE_EXCEEDED",
+                "Flight DoGet query deadline exceeded for " + detail(endpoint), cause);
+    }
+
     static TransportException classifyError(ResultEndpoint endpoint, Exception e) {
         String msg = e.getMessage();
-        LOG.warn("event=transport_error endpoint={}:{} ticket={} errorClass={} errorMessage={}",
-                endpoint.host(), endpoint.port(), endpoint.ticket(),
+        LOG.warn("event=transport_error endpoint={}:{} errorClass={} errorMessage={}",
+                endpoint.host(), endpoint.port(),
                 e.getClass().getName(), msg, e);
         String detail = detail(endpoint) + " cause=" + e.getClass().getSimpleName() + ": " + msg;
 
@@ -388,7 +446,7 @@ public final class FlightResultFetcher implements AutoCloseable {
     }
 
     private static String detail(ResultEndpoint endpoint) {
-        return endpoint.host() + ":" + endpoint.port() + " ticket=" + endpoint.ticket();
+        return endpoint.host() + ":" + endpoint.port();
     }
 
     private static Ticket ticket(ResultEndpoint endpoint) {

@@ -1,10 +1,12 @@
 package org.pangrova.indexing.build;
 
 import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.zip.CRC32;
 import org.pangrova.indexing.storage.IndexStorageLayout;
 import org.pangrova.spi.connector.index.ColumnValueReader;
 import org.pangrova.spi.connector.index.FileSystemAccessor;
@@ -43,9 +45,12 @@ final class IndexFileBuilder {
     }
 
     private static String checksum(byte[] bytes) {
-        CRC32 crc = new CRC32();
-        crc.update(bytes);
-        return Long.toHexString(crc.getValue());
+        try {
+            return HexFormat.of().formatHex(
+                    MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest is unavailable", e);
+        }
     }
 
     private static final class CountingRows implements Iterator<List<Comparable<?>>> {

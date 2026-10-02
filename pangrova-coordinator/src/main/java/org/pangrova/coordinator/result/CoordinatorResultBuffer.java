@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.result;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.spi.connector.data.page.NativePage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,14 +12,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Coordinator-local buffer for query results.
- * Supports pre-serialized columnar IPC bytes and columnar page passthrough.
+ * Coordinator-local buffer for bounded control-plane statement responses.
  *
  * <p>Concurrency strategy: ConcurrentHashMap for result storage.
  * Expiration scheduling is thread-safe via ScheduledExecutorService.</p>
  *
- * <p>Implements {@link Closeable} to release all buffered NativePages on shutdown.
- * Tracks off-heap byte usage via {@link #offHeapBytes()} for quota enforcement.</p>
+ * <p>Implements {@link Closeable} and tracks buffered byte usage for quota
+ * enforcement. Relational query results must never be inserted here.</p>
  */
 @ThreadSafe
 public final class CoordinatorResultBuffer implements Closeable {
@@ -33,33 +31,24 @@ public final class CoordinatorResultBuffer implements Closeable {
 
     private static final class ResultEntry {
         private final byte[] serializedBytes;
-        private final NativePage arrowPage;
-
-        private ResultEntry(byte[] serializedBytes, NativePage arrowPage) {
+        private ResultEntry(byte[] serializedBytes) {
             this.serializedBytes = serializedBytes;
-            this.arrowPage = arrowPage;
         }
 
         static ResultEntry fromBytes(byte[] bytes) {
-            return new ResultEntry(bytes, null);
-        }
-
-        static ResultEntry fromArrowPage(NativePage page) {
-            return new ResultEntry(null, page);
+            return new ResultEntry(bytes);
         }
 
         byte[] toSerializedBytes() {
-            return serializedBytes != null ? serializedBytes : arrowPage.serializedBatch();
+            return serializedBytes;
         }
 
         long estimatedBytes() {
-            return serializedBytes != null ? serializedBytes.length : arrowPage.serializedBatch().length;
+            return serializedBytes.length;
         }
 
         void release() {
-            if (arrowPage != null && !arrowPage.isClosed()) {
-                arrowPage.close();
-            }
+            // Heap byte arrays are reclaimed by the GC after removal.
         }
     }
 
@@ -112,22 +101,6 @@ public final class CoordinatorResultBuffer implements Closeable {
             return;
         }
         LOG.debug("event=result_buffered queryId={} sizeBytes={}", queryId, resultBytes.length);
-    }
-
-    /** Buffers a native Arrow page, releasing it when insertion is rejected. */
-    public void putArrowPage(String queryId, NativePage arrowPage) {
-        Objects.requireNonNull(queryId, "queryId");
-        Objects.requireNonNull(arrowPage, "arrowPage");
-        ResultEntry entry = ResultEntry.fromArrowPage(arrowPage);
-        boolean inserted = false;
-        try {
-            inserted = tryInsert(queryId, entry);
-        } finally {
-            if (!inserted) {
-                entry.release();
-            }
-        }
-        LOG.debug("event=arrow_page_buffered queryId={} rows={}", queryId, arrowPage.getRowCount());
     }
 
     public byte[] get(String queryId) {

@@ -15,6 +15,7 @@ package org.pangrova.coordinator.ai.embedding;
 
 import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
 import org.pangrova.spi.security.UserIdentity;
+import org.pangrova.security.store.AuthorizationTransactionGate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -38,10 +39,10 @@ import java.util.Optional;
  * operations: if the current DB version does not match the expected version, a
  * {@link VersionConflictException} is thrown and no update is applied.</p>
  *
- * <p>RBAC enforcement mirrors {@link ConcurrentMapEmbeddingModelRegistry}: ADMIN
- * group required for mutating operations; USAGE group required for reads.</p>
+ * <p>Access requires current direct PostgreSQL roles. Each model stores its
+ * administrative and invocation role policy; transient identity groups are not authority.</p>
  *
- * <p>Call {@link #initSchema()} once at bootstrap to create the backing table.</p>
+ * <p>Call {@link #initSchema()} after the canonical metadata migrations to validate the backing table.</p>
  */
 @ThreadSafe
 public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry {
@@ -50,100 +51,109 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
 
     private static final String TABLE = "pangrova_embedding_models";
 
-    private static final String CREATE_TABLE_SQL =
-            "CREATE TABLE IF NOT EXISTS " + TABLE + " ("
-                    + "model_name      VARCHAR(256) NOT NULL, "
-                    + "provider        VARCHAR(128) NOT NULL, "
-                    + "endpoint        VARCHAR(512) NOT NULL, "
-                    + "dimension       INT          NOT NULL, "
-                    + "api_key_secret  VARCHAR(512) NOT NULL, "
-                    + "max_batch_size  INT          NOT NULL, "
-                    + "max_rps         INT          NOT NULL, "
-                    + "query_prefix    TEXT         NOT NULL, "
-                    + "document_prefix TEXT         NOT NULL, "
-                    + "version         INT          NOT NULL DEFAULT 0, "
-                    + "has_dependents  BOOLEAN      NOT NULL DEFAULT FALSE, "
-                    + "PRIMARY KEY (model_name)"
-                    + ")";
-
     private static final String INSERT_SQL =
             "INSERT INTO " + TABLE
                     + " (model_name, provider, endpoint, dimension, api_key_secret,"
-                    + "  max_batch_size, max_rps, query_prefix, document_prefix, version, has_dependents)"
-                    + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "  max_batch_size, max_rps, query_prefix, document_prefix, version,"
+                    + "  deployment_version, deployment_signature_sha256, incarnation_id,"
+                    + "  has_dependents, admin_role, usage_role)"
+                    + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String SELECT_BY_NAME_SQL =
             "SELECT model_name, provider, endpoint, dimension, api_key_secret,"
-                    + " max_batch_size, max_rps, query_prefix, document_prefix, version, has_dependents"
+                    + " max_batch_size, max_rps, query_prefix, document_prefix, version,"
+                    + " deployment_version, deployment_signature_sha256, has_dependents"
+                    + ", incarnation_id"
                     + " FROM " + TABLE + " WHERE model_name = ?";
 
     private static final String SELECT_ALL_SQL =
             "SELECT model_name, provider, endpoint, dimension, api_key_secret,"
-                    + " max_batch_size, max_rps, query_prefix, document_prefix, version, has_dependents"
+                    + " max_batch_size, max_rps, query_prefix, document_prefix, version,"
+                    + " deployment_version, deployment_signature_sha256, has_dependents"
+                    + ", incarnation_id"
                     + " FROM " + TABLE;
 
     private static final String UPDATE_WITH_VERSION_SQL =
             "UPDATE " + TABLE
                     + " SET provider = ?, endpoint = ?, dimension = ?, api_key_secret = ?,"
                     + "     max_batch_size = ?, max_rps = ?, query_prefix = ?, document_prefix = ?,"
-                    + "     version = version + 1"
-                    + " WHERE model_name = ? AND version = ?";
-
-    private static final String DELETE_SQL =
-            "DELETE FROM " + TABLE + " WHERE model_name = ?";
-
-    private static final String SELECT_HAS_DEPENDENTS_SQL =
-            "SELECT has_dependents FROM " + TABLE + " WHERE model_name = ?";
+                    + "     version = ?, deployment_version = ?,"
+                    + "     deployment_signature_sha256 = ?"
+                    + " WHERE model_name = ? AND version = ? AND incarnation_id = ?";
 
     private static final String UPDATE_DEPENDENTS_SQL =
             "UPDATE " + TABLE + " SET has_dependents = ? WHERE model_name = ?";
 
-    /** JDBC parameter index of the has_dependents column in the insert statement. */
-    private static final int HAS_DEPENDENTS_PARAM_INDEX = 11;
-
     private final DataSource dataSource;
-    private final String adminGroup;
-    private final String usageGroup;
+    private final String adminRole;
+    private final String usageRole;
 
-    /** Creates a JDBC-backed registry enforcing the given admin and usage access groups. */
-    public JdbcEmbeddingModelRegistry(DataSource dataSource, String adminGroup, String usageGroup) {
+    /** Creates a registry whose new models explicitly require the given persistent roles. */
+    public JdbcEmbeddingModelRegistry(DataSource dataSource, String adminRole, String usageRole) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource required");
-        if (adminGroup == null || adminGroup.isBlank()) {
-            throw new IllegalArgumentException("adminGroup required");
+        if (adminRole == null || adminRole.isBlank()) {
+            throw new IllegalArgumentException("adminRole required");
         }
-        if (usageGroup == null || usageGroup.isBlank()) {
-            throw new IllegalArgumentException("usageGroup required");
+        if (usageRole == null || usageRole.isBlank()) {
+            throw new IllegalArgumentException("usageRole required");
         }
-        this.adminGroup = adminGroup;
-        this.usageGroup = usageGroup;
+        this.adminRole = adminRole;
+        this.usageRole = usageRole;
     }
 
     /**
-     * Creates the backing table if it does not already exist.
-     * Must be called once at bootstrap before any other method.
+     * Validates the canonical migrated schema without creating or upgrading any table.
+     * Missing columns fail closed; only the metadata Flyway migration chain may change this schema.
      */
     public void initSchema() {
         try (Connection conn = dataSource.getConnection();
              var stmt = conn.createStatement()) {
-            stmt.execute(CREATE_TABLE_SQL);
-            LOG.info("event=embedding_model_registry_schema_initialized");
+            try (var schema = stmt.executeQuery("SELECT model_name,provider,endpoint,dimension,api_key_secret,"
+                    + "max_batch_size,max_rps,query_prefix,document_prefix,version,deployment_version,"
+                    + "deployment_signature_sha256,incarnation_id,has_dependents,admin_role,usage_role "
+                    + "FROM " + TABLE + " WHERE FALSE")) {
+                schema.getMetaData();
+            }
+            LOG.info("event=embedding_model_registry_schema_validated");
         } catch (SQLException e) {
-            throw new IllegalStateException("Failed to initialize embedding model registry schema", e);
+            throw new IllegalStateException("Embedding model registry requires the canonical metadata migrations", e);
+        }
+    }
+
+    @Override
+    public void authorizeCreate(String name, UserIdentity user) {
+        requireAdmin(user, "CREATE", name);
+    }
+
+    @Override
+    public EmbeddingModelAlterTarget prepareAlter(String name, UserIdentity user) {
+        requireAdmin(user, "ALTER", name);
+        try (Connection conn = dataSource.getConnection()) {
+            RegisteredModel model = findRecordByName(conn, name)
+                    .orElseThrow(() -> new ModelNotFoundException(name));
+            return model.alterTarget();
+        } catch (SQLException e) {
+            throw new IllegalStateException(
+                    "Failed to prepare embedding model alteration: " + name, e);
         }
     }
 
     @Override
     public void create(EmbeddingModelDescriptor descriptor, UserIdentity user) {
-        requireAdmin(user, "CREATE", descriptor.name());
+        authorizeCreate(descriptor.name(), user);
         if (descriptor.version() != 0) {
             throw new IllegalArgumentException("New model version must be 0, got: " + descriptor.version());
         }
         try (Connection conn = dataSource.getConnection()) {
-            if (findByName(conn, descriptor.name()).isPresent()) {
+            conn.setAutoCommit(false);
+            AuthorizationTransactionGate.lockMutation(conn);
+            EmbeddingModelRoleAuthority.requireRole(conn, user, adminRole, "CREATE", descriptor.name());
+            insert(conn, descriptor, java.util.UUID.randomUUID().toString(), false);
+            conn.commit();
+        } catch (SQLException e) {
+            if (isUniqueConstraintViolation(e)) {
                 throw new ModelAlreadyExistsException(descriptor.name());
             }
-            upsert(conn, descriptor, false);
-        } catch (SQLException e) {
             throw new IllegalStateException("Failed to create embedding model: " + descriptor.name(), e);
         }
         LOG.info("event=embedding_model_created name={} provider={} dimension={} user={}",
@@ -151,28 +161,34 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
     }
 
     @Override
-    public EmbeddingModelDescriptor alter(String name, ModelUpdateRequest update,
-                                          int expectedVersion, UserIdentity user) {
+    public EmbeddingModelDescriptor alter(
+            EmbeddingModelAlterTarget target,
+            EmbeddingModelDescriptor replacement, UserIdentity user) {
+        String name = target.descriptor().name();
         requireAdmin(user, "ALTER", name);
-        if (!update.hasUpdates()) {
-            throw new IllegalArgumentException("No fields to update in ALTER request");
-        }
         try (Connection conn = dataSource.getConnection()) {
-            EmbeddingModelDescriptor current = findByName(conn, name)
+            conn.setAutoCommit(false);
+            AuthorizationTransactionGate.lockMutation(conn);
+            EmbeddingModelRoleAuthority.requireModelRole(conn, user, name, true, "ALTER");
+            RegisteredModel current = findRecordByName(conn, name)
                     .orElseThrow(() -> new ModelNotFoundException(name));
-            if (current.version() != expectedVersion) {
-                throw new VersionConflictException(name, expectedVersion, current.version());
+            EmbeddingModelRevision.requireValidReplacement(
+                    name, current.descriptor(), replacement, target.descriptor().version());
+            if (!current.incarnationId().equals(target.incarnationId())) {
+                throw new VersionConflictException(
+                        name, target.descriptor().version(), current.descriptor().version());
             }
-            EmbeddingModelDescriptor updated = applyUpdate(current, update);
-            int rows = executeUpdateWithVersion(conn, updated, expectedVersion);
+            int rows = executeUpdateWithVersion(conn, replacement, target);
             if (rows == 0) {
-                EmbeddingModelDescriptor actual = findByName(conn, name).orElse(null);
-                int actualVersion = actual != null ? actual.version() : -1;
-                throw new VersionConflictException(name, expectedVersion, actualVersion);
+                RegisteredModel actual = findRecordByName(conn, name).orElse(null);
+                int actualVersion = actual != null ? actual.descriptor().version() : -1;
+                throw new VersionConflictException(
+                        name, target.descriptor().version(), actualVersion);
             }
             LOG.info("event=embedding_model_altered name={} version={}->{} user={}",
-                    name, expectedVersion, updated.version(), user.principal());
-            return updated;
+                    name, target.descriptor().version(), replacement.version(), user.principal());
+            conn.commit();
+            return replacement;
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to alter embedding model: " + name, e);
         }
@@ -182,25 +198,22 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
     public void drop(String name, boolean cascade, UserIdentity user) {
         requireAdmin(user, "DROP", name);
         try (Connection conn = dataSource.getConnection()) {
-            findByName(conn, name).orElseThrow(() -> new ModelNotFoundException(name));
-            if (!cascade && hasDependents(conn, name)) {
-                throw new ModelInUseException(name);
-            }
-            try (PreparedStatement ps = conn.prepareStatement(DELETE_SQL)) {
-                ps.setString(1, name);
-                ps.executeUpdate();
-            }
+            findRecordByName(conn, name)
+                    .orElseThrow(() -> new ModelNotFoundException(name));
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to drop embedding model: " + name, e);
         }
-        LOG.info("event=embedding_model_dropped name={} cascade={} user={}", name, cascade, user.principal());
+        throw new ModelDropUnavailableException(name);
     }
 
     @Override
     public Optional<EmbeddingModelDescriptor> find(String name, UserIdentity user) {
-        requireUsage(user, "FIND", name);
         try (Connection conn = dataSource.getConnection()) {
-            return findByName(conn, name);
+            var found = findRecordByName(conn, name);
+            if (found.isPresent()) {
+                EmbeddingModelRoleAuthority.requireModelRole(conn, user, name, false, "FIND");
+            }
+            return found.map(RegisteredModel::descriptor);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to find embedding model: " + name, e);
         }
@@ -208,15 +221,14 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
 
     @Override
     public List<EmbeddingModelDescriptor> listAll(UserIdentity user) {
-        if (!hasUsagePrivilege(user)) {
-            return List.of();
-        }
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(SELECT_ALL_SQL);
              ResultSet rs = ps.executeQuery()) {
             var result = new ArrayList<EmbeddingModelDescriptor>();
             while (rs.next()) {
-                result.add(rowToDescriptor(rs));
+                if (EmbeddingModelRoleAuthority.hasModelRole(conn, user, rs.getString("model_name"), false)) {
+                    result.add(rowToDescriptor(rs));
+                }
             }
             return List.copyOf(result);
         } catch (SQLException e) {
@@ -227,7 +239,8 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
     @Override
     public void validateDimension(String modelName, int columnDimension) {
         try (Connection conn = dataSource.getConnection()) {
-            EmbeddingModelDescriptor descriptor = findByName(conn, modelName)
+            EmbeddingModelDescriptor descriptor = findRecordByName(conn, modelName)
+                    .map(RegisteredModel::descriptor)
                     .orElseThrow(() -> new ModelNotFoundException(modelName));
             if (descriptor.dimension() != columnDimension) {
                 throw new DimensionMismatchException(modelName, descriptor.dimension(), columnDimension);
@@ -253,59 +266,78 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
 
     // ── Internal helpers ──
 
-    private boolean hasDependents(Connection conn, String name) throws SQLException {
-        try (PreparedStatement ps = conn.prepareStatement(SELECT_HAS_DEPENDENTS_SQL)) {
-            ps.setString(1, name);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() && rs.getBoolean("has_dependents");
-            }
-        }
-    }
-
-    private Optional<EmbeddingModelDescriptor> findByName(Connection conn, String name)
+    private Optional<RegisteredModel> findRecordByName(Connection conn, String name)
             throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SELECT_BY_NAME_SQL)) {
             ps.setString(1, name);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(rowToDescriptor(rs));
+                    return Optional.of(new RegisteredModel(
+                            rowToDescriptor(rs), rs.getString("incarnation_id")));
                 }
                 return Optional.empty();
             }
         }
     }
 
-    private void upsert(Connection conn, EmbeddingModelDescriptor d, boolean hasDependents)
+    private void insert(
+            Connection conn, EmbeddingModelDescriptor d,
+            String incarnationId, boolean hasDependents)
             throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(INSERT_SQL)) {
-            ps.setString(1, d.name());
-            ps.setString(2, d.provider());
-            ps.setString(3, d.endpoint());
-            ps.setInt(4, d.dimension());
-            ps.setString(5, d.apiKeySecret());
-            ps.setInt(6, d.maxBatchSize());
-            ps.setInt(7, d.maxRequestsPerSecond());
-            ps.setString(8, d.queryPrefix());
-            ps.setString(9, d.documentPrefix());
-            ps.setInt(10, d.version());
-            ps.setBoolean(HAS_DEPENDENTS_PARAM_INDEX, hasDependents);
+            int parameter = 1;
+            ps.setString(parameter++, d.name());
+            ps.setString(parameter++, d.provider());
+            ps.setString(parameter++, d.endpoint());
+            ps.setInt(parameter++, d.dimension());
+            ps.setString(parameter++, d.apiKeySecret());
+            ps.setInt(parameter++, d.maxBatchSize());
+            ps.setInt(parameter++, d.maxRequestsPerSecond());
+            ps.setString(parameter++, d.queryPrefix());
+            ps.setString(parameter++, d.documentPrefix());
+            ps.setInt(parameter++, d.version());
+            ps.setString(parameter++, d.deploymentVersion());
+            ps.setString(parameter++, d.deploymentSignatureSha256());
+            ps.setString(parameter++, incarnationId);
+            ps.setBoolean(parameter++, hasDependents);
+            ps.setString(parameter++, adminRole);
+            ps.setString(parameter, usageRole);
             ps.executeUpdate();
         }
     }
 
-    private int executeUpdateWithVersion(Connection conn, EmbeddingModelDescriptor updated,
-                                          int expectedVersion) throws SQLException {
+    private static boolean isUniqueConstraintViolation(SQLException failure) {
+        SQLException current = failure;
+        while (current != null) {
+            String sqlState = current.getSQLState();
+            if ("23505".equals(sqlState) || "23000".equals(sqlState)) {
+                return true;
+            }
+            current = current.getNextException();
+        }
+        return false;
+    }
+
+    private int executeUpdateWithVersion(
+            Connection conn,
+            EmbeddingModelDescriptor updated,
+            EmbeddingModelAlterTarget target) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(UPDATE_WITH_VERSION_SQL)) {
-            ps.setString(1, updated.provider());
-            ps.setString(2, updated.endpoint());
-            ps.setInt(3, updated.dimension());
-            ps.setString(4, updated.apiKeySecret());
-            ps.setInt(5, updated.maxBatchSize());
-            ps.setInt(6, updated.maxRequestsPerSecond());
-            ps.setString(7, updated.queryPrefix());
-            ps.setString(8, updated.documentPrefix());
-            ps.setString(9, updated.name());
-            ps.setInt(10, expectedVersion);
+            int parameter = 1;
+            ps.setString(parameter++, updated.provider());
+            ps.setString(parameter++, updated.endpoint());
+            ps.setInt(parameter++, updated.dimension());
+            ps.setString(parameter++, updated.apiKeySecret());
+            ps.setInt(parameter++, updated.maxBatchSize());
+            ps.setInt(parameter++, updated.maxRequestsPerSecond());
+            ps.setString(parameter++, updated.queryPrefix());
+            ps.setString(parameter++, updated.documentPrefix());
+            ps.setInt(parameter++, updated.version());
+            ps.setString(parameter++, updated.deploymentVersion());
+            ps.setString(parameter++, updated.deploymentSignatureSha256());
+            ps.setString(parameter++, updated.name());
+            ps.setInt(parameter++, target.descriptor().version());
+            ps.setString(parameter++, target.incarnationId());
             return ps.executeUpdate();
         }
     }
@@ -325,45 +357,41 @@ public final class JdbcEmbeddingModelRegistry implements EmbeddingModelRegistry 
     private static EmbeddingModelDescriptor rowToDescriptor(ResultSet rs) throws SQLException {
         return new EmbeddingModelDescriptor(
                 rs.getString("model_name"),
-                rs.getString("provider"),
-                rs.getString("endpoint"),
-                rs.getInt("dimension"),
-                rs.getString("api_key_secret"),
-                rs.getInt("max_batch_size"),
-                rs.getInt("max_rps"),
-                rs.getString("query_prefix"),
-                rs.getString("document_prefix"),
-                rs.getInt("version"));
+                new EmbeddingModelDescriptor.ProviderRoute(
+                        rs.getString("provider"),
+                        rs.getString("endpoint"),
+                        rs.getString("api_key_secret")),
+                new EmbeddingModelDescriptor.EmbeddingContract(
+                        rs.getInt("dimension"),
+                        rs.getString("query_prefix"),
+                        rs.getString("document_prefix")),
+                new EmbeddingModelDescriptor.ServingLimits(
+                        rs.getInt("max_batch_size"), rs.getInt("max_rps")),
+                rs.getInt("version"),
+                new EmbeddingModelDescriptor.DeploymentFence(
+                        rs.getString("deployment_version"),
+                        rs.getString("deployment_signature_sha256")));
     }
 
-    private static EmbeddingModelDescriptor applyUpdate(EmbeddingModelDescriptor current,
-                                                         ModelUpdateRequest update) {
-        return new EmbeddingModelDescriptor(
-                current.name(),
-                current.provider(),
-                update.endpoint().orElse(current.endpoint()),
-                current.dimension(),
-                update.apiKeySecret().orElse(current.apiKeySecret()),
-                update.maxBatchSize().orElse(current.maxBatchSize()),
-                update.maxRequestsPerSecond().orElse(current.maxRequestsPerSecond()),
-                update.queryPrefix().orElse(current.queryPrefix()),
-                update.documentPrefix().orElse(current.documentPrefix()),
-                current.version() + 1);
+    private record RegisteredModel(
+            EmbeddingModelDescriptor descriptor,
+            String incarnationId) {
+
+        private EmbeddingModelAlterTarget alterTarget() {
+            return new EmbeddingModelAlterTarget(descriptor, incarnationId);
+        }
     }
 
     private void requireAdmin(UserIdentity user, String operation, String modelName) {
-        if (!user.groups().contains(adminGroup)) {
-            throw new EmbeddingRegistryAccessDeniedException(user.principal(), operation, modelName);
+        try (var connection = dataSource.getConnection()) {
+            if ("CREATE".equals(operation)) {
+                EmbeddingModelRoleAuthority.requireRole(connection, user, adminRole, operation, modelName);
+            } else {
+                EmbeddingModelRoleAuthority.requireModelRole(connection, user, modelName, true, operation);
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException("Cannot read current model administration authority", failure);
         }
     }
 
-    private void requireUsage(UserIdentity user, String operation, String modelName) {
-        if (!hasUsagePrivilege(user)) {
-            throw new EmbeddingRegistryAccessDeniedException(user.principal(), operation, modelName);
-        }
-    }
-
-    private boolean hasUsagePrivilege(UserIdentity user) {
-        return user.groups().contains(usageGroup) || user.groups().contains(adminGroup);
-    }
 }

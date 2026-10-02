@@ -1,11 +1,9 @@
 package org.pangrova.planner.substrait;
 
 import io.substrait.plan.Plan;
-import io.substrait.relation.Rel;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.PlanResult;
 import org.apache.calcite.jdbc.CalciteSchema;
-import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.Table;
@@ -34,8 +32,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Covers: simple SELECT with filter, INNER JOIN, LEFT JOIN, GROUP BY
  * with aggregation, subquery (decorrelated), and UNION ALL.
  *
- * <p>For queries that the lightweight deserializer supports (VirtualTable-based),
- * a full Plan-level round-trip is also verified.</p>
+ * <p>Literal queries additionally verify typed rows through the generated
+ * protobuf parser and reparser, without a second private plan decoder.</p>
  */
 class SubstraitRoundTripTest {
 
@@ -199,40 +197,86 @@ class SubstraitRoundTripTest {
     }
 
     // -----------------------------------------------------------------------
-    // 7. Full Plan-level round-trip for literal query
+    // 7. Canonical protobuf round-trip for literal queries
     // -----------------------------------------------------------------------
 
     @Test
-    void planLevelRoundTripPreservesRootNamesAndInputType() {
-        // Literal queries use VirtualTableScan, which the deserializer supports
+    void planLevelRoundTripPreservesRootNamesAndInputType() throws Exception {
         String sql = "SELECT 42 AS answer, 'hello' AS greeting";
         Plan original = planAndConvert(sql);
         byte[] bytes = serializer.serialize(original);
-        Plan restored = serializer.deserialize(bytes);
+        var parsed = io.substrait.proto.Plan.parseFrom(bytes);
+        var restored = io.substrait.proto.Plan.parseFrom(parsed.toByteArray());
 
-        assertThat(restored.getRoots()).hasSameSizeAs(original.getRoots());
-        assertThat(restored.getRoots().get(0).getNames())
+        assertThat(restored.getRelationsList()).hasSameSizeAs(original.getRoots());
+        assertThat(restored.getRelations(0).getRoot().getNamesList())
                 .as("Root output names must survive full round-trip")
                 .isEqualTo(original.getRoots().get(0).getNames());
 
-        // Both plans should have the same top-level Rel type
-        Rel originalInput = original.getRoots().get(0).getInput();
-        Rel restoredInput = restored.getRoots().get(0).getInput();
-        assertThat(restoredInput.getClass().getSimpleName())
+        var originalInput = parsed.getRelations(0).getRoot().getInput();
+        var restoredInput = restored.getRelations(0).getRoot().getInput();
+        assertThat(restoredInput.getRelTypeCase())
                 .as("Top-level Rel type must be preserved")
-                .isEqualTo(originalInput.getClass().getSimpleName());
+                .isEqualTo(originalInput.getRelTypeCase());
+        assertThat(restoredInput).isEqualTo(originalInput);
+        var read = literalRead(restoredInput);
+        assertThat(read.hasBaseSchema()).isTrue();
+        assertThat(read.getBaseSchema().getStruct().getTypesCount()).isEqualTo(2);
+        assertThat(read.getVirtualTable().getExpressionsCount()).isOne();
+        var row = read.getVirtualTable().getExpressions(0);
+        assertThat(row.getFieldsCount()).isEqualTo(2);
+        assertThat(read.getBaseSchema().getStruct().getTypes(0).hasI32()).isTrue();
+        assertThat(row.getFields(0).getLiteral().getI32()).isEqualTo(42);
+        assertThat(row.getFields(1).getLiteral().hasString()).isTrue();
+        assertThat(row.getFields(1).getLiteral().getString()).isEqualTo("hello");
     }
 
     @Test
-    void planLevelRoundTripPreservesMultipleExpressions() {
+    void planLevelRoundTripPreservesMultipleExpressions() throws Exception {
         String sql = "SELECT 1, 2, 3";
         Plan original = planAndConvert(sql);
         byte[] bytes = serializer.serialize(original);
-        Plan restored = serializer.deserialize(bytes);
+        var parsed = io.substrait.proto.Plan.parseFrom(bytes);
+        var restored = io.substrait.proto.Plan.parseFrom(parsed.toByteArray());
 
-        assertThat(restored.getRoots().get(0).getNames())
+        assertThat(restored.getRelations(0).getRoot().getNamesList())
                 .as("All output names must survive round-trip")
                 .hasSameSizeAs(original.getRoots().get(0).getNames());
+        assertThat(restored).isEqualTo(parsed);
+        var read = literalRead(restored.getRelations(0).getRoot().getInput());
+        assertThat(read.getBaseSchema().getStruct().getTypesCount()).isEqualTo(3);
+        assertThat(read.getVirtualTable().getExpressionsCount()).isOne();
+        var row = read.getVirtualTable().getExpressions(0);
+        assertThat(row.getFieldsCount()).isEqualTo(3);
+        for (int column = 0; column < 3; column++) {
+            assertThat(read.getBaseSchema().getStruct().getTypes(column).hasI32()).isTrue();
+            assertThat(row.getFields(column).getLiteral().hasI32()).isTrue();
+            assertThat(row.getFields(column).getLiteral().getI32()).isEqualTo(column + 1);
+        }
+    }
+
+    @Test
+    void projectionEmitMappingSurvivesGeneratedProtoRoundTrip() throws Exception {
+        Plan original = planAndConvert("SELECT o_totalprice, o_orderkey FROM orders");
+        var parsed = io.substrait.proto.Plan.parseFrom(serializer.serialize(original));
+        var restored = io.substrait.proto.Plan.parseFrom(parsed.toByteArray());
+        assertThat(restored).isEqualTo(parsed);
+        var input = restored.getRelations(0).getRoot().getInput();
+        assertThat(input.hasProject()).isTrue();
+        var project = input.getProject();
+        assertThat(project.getExpressionsCount()).isEqualTo(2);
+        assertThat(project.getInput().hasRead()).isTrue();
+        var schema = project.getInput().getRead().getBaseSchema();
+        int inputFields = schema.getStruct().getTypesCount();
+        assertThat(project.getCommon().hasEmit()).isTrue();
+        assertThat(project.getCommon().getEmit().getOutputMappingList())
+                .containsExactly(inputFields, inputFields + 1);
+        int firstField = project.getExpressions(0).getSelection()
+                .getDirectReference().getStructField().getField();
+        int secondField = project.getExpressions(1).getSelection()
+                .getDirectReference().getStructField().getField();
+        assertThat(schema.getNames(firstField)).isEqualTo("o_totalprice");
+        assertThat(schema.getNames(secondField)).isEqualTo("o_orderkey");
     }
 
     // -----------------------------------------------------------------------
@@ -282,6 +326,16 @@ class SubstraitRoundTripTest {
     }
 
     // ===== Helpers =====
+
+    private static io.substrait.proto.ReadRel literalRead(io.substrait.proto.Rel relation) {
+        return switch (relation.getRelTypeCase()) {
+            case READ -> relation.getRead();
+            case PROJECT -> literalRead(relation.getProject().getInput());
+            case FETCH -> literalRead(relation.getFetch().getInput());
+            case FILTER -> literalRead(relation.getFilter().getInput());
+            default -> throw new AssertionError("Expected literal ReadRel, not " + relation.getRelTypeCase());
+        };
+    }
 
     /**
      * Converts a SQL query through the full pipeline and returns a proto-level summary.

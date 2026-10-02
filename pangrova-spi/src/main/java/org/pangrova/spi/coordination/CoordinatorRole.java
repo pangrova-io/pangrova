@@ -3,20 +3,21 @@ package org.pangrova.spi.coordination;
 import org.pangrova.spi.annotation.Stable;
 
 /**
- * High-availability role for a coordinator instance in a multi-coordinator deployment.
+ * Singleton control-loop role for a coordinator in an active-active query cluster.
  *
  * <p>Role transitions are driven by the leader-election mechanism:
  * a coordinator starts as {@link #STANDBY}, transitions to {@link #LEADER} on promotion,
  * and returns to {@link #STANDBY} on demotion. {@link #STOPPED} indicates graceful
- * removal from the registry.</p>
+ * removal from the registry. Both LEADER and STANDBY coordinators accept and
+ * schedule queries; the role controls only singleton metadata/background loops.</p>
  */
 @Stable(since = "1.0")
 public enum CoordinatorRole {
 
-    /** This coordinator is the active leader and accepts all query traffic. */
+    /** This coordinator owns singleton control loops and also accepts query traffic. */
     LEADER,
 
-    /** This coordinator is a hot-standby, ready to promote if the leader fails. */
+    /** This coordinator accepts query traffic without owning singleton control loops. */
     STANDBY,
 
     /** This coordinator has been removed from the active pool (graceful shutdown). */

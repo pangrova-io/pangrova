@@ -11,6 +11,7 @@ import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveDecisi
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskRetryCallback;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
+import org.pangrova.shuffle.ShuffleHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +43,9 @@ public final class Stage {
     private final AtomicInteger attemptGeneration = new AtomicInteger(0);
     private volatile ErrorDetail lastError;
     private volatile ShuffleStageStatsReport shuffleStatsReport;
+    private volatile ShuffleHandle shuffleHandle;
+    private volatile long shufflePlanEpoch;
+    private volatile org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner;
     private volatile AdaptiveDecision adaptiveDecision;
 
     /** Per-task retry counters for task-level retry before stage-level retry. */
@@ -239,6 +243,68 @@ public final class Stage {
     /** Returns the Worker-reported shuffle statistics, or null if not yet received. */
     public ShuffleStageStatsReport shuffleStatsReport() {
         return shuffleStatsReport;
+    }
+
+    /**
+     * Binds the external shuffle allocation for the current stage generation.
+     * A newer generation replaces the failed generation's allocation; stale
+     * generations and allocation changes within one generation are rejected.
+     */
+    public synchronized void bindShuffleAllocation(ShuffleHandle handle, long planEpoch) {
+        checkNotNull(handle, "handle must not be null");
+        if (planEpoch <= 0) {
+            throw new IllegalArgumentException("shuffle planEpoch must be positive");
+        }
+        if (shufflePlanEpoch > planEpoch) {
+            throw new IllegalStateException("stale shuffle allocation generation");
+        }
+        if (shufflePlanEpoch == planEpoch && shuffleHandle != null
+                && !shuffleHandle.shuffleId().equals(handle.shuffleId())) {
+            throw new IllegalStateException(
+                    "shuffle allocation changed within one stage generation");
+        }
+        if (shufflePlanEpoch < planEpoch) {
+            shuffleExecutionOwner = null;
+            shuffleStatsReport = null;
+        }
+        shuffleHandle = handle;
+        shufflePlanEpoch = planEpoch;
+    }
+
+    /** Returns the registered shuffle allocation, or null before scheduling. */
+    public ShuffleHandle shuffleHandle() {
+        return shuffleHandle;
+    }
+
+    /** Binds the immutable producer identity governing this stage's shuffle allocation. */
+    public synchronized void bindShuffleExecutionIdentity(
+            long planEpoch,
+            org.pangrova.protocol.v2.ExecutionOwnerIdentity executionOwner) {
+        checkNotNull(executionOwner, "executionOwner must not be null");
+        if (planEpoch <= 0 || executionOwner.getFencingToken() <= 0) {
+            throw new IllegalArgumentException(
+                    "shuffle execution identity must be fenced");
+        }
+        if (shufflePlanEpoch != planEpoch) {
+            throw new IllegalStateException(
+                    "task planEpoch does not own the stage shuffle allocation");
+        }
+        if (shuffleExecutionOwner != null
+                && !shuffleExecutionOwner.equals(executionOwner)) {
+            throw new IllegalStateException(
+                    "stage shuffle execution owner changed after binding");
+        }
+        shuffleExecutionOwner = executionOwner;
+    }
+
+    /** Returns the physical-plan epoch owning the shuffle allocation. */
+    public long shufflePlanEpoch() {
+        return shufflePlanEpoch;
+    }
+
+    /** Returns the fenced owner of the shuffle allocation, or null before dispatch. */
+    public org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner() {
+        return shuffleExecutionOwner;
     }
 
     /** Stores the AQE decision produced after this stage completed. */

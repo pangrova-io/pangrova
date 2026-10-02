@@ -1,143 +1,118 @@
 package org.pangrova.worker.exchange;
 
-import org.pangrova.spi.execution.TaskExecutor;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.shuffle.ShuffleExecutionOwner;
+import org.pangrova.shuffle.exchange.DirectExchangeTransport;
+import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
+import org.pangrova.shuffle.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.exchange.ExchangeInput;
+import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
+import org.pangrova.worker.bootstrap.phase.ActualNativeShuffleRequests;
+import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.worker.shuffle.NativeShuffleTransport;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for {@link NativeExchangeTransport}.
- *
- * <p>Verifies that startExchange delegates to JNI executeCommand with the
- * correct command type, addSources issues per-source JNI commands, and
- * input validation works correctly.</p>
- */
+/** Real Native endpoint registration and exact mapper metadata; not distributed execution proof. */
+@Tag("native-required")
+@ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class NativeExchangeTransportTest {
-
-    private CommandCapturingExecutor executor;
-    private NativeExchangeTransport transport;
-
-    @BeforeEach
-    void setUp() {
-        executor = new CommandCapturingExecutor();
-        transport = new NativeExchangeTransport(executor);
+    @Test
+    void bindInputsSendsEveryDirectSourceThenSealsWithAttempt() {
+        try (var runtime = new ActualNativeTaskFixture()) {
+            var producer = ActualNativeShuffleRequests.pendingProducer(1);
+            long first = runtime.createPending(producer);
+            var secondRequest = producer.toBuilder().setAttempt(producer.getAttempt().toBuilder()
+                    .setTaskId(producer.getAttempt().getTaskId() + "-second").setPartitionId(1)).build();
+            long second = runtime.createPending(secondRequest);
+            var servers = new NativeShuffleTransport(runtime.executor(), "127.0.0.1", "");
+            var firstServer = servers.startServer(first, 1);
+            var secondServer = servers.startServer(second, 1);
+            var consumer = runtime.valuesRequest(false);
+            long handle = runtime.createPending(consumer);
+            var firstSource = endpoint(producer, firstServer);
+            var secondSource = endpoint(secondRequest, secondServer);
+            var input = new ExchangeInput("exchange-node", "exchange-1", 2,
+                    new DirectExchangeTransport(List.of(firstSource, secondSource)));
+            runtime.transports().exchangeTransport().bindInputs(handle, attempt(consumer), List.of(input));
+            var source = ExchangeProtocolMapper.directSource(firstSource);
+            assertThat(source.getSourceTaskId()).isEqualTo(producer.getAttempt().getTaskId());
+            assertThat(source.getSourceStageId()).isEqualTo(producer.getAttempt().getStageId());
+            assertThat(source.getSourcePartitionId()).isZero();
+            assertThat(source.getOutputPartitionId()).isZero();
+            assertThat(source.getPlanEpoch()).isEqualTo(producer.getAttempt().getPlanEpoch());
+            assertThat(source.getFencingToken()).isEqualTo(producer.getAttempt().getFencingToken());
+            assertThat(source.getSignedTicket().toByteArray()).isEqualTo(firstServer.partitionTickets().get(0).signedTicket());
+            assertThat(source.getTicketExpiresAtEpochMs()).isEqualTo(firstServer.partitionTickets().get(0).expiresAtEpochMs());
+            assertThat(ExchangeProtocolMapper.taskAttempt(attempt(consumer))).isEqualTo(consumer.getAttempt());
+            assertThat(runtime.executor().releaseTask(handle)).isPresent();
+            assertThatThrownBy(() -> runtime.transports().exchangeTransport()
+                    .bindInputs(handle, attempt(consumer), List.of(input))).isInstanceOf(IllegalStateException.class);
+            servers.stopServer(first);
+            servers.stopServer(second);
+        }
     }
 
     @Test
-    void startExchange_delegatesToJni() {
-        long handle = executor.createTask(new byte[0]);
-        List<ExchangeEndpoint> sources = List.of(
-                new ExchangeEndpoint("task-1", "host-1", 8080, 0),
-                new ExchangeEndpoint("task-2", "host-2", 8081, 1));
-
-        transport.startExchange(handle, sources);
-
-        assertThat(executor.capturedCommands).hasSize(1);
-        assertThat(executor.capturedCommands.get(0).executorHandle()).isEqualTo(handle);
+    void bindInputsRejectsNonPositiveHandle() {
+        try (var runtime = new ActualNativeTaskFixture()) {
+            var attempt = attempt(runtime.valuesRequest(false));
+            for (long handle : new long[]{0, -1}) {
+                assertThatThrownBy(() -> runtime.transports().exchangeTransport().bindInputs(handle, attempt, List.of()))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("executorHandle must be positive");
+            }
+        }
     }
 
     @Test
-    void startExchange_rejectsZeroHandle() {
-        List<ExchangeEndpoint> sources = List.of(
-                new ExchangeEndpoint("task-1", "host-1", 8080, 0));
-
-        assertThatThrownBy(() -> transport.startExchange(0, sources))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("executorHandle must not be zero");
+    void bindInputsRejectsMissingAttemptOrInputs() {
+        try (var runtime = new ActualNativeTaskFixture()) {
+            var request = runtime.valuesRequest(false);
+            long handle = runtime.createPending(request);
+            assertThatThrownBy(() -> runtime.transports().exchangeTransport().bindInputs(handle, null, List.of()))
+                    .isInstanceOf(NullPointerException.class).hasMessageContaining("consumerAttempt must not be null");
+            assertThatThrownBy(() -> runtime.transports().exchangeTransport().bindInputs(handle, attempt(request), null))
+                    .isInstanceOf(NullPointerException.class).hasMessageContaining("inputs must not be null");
+        }
     }
 
     @Test
-    void startExchange_rejectsNullSources() {
-        long handle = executor.createTask(new byte[0]);
-
-        assertThatThrownBy(() -> transport.startExchange(handle, null))
-                .isInstanceOf(NullPointerException.class);
-    }
-
-    @Test
-    void startExchange_acceptsEmptySources() {
-        long handle = executor.createTask(new byte[0]);
-
-        transport.startExchange(handle, List.of());
-
-        assertThat(executor.capturedCommands).hasSize(1);
-    }
-
-    @Test
-    void addSources_issuesPerSourceCommand() {
-        long handle = executor.createTask(new byte[0]);
-        List<ExchangeEndpoint> newSources = List.of(
-                new ExchangeEndpoint("task-3", "host-3", 8082, 0),
-                new ExchangeEndpoint("task-4", "host-4", 8083, 1));
-
-        transport.addSources(handle, newSources);
-
-        // One command per source
-        assertThat(executor.capturedCommands).hasSize(2);
-    }
-
-    @Test
-    void addSources_rejectsNullSources() {
-        long handle = executor.createTask(new byte[0]);
-
-        assertThatThrownBy(() -> transport.addSources(handle, null))
-                .isInstanceOf(NullPointerException.class);
-    }
-
-    @Test
-    void noMoreSources_doesNotThrow() {
-        long handle = executor.createTask(new byte[0]);
-
-        transport.noMoreSources(handle);
-
-        // Issues NO_MORE_EXCHANGE_SOURCES command to native side
-        assertThat(executor.capturedCommands).hasSize(1);
-        assertThat(executor.capturedCommands.get(0).executorHandle()).isEqualTo(handle);
+    void bindInputsAcceptsNoInputsWithoutIssuingCommands() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture()) {
+            var request = runtime.valuesRequest(false);
+            long handle = runtime.createPending(request);
+            var before = runtime.executor().getTaskStatus(handle);
+            runtime.transports().exchangeTransport().bindInputs(handle, attempt(request), List.of());
+            assertThat(runtime.executor().getTaskStatus(handle)).isEqualTo(before);
+        }
     }
 
     @Test
     void constructorRejectsNullExecutor() {
         assertThatThrownBy(() -> new NativeExchangeTransport(null))
-                .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("taskExecutor must not be null");
+                .isInstanceOf(NullPointerException.class).hasMessageContaining("taskExecutor must not be null");
     }
 
-    /**
-     * TaskExecutor that captures executeCommand calls for assertion.
-     */
-    static final class CommandCapturingExecutor implements TaskExecutor {
+    static ExchangeTaskAttempt attempt(TaskRequest request) {
+        var value = request.getAttempt();
+        var owner = value.getExecutionOwner();
+        return new ExchangeTaskAttempt(value.getQueryOrJobId(), value.getStageId(), value.getPartitionId(),
+                value.getTaskId(), value.getControlEpoch(),
+                new ExchangeAttemptFence(value.getPlanEpoch(), value.getAttemptId(), value.getFencingToken()),
+                new ShuffleExecutionOwner(owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken()));
+    }
 
-        final List<CapturedCommand> capturedCommands = new ArrayList<>();
-        private long nextHandle = 1;
-
-        CommandCapturingExecutor() {}
-
-        record CapturedCommand(long executorHandle, byte[] commandBytes) {}
-
-        @Override
-        public long createTask(byte[] taskRequestBytes) {
-            return nextHandle++;
-        }
-
-        @Override
-        public void startTask(long executorHandle) {}
-
-        @Override
-        public void releaseTask(long executorHandle) {}
-
-        @Override
-        public void cancelTask(long executorHandle) {}
-
-        @Override
-        public byte[] executeCommand(long executorHandle, byte[] commandProto) {
-            capturedCommands.add(new CapturedCommand(executorHandle, commandProto));
-            return new byte[0];
-        }
+    private static ExchangeEndpoint endpoint(TaskRequest request, org.pangrova.shuffle.ShuffleServerHandle server) {
+        var value = request.getAttempt();
+        var ticket = server.partitionTickets().get(0);
+        return new ExchangeEndpoint(value.getTaskId(), value.getStageId(), value.getPartitionId(), ticket.partitionId(),
+                value.getPlanEpoch(), value.getAttemptId(), value.getFencingToken(), server.host(), server.port(),
+                server.tlsIdentity(), ticket.signedTicket(), ticket.expiresAtEpochMs(), 0, 0);
     }
 }

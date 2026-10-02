@@ -22,6 +22,14 @@ import java.util.zip.CRC32;
  */
 public final class IndexSerializer {
 
+    /** Stable identity of the common on-storage index envelope. */
+    public static final String ARTIFACT_FORMAT_ID = "pangrova.index-file";
+    public static final int ARTIFACT_FORMAT_MAJOR_VERSION = 1;
+    public static final int ARTIFACT_FORMAT_MINOR_VERSION = 0;
+    public static final String ARTIFACT_FORMAT_SCHEMA_SHA256 =
+            "0505ea37ea32f59c6b216d3b4cb2c87e757e461859a6dc016ea3a19014cee7e6";
+    public static final String WRITER_BUILD_ID = "pangrova-indexing-0.1.0";
+
     private static final Logger LOG = LoggerFactory.getLogger(IndexSerializer.class);
 
     static final int MAGIC = 0x41455448; // "AETH"

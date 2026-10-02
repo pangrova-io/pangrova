@@ -9,13 +9,10 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Verifies that {@link SecureJwtParser} and its sensitive entry points are NOT exposed
- * as a public API surface (Task 7.7, Requirement 8.7).
+ * as a public API surface.
  *
- * <p>Background: {@code parseUnsignedToken} processes unsigned JWTs (alg=none) without
- * signature verification. Even though the calling authenticator only invokes it when
- * signature verification is explicitly disabled, the method itself must never be a
- * reachable public API — otherwise external code (or reflection-friendly callers) could
- * craft an alg=none token and bypass authentication entirely.
+ * <p>The only token parser verifies signatures; its structured claims remain
+ * internal to the authenticator rather than exposing another authentication entry point.
  *
  * <p>This test enforces the invariant via reflection so any future widening of the
  * modifier (e.g., refactoring that accidentally adds {@code public}) immediately fails.

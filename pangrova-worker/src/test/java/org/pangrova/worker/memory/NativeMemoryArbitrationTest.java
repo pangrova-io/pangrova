@@ -5,6 +5,7 @@ import org.pangrova.resource.memory.ShrinkableMemoryConsumer;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -17,6 +18,47 @@ class NativeMemoryArbitrationTest {
 
     private static final long TOTAL_BUDGET = 1024 * 1024; // 1 MB total
     private static final long NATIVE_CAP = 768 * 1024;    // 768 KB native cap
+
+    @Test
+    void failedSpillKeepsPhysicalReservationCharged() {
+        var arbitrator = new MemoryArbitrator(TOTAL_BUDGET, 0);
+        var coordinator = new NativeMemoryCoordinator(
+                NATIVE_CAP, arbitrator, new NativeSpillBridge(bytes -> 0));
+        assertThat(coordinator.reserve(4096)).isEqualTo(4096);
+
+        assertThat(coordinator.shrink(4096)).isZero();
+        assertThat(coordinator.currentReservation()).isEqualTo(4096);
+        assertThat(arbitrator.getUsedMemory()).isEqualTo(4096);
+    }
+
+    @Test
+    void successfulNativeReclaimUsesOnlyUnreserveCallbackForAccounting() {
+        var arbitrator = new MemoryArbitrator(TOTAL_BUDGET, 0);
+        AtomicReference<NativeMemoryCoordinator> callback = new AtomicReference<>();
+        var bridge = new NativeSpillBridge(bytes -> {
+            callback.get().unreserve(1024);
+            return 1024;
+        });
+        var coordinator = new NativeMemoryCoordinator(NATIVE_CAP, arbitrator, bridge);
+        callback.set(coordinator);
+        assertThat(coordinator.reserve(4096)).isEqualTo(4096);
+
+        assertThat(coordinator.shrink(4096)).isEqualTo(1024);
+        assertThat(coordinator.currentReservation()).isEqualTo(3072);
+        assertThat(arbitrator.getUsedMemory()).isEqualTo(3072);
+    }
+
+    @Test
+    void signalWithoutNativeUnreserveNeverFreesArbitratorCredit() {
+        var arbitrator = new MemoryArbitrator(TOTAL_BUDGET, 0);
+        var coordinator = new NativeMemoryCoordinator(
+                NATIVE_CAP, arbitrator, new NativeSpillBridge(bytes -> 1));
+        assertThat(coordinator.reserve(4096)).isEqualTo(4096);
+
+        assertThat(coordinator.shrink(4096)).isZero();
+        assertThat(coordinator.currentReservation()).isEqualTo(4096);
+        assertThat(arbitrator.getUsedMemory()).isEqualTo(4096);
+    }
 
     @Test
     void reserveRoutedThroughArbitrator() {

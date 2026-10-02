@@ -24,8 +24,9 @@ public final class DropIndexTask implements MetadataTask<DropIndexStatement> {
 
     @Override
     public StatementResult execute(DropIndexStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeDropIndex(statement);
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeDropIndex(
+                statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
     }
 

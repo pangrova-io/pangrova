@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
 import org.pangrova.parser.ast.ShowSchemasStatement;
 import org.pangrova.parser.ast.statement.DescribeTableStatement;
 import org.pangrova.parser.ast.statement.ShowTablesStatement;
@@ -44,18 +45,15 @@ public final class ShowDescribeExecutor {
         this.accessControl = accessControl;
     }
 
-    public List<TypedRow> executeShowSchemas(ShowSchemasStatement stmt) {
-        return executeShowSchemas(stmt, null);
-    }
-
     /**
      * Executes SHOW SCHEMAS with optional schema-level access control filtering.
      * When {@code user} is non-null and {@code accessControl} is configured,
      * schemas the user cannot access are excluded from the result.
      */
-    public List<TypedRow> executeShowSchemas(ShowSchemasStatement stmt, UserIdentity user) {
+    public List<TypedRow> executeShowSchemas(ShowSchemasStatement stmt, CoordinatorSessionContext context) {
+        UserIdentity user = context.userIdentity();
         String catalog = stmt.catalogName();
-        ConnectorSession session = TableResolver.buildSession(catalog);
+        ConnectorSession session = TableResolver.buildSession(context, catalog, TableResolver.defaultSchema(context));
         ConnectorMetadata metadata = TableResolver.getMetadata(
                 catalogRegistry, catalog, session);
         List<String> schemas = metadata.listSchemaNames(session);
@@ -82,20 +80,17 @@ public final class ShowDescribeExecutor {
         }
     }
 
-    public List<TypedRow> executeShowTables(ShowTablesStatement stmt) {
-        return executeShowTables(stmt, null);
-    }
-
     /**
      * Executes SHOW TABLES with optional table-level access control filtering.
      * When {@code user} is non-null and {@code accessControl} is configured,
      * tables the user cannot SELECT from are excluded from the result.
      */
-    public List<TypedRow> executeShowTables(ShowTablesStatement stmt, UserIdentity user) {
+    public List<TypedRow> executeShowTables(ShowTablesStatement stmt, CoordinatorSessionContext context) {
+        UserIdentity user = context.userIdentity();
         List<String> parts = stmt.qualifiedName();
-        String catalog = parts.size() >= 2 ? parts.get(0) : "default";
+        String catalog = parts.size() >= 2 ? parts.get(0) : TableResolver.defaultCatalog(context);
         String schema = parts.size() >= 2 ? parts.get(1) : parts.get(0);
-        ConnectorSession session = TableResolver.buildSession(catalog);
+        ConnectorSession session = TableResolver.buildSession(context, catalog, schema);
         ConnectorMetadata metadata = TableResolver.getMetadata(
                 catalogRegistry, catalog, session);
         List<SchemaTableName> tables = metadata.listTables(
@@ -124,10 +119,10 @@ public final class ShowDescribeExecutor {
         }
     }
 
-    public List<TypedRow> executeDescribeTable(DescribeTableStatement stmt) {
+    public List<TypedRow> executeDescribeTable(DescribeTableStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(
-                stmt.tableName().parts());
-        ConnectorSession session = TableResolver.buildSession(ref.catalog());
+                stmt.tableName().parts(), context);
+        ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata = TableResolver.getMetadata(
                 catalogRegistry, ref.catalog(), session);
         ConnectorTableHandle handle = TableResolver.requireTableHandle(

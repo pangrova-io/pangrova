@@ -1,9 +1,11 @@
 package org.pangrova.spi.coordination;
 
 import org.pangrova.spi.annotation.Stable;
+import org.pangrova.spi.connector.metadata.NativeWriteFinalization;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Write-ahead journal for distributed write commits.
@@ -18,7 +20,7 @@ import java.util.Optional;
  * leaves a recoverable PENDING entry.</p>
  */
 @Stable(since = "1.0")
-public interface WriteCommitJournal {
+public interface WriteCommitJournal extends WriteCommitOutbox {
 
     /**
      * Records a commit intent synchronously (blocks until persisted).
@@ -28,6 +30,13 @@ public interface WriteCommitJournal {
      * @throws JournalWriteException if persistence fails
      */
     void recordIntent(WriteCommitEntry entry);
+
+    /**
+     * Durably records a confirmed external manifest before catalog visibility is changed.
+     * The fingerprint must match an existing intent; repeated identical publication
+     * succeeds and different version/digest evidence is rejected.
+     */
+    void recordPublication(String queryId, String commitFingerprint, NativeWriteFinalization publication);
 
     /**
      * Marks an existing intent as COMMITTED after successful commit.
@@ -56,16 +65,31 @@ public interface WriteCommitJournal {
     Optional<WriteCommitEntry> getEntry(String queryId);
 
     /**
-     * Replays all PENDING entries for crash recovery.
+     * Replays PENDING entries only for executions atomically claimed by the
+     * recovering process.
      * Returns entries that were recorded but not yet marked COMMITTED,
      * indicating writes that may need retry or cleanup.
      *
      * @return list of PENDING entries, ordered by timestamp ascending
      */
-    List<WriteCommitEntry> replayPendingEntries();
+    List<WriteCommitEntry> replayPendingEntries(Set<String> executionIds);
 
     /**
-     * Purges the journal entry for a completed query (periodic cleanup).
+     * Persists a terminal barrier after fenced recovery has confirmed the exact intent's abort.
+     * Query failure or a timeout alone is not evidence that a catalog commit was aborted.
+     * Repeating the same ABORTED transition is idempotent. Missing, different, committed,
+     * or externally published intents are rejected; the immutable identity is never deleted.
+     *
+     * @param queryId execution identifier whose durable fence is held by the caller
+     * @param commitFingerprint immutable fingerprint of the reconciled intent
+     * @throws IllegalStateException if the intent is missing, differs or has publication evidence
+     * @throws JournalWriteException if persistence fails
+     */
+    void markAborted(String queryId, String commitFingerprint);
+
+    /**
+     * Purges only an acknowledged committed entry with no outstanding deferred work.
+     * Pending intents are retained for reconciliation, including after query failure.
      *
      * @param queryId the query identifier to purge
      */

@@ -2,7 +2,6 @@ package org.pangrova.spi.connector.metadata;
 
 import org.pangrova.spi.annotation.Experimental;
 import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.CommitListener;
 import org.pangrova.spi.connector.index.ConnectorIndexSupport;
 import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.pangrova.spi.connector.index.NativeIndexCapability;
@@ -47,9 +46,6 @@ public interface ConnectorIndexMetadata {
     default List<String> listDataFiles(String catalogName, String schemaName, String tableName) {
         return List.of();
     }
-
-    /** Registers a listener for data commit events. */
-    default void registerCommitListener(CommitListener listener) {}
 
     /** Returns the consolidated index support interface. */
     default Optional<ConnectorIndexSupport> getIndexSupport() {

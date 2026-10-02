@@ -78,6 +78,7 @@ find "$REPO_ROOT" -type f \
     -not -path '*/target/*' \
     -not -path '*/build/*' \
     -not -path '*/build-*/*' \
+    -not -name 'javac.*.args' \
     -not -path '*/website/node_modules/*' \
     -not -path '*/website/.docusaurus/*' \
     -not -path '*/.idea/*' \

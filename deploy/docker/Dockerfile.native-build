@@ -1,121 +1,85 @@
-# ==============================================================================
-# Dockerfile.native-build — Reproducible build environment for pangrova-worker-native
-#
-# Produces a deterministic build image with pinned Velox + all C++ dependencies.
-# Used by CI (release workflow) and developers who want bit-for-bit reproducible
-# native library builds without polluting their host system.
-#
-# Usage:
-#   docker build -f deploy/docker/Dockerfile.native-build -t pangrova-native-builder .
-#   docker run --rm -v $(pwd):/workspace pangrova-native-builder
-#
-# The container builds libpangrova_native.so and copies it to /workspace/output/
-# ==============================================================================
-
+# syntax=docker/dockerfile:1
+# Linux production JNI builder. Use this same target image in Dockerfile.
+FROM ghcr.io/astral-sh/uv:0.12.21@sha256:a7aed3216253ee804de3e2d8afa5073baa1a177335345d43845cd4165e43b711 AS uv-tools
 FROM ubuntu:22.04 AS builder
-
-# TARGETARCH is auto-set by Docker Buildx (amd64, arm64)
 ARG TARGETARCH
-
-LABEL maintainer="pangrova-dev"
-LABEL description="Reproducible build environment for pangrova-worker-native (Velox JNI)"
-
-# Avoid interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=UTC
-
-# Pinned versions for reproducibility
-ENV VELOX_REF=v2026.04.17.00
+ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
 ENV CMAKE_VERSION=3.28.3
-
-# System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc-11 g++-11 \
-    cmake \
-    ninja-build \
-    ccache \
-    git \
-    curl \
-    wget \
-    pkg-config \
-    python3 \
-    openjdk-17-jdk-headless \
-    # Velox dependencies
-    libssl-dev \
-    libcurl4-openssl-dev \
-    libxml2-dev \
-    liblz4-dev \
-    libzstd-dev \
-    libsnappy-dev \
-    libevent-dev \
-    libdouble-conversion-dev \
-    libgflags-dev \
-    libgoogle-glog-dev \
-    libicu-dev \
-    libsodium-dev \
-    libre2-dev \
-    libboost-all-dev \
-    # Arrow C++ (system package for Arrow C Data Interface headers)
-    libarrow-dev \
+    build-essential gcc-11 g++-11 ninja-build ccache git curl wget pkg-config \
+    python3 python3-pip sudo autoconf automake libtool openjdk-17-jdk-headless \
+    libssl-dev libcurl4-openssl-dev libxml2-dev liblz4-dev libzstd-dev \
+    libsnappy-dev libevent-dev libdouble-conversion-dev libgflags-dev \
+    libgoogle-glog-dev libicu-dev libsodium-dev libre2-dev libboost-all-dev \
+    libbz2-dev liblzma-dev libxxhash-dev zlib1g-dev \
+    libnghttp2-dev libidn2-dev librtmp-dev libssh2-1-dev libpsl-dev libkrb5-dev \
+    libldap2-dev libbrotli-dev libunistring-dev libgmp-dev libgnutls28-dev \
+    nettle-dev libp11-kit-dev libtasn1-6-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Use gcc-11 as default
-RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-11 100 \
-    && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-11 100
-
+RUN python3 -m pip install --no-cache-dir --only-binary=:all: "cmake==${CMAKE_VERSION}"
+ARG RUSTUP_VERSION=1.28.2
+# Bootstrap directly so transport failures cannot be swallowed by a shell pipeline.
+# Cargo selects the checked-in Lance toolchain; do not download an unrelated latest stable.
+RUN set -eu; \
+    case "${TARGETARCH}" in \
+        arm64) rustup_target=aarch64-unknown-linux-gnu ;; \
+        amd64) rustup_target=x86_64-unknown-linux-gnu ;; \
+        *) exit 1 ;; \
+    esac; \
+    rustup_url="https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${rustup_target}/rustup-init"; \
+    curl --http1.1 --proto '=https' --tlsv1.2 -fsS --connect-timeout 30 --max-time 600 \
+        "${rustup_url}" -o /tmp/rustup-init; \
+    curl --http1.1 --proto '=https' --tlsv1.2 -fsS --connect-timeout 30 --max-time 60 \
+        "${rustup_url}.sha256" -o /tmp/rustup-init.sha256; \
+    cd /tmp && sha256sum -c rustup-init.sha256; \
+    chmod +x /tmp/rustup-init; \
+    /tmp/rustup-init -y --profile minimal --default-toolchain none; \
+    rm /tmp/rustup-init /tmp/rustup-init.sha256
+ENV PATH=/root/.cargo/bin:${PATH}
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-${TARGETARCH}
-ENV CC=gcc-11
-ENV CXX=g++-11
-
-# Clone and build Velox (cached layer — only rebuilds when VELOX_REF changes)
-WORKDIR /opt
-RUN git clone --depth 1 --branch ${VELOX_REF} \
-    https://github.com/facebookincubator/velox.git /opt/velox-src
-
-WORKDIR /opt/velox-src
-RUN ./scripts/setup-ubuntu.sh
-
-RUN cmake -B _build/release \
-    -GNinja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DVELOX_ENABLE_TESTING=OFF \
-    -DVELOX_ENABLE_BENCHMARKS=OFF \
-    -DVELOX_ENABLE_EXAMPLES=OFF \
-    -DVELOX_ENABLE_SUBSTRAIT=ON \
-    -DVELOX_ENABLE_ARROW=ON \
-    -DVELOX_ENABLE_PARQUET=ON \
-    -DVELOX_ENABLE_S3=ON \
-    -DVELOX_ENABLE_HDFS=OFF \
-    -DVELOX_ENABLE_GCS=OFF \
-    && cmake --build _build/release -j$(nproc)
-
-RUN cmake --install _build/release --prefix /opt/velox-install
-
-# Copy deps-install for header/lib resolution
-RUN if [ -d "deps-install" ]; then cp -a deps-install /opt/velox-install/deps-install; fi
-
-ENV VELOX_HOME=/opt/velox-install
-ENV VELOX_INSTALL_PREFIX=/opt/velox-install
-ENV VELOX_BUILD_DIR=/opt/velox-src/_build/release
-
-# ==============================================================================
-# Build stage: compile pangrova-worker-native
-# ==============================================================================
-FROM builder AS native-build
-
+ENV CC=gcc-11 CXX=g++-11
+ENV PANGROVA_HOME=/opt/pangrova-production \
+    PANGROVA_DEPS_PREFIX=/opt/pangrova-production/native-deps \
+    PANGROVA_PRODUCTION_BUILD=ON
+ARG NATIVE_BUILD_JOBS=1
+ENV CMAKE_BUILD_PARALLEL_LEVEL=${NATIVE_BUILD_JOBS} BUILD_THREADS=${NATIVE_BUILD_JOBS}
 WORKDIR /workspace
-# Copy only what CMake needs (avoid invalidating cache on Java source changes)
+# Reuse the pinned dependency setup: one prefix, protoc, protobuf, gRPC and Velox ABI.
+# Source edits must not rebuild all third-party libraries. Cache only dependency
+# sources/builds; the installed archives remain in the resulting image layer.
+COPY pangrova-worker-native/bin/setup-native-build-env.sh /workspace/pangrova-worker-native/bin/setup-native-build-env.sh
+COPY pangrova-worker-native/bin/apply-velox-patches.sh /workspace/pangrova-worker-native/bin/apply-velox-patches.sh
+COPY pangrova-worker-native/patches/velox-function-metadata-snapshot.patch /workspace/pangrova-worker-native/patches/velox-function-metadata-snapshot.patch
+COPY pangrova-worker-native/bin/prepare-lance-sdk.sh /workspace/pangrova-worker-native/bin/prepare-lance-sdk.sh
+COPY pangrova-worker-native/patches/lance-writer-drain.patch /workspace/pangrova-worker-native/patches/lance-writer-drain.patch
+RUN --mount=type=cache,id=pangrova-native-deps-${TARGETARCH},target=/tmp/pangrova-native-build,sharing=locked \
+    SKIP_VELOX=1 pangrova-worker-native/bin/setup-native-build-env.sh
+# Use one pinned binary distribution rather than Velox's unversioned installer.
+# Keep this layer after the native dependency archives so changing the bootstrap
+# tool does not rebuild protobuf/gRPC/Arrow.
+COPY --from=uv-tools /uv /uvx /usr/local/bin/
+RUN set -eu; uv --version; \
+    uv_release="$(uv --version | cut -d ' ' -f 2)"; test "${uv_release}" = '0.12.21'
+RUN GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.version GIT_CONFIG_VALUE_0=HTTP/1.1 \
+    SKIP_DEPS=1 pangrova-worker-native/bin/setup-native-build-env.sh
+
 COPY pangrova-worker-native/ /workspace/pangrova-worker-native/
+COPY pangrova-protocol/ /workspace/pangrova-protocol/
 
+FROM builder AS native-build
 WORKDIR /workspace/pangrova-worker-native
-RUN cmake -B build -GNinja \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DPANGROVA_BUILD_TESTS=OFF \
-    && cmake --build build
+RUN bash -c 'source /opt/pangrova-production/env.sh \
+    && export PROTOC="$PANGROVA_DEPS_PREFIX/bin/protoc" \
+    && export PROTOC_INCLUDE="$PANGROVA_DEPS_PREFIX/include" \
+    && ./bin/build-lance-ffi.sh \
+    && cmake --preset dev-release -DPANGROVA_BUILD_TESTS=OFF \
+        -DPANGROVA_PRODUCTION_BUILD=ON \
+        -DArrow_DIR="$PANGROVA_DEPS_PREFIX/lib/cmake/Arrow" \
+        -DParquet_DIR="$PANGROVA_DEPS_PREFIX/lib/cmake/Parquet" \
+        -DARROW_FLIGHT_HOME="$PANGROVA_DEPS_PREFIX" \
+    && cmake --build build --parallel "$CMAKE_BUILD_PARALLEL_LEVEL" \
+    && ./bin/package-native-lib.sh --production build/libpangrova_native.so'
 
-# ==============================================================================
-# Output stage: extract the native library
-# ==============================================================================
+# Release classifier jobs export the same validated production output.
 FROM scratch AS output
 COPY --from=native-build /workspace/pangrova-worker-native/build/libpangrova_native.so /

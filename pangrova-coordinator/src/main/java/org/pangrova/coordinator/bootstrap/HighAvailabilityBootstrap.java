@@ -3,6 +3,7 @@ package org.pangrova.coordinator.bootstrap;
 import org.pangrova.coordinator.PangrovaCoordinator;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
@@ -10,6 +11,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.coordination.JdbcCoordinatorRegistry;
 import org.pangrova.spi.coordination.DistributedLease;
+import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.pangrova.spi.coordination.CoordinatorRegistry;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.spi.coordination.QueryStateJournal;
@@ -18,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 
 /**
@@ -57,9 +60,14 @@ final class HighAvailabilityBootstrap {
     private PangrovaCoordinator coordinator;
     private HighAvailabilityCoordinationService haService;
     private WorkerHealthScheduler healthScheduler;
-    private org.pangrova.spi.coordination.MaintenanceLeaderAware maintenanceLeaderAware;
     private CatalogRegistry catalogRegistry;
     private CoordinatorRegistry quorumRegistry;
+    private boolean durableExecutionAnchors;
+    private org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactExecutions;
+    private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
+    private final AtomicBoolean executionRecoveryRunning = new AtomicBoolean();
+    private java.util.function.Function<java.util.List<ExecutionAnchor>, java.util.Set<String>>
+            claimedExecutionRecovery = ignored -> java.util.Set.of();
     private long workerLivenessGraceMs = DEFAULT_WORKER_LIVENESS_GRACE_MS;
 
     HighAvailabilityBootstrap(CoordinatorBootstrapConfig config,
@@ -86,6 +94,10 @@ final class HighAvailabilityBootstrap {
         this.dataSource = dataSource;
     }
 
+    void setExecutionAuthority(org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority authority) {
+        executionAuthority = java.util.Objects.requireNonNull(authority, "executionAuthority");
+    }
+
     /**
      * Sets a pre-built quorum-backed {@link CoordinatorRegistry} (ZooKeeper). When set it takes
      * precedence over the JDBC registry, so coordinator membership/discovery runs on the ZK quorum
@@ -102,6 +114,13 @@ final class HighAvailabilityBootstrap {
      */
     void setCatalogRegistry(CatalogRegistry catalogRegistry) {
         this.catalogRegistry = catalogRegistry;
+    }
+
+    void setClaimedExecutionRecovery(
+            java.util.function.Function<java.util.List<ExecutionAnchor>, java.util.Set<String>>
+                    recovery) {
+        this.claimedExecutionRecovery = java.util.Objects.requireNonNull(
+                recovery, "recovery must not be null");
     }
 
     void start() {
@@ -133,6 +152,14 @@ final class HighAvailabilityBootstrap {
     private void startHA() {
         haService = new HighAvailabilityCoordinationService(distributedLease,
                 HighAvailabilityCoordinationService.CoordinationConfig.defaults());
+        if (dataSource != null) {
+            if (executionAuthority == null) {
+                throw new IllegalStateException("durable HA requires the process-wide execution authority binding");
+            }
+            haService.bindExecutionAuthority(executionAuthority);
+            durableExecutionAnchors = true;
+            artifactExecutions = new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactBuildStore(dataSource);
+        }
         if (quorumRegistry != null) {
             haService.setCoordinatorRegistry(quorumRegistry,
                     config.coordinatorTransportAdvertisedHost(), config.httpPort());
@@ -158,28 +185,22 @@ final class HighAvailabilityBootstrap {
             // Task 38 / G-META-02: reconcile catalog registry with authoritative store
             // on leader promotion to detect and repair peer divergence.
             reconcileCatalogRegistry();
-            // F-COORD-HA-03: recover journal state on failover so the newly promoted
-            // leader replays the failed leader's uncommitted queries/tasks.
-            recoverJournalState();
-            if (maintenanceLeaderAware != null) {
-                maintenanceLeaderAware.onLeaderElected();
-            }
-        });
-        haService.onDemotion(() -> {
-            if (maintenanceLeaderAware != null) {
-                maintenanceLeaderAware.onLeadershipLost();
-            }
+            // Query coordinators are active-active. A control-leader transition
+            // must never replay live peers' journals; recover only explicitly
+            // orphaned owners claimed atomically from the durable store.
+            recoverExpiredJournalState();
         });
         haService.start(config.coordinatorId());
-        // F-COORD-HA-03: Journal recovery is driven exclusively by the failover
-        // callback above. This covers all three scenarios correctly:
-        //  1. Leader at startup: start() wins election → notifyFailover fires
-        //     synchronously → callback runs recoverJournalState().
-        //  2. Standby at startup: start() loses election → no failover callback
-        //     → no recovery (correct: must not replay active leader's entries).
-        //  3. Standby promoted later: ElectionScheduler detects leader failure →
-        //     tryBecomeLeader wins → failover callback → recoverJournalState().
-        // No explicit call here — it would cause double recovery in scenario 1.
+        if (durableExecutionAnchors) {
+            schedulerExecutor.scheduleWithFixedDelay(
+                    this::recoverExecutionsIfControlLeader,
+                    config.workerHealthCheckIntervalMs(),
+                    config.workerHealthCheckIntervalMs(),
+                    TimeUnit.MILLISECONDS);
+        }
+        // Recovery is driven by the singleton callback, but it consumes only
+        // explicit orphan records. It never performs an unscoped replay of the
+        // shared journal, because other active Coordinators may own those rows.
         LOG.info("Phase: HA -- coordinator registered as leader candidate");
     }
 
@@ -204,32 +225,37 @@ final class HighAvailabilityBootstrap {
     }
 
     /**
-     * Replays journal events to rebuild in-memory query/task state after leader promotion.
-     *
-     * <p>Task 51 / SI-6: Recovery is owner-scoped when a previous leader is known.
-     * The new leader only replays journal entries owned by the failed coordinator,
-     * preventing cross-coordinator state corruption. A worker-liveness grace window
-     * delays declaring UNKNOWN workers as dead, giving them time to re-register.</p>
+     * Claims explicit durable orphans and replays only their original owners.
+     * Active peers' journal rows are never included. Recovery is bounded by the
+     * reclaimer batch size and keeps the worker-liveness grace window.
      */
-    private void recoverJournalState() {
+    private void recoverExpiredJournalState() {
+        if (!durableExecutionAnchors
+                || !executionRecoveryRunning.compareAndSet(false, true)) {
+            return;
+        }
+        java.util.List<ExecutionAnchor> claimed = java.util.List.of();
         try {
             QueryStateJournal journal = queryManager.getStateJournal();
-            // SI-6: Use the previous leader ID for owner-scoped recovery.
-            // On first startup (no previous leader), recover all (unscoped).
-            String previousLeader = haService.getLeaderId();
-            // If we are the leader, there is no "previous" to scope to -- unscoped recovery.
-            // Owner-scoped recovery only applies when recovering from a different failed leader.
-            String scopedOwner = null;
-            if (previousLeader != null && !previousLeader.equals(config.coordinatorId())) {
-                scopedOwner = previousLeader;
+            claimed = haService.claimExpiredExecutions(256);
+            if (claimed.isEmpty()) {
+                return;
             }
-
-            var recoveryService = new JournalRecoveryService(
+            var artifacts = claimed.stream().filter(anchor -> artifactJob(anchor).isPresent()).toList();
+            java.util.Set<String> terminalCleaned = new java.util.HashSet<>(claimedExecutionRecovery.apply(
+                    claimed.stream().filter(anchor -> !artifacts.contains(anchor)).toList()));
+            artifacts.forEach(anchor -> terminalCleaned.add(anchor.executionId()));
+            var queryIds = claimed.stream()
+                    .map(ExecutionAnchor::executionId)
+                    .filter(id -> !terminalCleaned.contains(id))
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            int recovered = new JournalRecoveryService(
                     journal, queryManager, taskTracker, workerManager,
-                    scopedOwner, workerLivenessGraceMs);
-            int recovered = recoveryService.recover();
-            LOG.info("event=journal_recovery_completed queriesRecovered={} scopedOwner={} graceMs={}",
-                    recovered, scopedOwner, workerLivenessGraceMs);
+                    null, workerLivenessGraceMs).recover(queryIds);
+            settleRecoveryClaims(claimed);
+            LOG.info("event=execution_anchor_recovery_completed "
+                            + "queriesClaimed={} queriesRecovered={} graceMs={}",
+                    claimed.size(), recovered, workerLivenessGraceMs);
         } catch (Exception e) {
             // NEW-COORD-05: per-entry poison rows are already isolated inside JournalRecoveryService
             // (each query/task replay is try/caught + skipped with a warning). A failure reaching
@@ -238,10 +264,65 @@ final class HighAvailabilityBootstrap {
             // — a worse outage than degrading. Raise a CRITICAL alarm and continue starting DEGRADED:
             // un-recovered predecessor queries are fail-safe (detected + failed by worker-liveness /
             // task-timeout checks) rather than blocking the entire cluster's recovery.
-            LOG.error("event=coordinator_alarm severity=CRITICAL component=ha_journal_recovery "
-                    + "message=\"journal recovery could not complete; starting DEGRADED — predecessor "
-                    + "in-flight queries may not be reclaimed and will be failed by liveness/timeout\" "
+            for (ExecutionAnchor anchor : claimed) {
+                haService.yieldExecution(anchor);
+            }
+            LOG.error("event=coordinator_alarm severity=CRITICAL component=execution_anchor_recovery "
+                    + "message=\"journal recovery could not complete; claims yielded for retry\" "
                     + "error={}", e.getMessage(), e);
+        } finally {
+            executionRecoveryRunning.set(false);
+        }
+    }
+
+    private void settleRecoveryClaims(java.util.List<ExecutionAnchor> claimed) {
+        for (ExecutionAnchor anchor : claimed) {
+            var artifact = artifactJob(anchor);
+            if (artifact.isPresent()) {
+                var key = artifact.orElseThrow();
+                var job = artifactExecutions.findJob(key.tenantId(), key.jobId()).orElseThrow(() ->
+                        new IllegalStateException("artifact recovery association lost its exact job"));
+                if (job.state() == org.pangrova.metadata.artifact.build.ArtifactBuildJobState.PUBLISHED
+                        || job.state() == org.pangrova.metadata.artifact.build.ArtifactBuildJobState.FAILED
+                        || job.state() == org.pangrova.metadata.artifact.build.ArtifactBuildJobState.CANCELLED) {
+                    haService.releaseQueryOwnership(anchor.executionId(), config.coordinatorId());
+                }
+                continue;
+            }
+            var state = queryManager.getQueryState(anchor.executionId());
+            if (state.isEmpty() || isTerminal(state.orElseThrow())) {
+                haService.releaseQueryOwnership(
+                        anchor.executionId(), config.coordinatorId());
+            }
+        }
+    }
+
+    private java.util.Optional<org.pangrova.metadata.artifact.build.ArtifactBuildJobKey> artifactJob(
+            ExecutionAnchor anchor) {
+        if (!anchor.executionId().startsWith("artifact:")) {
+            return java.util.Optional.empty();
+        }
+        if (artifactExecutions == null) {
+            throw new IllegalStateException("artifact recovery requires its durable routing store");
+        }
+        return java.util.Optional.of(artifactExecutions.findExecutionJob(anchor.executionId()).orElseThrow(() ->
+                new IllegalStateException("artifact recovery has no exact durable association")));
+    }
+
+    private static boolean isTerminal(QueryStateMachine.State state) {
+        return state == QueryStateMachine.State.FINISHED
+                || state == QueryStateMachine.State.FAILED
+                || state == QueryStateMachine.State.CANCELLED;
+    }
+
+    private void recoverExecutionsIfControlLeader() {
+        try {
+            if (haService != null && haService.isLeader(config.coordinatorId())) {
+                recoverExpiredJournalState();
+            }
+        } catch (RuntimeException failure) {
+            LOG.error("event=execution_anchor_recovery_poll_failed error={}",
+                    failure.getMessage(), failure);
         }
     }
 
@@ -268,8 +349,4 @@ final class HighAvailabilityBootstrap {
         return haService != null ? haService.coordinatorRegistry() : null;
     }
 
-    /** Sets the MaintenanceLeaderAware to be notified on leader election/demotion. */
-    void setMaintenanceLeaderAware(org.pangrova.spi.coordination.MaintenanceLeaderAware aware) {
-        this.maintenanceLeaderAware = aware;
-    }
 }

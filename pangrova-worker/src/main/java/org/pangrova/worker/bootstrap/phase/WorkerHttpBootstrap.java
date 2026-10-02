@@ -45,12 +45,17 @@ public final class WorkerHttpBootstrap {
         try {
             int resultPort = refs.resultServerPort();
             String workerHost = resolveAdvertisedHost(config);
+            String resultProtocol = config.transportSecurityConfig().enabled()
+                    ? org.pangrova.protocol.rest.query.ResultProtocol.GRPC_TLS.value()
+                    : org.pangrova.protocol.rest.query.ResultProtocol.GRPC.value();
             WorkerHttpConfig httpConfig = new WorkerHttpConfig(config.httpPort(), workerHost, resultPort,
-                    config.internalAuthSecret());
+                    config.internalAuthSecret(), resultProtocol);
             HealthCheckEndpoint healthEndpoint = buildHealthEndpoint(started, refs);
             ExchangeTransport exchangeTransport = refs.exchangeTransport();
+            var control = datasetControl(refs);
             WorkerHttpServer server = new WorkerHttpServer(
-                    httpConfig, refs.taskManager(), exchangeTransport, healthEndpoint);
+                    httpConfig, refs.taskManager(), exchangeTransport, healthEndpoint, control,
+                    new org.pangrova.worker.result.ResultReadTickets(refs.shuffleHmacCurrentKey()));
             server.start();
             refs.setHttpServer(server);
             refs.setWorker(new PangrovaWorker(new WorkerComponents(refs.taskManager())));
@@ -58,6 +63,13 @@ public final class WorkerHttpBootstrap {
         } catch (Exception e) {
             throw new BootstrapFailedException("HTTP", e);
         }
+    }
+
+    private static org.pangrova.worker.dataset.NativeDatasetControlService datasetControl(WorkerComponentRefs refs) {
+        if (refs.catalogResourceResolver() instanceof org.pangrova.worker.jni.write.WorkerCatalogRuntime catalogs) {
+            return new org.pangrova.worker.dataset.NativeDatasetControlService(refs.taskManager(), catalogs);
+        }
+        return null;
     }
 
     /**

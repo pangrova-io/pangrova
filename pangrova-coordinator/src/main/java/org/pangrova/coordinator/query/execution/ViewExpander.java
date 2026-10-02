@@ -17,7 +17,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.pangrova.coordinator.query.statement.StatementConnectorSession;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.SessionContextConverter;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.planner.SqlCompiler;
@@ -41,14 +42,14 @@ final class ViewExpander {
         this.catalogRegistry = catalogRegistry;
     }
 
-    String expand(String sql, SqlCompiler compiler) {
+    String expand(String sql, SqlCompiler compiler, CoordinatorSessionContext context) {
         if (catalogRegistry == null) {
             return sql;
         }
         String expanded = sql;
         for (int depth = 0; depth < MAX_EXPANSION_DEPTH; depth++) {
             String before = expanded;
-            expanded = expandOnce(expanded, compiler);
+            expanded = expandOnce(expanded, compiler, context);
             if (expanded.equals(before)) {
                 break;
             }
@@ -56,7 +57,7 @@ final class ViewExpander {
         return expanded;
     }
 
-    private String expandOnce(String sql, SqlCompiler compiler) {
+    private String expandOnce(String sql, SqlCompiler compiler, CoordinatorSessionContext context) {
         org.pangrova.parser.ast.Statement ast;
         try {
             ast = compiler.parseToAst(sql);
@@ -79,7 +80,7 @@ final class ViewExpander {
             String catalog = parts.get(0);
             String schema = parts.get(1);
             String table = parts.get(2);
-            Optional<String> viewDef = lookupView(catalog, schema, table);
+            Optional<String> viewDef = lookupView(catalog, schema, table, context);
             if (viewDef.isEmpty()) {
                 continue;
             }
@@ -91,20 +92,11 @@ final class ViewExpander {
         return expanded;
     }
 
-    private Optional<String> lookupView(String catalog, String schema, String table) {
-        try {
-            CatalogHandle handle = catalogRegistry.getCatalog(catalog);
-            if (handle == null) {
-                return Optional.empty();
-            }
-            var session = new StatementConnectorSession(catalog, schema);
-            var stn = new SchemaTableName(schema, table);
-            return handle.getMetadata(session).getViewDefinition(session, stn);
-        } catch (Exception e) {
-            LOG.debug("event=view_lookup_failed catalog={} table={} error={}",
-                    catalog, table, e.getMessage());
-            return Optional.empty();
-        }
+    private Optional<String> lookupView(
+            String catalog, String schema, String table, CoordinatorSessionContext context) {
+        CatalogHandle handle = catalogRegistry.getCatalog(catalog);
+        var session = SessionContextConverter.toConnectorSession(context, catalog, schema);
+        return handle.getMetadata(session).getViewDefinition(session, new SchemaTableName(schema, table));
     }
 
     private static List<org.pangrova.parser.ast.TableRef> collectAllNamedRefs(

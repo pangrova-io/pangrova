@@ -274,7 +274,9 @@ class AstExpressionBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     @Override
     public Expression visitFunctionCallExpr(PangrovaSqlParser.FunctionCallExprContext ctx) {
-        Identifier name = parent.visitQualifiedName(ctx.qualifiedName());
+        Identifier name = ctx.functionName().AI_EMBED() == null
+                ? parent.visitQualifiedName(ctx.functionName().qualifiedName())
+                : Identifier.of(ctx.functionName().AI_EMBED().getText());
         List<Expression> args = ctx.expression().stream()
                 .map(e -> (Expression) visit(e))
                 .toList();

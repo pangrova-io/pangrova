@@ -36,6 +36,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static org.pangrova.coordinator.query.statement.StatementTestSessions.context;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -46,6 +47,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * reach the underlying storage layer (Iceberg/Paimon).</p>
  */
 class DdlExecutorAlterTableTest {
+
+    private static org.pangrova.coordinator.query.CoordinatorSessionContext statementSession() {
+        return context();
+    }
 
     private RecordingMetadata recordingMetadata;
     private DdlExecutor ddlExecutor;
@@ -63,7 +68,7 @@ class DdlExecutorAlterTableTest {
                 Identifier.of("test_cat", "default", "users"),
                 "email", DataTypeSpec.fromRawTypeString("VARCHAR"));
 
-        ddlExecutor.executeAlterTable(stmt);
+        ddlExecutor.executeAlterTable(stmt, statementSession());
 
         assertThat(recordingMetadata.operations).hasSize(1);
         assertThat(recordingMetadata.operations.get(0))
@@ -77,7 +82,7 @@ class DdlExecutorAlterTableTest {
         AlterTableStatement stmt = new AlterTableStatement.DropColumn(
                 Identifier.of("test_cat", "default", "users"), "name");
 
-        ddlExecutor.executeAlterTable(stmt);
+        ddlExecutor.executeAlterTable(stmt, statementSession());
 
         assertThat(recordingMetadata.operations).hasSize(1);
         assertThat(recordingMetadata.operations.get(0))
@@ -90,7 +95,7 @@ class DdlExecutorAlterTableTest {
         AlterTableStatement stmt = new AlterTableStatement.RenameColumn(
                 Identifier.of("test_cat", "default", "users"), "name", "full_name");
 
-        ddlExecutor.executeAlterTable(stmt);
+        ddlExecutor.executeAlterTable(stmt, statementSession());
 
         assertThat(recordingMetadata.operations).hasSize(1);
         assertThat(recordingMetadata.operations.get(0))
@@ -104,7 +109,7 @@ class DdlExecutorAlterTableTest {
         AlterTableStatement stmt = new AlterTableStatement.ChangeColumnType(
                 Identifier.of("test_cat", "default", "users"), "id", DataTypeSpec.fromRawTypeString("BIGINT"));
 
-        ddlExecutor.executeAlterTable(stmt);
+        ddlExecutor.executeAlterTable(stmt, statementSession());
 
         assertThat(recordingMetadata.operations).hasSize(1);
         assertThat(recordingMetadata.operations.get(0))

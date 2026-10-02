@@ -54,18 +54,14 @@ class FullPipelineE2ETest extends PangrovaE2ETestBase {
     class FullLifecycle {
         @Test void completeTableLifecycle() {
             String tbl = CATALOG + "." + SCHEMA + ".t_lifecycle_" + System.nanoTime();
-            try {
-                executeDdl("CREATE TABLE " + tbl + " (id BIGINT, data VARCHAR)");
-                executeDml("INSERT INTO " + tbl + " VALUES (1,'hello'),(2,'world')");
-                assertQueryReturnsRows("SELECT * FROM " + tbl, 2);
-                executeDml("UPDATE " + tbl + " SET data='updated' WHERE id=1");
-                executeDml("DELETE FROM " + tbl + " WHERE id=2");
-                assertQueryReturnsRows("SELECT * FROM " + tbl, 1);
-                executeDdl("DROP TABLE " + tbl);
-                assertThat(executeExpectingError("SELECT * FROM " + tbl)).isNotNull();
-            } catch (AssertionError | RuntimeException e) {
-                // Full lifecycle may have read-after-write visibility gaps
-            }
+            executeDdl("CREATE TABLE " + tbl + " (id BIGINT, data VARCHAR)");
+            executeDml("INSERT INTO " + tbl + " VALUES (1,'hello'),(2,'world')");
+            assertQueryReturnsRows("SELECT * FROM " + tbl, 2);
+            executeDml("UPDATE " + tbl + " SET data='updated' WHERE id=1");
+            executeDml("DELETE FROM " + tbl + " WHERE id=2");
+            assertQueryReturnsRows("SELECT * FROM " + tbl, 1);
+            executeDdl("DROP TABLE " + tbl);
+            assertThat(executeExpectingError("SELECT * FROM " + tbl)).isNotNull();
         }
     }
 

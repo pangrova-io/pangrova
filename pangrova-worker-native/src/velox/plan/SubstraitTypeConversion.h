@@ -1,5 +1,5 @@
 // SubstraitTypeConversion.h — Declares the type and expression conversion
-// methods implemented in SubstraitTypeConversion.cpp.
+// methods implemented by the type, literal, and function conversion units.
 //
 // These are member functions of VeloxPlanConverter and are declared in
 // VeloxPlanConverter.h. This header serves as a module map documenting
@@ -7,8 +7,8 @@
 //
 // Conversion methods:
 //   convertType, convertNamedStruct, convertExpression,
-//   convertFieldReference, convertDecimalLiteral, alignArgumentTypes,
-//   alignComparisonArguments, convertVirtualTable.
+//   convertFieldReference, convertLiteral, convertDecimalLiteral,
+//   convertListLiteral, convertVirtualTable, checkedScalarCall.
 //
 // This file is intentionally NOT included by other headers — it exists
 // solely for IDE navigation and documentation purposes.

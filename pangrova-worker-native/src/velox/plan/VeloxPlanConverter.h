@@ -24,6 +24,9 @@
 #include <vector>
 
 #include "split/SplitConfig.h"
+#include "velox/plan/ShuffleOutputSpec.h"
+#include "velox/runner/SingleMatchJoinRequirement.h"
+#include "pangrova/protocol/v2/execution_binding.pb.h"
 #include "substrait/algebra.pb.h"
 #include "velox/core/PlanNode.h"
 #include "velox/common/memory/Memory.h"
@@ -38,6 +41,7 @@ class AggregateRel;
 class HashJoinRel;
 class MergeJoinRel;
 class JoinRel;
+class NestedLoopJoinRel;
 class ExchangeRel;
 class SortRel;
 class FetchRel;
@@ -52,12 +56,22 @@ class Type;
 class NamedStruct;
 }  // namespace substrait
 
+namespace pangrova::protocol::v2 {
+class RetrievalSourceDetail;
+class RetrievalMergeDetail;
+class RerankDetail;
+class ArtifactBuildDetail;
+class TableFunctionDetail;
+}  // namespace pangrova::protocol::v2
+
 namespace pangrova::velox {
+
+struct ArtifactBuildTaskContext;
 
 // Converts Substrait plan bytes to a Velox PlanNode tree.
 // Throws std::runtime_error for unsupported Rel/Expression types.
 // @NotThreadSafe — holds mutable state (next_node_id_, function_map_,
-// scan_node_output_types_, values_pool_holders_). Use one instance per task.
+// scan_node_output_types_). Use one instance per task.
 class VeloxPlanConverter {
  public:
   // Convert raw Substrait Plan protobuf bytes into a Velox PlanNode.
@@ -73,7 +87,29 @@ class VeloxPlanConverter {
       const std::vector<uint8_t>& plan_bytes,
       const std::vector<split::SplitConfig>& splits,
       bool is_result_task = false,
-      const std::string& result_serde_name = "Presto");
+      const std::string& result_serde_name = "Presto",
+      const std::unordered_map<
+          std::string, pangrova::protocol::v2::OperatorBinding>&
+          operator_bindings = {},
+      std::shared_ptr<ArtifactBuildTaskContext> artifact_build_context = nullptr,
+      const std::unordered_map<
+          std::string, std::vector<split::SplitConfig>>&
+          retrieval_split_overrides = {},
+      int32_t shuffle_partition_count = 0);
+
+  const std::optional<ShuffleOutputSpec>& shuffleOutputSpec() const {
+    return shuffle_output_spec_;
+  }
+
+  const std::vector<std::string>& resultColumnLabels() const {
+    return result_column_labels_;
+  }
+
+  /** Uses the execution schema converter for metadata-only storage commands. */
+  facebook::velox::RowTypePtr convertStorageSchema(
+      const substrait::NamedStruct& schema) {
+    return convertNamedStruct(schema);
+  }
 
   // Look up the output RowType for a TableScan node by its plan node id.
   // Returns the RowType if found, or std::nullopt if the id is unknown.
@@ -89,17 +125,34 @@ class VeloxPlanConverter {
     return scan_node_output_types_;
   }
 
-  // Return memory pool holders created during plan conversion.
-  // Caller must keep these alive as long as the converted PlanNode tree
-  // is in use (ValuesNode RowVector buffers reference these pools).
-  std::vector<std::shared_ptr<facebook::velox::memory::MemoryPool>>&
-  valuesPoolHolders() {
-    return values_pool_holders_;
+  /** Per-scan split filters produced by immutable retrieval artifacts. */
+  const std::unordered_map<
+      std::string, std::vector<split::SplitConfig>>&
+  scanNodeSplitOverrides() const {
+    return scan_node_split_overrides_;
   }
+
+  // Standard Substrait LEFT_SINGLE joins lowered to Velox LEFT joins. The
+  // executor validates their exact probe cardinality before task success.
+  const std::vector<SingleMatchJoinRequirement>& singleMatchJoinRequirements() const {
+    return single_match_join_requirements_;
+  }
+
+  const pangrova::protocol::v2::OperatorBinding& requireOperatorBinding(
+      const std::string& plan_node_id,
+      const pangrova::protocol::v2::CapabilityRef& capability);
+
+  void validateAllOperatorBindingsConsumed() const;
 
  private:
   // Monotonically increasing node id counter for unique PlanNode ids.
   int next_node_id_ = 0;
+  int32_t shuffle_partition_count_ = 0;
+  std::optional<ShuffleOutputSpec> shuffle_output_spec_;
+  std::unordered_map<const substrait::Rel*, facebook::velox::RowTypePtr>
+      relation_output_types_;
+  std::unordered_map<std::string, facebook::velox::RowTypePtr> logical_node_types_;
+  std::vector<std::string> result_column_labels_;
 
   // Thread ownership tracking for @NotThreadSafe enforcement.
   // Set on first convert() call; subsequent calls assert same thread.
@@ -117,13 +170,16 @@ class VeloxPlanConverter {
   // Consumed by DynamicFilterConverter to resolve column name → column index.
   std::unordered_map<std::string, facebook::velox::RowTypePtr>
       scan_node_output_types_;
+  std::unordered_map<std::string, std::vector<split::SplitConfig>>
+      retrieval_split_overrides_;
+  std::unordered_map<std::string, std::vector<split::SplitConfig>>
+      scan_node_split_overrides_;
+  std::vector<SingleMatchJoinRequirement> single_match_join_requirements_;
 
-  // Memory pools created during plan conversion (e.g., for ValuesNode vectors).
-  // Must be kept alive as long as the converted PlanNode tree is in use,
-  // because RowVector/FlatVector buffers reference the pool for deallocation.
-  // PlanExecutionDriver must keep the converter alive alongside the runner.
-  std::vector<std::shared_ptr<facebook::velox::memory::MemoryPool>>
-      values_pool_holders_;
+  std::unordered_map<std::string, pangrova::protocol::v2::OperatorBinding>
+      operator_bindings_;
+  std::unordered_set<std::string> consumed_operator_bindings_;
+  std::shared_ptr<ArtifactBuildTaskContext> artifact_build_context_;
 
   // Sorting keys associated with RowNumberNodes created from window functions
   // that had ORDER BY clauses. RowNumberNode itself doesn't store sorting keys,
@@ -154,7 +210,38 @@ class VeloxPlanConverter {
       const substrait::Rel& rel,
       const std::vector<split::SplitConfig>& splits);
 
+  std::shared_ptr<const facebook::velox::core::PlanNode> convertDirectRel(
+      const substrait::Rel& rel,
+      const std::vector<split::SplitConfig>& splits);
+  facebook::velox::RowTypePtr directLogicalType(
+      const substrait::Rel& rel,
+      const std::shared_ptr<const facebook::velox::core::PlanNode>& node);
+  const facebook::velox::RowTypePtr& logicalNodeType(
+      const std::shared_ptr<const facebook::velox::core::PlanNode>& node) const;
+  void bindResultColumnLabels(const substrait::RelRoot& root,
+                             const facebook::velox::RowTypePtr& type);
+
   // Operator-specific converters.
+  std::shared_ptr<const facebook::velox::core::PlanNode> convertReadProjection(
+      const substrait::Expression::MaskExpression& mask,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input);
+
+  facebook::velox::core::TypedExprPtr convertMaskSelection(
+      const substrait::Expression::MaskExpression::Select& selection,
+      facebook::velox::core::TypedExprPtr value, bool maintain);
+  facebook::velox::core::TypedExprPtr convertReferenceSegment(
+      const substrait::Expression::ReferenceSegment& segment,
+      facebook::velox::core::TypedExprPtr value);
+  facebook::velox::core::TypedExprPtr convertStructMask(
+      const substrait::Expression::MaskExpression::StructSelect& selection,
+      facebook::velox::core::TypedExprPtr value, bool maintain);
+  facebook::velox::core::TypedExprPtr convertListMask(
+      const substrait::Expression::MaskExpression::ListSelect& selection,
+      facebook::velox::core::TypedExprPtr value, bool maintain);
+  facebook::velox::core::TypedExprPtr convertMapMask(
+      const substrait::Expression::MaskExpression::MapSelect& selection,
+      facebook::velox::core::TypedExprPtr value, bool maintain);
+
   std::shared_ptr<const facebook::velox::core::PlanNode> convertReadRel(
       const substrait::ReadRel& read_rel,
       const std::vector<split::SplitConfig>& splits);
@@ -178,25 +265,64 @@ class VeloxPlanConverter {
 
   // Multi-grouping-set expansion (GROUPING SETS / CUBE / ROLLUP).
   // Builds GroupIdNode (row replication + NULL fill + groupId assignment)
-  // followed by a single AggregationNode and a ProjectNode to strip groupId.
+  // followed by aggregation and a projection retaining canonical set identity.
   std::shared_ptr<const facebook::velox::core::PlanNode>
   convertMultiGroupingAggregate(
       const substrait::AggregateRel& aggregate_rel,
       std::shared_ptr<const facebook::velox::core::PlanNode> input,
       const facebook::velox::RowTypePtr& input_type);
+  std::shared_ptr<const facebook::velox::core::PlanNode> projectGroupingOutput(
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      size_t groupingKeyCount, size_t measureCount);
 
-  // ExtensionSingleRel → UnnestNode (EXPLODE/POSEXPLODE) or VectorSearch.
+  // ExtensionSingleRel → typed Pangrova relation or UnnestNode.
   std::shared_ptr<const facebook::velox::core::PlanNode>
   convertExtensionSingleRel(
       const substrait::ExtensionSingleRel& ext_rel,
       const std::vector<split::SplitConfig>& splits);
 
-  // Vector search extension → Project(distance) + TopN.
+  // ExtensionLeafRel → typed native source such as a distributed exchange.
   std::shared_ptr<const facebook::velox::core::PlanNode>
-  convertVectorSearchExtension(
-      const std::string& detail_json,
+  convertExtensionLeafRel(const substrait::ExtensionLeafRel& ext_rel);
+
+  // Typed exact Top-K retrieval source.
+  std::shared_ptr<const facebook::velox::core::PlanNode>
+  convertTopKRetrieval(
+      const pangrova::protocol::v2::RetrievalSourceDetail& detail,
       std::shared_ptr<const facebook::velox::core::PlanNode> input,
       const facebook::velox::RowTypePtr& input_type);
+
+  // Typed, bounded Native RRF / weighted-linear global candidate fusion.
+  std::shared_ptr<const facebook::velox::core::PlanNode>
+  convertRetrievalMerge(
+      const pangrova::protocol::v2::RetrievalMergeDetail& detail,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      const facebook::velox::RowTypePtr& input_type);
+
+  // Bounded cross-encoder scoring over a complete Native candidate stream.
+  std::shared_ptr<const facebook::velox::core::PlanNode>
+  convertRerank(
+      const pangrova::protocol::v2::RerankDetail& detail,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      const facebook::velox::RowTypePtr& input_type);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode>
+  convertArtifactBuild(
+      const pangrova::protocol::v2::ArtifactBuildDetail& detail,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      const facebook::velox::RowTypePtr& input_type);
+
+  // Exact generated-value sidecar join expressed through the canonical generic
+  // table-function envelope on an ExtensionSingleRel.
+  std::shared_ptr<const facebook::velox::core::PlanNode>
+  convertGeneratedValuesOverlay(
+      const pangrova::protocol::v2::TableFunctionDetail& detail,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      const facebook::velox::RowTypePtr& input_type);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> convertUnnest(
+      const pangrova::protocol::v2::TableFunctionDetail& detail,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input);
 
   // ExtensionMultiRel → TableFunctionNode (table-valued functions).
   std::shared_ptr<const facebook::velox::core::PlanNode>
@@ -210,6 +336,11 @@ class VeloxPlanConverter {
 
   std::shared_ptr<const facebook::velox::core::PlanNode> convertJoinRel(
       const substrait::JoinRel& join_rel,
+      const std::vector<split::SplitConfig>& splits);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode>
+  convertNestedLoopJoinRel(
+      const substrait::NestedLoopJoinRel& join_rel,
       const std::vector<split::SplitConfig>& splits);
 
   std::shared_ptr<const facebook::velox::core::PlanNode> convertExchangeRel(
@@ -253,54 +384,32 @@ class VeloxPlanConverter {
 
   // --- AggregateRel helpers ---
 
-  // Information about a distinct column in a multi-distinct aggregation.
-  struct DistinctColumnInfo {
-    // Indices of measures in AggregateRel.measures() that use this distinct column.
-    std::vector<int> measure_indices;
-    // Column name in the input schema that the DISTINCT operates on.
-    std::string column_name;
-    // Column index in the input schema.
-    int column_index;
-  };
-
-  // Result of multi-distinct detection.
-  struct MultiDistinctDetection {
-    // True when ≥2 DISTINCT measures operate on different columns.
-    bool is_multi_distinct = false;
-    // Distinct column info for each unique distinct column.
-    std::vector<DistinctColumnInfo> distinct_columns;
-  };
-
-  // Detect multi-distinct pattern: ≥2 DISTINCT measures on different columns.
-  // Returns detection result with distinct column info for MarkDistinctNode insertion.
-  // Single-DISTINCT does NOT trigger multi-distinct path.
-  MultiDistinctDetection detectMultiDistinctColumns(
-      const substrait::AggregateRel& aggregate_rel,
-      const facebook::velox::RowTypePtr& input_type);
-
-  // Build MarkDistinctNode chain + masked AggregationNode for multi-distinct.
-  // Inserts one MarkDistinctNode per distinct column, then builds a single
-  // AggregationNode with marker-masked aggregates.
-  std::shared_ptr<const facebook::velox::core::PlanNode>
-  buildMarkDistinctAggregation(
-      const substrait::AggregateRel& aggregate_rel,
-      const MultiDistinctDetection& multi_distinct,
-      std::shared_ptr<const facebook::velox::core::PlanNode> input,
-      const facebook::velox::RowTypePtr& input_type);
-
-  // Extract grouping keys from the first grouping set of an AggregateRel.
+  // Keys follow the shared expression declaration order, never set order.
   std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>
   convertGroupingKeys(
       const substrait::AggregateRel& aggregate_rel,
-      const facebook::velox::RowTypePtr& input_type);
+      const facebook::velox::RowTypePtr& prepared_type, size_t base_arity);
 
   // Convert AggregateRel measures to Velox Aggregate descriptors.
-  void convertAggregateMeasures(
+  std::shared_ptr<const facebook::velox::core::PlanNode> convertAggregateMeasures(
       const substrait::AggregateRel& aggregate_rel,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
       const facebook::velox::RowTypePtr& input_type,
-      const std::unordered_set<std::string>& grouping_key_names,
       std::vector<std::string>& aggregate_names,
       std::vector<facebook::velox::core::AggregationNode::Aggregate>& aggregates);
+
+  facebook::velox::core::TypedExprPtr aggregateInputValue(
+      const substrait::Expression& expression,
+      const facebook::velox::RowTypePtr& input_type,
+      std::vector<std::string>& names,
+      std::vector<facebook::velox::core::TypedExprPtr>& projections,
+      bool preserve_constant);
+
+  facebook::velox::core::AggregationNode::Aggregate convertAggregateMeasure(
+      const substrait::AggregateRel::Measure& measure,
+      const facebook::velox::RowTypePtr& input_type,
+      std::vector<std::string>& names,
+      std::vector<facebook::velox::core::TypedExprPtr>& projections);
 
   // Map Substrait aggregation phase to Velox AggregationNode::Step.
   facebook::velox::core::AggregationNode::Step resolveAggregationStep(
@@ -310,7 +419,7 @@ class VeloxPlanConverter {
   std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>
   detectPreGroupedKeys(
       const substrait::AggregateRel& aggregate_rel,
-      const facebook::velox::RowTypePtr& input_type,
+      const std::shared_ptr<const facebook::velox::core::PlanNode>& input,
       const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& grouping_keys);
 
   // Insert a LocalPartitionNode to colocate data by partition keys.
@@ -329,16 +438,59 @@ class VeloxPlanConverter {
       const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& pre_grouped_keys,
       const std::vector<std::string>& aggregate_names,
       const std::vector<facebook::velox::core::AggregationNode::Aggregate>& aggregates,
-      std::shared_ptr<const facebook::velox::core::PlanNode> input);
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      const std::vector<facebook::velox::vector_size_t>& globalGroupingSets = {},
+      const std::optional<facebook::velox::core::FieldAccessTypedExprPtr>& groupId = std::nullopt);
 
   // --- JoinRel helpers ---
 
-  // Build deduplicated output RowType for a join (left + right columns).
-  facebook::velox::RowTypePtr buildJoinOutputType(
-      const facebook::velox::RowTypePtr& left_type,
-      const facebook::velox::RowTypePtr& right_type,
-      std::unordered_set<std::string>& left_name_set,
-      std::unordered_map<std::string, std::string>& right_rename_map);
+  std::shared_ptr<const facebook::velox::core::PlanNode> rebaseJoinInput(
+      std::shared_ptr<const facebook::velox::core::PlanNode> input, size_t offset);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> applyPostJoinFilter(
+      const substrait::Expression& predicate,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> finishJoinMarker(
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      const facebook::velox::RowTypePtr& outputType, bool anti);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> buildNestedJoin(
+      const std::string& kind,
+      std::shared_ptr<const facebook::velox::core::PlanNode> left,
+      std::shared_ptr<const facebook::velox::core::PlanNode> right,
+      const std::shared_ptr<const facebook::velox::core::ITypedExpr>& condition);
+
+  struct PreparedJoinKeys {
+    std::shared_ptr<const facebook::velox::core::PlanNode> left;
+    std::shared_ptr<const facebook::velox::core::PlanNode> right;
+    std::vector<facebook::velox::core::FieldAccessTypedExprPtr> leftKeys;
+    std::vector<facebook::velox::core::FieldAccessTypedExprPtr> rightKeys;
+    facebook::velox::core::TypedExprPtr condition;
+    bool hashable = true;
+    bool ordinaryEquality = true;
+  };
+
+  PreparedJoinKeys prepareJoinKeys(
+      const google::protobuf::RepeatedPtrField<substrait::ComparisonJoinKey>& keys,
+      std::shared_ptr<const facebook::velox::core::PlanNode> left,
+      std::shared_ptr<const facebook::velox::core::PlanNode> right);
+
+  facebook::velox::core::TypedExprPtr convertJoinComparison(
+      const substrait::ComparisonJoinKey::ComparisonType& comparison,
+      facebook::velox::core::TypedExprPtr left,
+      facebook::velox::core::TypedExprPtr right);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> appendJoinKeys(
+      std::shared_ptr<const facebook::velox::core::PlanNode> input,
+      const std::vector<facebook::velox::core::TypedExprPtr>& expressions,
+      size_t offset,
+      std::vector<facebook::velox::core::FieldAccessTypedExprPtr>& keys);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> buildKeyedJoin(
+      const std::string& kind, PreparedJoinKeys keys,
+      const facebook::velox::RowTypePtr& outputType,
+      bool buildLeft, bool merge);
 
   // Extract equi-join key pairs and residual conditions from a join expression.
   void extractJoinKeys(
@@ -348,17 +500,7 @@ class VeloxPlanConverter {
       const facebook::velox::RowTypePtr& output_type,
       int left_field_count,
       std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& left_keys,
-      std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& right_keys,
-      std::vector<std::shared_ptr<const facebook::velox::core::ITypedExpr>>& residual_conditions);
-
-  // Build a post-join projection when right-side columns need renaming.
-  std::shared_ptr<const facebook::velox::core::PlanNode> buildJoinProjection(
-      const facebook::velox::RowTypePtr& right_type,
-      const std::unordered_set<std::string>& left_name_set,
-      const std::unordered_map<std::string, std::string>& right_rename_map,
-      const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& right_keys,
-      std::shared_ptr<const facebook::velox::core::PlanNode> right,
-      std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& renamed_right_keys);
+      std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& right_keys);
 
   // --- SetRel helpers ---
 
@@ -370,6 +512,9 @@ class VeloxPlanConverter {
   std::shared_ptr<const facebook::velox::core::PlanNode> buildIntersectOrExcept(
       std::vector<std::shared_ptr<const facebook::velox::core::PlanNode>> sources,
       facebook::velox::core::JoinType join_type);
+
+  std::shared_ptr<const facebook::velox::core::PlanNode> deduplicateSet(
+      std::shared_ptr<const facebook::velox::core::PlanNode> input);
 
   // --- Window helpers (for convertProjectWithWindowFunctions) ---
 
@@ -384,6 +529,28 @@ class VeloxPlanConverter {
     std::string signature;
     std::vector<WindowFuncInfo> funcs;
   };
+
+  struct PreparedWindow {
+    std::shared_ptr<const facebook::velox::core::PlanNode> input;
+    std::vector<facebook::velox::core::FieldAccessTypedExprPtr> partitions;
+    std::vector<facebook::velox::core::FieldAccessTypedExprPtr> sorts;
+    std::vector<facebook::velox::core::SortOrder> orders;
+    std::vector<std::string> names;
+    std::vector<facebook::velox::core::WindowNode::Function> functions;
+  };
+
+  PreparedWindow prepareWindowGroup(
+      const WindowGroup& group,
+      const facebook::velox::RowTypePtr& expressionType,
+      std::shared_ptr<const facebook::velox::core::PlanNode> input);
+
+  facebook::velox::core::WindowNode::Function convertWindowFunction(
+      const substrait::Expression_WindowFunction& function,
+      const facebook::velox::RowTypePtr& expressionType,
+      std::vector<std::string>& names,
+      std::vector<facebook::velox::core::TypedExprPtr>& projections,
+      const std::vector<facebook::velox::core::FieldAccessTypedExprPtr>& sorts,
+      const std::vector<facebook::velox::core::SortOrder>& orders);
 
   // Scan ProjectRel expressions for window function invocations.
   std::vector<WindowFuncInfo> extractWindowFunctions(
@@ -404,14 +571,6 @@ class VeloxPlanConverter {
   facebook::velox::RowTypePtr convertNamedStruct(
       const substrait::NamedStruct& named_struct);
 
-  // Helper used by convertNamedStruct: consume the flattened names array in
-  // pre-order DFS to rebuild a Velox RowType that preserves nested struct
-  // field names.
-  facebook::velox::TypePtr convertTypeConsumingNames(
-      const substrait::Type& type,
-      const google::protobuf::RepeatedPtrField<std::string>& names,
-      int& idx);
-
   // Convert a single Substrait Type to a Velox Type.
   facebook::velox::TypePtr convertType(const substrait::Type& type);
 
@@ -429,23 +588,45 @@ class VeloxPlanConverter {
   facebook::velox::core::SortOrder convertSortOrder(
       const substrait::SortField& sort_field);
 
-  // Convert a Substrait Decimal literal to a Velox ConstantTypedExpr.
-  std::shared_ptr<const facebook::velox::core::ITypedExpr> convertDecimalLiteral(
-      const substrait::Expression_Literal_Decimal& dec, bool nullable);
+  // One typed decoder is shared by scalar, collection, and Values literals.
+  std::shared_ptr<const facebook::velox::core::ConstantTypedExpr> convertLiteral(
+      const substrait::Expression_Literal& literal);
+  std::shared_ptr<const facebook::velox::core::ConstantTypedExpr>
+  convertDecimalLiteral(const substrait::Expression_Literal_Decimal& decimal);
+  std::shared_ptr<const facebook::velox::core::ConstantTypedExpr>
+  convertListLiteral(const substrait::Expression_Literal_List& list);
+  std::shared_ptr<const facebook::velox::core::ConstantTypedExpr>
+  arrayConstant(facebook::velox::VectorPtr elements);
+  std::shared_ptr<facebook::velox::memory::MemoryPool> literalPool();
+  std::shared_ptr<const facebook::velox::core::ConstantTypedExpr> convertStructLiteral(
+      const substrait::Expression_Literal_Struct& value);
+  static facebook::velox::TypePtr convertDecimalType(int32_t precision, int32_t scale);
+  static facebook::velox::TypePtr convertTimeType(int32_t precision);
 
-  // Convert a Substrait List literal to a Velox ConstantTypedExpr wrapping an ArrayVector.
-  std::shared_ptr<const facebook::velox::core::ITypedExpr> convertListLiteral(
-      const substrait::Expression_Literal_List& list, bool nullable);
-
-  // Insert implicit CASTs to align argument types to the target type.
-  // Velox requires homogeneous types for arithmetic/comparison functions.
-  static void alignArgumentTypes(
-      std::vector<std::shared_ptr<const facebook::velox::core::ITypedExpr>>& args,
-      const facebook::velox::TypePtr& target_type);
-
-  // Coerce comparison function arguments to their common type (not output type).
-  static void alignComparisonArguments(
+  // Bind against Velox's exact signatures; only explicit Substrait casts coerce.
+  static std::shared_ptr<const facebook::velox::core::ITypedExpr>
+  checkedScalarCall(
+      const std::string& name,
+      const facebook::velox::TypePtr& output_type,
+      std::vector<std::shared_ptr<const facebook::velox::core::ITypedExpr>> args);
+  std::shared_ptr<const facebook::velox::core::ITypedExpr> convertScalarFunction(
+      const substrait::Expression_ScalarFunction& function,
+      const facebook::velox::RowTypePtr& input_type);
+  void appendGovernedAiArguments(
+      const std::string& name,
+      const substrait::Expression_ScalarFunction& function,
+      const facebook::velox::TypePtr& output_type,
       std::vector<std::shared_ptr<const facebook::velox::core::ITypedExpr>>& args);
+  std::shared_ptr<const facebook::velox::core::ITypedExpr> convertNestedExpression(
+      const substrait::Expression::Nested& expression,
+      const facebook::velox::RowTypePtr& inputType);
+
+  std::shared_ptr<const facebook::velox::core::ITypedExpr> convertIfThen(
+      const substrait::Expression_IfThen& expression,
+      const facebook::velox::RowTypePtr& input_type);
+  std::shared_ptr<const facebook::velox::core::ITypedExpr> convertWindowFunction(
+      const substrait::Expression_WindowFunction& function,
+      const facebook::velox::RowTypePtr& input_type);
 };
 
 }  // namespace pangrova::velox

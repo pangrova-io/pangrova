@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -21,15 +22,13 @@
 #include "jni/registry/HandleRegistry.h"
 #include "observability/NativeTracer.h"
 #include "observability/SpanScope.h"
+#include "shuffle/ShuffleEgressExecutor.h"
+#include "shuffle/ShuffleTicketKeys.h"
+#include "udf/JvmScalarFunction.h"
+#include "velox/exchange/PangrovaExchangeSource.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
 
-#if __has_include("pangrova/native/protocol/v1/task.pb.h")
-#include "pangrova/native/protocol/v1/task.pb.h"
-#include "pangrova/native/protocol/v1/memory.pb.h"
-#define PANGROVA_HAS_PROTO 1
-#else
-#define PANGROVA_HAS_PROTO 0
-#endif
+#include "pangrova/protocol/v2/runtime.pb.h"
 
 #define JNI_CATCH_AND_THROW(env)                                       \
   catch (const std::exception& e) {                                    \
@@ -46,6 +45,27 @@ namespace pangrova::jni {
 // ---------------------------------------------------------------------------
 namespace {
 std::atomic<JavaVM*> g_cached_jvm{nullptr};
+
+std::shared_ptr<pangrova::executor::TaskExecutor> createTaskExecutor(
+    JNIEnv* env, pangrova::executor::TaskExecutorConfig config) {
+  if (config.shuffle_execution.has_value()) {
+    jobject egress = GlobalEgressRegistry::instance().acquire(env);
+    if (!egress) {
+      throw std::runtime_error(
+          "External shuffle task requires a registered Worker egress");
+    }
+    try {
+      config.shuffle_egress =
+          std::make_shared<pangrova::shuffle::ShuffleEgressExecutor>(
+              env, egress);
+      env->DeleteLocalRef(egress);
+    } catch (...) {
+      env->DeleteLocalRef(egress);
+      throw;
+    }
+  }
+  return std::make_shared<pangrova::executor::TaskExecutor>(config);
+}
 }  // namespace
 
 JavaVM* globalJavaVM() {
@@ -296,8 +316,24 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeInitInternal(
     pangrova::jni::initJniReferenceCache(env);
 
     auto data = toVector(env, configProto);
-    pangrova::jni::initializeVeloxRuntime(
-        pangrova::jni::parseNativeConfig(data), env, allocationListener);
+    auto config = pangrova::jni::parseNativeConfig(data);
+    // Runtime re-initialization invalidates process-local credentials. Stop all
+    // data-plane listeners before atomically replacing their security context.
+    pangrova::jni::shutdownFlightResultServer();
+    pangrova::jni::FlightServerRegistry::instance().configureShuffleResources(config);
+    pangrova::jni::FlightServerRegistry::instance().configureTransportSecurity(
+        config.transport_tls_enabled,
+        config.transport_tls_certificate_chain_path,
+        config.transport_tls_private_key_path,
+        config.transport_tls_root_ca_path,
+        config.transport_tls_identity);
+    pangrova::velox::PangrovaExchangeSource::configureTransportSecurity(
+        config.transport_tls_enabled,
+        config.transport_tls_certificate_chain_path,
+        config.transport_tls_private_key_path,
+        config.transport_tls_root_ca_path,
+        config.transport_tls_identity);
+    pangrova::jni::initializeVeloxRuntime(config, env, allocationListener);
   } JNI_CATCH_AND_THROW(env)
 }
 
@@ -311,6 +347,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeShutdownInternal(
     // Release the GlobalRef for the Java NativeWriter before Velox shutdown.
     // Must happen while JNIEnv is still valid and before memory pools are destroyed.
     pangrova::jni::GlobalWriterRegistry::instance().clear(env);
+    pangrova::jni::GlobalEgressRegistry::instance().clear(env);
+    pangrova::udf::clearJvmFunctionCallbacks(env);
     pangrova::jni::shutdownVeloxRuntime();
     // Release cached JNI global references after Velox shutdown.
     // Must happen last — Velox shutdown may still use JNI callbacks.
@@ -346,6 +384,69 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeRequestReclaim(
   return 0;
 }
 
+JNIEXPORT void JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeRegisterFunctions0(
+  JNIEnv* env, jclass, jobject callback, jobjectArray descriptors) {
+  try {
+    if (!callback || !descriptors) {
+      throw std::invalid_argument(
+          "Function callback and descriptors must not be null");
+    }
+    auto* registry = pangrova::jni::globalUdfRegistry();
+    if (!registry) {
+      throw std::runtime_error(
+          "Native UDF registry is unavailable before function registration");
+    }
+
+    std::vector<pangrova::udf::ScalarUdfSpec> scalarSpecs;
+    const jsize count = env->GetArrayLength(descriptors);
+    scalarSpecs.reserve(static_cast<size_t>(count));
+    for (jsize i = 0; i < count; ++i) {
+      auto bytes = static_cast<jbyteArray>(
+          env->GetObjectArrayElement(descriptors, i));
+      if (!bytes) {
+        throw std::invalid_argument(
+            "Function descriptor at index " + std::to_string(i) +
+            " is null");
+      }
+      const auto serialized = toVector(env, bytes);
+      env->DeleteLocalRef(bytes);
+      pangrova::protocol::v2::NativeFunctionDescriptor descriptor;
+      if (!descriptor.ParseFromArray(
+              serialized.data(), static_cast<int>(serialized.size()))) {
+        throw std::invalid_argument(
+            "Function descriptor at index " + std::to_string(i) +
+            " is malformed");
+      }
+      if (descriptor.function_kind() !=
+          pangrova::protocol::v2::NATIVE_FUNCTION_KIND_SCALAR) {
+        throw std::invalid_argument(
+            "JVM aggregate function registration is not supported: " +
+            descriptor.name());
+      }
+      std::vector<std::string> argumentTypes;
+      argumentTypes.reserve(descriptor.argument_types_size());
+      for (const auto& argument_type : descriptor.argument_types()) {
+        argumentTypes.push_back(argument_type.canonical_sql());
+      }
+      scalarSpecs.push_back(pangrova::udf::makeJvmScalarFunctionSpec(
+          descriptor.name(), argumentTypes,
+          descriptor.return_type().canonical_sql()));
+    }
+
+    pangrova::udf::installJvmFunctionCallbacks(env, callback);
+    try {
+      for (const auto& spec : scalarSpecs) {
+        registry->registerScalar(spec);
+      }
+      registry->registerAllWithVelox();
+    } catch (...) {
+      pangrova::udf::clearJvmFunctionCallbacks(env);
+      throw;
+    }
+  } JNI_CATCH_AND_THROW(env)
+}
+
 JNIEXPORT jlong JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutor0(
     JNIEnv* env, jclass, jbyteArray taskRequestProto) {
@@ -356,8 +457,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutor0(
     return 0;
   }
   try {
-    auto config = pangrova::jni::parseCreateExecutorCommand(toVector(env, taskRequestProto));
-    auto executor = std::make_shared<TaskExecutor>(config);
+    auto config = pangrova::jni::parseTaskConfig(toVector(env, taskRequestProto));
+    auto executor = pangrova::jni::createTaskExecutor(env, std::move(config));
     return pangrova::jni::HandleRegistry::instance().create(std::move(executor));
   } JNI_CATCH_AND_THROW(env)
   return 0;
@@ -375,9 +476,9 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutorWithTrace0(
     return 0;
   }
   try {
-    auto config = pangrova::jni::parseCreateExecutorCommand(toVector(env, taskRequestProto));
+    auto config = pangrova::jni::parseTaskConfig(toVector(env, taskRequestProto));
     config.trace_id = toString(env, traceId);
-    auto executor = std::make_shared<TaskExecutor>(config);
+    auto executor = pangrova::jni::createTaskExecutor(env, std::move(config));
     return pangrova::jni::HandleRegistry::instance().create(std::move(executor));
   } JNI_CATCH_AND_THROW(env)
   return 0;
@@ -393,10 +494,10 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutorWithTraceCont
     return 0;
   }
   try {
-    auto config = pangrova::jni::parseCreateExecutorCommand(toVector(env, taskRequestProto));
+    auto config = pangrova::jni::parseTaskConfig(toVector(env, taskRequestProto));
     config.trace_id = toString(env, traceId);
     config.span_id = toString(env, spanId);
-    auto executor = std::make_shared<TaskExecutor>(config);
+    auto executor = pangrova::jni::createTaskExecutor(env, std::move(config));
     return pangrova::jni::HandleRegistry::instance().create(std::move(executor));
   } JNI_CATCH_AND_THROW(env)
   return 0;
@@ -420,20 +521,38 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCancelTask0(
   } JNI_CATCH_AND_THROW(env)
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeReleaseExecutor0(
     JNIEnv* env, jclass, jlong executorHandle) {
   try {
-    auto executor = lookupExecutor(env, executorHandle);
-    if (!executor) {
-      return;
-    }
-    executor->release();
-    // Clean up any per-executor FlightShuffleServer before releasing the handle.
-    // Prevents port and memory leaks if Java side did not explicitly stop it.
+    // The demuxer borrows the executor's shuffle queue. Quiesce it before
+    // release drains/destroys that queue; otherwise the two consumers can
+    // steal batches from one another and turn a partial stream into EOF.
     pangrova::jni::cleanupShuffleServerForHandle(executorHandle);
-    pangrova::jni::HandleRegistry::instance().release(executorHandle);
-  } JNI_CATCH_AND_THROW(env)
+    jbyteArray receipt = nullptr;
+    pangrova::jni::HandleRegistry::instance().release(
+        executorHandle, [&](pangrova::executor::TaskExecutor& executor) {
+          const auto bytes = pangrova::jni::serializeTaskStatus(executor);
+          if (bytes.empty() || bytes.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+            throw std::runtime_error("Released task report cannot be represented by a JNI array");
+          }
+          receipt = env->NewByteArray(static_cast<jsize>(bytes.size()));
+          if (!receipt || env->ExceptionCheck()) {
+            throw std::runtime_error("Failed to allocate the released task report");
+          }
+          env->SetByteArrayRegion(receipt, 0, static_cast<jsize>(bytes.size()),
+                                 reinterpret_cast<const jbyte*>(bytes.data()));
+          if (env->ExceptionCheck()) {
+            throw std::runtime_error("Failed to copy the released task report");
+          }
+        });
+    return receipt;
+  } catch (const std::exception& failure) {
+    if (!env->ExceptionCheck()) pangrova::jni::throwNativeBridgeException(env, failure.what());
+  } catch (...) {
+    if (!env->ExceptionCheck()) pangrova::jni::throwNativeBridgeException(env, "Unknown release error");
+  }
+  return nullptr;
 }
 
 // nativeGetNextBatch — REMOVED: data path migrated to C++ FlightResultServer.
@@ -556,7 +675,7 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeGetMemorySnapshot0(
     }
     auto snapshot = bridge->getMemorySnapshot();
     // P1-JNI-6: Proto is always available — no conditional guard needed.
-    pangrova::native::protocol::v1::MemorySnapshot proto;
+    pangrova::protocol::v2::MemorySnapshot proto;
     proto.set_current_used_bytes(snapshot.current_used_bytes);
     proto.set_peak_used_bytes(snapshot.peak_used_bytes);
     proto.set_spill_bytes(snapshot.spill_bytes);
@@ -741,6 +860,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeSetHmacKey0(
     // uses it when created or recreated. The registry passes the key to
     // FlightShuffleServerConfig.hmac_current_key / hmac_previous_key.
     pangrova::jni::FlightServerRegistry::instance().setHmacKey(
+        currentKeyStr, previousKeyStr);
+    pangrova::shuffle::ShuffleTicketKeys::instance().set(
         std::move(currentKeyStr), std::move(previousKeyStr));
   } JNI_CATCH_AND_THROW(env)
 }

@@ -114,8 +114,7 @@ class JournalRecoveryServiceTest {
                         (req, worker) -> null,
                         scheduler, wm, tracker,
                         null, null, null, null),
-                org.pangrova.coordinator.query.execution.CacheContextBundle.none(),
-                null, null, null, 0, null, null, null, null, null, null, null, null);
+                null, null, 0, null, null, null, null, null, null, null, null, null);
         return new QueryDispatcher(deps, null, null);
     }
 

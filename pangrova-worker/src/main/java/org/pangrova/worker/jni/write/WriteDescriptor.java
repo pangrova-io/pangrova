@@ -28,6 +28,9 @@ public record WriteDescriptor(
         List<ColumnSchema> columns,
         Map<String, String> properties) {
 
+    public static final String FILE_FORMAT_PROPERTY = "fileFormat";
+    public static final String TARGET_FILE_SIZE_PROPERTY = "targetFileSizeBytes";
+
     /**
      * Compact constructor enforcing non-null invariants and defensive copies.
      */

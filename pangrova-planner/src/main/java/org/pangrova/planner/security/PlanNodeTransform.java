@@ -13,6 +13,8 @@
  */
 package org.pangrova.planner.security;
 
+import org.pangrova.planner.PlanTable;
+
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
@@ -52,7 +54,7 @@ final class PlanNodeTransform {
      * Extracts a {@link QualifiedTableName} from a Calcite {@link TableScan} node.
      */
     static QualifiedTableName extractTableRef(TableScan scan) {
-        List<String> qn = scan.getTable().getQualifiedName();
+        List<String> qn = PlanTable.require(scan).getQualifiedName();
         return QualifiedTableName.resolve(qn);
     }
 }

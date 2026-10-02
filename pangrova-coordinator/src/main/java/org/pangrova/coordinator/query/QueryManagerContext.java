@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.result.CoordinatorResultBuffer;
 import org.pangrova.coordinator.worker.ClusterResourcePressureMonitor;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.observability.audit.QueryAuditService;
@@ -40,7 +39,6 @@ public record QueryManagerContext(
         ResilienceRegistry resilienceRegistry,
         QueryThrottlingService throttlingService,
         QueryStateJournal stateJournal,
-        CoordinatorResultBuffer resultBuffer,
         ClusterResourcePressureMonitor clusterPressureMonitor,
         QueryEventDispatcher eventDispatcher,
         AsyncSubmitConfig asyncSubmitConfig,
@@ -50,7 +48,7 @@ public record QueryManagerContext(
         checkNotNull(tracingProvider, "tracingProvider must not be null");
     }
 
-    /** Backward-compatible 14-arg constructor -- null async config and executor. */
+    /** Backward-compatible 13-arg constructor -- null async config and executor. */
     // CHECKSTYLE.OFF: ParameterNumber -- wiring context aggregation kept stable for callers
     public QueryManagerContext(
             QueryDispatcher queryDispatcher,
@@ -64,18 +62,17 @@ public record QueryManagerContext(
             ResilienceRegistry resilienceRegistry,
             QueryThrottlingService throttlingService,
             QueryStateJournal stateJournal,
-            CoordinatorResultBuffer resultBuffer,
             ClusterResourcePressureMonitor clusterPressureMonitor,
             QueryEventDispatcher eventDispatcher) {
         this(queryDispatcher, tracingProvider, metricsProvider,
                 tenantResolver, quotaChecker, lineageEmitter,
                 auditEmitter, queryAuditService, resilienceRegistry,
-                throttlingService, stateJournal, resultBuffer,
+                throttlingService, stateJournal,
                 clusterPressureMonitor, eventDispatcher, null, null);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
-    /** Backward-compatible 13-arg constructor -- null cluster pressure monitor. */
+    /** Backward-compatible 12-arg constructor -- null event dispatcher. */
     // CHECKSTYLE.OFF: ParameterNumber -- wiring context aggregation kept stable for callers
     public QueryManagerContext(
             QueryDispatcher queryDispatcher,
@@ -89,17 +86,16 @@ public record QueryManagerContext(
             ResilienceRegistry resilienceRegistry,
             QueryThrottlingService throttlingService,
             QueryStateJournal stateJournal,
-            CoordinatorResultBuffer resultBuffer,
             ClusterResourcePressureMonitor clusterPressureMonitor) {
         this(queryDispatcher, tracingProvider, metricsProvider,
                 tenantResolver, quotaChecker, lineageEmitter,
                 auditEmitter, queryAuditService, resilienceRegistry,
-                throttlingService, stateJournal, resultBuffer,
+                throttlingService, stateJournal,
                 clusterPressureMonitor, null, null, null);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
-    /** Backward-compatible 12-arg constructor. */
+    /** Backward-compatible 11-arg constructor. */
     // CHECKSTYLE.OFF: ParameterNumber -- wiring context aggregation kept stable for callers
     public QueryManagerContext(
             QueryDispatcher queryDispatcher,
@@ -112,12 +108,11 @@ public record QueryManagerContext(
             QueryAuditService queryAuditService,
             ResilienceRegistry resilienceRegistry,
             QueryThrottlingService throttlingService,
-            QueryStateJournal stateJournal,
-            CoordinatorResultBuffer resultBuffer) {
+            QueryStateJournal stateJournal) {
         this(queryDispatcher, tracingProvider, metricsProvider,
                 tenantResolver, quotaChecker, lineageEmitter,
                 auditEmitter, queryAuditService, resilienceRegistry,
-                throttlingService, stateJournal, resultBuffer, null);
+                throttlingService, stateJournal, null);
     }
     // CHECKSTYLE.ON: ParameterNumber
 
@@ -126,7 +121,7 @@ public record QueryManagerContext(
             QueryDispatcher queryDispatcher, TracingProvider tracingProvider) {
         return new QueryManagerContext(queryDispatcher, tracingProvider,
                 null, null, null, null, null, null, null, null,
-                InMemoryQueryStateJournal.INSTANCE, null, null, null, null, null);
+                InMemoryQueryStateJournal.INSTANCE, null, null, null, null);
     }
 
     /**
@@ -139,7 +134,7 @@ public record QueryManagerContext(
             AsyncSubmitConfig asyncSubmitConfig, ExecutorService asyncExecutor) {
         return new QueryManagerContext(queryDispatcher, tracingProvider,
                 null, null, null, null, null, null, null, null,
-                InMemoryQueryStateJournal.INSTANCE, null, null, null,
+                InMemoryQueryStateJournal.INSTANCE, null, null,
                 asyncSubmitConfig, asyncExecutor);
     }
 }

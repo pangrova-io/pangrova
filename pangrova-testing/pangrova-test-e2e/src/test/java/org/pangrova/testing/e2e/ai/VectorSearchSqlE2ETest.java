@@ -39,7 +39,6 @@ import static org.assertj.core.api.Assertions.within;
  *   <li>KNN query (ORDER BY distance LIMIT k)</li>
  *   <li>Filtered vector search (WHERE + distance ordering)</li>
  *   <li>Multi-metric queries (L2, cosine, inner product)</li>
- *   <li>Hybrid search with RERANK BY</li>
  *   <li>COSINE_SIMILARITY (1 - cosine_distance)</li>
  *   <li>Index lifecycle: ALTER REBUILD, DROP, recreate</li>
  * </ol>
@@ -238,80 +237,6 @@ class VectorSearchSqlE2ETest extends PangrovaE2ETestBase {
             assertThat(((Number) results.get(0).getRaw("id")).longValue()).isEqualTo(1L);
             assertDistancesAscending(results);
 
-            executeDdl("DROP TABLE " + fqn());
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Hybrid Search & RERANK
-    // -----------------------------------------------------------------------
-
-    @Nested
-    @DisplayName("Hybrid Search and RERANK BY")
-    class HybridSearchAndRerank {
-
-        @Test
-        @DisplayName("RERANK BY rrf() syntax is accepted after vector query")
-        void rerankByRrfSyntax() {
-            executeDdl("CREATE TABLE " + fqn()
-                    + " (id BIGINT, content VARCHAR, embedding VECTOR(4))");
-            executeDml("INSERT INTO " + fqn() + " VALUES "
-                    + "(1, 'machine learning basics', ARRAY[1.0, 0.0, 0.0, 0.0]),"
-                    + "(2, 'deep learning tutorial', ARRAY[0.9, 0.1, 0.0, 0.0]),"
-                    + "(3, 'cooking recipes',        ARRAY[0.0, 1.0, 0.0, 0.0])");
-
-            String sql = "SELECT id, content FROM " + fqn()
-                    + " ORDER BY l2_distance(embedding, ARRAY[1.0, 0.0, 0.0, 0.0]) ASC"
-                    + " LIMIT 10 RERANK BY rrf(60)";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
-            executeDdl("DROP TABLE " + fqn());
-        }
-
-        @Test
-        @DisplayName("RERANK BY linear_combination() syntax")
-        void rerankByLinearCombination() {
-            executeDdl("CREATE TABLE " + fqn()
-                    + " (id BIGINT, content VARCHAR, embedding VECTOR(4))");
-            executeDml("INSERT INTO " + fqn() + " VALUES "
-                    + "(1, 'vector database', ARRAY[1.0, 0.0, 0.0, 0.0]),"
-                    + "(2, 'search engine',   ARRAY[0.0, 1.0, 0.0, 0.0])");
-
-            String sql = "SELECT id FROM " + fqn()
-                    + " ORDER BY l2_distance(embedding, ARRAY[1.0, 0.0, 0.0, 0.0]) ASC"
-                    + " LIMIT 10 RERANK BY linear_combination(0.7, 0.3)";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
-            executeDdl("DROP TABLE " + fqn());
-        }
-
-        @Test
-        @DisplayName("MATCH function for full-text component of hybrid search")
-        void matchFunctionSyntax() {
-            executeDdl("CREATE TABLE " + fqn()
-                    + " (id BIGINT, content VARCHAR, embedding VECTOR(4))");
-            executeDml("INSERT INTO " + fqn() + " VALUES "
-                    + "(1, 'hello world', ARRAY[1.0, 0.0, 0.0, 0.0]),"
-                    + "(2, 'goodbye',     ARRAY[0.0, 1.0, 0.0, 0.0])");
-
-            String sql = "SELECT id FROM " + fqn() + " WHERE MATCH(content, 'hello')";
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
             executeDdl("DROP TABLE " + fqn());
         }
     }

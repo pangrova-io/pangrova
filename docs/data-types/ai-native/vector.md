@@ -31,6 +31,13 @@ CREATE TABLE articles (
 INSERT INTO articles (id, embedding) VALUES (1, ARRAY[0.1, 0.2, 0.3, ...]);
 ```
 
+**Query results:** `AI_EMBED` result columns retain their selected model's
+`VECTOR(n)` logical type. On the Arrow Flight result stream, the column uses
+`List<Float32>` storage with field metadata
+`ARROW:extension:name=pangrova.vector` and
+`ARROW:extension:metadata=<dimension>`. Ordinary `ARRAY<FLOAT>` results have
+no vector extension metadata.
+
 **Distance Functions:**
 
 ```sql

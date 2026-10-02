@@ -12,6 +12,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AlertRuleEvaluatorTest {
 
     @Test
+    void rulesAreCopiedAndCannotBeChangedThroughAccessor() {
+        var rule = new AlertRule("test", "metric", AlertCondition.GREATER_THAN,
+                0.0, Duration.ofMinutes(1), AlertSeverity.INFO);
+        var rules = new ArrayList<>(List.of(rule));
+        var evaluator = new AlertRuleEvaluator(rules, List.of((r, v) -> {}));
+        rules.clear();
+        assertThat(evaluator.getRules()).containsExactly(rule);
+        assertThatThrownBy(() -> evaluator.getRules().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void ruleFiresWhenConditionMet() {
         AlertRule rule = new AlertRule("high-failure-rate", "query.failure.rate",
                 AlertCondition.GREATER_THAN, 0.05, Duration.ofMinutes(5), AlertSeverity.CRITICAL);

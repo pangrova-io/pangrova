@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests for F-ICEBERG-09: verifies that {@code deleteByFilter} uses the same
@@ -54,7 +55,7 @@ class IcebergDeleteByFilterCommitPathTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "test-tenant"); }
     };
 
     private static final Schema TEST_SCHEMA = new Schema(
@@ -140,6 +141,24 @@ class IcebergDeleteByFilterCommitPathTest {
         assertThat(table.currentSnapshot().snapshotId())
                 .as("deleteByFilter should produce a new snapshot")
                 .isNotEqualTo(snapshotBefore);
+    }
+
+    @Test
+    void deleteByFilter_rejectsSessionWithoutTenant() {
+        createTableWithData("missing_tenant_test");
+        var handle = metadata.getTableHandle(
+                SESSION, new SchemaTableName(NAMESPACE, "missing_tenant_test"));
+        ConnectorSession missingTenant = new ConnectorSession() {
+            @Override public String getUser() { return "test"; }
+            @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
+            @Override public Optional<String> getSchema() { return Optional.empty(); }
+            @Override public Map<String, String> getProperties() { return Map.of(); }
+        };
+
+        assertThatThrownBy(() -> metadata.deleteByFilter(
+                missingTenant, handle, new DeleteFilter.All()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tenant_id");
     }
 
     /**

@@ -17,6 +17,11 @@
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-lance</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-test-common</artifactId>
         </dependency>
         <dependency>
@@ -41,6 +46,11 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-protocol</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-transport</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -91,6 +101,12 @@
         <dependency>
             <groupId>org.pangrova</groupId>
             <artifactId>pangrova-connector-paimon</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-lance</artifactId>
+            <version>${paimon.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -195,12 +211,6 @@
             <artifactId>pangrova-client-rest</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- Celeborn shuffle adapter for E2E testing (T1-1 ADR-002 D4) -->
-        <dependency>
-            <groupId>org.pangrova</groupId>
-            <artifactId>pangrova-shuffle-celeborn</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
@@ -234,9 +244,10 @@
                 <configuration>
                     <!-- Force fork JVM to match the Maven process JDK (prevents x86_64/arm64 mismatch) -->
                     <jvm>${java.home}/bin/java</jvm>
-                    <!-- Exclude tests that require multi-worker DAG, native-only bootstrap, or performance benchmarks -->
-                    <excludedGroups>multi-worker,native-required,performance,celeborn</excludedGroups>
+                    <!-- Exclude routing harness, native-only bootstrap, and performance benchmarks -->
+                    <excludedGroups>${pangrova.e2e.excludedGroups}</excludedGroups>
                     <argLine>
+                        @{jacoco.agent.argLine}
                         -Xmx2g -Xms512m
                         <!-- MEM-R2: 2g direct-memory cap. The previous 8g cap let heap(2g)+direct(8g)
                              exceed half the physical RAM of a 16GB dev machine; combined with the
@@ -245,7 +256,6 @@
                              bounded by a 512MB allocator; 2g leaves 4x headroom. -->
                         -XX:MaxDirectMemorySize=2g
                         -Dio.netty.maxDirectMemory=0
-                        -Djava.io.tmpdir=${project.build.directory}/tmp
                         --patch-module java.base=${project.basedir}/src/test/resources/patch-java-base
                         --add-opens=java.base/java.nio=ALL-UNNAMED
                         --add-opens=java.base/javax.security.auth=ALL-UNNAMED

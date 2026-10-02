@@ -7,6 +7,7 @@
 #include "jni/registry/HandleRegistry.h"
 
 #include <atomic>
+#include <new>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -60,6 +61,48 @@ TEST_F(HandleRegistryTest, ReleaseAndDoubleReleaseThrows) {
   EXPECT_THROW(HandleRegistry::instance().release(handle), std::runtime_error);
 }
 
+TEST_F(HandleRegistryTest, ReceiptPreparationKeepsExactDrainedExecutorUntilErase) {
+  auto task = std::make_shared<executor::TaskExecutor>(makeTestConfig("receipt-owner"));
+  auto& registry = HandleRegistry::instance();
+  const auto handle = registry.create(task);
+  bool observed = false;
+  registry.release(handle, [&](executor::TaskExecutor& drained) {
+    EXPECT_EQ(&drained, task.get());
+    EXPECT_EQ(registry.acquire(handle), task);
+    EXPECT_EQ(drained.state(), executor::ExecutorState::CANCELLED);
+    EXPECT_EQ(drained.taskId(), "receipt-owner");
+    EXPECT_EQ(registry.size(), 1);
+    observed = true;
+  });
+  EXPECT_TRUE(observed);
+  EXPECT_EQ(registry.size(), 0);
+  EXPECT_THROW(registry.acquire(handle), std::runtime_error);
+}
+
+// This is the allocation callback contract, not evidence of a JVM OOME.
+TEST_F(HandleRegistryTest, ReceiptAllocationFailureRetainsExactOwnerForRetry) {
+  auto task = std::make_shared<executor::TaskExecutor>(makeTestConfig("receipt-retry"));
+  auto& registry = HandleRegistry::instance();
+  const auto handle = registry.create(task);
+  EXPECT_THROW(registry.release(handle, [&](executor::TaskExecutor& drained) {
+    EXPECT_EQ(&drained, task.get());
+    EXPECT_EQ(drained.state(), executor::ExecutorState::CANCELLED);
+    throw std::bad_alloc();
+  }), std::bad_alloc);
+  ASSERT_EQ(registry.acquire(handle), task);
+  ASSERT_EQ(registry.size(), 1);
+  bool receiptPrepared = false;
+  registry.release(handle, [&](executor::TaskExecutor& drained) {
+    EXPECT_EQ(&drained, task.get());
+    EXPECT_EQ(drained.taskId(), "receipt-retry");
+    EXPECT_EQ(drained.state(), executor::ExecutorState::CANCELLED);
+    receiptPrepared = true;
+  });
+  EXPECT_TRUE(receiptPrepared);
+  EXPECT_EQ(registry.size(), 0);
+  EXPECT_THROW(registry.acquire(handle), std::runtime_error);
+}
+
 TEST_F(HandleRegistryTest, AcquireAfterDestroyAllThrowsStaleGeneration) {
   auto exec = std::make_shared<executor::TaskExecutor>(makeTestConfig("t3"));
   int64_t handle = HandleRegistry::instance().create(std::move(exec));
@@ -82,13 +125,13 @@ TEST_F(HandleRegistryTest, CreateNullExecutorThrows) {
   EXPECT_THROW(HandleRegistry::instance().create(nullptr), std::runtime_error);
 }
 
-TEST_F(HandleRegistryTest, RemoveTerminatedCleansUpFinishedExecutors) {
+TEST_F(HandleRegistryTest, PendingExecutorRemainsOwnedUntilExplicitRelease) {
   auto exec = std::make_shared<executor::TaskExecutor>(makeTestConfig("t4"));
   int64_t handle = HandleRegistry::instance().create(exec);
   EXPECT_EQ(HandleRegistry::instance().size(), 1);
 
-  // TaskExecutor starts in PENDING state — removeTerminated should not remove.
-  HandleRegistry::instance().removeTerminated();
+  EXPECT_EQ(HandleRegistry::instance().acquire(handle), exec);
+  EXPECT_EQ(exec->state(), executor::ExecutorState::PENDING);
   EXPECT_EQ(HandleRegistry::instance().size(), 1);
 
   // Clean up manually.

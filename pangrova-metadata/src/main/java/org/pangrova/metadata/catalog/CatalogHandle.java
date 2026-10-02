@@ -25,6 +25,11 @@ public sealed interface CatalogHandle
 
     ConnectorMetadata getMetadata(ConnectorSession session);
 
+    /** Registers a lifecycle callback; this port grants no data or table access. */
+    default void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
+        throw new UnsupportedOperationException("Catalog does not publish commit events");
+    }
+
     ConnectorSplitManager getSplitManager();
 
     ConnectorPageSourceProvider getPageSourceProvider();

@@ -8,6 +8,8 @@ import jakarta.ws.rs.ext.Provider;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
 /**
  * Shared-secret authentication filter for Worker HTTP endpoints.
@@ -32,7 +34,7 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
     static final String AUTH_HEADER = "X-Internal-Auth";
     private static final String HEALTH_PATH = "v1/health";
 
-    private final String expectedSecret;
+    private final byte[] expectedSecret;
 
     /**
      * @param expectedSecret the shared secret that Coordinator must present
@@ -41,7 +43,7 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
         if (expectedSecret == null || expectedSecret.isBlank()) {
             throw new IllegalArgumentException("expectedSecret must not be blank");
         }
-        this.expectedSecret = expectedSecret;
+        this.expectedSecret = expectedSecret.getBytes(StandardCharsets.UTF_8);
     }
 
     @Override
@@ -51,7 +53,10 @@ public final class InternalAuthFilter implements ContainerRequestFilter {
         }
 
         String provided = requestContext.getHeaderString(AUTH_HEADER);
-        if (provided == null || !expectedSecret.equals(provided)) {
+        byte[] providedBytes = provided == null
+                ? new byte[0]
+                : provided.getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(expectedSecret, providedBytes)) {
             LOG.warn("event=internal_auth_rejected path={} remoteAddr={}",
                     requestContext.getUriInfo().getPath(),
                     requestContext.getHeaderString("X-Forwarded-For"));

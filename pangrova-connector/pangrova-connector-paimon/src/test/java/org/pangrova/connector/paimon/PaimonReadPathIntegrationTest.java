@@ -1,11 +1,16 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.handle.PaimonSplit;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.PaimonReadMode;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.spi.connector.data.page.Page;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.data.ConnectorPageSource;
@@ -91,19 +96,19 @@ class PaimonReadPathIntegrationTest {
     // -- metadata tests --
 
     @Test
-    void listSchemaNames_returnsCreatedDatabase() {
+    void listSchemaNamesReturnsCreatedDatabase() {
         List<String> schemas = metadata.listSchemaNames(SESSION);
         assertThat(schemas).contains(DATABASE);
     }
 
     @Test
-    void listTables_returnsCreatedTable() {
+    void listTablesReturnsCreatedTable() {
         List<SchemaTableName> tables = metadata.listTables(SESSION, Optional.of(DATABASE));
         assertThat(tables).contains(new SchemaTableName(DATABASE, TABLE_NAME));
     }
 
     @Test
-    void getTableHandle_returnsValidHandle() {
+    void getTableHandleReturnsValidHandle() {
         ConnectorTableHandle handle = metadata.getTableHandle(
                 SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
 
@@ -117,14 +122,14 @@ class PaimonReadPathIntegrationTest {
     }
 
     @Test
-    void getTableHandle_returnsNullForMissing() {
+    void getTableHandleReturnsNullForMissing() {
         ConnectorTableHandle handle = metadata.getTableHandle(
                 SESSION, new SchemaTableName(DATABASE, "nonexistent"));
         assertThat(handle).isNull();
     }
 
     @Test
-    void getTableMetadata_returnsCorrectColumnsAndTypes() {
+    void getTableMetadataReturnsCorrectColumnsAndTypes() {
         ConnectorTableHandle handle = loadTableHandle();
         ConnectorTableMetadata meta = metadata.getTableMetadata(SESSION, handle);
 
@@ -136,7 +141,57 @@ class PaimonReadPathIntegrationTest {
     }
 
     @Test
-    void getColumnHandles_returnsCorrectHandles() {
+    void pinnedMetadataReadsActualSnapshotSchemaAfterSchemaEvolution() throws Exception {
+        var id = Identifier.create(DATABASE, "historical_schema");
+        catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.BIGINT())
+                .option("bucket", "1").option("bucket-key", "id").build(), false);
+        var original = catalog.getTable(id);
+        var builder = original.newBatchWriteBuilder();
+        try (var writer = builder.newWrite(); var commit = builder.newCommit()) {
+            writer.write(GenericRow.of(1L));
+            commit.commit(writer.prepareCommit());
+        }
+        catalog.alterTable(id, List.of(org.apache.paimon.schema.SchemaChange.addColumn(
+                "new_column", DataTypes.STRING())), false);
+        var current = (PaimonTableHandle) metadata.getTableHandle(SESSION,
+                new SchemaTableName(DATABASE, "historical_schema"));
+        assertThat(current.tableLocation()).isEqualTo(
+                ((org.apache.paimon.table.FileStoreTable) catalog.getTable(id)).location().toString());
+        assertThat(metadata.getTableMetadata(SESSION, current).columns()).containsExactly("id", "new_column");
+        var pinned = current.withTimeTravelSnapshot(1);
+        assertThat(metadata.getTableMetadata(SESSION, pinned).columns()).containsExactly("id");
+        assertThat(metadata.getColumnHandles(SESSION, pinned)).containsOnlyKeys("id");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> metadata.getTableMetadata(
+                SESSION, current.withTimeTravelSnapshot(9999))).isInstanceOfSatisfying(ConnectorException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND))
+                .hasMessageContaining("Snapshot not found: snapshot-id=9999");
+    }
+
+    @Test
+    void pinnedMetadataRejectsMissingHistoricalSchemaWithSnapshotError() throws Exception {
+        var id = Identifier.create(DATABASE, "missing_historical_schema");
+        catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.BIGINT())
+                .option("bucket", "1").option("bucket-key", "id").build(), false);
+        var original = (org.apache.paimon.table.FileStoreTable) catalog.getTable(id);
+        var builder = original.newBatchWriteBuilder();
+        try (var writer = builder.newWrite(); var commit = builder.newCommit()) {
+            writer.write(GenericRow.of(1L));
+            commit.commit(writer.prepareCommit());
+        }
+        catalog.alterTable(id, List.of(org.apache.paimon.schema.SchemaChange.addColumn(
+                "new_column", DataTypes.STRING())), false);
+        var current = (PaimonTableHandle) metadata.getTableHandle(SESSION,
+                new SchemaTableName(DATABASE, "missing_historical_schema"));
+        var oldSchema = original.schemaManager().toSchemaPath(original.snapshotManager().snapshot(1).schemaId());
+        original.fileIO().delete(oldSchema, false);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> metadata.getTableMetadata(
+                SESSION, current.withTimeTravelSnapshot(1))).isInstanceOfSatisfying(ConnectorException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND))
+                .hasMessageContaining("Snapshot not found: snapshot-id=1").hasMessageContaining("schema-id=0 is absent");
+    }
+
+    @Test
+    void getColumnHandlesReturnsCorrectHandles() {
         ConnectorTableHandle handle = loadTableHandle();
         Map<String, ColumnHandle> columns = metadata.getColumnHandles(SESSION, handle);
 
@@ -149,17 +204,36 @@ class PaimonReadPathIntegrationTest {
     // -- split tests --
 
     @Test
-    void getSplits_returnsAtLeastOneSplit() {
+    void getSplitsReturnsAtLeastOneSplit() {
         List<ConnectorSplit> splits = drainSplits();
 
         assertThat(splits).isNotEmpty();
         assertThat(splits.get(0)).isInstanceOf(PaimonSplit.class);
     }
 
+    @Test
+    void plannedPrimaryKeySplitCarriesCanonicalReadModeToNative() throws Exception {
+        List<ConnectorSplit> splits = drainSplits();
+
+        assertThat(splits).isNotEmpty();
+        for (ConnectorSplit split : splits) {
+            DataSplit wire = DataSplit.parseFrom(split.toSplitInfoProto());
+            PaimonSplit paimon = (PaimonSplit) split;
+            assertThat(paimon.snapshotId()).isPositive();
+            assertThat(wire.getSourceSnapshot()).isEqualTo(Long.toString(paimon.snapshotId()));
+            var fileUri = java.net.URI.create(paimon.primaryFilePath());
+            Path filePath = fileUri.getScheme() == null ? Path.of(paimon.primaryFilePath()) : Path.of(fileUri);
+            assertThat(wire.getLength()).isEqualTo(java.nio.file.Files.size(filePath));
+            assertThat(paimon.primaryFile().format()).isEqualTo("parquet");
+            assertThat(DataSplitProtoCodec.fileDetail(wire).getPaimon().getReadMode())
+                    .isEqualTo(PaimonReadMode.PAIMON_READ_MODE_PRIMARY_KEY);
+        }
+    }
+
     // -- page source tests --
 
     @Test
-    void pageSource_readsCorrectRowCount() {
+    void pageSourceReadsCorrectRowCount() {
         List<Page> pages = readAllPages(allColumnHandles());
 
         long totalRows = pages.stream().mapToLong(Page::getPositionCount).sum();
@@ -167,7 +241,7 @@ class PaimonReadPathIntegrationTest {
     }
 
     @Test
-    void pageSource_readsCorrectData() {
+    void pageSourceReadsCorrectData() {
         List<TypedRow> rows = readAllRows(allColumnHandles());
 
         assertThat(rows).hasSize(ROW_COUNT);
@@ -179,7 +253,7 @@ class PaimonReadPathIntegrationTest {
     }
 
     @Test
-    void pageSource_primaryKeyDeduplication() throws Exception {
+    void pageSourcePrimaryKeyDeduplication() throws Exception {
         // Write duplicate key — should overwrite previous value
         writeRow(testTable, 0L, "updated_0", 99.0);
 
@@ -191,7 +265,7 @@ class PaimonReadPathIntegrationTest {
     }
 
     @Test
-    void pageSource_isFinishedAfterDrain() {
+    void pageSourceIsFinishedAfterDrain() {
         PaimonSplit split = firstSplit();
         PaimonTableHandle handle = createTestTableHandle();
 

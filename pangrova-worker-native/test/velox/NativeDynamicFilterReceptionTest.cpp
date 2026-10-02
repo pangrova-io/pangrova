@@ -88,8 +88,20 @@ void addTypedColumn(
 void setJoinKeyRef(
     substrait::Expression::FieldReference* ref,
     int field_index) {
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
+}
+
+void addStandardJoinKey(
+    substrait::HashJoinRel* join,
+    int left_index,
+    int right_index) {
+  auto* key = join->add_keys();
+  setJoinKeyRef(key->mutable_left(), left_index);
+  setJoinKeyRef(key->mutable_right(), right_index);
+  key->mutable_comparison()->set_simple(
+      substrait::ComparisonJoinKey::SIMPLE_COMPARISON_TYPE_EQ);
 }
 
 // Build a Substrait Plan with HashJoin(probe=TableScan, build=TableScan).
@@ -112,8 +124,7 @@ std::vector<uint8_t> buildHashJoinPlan(
   addTypedColumn(right_schema, "build_key", key_type);
 
   // Join keys: probe_key (field 0) = build_key (field 0).
-  setJoinKeyRef(join->add_left_keys(), 0);
-  setJoinKeyRef(join->add_right_keys(), 0);
+  addStandardJoinKey(join, 0, 0);
 
   join->set_type(substrait::HashJoinRel::JOIN_TYPE_INNER);
 
@@ -237,6 +248,7 @@ TEST_P(NativeDynamicFilterReceptionTest, AddDynamicFilterReceivesFilter) {
   PangrovaVeloxDataSource dataSource(
       pool_.get(),
       outputType,
+      outputType,
       /*taskId=*/"test-task-df-" + param.name);
 
   // Create a filter matching the parameterized type and cardinality.
@@ -279,6 +291,7 @@ TEST_P(NativeDynamicFilterReceptionTest, PendingFilterRegistryCoexistsWithNative
   PangrovaVeloxDataSource dataSource(
       pool_.get(),
       outputType,
+      outputType,
       taskId);
 
   // Step 1: Inject a native dynamic filter (simulating Velox HashProbe path).
@@ -289,10 +302,12 @@ TEST_P(NativeDynamicFilterReceptionTest, PendingFilterRegistryCoexistsWithNative
   // Step 2: Inject an external filter via PendingFilterRegistry (JNI path).
   auto externalFilter = makeFilterForType(param.key_type, 1);
   ASSERT_NE(externalFilter, nullptr);
-  PendingFilterRegistry::instance().push(taskId, /*column_index=*/0, externalFilter);
+  const std::string planNodeId = "node_0";
+  PendingFilterRegistry::instance().push(
+      taskId, planNodeId, /*column_index=*/0, externalFilter);
 
   // Step 3: Verify PendingFilterRegistry has the external filter.
-  auto drained = PendingFilterRegistry::instance().drain(taskId);
+  auto drained = PendingFilterRegistry::instance().drain(taskId, planNodeId);
   EXPECT_EQ(drained.size(), 1u)
       << "PendingFilterRegistry must hold exactly 1 external filter for "
       << param.name;
@@ -300,7 +315,7 @@ TEST_P(NativeDynamicFilterReceptionTest, PendingFilterRegistryCoexistsWithNative
   EXPECT_NE(drained[0].filter, nullptr);
 
   // Step 4: After drain, registry should be empty for this task.
-  auto drainedAgain = PendingFilterRegistry::instance().drain(taskId);
+  auto drainedAgain = PendingFilterRegistry::instance().drain(taskId, planNodeId);
   EXPECT_TRUE(drainedAgain.empty());
 
   // Step 5: Verify native DF path still works after external injection.
@@ -309,6 +324,31 @@ TEST_P(NativeDynamicFilterReceptionTest, PendingFilterRegistryCoexistsWithNative
 
   // Cleanup.
   PendingFilterRegistry::instance().remove(taskId);
+}
+
+TEST(PendingFilterRegistryTest, IsolatesSiblingScanNodesWithinTask) {
+  const std::string taskId = "test-task-two-scans";
+  auto first = std::make_shared<common::BigintRange>(
+      1, 10, false);
+  auto second = std::make_shared<common::BigintRange>(
+      20, 30, false);
+
+  PendingFilterRegistry::instance().push(taskId, "node_0", 0, first);
+  PendingFilterRegistry::instance().push(taskId, "node_1", 1, second);
+
+  auto node0 = PendingFilterRegistry::instance().drain(taskId, "node_0");
+  ASSERT_EQ(node0.size(), 1u);
+  EXPECT_EQ(node0.front().column_index, 0);
+  EXPECT_TRUE(PendingFilterRegistry::instance()
+                  .drain(taskId, "node_missing")
+                  .empty());
+
+  auto node1 = PendingFilterRegistry::instance().drain(taskId, "node_1");
+  ASSERT_EQ(node1.size(), 1u);
+  EXPECT_EQ(node1.front().column_index, 1);
+  EXPECT_TRUE(PendingFilterRegistry::instance()
+                  .drain(taskId, "node_0")
+                  .empty());
 }
 
 // ===========================================================================
@@ -325,6 +365,7 @@ TEST_P(NativeDynamicFilterReceptionTest, NullFilterIsNoOp) {
   auto outputType = ROW({"key_col", "payload_col"}, {param.key_type, BIGINT()});
   PangrovaVeloxDataSource dataSource(
       pool_.get(),
+      outputType,
       outputType,
       /*taskId=*/"test-task-null-" + param.name);
 

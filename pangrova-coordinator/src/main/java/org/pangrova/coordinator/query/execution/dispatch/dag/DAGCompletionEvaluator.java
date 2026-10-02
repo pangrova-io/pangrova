@@ -27,7 +27,8 @@ public final class DAGCompletionEvaluator {
 
     private DAGCompletionEvaluator() {}
 
-    static boolean allStagesFinished(StageDAG dag) {
+    /** Returns whether every stage reached FINISHED. */
+    public static boolean allStagesFinished(StageDAG dag) {
         return dag.stageEntities().stream()
                 .allMatch(s -> s.stateMachine().getState()
                         == StageStateMachine.State.FINISHED);
@@ -37,8 +38,9 @@ public final class DAGCompletionEvaluator {
         Set<Integer> ids = new HashSet<>();
         for (Stage s : dag.stageEntities()) {
             StageStateMachine.State st = s.stateMachine().getState();
-            if (st == StageStateMachine.State.SCHEDULING
-                    || st == StageStateMachine.State.RUNNING
+            // SCHEDULING does not yet have producer task records.  A downstream
+            // exchange can only bind sources after dispatch reaches RUNNING.
+            if (st == StageStateMachine.State.RUNNING
                     || st == StageStateMachine.State.FLUSHING
                     || st == StageStateMachine.State.FINISHED) {
                 ids.add(s.stageId());
@@ -47,9 +49,11 @@ public final class DAGCompletionEvaluator {
         return ids;
     }
 
-    static void completeWithLastResult(
+    /** Completes a query with its output-stage dispatch result. */
+    public static void completeWithLastResult(
             ConcurrentHashMap<Integer, DispatchResult> results,
-            StageDAG dag, CompletableFuture<DispatchResult> completion) {
+            StageDAG dag, CompletableFuture<DispatchResult> completion,
+            List<DAGDispatchEngine.StageDispatchRecord> dispatched) {
         int rootId = dag.stageEntities().stream()
                 .filter(s -> "OUTPUT".equals(s.plan().taskType()))
                 .mapToInt(Stage::stageId)
@@ -91,20 +95,28 @@ public final class DAGCompletionEvaluator {
             CompletableFuture<DispatchResult> completion,
             long timeoutMs, String queryId) {
         try {
-            return completion.orTimeout(timeoutMs, TimeUnit.MILLISECONDS).join();
-        } catch (java.util.concurrent.CompletionException ce) {
-            Throwable cause = ce.getCause();
-            if (cause instanceof java.util.concurrent.TimeoutException) {
-                throw new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
-                        "DAG dispatch timed out [queryId=" + queryId + "]");
-            }
+            return completion.get(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            var failure = new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED,
+                    "DAG dispatch interrupted [queryId=" + queryId + "]", interrupted);
+            completion.completeExceptionally(failure);
+            throw failure;
+        } catch (java.util.concurrent.TimeoutException timeout) {
+            var failure = new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
+                    "DAG dispatch timed out [queryId=" + queryId + "]", timeout);
+            completion.completeExceptionally(failure);
+            throw failure;
+        } catch (java.util.concurrent.ExecutionException failed) {
+            Throwable cause = failed.getCause();
             throw DispatchCanceller.wrapIfNeeded(
                     cause instanceof Exception ex ? ex
                             : new RuntimeException(cause), queryId);
         }
     }
 
-    static DAGDispatchEngine.StageDispatchRecord findDispatchRecord(
+    /** Finds the dispatch record for a task, or null when it is absent. */
+    public static DAGDispatchEngine.StageDispatchRecord findDispatchRecord(
             String taskId, List<DAGDispatchEngine.StageDispatchRecord> dispatched) {
         for (DAGDispatchEngine.StageDispatchRecord rec : dispatched) {
             if (rec.result().taskId().equals(taskId)) {

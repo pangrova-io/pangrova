@@ -2,11 +2,10 @@ package org.pangrova.security.store;
 
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.pangrova.security.testinfra.SharedSecurityPostgres;
+import org.pangrova.testing.ContainerTestBase;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,32 +15,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Validates PersistentGrantStore CRUD operations against a PostgreSQL TestContainer.
  */
-class PersistentGrantStoreTest {
-
-    @SuppressWarnings("resource")
-    static final PostgreSQLContainer<?> PG = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("pangrova_test")
-            .withUsername("pangrova")
-            .withPassword("pangrova_test");
-
-    @BeforeAll
-    static void startContainer() { PG.start(); }
-
-    @AfterAll
-    static void stopContainer() { PG.stop(); }
+class PersistentGrantStoreTest extends ContainerTestBase {
 
     private PersistentGrantStore store;
 
     @BeforeEach
     void setUp() throws Exception {
-        org.postgresql.ds.PGSimpleDataSource ds = new org.postgresql.ds.PGSimpleDataSource();
-        ds.setUrl(PG.getJdbcUrl());
-        ds.setUser(PG.getUsername());
-        ds.setPassword(PG.getPassword());
-        // Drop and recreate so each test starts clean
-        try (var conn = ds.getConnection()) {
-            conn.createStatement().execute("DROP TABLE IF EXISTS security_grants");
-        }
+        var ds = SharedSecurityPostgres.isolatedDataSource();
         store = new PersistentGrantStore(ds);
         store.initSchema();
     }

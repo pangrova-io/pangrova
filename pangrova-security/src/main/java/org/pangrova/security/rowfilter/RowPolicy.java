@@ -1,8 +1,7 @@
 package org.pangrova.security.rowfilter;
 
-import org.pangrova.spi.security.UserIdentity;
-
 import java.util.List;
+import java.util.Set;
 
 /**
  * Row-level security policy that filters rows based on user identity and role membership.
@@ -32,10 +31,10 @@ public record RowPolicy(
      * Returns true if this policy applies to the given user.
      * An empty applyToRoles list means the policy applies to everyone.
      */
-    public boolean appliesTo(UserIdentity user) {
+    public boolean appliesTo(Set<String> effectiveRoles) {
         if (applyToRoles.isEmpty()) {
             return true;
         }
-        return user.groups().stream().anyMatch(applyToRoles::contains);
+        return effectiveRoles.stream().anyMatch(applyToRoles::contains);
     }
 }

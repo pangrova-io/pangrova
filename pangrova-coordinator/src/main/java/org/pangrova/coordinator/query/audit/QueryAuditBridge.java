@@ -70,7 +70,8 @@ final class QueryAuditBridge {
         if (auditEmitter == null) {
             return;
         }
-        auditEmitter.emitQueryCompleted(queryId, sm.getDurationMs());
+        auditEmitter.emitQueryCompleted(queryId, sm.getDurationMs(),
+                new QueryAuditEmitter.AuditSubject(sm.getAuditPrincipal(), sm.getTenantId()));
         fireCompletedEvent(queryId, sm, QueryState.FINISHED, Optional.empty());
     }
 
@@ -79,7 +80,8 @@ final class QueryAuditBridge {
             return;
         }
         String msg = error != null ? error.message() : "unknown";
-        auditEmitter.emitQueryFailed(queryId, msg, sm.getDurationMs());
+        auditEmitter.emitQueryFailed(queryId, msg, sm.getDurationMs(),
+                new QueryAuditEmitter.AuditSubject(sm.getAuditPrincipal(), sm.getTenantId()));
         fireCompletedEvent(queryId, sm, QueryState.FAILED, Optional.of(msg));
     }
 

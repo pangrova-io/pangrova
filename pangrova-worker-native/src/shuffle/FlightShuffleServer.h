@@ -13,15 +13,18 @@
 #include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <vector>
 
 #include <arrow/flight/server.h>
 
 #include "shuffle/SerializedShuffleQueue.h"
+#include "shuffle/ShuffleBufferStore.h"
 #include "shuffle/TicketVerifier.h"
 
 namespace pangrova::shuffle {
@@ -49,7 +52,10 @@ struct FlightShuffleServerConfig {
   // Number of server threads for handling DoGet requests.
   int num_threads = 4;
   // Maximum batch size in bytes for a single Flight response.
-  int64_t max_batch_bytes = 4 * 1024 * 1024; // 4MB
+  int64_t max_batch_bytes = static_cast<int64_t>(kCanonicalShuffleBatchBytes);
+  // Shared production demux budgets; max_payload_bytes is set from
+  // max_batch_bytes so each indivisible serialized batch fits one response.
+  ShuffleBufferLimits buffer_limits;
   // Enable SO_REUSEPORT on the server socket.
   bool reuse_port = true;
   // TLS certificate chain file path (PEM). Empty = no TLS.
@@ -77,11 +83,13 @@ struct FlightShuffleServerConfig {
 // each ShuffleBatch to the buffer matching its partition_id.
 //
 // @ThreadSafe — all public methods are thread-safe.
-// Uses per-partition mutexes to reduce contention when multiple DoGet
-// streams read different partitions concurrently.
+// A shared state mutex protects metadata only; no lock is held during spill I/O.
 class PartitionDemuxer {
  public:
-  explicit PartitionDemuxer(SerializedShuffleQueue* source);
+  explicit PartitionDemuxer(
+      SerializedShuffleQueue* source,
+      std::shared_ptr<ShuffleBufferStore> store =
+          std::make_shared<ShuffleBufferStore>());
   ~PartitionDemuxer();
 
   // Non-copyable, non-movable.
@@ -91,13 +99,20 @@ class PartitionDemuxer {
   // Starts the background drain thread.
   void start();
 
-  // Stops the drain thread and marks all partition buffers as closed.
+  // Cancels unconsumed data, wakes waiters, joins the drain thread and releases
+  // storage. The borrowed source must live until quiesce()/stop() returns;
+  // after quiesce observes completion it is never accessed again.
   void stop();
+
+  // First terminal error, including forced teardown. Never converted to EOF.
+  arrow::Status status() const;
+  bool validPartition(int32_t partition_id) const;
 
   // Pops a batch for the given partition. Blocks up to timeout.
   // Returns true if a batch was obtained, false on timeout or closed.
   bool pop(int32_t partition_id, ShuffleBatch& batch,
-           std::chrono::milliseconds timeout);
+           std::chrono::milliseconds timeout,
+           const std::function<bool()>& reader_cancelled = {});
 
   // Returns true if the source queue is closed and the partition buffer
   // for the given partition_id is empty.
@@ -116,15 +131,17 @@ class PartitionDemuxer {
   // Returns true if all dispatched batches have been consumed by pop().
   bool isFullyConsumed() const;
 
+  // Records a clean EOF delivered to a reader for one partition. An empty
+  // partition has no batches to consume, but its late reader must still be
+  // able to open the producer's ticket after the producer has exited.
+  bool markPartitionReadComplete(int32_t partition_id);
+
+  // True only after every advertised partition has delivered a clean EOF.
+  bool allPartitionsReadComplete() const;
+
   // Returns true if a partition has been drained AND the source was NOT
   // cleanly completed (indicates truncation / forced teardown).
   bool isPartitionTruncated(int32_t partition_id);
-
-  // --- F-CHAIN-SHUFFLE-04: Backpressure ---
-
-  // Sets the maximum number of buffered batches per partition.
-  // 0 (default) means unbounded (legacy behavior).
-  void setMaxBufferedBatchesPerPartition(size_t cap);
 
   // Returns the current number of buffered batches for a partition.
   size_t bufferedBatchCount(int32_t partition_id);
@@ -135,50 +152,45 @@ class PartitionDemuxer {
   // --- F-CHAIN-SHUFFLE-09: Partition bound ---
 
   // Sets the maximum allowed partition count. partition_id must be in
-  // [0, max_partitions). 0 means unbounded (legacy).
+  // [0, max_partitions). Must be positive and within the store's limit.
+  // Configure before start().
   void setMaxPartitions(int32_t max_partitions);
 
  private:
   void drainLoop();
 
-  // Per-partition state with its own mutex for reduced contention.
+  void fail(arrow::Status error);
+  void finishDrain(bool complete);
+
+  // Protected by mutex_. Disk reads/writes and entry destruction happen only
+  // after releasing it. A reading flag serializes same-partition replay without
+  // holding a mutex during I/O; other partitions remain independent.
   struct PartitionBuffer {
-    std::mutex mutex;
-    std::condition_variable cv;
-    std::deque<ShuffleBatch> batches;
+    std::deque<std::unique_ptr<ShuffleBufferStore::Entry>> batches;
     int64_t committed_count = 0;
-    int64_t popped_count = 0;
-    // Approximate queue depth readable without holding mutex, used by
-    // the backpressure predicate to avoid buf.mutex → backpressure_mutex_
-    // lock-order inversion (F-NATIVE-02).
-    std::atomic<size_t> approx_size{0};
+    bool reading = false;
   };
 
-  PartitionBuffer& getOrCreatePartition(int32_t partition_id);
-
   SerializedShuffleQueue* source_;
+  const std::shared_ptr<ShuffleBufferStore> store_;
+  std::shared_ptr<ShuffleBufferStore::Reservation> handle_reservation_;
   std::atomic<bool> running_{false};
-  std::atomic<bool> source_closed_{false};
-  std::atomic<bool> source_complete_{false};  // clean producer close
+  CancellationSource cancellation_;
   std::thread drain_thread_;
-
-  // Partition registry protected by registry_mutex_ (only for creation).
-  std::mutex registry_mutex_;
-  std::unordered_map<int32_t, std::unique_ptr<PartitionBuffer>> partitions_;
-
-  // Backpressure: cap per partition (0 = unbounded).
-  std::atomic<size_t> max_buffered_per_partition_{0};
-  // Condition variable for drain thread to wait when a partition is full.
-  std::condition_variable backpressure_cv_;
-  std::mutex backpressure_mutex_;
-
-  // Partition bound (0 = unbounded).
-  std::atomic<int32_t> max_partitions_{0};
-
-  // Quiesce synchronization.
-  std::mutex quiesce_mutex_;
-  std::condition_variable quiesce_cv_;
-  std::atomic<bool> drain_exited_{false};
+  mutable std::mutex mutex_;
+  std::condition_variable cv_;
+  std::unordered_map<int32_t, PartitionBuffer> partitions_;
+  arrow::Status status_;
+  bool source_closed_ = false;
+  bool source_complete_ = false;
+  bool drain_exited_ = false;
+  int32_t max_partitions_;
+  std::vector<bool> completed_partitions_;
+  // Serialize concurrent stop calls, without holding a mutex across join/I/O.
+  std::mutex stop_mutex_;
+  std::condition_variable stop_cv_;
+  bool stopping_ = false;
+  bool stopped_ = false;
 };
 
 // Multiplexed Arrow Flight server that serves shuffle data from multiple
@@ -194,44 +206,9 @@ class PartitionDemuxer {
 //
 // @ThreadSafe — registerHandle/unregisterHandle/DoGet are all thread-safe.
 //
-// ---------------------------------------------------------------------------
-// LOCK ACQUISITION ORDER (Task 27.5, updated F-NATIVE-02).
-// ---------------------------------------------------------------------------
-// Three mutex families are used across this file. To avoid deadlocks, locks
-// MUST be acquired in the order listed below; any code path that needs an
-// inner lock while already holding an outer one is fine, but never the
-// reverse.
-//
-//   1. FlightShuffleServer::handles_mutex_                  (outermost)
-//      Protects handle_demuxers_. Acquired by registerHandle(),
-//      unregisterHandle(), handleCount(), and DoGet() during routing.
-//
-//   2. PartitionDemuxer::registry_mutex_                    (per-demuxer)
-//      Protects partitions_ map of a single PartitionDemuxer. Acquired by
-//      getOrCreatePartition(), stop(), drainLoop() teardown, and
-//      isPartitionDrained().
-//
-//   3. PartitionDemuxer::PartitionBuffer::mutex             (innermost)
-//      Protects an individual partition's deque + cv. May be taken nested
-//      under registry_mutex_ when notifying all partitions on shutdown.
-//
-//   backpressure_mutex_ is INDEPENDENT — never nested under buf.mutex or
-//   vice versa. The backpressure predicate reads PartitionBuffer::approx_size
-//   (atomic) instead of locking buf.mutex, preventing the lock-order inversion
-//   that existed before F-NATIVE-02 was fixed.
-//
-// Invariants:
-//   - DoGet() never holds handles_mutex_ while calling into a demuxer; it
-//     copies the demuxer pointer under the lock and drops it before reading.
-//   - unregisterHandle() stops a demuxer OUTSIDE handles_mutex_ to avoid
-//     holding the server-wide lock during a thread join.
-//   - PartitionDemuxer never acquires handles_mutex_ — flow is one way only.
-//   - pop() releases buf.mutex before notifying backpressure_cv_.
-//   - drainLoop() backpressure predicate reads approx_size (atomic), never
-//     acquires buf.mutex while holding backpressure_mutex_.
-//
-// Adding a new mutex requires extending this ordering and updating call
-// sites; do not introduce cross-family locking outside this hierarchy.
+// Lock order: routing maps -> demux state. The store accounting lock is never
+// held during I/O; demux entries and routing owners are destroyed outside locks.
+// Demuxers never acquire routing locks. No lock is held across drain-thread join.
 class FlightShuffleServer : public arrow::flight::FlightServerBase {
  public:
   explicit FlightShuffleServer(FlightShuffleServerConfig config);
@@ -244,15 +221,13 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
   int start();
   void stop();
 
-  // Register an executor handle with its shuffle queue for multiplexing.
-  // Creates a PartitionDemuxer for the queue and routes DoGet requests
-  // to the correct demuxer based on the handle in the ticket.
-  void registerHandle(int64_t handle, SerializedShuffleQueue* queue);
-
-  // Extended registration with query/stage identity and partition count.
+  // Register the exact fenced producer identity and partition count.
   void registerHandle(int64_t handle, SerializedShuffleQueue* queue,
                       const std::string& query_id, int32_t stage_id,
-                      int32_t num_partitions);
+                      int32_t num_partitions,
+                      uint64_t plan_epoch,
+                      uint32_t attempt_id,
+                      uint64_t fencing_token);
 
   // Unregister an executor handle. Quiesces/stops its demuxer.
   // Clean producers linger; un-clean producers are force-dropped.
@@ -267,15 +242,22 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
   // Evicts fully-consumed lingering demuxers, returning the count removed.
   // Should be called periodically to prevent resource leaks from client
   // disconnections where DoGet never completes.
-  size_t evictFullyConsumedLingering();
+  size_t evictFullyConsumedLingering(
+      std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now());
 
-  // Pop a batch from a (possibly lingering) handle's demuxer.
-  // Used by tests and internally by DoGet readers.
+  // Pop a batch from a (possibly lingering) handle's demuxer. The real Flight
+  // reader uses the demuxer directly; this path models its clean EOF in tests.
   bool popForHandle(int64_t handle, int32_t partition_id,
                     ShuffleBatch& batch, std::chrono::milliseconds timeout);
 
+  // Resource accounting includes active and lingering handles.
+  ShuffleBufferUsage bufferUsage() const { return buffer_store_->usage(); }
+
   int boundPort() const { return bound_port_; }
   bool isRunning() const { return running_.load(); }
+
+  // Atomically updates the verifier key window without restarting the server.
+  void setHmacKeys(std::string current_key, std::string previous_key);
 
   arrow::Status DoGet(
       const arrow::flight::ServerCallContext& context,
@@ -284,22 +266,32 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
 
  private:
   FlightShuffleServerConfig config_;
+  std::shared_ptr<ShuffleBufferStore> buffer_store_;
   int bound_port_ = 0;
   std::atomic<bool> running_{false};
   std::thread server_thread_;
 
   // Ticket HMAC verification (null when hmac_current_key is empty).
-  std::unique_ptr<TicketVerifier> ticket_verifier_;
+  mutable std::mutex ticket_verifier_mutex_;
+  std::shared_ptr<TicketVerifier> ticket_verifier_;
 
-  // Multiplexed handle routing: handle -> PartitionDemuxer.
+  struct HandleRoute {
+    std::shared_ptr<PartitionDemuxer> demuxer;
+    std::string query_id;
+    int32_t stage_id = -1;
+    uint64_t plan_epoch = 0;
+    uint32_t attempt_id = 0;
+    uint64_t fencing_token = 0;
+  };
+
+  // Multiplexed handle routing. Shared ownership is required because an
+  // in-flight Flight reader may outlive producer unregister.
   mutable std::mutex handles_mutex_;
-  std::unordered_map<int64_t, std::unique_ptr<PartitionDemuxer>> handle_demuxers_;
-  // Ticket ownership: handle -> query_id for cross-query data leak prevention.
-  std::unordered_map<int64_t, std::string> handle_query_ids_;
+  std::unordered_map<int64_t, HandleRoute> handle_routes_;
 
   // Lingering handles: producer done but data not fully consumed.
   struct LingeringEntry {
-    std::unique_ptr<PartitionDemuxer> demuxer;
+    HandleRoute route;
     std::chrono::steady_clock::time_point entered_at;
   };
   mutable std::mutex lingering_mutex_;

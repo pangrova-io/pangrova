@@ -27,7 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>Validates: Requirements 10.1, 10.2, 10.3, 10.4</b></p>
  */
-class CoordinatorBootstrapSplitPropertyTest {
+class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     /**
      * Property 9.1: For any minimal config, bootstrap starts and initializes
@@ -104,23 +104,25 @@ class CoordinatorBootstrapSplitPropertyTest {
     }
 
     /**
-     * Property 9.5: HTTP query submit endpoint is registered and responds.
+     * Property 9.5: HTTP query submit endpoint is registered and rejects work
+     * while no Worker is available.
      */
     @Test
     void httpQuerySubmitEndpointRegistered() throws Exception {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-query", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = startAuthorizedCoordinator(config);
         try {
-            bootstrap.start();
             int port = bootstrap.getHttpPort();
             HttpResponse<String> resp = HttpClient.newHttpClient().send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                             .POST(HttpRequest.BodyPublishers.ofString("{\"query\":\"SELECT 1\"}"))
                             .header("Content-Type", "application/json")
+                            .header("Authorization", authorizationHeader())
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
-            assertThat(resp.statusCode()).isEqualTo(200);
+            assertThat(resp.statusCode()).isEqualTo(503);
+            assertThat(resp.body()).contains("No available worker for task dispatch");
         } finally {
             bootstrap.shutdown();
         }

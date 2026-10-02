@@ -13,13 +13,16 @@
  */
 package org.pangrova.worker.ai.function;
 
+import org.pangrova.worker.ai.function.file.FileStructHelper;
+
 import org.pangrova.spi.ai.inference.GenerationParameters;
 import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.ai.inference.InferenceResult;
-import org.pangrova.spi.ai.inference.Modality;
+import org.pangrova.spi.ai.Modality;
 import org.pangrova.spi.ai.inference.MultimodalPrompt;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.FunctionMetadata;
+import org.pangrova.protocol.function.FunctionBindingDeclarations;
 import org.pangrova.spi.function.ScalarFunction;
 
 import java.util.List;
@@ -40,12 +43,8 @@ import java.util.function.Function;
  */
 public final class AiTranscribeFunction implements ScalarFunction {
 
-    private static final FunctionMetadata METADATA = new FunctionMetadata(
-            "ai_transcribe",
-            "VARCHAR",
-            List.of("VARCHAR", "ROW"),
-            false,
-            "Transcribes audio FILE content to text using a speech-to-text model");
+    private static final FunctionMetadata METADATA =
+            FunctionBindingDeclarations.callbackMetadata("ai_transcribe");
 
     private static final String DEFAULT_PROMPT =
             "Transcribe the audio content accurately. Return the full transcript as plain text.";
@@ -57,7 +56,7 @@ public final class AiTranscribeFunction implements ScalarFunction {
      *
      * @param providerLookup resolves model names to inference providers
      */
-    public AiTranscribeFunction(Function<String, InferenceProvider> providerLookup) {
+    AiTranscribeFunction(Function<String, InferenceProvider> providerLookup) {
         if (providerLookup == null) {
             throw new IllegalArgumentException("providerLookup required");
         }

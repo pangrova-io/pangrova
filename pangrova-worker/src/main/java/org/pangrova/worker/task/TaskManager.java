@@ -7,13 +7,12 @@ import org.pangrova.spi.execution.TaskDescriptor;
 import org.pangrova.spi.execution.TaskStatus;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
+import org.pangrova.worker.task.state.TaskStateTransitions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -22,35 +21,23 @@ import org.pangrova.common.concurrent.ThreadSafe;
 
 /**
  * Worker-side task lifecycle manager with state machine enforcement.
- *
  * <p>Concurrency strategy: ConcurrentHashMap for task registry,
- * AtomicReference per-task state, AtomicLong for ID generation,
- * volatile for completion callback.</p>
+ * AtomicReference per state, AtomicLong IDs, and volatile callbacks.</p>
  */
 @ThreadSafe
 public class TaskManager implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskManager.class);
 
-    /** Maximum number of tracked tasks to prevent unbounded memory growth. */
     static final int MAX_TRACKED_TASKS = 50_000;
 
     /**
      * Worker task states with defined transition rules.
      */
     public enum TaskState {
-        RECEIVED, INITIALIZING, RUNNING, FINISHING, FINISHED, FAILED, CANCELLED
+        RECEIVED, INITIALIZING, RUNNING, FINISHING, CANCELLING,
+        FINISHED, FAILED, CANCELLED
     }
-
-    private static final Map<TaskState, Set<TaskState>> TRANSITIONS = Map.ofEntries(
-            Map.entry(TaskState.RECEIVED, Set.of(TaskState.INITIALIZING)),
-            Map.entry(TaskState.INITIALIZING, Set.of(TaskState.RUNNING, TaskState.FAILED, TaskState.CANCELLED)),
-            Map.entry(TaskState.RUNNING, Set.of(TaskState.FINISHING, TaskState.FAILED, TaskState.CANCELLED)),
-            Map.entry(TaskState.FINISHING, Set.of(TaskState.FINISHED, TaskState.FAILED, TaskState.CANCELLED)),
-            Map.entry(TaskState.FINISHED, Set.of()),
-            Map.entry(TaskState.FAILED, Set.of()),
-            Map.entry(TaskState.CANCELLED, Set.of())
-    );
 
     final ConcurrentHashMap<String, TaskInfo> tasks = new ConcurrentHashMap<>();
     final AtomicLong taskIdCounter = new AtomicLong(0);
@@ -79,7 +66,6 @@ public class TaskManager implements AutoCloseable {
     private final org.pangrova.spi.execution.TaskExecutor taskExecutor;
     private final TaskManagerContext deps;
 
-    /** Per-tenant quota enforcement on the execution hot path. */
     volatile TenantExecutionQuotaEnforcer quotaEnforcer;
 
     /**
@@ -89,6 +75,9 @@ public class TaskManager implements AutoCloseable {
     public void setWriteExecutor(org.pangrova.worker.jni.write.NativeWriteExecutor executor) {
         if (statusCollector != null) {
             statusCollector.setWriteExecutor(executor);
+        }
+        if (lifecycleManager != null) {
+            lifecycleManager.setWriteExecutor(executor);
         }
     }
 
@@ -106,7 +95,6 @@ public class TaskManager implements AutoCloseable {
      */
     volatile QueryCancellationPropagator cancellationPropagator;
 
-    /** Optional callback invoked with queryId when a task completes successfully. */
     private volatile Consumer<String> completionCallback;
 
     volatile TaskStatusReporter autoFinishReporter;
@@ -115,6 +103,8 @@ public class TaskManager implements AutoCloseable {
 
     final TaskDrainExecutor drainExecutor;
     private final TaskSubmissionHandler submissionHandler;
+    private final ControlEpochFence controlEpochFence = new ControlEpochFence();
+    private final ExecutionOwnerFence executionOwnerFence = new ExecutionOwnerFence();
 
     /**
      * Full wiring constructor — accepts all dependencies via parameter object.
@@ -162,16 +152,8 @@ public class TaskManager implements AutoCloseable {
      */
     @Override
     public void close() {
-        if (deps != null) {
-            deps.completionMonitorExecutor().shutdownNow();
-        }
-        if (taskExecutor instanceof AutoCloseable ac) {
-            try {
-                ac.close();
-            } catch (Exception e) {
-                LOG.warn("event=task_executor_close_error error={}", e.getMessage());
-            }
-        }
+        drainExecutor.beginDraining();
+        TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, java.util.List.copyOf(tasks.values()));
     }
 
     /**
@@ -208,7 +190,6 @@ public class TaskManager implements AutoCloseable {
         this.retryExecutor = executor;
     }
 
-    /** Returns the injected retry executor, or null if none configured. */
     public TaskRetryExecutor retryExecutor() {
         return retryExecutor;
     }
@@ -221,7 +202,6 @@ public class TaskManager implements AutoCloseable {
         this.cancellationPropagator = propagator;
     }
 
-    /** Returns the injected cancellation propagator, or null if none configured. */
     public QueryCancellationPropagator cancellationPropagator() {
         return cancellationPropagator;
     }
@@ -232,6 +212,44 @@ public class TaskManager implements AutoCloseable {
 
     public String submitTask(TaskDescriptor descriptor) {
         return submissionHandler.submitTask(descriptor);
+    }
+
+    /**
+     * Enables fail-closed Coordinator epoch validation for all subsequent task
+     * admissions. Production Worker bootstrap calls this before exposing the
+     * task HTTP endpoint whenever a Coordinator URL is configured.
+     */
+    public void requireControlEpochHandshake() {
+        controlEpochFence.requireHandshake();
+    }
+
+    /**
+     * Observes an epoch received over the authenticated registration/heartbeat
+     * control channel. Epochs advance monotonically and can never be rolled back.
+     */
+    public void observeControlEpoch(long epoch) {
+        controlEpochFence.observe(epoch);
+    }
+
+    /** Rejects admission when the request does not carry the active control epoch. */
+    public void verifyControlEpochForAdmission(Long epoch) {
+        controlEpochFence.verify(epoch);
+    }
+
+    /** Rejects task admission when its exact query or job owner does not match. */
+    public void verifyExecutionOwnerForAdmission(SubmitTaskRequest request) {
+        var attempt = request.taskRequest().getAttempt();
+        executionOwnerFence.verify(
+                attempt.getQueryOrJobId(),
+                org.pangrova.protocol.rest.task.ExecutionOwnerIdentity.from(
+                        attempt.getExecutionOwner()));
+    }
+
+    /** Applies the same execution-owner fence to metadata publication commands. */
+    public void verifyExecutionOwnerForControl(
+            String executionId, org.pangrova.protocol.v2.ExecutionOwnerIdentity identity) {
+        executionOwnerFence.verify(executionId,
+                org.pangrova.protocol.rest.task.ExecutionOwnerIdentity.from(identity));
     }
 
     public TaskCancelResult cancelTask(String taskId) {
@@ -331,6 +349,12 @@ public class TaskManager implements AutoCloseable {
         return info != null ? info.shufflePort() : 0;
     }
 
+    public Optional<org.pangrova.shuffle.ShuffleServerHandle> getShuffleServerHandle(
+            String taskId) {
+        TaskInfo info = tasks.get(taskId);
+        return Optional.ofNullable(info == null ? null : info.shuffleServerHandle());
+    }
+
     /**
      * Returns the shared {@link TaskExecutor} used by this TaskManager.
      * The exchange client must use the SAME executor instance that the task
@@ -342,13 +366,6 @@ public class TaskManager implements AutoCloseable {
      */
     public Optional<org.pangrova.spi.execution.TaskExecutor> getSharedNativeExecutor() {
         return Optional.ofNullable(taskExecutor);
-    }
-
-    /**
-     * Returns the vector search result buffer, or null if no execution pipeline is configured.
-     */
-    public org.pangrova.worker.execution.VectorSearchResultBuffer getVectorResultBuffer() {
-        return lifecycleManager != null ? lifecycleManager.getVectorResultBuffer() : null;
     }
 
     /**
@@ -379,7 +396,10 @@ public class TaskManager implements AutoCloseable {
      */
     public int cleanupTerminalTasks(java.time.Duration retention) {
         return TaskCleanupScheduler.cleanupTerminalTasks(
-                tasks, retention, this::removeCoordinatorIndex);
+                tasks, retention, info -> {
+                    drainExecutor.releaseTerminalTask(info);
+                    removeCoordinatorIndex(info);
+                }, drainExecutor::resultResourcesDrained);
     }
 
     /**
@@ -394,8 +414,8 @@ public class TaskManager implements AutoCloseable {
 
     void removeCoordinatorIndex(TaskInfo info) {
         SubmitTaskRequest req = info.request();
-        if (req != null && req.taskId() != null && !req.taskId().isBlank()) {
-            coordinatorTaskIndex.remove(req.taskId());
+        if (req != null) {
+            coordinatorTaskIndex.remove(req.taskRequest().getAttempt().getTaskId());
         }
     }
 
@@ -438,8 +458,7 @@ public class TaskManager implements AutoCloseable {
         // could bypass validation.
         while (true) {
             TaskState current = info.getState();
-            Set<TaskState> allowed = TRANSITIONS.getOrDefault(current, Set.of());
-            if (!allowed.contains(target)) {
+            if (!TaskStateTransitions.isAllowed(current, target)) {
                 LOG.warn("event=invalid_task_transition taskId={} from={} to={}", taskId, current, target);
                 return false;
             }
@@ -459,11 +478,16 @@ public class TaskManager implements AutoCloseable {
                 || state == TaskState.CANCELLED;
     }
 
-    /** Deregisters the task from cancellation tracking and signals the drain executor. */
     private void onTerminalTransition(TaskInfo info, String taskId) {
         QueryCancellationPropagator prop = cancellationPropagator;
         if (prop != null) {
             prop.deregisterTask(info.queryId(), taskId);
+        }
+        boolean hasLiveTask = tasks.values().stream()
+                .filter(task -> task.queryId().equals(info.queryId()))
+                .anyMatch(task -> !isTerminalState(task.getState()));
+        if (!hasLiveTask) {
+            executionOwnerFence.retire(info.queryId());
         }
         drainExecutor.signalTerminalTransition();
     }

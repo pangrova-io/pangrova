@@ -16,8 +16,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Executes the write + offset-commit of a CDC batch as a two-phase commit,
- * achieving exactly-once semantics for {@link CdcPipelineLoop}.
+ * Coordinates the table write and source-offset acknowledgement of a CDC batch.
  *
  * <p>For each partition in the current batch, the coordinator records the
  * offset range in JDBC. If all partitions are already committed (crash-recovery
@@ -30,7 +29,9 @@ import java.util.Map;
  *       phase.</li>
  * </ol>
  *
- * <p>Either both succeed atomically or both are aborted. The data write happens
+ * <p>The table catalog and source offset store do not share an atomic transaction.
+ * A failure after catalog publication is ambiguous and requires connector-level
+ * reconciliation before the source can safely advance. The data write happens
  * once for the whole batch, not per-partition.</p>
  */
 final class CdcTwoPhaseCommitter {
@@ -142,9 +143,8 @@ final class CdcTwoPhaseCommitter {
 
         @Override
         public void prepare() {
-            // A-EOS-02 (true 2PC prepare): STAGE the write — write data files to storage WITHOUT
-            // publishing to the catalog. A crash before commit is now recoverable via abort()
-            // (discard staged files) instead of leaking a partial write or requiring replay-dedup.
+            // Stage the write before publishing to the catalog. Crash recovery requires
+            // a durable sink token; the generic in-memory default does not provide it.
             long estimatedBytes = estimateBatchBytes(envelopes);
             deps.quotaEnforcer().onWriteStart(estimatedBytes);
             try {
@@ -160,7 +160,7 @@ final class CdcTwoPhaseCommitter {
 
         @Override
         public void commit() throws Exception {
-            // A-EOS-02 (commit): atomically publish the staged write to the catalog (idempotent).
+            // Publish through the sink; catalog atomicity and replay safety are sink-specific.
             CdcWriteResult result = deps.writeSink().publish(staged);
             WriteResult maintenanceResult = new WriteResult(
                 config.targetTable(),
@@ -174,9 +174,8 @@ final class CdcTwoPhaseCommitter {
 
         @Override
         public void abort() {
-            // A-EOS-02 (abort): discard staged-but-unpublished files (real compensation), so a
-            // prepared-then-aborted batch leaves no orphans. The source replays from the last
-            // committed offset.
+            // Discard only files that the sink can prove were never published. The source
+            // replays from the last committed offset.
             if (staged != null) {
                 try {
                     deps.writeSink().discard(staged);

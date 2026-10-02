@@ -14,16 +14,21 @@
 package org.pangrova.planner;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import org.pangrova.spi.coordination.WriteDeclarationSnapshot;
 
 /**
  * Identifies the write target of a DML operation extracted from the compiled plan.
  */
 public record DmlWriteTarget(
         List<String> qualifiedTableName,
-        DmlOperation operation
+        DmlOperation operation,
+        Optional<WriteDeclarationSnapshot> declaration
 ) {
     public DmlWriteTarget {
         qualifiedTableName = List.copyOf(qualifiedTableName);
+        Objects.requireNonNull(declaration, "declaration");
         if (operation == null) {
             throw new NullPointerException("operation must not be null");
         }

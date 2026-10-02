@@ -119,8 +119,8 @@ class ThreadPoolAndQuotaGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        workerBootstrap = TestWorkerBootstrap.create(config);
         workerBootstrap.start();
 
         assertThat(workerBootstrap.isStarted()).isTrue();
@@ -138,8 +138,8 @@ class ThreadPoolAndQuotaGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        workerBootstrap = TestWorkerBootstrap.create(config);
         workerBootstrap.start();
         assertThat(workerBootstrap.isStarted()).isTrue();
 

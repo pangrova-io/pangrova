@@ -1,13 +1,21 @@
 package org.pangrova.coordinator.query.task;
 
-import org.pangrova.coordinator.query.statement.StatementConnectorSession;
+import org.pangrova.metadata.catalog.CatalogDescriptor;
+import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
+import org.pangrova.protocol.CatalogDeploymentFingerprint;
+import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
+import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.Map;
+import java.util.Optional;
+import java.util.Arrays;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -15,12 +23,8 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * Real {@link WriteCommitReconciler} (A-COMMIT-01): AUTO-FINISHES a distributed-write intent left
  * {@code PENDING} by a crashed coordinator, instead of always quarantining for manual intervention.
  *
- * <p>Using the structured, rehydratable identity now recorded in the durable intent
- * ({@code catalog} + {@code schema.table} + {@code writeMode} + worker {@code fragments}), it
- * reconstructs the connector write handle from the live table metadata via
- * {@link ConnectorMetadata#reconstructOutputHandle} and re-drives the catalog commit via
- * {@link ConnectorMetadata#finishDistributedWrite}, which is contractually idempotent (re-driving
- * an already-landed commit with the same fragments is a no-op).</p>
+ * <p>Recovery decodes the exact canonical v2 write binding sent to Workers. A changed
+ * catalog incarnation or revision is quarantined, never rebound to the current table.</p>
  *
  * <p>Outcomes:
  * <ul>
@@ -35,53 +39,45 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
     private static final Logger LOG = LoggerFactory.getLogger(DefaultWriteCommitReconciler.class);
 
     /**
-     * Resolves connector metadata for a catalog under a recovery session, or {@code null} if the
-     * catalog is unknown. Injected (rather than a concrete {@code CatalogRegistry}) so the reconciler
-     * is decoupled from the sealed catalog-handle hierarchy and unit-testable.
+     * Resolves the current connector catalog, or {@code null} if unavailable.
      */
     @FunctionalInterface
-    public interface MetadataResolver {
-        ConnectorMetadata metadataFor(String catalogName, ConnectorSession session);
+    public interface CatalogResolver {
+        ConnectorCatalogHandle catalogFor(String catalogName);
     }
 
-    private final MetadataResolver metadataResolver;
+    private final CatalogResolver catalogResolver;
 
-    public DefaultWriteCommitReconciler(MetadataResolver metadataResolver) {
-        this.metadataResolver = checkNotNull(metadataResolver, "metadataResolver must not be null");
+    public DefaultWriteCommitReconciler(CatalogResolver catalogResolver) {
+        this.catalogResolver = checkNotNull(catalogResolver, "catalogResolver must not be null");
     }
 
     @Override
     public RecoveryOutcome reconcile(WriteCommitEntry entry) {
-        if (!entry.isReplayable()) {
-            LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
-                    + "reason=no_fragments", entry.queryId(), entry.tableName());
-            return RecoveryOutcome.QUARANTINED;
-        }
         SchemaTableName table = parseTable(entry.tableName());
         if (table == null) {
             LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=unparseable_identity", entry.queryId(), entry.tableName());
             return RecoveryOutcome.QUARANTINED;
         }
-        ConnectorSession session = new StatementConnectorSession(entry.catalogName(), table.schema());
-        ConnectorMetadata metadata = metadataResolver.metadataFor(entry.catalogName(), session);
-        if (metadata == null) {
+        ConnectorSession session = new RecoveryConnectorSession(
+                entry.catalogName(), table.schema(), entry.tenantId(), entry.principal());
+        ConnectorCatalogHandle catalog = catalogResolver.catalogFor(entry.catalogName());
+        if (catalog == null) {
             LOG.warn("event=write_commit_reconcile queryId={} catalog={} outcome=QUARANTINED "
                     + "reason=unknown_catalog", entry.queryId(), entry.catalogName());
             return RecoveryOutcome.QUARANTINED;
         }
         try {
-            ConnectorOutputTableHandle handle =
-                    metadata.reconstructOutputHandle(session, table, entry.writeMode());
-            // Idempotent by contract: re-driving a committed write (same fragments) is a no-op, so
-            // this both finishes crashed-mid-commit writes and safely re-confirms landed ones.
-            metadata.finishDistributedWrite(session, handle, entry.fragments());
+            ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
+            catalog.getMetadata(session).finishDistributedWrite(
+                    session, handle, entry.fragments(), entry.commitContext());
             LOG.info("event=write_commit_reconciled queryId={} table={} mode={} outcome=COMMITTED",
                     entry.queryId(), table, entry.writeMode());
             return RecoveryOutcome.COMMITTED;
         } catch (UnsupportedOperationException e) {
             LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
-                    + "reason=connector_cannot_rehydrate", entry.queryId(), table);
+                    + "reason=connector_cannot_decode", entry.queryId(), table);
             return RecoveryOutcome.QUARANTINED;
         } catch (RuntimeException e) {
             if (isTableGone(e)) {
@@ -92,6 +88,63 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
             LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=ambiguous error={}", entry.queryId(), table, e.toString());
             return RecoveryOutcome.QUARANTINED;
+        }
+    }
+
+    static ConnectorOutputTableHandle decodeExactHandle(
+            WriteCommitEntry entry, SchemaTableName table,
+            ConnectorCatalogHandle catalog) {
+        WriteOutputBinding binding;
+        try {
+            binding = WriteOutputBinding.parseFrom(entry.writeOutputBinding());
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            throw new IllegalArgumentException("Malformed durable write binding", malformed);
+        }
+        if (!binding.hasConnector() && !binding.hasLance() && !binding.hasPhysical()) {
+            throw new IllegalArgumentException("Durable write binding has no physical output allocation");
+        }
+        var catalogBinding = binding.hasPhysical() ? binding.getPhysical().getCatalog() : (binding.hasLance()
+                ? binding.getLance().getCatalog() : binding.getConnector().getCatalog());
+        validateCatalog(entry, catalog, catalogBinding);
+        var outputBinding = binding.hasPhysical() ? binding.getPhysical().getOutputHandle() : (binding.hasLance()
+                ? binding.getLance().getOutputHandle() : binding.getConnector().getOutputHandle());
+        ConnectorOutputHandleCodec codec = catalog.getOutputHandleCodec();
+        byte[] payload = outputBinding.getPayload().toByteArray();
+        if (!codec.typeUrl().equals(outputBinding.getTypeUrl())
+                || codec.codecVersion() != outputBinding.getCodecVersion()
+                || !CatalogDeploymentFingerprint.sha256(payload)
+                        .equals(outputBinding.getPayloadChecksum())) {
+            throw new IllegalArgumentException("Connector output handle codec or checksum differs");
+        }
+        ConnectorOutputTableHandle handle = codec.deserialize(
+                outputBinding.getCodecVersion(), payload);
+        if (!Arrays.equals(codec.serialize(handle), payload)
+                || !codec.writeColumnNames(handle).equals(outputBinding.getWriteColumnNamesList())
+                || !handle.targetTable().equals(Optional.of(table))
+                || !handle.writeMode().equals(entry.writeMode())
+                || handle.writeBaseSnapshotId().orElse(-1L) != entry.baseSnapshotId()
+                || !org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory
+                        .create(catalog, handle).equals(binding)) {
+            throw new IllegalArgumentException("Decoded output allocation differs from durable write intent");
+        }
+        return handle;
+    }
+
+    private static void validateCatalog(WriteCommitEntry entry, ConnectorCatalogHandle catalog,
+            org.pangrova.protocol.v2.CatalogExecutionBinding catalogBinding) {
+        CatalogDescriptor descriptor = catalog.getDescriptor();
+        if (!entry.catalogName().equals(catalogBinding.getCatalogName())
+                || !descriptor.name().equals(catalogBinding.getCatalogName())
+                || !descriptor.provider().equals(catalogBinding.getConnectorProvider())
+                || !descriptor.incarnationId().equals(catalogBinding.getCatalogIncarnationId())
+                || descriptor.revision() != catalogBinding.getCatalogRevision()
+                || !CatalogDeploymentFingerprint.matches(
+                        catalogBinding.getConfigurationFingerprint(),
+                        new CatalogDeploymentResponse(
+                                descriptor.name(), descriptor.provider(),
+                                descriptor.incarnationId(), descriptor.revision(),
+                                descriptor.properties(), descriptor.allowedTenants()))) {
+            throw new IllegalArgumentException("Catalog deployment differs from durable write binding");
         }
     }
 
@@ -125,5 +178,30 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
             }
         }
         return false;
+    }
+
+    /** Recovery session whose tenant is the immutable identity persisted before the first commit. */
+    private record RecoveryConnectorSession(
+            String catalog, String schema, String tenantId, String principal) implements ConnectorSession {
+
+        @Override
+        public String getUser() {
+            return principal;
+        }
+
+        @Override
+        public Optional<String> getCatalog() {
+            return Optional.of(catalog);
+        }
+
+        @Override
+        public Optional<String> getSchema() {
+            return Optional.of(schema);
+        }
+
+        @Override
+        public Map<String, String> getProperties() {
+            return Map.of("tenant_id", tenantId);
+        }
     }
 }

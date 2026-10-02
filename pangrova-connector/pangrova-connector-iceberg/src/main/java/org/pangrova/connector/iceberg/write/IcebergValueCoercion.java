@@ -42,7 +42,7 @@ final class IcebergValueCoercion {
             case MAP -> coerceMap(value, (Types.MapType) icebergType.asNestedType());
             case STRUCT -> coerceStruct(value, icebergType.asStructType());
             case VARIANT -> coerceToString(value);
-            case GEOMETRY, GEOGRAPHY -> coerceToBinary(value);
+            case BINARY, GEOMETRY, GEOGRAPHY -> coerceToBinary(value);
             case UNKNOWN -> null;
             default -> value;
         };

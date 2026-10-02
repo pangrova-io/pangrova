@@ -17,6 +17,7 @@ import org.pangrova.spi.ai.inference.GenerationParameters;
 import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.FunctionMetadata;
+import org.pangrova.protocol.function.FunctionBindingDeclarations;
 import org.pangrova.spi.function.ScalarFunction;
 
 import java.util.List;
@@ -33,12 +34,8 @@ import java.util.List;
  */
 public final class AiTranslateFunction implements ScalarFunction {
 
-    private static final FunctionMetadata METADATA = new FunctionMetadata(
-            "ai_translate",
-            "VARCHAR",
-            List.of("VARCHAR", "VARCHAR", "VARCHAR"),
-            false,
-            "Translates text to the specified target language");
+    private static final FunctionMetadata METADATA =
+            FunctionBindingDeclarations.callbackMetadata("ai_translate");
 
     private final java.util.function.Function<String, InferenceProvider> providerLookup;
 
@@ -47,7 +44,7 @@ public final class AiTranslateFunction implements ScalarFunction {
      *
      * @param providerLookup resolves model names to inference providers
      */
-    public AiTranslateFunction(
+    AiTranslateFunction(
             java.util.function.Function<String, InferenceProvider> providerLookup) {
         if (providerLookup == null) {
             throw new IllegalArgumentException("providerLookup required");

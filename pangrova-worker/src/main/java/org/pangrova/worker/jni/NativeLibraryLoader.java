@@ -64,7 +64,7 @@ public final class NativeLibraryLoader {
     /**
      * Returns true if the native library is available on the classpath.
      * Does NOT load the library — call {@link #load()} for that.
-     * Used by integration tests to skip gracefully when no native bundle is built.
+     * Readiness checks use this probe to fail with an actionable packaging error.
      */
     public static boolean isAvailable() {
         if (loaded) {
@@ -91,7 +91,7 @@ public final class NativeLibraryLoader {
      * the real init and call {@link #markUnsupported()} on UnsatisfiedLinkError
      * to cache a {@code false} for subsequent test classes.
      *
-     * <p>Used by E2E test base classes to skip when no native bundle is built.
+     * <p>Used by E2E readiness checks, where a false result is a test failure.
      */
     public static boolean isFunctional() {
         if (functionalCache != null) {
@@ -119,7 +119,7 @@ public final class NativeLibraryLoader {
      * Marks the native library as unsupported (ABI mismatch). Subsequent
      * {@link #isFunctional()} calls return false. Used after catching an
      * {@code UnsatisfiedLinkError} from a runtime init attempt so that
-     * remaining test classes can skip cleanly without re-attempting init.
+     * later readiness checks fail deterministically without re-attempting init.
      */
     public static void markUnsupported() {
         synchronized (NativeLibraryLoader.class) {

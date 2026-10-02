@@ -221,7 +221,8 @@ class StageHandlerPropertyTest {
         StageDAG dag = StageDAG.fromNodes(List.of(node), Map.of(), List.of()).withStages("q-test");
         CoordinatorSessionContext session = new CoordinatorSessionContext(
                 "q-test", Map.of(), null, "tenant-1");
-        return new StageLifecycleEvent(stage, dag, "q-test", session);
+        return new StageLifecycleEvent(stage, dag, "q-test",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
     }
 
     /** Counts onScheduling calls. */

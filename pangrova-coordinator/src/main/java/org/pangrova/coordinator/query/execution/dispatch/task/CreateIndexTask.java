@@ -24,8 +24,9 @@ public final class CreateIndexTask implements MetadataTask<CreateIndexStatement>
 
     @Override
     public StatementResult execute(CreateIndexStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeCreateIndex(statement);
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeCreateIndex(
+                statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.INDEX);
     }
 

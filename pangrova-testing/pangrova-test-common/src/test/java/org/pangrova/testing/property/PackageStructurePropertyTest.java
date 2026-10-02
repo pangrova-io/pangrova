@@ -143,8 +143,6 @@ class PackageStructurePropertyTest {
             "org.pangrova.worker.ai.function", 20,
             // one class per Paimon connector capability; freeze until the connector package is split
             "org.pangrova.connector.paimon", 24,
-            // one class per vector algorithm family (HNSW, IVFPQ, DiskANN, Lance) plus their codecs
-            "org.pangrova.indexing.engine.vector", 18,
             // one class per optimizer rule plus the CTE materialization support types they share
             "org.pangrova.planner.rule", 16
     );

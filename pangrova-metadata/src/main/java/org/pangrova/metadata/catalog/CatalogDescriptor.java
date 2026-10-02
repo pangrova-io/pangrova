@@ -2,6 +2,7 @@ package org.pangrova.metadata.catalog;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -19,7 +20,22 @@ public record CatalogDescriptor(
         CatalogState state,
         Map<String, String> properties,
         String comment,
-        Set<String> allowedTenants) {
+        Set<String> allowedTenants,
+        String incarnationId,
+        long revision) {
+
+    /** Creates the first revision of a new catalog incarnation. */
+    public CatalogDescriptor(
+            String name,
+            CatalogType type,
+            String provider,
+            CatalogState state,
+            Map<String, String> properties,
+            String comment,
+            Set<String> allowedTenants) {
+        this(name, type, provider, state, properties, comment, allowedTenants,
+                UUID.randomUUID().toString(), 1);
+    }
 
     public CatalogDescriptor {
         checkNotNull(name, "name must not be null");
@@ -29,5 +45,11 @@ public record CatalogDescriptor(
         properties = properties == null ? Map.of() : Map.copyOf(properties);
         comment = comment == null ? "" : comment;
         allowedTenants = allowedTenants == null ? Set.of() : Set.copyOf(allowedTenants);
+        if (incarnationId == null || incarnationId.isBlank()) {
+            throw new IllegalArgumentException("incarnationId must not be blank");
+        }
+        if (revision <= 0) {
+            throw new IllegalArgumentException("revision must be positive");
+        }
     }
 }

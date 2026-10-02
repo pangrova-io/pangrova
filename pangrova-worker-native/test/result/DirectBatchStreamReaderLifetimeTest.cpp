@@ -1,10 +1,9 @@
 // DirectBatchStreamReaderLifetimeTest: Regression test for F-NATIVE-SHUF-01.
 //
-// The Arrow IPC direct-streaming result path (DirectBatchStreamReader in
-// FlightResultServer.cpp) parses pages of [4-byte length | RecordBatch] frames
-// produced by ArrowBatchVectorSerde. Each page comes from a coalesced IOBuf
+// The canonical stream reader parses every batch in a standard Arrow stream
+// produced by ArrowBatchVectorSerde. Each page comes from an owned IOBuf
 // that the fetch loop destroys at the end of every iteration. Earlier code
-// wrapped the frame bytes with a NON-owning arrow::Buffer::Wrap and pushed the
+// wrapped bytes with a NON-owning arrow::Buffer::Wrap and pushed the
 // zero-copy RecordBatch into a pending queue that outlives the page buffer,
 // producing a use-after-free when the batch was later consumed via ReadNext.
 //
@@ -52,6 +51,7 @@ class DirectBatchStreamReaderLifetimeTest : public ::testing::Test {
   }
   void SetUp() override {
     pool_ = pangrova::test::testLeafPool("DirectBatchStreamReaderLifetimeTest");
+    columnar_pool_ = std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool_);
   }
 
   // Builds a single-column INTEGER RowVector from explicit values.
@@ -62,20 +62,18 @@ class DirectBatchStreamReaderLifetimeTest : public ::testing::Test {
   }
 
   // Serializes RowVectors into the page wire format used by the direct path:
-  // a contiguous buffer of [4-byte length | Arrow IPC RecordBatch] frames.
-  std::vector<uint8_t> serializeFramedPage(
+  // one complete standard Arrow stream containing every appended batch.
+  std::vector<uint8_t> serializeCanonicalPage(
       const std::vector<RowVectorPtr>& vectors) {
     ArrowBatchVectorSerde serde;
-    auto serializer = serde.createBatchSerializer(pool_.get());
+    StreamArena arena(pool_.get());
+    auto serializer = serde.createIterativeSerializer(
+        std::dynamic_pointer_cast<const RowType>(vectors.front()->type()), 0, &arena);
     auto outputStream = std::make_unique<IOBufOutputStream>(*pool_);
     for (const auto& vec : vectors) {
-      IndexRange range{0, vec->size()};
-      std::vector<IndexRange> ranges = {range};
-      serializer->serialize(
-          vec,
-          folly::Range<const IndexRange*>(ranges.data(), ranges.size()),
-          outputStream.get());
+      serializer->append(vec);
     }
+    serializer->flush(outputStream.get());
     auto iobuf = outputStream->getIOBuf();
     iobuf->coalesce();
     const uint8_t* p = iobuf->data();
@@ -94,9 +92,10 @@ class DirectBatchStreamReaderLifetimeTest : public ::testing::Test {
   }
 
   std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
+  std::shared_ptr<pangrova::memory::ColumnarMemoryPool> columnar_pool_;
 };
 
-// Core regression: parse a multi-frame page, then POISON the source buffer
+// Core regression: parse a multi-batch stream, then POISON the source buffer
 // before reading the batch values. Owning buffers keep the values intact;
 // non-owning Buffer::Wrap would read the poisoned bytes.
 TEST_F(DirectBatchStreamReaderLifetimeTest, BatchesSurviveSourcePoisoning) {
@@ -104,14 +103,14 @@ TEST_F(DirectBatchStreamReaderLifetimeTest, BatchesSurviveSourcePoisoning) {
   const std::vector<int32_t> v1 = {-1, -2, -3, 4242};
   auto rowType = ROW({"col_int"}, {INTEGER()});
 
-  auto page = serializeFramedPage({makeIntVector(v0), makeIntVector(v1)});
+  auto page = serializeCanonicalPage({makeIntVector(v0), makeIntVector(v1)});
   auto schema = deriveSchema(rowType);
 
   auto batches_result = detail::parseArrowBatchFrames(
-      schema, page.data(), static_cast<int64_t>(page.size()), "test_task");
+      schema, page.data(), static_cast<int64_t>(page.size()), columnar_pool_);
   ASSERT_TRUE(batches_result.ok()) << batches_result.status().ToString();
   auto batches = *batches_result;
-  ASSERT_EQ(batches.size(), 2u) << "Expected two frames in the page";
+  ASSERT_EQ(batches.size(), 2u) << "Expected both batches in the stream";
 
   // Simulate the coalesced IOBuf being freed/reused after the fetch loop
   // iteration by overwriting the entire source buffer with a poison pattern.
@@ -142,7 +141,7 @@ TEST_F(DirectBatchStreamReaderLifetimeTest, BatchesSurviveSourcePoisoning) {
 TEST_F(DirectBatchStreamReaderLifetimeTest, BatchesSurviveSourceFree) {
   const std::vector<int32_t> values = {7, 11, 13, 17, 19, 23};
   auto rowType = ROW({"col_int"}, {INTEGER()});
-  auto page = serializeFramedPage({makeIntVector(values)});
+  auto page = serializeCanonicalPage({makeIntVector(values)});
   auto schema = deriveSchema(rowType);
 
   auto* heap = static_cast<uint8_t*>(std::malloc(page.size()));
@@ -150,7 +149,7 @@ TEST_F(DirectBatchStreamReaderLifetimeTest, BatchesSurviveSourceFree) {
   std::memcpy(heap, page.data(), page.size());
 
   auto batches_result = detail::parseArrowBatchFrames(
-      schema, heap, static_cast<int64_t>(page.size()), "test_task");
+      schema, heap, static_cast<int64_t>(page.size()), columnar_pool_);
   ASSERT_TRUE(batches_result.ok()) << batches_result.status().ToString();
   auto batches = *batches_result;
   ASSERT_EQ(batches.size(), 1u);
@@ -167,7 +166,7 @@ TEST_F(DirectBatchStreamReaderLifetimeTest, BatchesSurviveSourceFree) {
   }
 }
 
-// Sanity: malformed frame headers are rejected, not parsed into bad batches.
+// Malformed standard streams are rejected, not parsed into bad batches.
 TEST_F(DirectBatchStreamReaderLifetimeTest, RejectsInvalidFrameLength) {
   // 4-byte length prefix claiming more bytes than the page holds.
   std::vector<uint8_t> page(8, 0);
@@ -176,7 +175,7 @@ TEST_F(DirectBatchStreamReaderLifetimeTest, RejectsInvalidFrameLength) {
   auto schema = deriveSchema(ROW({"col_int"}, {INTEGER()}));
 
   auto result = detail::parseArrowBatchFrames(
-      schema, page.data(), static_cast<int64_t>(page.size()), "test_task");
+      schema, page.data(), static_cast<int64_t>(page.size()), columnar_pool_);
   EXPECT_FALSE(result.ok());
 }
 

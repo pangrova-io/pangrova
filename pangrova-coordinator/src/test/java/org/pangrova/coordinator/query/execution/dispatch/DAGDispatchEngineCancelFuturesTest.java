@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
+import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCallback;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -39,7 +40,8 @@ class DAGDispatchEngineCancelFuturesTest {
         engine.clearQuery("q-unknown");
 
         // After clearQuery, the query should not be tracked
-        assertTrue(engine.isQueryComplete("q-unknown"),
+        StageCompletionCallback callback = engine;
+        assertTrue(callback.isQueryComplete("q-unknown"),
                 "Unknown query should report complete (no DAG tracked)");
     }
 

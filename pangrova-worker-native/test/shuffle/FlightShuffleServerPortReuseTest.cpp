@@ -39,7 +39,7 @@ TEST_F(FlightShuffleServerPortReuseTest, RegisterAndUnregisterHandle) {
 
   // Create a minimal queue for testing registration.
   SerializedShuffleQueue queue(16);
-  server_->registerHandle(1, &queue);
+  server_->registerHandle(1, &queue, "q-port", 0, 1, 1, 0, 1);
   EXPECT_EQ(server_->handleCount(), 1u);
 
   server_->unregisterHandle(1);
@@ -57,7 +57,8 @@ TEST_F(FlightShuffleServerPortReuseTest, HundredConcurrentHandlesOnSinglePort) {
 
   for (int i = 1; i <= kNumHandles; ++i) {
     queues.push_back(std::make_unique<SerializedShuffleQueue>(16));
-    server_->registerHandle(static_cast<int64_t>(i), queues.back().get());
+    server_->registerHandle(static_cast<int64_t>(i), queues.back().get(),
+                            "q-port", 0, 1, 1, 0, 1);
   }
 
   // All 100 handles registered on the same single port.
@@ -85,12 +86,30 @@ TEST_F(FlightShuffleServerPortReuseTest, StopCleansUpAllHandles) {
 
   SerializedShuffleQueue queue1(16);
   SerializedShuffleQueue queue2(16);
-  server_->registerHandle(1, &queue1);
-  server_->registerHandle(2, &queue2);
+  server_->registerHandle(1, &queue1, "q-port", 0, 1, 1, 0, 1);
+  server_->registerHandle(2, &queue2, "q-port", 0, 1, 1, 0, 1);
   EXPECT_EQ(server_->handleCount(), 2u);
 
   server_->stop();
   EXPECT_FALSE(server_->isRunning());
+}
+
+TEST(FlightShuffleServerSecurityTest, PartialTlsConfigurationIsRejected) {
+  FlightShuffleServerConfig config;
+  config.tls_cert_chain_path = "cert.pem";
+  FlightShuffleServer server(config);
+
+  EXPECT_THROW(server.start(), std::invalid_argument);
+}
+
+TEST(FlightShuffleServerSecurityTest, UnreadableTlsCredentialsAreRejected) {
+  FlightShuffleServerConfig config;
+  config.tls_cert_chain_path = "/path/that/does/not/exist/cert.pem";
+  config.tls_private_key_path = "/path/that/does/not/exist/key.pem";
+  config.tls_root_ca_path = "/path/that/does/not/exist/ca.pem";
+  FlightShuffleServer server(config);
+
+  EXPECT_THROW(server.start(), std::runtime_error);
 }
 
 }  // namespace

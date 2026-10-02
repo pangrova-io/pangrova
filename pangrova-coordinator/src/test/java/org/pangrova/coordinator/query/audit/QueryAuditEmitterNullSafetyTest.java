@@ -20,9 +20,9 @@ class QueryAuditEmitterNullSafetyTest {
 
         assertThatCode(() -> emitter.emitQuerySubmitted("q-1", "SELECT 1", session))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> emitter.emitQueryCompleted("q-1", 100L))
+        assertThatCode(() -> emitter.emitQueryCompleted("q-1", 100L, new QueryAuditEmitter.AuditSubject("anonymous", null)))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> emitter.emitQueryFailed("q-1", "error", 50L))
+        assertThatCode(() -> emitter.emitQueryFailed("q-1", "error", 50L, new QueryAuditEmitter.AuditSubject("anonymous", null)))
                 .doesNotThrowAnyException();
         assertThatCode(() -> emitter.emitTableAccessed("q-1", "cat", "sch", "tbl", session))
                 .doesNotThrowAnyException();
@@ -34,7 +34,7 @@ class QueryAuditEmitterNullSafetyTest {
 
         assertThatCode(() -> emitter.emitQuerySubmitted("q-2", "SELECT 2", null))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> emitter.emitQueryCompleted("q-2", 200L))
+        assertThatCode(() -> emitter.emitQueryCompleted("q-2", 200L, new QueryAuditEmitter.AuditSubject("anonymous", null)))
                 .doesNotThrowAnyException();
     }
 

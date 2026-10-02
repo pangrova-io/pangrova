@@ -15,6 +15,8 @@ import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 
 /**
  * Unit tests and property-based tests for {@link CoordinatorTaskTracker}.
@@ -32,6 +34,23 @@ class CoordinatorTaskTrackerTest {
     }
 
     // ── Unit Tests ──────────────────────────────────────────────────
+
+    @Test
+    void scheduledCompletionCanPrecedeRunningAndNeverRegressesOnDelayedRunning() {
+        tracker.registerTask(QUERY_ID, "short-task");
+        tracker.markScheduled(QUERY_ID, "short-task");
+        assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "FINISHED")).isTrue();
+        assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "FINISHED")).isTrue();
+        assertThat(tracker.updateTaskState(QUERY_ID, "short-task", "RUNNING")).isFalse();
+        assertThat(tracker.getTaskState(QUERY_ID, "short-task")).isEqualTo(TaskStateMachine.State.FINISHED);
+    }
+
+    @Test
+    void unsubmittedPendingTaskCannotBeCompleted() {
+        tracker.registerTask(QUERY_ID, "not-submitted");
+        assertThat(tracker.updateTaskState(QUERY_ID, "not-submitted", "FINISHED")).isFalse();
+        assertThat(tracker.getTaskState(QUERY_ID, "not-submitted")).isEqualTo(TaskStateMachine.State.PENDING);
+    }
 
     @Test
     void allTasksFinishedAfterFullLifecycle() {
@@ -145,6 +164,44 @@ class CoordinatorTaskTrackerTest {
         assertThat(tracker.allTasksFinished(QUERY_ID)).isTrue();
     }
 
+    @Test
+    void taskIdentityAtomicallyAddsRequestToPreparedAttempt() {
+        TaskAttemptDescriptor attempt = TaskAttemptDescriptor.of(4, 2);
+        SubmitTaskRequest request = request("t-identity", attempt);
+
+        tracker.registerTaskAttempt("t-identity", attempt);
+        tracker.registerTaskRequest("t-identity", request);
+
+        assertThat(tracker.getTaskAttempt("t-identity")).isEqualTo(attempt);
+        assertThat(tracker.getTaskRequest("t-identity")).isEqualTo(request);
+    }
+
+    @Test
+    void taskIdentityRejectsConflictingAttemptWithoutReplacingOriginal() {
+        TaskAttemptDescriptor original = TaskAttemptDescriptor.of(4, 1);
+        tracker.registerTaskAttempt("t-identity", original);
+
+        assertThatThrownBy(() -> tracker.registerTaskRequest(
+                "t-identity", request("t-identity", TaskAttemptDescriptor.of(4, 2))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Conflicting task attempt");
+        assertThat(tracker.getTaskAttempt("t-identity")).isEqualTo(original);
+        assertThat(tracker.getTaskRequest("t-identity")).isNull();
+    }
+
+    @Test
+    void unregisterTaskRequestRemovesOnlyMatchingPreparedIdentity() {
+        SubmitTaskRequest request = request(
+                "t-identity", TaskAttemptDescriptor.of(1, 0));
+        tracker.registerTaskRequest("t-identity", request);
+
+        assertThat(tracker.unregisterTaskRequest(
+                "t-identity", request("t-identity", TaskAttemptDescriptor.of(2, 0))))
+                .isFalse();
+        assertThat(tracker.unregisterTaskRequest("t-identity", request)).isTrue();
+        assertThat(tracker.getTaskAttempt("t-identity")).isNull();
+    }
+
     // ── Property-Based Tests (jqwik) ───────────────────────────────
 
     /**
@@ -221,5 +278,18 @@ class CoordinatorTaskTrackerTest {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private static SubmitTaskRequest request(
+            String taskId, TaskAttemptDescriptor attempt) {
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                taskId, QUERY_ID, 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        canonical.setAttempt(canonical.getAttempt().toBuilder()
+                .setPlanEpoch(attempt.planEpoch())
+                .setAttemptId(attempt.attemptId())
+                .setFencingToken(attempt.fencingToken()));
+        return SubmitTaskRequest.from(canonical.build());
     }
 }

@@ -147,17 +147,12 @@ class DefaultColumnValueTest extends SqlE2ETestBase {
                     + " (id BIGINT, name VARCHAR)"
                     + " TBLPROPERTIES ('format-version' = '3')");
 
-            try {
-                QueryError error = sqlRunner.executeExpectingError(
-                        "ALTER TABLE " + fqn()
-                                + " ADD COLUMN bad_col BIGINT DEFAULT 'not_a_number'");
+            QueryError error = sqlRunner.executeExpectingError(
+                    "ALTER TABLE " + fqn()
+                            + " ADD COLUMN bad_col BIGINT DEFAULT 'not_a_number'");
 
-                assertThat(error).isNotNull();
-                assertThat(error.message()).isNotBlank();
-            } catch (AssertionError e) {
-                // Iceberg may accept string default without type validation at DDL time;
-                // the query succeeded instead of producing an error — acceptable behavior.
-            }
+            assertThat(error).isNotNull();
+            assertThat(error.message()).isNotBlank();
         }
     }
 }

@@ -2,7 +2,8 @@ package org.pangrova.testing.e2e.security;
 
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
@@ -24,13 +25,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.pangrova.testing.e2e.security.E2eRoleFixtures.mappedRoles;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * E2E test for row-level security: same SELECT * returns different rows per user.
  *
  * <p>Validates that RowLevelSecurityFilter produces per-user filter expressions
- * based on row policies, and that RbacAccessControl.getRowFilter() returns the
+ * based on row policies, and that DynamicRbacAccessControl.getRowFilter() returns the
  * correct filter for each user identity. User A sees only their rows, user B
  * sees only their rows, and admin sees all rows.
  *
@@ -99,7 +102,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            Optional<String> rowFilter = filter.getFilter(USER_A, CATALOG, SCHEMA, tableName);
+            Optional<String> rowFilter = filter.getFilter(USER_A, java.util.Set.of("team_a"), CATALOG, SCHEMA, tableName);
             assertThat(rowFilter).isPresent();
             assertThat(rowFilter.get()).contains("'alice'");
 
@@ -119,7 +122,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            Optional<String> rowFilter = filter.getFilter(USER_B, CATALOG, SCHEMA, tableName);
+            Optional<String> rowFilter = filter.getFilter(USER_B, java.util.Set.of("team_b"), CATALOG, SCHEMA, tableName);
             assertThat(rowFilter).isPresent();
             assertThat(rowFilter.get()).contains("'bob'");
         }
@@ -134,7 +137,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            Optional<String> rowFilter = filter.getFilter(ADMIN, CATALOG, SCHEMA, tableName);
+            Optional<String> rowFilter = filter.getFilter(ADMIN, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName);
             assertThat(rowFilter).isEmpty();
         }
 
@@ -147,9 +150,9 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(ownerPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            Optional<String> filterA = filter.getFilter(USER_A, CATALOG, SCHEMA, tableName);
-            Optional<String> filterB = filter.getFilter(USER_B, CATALOG, SCHEMA, tableName);
-            Optional<String> filterAdmin = filter.getFilter(ADMIN, CATALOG, SCHEMA, tableName);
+            Optional<String> filterA = filter.getFilter(USER_A, java.util.Set.of("team_a"), CATALOG, SCHEMA, tableName);
+            Optional<String> filterB = filter.getFilter(USER_B, java.util.Set.of("team_b"), CATALOG, SCHEMA, tableName);
+            Optional<String> filterAdmin = filter.getFilter(ADMIN, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName);
 
             assertThat(filterA).isPresent();
             assertThat(filterB).isPresent();
@@ -179,7 +182,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(deptPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            Optional<String> rowFilter = filter.getFilter(USER_A, CATALOG, SCHEMA, tableName);
+            Optional<String> rowFilter = filter.getFilter(USER_A, java.util.Set.of("team_a"), CATALOG, SCHEMA, tableName);
             assertThat(rowFilter).isPresent();
             assertThat(rowFilter.get()).contains("'engineering'");
         }
@@ -193,7 +196,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(deptPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            Optional<String> rowFilter = filter.getFilter(USER_B, CATALOG, SCHEMA, tableName);
+            Optional<String> rowFilter = filter.getFilter(USER_B, java.util.Set.of("team_b"), CATALOG, SCHEMA, tableName);
             assertThat(rowFilter).isPresent();
             assertThat(rowFilter.get()).contains("'marketing'");
         }
@@ -220,7 +223,7 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
                     List.of(ownerPolicy, deptPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            Optional<String> rowFilter = filter.getFilter(USER_A, CATALOG, SCHEMA, tableName);
+            Optional<String> rowFilter = filter.getFilter(USER_A, java.util.Set.of("team_a"), CATALOG, SCHEMA, tableName);
             assertThat(rowFilter).isPresent();
             assertThat(rowFilter.get()).contains("AND");
             assertThat(rowFilter.get()).contains("'alice'");
@@ -245,9 +248,9 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
             InMemoryRowPolicyStore store = new InMemoryRowPolicyStore(List.of(teamAPolicy));
             RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
-            assertThat(filter.getFilter(USER_A, CATALOG, SCHEMA, tableName)).isPresent();
-            assertThat(filter.getFilter(USER_B, CATALOG, SCHEMA, tableName)).isEmpty();
-            assertThat(filter.getFilter(ADMIN, CATALOG, SCHEMA, tableName)).isEmpty();
+            assertThat(filter.getFilter(USER_A, java.util.Set.of("team_a"), CATALOG, SCHEMA, tableName)).isPresent();
+            assertThat(filter.getFilter(USER_B, java.util.Set.of("team_b"), CATALOG, SCHEMA, tableName)).isEmpty();
+            assertThat(filter.getFilter(ADMIN, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName)).isEmpty();
         }
     }
 
@@ -335,7 +338,11 @@ class RowLevelSecurityE2ETest extends SqlE2ETestBase {
                 PrivilegeGrant.of(user.groups().iterator().next(), Privilege.SELECT, "TABLE",
                         CATALOG, SCHEMA, tableName, null));
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
-        return new RbacAccessControl(grants, filter, NO_MASK);
+        return new DynamicRbacAccessControl(
+                new StaticGrantStore(grants),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("team_a", "team_a"), java.util.Map.entry("team_b", "team_b"), java.util.Map.entry("admins", "admins"))),
+                filter,
+                NO_MASK);
     }
 
     /**

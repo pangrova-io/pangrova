@@ -2,6 +2,8 @@ package org.pangrova.protocol.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.lang.reflect.RecordComponent;
 import java.util.Arrays;
 import java.util.Set;
@@ -14,12 +16,10 @@ import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.junit.jupiter.api.Test;
 
 /**
- * CI guard test verifying field symmetry between protocol submit/status DTO pairs.
+ * CI guard test verifying protocol response fields and the canonical task envelope.
  *
- * <p>Key identity fields present in request DTOs must be traceable in their
- * corresponding response/report DTOs. This test uses reflection to detect
- * asymmetric field changes — e.g., adding a field to {@link SubmitTaskRequest}
- * without adding the corresponding field to {@link TaskStatusReport}.</p>
+ * <p>Task identity is defined by canonical v2, not duplicated in REST. The
+ * submit envelope is therefore guarded independently from report projections.</p>
  *
  * <p>The test defines explicit "identity field" contracts for each DTO pair.
  * When a new identity field is added to a request DTO, this test will fail
@@ -60,14 +60,13 @@ class ProtocolDtoContractConsistencyTest {
     // -----------------------------------------------------------------------
 
     @Test
-    void taskIdentityFieldsExistInSubmitTaskRequest() {
-        Set<String> requestFields = fieldNamesOf(SubmitTaskRequest.class);
+    void submitTaskRequestExposesOnlyCanonicalJsonPayload() throws Exception {
+        var jsonProperty = SubmitTaskRequest.class
+                .getMethod("canonicalTaskRequest")
+                .getAnnotation(JsonProperty.class);
 
-        for (String identityField : TASK_IDENTITY_FIELDS) {
-            assertThat(requestFields)
-                    .as("SubmitTaskRequest must contain identity field '%s'", identityField)
-                    .contains(identityField);
-        }
+        assertThat(jsonProperty).isNotNull();
+        assertThat(jsonProperty.value()).isEqualTo("canonical_task_request");
     }
 
     @Test
@@ -79,21 +78,6 @@ class ProtocolDtoContractConsistencyTest {
                     .as("TaskStatusReport must contain identity field '%s' "
                             + "for Coordinator correlation", identityField)
                     .contains(identityField);
-        }
-    }
-
-    @Test
-    void taskIdentityFieldTypesMatch() {
-        for (String identityField : TASK_IDENTITY_FIELDS) {
-            Class<?> requestType = fieldType(SubmitTaskRequest.class, identityField);
-            Class<?> reportType = fieldType(TaskStatusReport.class, identityField);
-
-            assertThat(reportType)
-                    .as("Type of '%s' must match between SubmitTaskRequest (%s) "
-                                    + "and TaskStatusReport (%s)",
-                            identityField, requestType.getSimpleName(),
-                            reportType.getSimpleName())
-                    .isEqualTo(requestType);
         }
     }
 
@@ -163,47 +147,15 @@ class ProtocolDtoContractConsistencyTest {
      * or explicitly exclude it.</p>
      */
     @Test
-    void noUnexpectedAsymmetricFieldsInTaskDtos() {
-        // Fields that are intentionally request-only (not needed in report)
-        Set<String> requestOnlyFields = Set.of(
-                "planFragment", "splits", "exchangeSources",
-                "resourceLimit", "sessionProperties", "outputConfig", "writeConfig",
-                "dynamicFilters", "shuffleConfig", "splitMode",
-                "tenantId", "principal", "vectorSearch", "coordinatorEpoch"
-        );
+    void submitTaskRequestHasNoRestSemanticMirrors() {
+        Set<String> forbidden = Set.of(
+                "taskId", "queryId", "stageId", "partitionId", "taskType",
+                "planFragment", "splits", "exchangeSources", "resourceGrant",
+                "sessionProperties", "dynamicFilters", "executionOwner");
 
-        // Fields that are intentionally report-only (not in request)
-        Set<String> reportOnlyFields = Set.of(
-                "workerId", "state", "stats", "error", "writeResult",
-                "reportSequence", "timestampMs", "errorCode", "errorMetadata"
-        );
-
-        Set<String> requestFields = fieldNamesOf(SubmitTaskRequest.class);
-        Set<String> reportFields = fieldNamesOf(TaskStatusReport.class);
-
-        // Check: every request field is either in report or in exclusion list
-        Set<String> unmirroredRequestFields = requestFields.stream()
-                .filter(f -> !reportFields.contains(f))
-                .filter(f -> !requestOnlyFields.contains(f))
-                .collect(Collectors.toSet());
-
-        assertThat(unmirroredRequestFields)
-                .as("SubmitTaskRequest fields not mirrored in TaskStatusReport "
-                        + "and not in exclusion list. Either add them to "
-                        + "TaskStatusReport or to requestOnlyFields exclusion set.")
-                .isEmpty();
-
-        // Check: every report field is either in request or in exclusion list
-        Set<String> unmirroredReportFields = reportFields.stream()
-                .filter(f -> !requestFields.contains(f))
-                .filter(f -> !reportOnlyFields.contains(f))
-                .collect(Collectors.toSet());
-
-        assertThat(unmirroredReportFields)
-                .as("TaskStatusReport fields not mirrored in SubmitTaskRequest "
-                        + "and not in exclusion list. Either add them to "
-                        + "SubmitTaskRequest or to reportOnlyFields exclusion set.")
-                .isEmpty();
+        assertThat(Arrays.stream(SubmitTaskRequest.class.getDeclaredMethods())
+                .map(java.lang.reflect.Method::getName))
+                .doesNotContainAnyElementsOf(forbidden);
     }
 
     /**
@@ -268,10 +220,8 @@ class ProtocolDtoContractConsistencyTest {
      */
     @Test
     void protocolDtoFieldCountsMatchExpected() {
-        assertFieldCount(SubmitTaskRequest.class, 19,
-                "SubmitTaskRequest field count changed — verify TaskStatusReport symmetry");
-        assertFieldCount(TaskStatusReport.class, 14,
-                "TaskStatusReport field count changed — verify SubmitTaskRequest symmetry");
+        assertFieldCount(TaskStatusReport.class, 16,
+                "TaskStatusReport field count changed — verify canonical report projection");
         assertFieldCount(SubmitQueryResponse.class, 4,
                 "SubmitQueryResponse field count changed — verify QueryStatusResponse symmetry");
         assertFieldCount(QueryStatusResponse.class, 5,

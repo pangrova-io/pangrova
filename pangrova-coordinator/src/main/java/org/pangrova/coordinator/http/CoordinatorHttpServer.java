@@ -18,6 +18,7 @@ import org.pangrova.coordinator.http.endpoint.TracingFilter;
 import org.pangrova.coordinator.http.endpoint.WebUiResource;
 import org.pangrova.coordinator.http.endpoint.WebUiStaticResource;
 import org.pangrova.coordinator.http.endpoint.WorkerResource;
+import org.pangrova.coordinator.http.endpoint.catalog.CatalogDeploymentResource;
 import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestOperations;
 import org.pangrova.coordinator.http.endpoint.catalog.CatalogRestResource;
 import org.pangrova.coordinator.http.endpoint.catalog.OAuth2TokenResource;
@@ -133,7 +134,9 @@ public class CoordinatorHttpServer {
                 qm -> new QueryResource(qm, deps.profilerEndpoint(), deps.queryProfileService(),
                         idempotencyRegistry));
         registerIfPresent(config, deps.healthCheckEndpoint(), CoordinatorHealthResource::new);
-        registerIfPresent(config, deps.workerManager(), WorkerResource::new);
+        registerIfPresent(config, deps.workerManager(),
+                manager -> new WorkerResource(
+                        manager, null, deps.coordinatorEpochSupplier()));
         registerIfPresent(config, deps.cdcHandler(), StreamingResource::new);
         registerIfPresent(config, deps.splitAssignmentManager(), SplitResource::new);
         registerCatalogRestResources(config, deps);
@@ -153,6 +156,10 @@ public class CoordinatorHttpServer {
             CatalogRestOperations operations = new CatalogRestOperations(deps.metadataService());
             config.register(new CatalogRestResource(operations));
             config.register(new OAuth2TokenResource(deps.authenticationManager()));
+            if (deps.internalAuthSecret() != null && !deps.internalAuthSecret().isBlank()) {
+                config.register(new CatalogDeploymentResource(
+                        deps.metadataService(), deps.internalAuthSecret()));
+            }
         }
     }
 

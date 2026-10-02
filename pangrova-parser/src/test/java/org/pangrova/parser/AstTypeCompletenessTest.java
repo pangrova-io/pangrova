@@ -179,6 +179,8 @@ class AstTypeCompletenessTest {
             case CREATE_EMBEDDING_MODEL -> "cem";
             case CREATE_INDEX -> "ci";
             case CREATE_SCHEMA -> "cs";
+            case CREATE_SEMANTIC_VIEW -> "csv";
+            case CREATE_FEATURE_VIEW -> "cfv";
             case CREATE_TABLE -> "ct";
             case CREATE_TABLE_AS_SELECT -> "ctas";
             case CREATE_TAG -> "ctag";
@@ -198,6 +200,9 @@ class AstTypeCompletenessTest {
             case GRANT_TENANT -> "gt";
             case INCREMENTAL_READ -> "ir";
             case RECLUSTER_TABLE -> "rt";
+            case PUBLISH_SEMANTIC_VIEW -> "psv";
+            case PUBLISH_FEATURE_VIEW -> "pfv";
+            case MATERIALIZE_FEATURE_VIEW -> "mfv";
             case REVOKE_TENANT -> "rvt";
             case SET_CLUSTERING_ORDER -> "sco";
             case SHOW_BACKFILL_STATUS -> "sbs";
@@ -207,6 +212,7 @@ class AstTypeCompletenessTest {
             case SHOW_DYNAMIC_TABLES -> "sdt";
             case SHOW_EMBEDDING_MODELS -> "sem";
             case SHOW_INDEXES -> "si";
+            case SHOW_SEMANTIC_VIEWS -> "ssv";
             case SHOW_METADATA -> "sm";
             case SHOW_TABLES -> "st";
             case SHOW_TAGS -> "stag";

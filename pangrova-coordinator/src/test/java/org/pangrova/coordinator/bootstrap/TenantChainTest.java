@@ -43,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Property 32: Tenant chain from main() to quota enforcement</b></p>
  */
 @Tag("Feature: e2e-pipeline-integration - Property 32: Tenant chain from main() to quota enforcement")
-class TenantChainTest {
+class TenantChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -160,7 +160,7 @@ class TenantChainTest {
                 .isEqualTo(TenantStatus.DELETED);
     }
 
-    /** Bootstrap starts with tenant chain intact; query submission returns 200. */
+    /** Bootstrap starts with tenant chain intact; no-Worker admission fails closed. */
     @Test
     void coordinatorBootstrapStartsWithTenantChain() throws Exception {
         startCoordinator("coord-tenant-chain");
@@ -168,9 +168,8 @@ class TenantChainTest {
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
 
-        assertThat(resp.statusCode()).isEqualTo(200);
-        Map<String, Object> body = parseJson(resp);
-        assertThat(body.get("query_id")).isNotNull();
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
     }
 
     /** TenantResolver returns empty for unknown user principal. */
@@ -192,8 +191,7 @@ class TenantChainTest {
         shutdownCoordinator();
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 coordinatorId, 0);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
-        coordinatorBootstrap.start();
+        coordinatorBootstrap = startAuthorizedCoordinator(config);
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
         assertThat(coordinatorBootstrap.getHttpPort()).isGreaterThan(0);
     }
@@ -211,11 +209,12 @@ class TenantChainTest {
 
     // -- HTTP helpers --
 
-    private static HttpResponse<String> submitQuery(int port, String sql) throws Exception {
+    private HttpResponse<String> submitQuery(int port, String sql) throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

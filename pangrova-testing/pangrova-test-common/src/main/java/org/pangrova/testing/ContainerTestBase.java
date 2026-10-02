@@ -2,8 +2,6 @@ package org.pangrova.testing;
 
 import net.jqwik.api.lifecycle.AfterContainer;
 import net.jqwik.api.lifecycle.BeforeContainer;
-import net.jqwik.api.lifecycle.LifecycleContext;
-import net.jqwik.api.lifecycle.SkipExecutionHook;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -13,45 +11,37 @@ import org.testcontainers.containers.Network;
 /**
  * Abstract base for TestContainers integration tests.
  * Provides shared network and lifecycle cleanup.
- * Gracefully skips all tests when Docker is unavailable.
+ * Fails required integration tests when Docker is unavailable.
  *
  * <p>Docker discovery relies on Testcontainers built-in strategies:
  * DOCKER_HOST env var, ~/.testcontainers.properties, or docker context.
  *
- * <p>jqwik's engine executes both {@code @BeforeAll} and {@code @BeforeContainer}
- * methods, and treats any exception (including JUnit's {@code TestAbortedException}
- * from {@code assumeTrue}) as a container-level error rather than a skip.
- * Therefore this class uses a single unified method with both annotations that
- * silently sets a flag and returns early when Docker is unavailable.
- * Subclasses that need JUnit-style skipping should call
- * {@code assumeTrue(isDockerReady(), ...)} in their own {@code @BeforeAll}.
- *
- * <p>For jqwik property tests, this class implements {@link SkipExecutionHook}
- * so that properties are reported as skipped (not errored) when Docker is
- * unavailable. This replaces the previous {@code Assume.that()} approach
- * which jqwik/surefire reported as errors.
+ * <p>The unified JUnit/jqwik lifecycle check throws when Docker discovery fails.
+ * Required integration coverage must never become a false-green skipped build.
  */
 @Tag("integration")
-public abstract class ContainerTestBase implements SkipExecutionHook {
+public abstract class ContainerTestBase {
 
+    /** Assigned by the E2E owner and borrowed by subclasses across testing modules. */
     protected static Network sharedNetwork;
     private static volatile boolean dockerReady;
 
     /**
-     * Returns whether Docker is available. Subclasses should guard Docker-dependent
-     * setup with this check. JUnit subclasses can use
-     * {@code assumeTrue(isDockerReady())} in their {@code @BeforeAll}.
+     * Returns whether Docker is available after enforcing the required runtime.
+     *
+     * @return {@code true} when Docker is available
+     * @throws IllegalStateException when Docker is unavailable
      */
     protected static boolean isDockerReady() {
-        return dockerReady;
+        verifyDockerAvailable(dockerReady);
+        return true;
     }
 
-    @Override
-    public SkipResult shouldBeSkipped(LifecycleContext context) {
-        if (!dockerReady) {
-            return SkipResult.skip("Docker is not available — skipping container-based tests");
+    static void verifyDockerAvailable(boolean available) {
+        if (!available) {
+            throw new IllegalStateException(
+                    "Docker is required for container integration tests but is unavailable");
         }
-        return SkipResult.doNotSkip();
     }
 
     @BeforeAll
@@ -62,9 +52,11 @@ public abstract class ContainerTestBase implements SkipExecutionHook {
         }
         try {
             dockerReady = DockerClientFactory.instance().isDockerAvailable();
-        } catch (Exception ignored) {
-            dockerReady = false;
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Docker discovery failed for required container integration tests", e);
         }
+        verifyDockerAvailable(dockerReady);
     }
 
     @AfterAll

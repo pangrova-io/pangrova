@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class JdbcCdcRegistrationStoreTest {
@@ -20,9 +19,8 @@ class JdbcCdcRegistrationStoreTest {
     private JdbcCdcRegistrationStore store;
 
     @BeforeEach
-    void setUp() {
-        assumeTrue(SharedPostgresContainer.isAvailable());
-        store = new JdbcCdcRegistrationStore(SharedPostgresContainer.dataSource());
+    void setUp() throws Exception {
+        store = new JdbcCdcRegistrationStore(SharedPostgresContainer.isolatedDataSource("cdc_registrations"));
         store.initSchema();
     }
 

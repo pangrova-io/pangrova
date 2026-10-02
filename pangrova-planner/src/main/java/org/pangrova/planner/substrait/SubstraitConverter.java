@@ -1,11 +1,15 @@
 package org.pangrova.planner.substrait;
 
+import org.pangrova.planner.PlanTable;
+
 import io.substrait.plan.ImmutablePlan;
+import io.substrait.plan.ImmutableExecutionBehavior;
 import io.substrait.plan.ImmutableRoot;
 import io.substrait.plan.Plan;
 import io.substrait.relation.Rel;
+import io.substrait.type.NamedFieldCountingTypeVisitor;
 import org.apache.calcite.rel.RelNode;
-import org.apache.calcite.rel.type.RelDataTypeField;
+import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rex.RexBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,8 +74,12 @@ public final class SubstraitConverter {
         RexBuilder rexBuilder = relNode.getCluster().getRexBuilder();
         PlanNodeConverter visitor = new PlanNodeConverter(typeMapper, functionMapper, rexBuilder);
         Rel rel = visitor.visit(relNode);
-        List<CrossJoinDetail> crossJoinDetails = visitor.getCrossJoinDetails();
-        List<String> outputNames = resolveOutputNames(relNode, preOptimizationColumnNames);
+        List<org.pangrova.planner.RetrievalTopKPlanHint> retrievalTopKHints =
+                visitor.getRetrievalTopKHints();
+        List<org.pangrova.planner.AiInvocationPlanHint> aiInvocationHints =
+                visitor.getAiInvocationHints();
+        List<String> outputNames = resolveOutputNames(
+                relNode, rel, preOptimizationColumnNames);
         LOG.debug("event=substrait_convert relNodeClass={} outputNames={}", relNode.getClass().getSimpleName(),
                 outputNames);
         Plan.Root root = ImmutableRoot.builder()
@@ -80,18 +88,47 @@ public final class SubstraitConverter {
                 .build();
         Plan plan = ImmutablePlan.builder()
                 .addRoots(root)
+                .executionBehavior(ImmutableExecutionBehavior.builder()
+                        .variableEvaluationMode(
+                                Plan.ExecutionBehavior.VariableEvaluationMode.PER_PLAN)
+                        .build())
                 .build();
-        return new ConversionResult(plan, crossJoinDetails);
+        return new ConversionResult(plan, retrievalTopKHints, aiInvocationHints);
     }
 
-    private static List<String> resolveOutputNames(RelNode relNode, List<String> preOptimizationColumnNames) {
-        int fieldCount = relNode.getRowType().getFieldCount();
-        if (!preOptimizationColumnNames.isEmpty()
-                && preOptimizationColumnNames.size() == fieldCount) {
-            return preOptimizationColumnNames;
+    private static List<String> resolveOutputNames(
+            RelNode relNode, Rel converted, List<String> preOptimizationColumnNames) {
+        int emittedNameCount = NamedFieldCountingTypeVisitor.countNames(
+                converted.getRecordType());
+        if (relNode instanceof LogicalTableModify modify) {
+            // TableModify's Calcite result is a single row-count column, while
+            // its Substrait input is the relation consumed by the Native writer.
+            List<String> targetNames = SubstraitFieldNames.flatten(
+                    PlanTable.require(modify).getRowType(), List.of());
+            if (targetNames.size() == emittedNameCount) {
+                return targetNames;
+            }
+            List<String> inputNames = SubstraitFieldNames.flatten(
+                    modify.getInput().getRowType(), List.of());
+            if (inputNames.size() == emittedNameCount) {
+                return inputNames;
+            }
+            throw new SubstraitConversionException(
+                    org.pangrova.common.exception.PangrovaErrorCode
+                            .SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "DML output names do not match the emitted relation: target="
+                            + targetNames.size() + " input=" + inputNames.size()
+                            + " emitted=" + emittedNameCount);
         }
-        return relNode.getRowType().getFieldList().stream()
-                .map(RelDataTypeField::getName)
-                .toList();
+        List<String> names = SubstraitFieldNames.flatten(
+                relNode.getRowType(), preOptimizationColumnNames);
+        if (names.size() != emittedNameCount) {
+            throw new SubstraitConversionException(
+                    org.pangrova.common.exception.PangrovaErrorCode
+                            .SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Output names do not match the emitted relation: calcite="
+                            + names.size() + " emitted=" + emittedNameCount);
+        }
+        return names;
     }
 }

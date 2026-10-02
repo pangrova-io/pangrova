@@ -2,8 +2,6 @@ package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
-import org.pangrova.coordinator.query.cache.CacheWritebackConfig;
-import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.speculation.SpeculativeStageHandler;
@@ -29,17 +27,15 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 /**
  * Groups QueryDispatcher dependencies into a single parameter object.
  * Fields are organized into sub-context bundles for readability:
- * {@link SecurityContextBundle}, {@link CacheContextBundle}, {@link SchedulingContextBundle}.
+ * {@link SecurityContextBundle} and {@link SchedulingContextBundle}.
  * Keeps the constructor within the ≤4 param governance limit when combined with StageFragmenter.
  */
 public record QueryDispatcherContext(
         SqlCompiler compiler,
         SecurityContextBundle security,
         SchedulingContextBundle scheduling,
-        CacheContextBundle cache,
         CatalogRegistry catalogRegistry,
         LineageEventEmitter lineageEmitter,
-        CoordinatorResultService coordinatorResultService,
         long taskTimeoutSeconds,
         RuntimeFilterRegistry runtimeFilterRegistry,
         AdaptiveQueryExecutor adaptiveQueryExecutor,
@@ -48,7 +44,9 @@ public record QueryDispatcherContext(
         HighAvailabilityCoordinationService haService,
         String coordinatorId,
         QueryStateJournal stateJournal,
-        IndexAwareSplitFetcher indexAwareSplitFetcher) {
+        IndexAwareSplitFetcher indexAwareSplitFetcher,
+        org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
+                embeddingModelRegistry) {
 
     /** Compact constructor — validates required dependencies. */
     public QueryDispatcherContext {
@@ -102,10 +100,6 @@ public record QueryDispatcherContext(
         return scheduling.resilienceRegistry();
     }
 
-    public CacheWritebackConfig cacheWritebackConfig() {
-        return cache != null ? cache.cacheWritebackConfig() : null;
-    }
-
     /**
      * Factory method for callers that only need the core parameters.
      * Optional fields default to null.
@@ -122,15 +116,14 @@ public record QueryDispatcherContext(
             CatalogRegistry catalogRegistry,
             ResilienceRegistry resilienceRegistry,
             LineageEventEmitter lineageEmitter,
-            CoordinatorResultService coordinatorResultService,
             long taskTimeoutSeconds) {
         var security = new SecurityContextBundle(accessControlEnforcer, columnMaskApplier, rowFilterApplier);
         var scheduling = new SchedulingContextBundle(
                 dispatcher, taskScheduler, workerManager, taskTracker,
                 null, null, null, resilienceRegistry);
         return new QueryDispatcherContext(
-                compiler, security, scheduling, CacheContextBundle.none(),
-                catalogRegistry, lineageEmitter, coordinatorResultService, taskTimeoutSeconds,
-                null, null, null, null, null, null, null, null);
+                compiler, security, scheduling,
+                catalogRegistry, lineageEmitter, taskTimeoutSeconds,
+                null, null, null, null, null, null, null, null, null);
     }
 }

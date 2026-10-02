@@ -266,38 +266,42 @@ SQL: SELECT c.name, SUM(o.amount)
 
 #### 3.2.1 Data Serialization Format Selection
 
-Different data-transfer scenarios use different serialization formats to balance performance and compatibility:
+The implemented shuffle and result paths use Flight as a transport but do not
+share an identical payload format. The following table separates these paths
+from other storage and JNI interfaces:
 
 | Transfer Scenario | Serialization Format | Zero-copy | Note |
 |----------|-----------|--------|------|
-| Native→Java within Worker | Arrow C Data Interface | ✓ | JNI passes pointers, no serialization overhead |
-| Worker-to-Worker Shuffle (Arrow Flight) | Arrow IPC (Streaming) | ✗ | gRPC transport, must serialize to IPC bytes |
-| Output Worker→Client (Arrow Flight) | Arrow IPC (Streaming) | ✗ | Same as above |
-| RAM Cache storage | Arrow IPC (File) | ✗ | Persisted to memory/SSD, requires serialization |
-| Spill to disk | Arrow IPC (File) + LZ4 | ✗ | Compressed and written to NVMe SSD |
-| Shuffle S3 persistence | Arrow IPC (File) | ✗ | S3 persistence uses File format (with footer), consistent with Cache |
+| Worker-to-Worker Shuffle (Native Flight) | Velox PrestoVectorSerde page in one Arrow binary cell | ✗ | Native producer callback → serialized shuffle queue → Flight DoGet → Native ExchangeSource; no per-batch Java/JNI hop |
+| Output Worker→Client (Flight) | Arrow IPC RecordBatch where supported | ✗ | Result path is separate from the shuffle page format |
+| Native→Java columnar bridge | Arrow C Data Interface | Potentially | Interface exists, but is not the current Worker-to-Worker shuffle path |
+| RAM Cache storage | Component-specific | — | Not the shuffle wire contract |
+| Velox operator spill | Velox-managed | — | Not an Arrow IPC shuffle persistence guarantee |
+| Shuffle remote persistence | Not a current recovery guarantee | — | Do not assume producer-loss recovery from an S3 Arrow IPC file |
 
 
 
-> **IPC Format Selection**: Network shuffle uses Arrow IPC Streaming format (no footer, sequential read). Persistence to S3 and local disk uses Arrow IPC File format (with footer for random access and schema self-description). This is consistent with the RAM Cache storage format.
+The Native Flight server wraps each serialized shuffle page as the value of a
+single Arrow binary cell; the consumer extracts and deserializes that page into
+Velox. Flight's Arrow IPC framing must not be confused with the shuffle
+payload's PrestoVectorSerde format.
 
 Format conversion paths:
 ```
 Native Velox Pipeline (RowVector)
   │
-  ├─ Result output → nativeGetNextBatch() → Arrow C Data Interface (zero-copy) → Java
-  │                                      → Arrow Flight putNext() → Arrow IPC bytes → network
+  ├─ Result output → Native result server → Arrow Flight → client
   │
-  ├─ Shuffle output → nativeGetShuffleBatch() → Arrow C Data Interface (zero-copy) → Java
-  │                                            → Arrow Flight putNext() → Arrow IPC bytes → network
+  ├─ Shuffle output → Native callback partitioning → PrestoVectorSerde pages
+  │                  → Native Flight DoGet(partition) → downstream Native ExchangeSource
   │
-  └─ Spill → Velox SpillManager → Arrow IPC File + LZ4 → NVMe SSD
+  └─ Operator spill → Velox-managed local spill
 ```
 
 Key performance points:
-- Native↔Java transfer within a Worker uses the Arrow C Data Interface, with zero serialization overhead
-- Worker-to-Worker network transfer uses the Arrow IPC Streaming format; Arrow Flight (gRPC) handles serialization automatically
-- No explicit conversion is needed between the two formats: once the Java layer obtains Arrow C Data from Native, the Arrow Flight SDK internally serializes it into IPC bytes for sending
+- The Arrow C Data bridge does not make the current result or shuffle network path zero-copy
+- Worker-to-Worker shuffle uses Native Arrow Flight and serialized pages; it does not cross JNI per batch
+- The downstream Native ExchangeSource reads the Flight stream directly into Velox
 
 ### 3.3 Output Task Interaction Protocol (the Coordinator never participates in data processing)
 
@@ -373,7 +377,6 @@ Coordinator exposes (HTTP/REST):
 Worker exposes (HTTP/REST):
 - `POST /v1/task` SubmitTask
 - `DELETE /v1/task/{taskId}` CancelTask
-- `POST /v1/task/{taskId}/exchange-sources` UpdateExchangeSources
 - `POST /v1/task/{taskId}/dynamic-filter` InjectDynamicFilter
 - `POST /v1/task/upstream-commit` NotifyUpstreamCommit
 - `GET /v1/health` HealthCheck
@@ -417,7 +420,11 @@ Response:
 }
 ```
 
-All query types return a `resultEndpoint`. For constant expressions and DDL/DML, the endpoint points to the Coordinator's own Flight server. For distributed queries, it points to the Output Worker.
+Every relational query returns the direct Output Worker `resultEndpoint`. This
+includes tableless constants, folded expressions, `LIMIT 0`, and connector
+system-table `SELECT` statements: none may be evaluated, buffered, cached, or
+proxied by the Coordinator. Bounded DDL/SHOW/DML acknowledgement rows are the
+only exception and use an isolated control-plane result transport.
 
 
 
@@ -467,38 +474,49 @@ Response:
 Submit Task `POST /v1/task`
 
 
-Request: The request body is a `TaskDescriptor` JSON object (see TaskDescriptor JSON schema below).
+Request: the body is a `SubmitTaskRequest` transport envelope with exactly one
+field, `canonical_task_request`. Its value is the Base64 encoding of one complete
+canonical v2 `TaskRequest`. The Worker validates and parses those bytes but does
+not reconstruct protocol state from REST fields.
 
 Response:
 ```json
 {
     "accepted": true,
-    "rejectReason": "",
-    "resultEndpoint": {
+    "reject_reason": null,
+    "task_id": "task-1",
+    "result_endpoint": {
         "host": "worker-3",
         "port": 8082,
-        "ticket": "query-20260206-001",
+        "ticket": "task-1",
         "protocol": "arrow-flight"
-    }
+    },
+    "shuffle_endpoint": null
 }
 ```
 
 
 
-| Scenario | HTTP Status | `accepted` | `rejectReason` | Description |
-|----------|-------------|------------|----------------|-------------|
-| Task accepted | 200 OK | `true` | `""` | Normal acceptance |
-| Business rejection (slot full, duplicate taskId) | 200 OK | `false` | `"no available slot"` / `"duplicate task"` | Worker rejects at application layer; Coordinator reschedules to another Worker |
-| Resource exhaustion (memory pressure CRITICAL) | 503 Service Unavailable | — | — | Worker cannot accept any tasks; Coordinator removes Worker from scheduling pool temporarily |
-| Invalid request (malformed JSON, unknown fields) | 400 Bad Request | — | — | Client error; Coordinator logs and fails the task |
-
-> **Design rationale**: Business-level rejections use HTTP 200 + `accepted: false` so the Coordinator can distinguish "Worker is healthy but busy" from "Worker is unhealthy" (503). This avoids false-positive Worker health demotion in the Coordinator's Worker scoring model ([01 §10](./distributed.md)).
+| Scenario | HTTP Status | `accepted` | Description |
+|----------|-------------|------------|-------------|
+| Task accepted | 200 OK | `true` | Canonical admission and task creation succeeded |
+| Missing, malformed, or non-canonical request | 400 Bad Request | — | REST decoding or request validation rejects the body |
+| Stale control/owner fence | 409 Conflict | `false` | Attempt cannot execute under the active ownership epoch |
+| Control plane not ready | 503 Service Unavailable | `false` | Worker has not received a usable control epoch |
+| Other admission/start failure | 500 Internal Server Error | `false` | Task is not accepted; the Coordinator handles the classified dispatch failure |
 
 Cancel Task `DELETE /v1/task/{taskId}`
 
-Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
+Exchange sources are complete, fenced task-admission bindings carried by
+`POST /v1/task`. There is deliberately no REST API that replaces sources for a
+running task: a producer retry creates a new downstream attempt, and the old
+attempt is fenced. This prevents mixing rows from different attempts.
 
-**TaskDescriptor JSON (SubmitTask request body)**
+**Historical expanded TaskDescriptor design (not a production API)**
+
+The following expanded shape is retained only to explain older diagrams in this
+document. It is not accepted by `POST /v1/task`; all fields shown below now live
+inside the canonical v2 protobuf named above.
 
 
 
@@ -519,12 +537,24 @@ Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
     ],
     "exchangeSources": [
         {
-            "sourceTaskId": "task-2",
+            "plan_node_id": "exchange-input-ex-1",
+            "exchange_id": "ex-1",
+            "expected_source_partitions": 1,
+            "source_task_id": "task-2",
+            "source_stage_id": 1,
+            "source_partition_id": 0,
+            "output_partition_id": 0,
+            "plan_epoch": 41,
+            "attempt_id": 0,
+            "fencing_token": 176093659137,
             "host": "worker-1",
-            "transportPort": 8082,
-            "partitionId": 0,
-            "exchangeType": "GATHER",
-            "sequenceId": 12
+            "transport_port": 8082,
+            "tls_identity": "worker-1.internal",
+            "signed_ticket": "<opaque-producer-issued-ticket>",
+            "ticket_expires_at_epoch_ms": 1788300000000,
+            "expected_rows": 0,
+            "expected_bytes": 0,
+            "read_mode": "BLOCKING"
         }
     ],
     "resourceLimit": {
@@ -546,13 +576,19 @@ Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
 
 > **Field Notes**:
 > - `taskType`: One of `COMPUTE`, `OUTPUT`, `WRITE`. Coordinator sets this explicitly. If absent (legacy), Worker infers: `writeConfig != null` → WRITE; `outputConfig != null` → OUTPUT; otherwise → COMPUTE.
-> - `splits`: Array of base64-encoded `SplitInfo` Protobuf bytes. Each element is serialized using the same `SplitInfo` message defined in [03 §5.3](./native-execution.md). Worker base64-decodes each element and passes the raw bytes into `TaskRequest.splits` (repeated `SplitInfo`). This is consistent with `substraitPlan` serialization (base64-encoded Protobuf).
+> - This expanded JSON is historical design context, not the production request
+> schema. The actual `SubmitTaskRequest` contains one Base64-encoded canonical v2
+> `TaskRequest`; its `splits` field is repeated `DataSplit`. REST does not mirror
+> task identity, plan, splits, exchange, resource, security, or write fields.
 > - `stageId` / `partitionId`: Passed through to `TaskRequest` Protobuf for Native-layer logging and metrics correlation. See the field mapping table in [03 §5.3](./native-execution.md).
-> - `exchangeSources` / `outputConfig`: **Java-layer only** — these fields are not
-> passed to the native `TaskRequest`. Java exchange handling uses
-> `ExchangeSourceRegistry`, remote shuffle sources/sinks, and
-> `NativeExchangeTransport`; the native layer receives the plan, splits, resource
-> limits, session properties, and task metadata.
+> - `exchangeSources`: converted into typed Native `ExchangeInput` bindings before
+> task start. JVM performs validation and lifecycle wiring only; Arrow batches,
+> partition routing, retry isolation and merge execution remain in Native.
+> - Every source has a stable logical producer identity
+> `(source_stage_id, source_partition_id)` plus `(plan_epoch, attempt_id,
+> fencing_token)`. Duplicate logical producers and missing fences fail closed.
+> - Producer-issued tickets are opaque, partition-scoped credentials. They are
+> never synthesized by the Coordinator.
 
 
 
@@ -583,10 +619,12 @@ Update Exchange Sources `POST /v1/task/{taskId}/exchange-sources`
 
 
 
-**Composite Task Model**: An INSERT INTO ... SELECT statement is executed as a single Composite Task per Worker. The Worker internally runs two phases within the same Task lifecycle:
+**Composite Task Model**: A read-dependent write runs as a Worker task. The
+Native execution/drain path and Java connector sink share the task lifecycle:
 
-1. **Phase 1 (Native SELECT)**: Velox executes the SELECT portion via `nativeCreateTaskExecutor()` / `nativeStartTask()` / `nativeGetNextBatch()`, producing Arrow RecordBatch output.
-2. **Phase 2 (Java Write)**: Java `TableWriter.writeBatch()` ([10 §2.6](./streaming.md)) receives each RecordBatch and writes to the target table via Iceberg/Paimon SDK.
+1. **Native producer**: Velox executes the SELECT plan and places RowVectors on the task's output queue.
+2. **Write drain**: Native serializes each output batch to Arrow IPC and synchronously invokes the Java `NativeWriteExecutor`/`ConnectorPageSink` through JNI. `finishWithMetadata()` returns a staged connector fragment; it does not publish the catalog snapshot.
+3. **Catalog publication**: The Coordinator collects fenced task fragments and calls the connector's `finishDistributedWrite()` after all required tasks succeed. See [distributed-writes.md](./distributed-writes.md) for recovery limits.
 
 The Coordinator identifies Write Tasks by the presence of `writeConfig` in the TaskDescriptor. The `taskType` field in the Native TaskRequest Protobuf is set to `TASK_TYPE_WRITE` for these tasks.
 
@@ -627,58 +665,79 @@ The Coordinator collects `writeResult` from all Write Tasks, then performs an at
 
 
 
-**Write Path Backpressure**: The Write Path reuses the Read Path's natural Pull-mode backpressure. Java `TableWriter.writeBatch()` is a blocking call — if the Iceberg/Paimon SDK write is slow (e.g., S3 upload), the Java thread blocks, which in turn delays the next `nativeGetNextBatch()` JNI call, causing the Velox pipeline to stall naturally. No additional backpressure mechanism is needed beyond the synchronous pull loop.
-
-**UpdateExchangeSources request body**
-
-```json
-{
-    "taskId": "task-1",
-    "queryId": "query-20260206-001",
-    "exchangeSources": [
-        {
-            "sourceTaskId": "task-3",
-            "host": "worker-2",
-            "transportPort": 8082,
-            "partitionId": 0,
-            "exchangeType": "GATHER",
-            "sequenceId": 13
-        }
-    ],
-    "reason": "TASK_RESCHEDULED"
-}
-```
-
-Key semantics:
-- `exchangeSources` is a full list; upon receipt the Worker directly replaces its local cache
-- `sequenceId` is monotonically increasing; the Worker uses it to detect stale messages (discarding updates where sequenceId <= the current value)
-- After receiving an update, the Worker disconnects old connections and establishes new ones; already-pulled data must be discarded (an upstream Task reschedule means the data must be recomputed)
+**Write Path Backpressure**: The Native write drain synchronously invokes the
+Java page sink for each IPC batch. A slow connector delays draining the bounded
+output queue and backpressures the Native producer. Queue closure alone does
+not authorize publication: the drain checks the producer's terminal outcome
+before finalizing the staged fragment.
 
 **TaskStatusReport (Worker -> Coordinator)**
 
 `POST /v1/task/status-report`
 
+The REST body projects the fenced attempt identity from the canonical v2
+`TaskRequest`. Terminal reports also carry `canonical_task_report` (base64-encoded
+protobuf bytes in JSON). REST state, task ID, attempt, control epoch, execution
+owner, coverage, and resource usage must agree with the Coordinator's retained
+request; REST fields alone are not completion evidence.
+
 Request:
 ```json
 {
-    "taskId": "task-1",
-    "queryId": "query-20260206-001",
-    "workerId": "worker-1",
+    "task_id": "task-1",
+    "query_id": "query-20260206-001",
+    "stage_id": 1,
+    "partition_id": 0,
+    "task_type": "COMPUTE",
+    "worker_id": "worker-1",
     "state": "RUNNING",
-    "stats": {"outputRows": 1024, "outputBytes": 1048576},
+    "attempt": {"plan_epoch": 1, "attempt_id": 0, "fencing_token": 4294967297},
     "error": null,
-    "reportSequence": 7,
-    "timestampMs": 1707300000000
+    "report_sequence": 7,
+    "timestamp_ms": 1707300000000
 }
 ```
 
 Response:
 ```json
 {
-    "taskId": "task-1",
-    "command": "NONE"
+    "task_id": "task-1",
+    "command": "CONTINUE"
 }
 ```
+
+For `FINISHED`, Native completion and a validated Native-origin `TaskReport`
+are required; result-buffer readiness alone does not finish the task. For
+`FAILED` or `CANCELLED`, the Worker may produce a fenced
+`TASK_REPORT_ORIGIN_WORKER_RECONCILED` report when Native did not produce a
+usable terminal report. That report preserves a structured Native error only
+from the same attempt and Native origin; Native usage must also fit the task's
+resource grant. Its zero completed work units mean no trustworthy successful
+work-unit evidence was available; they do not claim that every split physically
+ran and failed. A reconciled report cannot claim success. Terminal reports with
+an unspecified origin, missing canonical bytes, or mismatched identity/coverage
+are rejected rather than downgraded to REST-only completion.
+
+A cancellation request first enters the Worker-only, nonterminal `CANCELLING`
+state and signals Native. This local state or Native's `CANCELLED` status alone
+is not a driver-join proof. The Worker releases the Native executor (whose
+release call joins the driver) before returning task memory budget, entering
+`CANCELLED`, and publishing its canonical terminal report. If release fails,
+the task stays `CANCELLING`, the budget remains reserved, and no cancellation
+completion is reported. `FINISHING` is a non-cancellable commit point reached
+only after Native completion metadata has been captured; a later cancel request
+receives a conflict rather than racing result publication.
+
+For at most 4,096 splits, a Worker-reconciled report identifies each missing split.
+For a larger task with zero trustworthy completed units, the v2
+`CoverageReport.all_work_units_failed` flag provides bounded aggregate coverage
+instead of truncating split IDs. The name denotes the absence of trusted success
+evidence, not a physical failure assertion for every split. Source/snapshot and
+artifact identities remain explicit: Worker admission rejects a task with more
+than 4,096 distinct source/snapshot identities or more than 4,096 bound artifact
+identities, because such a report cannot pass the Coordinator's coverage limit.
+The planner/scheduler must partition such work across tasks; a Worker must not
+silently truncate these identities.
 
 #### 3.3.4 Arrow Flight Data-Plane Protocol
 
@@ -1149,306 +1208,20 @@ Task FAILED
       └─ Upstream task healthy → reschedule the current task
 ```
 
-#### 3.3.7 Detailed Design of Exchange Data Pull
+#### 3.3.7 Exchange Data Pull
 
-**Historical ExchangeClient model**
+The Coordinator dispatches canonical v2 stage edges with exact producer task
+identity, partition count, endpoint, and signed ticket. Java handles placement
+and lifecycle, not per-batch shuffle forwarding. The producer's Native callback
+serializes and commits partitioned pages to its Native Flight server. The
+downstream `PangrovaExchangeSource` obtains the bound endpoint and pulls its
+partition through Flight DoGet into the Velox Exchange operator.
 
-This subsection preserves an earlier conceptual client/state-machine design. The
-current worker uses `ExchangeSourceRegistry`, `RemoteShuffleExchangeSource`,
-`RemoteShuffleExchangeSink`, and `NativeExchangeTransport`; names and APIs in the
-following diagrams are pseudocode.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Output Worker internal structure                                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  Java Layer                                                          │   │
-│  │                                                                      │   │
-│  │  ┌──────────────────┐    ┌──────────────────┐                       │   │
-│  │  │  ExchangeClient  │    │  OutputBuffer    │                       │   │
-│  │  │                  │    │                  │                       │   │
-│  │  │  Per-Source:      │    │  Ring Buffer of  │                       │   │
-│  │  │  ┌────────────┐  │    │  RecordBatch     │                       │   │
-│  │  │  │ Flight     │  │    │                  │                       │   │
-│  │  │  │ DoGet to   │  │    │  → Flight Server │                       │   │
-│  │  │  │ Worker-1   │  │    │    (to Client)   │                       │   │
-│  │  │  ├────────────┤  │    │                  │                       │   │
-│  │  │  │ Flight     │  │    │                  │                       │   │
-│  │  │  │ DoGet to   │  │    │                  │                       │   │
-│  │  │  │ Worker-2   │  │    │                  │                       │   │
-│  │  │  └────────────┘  │    │                  │                       │   │
-│  │  └────────┬─────────┘    └────────▲─────────┘                       │   │
-│  │           │                       │                                  │   │
-│  └───────────┼───────────────────────┼──────────────────────────────────┘   │
-│              │ JNI: addBatch()       │ JNI: Java Pull nativeGetNextBatch()  │
-│  ┌───────────┼───────────────────────┼──────────────────────────────────┐   │
-│  │  C++ Layer│                       │                                  │   │
-│  │           ▼                       │                                  │   │
-│  │  ┌──────────────────┐    ┌──────────────────┐                       │   │
-│  │  │ Exchange Operator│    │ Output Operator  │                       │   │
-│  │  │ (Source)         │    │ (Sink)           │                       │   │
-│  │  │                  │    │                  │                       │   │
-│  │  │ Input Queue      │───►│ MergeSort        │                       │   │
-│  │  │ (per source)     │    │ TopN             │                       │   │
-│  │  │                  │    │ Final Agg        │                       │   │
-│  │  └──────────────────┘    └──────────────────┘                       │   │
-│  │                                                                      │   │
-│  │  Velox Task Pipeline:                                                │   │
-│  │  ExchangeSource → MergeSort → TopN → OutputSink                     │   │
-│  │                                                                      │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**ExchangeClient state machine**
-
-```
-                    ┌──────────┐
-                    │  CREATED │
-                    └────┬─────┘
-                         │ start()
-                         ▼
-                    ┌──────────┐
-              ┌─────│ RUNNING  │─────┐
-              │     └────┬─────┘     │
-              │          │           │
-         all sources     │      error/cancel
-         completed       │           │
-              │          │           │
-              ▼          │           ▼
-         ┌──────────┐   │     ┌──────────┐
-         │ DRAINING │   │     │  FAILED  │
-         └────┬─────┘   │     └──────────┘
-              │          │
-         buffer empty    │
-              │          │
-              ▼          │
-         ┌──────────┐   │
-         │ FINISHED │   │
-         └──────────┘   │
-                         │
-                    updateSources()
-                         │
-                         ▼
-                    ┌──────────┐
-                    │RESETTING │ → destroy current connections → rebuild connections → RUNNING
-                    └──────────┘
-```
-
-**ExchangeClient state transition rules and timeout handling**
-
-| Current state | Event | Target state | Action |
-|----------|------|----------|------|
-| CREATED | `start()` | RUNNING | Create a Flight DoGet connection for each ExchangeSource |
-| RUNNING | RecordBatch received | RUNNING | Inject into Native via JNI `nativeAddExchangeBatch()` |
-| RUNNING | All sources return COMPLETED | DRAINING | Call `nativeNoMoreExchangeSources()`, wait for the buffer to drain |
-| RUNNING | A single source connection times out (`exchange.source.timeout`, default 120s) | RUNNING | Trigger the reconnection logic for that source (see below) |
-| RUNNING | A single source fails to reconnect ≥ `exchange.source.max-retries` times in a row (default 3) | FAILED | Mark the task FAILED, report to the Coordinator |
-| RUNNING | `cancel()` or CancelTask issued by the Coordinator | FAILED | Close all Flight connections, release resources |
-| RUNNING | `updateSources()` (Coordinator reschedules an upstream task) | RESETTING | See the RESETTING state description |
-| DRAINING | Native OutputQueue drained (nativeGetNextBatch returns EOF) | FINISHED | Close all connections, release resources |
-| DRAINING | Timeout (`exchange.drain.timeout`, default 60s) | FAILED | Force-close, mark the task FAILED |
-| RESETTING | All old connections closed + all new connections established | RUNNING | Discard buffered data that was pulled but not yet injected |
-| FAILED | — | (terminal) | Unrecoverable, task reports FAILED |
-| FINISHED | — | (terminal) | Completed normally |
-
-**Timeout and reconnection logic for a single source**
-
-```java
-/**
- * Per-source connection manager within ExchangeClient.
- * Handles timeout detection and reconnection for a single upstream source.
- */
-class ExchangeSourceConnection {
-
-    private final ExchangeSource source;
-    private final Duration sourceTimeout;     // exchange.source.timeout (default 120s)
-    private final int maxRetries;             // exchange.source.max-retries (default 3)
-    private volatile Instant lastDataReceived = Instant.now();
-    private final AtomicInteger retryCount = new AtomicInteger(0);
-
-    /**
-     * Pull loop for a single source (runs in dedicated thread).
-     */
-    void pullLoop() {
-        FlightStream stream = null;
-        try {
-            stream = connectToSource(source);
-
-            while (stream.next()) {
-                VectorSchemaRoot root = stream.getRoot();
-                lastDataReceived = Instant.now();
-                retryCount.set(0);  // Reset on successful data
-
-                // Inject into Native Exchange Operator
-                NativeRuntime.nativeAddExchangeBatch(
-                    taskHandle, source.sourceId(),
-                    root.getArrowArrayAddress(), root.getArrowSchemaAddress());
-            }
-
-            // Source completed normally
-            NativeRuntime.nativeNoMoreExchangeData(taskHandle, source.sourceId());
-
-        } catch (FlightRuntimeException e) {
-            handleSourceError(e);
-        }
-    }
-
-    /**
-     * Timeout detection (called by watchdog timer every 10s).
-     */
-    void checkTimeout() {
-        Duration sinceLastData = Duration.between(lastDataReceived, Instant.now());
-        if (sinceLastData.compareTo(sourceTimeout) > 0) {
-            // Timeout — attempt reconnection
-            reconnect();
-        }
-    }
-
-    /**
-     * Reconnection logic with exponential backoff.
-     */
-    private void reconnect() {
-        int attempt = retryCount.incrementAndGet();
-        if (attempt > maxRetries) {
-            // Exhausted retries — propagate failure to ExchangeClient
-            exchangeClient.onSourceFailed(source.sourceId(),
-                new PangrovaException(EXCHANGE_CONNECTION_LOST,
-                    "Source " + source.sourceTaskId() + " unreachable after " + maxRetries + " retries"));
-            return;
-        }
-
-        Duration backoff = Duration.ofMillis(
-            (long) (1000 * Math.pow(2, attempt - 1)));  // 1s, 2s, 4s
-
-        log.warn("Reconnecting to source {} (attempt {}/{}), backoff={}",
-                 source.sourceTaskId(), attempt, maxRetries, backoff);
-
-        scheduler.schedule(() -> {
-            closeCurrentStream();
-            pullLoop();  // Restart pull loop with new connection
-        }, backoff.toMillis(), TimeUnit.MILLISECONDS);
-    }
-}
-```
-
-**RESETTING state detailed flow** (triggered when the Coordinator reschedules an upstream task):
-
-```
-Coordinator sends UpdateExchangeSources(sequenceId=N+1):
-  1. ExchangeClient checks sequenceId > current value → accept the update
-  2. State RUNNING → RESETTING
-  3. Close all old Flight connections (graceful close, wait for in-flight RPCs to finish, timeout 5s)
-  4. Discard buffer data on the Java side that was pulled but not injected into Native
-     (upstream task reschedule means the data must be recomputed, old data is invalid)
-  5. Call nativeResetExchangeOperator(taskHandle) to clear the Native Exchange Operator's Input Queue
-  6. Create new Flight connections based on the new exchangeSources list
-  7. All new connections established successfully → state RESETTING → RUNNING
-  8. Any new connection fails to establish → retry (up to 3 times) → still fails → FAILED
-```
-
-**Interaction between ExchangeClient and Velox**
-
-```
-Interaction between the Java ExchangeClient and the C++ Velox Exchange Operator:
-
-1. The Java layer pulls RecordBatch from upstream Workers via Arrow Flight DoGet
-2. Calls nativeAddExchangeBatch(taskHandle, sourceId, arrowArray, arrowSchema) via JNI
-3. The C++ Exchange Operator reads batches from the Input Queue and feeds the Pipeline
-4. The Pipeline executes operators such as MergeSort/TopN/FinalAgg
-5. The Output Operator produces result batches and puts them into the Native OutputQueue
-6. The Java layer calls nativeGetNextBatch(handle, arrowArrayPtr, arrowSchemaPtr) to pull batches
-7. The Java layer streams the batches to the Client via Arrow Flight
-```
-
-JNI interface definitions:
-
-```cpp
-// Java Pull (result output) — already defined in NativeRuntime in native-execution.md §5.4
-// The Java thread calls nativeGetNextBatch() to pull data from the OutputQueue
-// Return value: > 0 row count, = 0 EOF, < 0 error
-
-// Java → Native (Exchange data injection)
-extern "C" {
-    // Add a batch to the Exchange Operator's Input Queue
-    JNIEXPORT void JNICALL Java_org_pangrova_worker_jni_NativeRuntime_addExchangeBatch(
-        JNIEnv* env, jclass cls,
-        jlong taskHandle,           // Velox Task handle
-        jint sourceId,              // Exchange Source number
-        jlong arrowArrayPtr,        // ArrowArray* (zero-copy)
-        jlong arrowSchemaPtr        // ArrowSchema* (zero-copy)
-    );
-
-    // Mark a given Exchange Source as completed (no more new data)
-    JNIEXPORT void JNICALL Java_org_pangrova_worker_jni_NativeRuntime_noMoreExchangeData(
-        JNIEnv* env, jclass cls,
-        jlong taskHandle,
-        jint sourceId
-    );
-
-    // Mark all Exchange Sources as completed
-    JNIEXPORT void JNICALL Java_org_pangrova_worker_jni_NativeRuntime_noMoreExchangeSources(
-        JNIEnv* env, jclass cls,
-        jlong taskHandle
-    );
-}
-```
-
-**Backpressure propagation chain**
-
-```
-Full backpressure propagation chain (from Client to Compute Worker):
-
-Layer 1: Client → Output Worker (Arrow Flight)
-  Client consumes slowly → gRPC flow control window fills up
-  → the Output Worker Flight Server's putNext() blocks
-  → OutputBuffer stops being consumed
-
-Layer 2: OutputQueue → Java Pull Loop
-  The Java layer's nativeGetNextBatch() blocks (OutputQueue empty)
-  → when the OutputQueue is full, the Velox Output Operator pauses
-  → the Velox Pipeline's Driver thread yields
-
-Layer 3: Velox Pipeline → ExchangeClient
-  The Velox Exchange Operator's Input Queue is full
-  → addExchangeBatch() blocks (or returns false)
-  → the Java ExchangeClient pauses calling Flight DoGet.next()
-
-Layer 4: ExchangeClient → Compute Worker (Arrow Flight)
-  ExchangeClient stops consuming
-  → gRPC flow control window fills up
-  → the Compute Worker Flight Server's putNext() blocks
-  → the Compute Worker's Shuffle Buffer stops being consumed
-  → the Compute Worker's Velox Pipeline pauses
-
-Result: backpressure across the entire chain propagates from the Client to all Compute Workers
-```
-
-Backpressure recovery chain (reverse direction):
-
-```
-Client resumes consuming
-  → gRPC window opens
-  → OutputBuffer is consumed
-  → Java continues calling nativeGetNextBatch()
-  → the Native OutputQueue has space
-  → the Velox Pipeline resumes
-  → the Exchange Operator Input Queue has space
-  → ExchangeClient resumes Flight DoGet.next()
-  → gRPC window opens
-  → the Compute Worker Pipeline resumes
-```
-
-| Backpressure layer | Trigger condition | Behavior |
-|----------|----------|------|
-| Native OutputQueue | OutputQueue full (bounded queue) | Velox Pipeline Driver yields |
-| Java Pull Loop | nativeGetNextBatch() blocks (Flight putNext has not returned) | Stop pulling, Native OutputQueue backs up |
-| Arrow Flight (Output → Client) | gRPC window full | Pause putNext(), Java Pull Loop blocks |
-| Arrow Flight (Compute → Output) | gRPC window full | Pause upstream Pipeline output |
-| Velox Pipeline | Operator output queue full | Driver thread yields |
+The producer reports `FINISHED` only after every buffered partition has
+flushed and the queue has committed. Cancel, deadline, or failure aborts the
+queue; a downstream reader must fail on aborted or incomplete input rather
+than treating it as clean EOF. Flight demultiplexing and the bounded queue
+provide backpressure without a Java `addBatch` bridge.
 
 #### 3.3.8 Coordinator Scheduler Design
 
@@ -1550,14 +1323,14 @@ The Shuffle Buffer on the Compute Worker is responsible for buffering data produ
 │  Compute Worker Shuffle Buffer                                               │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                              │
-│  Velox Pipeline → PartitionedOutput Operator                                │
+│  Velox Pipeline → Native consumer callback (bound ExchangeRel)              │
 │       │                                                                      │
-│       │ Velox produces a Shuffle batch → Native ShuffleQueue[partitionId]           │
+│       │ Native partitions and serializes pages into SerializedShuffleQueue   │
 │       ▼                                                                      │
 │  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  ShuffleQueue (Native, per partition)                                │   │
-│  │  The Java ShuffleDrainThread calls nativeGetShuffleBatch(partitionId)  │   │
-│  │  After pulling data, sends it to the target Worker via Arrow Flight  │   │
+│  │  Native FlightShuffleServer demuxes the bounded serialized queue      │   │
+│  │  Ticket-scoped DoGet serves each committed partition directly          │   │
+│  │  Downstream Native ExchangeSource pulls over Arrow Flight              │   │
 │  │                                                                      │   │
 │  │  Partition 0: [Batch, Batch, Batch, ...]                            │   │
 │  │  Partition 1: [Batch, Batch, ...]                                   │   │
@@ -1565,8 +1338,8 @@ The Shuffle Buffer on the Compute Worker is responsible for buffering data produ
 │  │  ...                                                                 │   │
 │  │  Partition M-1: [Batch, ...]                                        │   │
 │  │                                                                      │   │
-│  │  Each Partition is a bounded blocking queue                          │   │
-│  │  Capacity: max_shuffle_buffer_bytes / partition_count                │   │
+│  │  Queue admission and Flight buffering enforce backpressure             │   │
+│  │  Queued bytes outlive the producer's Velox task pool                    │   │
 │  │                                                                      │   │
 │  └─────────────────────────────────────────────────────────────────────┘   │
 │       │                                                                      │
@@ -1577,49 +1350,27 @@ The Shuffle Buffer on the Compute Worker is responsible for buffering data produ
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 3.3.10 Constant Folding & Coordinator Local Result Buffer
+#### 3.3.10 Worker-Only Relational Result Path
 
-The following query types are handled locally by the Coordinator without dispatching to a Worker. Results are buffered in the Coordinator's local Arrow IPC buffer and served via the Coordinator's own Flight server, using the same `resultEndpoint` mechanism as distributed queries.
+Planner folding may produce `LogicalValues`, but that plan is still serialized
+into the ordinary task contract, executed by Native, and served from the selected
+Output Worker. Empty results (`LIMIT 0`) take the same route. There is no
+Coordinator result-cache hit or writeback path; result caching can only be
+reintroduced behind a Worker-owned protocol.
 
-| Query Type | Example | Handling |
-|------------|---------|----------|
-| Constant expressions | `SELECT 1`, `SELECT 1+2, 'hello'` | Planner folds to `LogicalValues`, serialized to Arrow IPC, buffered in `CoordinatorResultBuffer` |
-| Metadata queries | `SHOW TABLES`, `SHOW SCHEMAS`, `DESCRIBE table` | Coordinator builds `TypedRow` list, converts to Arrow IPC via `CoordinatorResultWriter` |
-| System table queries | `SELECT * FROM system.runtime.nodes` | Same as metadata queries |
-| DDL operations | `CREATE TABLE`, `ALTER TABLE` | Result (status row) buffered in `CoordinatorResultBuffer` |
-| DML operations | `INSERT`, `UPDATE`, `DELETE` | Affected-row count buffered as Arrow IPC |
+`SHOW`, `DESCRIBE`, session control, DDL status, and DML acknowledgement rows are
+bounded control-plane responses. `StatementDispatcher` alone may publish these
+through the isolated control-plane transport. Relational `SELECT` code cannot
+access that service or its buffer. Connector system-table `SELECT` statements
+therefore compile and dispatch like any other query, and fail closed if the
+connector/Native scan contract is unavailable.
 
-**Constant Folding in Planner**: During the `plan()` phase, `PangrovaPlanner.tryFoldConstant()` checks whether the optimized `RelNode` tree contains no `TableScan`, `TableModify`, or `Exchange` nodes. If so, the expression is evaluated via Calcite Interpreter and the result is materialized as a `LogicalValues` node. This folded result is then serialized to Arrow IPC by `CoordinatorResultWriter.toArrowIpc()` and stored in `CoordinatorResultBuffer`.
-
-**Unified Result Retrieval**: All query types — constant, DDL, DML, and distributed — return a `resultEndpoint` in the response. The client retrieves results via Arrow Flight `doGet()` against that endpoint. Coordinator-local results are served by `CoordinatorDataProducer` through `CoordinatorResultService`.
-
-```json
-// Constant query response (unified format)
-{
-  "queryId": "query-20260206-002",
-  "state": "FINISHED",
-  "resultEndpoint": {
-    "host": "coordinator-1",
-    "port": 8083,
-    "ticket": "query-20260206-002",
-    "protocol": "arrow-flight"
-  }
-}
-```
-
-```json
-// DML response (unified format)
-{
-  "queryId": "query-20260206-003",
-  "state": "FINISHED",
-  "resultEndpoint": {
-    "host": "coordinator-1",
-    "port": 8083,
-    "ticket": "query-20260206-003",
-    "protocol": "arrow-flight"
-  }
-}
-```
+All DML row production follows the same boundary. `INSERT VALUES` and static
+`INSERT OVERWRITE ... VALUES` compile to typed Substrait values relations and run
+as canonical v2 write tasks on ordinary Workers. The Worker alone opens the
+connector page sink; the Coordinator only registers the write intent, validates
+the canonical task report, fences the attempt, and commits returned fragments.
+There is no Coordinator JVM `Page`/`ConnectorPageSink` fallback.
 
 #### 3.3.11 Client SDK Wrapper
 
@@ -1638,10 +1389,20 @@ try (Connection conn = DriverManager.getConnection("jdbc:pangrova://coordinator:
 ```
 SDK internal flow:
 1. POST /v1/query/submit→ Coordinator
-2. Parse response.resultEndpoint
-3. Arrow Flight DoGet(resultEndpoint) → stream-construct ResultSet
-4. Connection dropped → GET /v1/query/{queryId}/state → obtain new endpoint → auto-reconnect
+2. Poll the canonical query status until a readable result endpoint is published
+3. Arrow Flight DoGet(resultEndpoint), then verify terminal query success; a JDBC
+   query timeout also bounds the Flight call and every batch read
+4. Decode the received Arrow IPC bytes into a ResultSet; the current JDBC driver
+   buffers the full result and does not yet provide bounded-memory streaming or
+   automatic reconnection after a broken Flight stream
 ```
+
+`Statement.execute()` and `executeQuery()` use this same Flight endpoint path.
+An absent endpoint is waited for while the query runs and is an error if the
+query finishes without one. The historical REST `/v1/query/{id}/result` page
+client had no production server route and has been removed; it is not a
+fallback for an unavailable Flight stream. Bounded-memory JDBC cursoring is a
+separate required improvement before large-result support is claimed.
 
 #### 3.3.12 Configuration Reference
 
@@ -1713,7 +1474,7 @@ Design rationale: the Coordinator belongs to the control plane; its sole respons
 │                                    ↓ Local Exchange (Merge Buffers)             │
 │  ┌─────────────────────────────────────────────────────────────────────────┐    │
 │  │  Pipeline 1 (Aggregation Pipeline)                                      │    │
-│  │  Driver 0: LocalExchangeSource → FinalAggregation → PartitionedOutput  │    │
+│  │  Driver 0: LocalExchangeSource → FinalAggregation → shuffle callback   │    │
 │  └─────────────────────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1767,7 +1528,7 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 | JoinOperator | Join | HashJoin, MergeJoin |
 | SortOperator | Sort | OrderBy |
 | LimitOperator | Limit row count | Limit, TopN |
-| SinkOperator | Data output | PartitionedOutput |
+| SinkOperator | Data output | Native shuffle callback or result output |
 
 ## 5. Dynamic Filtering
 
@@ -1800,22 +1561,22 @@ Optimization: scan customers first, collect the matching ids, then use those ids
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
 │  Design principles:                                                             │
-│  • Read path (C++): use Velox native execution, pursue extreme performance      │
-│  • Write path (Java): implemented in Java, deeply integrated with lakehouse format SDKs │
+│  • Read path: Velox Native execution                                            │
+│  • Write path: Native output drain → JNI → Java connector page sink             │
 │                                                                                  │
 │  Reasons:                                                                        │
 │  • Writes to lakehouse formats (Iceberg/Paimon) involve complex transactions and metadata management │
 │  • The official SDKs for these formats are all implemented in Java              │
-│  • The write performance bottleneck is usually I/O, not CPU                     │
-│  • A Java implementation is easier to maintain and keep in sync with upstream   │
+│  • Connector SDKs stage files on Workers; Coordinator owns final catalog commit │
+│  • Bounded task output and synchronous sink calls propagate backpressure        │
 │                                                                                  │
 │  Read Path (C++ Velox):                                                         │
 │  Substrait Plan → Velox Plan Parser → TableScan → Filter/Project → Native I/O  │
-│  Characteristics: vectorized, SIMD, zero-copy, extreme performance             │
+│  Characteristics: vectorized and SIMD; network shuffle is serialized           │
 │                                                                                  │
 │  Write Path (Java):                                                             │
-│  INSERT/UPDATE/DELETE → Transaction Manager → Data Writer → Metadata Committer │
-│  Characteristics: full transaction support, ACID, upstream-compatible          │
+│  Native RowVector → Arrow IPC/JNI → ConnectorPageSink staged fragment           │
+│  Coordinator → connector finishDistributedWrite() → catalog publication        │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1823,88 +1584,48 @@ Optimization: scan customers first, collect the matching ids, then use those ids
 ### 6.2 INSERT Flow
 
 ```
-Phase 1: Query Execution (Read Path - C++)
+Phase 1: Worker Native query execution
   1. Parse the INSERT statement
   2. Optimize the SELECT subquery
   3. Generate the Substrait Plan
   4. Dispatch to Workers for execution
-  5. Velox executes the SELECT, producing Arrow RecordBatch
+  5. Velox executes the SELECT and places RowVectors in the task output queue
 
-Phase 2: Data Writing (Write Path - Java)
-  Step 1: Begin Transaction
-    IcebergTransaction tx = table.newTransaction();
+Phase 2: Worker staging
+  1. Native drain serializes bounded batches to Arrow IPC and calls the Java sink via JNI
+  2. Each Worker stages data files and returns a connector commit fragment
+  3. A failed or cancelled producer aborts the sink; no fragment is published
 
-  Step 2: Write Data Files (parallel)
-    Worker-1: Write partition=2024-01-01 → data-00001.parquet, data-00002.parquet
-    Worker-2: Write partition=2024-01-02 → data-00003.parquet
-    Worker-3: Write partition=2024-01-03 → data-00004.parquet
-
-  Step 3: Collect Write Results
-    Coordinator collects: file paths, sizes, row counts, partition info, column statistics
-
-  Step 4: Commit Transaction (atomic operation)
-    for (DataFile file : writtenFiles) {
-        tx.newAppend().appendFile(file).commit();
-    }
-    tx.commitTransaction();  // Create a new Snapshot
+Phase 3: Coordinator publication
+  1. Collect fragments from the required fenced Worker attempts
+  2. Persist the commit intent and invoke finishDistributedWrite() on the connector
+  3. Prove/recover an ambiguous catalog outcome before acknowledging success
 ```
 
 ### 6.3 Write Components
 
-> **DEPRECATED**: The `DataWriter` interface below is superseded by the unified `TableWriter` SPI
-> defined in [streaming.md §2.6](./streaming.md). New implementations MUST use `TableWriter.writeBatch(VectorSchemaRoot)`
-> for the SQL write path, which provides zero-conversion Arrow-native writes with `WriteContext`
-> for transaction mode control. The code below is retained for historical reference only.
->
->
-
-```java
-/**
- * @deprecated Use {@link TableWriter#writeBatch(String, VectorSchemaRoot, WriteMode, WriteContext)}
- *             from streaming.md §2.6 instead. DataWriter is superseded by the unified TableWriter SPI.
- */
-@Deprecated
-public interface DataWriter extends Closeable {
-    void write(VectorSchemaRoot batch);
-    WriteResult finish();
-    void abort();
-}
-
-/**
- * @deprecated Use TableWriter with writeBatch() instead.
- */
-@Deprecated
-public class PartitionedDataWriter implements DataWriter {
-    private final Map<StructLike, DataWriter> partitionWriters;
-
-    @Override
-    public void write(VectorSchemaRoot batch) {
-        Map<StructLike, List<Integer>> partitionedRows = partitionRows(batch);
-        for (Map.Entry<StructLike, List<Integer>> entry : partitionedRows.entrySet()) {
-            DataWriter writer = partitionWriters.computeIfAbsent(
-                entry.getKey(), p -> createPartitionWriter(p));
-            writer.write(extractRows(batch, entry.getValue()));
-        }
-    }
-}
-```
-
-**Migration to unified TableWriter**: The SQL write path now uses `TableWriter.writeBatch(tableName, batch, writeMode, context)` where `context.transactionMode = COORDINATOR_MANAGED`. The native Velox engine produces `VectorSchemaRoot` via `nativeGetNextBatch()`, which is passed directly to `writeBatch()` with zero columnar-to-row conversion overhead. See [streaming.md §2.6](./streaming.md) for the authoritative interface definition.
+The current SQL write contract uses the Worker-side `NativeWriteExecutor` JNI
+adapter to create a connector `ConnectorPageSink`, append serialized columnar
+batches, and obtain a staged metadata fragment with `finishWithMetadata()`.
+The Worker reports that fragment under the canonical task identity. The
+Coordinator invokes `ConnectorMetadata.finishDistributedWrite()` to publish
+the connector snapshot. This is not a `nativeGetNextBatch()` pull loop and does
+not use the legacy `DataWriter` example or a `TableWriter` shortcut.
 
 ### 6.4 Write Path Responsibility Matrix
 
 | Operation | Execution layer | Language | Note |
 |------|--------|------|------|
 | Data file write (Parquet/ORC) | Worker | Java | Write to S3/HDFS via the Iceberg/Paimon SDK |
-| Metadata write (Manifest/Snapshot) | Worker | Java | Write via the Iceberg/Paimon SDK |
-| Transaction commit (Commit) | Coordinator | Java | Two-phase commit; the Coordinator coordinates each Worker's write results |
-| Shuffle serialization | Worker (Native) | C++ | Serialize to Arrow format in memory; Java pulls via nativeGetShuffleBatch() |
-| Shuffle network transfer | Worker (Java) | Java | Send to the target Worker via Arrow Flight |
+| Snapshot/manifest publication | Coordinator | Java | Connector finalizes fenced Worker fragments; see [distributed-writes.md](./distributed-writes.md) for ambiguous-outcome limits |
+| Catalog commit | Coordinator | Java | Persist intent, prove outcome, then acknowledge; not generic exactly-once under concurrent recovery |
+| Shuffle serialization | Worker (Native) | C++ | Partition and serialize bounded pages into the Native shuffle queue |
+| Shuffle network transfer | Worker (Native) | C++ | Serve ticket-scoped partitions via Native Arrow Flight DoGet |
 | Read path data processing | Worker (Native) | C++ | Velox execution engine, vectorized processing |
 
 **Key boundaries**:
 - The C++ Native layer does not perform any persistence write operations (both data files and metadata files are written by the Java layer)
-- Shuffle at the Native layer only does in-memory partitioning and buffering (Shuffle Partitioner); the network transfer is done by the Java layer's Arrow Flight
+- Shuffle partitioning, buffering, and Flight transfer remain in the Native data plane; Java controls task placement and lifecycle
 - Transaction commit is coordinated by the Coordinator: Workers are responsible for writing data files, and the Coordinator is responsible for the final atomic commit
 
 ### 6.5 DataFile Cleanup Mechanism After Commit Failure
@@ -2215,16 +1936,17 @@ public class OrphanFileCleanup implements Runnable {
 │                         Native Version Management                                │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
-│  Problem: Java/Native version mismatch causes crashes or abnormal behavior      │
-│  Solution: version validation + compatibility matrix                            │
+│  Problem: Java/Native epoch mismatch can corrupt or mis-execute tasks            │
+│  Solution: exact descriptor, Native-library and capability hash admission        │
 │                                                                                  │
 │  Version info:                                                                   │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
 │  │  NativeVersion {                                                         │   │
 │  │    major: 1,           // incompatible changes                          │   │
-│  │    minor: 2,           // backward-compatible new features              │   │
+│  │    minor: 2,           // release identity only                         │   │
 │  │    patch: 3,           // bug fixes                                     │   │
-│  │    protocolVersion: 1, // JNI protocol version                          │   │
+│  │    protocolDescriptorSha256: "...",                                    │   │
+│  │    capabilityEpoch: "...",                                             │   │
 │  │    buildTime: "...",                                                    │   │
 │  │    gitCommit: "..."                                                     │   │
 │  │  }                                                                       │   │
@@ -2232,9 +1954,9 @@ public class OrphanFileCleanup implements Runnable {
 │                                                                                  │
 │  Validation flow:                                                                │
 │  1. When the Java layer loads the Native library, it calls nativeGetVersion()   │
-│  2. Compare protocolVersion; refuse to start if mismatched                      │
-│  3. Compare the major version; refuse to start if mismatched                    │
-│  4. minor/patch mismatch only warns                                             │
+│  2. Compare the complete canonical v2 descriptor SHA-256                       │
+│  3. Compare the packaged Native-library SHA-256 and capability epoch            │
+│  4. Refuse startup/task admission on any mismatch; never downgrade              │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2245,22 +1967,21 @@ public class OrphanFileCleanup implements Runnable {
  */
 public class NativeVersionChecker {
 
-    private static final int REQUIRED_PROTOCOL_VERSION = 1;
-    private static final int REQUIRED_MAJOR_VERSION = 1;
+    private static final String REQUIRED_DESCRIPTOR_SHA256 = generatedDescriptorSha256();
+    private static final String REQUIRED_CAPABILITY_EPOCH = configuredCapabilityEpoch();
 
     public static void checkVersion() {
         NativeVersion nativeVersion = NativeRuntime.getVersion();
 
-        if (nativeVersion.getProtocolVersion() != REQUIRED_PROTOCOL_VERSION) {
+        if (!nativeVersion.getProtocolDescriptorSha256()
+                .equals(REQUIRED_DESCRIPTOR_SHA256)) {
             throw new IncompatibleNativeVersionException(
-                "Protocol version mismatch: expected %d, got %d",
-                REQUIRED_PROTOCOL_VERSION, nativeVersion.getProtocolVersion());
+                "Canonical protocol descriptor mismatch");
         }
-
-        if (nativeVersion.getMajor() != REQUIRED_MAJOR_VERSION) {
+        if (!nativeVersion.getCapabilityEpoch().equals(REQUIRED_CAPABILITY_EPOCH)
+                || !verifyPackagedNativeLibrarySha256(nativeVersion)) {
             throw new IncompatibleNativeVersionException(
-                "Major version mismatch: expected %d, got %d",
-                REQUIRED_MAJOR_VERSION, nativeVersion.getMajor());
+                "Native library or capability epoch mismatch");
         }
 
         log.info("Native library loaded: version={}.{}.{}, commit={}",
@@ -2270,14 +1991,14 @@ public class NativeVersionChecker {
 }
 ```
 
-### 11.2 Rolling Upgrade
+### 11.2 Protocol-Epoch Upgrade
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         Rolling Upgrade Procedure                                │
+│                       Protocol-Epoch Upgrade Procedure                           │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                  │
-│  Upgrade order: Coordinator → Worker (one by one)                               │
+│  Upgrade order: create green epoch → validate → drain/fence blue → cut over   │
 │                                                                                  │
 │  Coordinator upgrade:                                                            │
 │  ┌─────────────────────────────────────────────────────────────────────────┐   │
@@ -2297,10 +2018,10 @@ public class NativeVersionChecker {
 │  │  5. Repeat 1-4 to upgrade the other Workers                              │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
-│  Version compatibility:                                                          │
-│  • During the upgrade, old and new versions of Coordinator/Worker coexist        │
-│  • A new Coordinator can schedule tasks to old Workers (protocol backward-compatible) │
-│  • An old Coordinator does not schedule to new Workers (via version filtering)   │
+│  Epoch isolation:                                                               │
+│  • Blue and green pools may coexist only while one remains fenced                │
+│  • No query or background job spans descriptor/capability epochs                 │
+│  • The admission switch occurs only after blue is drained or fenced              │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -2393,7 +2114,7 @@ public class DynamicConfigManager {
 │  │  Category        │ Syntax                            │ Support status   │   │
 │  │  ────────────────────────────────────────────────────────────────────── │   │
 │  │  DDL             │ CREATE/ALTER/DROP TABLE/VIEW      │ ✓ Full support   │   │
-│  │  DML             │ INSERT/UPDATE/DELETE/MERGE        │ ✓ Full support   │   │
+│  │  DML             │ INSERT/UPDATE/DELETE/MERGE        │ △ Partial       │   │
 │  │  Query           │ SELECT/JOIN/UNION/SUBQUERY        │ ✓ Full support   │   │
 │  │  Time Travel     │ FOR SYSTEM_TIME AS OF             │ ✓ Full support   │   │
 │  │  Table Maint.    │ OPTIMIZE/VACUUM/COMPACT           │ ✓ Full support   │   │
@@ -2404,6 +2125,14 @@ public class DynamicConfigManager {
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The table is a syntax overview, not a distributed conformance certificate.
+As of 2026-09-27, real Iceberg E2E covers basic DML, static-partition
+`INSERT OVERWRITE`, and single-action/UPDATE+INSERT `MERGE` in one Native write
+and catalog commit. A `MERGE` combining `DELETE` with another action is rejected
+rather than decomposed into non-atomic commits. Arbitrary distributed DML shapes,
+multiple matching source rows, and cross-worker failure recovery are not yet
+certified; see the [internal AI Native audit](../internal/ai-native-roadmap.md).
 
 
 ### 12.2 DDL Syntax
@@ -3162,7 +2891,14 @@ class ShuffleStore:
         ssdTier.removePrefix((queryId, stageId))
 ```
 
-### 18.4 Pluggable Shuffle Backend
+### 18.4 Pluggable Shuffle Backend (design sketch)
+
+The pseudocode below is a proposed backend abstraction, not the production
+shuffle writer. The current Worker executes the canonical producer Exchange
+through the Native callback, serializes to `SerializedShuffleQueue`, and serves
+partitions over Native Flight. The queue currently makes an independent byte
+copy at admission; it is count-bounded, not yet byte-accounted against the
+task memory grant.
 
 ```pseudocode
 interface ShuffleWriter:
@@ -3170,7 +2906,7 @@ interface ShuffleWriter:
     function flush()
 
 class EmbeddedShuffleWriter implements ShuffleWriter:
-    // Current default — shuffle data in Worker memory (§3.3.9)
+    // Proposed embedded backend; not the production implementation
     function write(partitionId, batch):
         taskMemoryPool.allocate(batch.size)
         shuffleBuffer[partitionId].append(batch)
@@ -3190,8 +2926,8 @@ function createShuffleWriter(config):
 
 | Aspect | Embedded (Current) | External (ESS) |
 |--------|-------------------|-----------------|
-| Performance | Zero-copy within Worker; minimal latency | IPC overhead (~50–100μs per batch via Unix domain socket or gRPC) |
-| Reliability | Worker crash loses shuffle data; S3 fallback adds latency | Shuffle data survives Worker crash; immediate local recovery |
+| Performance | Current Native path copies serialized bytes once at queue admission; throughput is not yet benchmarked | Additional transport and service overhead; no measured per-batch claim yet |
+| Reliability | In-memory queue is lost on Worker crash; recovery requires recomputation or a durable backend | A durable external service can survive Worker crash if its production commit/restore contract is proven |
 | Scalability | Shuffle competes with compute for memory; cannot scale independently | Independent memory pool; can scale shuffle storage without adding Workers |
 | Complexity | Simple — single process | Medium — separate process lifecycle, deployment, monitoring |
 | Auto-scaling | Dangerous — scale-down loses shuffle | Safe — shuffle data persists on node even after Worker termination |

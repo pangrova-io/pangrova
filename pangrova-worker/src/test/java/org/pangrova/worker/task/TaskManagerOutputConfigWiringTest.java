@@ -110,7 +110,7 @@ class TaskManagerOutputConfigWiringTest {
         TaskManagerContext deps = new TaskManagerContext(
                 reporter, executor,
                 new MemoryRefs(rm),
-                TransportRefs.empty(),
+                new TransportRefs(null, null, null),
                 java.util.concurrent.Executors.newCachedThreadPool(r -> {
                     Thread t = new Thread(r, "test-completion-monitor");
                     t.setDaemon(true);
@@ -127,20 +127,15 @@ class TaskManagerOutputConfigWiringTest {
     }
 
     private SubmitTaskRequest buildRequestWithOutputConfig(String queryId, OutputConfig outputConfig) {
-        return SubmitTaskRequest.builder()
-                .taskId("task-1")
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment("cGxhbg==")
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(outputConfig)
-                .writeConfig(null)
-                .build();
+        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                "task-1", queryId, 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (outputConfig != null) {
+            canonical.setExecutionOptions(org.pangrova.protocol.v2.TaskExecutionOptions
+                    .newBuilder().setDirectResultOutput(true));
+        }
+        return SubmitTaskRequest.from(canonical.build());
     }
 
     private void awaitTerminalState(TaskManager manager, String taskId) {

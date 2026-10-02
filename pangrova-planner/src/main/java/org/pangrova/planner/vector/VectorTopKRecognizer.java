@@ -1,5 +1,7 @@
 package org.pangrova.planner.vector;
 
+import org.pangrova.planner.PlanTable;
+
 import org.pangrova.spi.index.vector.DistanceMetric;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.logical.LogicalProject;
@@ -176,7 +178,8 @@ public final class VectorTopKRecognizer {
         RelNode current = input;
         while (current != null) {
             if (current instanceof LogicalTableScan scan) {
-                return String.join(".", scan.getTable().getQualifiedName());
+                return String.join(".", PlanTable.require(scan)
+                        .getQualifiedName());
             }
             if (current.getInputs().isEmpty()) {
                 break;

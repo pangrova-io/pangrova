@@ -40,7 +40,7 @@ class JoinPropertyTest extends SqlE2ETestBase {
     @BeforeAll
     @BeforeContainer
     static void seedData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         var runner = new org.pangrova.testing.e2e.runner.SqlTestRunner(framework);

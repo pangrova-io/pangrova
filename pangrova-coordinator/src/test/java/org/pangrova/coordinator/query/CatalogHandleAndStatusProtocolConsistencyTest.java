@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
+import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -16,6 +17,7 @@ import org.pangrova.metadata.catalog.InternalCatalogHandle;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.coordinator.query.task.UnregisteredWorkerException;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.Test;
@@ -138,7 +140,8 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
     void taskStatusReportIdentityFieldsPreserved() {
         TaskStatusReport report = new TaskStatusReport(
                 "task-42", "query-7", 3, 2, "COMPUTE", "worker-1",
-                "RUNNING", null, null, null, 5, 1700000000000L);
+                "RUNNING", null, null, null, 5, 1700000000000L,
+                null, null, org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
 
         assertEquals("task-42", report.taskId());
         assertEquals("query-7", report.queryId());
@@ -171,7 +174,8 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
         TaskStatusReport report = new TaskStatusReport(
                 "t1", "q1", 0, 0, "COMPUTE", "ghost",
-                "RUNNING", null, null, null, 1, System.currentTimeMillis());
+                "RUNNING", null, null, null, 1, System.currentTimeMillis(),
+                null, null, org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
 
         assertThatThrownBy(() -> receiver.onTaskStatus(report))
                 .isInstanceOf(UnregisteredWorkerException.class);
@@ -184,6 +188,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         tracker.registerTask("q1", "t1");
+        registerCanonicalRequest(tracker, "q1", "t1");
         tracker.markScheduled("q1", "t1");
 
         QueryManager qm = buildMinimalQueryManager();
@@ -192,7 +197,9 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
         TaskStatusReport report = new TaskStatusReport(
                 "t1", "q1", 0, 0, "COMPUTE", "w1",
-                "RUNNING", null, null, null, 1, System.currentTimeMillis());
+                "RUNNING", null, null, null, 1, System.currentTimeMillis(),
+                null, null, org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        tracker.getTaskRequest("t1").taskRequest().getAttempt()));
 
         receiver.onTaskStatus(report);
 
@@ -206,6 +213,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         tracker.registerTask("q1", "t1");
+        registerCanonicalRequest(tracker, "q1", "t1");
         tracker.markScheduled("q1", "t1");
 
         QueryManager qm = buildMinimalQueryManager();
@@ -213,8 +221,8 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
 
-        receiver.onTaskStatus(report("t1", "q1", "w1", "RUNNING", 1));
-        receiver.onTaskStatus(report("t1", "q1", "w1", "FINISHED", 2));
+        receiver.onTaskStatus(report(tracker, "t1", "q1", "w1", "RUNNING", 1));
+        receiver.onTaskStatus(report(tracker, "t1", "q1", "w1", "FINISHED", 2));
 
         assertTrue(tracker.allTasksFinished("q1"),
                 "All tasks should be finished after FINISHED report");
@@ -227,6 +235,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         tracker.registerTask("q1", "t1");
+        registerCanonicalRequest(tracker, "q1", "t1");
         tracker.markScheduled("q1", "t1");
 
         QueryManager qm = buildMinimalQueryManager();
@@ -234,12 +243,15 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
 
-        receiver.onTaskStatus(report("t1", "q1", "w1", "RUNNING", 1));
+        receiver.onTaskStatus(report(tracker, "t1", "q1", "w1", "RUNNING", 1));
 
         ErrorDetail error = new ErrorDetail("INTERNAL", "TestError", "something broke");
         TaskStatusReport failReport = new TaskStatusReport(
                 "t1", "q1", 0, 0, "COMPUTE", "w1",
-                "FAILED", null, error, null, 2, System.currentTimeMillis());
+                "FAILED", null, error, null, 2, System.currentTimeMillis(),
+                null, null, org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        tracker.getTaskRequest("t1").taskRequest().getAttempt()),
+                canonicalReport(tracker.getTaskRequest("t1"), "FAILED", "t1"));
         receiver.onTaskStatus(failReport);
 
         assertTrue(tracker.hasFailedTask("q1"),
@@ -251,15 +263,60 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
     private static CoordinatorTaskTracker scheduledTask(String queryId, String taskId) {
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         tracker.registerTask(queryId, taskId);
+        tracker.registerTaskAttempt(taskId,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
         tracker.markScheduled(queryId, taskId);
         return tracker;
     }
 
-    private static TaskStatusReport report(String taskId, String queryId,
+    private static void registerCanonicalRequest(
+            CoordinatorTaskTracker tracker, String queryId, String taskId) {
+        SubmitTaskRequest request = CanonicalTaskRequestTestFixture.request(
+                taskId, queryId, 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, new byte[]{1});
+        tracker.registerTaskRequest(taskId, request);
+        tracker.registerTaskAttempt(taskId,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        request.taskRequest().getAttempt()));
+    }
+
+    private static TaskStatusReport report(CoordinatorTaskTracker tracker,
+                                           String taskId, String queryId,
                                            String workerId, String state, long seq) {
+        SubmitTaskRequest request = tracker.getTaskRequest(taskId);
         return new TaskStatusReport(
                 taskId, queryId, 0, 0, "COMPUTE", workerId,
-                state, null, null, null, seq, System.currentTimeMillis());
+                state, null, null, null, seq, System.currentTimeMillis(),
+                null, null, org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        request.taskRequest().getAttempt()),
+                "RUNNING".equals(state) ? null : canonicalReport(request, state, taskId));
+    }
+
+    private static byte[] canonicalReport(
+            SubmitTaskRequest request, String state, String taskId) {
+        var coverage = org.pangrova.protocol.v2.CoverageReport.newBuilder()
+                .setExpectedWorkUnits(1);
+        var report = org.pangrova.protocol.v2.TaskReport.newBuilder()
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
+                        .TASK_REPORT_ORIGIN_NATIVE)
+                .setAttempt(request.taskRequest().getAttempt());
+        if ("FINISHED".equals(state)) {
+            report.setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
+            coverage.setCompletedWorkUnits(1).setCoverageRatio(1.0)
+                    .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                            .COMPLETION_STATE_COMPLETE);
+        } else if ("FAILED".equals(state)) {
+            report.setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED)
+                    .setError(org.pangrova.protocol.v2.ExecutionError.newBuilder()
+                            .setErrorClass(org.pangrova.protocol.v2.ErrorClass.ERROR_CLASS_INTERNAL)
+                            .setCode("TEST_FAILURE").setMessage("something broke"));
+            coverage.addFailedWorkUnitIds(taskId)
+                    .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                            .COMPLETION_STATE_PARTIAL);
+        } else {
+            throw new IllegalArgumentException("Not a terminal state: " + state);
+        }
+        return report.setCoverage(coverage).build().toByteArray();
     }
 
     private static QueryManager buildMinimalQueryManager() {
@@ -276,7 +333,7 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
                         scheduler,
                         new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()),
                         new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
-                        null, null, null, null, 0L),
+                        null, null, null, 0L),
                 null, null);
         return new QueryManager(QueryManagerContext.minimal(dispatcher,
                 new org.pangrova.observability.noop.NoOpTracingProvider()));

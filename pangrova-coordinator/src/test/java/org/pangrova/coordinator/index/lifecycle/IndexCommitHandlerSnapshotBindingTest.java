@@ -93,7 +93,8 @@ class IndexCommitHandlerSnapshotBindingTest {
     void readyIndexIsFindableByTable() {
         IndexDescriptor idx = readyIndex("idx-ready");
         RecordingStore store = new RecordingStore(List.of(idx));
-        List<IndexDescriptor> found = store.findIndexesByTable("cat", "sch", "tbl");
+        List<IndexDescriptor> found = store.findIndexesByTable(
+                "tenant-a", "cat", "sch", "tbl");
         assertThat(found).hasSize(1);
         assertThat(found.get(0).indexId()).isEqualTo("idx-ready");
     }
@@ -125,7 +126,7 @@ class IndexCommitHandlerSnapshotBindingTest {
         }
 
         @Override
-        public List<IndexDescriptor> findIndexesByTable(String c, String s, String t) {
+        public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) {
             return indexes;
         }
 
@@ -137,9 +138,15 @@ class IndexCommitHandlerSnapshotBindingTest {
         // -- No-op remainder --
         @Override public void registerIndex(IndexDescriptor d) {}
         @Override public void updateIndexState(String id, String s, Instant t) {}
+        @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
+                Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
+        @Override public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.metadata.index.model.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+                findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(
-                String c, String s, String t, List<String> cols, boolean b) { return List.of(); }
+                String tenantId, String c, String s, String t, List<String> cols, boolean b) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) {}
         @Override public void registerIndexFile(IndexFileMapping m) {}
@@ -152,12 +159,12 @@ class IndexCommitHandlerSnapshotBindingTest {
         @Override public List<IndexFileMapping> listStaleFileMappings(long ms) { return List.of(); }
         @Override public void updateLastVerifiedAt(String id, String path, long ts) {}
         @Override public List<IndexDescriptor> findIndexesByColumn(
-                String c, String s, String t, String col) { return List.of(); }
+                String tenantId, String c, String s, String t, String col) { return List.of(); }
         @Override public void renameColumnInIndexes(
-                String c, String s, String t, String o, String n) {}
+                String tenantId, String c, String s, String t, String o, String n) {}
         @Override public void dropAllIndexesForTable(
-                String c, String s, String t, Instant ts) {}
-        @Override public void renameTable(String c, String s, String o, String n) {}
+                String tenantId, String c, String s, String t, Instant ts) {}
+        @Override public void renameTable(String tenantId, String c, String s, String o, String n) {}
         @Override public List<IndexDescriptor> findIndexesByState(IndexState st) { return List.of(); }
     }
 

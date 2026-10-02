@@ -28,6 +28,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
 
+    private static final String CANONICAL_INVENTORY =
+            "CjIIAhogRdVbleB2e7KyN0ENsyhXMAxZ2xaezSU0lUC4Od3Gd8giDGFpLW5hdGl2ZS1y"
+                    + "MigBMhZtZXRhZGF0YS1yZWdpc3RyeS10ZXN0";
+    private static final String UPDATED_CANONICAL_INVENTORY =
+            "CjIIAhogRdVbleB2e7KyN0ENsyhXMAxZ2xaezSU0lUC4Od3Gd8giDGFpLW5hdGl2ZS1y"
+                    + "MigBMhltZXRhZGF0YS1yZWdpc3RyeS11cGRhdGVk";
+
     @SuppressWarnings("resource")
     @Container
     static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -57,8 +64,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         assertThat(got.host()).isEqualTo("host-1");
         assertThat(got.httpPort()).isEqualTo(8080);
         assertThat(got.transportPort()).isEqualTo(9090);
-        assertThat(got.protocolVersion()).isEqualTo(1);
-        assertThat(got.capabilities()).containsExactly("SCAN");
+        assertThat(got.protocolVersion()).isEqualTo(2);
+        assertThat(got.capabilityInventory()).isEqualTo(CANONICAL_INVENTORY);
         assertThat(got.rackId()).isEqualTo("rack-a");
         assertThat(got.dataLocality()).containsExactly("/data/0");
         assertThat(got.memoryPressure()).isEqualTo("NONE");
@@ -73,15 +80,17 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
     void registerIsIdempotentUpsert() throws Exception {
         long now = System.currentTimeMillis();
         WorkerSnapshot first = new WorkerSnapshot(
-                "w-dup", "host-old", 8080, 9090, 1,
-                List.of("SCAN"), "rack-a", List.of("/data/0"),
-                "NONE", 0.1, 1, 512L, now, now);
+                "w-dup", "host-old", 8080, 9090, 2,
+                "rack-a", List.of("/data/0"),
+                "NONE", 0.1, 1, 512L, now, now,
+                0, null, CANONICAL_INVENTORY);
         registry.register(first);
 
         WorkerSnapshot second = new WorkerSnapshot(
                 "w-dup", "host-new", 9999, 7777, 2,
-                List.of("JOIN"), "rack-b", List.of("/data/1"),
-                "HIGH", 0.9, 5, 2048L, now + 1000, now + 1000);
+                "rack-b", List.of("/data/1"),
+                "HIGH", 0.9, 5, 2048L, now + 1000, now + 1000,
+                0, null, UPDATED_CANONICAL_INVENTORY);
         registry.register(second);
 
         // Verify only one row exists
@@ -101,7 +110,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         assertThat(got.httpPort()).isEqualTo(9999);
         assertThat(got.transportPort()).isEqualTo(7777);
         assertThat(got.protocolVersion()).isEqualTo(2);
-        assertThat(got.capabilities()).containsExactly("JOIN");
+        assertThat(got.capabilityInventory())
+                .isEqualTo(UPDATED_CANONICAL_INVENTORY);
         assertThat(got.rackId()).isEqualTo("rack-b");
         assertThat(got.memoryPressure()).isEqualTo("HIGH");
     }
@@ -127,8 +137,8 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         assertThat(got.host()).isEqualTo("host-1");
         assertThat(got.httpPort()).isEqualTo(8080);
         assertThat(got.transportPort()).isEqualTo(9090);
-        assertThat(got.protocolVersion()).isEqualTo(1);
-        assertThat(got.capabilities()).containsExactly("SCAN");
+        assertThat(got.protocolVersion()).isEqualTo(2);
+        assertThat(got.capabilityInventory()).isEqualTo(CANONICAL_INVENTORY);
         assertThat(got.rackId()).isEqualTo("rack-a");
         assertThat(got.dataLocality()).containsExactly("/data/0");
         assertThat(got.registeredAtMs()).isEqualTo(worker.registeredAtMs());
@@ -139,16 +149,19 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         long now = System.currentTimeMillis();
         // Fresh worker: heartbeat just now
         WorkerSnapshot fresh = new WorkerSnapshot(
-                "w-fresh", "host-1", 8080, 9090, 1,
-                List.of(), null, List.of(),
-                "NONE", 0.0, 0, 0L, now, now);
+                "w-fresh", "host-1", 8080, 9090, 2,
+                null, List.of(),
+                "NONE", 0.0, 0, 0L, now, now,
+                0, null, CANONICAL_INVENTORY);
         registry.register(fresh);
 
         // Stale worker: heartbeat 10 minutes ago
         WorkerSnapshot stale = new WorkerSnapshot(
-                "w-stale", "host-2", 8081, 9091, 1,
-                List.of(), null, List.of(),
-                "NONE", 0.0, 0, 0L, now - Duration.ofMinutes(10).toMillis(), now - Duration.ofMinutes(10).toMillis());
+                "w-stale", "host-2", 8081, 9091, 2,
+                null, List.of(),
+                "NONE", 0.0, 0, 0L, now - Duration.ofMinutes(10).toMillis(),
+                now - Duration.ofMinutes(10).toMillis(), 0, null,
+                CANONICAL_INVENTORY);
         registry.register(stale);
 
         List<WorkerSnapshot> active = registry.getActiveWorkers(Duration.ofMinutes(5));
@@ -161,16 +174,19 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         long now = System.currentTimeMillis();
         // Old worker
         WorkerSnapshot old = new WorkerSnapshot(
-                "w-old", "host-1", 8080, 9090, 1,
-                List.of(), null, List.of(),
-                "NONE", 0.0, 0, 0L, now - Duration.ofHours(1).toMillis(), now - Duration.ofHours(1).toMillis());
+                "w-old", "host-1", 8080, 9090, 2,
+                null, List.of(),
+                "NONE", 0.0, 0, 0L, now - Duration.ofHours(1).toMillis(),
+                now - Duration.ofHours(1).toMillis(), 0, null,
+                CANONICAL_INVENTORY);
         registry.register(old);
 
         // Recent worker
         WorkerSnapshot recent = new WorkerSnapshot(
-                "w-recent", "host-2", 8081, 9091, 1,
-                List.of(), null, List.of(),
-                "NONE", 0.0, 0, 0L, now, now);
+                "w-recent", "host-2", 8081, 9091, 2,
+                null, List.of(),
+                "NONE", 0.0, 0, 0L, now, now,
+                0, null, CANONICAL_INVENTORY);
         registry.register(recent);
 
         int expired = registry.expireStale(Duration.ofMinutes(30));
@@ -189,16 +205,17 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
     }
 
     @Test
-    void capabilitiesAndDataLocalityJsonRoundTrip() {
+    void canonicalInventoryAndDataLocalityRoundTrip() {
         long now = System.currentTimeMillis();
         WorkerSnapshot worker = new WorkerSnapshot(
-                "w-json", "host-1", 8080, 9090, 1,
-                List.of("SCAN", "JOIN"), null, List.of("/data/1", "/data/2"),
-                "NONE", 0.0, 0, 0L, now, now);
+                "w-json", "host-1", 8080, 9090, 2,
+                null, List.of("/data/1", "/data/2"),
+                "NONE", 0.0, 0, 0L, now, now,
+                0, null, CANONICAL_INVENTORY);
         registry.register(worker);
 
         WorkerSnapshot got = registry.getWorker("w-json").orElseThrow();
-        assertThat(got.capabilities()).containsExactly("SCAN", "JOIN");
+        assertThat(got.capabilityInventory()).isEqualTo(CANONICAL_INVENTORY);
         assertThat(got.dataLocality()).containsExactly("/data/1", "/data/2");
     }
 
@@ -207,9 +224,10 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
     private static WorkerSnapshot newWorker(String id, String host, int httpPort, int transportPort) {
         long now = System.currentTimeMillis();
         return new WorkerSnapshot(
-                id, host, httpPort, transportPort, 1,
-                List.of("SCAN"), "rack-a", List.of("/data/0"),
-                "NONE", 0.1, 2, 1024L, now, now);
+                id, host, httpPort, transportPort, 2,
+                "rack-a", List.of("/data/0"),
+                "NONE", 0.1, 2, 1024L, now, now,
+                0, null, CANONICAL_INVENTORY);
     }
 
     private static void initSchema(DataSource ds) throws Exception {
@@ -221,8 +239,9 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
                         host VARCHAR(256) NOT NULL,
                         http_port INT NOT NULL,
                         transport_port INT NOT NULL,
-                        protocol_version INT NOT NULL DEFAULT 1,
-                        capabilities TEXT,
+                        result_server_port INT NOT NULL DEFAULT 0,
+                        protocol_version INT NOT NULL DEFAULT 2 CHECK (protocol_version = 2),
+                        capability_inventory_proto TEXT NOT NULL,
                         rack_id VARCHAR(128) DEFAULT NULL,
                         data_locality TEXT,
                         memory_pressure VARCHAR(32) NOT NULL DEFAULT 'NONE',

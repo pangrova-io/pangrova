@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,6 +53,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class StreamingBootstrapWriteSinkWiringTest {
 
     private final List<Page> writtenPages = new CopyOnWriteArrayList<>();
+    private final List<String> committedTenantIds = new CopyOnWriteArrayList<>();
+    private final AtomicInteger beginInsertCalls = new AtomicInteger();
     private CatalogRegistry catalogRegistry;
 
     @BeforeEach
@@ -64,6 +67,7 @@ class StreamingBootstrapWriteSinkWiringTest {
     void writeSinkWritesThroughConnectorPageSink() {
         StreamState state = buildStreamState("iceberg.default.cdc_target");
         CdcWriteSink sink = StreamingBootstrap.createWriteSink(state, catalogRegistry);
+        assertThat(beginInsertCalls.get()).isZero();
 
         CdcRow afterRow = CdcRow.of(Map.of("id", 1L, "name", "alice"));
         CdcEnvelope envelope = new CdcEnvelope(
@@ -77,6 +81,8 @@ class StreamingBootstrapWriteSinkWiringTest {
         assertThat(result.targetTable()).isEqualTo("iceberg.default.cdc_target");
         assertThat(writtenPages).as("CDC data must reach the connector PageSink").hasSize(1);
         assertThat(writtenPages.get(0).rows()).hasSize(1);
+        assertThat(committedTenantIds).containsExactly("test-tenant");
+        assertThat(beginInsertCalls.get()).isEqualTo(1);
     }
 
     @Test
@@ -84,6 +90,7 @@ class StreamingBootstrapWriteSinkWiringTest {
     void writeSinkSkipsDeleteEnvelopes() {
         StreamState state = buildStreamState("iceberg.default.cdc_target");
         CdcWriteSink sink = StreamingBootstrap.createWriteSink(state, catalogRegistry);
+        assertThat(beginInsertCalls.get()).isZero();
 
         CdcRow beforeRow = CdcRow.of(Map.of("id", 1L, "name", "alice"));
         CdcEnvelope deleteEnvelope = new CdcEnvelope(
@@ -97,6 +104,7 @@ class StreamingBootstrapWriteSinkWiringTest {
         // DELETE routes through the delete page sink (before-image)
         assertThat(writtenPages).hasSize(1);
         assertThat(writtenPages.get(0).rows()).hasSize(1);
+        assertThat(beginInsertCalls.get()).isZero();
     }
 
     @Test
@@ -217,6 +225,7 @@ class StreamingBootstrapWriteSinkWiringTest {
 
         @Override
         public ConnectorOutputTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle table) {
+            beginInsertCalls.incrementAndGet();
             return new TestOutputHandle(((TestTableHandle) table).key());
         }
 
@@ -229,7 +238,7 @@ class StreamingBootstrapWriteSinkWiringTest {
         public void finishDistributedWrite(ConnectorSession session,
                                            ConnectorOutputTableHandle outputHandle,
                                            List<byte[]> fragments) {
-            // no-op for test
+            committedTenantIds.add(session.getProperties().get("tenant_id"));
         }
     }
 

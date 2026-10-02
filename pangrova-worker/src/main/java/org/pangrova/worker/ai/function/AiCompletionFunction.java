@@ -13,6 +13,8 @@
  */
 package org.pangrova.worker.ai.function;
 
+import org.pangrova.worker.ai.function.file.FileStructHelper;
+
 import org.pangrova.spi.ai.inference.GenerationParameters;
 import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.ai.inference.InferenceResult;
@@ -20,6 +22,7 @@ import org.pangrova.spi.ai.inference.MultimodalPrompt;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.BatchableScalarFunction;
 import org.pangrova.spi.function.FunctionMetadata;
+import org.pangrova.protocol.function.FunctionBindingDeclarations;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -45,12 +48,8 @@ import java.util.Map;
  */
 public final class AiCompletionFunction implements BatchableScalarFunction {
 
-    private static final FunctionMetadata METADATA = new FunctionMetadata(
-            "ai_complete",
-            "VARCHAR",
-            List.of("VARCHAR", "VARCHAR"),
-            false,
-            "Generates a text completion using the specified LLM model");
+    private static final FunctionMetadata METADATA =
+            FunctionBindingDeclarations.callbackMetadata("ai_complete");
 
     private final java.util.function.Function<String, InferenceProvider> providerLookup;
 
@@ -59,7 +58,7 @@ public final class AiCompletionFunction implements BatchableScalarFunction {
      *
      * @param providerLookup resolves model names to inference providers
      */
-    public AiCompletionFunction(
+    AiCompletionFunction(
             java.util.function.Function<String, InferenceProvider> providerLookup) {
         if (providerLookup == null) {
             throw new IllegalArgumentException("providerLookup required");
@@ -70,6 +69,11 @@ public final class AiCompletionFunction implements BatchableScalarFunction {
     @Override
     public FunctionMetadata getMetadata() {
         return METADATA;
+    }
+
+    @Override
+    public List<List<String>> getArgumentSignatures() {
+        return FunctionBindingDeclarations.callbackArgumentSignatures("ai_complete");
     }
 
     @Override
@@ -102,11 +106,20 @@ public final class AiCompletionFunction implements BatchableScalarFunction {
 
     @Override
     public List<ColumnValue> invokeBatch(List<List<ColumnValue>> argumentsBatch) {
-        Map<String, List<Integer>> modelToIndices = new HashMap<>();
+        BatchInputs inputs = collectBatchInputs(argumentsBatch);
+        ColumnValue[] results = emptyResults(argumentsBatch.size());
+        completeMultimodal(argumentsBatch, results);
+        for (Map.Entry<BatchKey, List<Integer>> entry : inputs.indices().entrySet()) {
+            completeForModel(entry.getKey(), entry.getValue(), inputs.prompts(), results);
+        }
+        return List.of(results);
+    }
+
+    private static BatchInputs collectBatchInputs(List<List<ColumnValue>> argumentsBatch) {
+        Map<BatchKey, List<Integer>> batchToIndices = new HashMap<>();
         String[] prompts = new String[argumentsBatch.size()];
         String[] models = new String[argumentsBatch.size()];
         GenerationParameters[] params = new GenerationParameters[argumentsBatch.size()];
-
         for (int i = 0; i < argumentsBatch.size(); i++) {
             List<ColumnValue> args = argumentsBatch.get(i);
             if (args.size() < 2) {
@@ -115,31 +128,47 @@ public final class AiCompletionFunction implements BatchableScalarFunction {
             models[i] = extractString(args.get(0), "model");
             prompts[i] = extractString(args.get(1), "prompt");
             params[i] = buildParams(args);
-            if (models[i] != null && prompts[i] != null) {
-                modelToIndices.computeIfAbsent(models[i], k -> new ArrayList<>()).add(i);
+            boolean multimodal = args.size() == 3
+                    && args.get(2) instanceof ColumnValue.RowValue;
+            if (!multimodal && models[i] != null && prompts[i] != null) {
+                batchToIndices.computeIfAbsent(
+                        new BatchKey(models[i], params[i]), k -> new ArrayList<>()).add(i);
             }
         }
+        return new BatchInputs(batchToIndices, prompts);
+    }
 
-        ColumnValue[] results = new ColumnValue[argumentsBatch.size()];
+    private static ColumnValue[] emptyResults(int size) {
+        ColumnValue[] results = new ColumnValue[size];
         for (int i = 0; i < results.length; i++) {
             results[i] = new ColumnValue.NullValue();
         }
-
-        for (Map.Entry<String, List<Integer>> entry : modelToIndices.entrySet()) {
-            completeForModel(entry.getKey(), entry.getValue(), prompts, params, results);
-        }
-        return List.of(results);
+        return results;
     }
 
-    private void completeForModel(String modelName, List<Integer> indices, String[] prompts,
-                                  GenerationParameters[] params, ColumnValue[] results) {
-        InferenceProvider provider = providerLookup.apply(modelName);
+    private void completeMultimodal(
+            List<List<ColumnValue>> argumentsBatch, ColumnValue[] results) {
+        for (int i = 0; i < argumentsBatch.size(); i++) {
+            List<ColumnValue> args = argumentsBatch.get(i);
+            if (args.size() == 3 && args.get(2) instanceof ColumnValue.RowValue) {
+                results[i] = invoke(args);
+            }
+        }
+    }
+
+    private void completeForModel(BatchKey key, List<Integer> indices, String[] prompts,
+                                  ColumnValue[] results) {
+        InferenceProvider provider = providerLookup.apply(key.modelName());
         if (provider == null) {
-            throw new IllegalStateException("Inference model not found: " + modelName);
+            throw new IllegalStateException("Inference model not found: " + key.modelName());
         }
         List<String> batchPrompts = indices.stream().map(i -> prompts[i]).toList();
-        GenerationParameters batchParams = params[indices.get(0)];
-        List<InferenceResult> completions = provider.completeBatch(batchPrompts, batchParams);
+        List<InferenceResult> completions = provider.completeBatch(batchPrompts, key.parameters());
+        if (completions == null || completions.size() != indices.size()) {
+            throw new IllegalStateException("Inference provider '" + key.modelName()
+                    + "' returned " + (completions == null ? "null" : completions.size())
+                    + " results for " + indices.size() + " prompts");
+        }
         for (int j = 0; j < indices.size(); j++) {
             results[indices.get(j)] = new ColumnValue.StringValue(completions.get(j).text());
         }
@@ -170,4 +199,8 @@ public final class AiCompletionFunction implements BatchableScalarFunction {
         throw new IllegalArgumentException(
                 "ai_complete: " + argName + " must be VARCHAR, got: " + cv.getClass().getSimpleName());
     }
+
+    private record BatchKey(String modelName, GenerationParameters parameters) {}
+
+    private record BatchInputs(Map<BatchKey, List<Integer>> indices, String[] prompts) {}
 }

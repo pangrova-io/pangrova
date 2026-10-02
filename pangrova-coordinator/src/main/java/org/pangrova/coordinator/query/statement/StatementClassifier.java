@@ -42,6 +42,7 @@ public final class StatementClassifier {
 
     public static boolean isDdl(Statement stmt) {
         return stmt instanceof CreateTableStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.CreateTableAsSelectStatement
                 || stmt instanceof DropTableStatement
                 || stmt instanceof AlterTableStatement
                 || stmt instanceof CreateSchemaStatement
@@ -51,7 +52,12 @@ public final class StatementClassifier {
                 || stmt instanceof org.pangrova.parser.ast.statement.CreateBranchStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.DropBranchStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.CreateTagStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.DropTagStatement;
+                || stmt instanceof org.pangrova.parser.ast.statement.DropTagStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.CreateSemanticViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.PublishSemanticViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.CreateFeatureViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.PublishFeatureViewStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.MaterializeFeatureViewStatement;
     }
 
     public static boolean isDml(Statement stmt) {
@@ -67,7 +73,8 @@ public final class StatementClassifier {
         return stmt instanceof ShowSchemasStatement
                 || stmt instanceof ShowTablesStatement
                 || stmt instanceof org.pangrova.parser.ast.statement.DescribeTableStatement
-                || stmt instanceof org.pangrova.parser.ast.statement.ShowCatalogsStatement;
+                || stmt instanceof org.pangrova.parser.ast.statement.ShowCatalogsStatement
+                || stmt instanceof org.pangrova.parser.ast.statement.ShowSemanticViewsStatement;
     }
 
     public static boolean isMaintenance(Statement stmt) {
@@ -159,13 +166,20 @@ public final class StatementClassifier {
             );
 
     public static Identifier extractTableName(Statement stmt) {
+        if (stmt instanceof AlterTableStatement alter) {
+            return alter.tableName();
+        }
+        if (stmt instanceof org.pangrova.parser.ast.statement.CreateTableAsSelectStatement ctas) {
+            return ctas.tableName();
+        }
         Function<Statement, Identifier> extractor = TABLE_NAME_EXTRACTORS.get(stmt.getClass());
         return extractor != null ? extractor.apply(stmt) : null;
     }
 
-    public static QualifiedTableName extractTableParts(Statement stmt) {
+    public static QualifiedTableName extractTableParts(
+            Statement stmt, org.pangrova.coordinator.query.CoordinatorSessionContext context) {
         Identifier name = extractTableName(stmt);
         if (name == null) return null;
-        return QualifiedTableName.resolveOrNull(name.parts());
+        return TableResolver.resolveTableRef(name.parts(), context);
     }
 }

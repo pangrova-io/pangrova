@@ -53,6 +53,10 @@ final class TaskDrainExecutor {
         return draining;
     }
 
+    void beginDraining() {
+        draining = true;
+    }
+
     void signalTerminalTransition() {
         var latch = drainLatch;
         if (latch != null) {
@@ -65,7 +69,7 @@ final class TaskDrainExecutor {
     }
 
     void drainAndWait(int timeoutSeconds) {
-        draining = true;
+        beginDraining();
         List<String> nonTerminalTaskIds = collectNonTerminalTaskIds();
         int running = nonTerminalTaskIds.size();
         LOG.info("event=task_manager_draining count={} timeoutSeconds={}", running, timeoutSeconds);
@@ -90,7 +94,8 @@ final class TaskDrainExecutor {
 
     private static boolean isActive(TaskManager.TaskState state) {
         return state == TaskManager.TaskState.RECEIVED || state == TaskManager.TaskState.INITIALIZING
-                || state == TaskManager.TaskState.RUNNING || state == TaskManager.TaskState.FINISHING;
+                || state == TaskManager.TaskState.RUNNING || state == TaskManager.TaskState.FINISHING
+                || state == TaskManager.TaskState.CANCELLING;
     }
 
     private List<String> collectNonTerminalTaskIds() {
@@ -173,12 +178,29 @@ final class TaskDrainExecutor {
     }
 
     int cleanupTerminalTasks(Duration retention) {
-        return TaskCleanupScheduler.cleanupTerminalTasks(tasks, retention, info -> {});
+        return TaskCleanupScheduler.cleanupTerminalTasks(tasks, retention,
+                this::releaseTerminalTask, this::resultResourcesDrained);
+    }
+
+    boolean resultResourcesDrained(TaskInfo info) {
+        return lifecycleManager != null && lifecycleManager.resultResourcesDrained(info);
+    }
+
+    void releaseTerminalTask(TaskInfo info) {
+        if (lifecycleManager != null) {
+            lifecycleManager.releaseFinishedTaskExecutor(info);
+        } else if (info.executorHandle() != 0 || info.allocatedMemory() != 0
+                || info.allocatedBufferMemory() != 0 || info.taskMemoryPool() != null) {
+            throw new IllegalStateException("Terminal task owns resources without a release authority");
+        }
     }
 
     void startPeriodicCleanup(ScheduledExecutorService executor,
                               Duration retention, Duration interval,
                               Consumer<TaskInfo> removeIndex) {
-        TaskCleanupScheduler.startPeriodicCleanup(executor, tasks, retention, interval, removeIndex);
+        TaskCleanupScheduler.startPeriodicCleanup(executor, tasks, retention, interval, info -> {
+            releaseTerminalTask(info);
+            removeIndex.accept(info);
+        }, this::resultResourcesDrained);
     }
 }

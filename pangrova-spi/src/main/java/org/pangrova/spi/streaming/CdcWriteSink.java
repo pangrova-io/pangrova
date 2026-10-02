@@ -33,30 +33,21 @@ public interface CdcWriteSink extends AutoCloseable {
      */
     CdcWriteResult writeBatch(List<CdcEnvelope> envelopes);
 
-    /**
-     * A-EOS-02: opaque token for a batch that has been STAGED (its data written to storage) but not
-     * yet published to the catalog. Produced by {@link #stage}, consumed by {@link #publish} or
-     * {@link #discard}.
-     */
+    /** Opaque token produced by {@link #stage} and consumed by {@link #publish} or {@link #discard}. */
     interface StagedWrite { }
 
     /**
-     * A-EOS-02 (2PC prepare phase): write the batch's data to storage WITHOUT publishing it to the
-     * catalog, returning a token to later {@link #publish} or {@link #discard}. This makes the
-     * streaming write a true two-phase commit (stage → publish/discard) rather than effectively-once.
+     * Prepares a batch without publishing it to the catalog. Implementations must document
+     * whether the returned token is durable and recoverable after a process crash.
      *
-     * <p>Default: buffers the envelopes in memory (no durable staging). Connector-backed sinks
-     * override to write real staged files so a crash between prepare and commit is recoverable via
-     * {@link #discard}.
+     * <p>The default only buffers envelopes in memory and is not durable. Callers must not
+     * infer exactly-once delivery from this interface alone.
      */
     default StagedWrite stage(List<CdcEnvelope> envelopes) {
         return new BufferedStage(envelopes);
     }
 
-    /**
-     * A-EOS-02 (2PC commit phase): atomically publish previously {@link #stage}d data to the
-     * catalog. Must be idempotent (safe to re-invoke on crash-recovery replay).
-     */
+    /** Publishes a prepared batch. Atomicity and replay safety depend on the implementation. */
     default CdcWriteResult publish(StagedWrite staged) {
         if (!(staged instanceof BufferedStage buffered)) {
             throw new IllegalStateException("Default publish() only supports the buffered default "
@@ -66,10 +57,7 @@ public interface CdcWriteSink extends AutoCloseable {
         return writeBatch(buffered.envelopes);
     }
 
-    /**
-     * A-EOS-02 (2PC abort phase): discard staged-but-unpublished data (delete staged files).
-     * Default is a no-op because the buffered default staging wrote nothing durable.
-     */
+    /** Discards an unpublished batch. The buffered default wrote nothing durable. */
     default void discard(StagedWrite staged) {
         // Buffered default staging wrote nothing durable; nothing to discard.
     }

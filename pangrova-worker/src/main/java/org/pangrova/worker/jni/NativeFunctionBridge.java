@@ -6,6 +6,7 @@ import org.pangrova.spi.function.AggregateFunction;
 import org.pangrova.spi.function.BatchableScalarFunction;
 import org.pangrova.spi.function.FunctionMetadata;
 import org.pangrova.spi.function.ScalarFunction;
+import org.pangrova.worker.ai.context.AiExecutionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,6 +14,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -47,6 +50,8 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  */
 @ThreadSafe
 public final class NativeFunctionBridge {
+
+    private static final int NANOS_PER_MILLISECOND = 1_000_000;
 
     private static final Logger LOG = LoggerFactory.getLogger(NativeFunctionBridge.class);
 
@@ -105,9 +110,11 @@ public final class NativeFunctionBridge {
         var descriptors = new java.util.ArrayList<NativeFunctionDescriptor>();
         for (ScalarFunction fn : scalarFunctions.values()) {
             FunctionMetadata m = fn.getMetadata();
-            descriptors.add(new NativeFunctionDescriptor(
-                    m.name(), m.returnType(), m.argumentTypes(),
-                    NativeFunctionDescriptor.FunctionType.SCALAR, m.deterministic()));
+            for (List<String> signature : fn.getArgumentSignatures()) {
+                descriptors.add(new NativeFunctionDescriptor(
+                        m.name(), m.returnType(), signature,
+                        NativeFunctionDescriptor.FunctionType.SCALAR, m.deterministic()));
+            }
         }
         for (AggregateFunction fn : aggregateFunctions.values()) {
             FunctionMetadata m = fn.getMetadata();
@@ -131,7 +138,16 @@ public final class NativeFunctionBridge {
      * @param batchArguments array of per-row argument arrays
      * @return array of results, one per input row
      */
-    public Object[] evaluateBatch(String functionName, Object[][] batchArguments) {
+    public Object[] evaluateBatch(
+            String functionName,
+            Object[][] batchArguments,
+            byte[] canonicalExecutionContext) {
+        var context = AiExecutionContext.fromCanonicalCallback(canonicalExecutionContext);
+        return AiExecutionContext.callWith(
+                context, () -> evaluateBatchInternal(functionName, batchArguments));
+    }
+
+    private Object[] evaluateBatchInternal(String functionName, Object[][] batchArguments) {
         String key = functionName.toLowerCase(Locale.ROOT);
         ScalarFunction fn = scalarFunctions.get(key);
         if (fn == null) {
@@ -142,11 +158,13 @@ public final class NativeFunctionBridge {
         try {
             if (fn instanceof BatchableScalarFunction batchable) {
                 List<List<ColumnValue>> batch = Arrays.stream(batchArguments)
-                        .map(NativeFunctionBridge::wrapArguments)
+                        .map(arguments -> wrapArguments(fn, arguments))
                         .toList();
                 List<ColumnValue> results = batchable.invokeBatch(batch);
+                requireResultCardinality(functionName, batchArguments.length, results);
                 return results.stream()
                         .map(ColumnValue::toRaw)
+                        .map(NativeFunctionBridge::normalizeNativeValue)
                         .toArray();
             }
             // Fallback: row-by-row
@@ -184,9 +202,9 @@ public final class NativeFunctionBridge {
                     "Scalar function not registered: " + functionName);
         }
         try {
-            List<ColumnValue> args = wrapArguments(arguments);
+            List<ColumnValue> args = wrapArguments(fn, arguments);
             ColumnValue result = fn.invoke(args);
-            return ColumnValue.toRaw(result);
+            return normalizeNativeValue(ColumnValue.toRaw(result));
         } catch (NativeRuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -232,7 +250,7 @@ public final class NativeFunctionBridge {
                     "Aggregate function not registered: " + functionName);
         }
         try {
-            List<ColumnValue> args = wrapArguments(arguments);
+            List<ColumnValue> args = wrapArguments(fn.getMetadata(), arguments);
             fn.addInput(accumulator, args);
         } catch (NativeRuntimeException e) {
             throw e;
@@ -262,7 +280,7 @@ public final class NativeFunctionBridge {
         }
         try {
             ColumnValue result = fn.getResult(accumulator);
-            return ColumnValue.toRaw(result);
+            return normalizeNativeValue(ColumnValue.toRaw(result));
         } catch (NativeRuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -319,14 +337,106 @@ public final class NativeFunctionBridge {
 
     // ---- Internal helpers ----
 
-    private static List<ColumnValue> wrapArguments(Object[] arguments) {
+    private static List<ColumnValue> wrapArguments(
+            ScalarFunction function, Object[] arguments) {
         if (arguments == null || arguments.length == 0) {
             return List.of();
         }
+        List<String> signature = resolveSignature(function, arguments);
+        return wrapArguments(signature, arguments);
+    }
+
+    private static List<ColumnValue> wrapArguments(
+            FunctionMetadata metadata, Object[] arguments) {
+        if (arguments == null || arguments.length == 0) {
+            return List.of();
+        }
+        if (metadata.argumentTypes().size() != arguments.length
+                || !signatureMatches(metadata.argumentTypes(), arguments)) {
+            throw new IllegalArgumentException(
+                    "Arguments do not match aggregate function signature '"
+                            + metadata.name() + "'");
+        }
+        return wrapArguments(metadata.argumentTypes(), arguments);
+    }
+
+    private static List<ColumnValue> wrapArguments(
+            List<String> signature, Object[] arguments) {
         var wrapped = new java.util.ArrayList<ColumnValue>(arguments.length);
-        for (Object arg : arguments) {
-            wrapped.add(ColumnValue.of(arg));
+        for (int i = 0; i < arguments.length; i++) {
+            Object argument = arguments[i];
+            String declaredType = signature.get(i).toUpperCase(Locale.ROOT);
+            if ("ROW".equals(declaredType) && argument instanceof Object[] fields) {
+                wrapped.add(new ColumnValue.RowValue(Arrays.asList(fields)));
+            } else if ("ROW".equals(declaredType) && argument instanceof List<?> fields) {
+                wrapped.add(new ColumnValue.RowValue(fields));
+            } else {
+                wrapped.add(ColumnValue.of(argument));
+            }
         }
         return wrapped;
+    }
+
+    private static List<String> resolveSignature(
+            ScalarFunction function, Object[] arguments) {
+        return function.getArgumentSignatures().stream()
+                .filter(signature -> signature.size() == arguments.length)
+                .filter(signature -> signatureMatches(signature, arguments))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No matching signature for scalar function '"
+                                + function.getMetadata().name() + "' with "
+                                + arguments.length + " arguments"));
+    }
+
+    private static boolean signatureMatches(
+            List<String> signature, Object[] arguments) {
+        for (int i = 0; i < signature.size(); i++) {
+            Object argument = arguments[i];
+            if (argument == null) {
+                continue;
+            }
+            String type = signature.get(i).toUpperCase(Locale.ROOT);
+            boolean matches = switch (type) {
+                case "ROW", "FILE" -> argument instanceof Object[] || argument instanceof List<?>;
+                case "VECTOR" -> argument instanceof float[];
+                case "VARBINARY", "BINARY" -> argument instanceof byte[];
+                case "VARCHAR", "STRING" -> argument instanceof String;
+                case "BOOLEAN" -> argument instanceof Boolean;
+                case "INTEGER", "INT", "TINYINT", "SMALLINT" -> argument instanceof Integer;
+                case "BIGINT" -> argument instanceof Long;
+                case "REAL", "FLOAT" -> argument instanceof Float;
+                case "DOUBLE" -> argument instanceof Double;
+                default -> false;
+            };
+            if (!matches) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void requireResultCardinality(
+            String functionName, int expected, List<ColumnValue> results) {
+        if (results == null || results.size() != expected) {
+            throw new NativeRuntimeException(
+                    org.pangrova.common.exception.PangrovaErrorCode.NATIVE_JNI_EXCEPTION,
+                    "Batch evaluation of '" + functionName + "' returned "
+                            + (results == null ? "null" : results.size())
+                            + " results for " + expected + " rows");
+        }
+    }
+
+    private static Object normalizeNativeValue(Object value) {
+        if (value instanceof LocalDateTime timestamp) {
+            return timestamp.toInstant(ZoneOffset.UTC).toEpochMilli() * 1_000L
+                    + timestamp.getNano() % NANOS_PER_MILLISECOND / 1_000L;
+        }
+        if (value instanceof List<?> values) {
+            return values.stream()
+                    .map(NativeFunctionBridge::normalizeNativeValue)
+                    .toArray();
+        }
+        return value;
     }
 }

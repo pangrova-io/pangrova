@@ -15,8 +15,8 @@ import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.coordinator.query.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.spi.security.UserIdentity;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -39,16 +39,15 @@ class TaskRequestFactoryPropertyTest {
             @ForAll("queryIds") String queryId,
             @ForAll("planBytes") byte[] planBytes) {
         CoordinatorSessionContext session = createSession(queryId);
-        ResourceLimitPayload limit = new ResourceLimitPayload(1024L, 2, 0L, "/tmp");
+        StageResourceGrant limit = resourceGrant();
 
         SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
-                session, planBytes, createStageNode(0), 0, limit, List.of(), List.of());
+                leafTask(session, planBytes, createStageNode(0), 0, limit));
 
-        assertThat(request.taskId()).isNotNull();
-        assertThat(request.taskId()).isNotBlank();
-        assertThat(java.util.UUID.fromString(request.taskId())).isNotNull();
-        assertThat(request.splitMode()).isEqualTo("PULL");
-        assertThat(request.splits()).isEmpty();
+        String taskId = request.taskRequest().getAttempt().getTaskId();
+        assertThat(taskId).isNotBlank();
+        assertThat(java.util.UUID.fromString(taskId)).isNotNull();
+        assertThat(request.taskRequest().getSplitsList()).isEmpty();
     }
 
     /**
@@ -64,18 +63,17 @@ class TaskRequestFactoryPropertyTest {
             @ForAll @IntRange(min = 0, max = 100) int stageId,
             @ForAll @IntRange(min = 0, max = 50) int partition) {
         CoordinatorSessionContext session = createSession(queryId);
-        ResourceLimitPayload limit = new ResourceLimitPayload(1024L, 2, 0L, "/tmp");
+        StageResourceGrant limit = resourceGrant();
 
         org.pangrova.coordinator.query.stage.StageNode stage = createStageNode(stageId);
 
         SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
-                session, planBytes, stage, partition, limit, List.of(), List.of());
+                leafTask(session, planBytes, stage, partition, limit));
 
-        assertThat(request.taskId()).isNotNull();
-        assertThat(request.taskId()).isNotBlank();
-        assertThat(java.util.UUID.fromString(request.taskId())).isNotNull();
-        assertThat(request.splitMode()).isEqualTo("PULL");
-        assertThat(request.splits()).isEmpty();
+        String taskId = request.taskRequest().getAttempt().getTaskId();
+        assertThat(taskId).isNotBlank();
+        assertThat(java.util.UUID.fromString(taskId)).isNotNull();
+        assertThat(request.taskRequest().getSplitsList()).isEmpty();
     }
 
     /**
@@ -89,14 +87,14 @@ class TaskRequestFactoryPropertyTest {
             @ForAll("queryIds") String queryId,
             @ForAll @IntRange(min = 2, max = 50) int count) {
         CoordinatorSessionContext session = createSession(queryId);
-        ResourceLimitPayload limit = new ResourceLimitPayload(1024L, 2, 0L, "/tmp");
+        StageResourceGrant limit = resourceGrant();
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
 
         Set<String> taskIds = new HashSet<>();
         for (int i = 0; i < count; i++) {
             SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
-                    session, planBytes, createStageNode(0), 0, limit, List.of(), List.of());
-            taskIds.add(request.taskId());
+                    leafTask(session, planBytes, createStageNode(0), 0, limit));
+            taskIds.add(request.taskRequest().getAttempt().getTaskId());
         }
 
         assertThat(taskIds).hasSize(count);
@@ -119,9 +117,33 @@ class TaskRequestFactoryPropertyTest {
                 .ofMaxSize(64);
     }
 
+    private static TaskRequestFactory.LeafTask leafTask(
+            CoordinatorSessionContext session,
+            byte[] planBytes,
+            org.pangrova.coordinator.query.stage.StageNode stage,
+            int partition,
+            StageResourceGrant resourceGrant) {
+        return new TaskRequestFactory.LeafTask(
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session),
+                planBytes, stage, partition, resourceGrant,
+                List.of(), List.of(), null, List.of(),
+                org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskDeadline.after(
+                        java.time.Duration.ofMinutes(5), java.time.Instant.now()),
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1L, 0),
+                List.of(), null, List.of());
+    }
+
     private static CoordinatorSessionContext createSession(String queryId) {
         UserIdentity identity = new UserIdentity("testUser", Set.of(), Map.of(), java.time.Instant.now());
         return new CoordinatorSessionContext(queryId, Map.of(), identity, "default-tenant");
+    }
+
+    private static StageResourceGrant resourceGrant() {
+        return StageResourceGrant.newBuilder()
+                .setGrantId("unbound-property-grant")
+                .setNativeMemoryBytes(1024L)
+                .setCpuSlots(2)
+                .build();
     }
 
     private static org.pangrova.coordinator.query.stage.StageNode createStageNode(int stageId) {

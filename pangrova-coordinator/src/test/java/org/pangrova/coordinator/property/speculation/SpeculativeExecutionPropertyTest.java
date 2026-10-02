@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Property 25: Speculative execution correctness.
@@ -61,17 +62,12 @@ class SpeculativeExecutionPropertyTest {
     }
 
     @Property(tries = 10)
-    void speculativeTaskPairsAreTrackedCorrectly(
+    void speculativeLaunchWithoutDispatchCannotCreatePhantomPair(
             @ForAll("taskIds") String originalTaskId) {
-
-        String specId = launcher.launchSpeculative(originalTaskId, "exclude-worker");
-
-        assertThat(specId).startsWith("spec-");
-        assertThat(launcher.isSpeculative(specId)).isTrue();
-        assertThat(launcher.isSpeculative(originalTaskId)).isFalse();
-        assertThat(launcher.getOriginalTaskId(specId))
-                .isPresent()
-                .hasValue(originalTaskId);
+        assertThatThrownBy(() -> launcher.launchSpeculative(
+                originalTaskId, "exclude-worker", "query-1"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
     }
 
     @Property(tries = 10)

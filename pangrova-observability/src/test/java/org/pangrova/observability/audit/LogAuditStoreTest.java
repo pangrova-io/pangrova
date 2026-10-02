@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -20,6 +21,17 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Validates: Requirements 17.3
  */
 class LogAuditStoreTest {
+
+    @Test
+    void sharedStorePreservesPersistenceIdentityAcrossServices() {
+        assertThat(LogAuditStore.shared()).isSameAs(LogAuditStore.shared());
+        String id = UUID.randomUUID().toString();
+        var writer = new QueryAuditService(LogAuditStore.shared());
+        var reader = new QueryAuditService(LogAuditStore.shared());
+        var record = buildRecord(id, "writer", "SELECT 1", "tenant", true);
+        writer.persist(record);
+        assertThat(reader.findByQueryId(id)).contains(record);
+    }
 
     private ListAppender<ILoggingEvent> appender;
     private Logger auditLogger;

@@ -32,8 +32,12 @@ class ExpressionConverterNullabilityTest {
         rexBuilder = new RexBuilder(typeFactory);
         TypeMapper typeMapper = new TypeMapper();
         FunctionMapper functionMapper = new FunctionMapper();
-        WindowFunctionConverter windowConverter = new WindowFunctionConverter(typeMapper, functionMapper);
-        converter = new ExpressionConverter(typeMapper, functionMapper, windowConverter, rexBuilder);
+        LiteralConverter literalConverter = new LiteralConverter(typeMapper);
+        WindowFunctionConverter windowConverter = new WindowFunctionConverter(
+                typeMapper, functionMapper, literalConverter, rexBuilder);
+        converter = new ExpressionConverter(
+                typeMapper, functionMapper, windowConverter, rexBuilder,
+                literalConverter, ignored -> {});
     }
 
     @Test

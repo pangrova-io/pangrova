@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Audit test for speculative execution component wiring.
@@ -55,15 +56,12 @@ class SpeculativeExecutionWiringAuditTest {
     }
 
     @Test
-    void speculativeTaskLauncherComponentIsFunctional() {
+    void speculativeTaskLauncherDoesNotRegisterWithoutDispatch() {
         SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
-
-        String specId = launcher.launchSpeculative("original-task", "exclude-worker");
-
-        assertThat(specId).startsWith("spec-");
-        assertThat(launcher.isSpeculative(specId)).isTrue();
-        assertThat(launcher.getOriginalTaskId(specId)).hasValue("original-task");
-        assertThat(launcher.isSpeculative("original-task")).isFalse();
+        assertThatThrownBy(() -> launcher.launchSpeculative(
+                "original-task", "exclude-worker", "query-1"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
     }
 
     // ── Req 64.3: DuplicateTaskResolver wired into TaskStatusReceiver ──
@@ -80,12 +78,12 @@ class SpeculativeExecutionWiringAuditTest {
     void duplicateTaskResolverComponentIsFunctional() {
         DuplicateTaskResolver resolver = new DuplicateTaskResolver();
 
-        boolean firstWins = resolver.onTaskComplete("task-A", "stage-1", 0);
-        boolean secondLoses = resolver.onTaskComplete("task-B", "stage-1", 0);
+        boolean firstWins = resolver.onTaskComplete("query-1", "task-A", "stage-1", 0);
+        boolean secondLoses = resolver.onTaskComplete("query-1", "task-B", "stage-1", 0);
 
         assertThat(firstWins).isTrue();
         assertThat(secondLoses).isFalse();
-        assertThat(resolver.getWinner("stage-1", 0)).hasValue("task-A");
+        assertThat(resolver.getWinner("query-1", "stage-1", 0)).hasValue("task-A");
     }
 
     // ── Req 64.4: Resource cleanup path exists ──

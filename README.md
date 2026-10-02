@@ -244,7 +244,6 @@ The engine observes, learns, and optimizes itself — no DBA intervention requir
 | **Vector Index Lifecycle** | Auto-detect staleness, recommend rebuild, advise optimal index type |
 | **Data Layout Advisor** | Recommend partition/sort/compaction from observed query patterns |
 | **Retrieval Quality Observability** *(planned)* | Continuously measure recall/precision of AI search results |
-| **Conversation-Aware Context** *(planned)* | Multi-turn session memory for AI agent interactions |
 
 > Traditional databases treat AI as an external concern — embeddings are pre-computed elsewhere, vector search is a separate service, and the optimizer never learns from execution. Pangrova collapses this stack: **one engine, one SQL interface, one place where analytical queries and AI workloads co-execute** with shared memory, shared indexes, and shared optimization.
 
@@ -280,7 +279,7 @@ For exact dependency versions, see the root [pom.xml](pom.xml).
 | `pangrova-worker-native` | C++20 Velox execution engine, JNI bridge, vector indexes |
 | `pangrova-native-bundle` | Per-platform packaging of the native JNI library |
 | `pangrova-spi` / `pangrova-connector` | Connector SPI and built-in Iceberg / Paimon connectors |
-| `pangrova-shuffle` | Shuffle exchange core and Celeborn integration |
+| `pangrova-shuffle` | Shuffle exchange contracts and in-tree storage providers |
 | `pangrova-metadata` / `pangrova-indexing` | Catalog management and index services |
 | `pangrova-streaming` | CDC ingestion and continuous queries |
 | `pangrova-security` / `pangrova-governance` | Authentication, RBAC, masking, lineage |
@@ -344,7 +343,6 @@ We welcome contributions of all kinds — bug reports, feature requests, documen
 - [ ] **Federated Query** — Cross-catalog joins with predicate pushdown
 - [ ] **Materialized Views** — Automatic refresh, query rewriting
 - [ ] **Retrieval Quality Observability** — Recall/precision measurement for AI search (designed, see [AI-Native Architecture](docs/architecture/ai-native.md))
-- [ ] **Conversation-Aware Context** — Multi-turn session memory for AI agents (designed, see [AI-Native Architecture](docs/architecture/ai-native.md))
 - [ ] **GPU Acceleration** — RAPIDS integration for AI inference and compute-intensive operations
 - [ ] **Serverless Mode** — Auto-suspend/resume, pay-per-query deployment
 

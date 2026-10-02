@@ -13,7 +13,6 @@ import java.time.Instant;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class JdbcStreamOffsetStoreTest {
@@ -24,7 +23,6 @@ class JdbcStreamOffsetStoreTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        assumeTrue(SharedPostgresContainer.isAvailable());
         dataSource = SharedPostgresContainer.dataSource();
         initSchema(dataSource);
         stateStore = new JdbcStreamStateStore(dataSource);

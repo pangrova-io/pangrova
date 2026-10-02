@@ -15,10 +15,10 @@ package org.pangrova.planner;
 
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.connector.data.TypedRow;
+import org.pangrova.planner.type.PlannerTypeFactory;
 import org.apache.calcite.DataContext;
 import org.apache.calcite.adapter.java.JavaTypeFactory;
 import org.apache.calcite.interpreter.Interpreter;
-import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.linq4j.QueryProvider;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Values;
@@ -108,7 +108,7 @@ public final class ConstantPlanEvaluator {
         RelDataTypeFactory clusterTf = relNode.getCluster().getTypeFactory();
         final JavaTypeFactory typeFactory = (clusterTf instanceof JavaTypeFactory jtf)
                 ? jtf
-                : new JavaTypeFactoryImpl();
+                : new PlannerTypeFactory();
         return new DataContext() {
             @Override public SchemaPlus getRootSchema() { return null; }
             @Override public JavaTypeFactory getTypeFactory() { return typeFactory; }

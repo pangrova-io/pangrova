@@ -142,6 +142,11 @@ class InternalAuthFilterPropertyTest {
             if ("Authorization".equalsIgnoreCase(name)) return authHeader;
             return null;
         }
+        @Override public boolean containsHeaderString(
+                String name, String value, java.util.function.Predicate<String> valuePredicate) {
+            String header = getHeaderString(name);
+            return header != null && valuePredicate.test(header);
+        }
 
         @Override public UriInfo getUriInfo() {
             return new StubUriInfo(path);
@@ -193,6 +198,7 @@ class InternalAuthFilterPropertyTest {
         @Override public MultivaluedMap<String, String> getQueryParameters() { return new MultivaluedHashMap<>(); }
         @Override public MultivaluedMap<String, String> getQueryParameters(boolean decode) { return new MultivaluedHashMap<>(); }
         @Override public java.util.List<String> getMatchedURIs() { return java.util.List.of(); }
+        @Override public String getMatchedResourceTemplate() { return path; }
         @Override public java.util.List<String> getMatchedURIs(boolean decode) { return java.util.List.of(); }
         @Override public java.util.List<Object> getMatchedResources() { return java.util.List.of(); }
         @Override public URI resolve(URI uri) { return uri; }

@@ -6,6 +6,8 @@ import org.pangrova.spi.index.IndexType;
 import org.pangrova.spi.index.vector.DistanceMetric;
 import org.pangrova.spi.index.vector.VectorHybridSearchStrategy;
 import org.pangrova.spi.index.vector.VectorHybridSearchStrategy.Mode;
+import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.v2.CapabilityRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -96,9 +98,51 @@ public final class VectorIndexRoutingRule {
                 candidate.topK(),
                 candidate.metric(),
                 matchingIndex.indexId(),
+                retrievalCapability(matchingIndex),
+                searchBudget(matchingIndex, strategy.effectiveK()),
                 serializedPreFilters,
                 strategy,
-                matchingIndex.generation()));
+                matchingIndex.generation(),
+                "",
+                "",
+                0));
+    }
+
+    private static CapabilityRef retrievalCapability(IndexDescriptor descriptor) {
+        String value = descriptor.properties().getOrDefault("algorithm", "HNSW")
+                .trim().toUpperCase().replace('-', '_');
+        return BuiltInCapabilityCatalog.vectorRetrievalPlanRef(value);
+    }
+
+    private static int searchBudget(IndexDescriptor descriptor, int effectiveK) {
+        CapabilityRef capability = retrievalCapability(descriptor);
+        String capabilityId = capability.getCapabilityId();
+        int dynamic = (int) Math.min(
+                100_000L, Math.max(64L, Math.multiplyExact((long) effectiveK, 4L)));
+        String key;
+        int defaultValue;
+        int maximum;
+        if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
+            key = "nprobes";
+            maximum = Integer.parseInt(
+                    descriptor.properties().getOrDefault("coarse_clusters", "64"));
+            defaultValue = Math.min(8, maximum);
+        } else {
+            key = BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)
+                    ? "ef_search"
+                    : "search_list_size";
+            maximum = 100_000;
+            defaultValue = dynamic;
+        }
+        int value = Integer.parseInt(
+                descriptor.properties().getOrDefault(key, Integer.toString(defaultValue)));
+        int minimum = BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)
+                ? 1
+                : effectiveK;
+        if (value < minimum || value > maximum) {
+            throw new IllegalArgumentException(key + " is outside the bounded range");
+        }
+        return value;
     }
 
     /**

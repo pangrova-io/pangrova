@@ -58,6 +58,43 @@ TEST_F(ShuffleBatchSerializerTest, SerializeDeserializeRoundTrip) {
   }
 }
 
+TEST_F(ShuffleBatchSerializerTest, ReplicatedUnnestSourceArrayRoundTripsAcrossStage) {
+  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+
+  auto ids = maker.flatVector<int64_t>({1, 1, 2});
+  auto tags = maker.arrayVector<facebook::velox::StringView>(
+      {{"alpha", "beta"}, {"alpha", "beta"}, {"gamma"}});
+  auto values = maker.flatVector<facebook::velox::StringView>(
+      {"alpha", "beta", "gamma"});
+  auto produced = maker.rowVector(
+      {"id", "__unnest_placeholder_1", "val"}, {ids, tags, values});
+  auto expected = facebook::velox::ROW(
+      {"id", "tags", "val"},
+      {facebook::velox::BIGINT(),
+       facebook::velox::ARRAY(facebook::velox::VARCHAR()),
+       facebook::velox::VARCHAR()});
+
+  auto serialized = writer.serialize(produced, leafPool_.get());
+  ASSERT_NE(serialized, nullptr);
+  auto consumed = writer.deserialize(
+      std::move(*serialized), expected, leafPool_.get());
+  ASSERT_NE(consumed, nullptr);
+  ASSERT_EQ(consumed->size(), 3);
+  auto sourceArrays = consumed->childAt(1)->as<facebook::velox::ArrayVector>();
+  ASSERT_NE(sourceArrays, nullptr);
+  EXPECT_EQ(sourceArrays->sizeAt(0), 2);
+  EXPECT_EQ(sourceArrays->sizeAt(1), 2);
+  EXPECT_EQ(sourceArrays->sizeAt(2), 1);
+  auto elements = sourceArrays->elements()->asFlatVector<facebook::velox::StringView>();
+  ASSERT_NE(elements, nullptr);
+  EXPECT_EQ(elements->valueAt(sourceArrays->offsetAt(0)).str(), "alpha");
+  EXPECT_EQ(elements->valueAt(sourceArrays->offsetAt(1) + 1).str(), "beta");
+  EXPECT_EQ(elements->valueAt(sourceArrays->offsetAt(2)).str(), "gamma");
+  EXPECT_EQ(consumed->childAt(2)->asFlatVector<facebook::velox::StringView>()
+                ->valueAt(1).str(), "beta");
+}
+
 TEST_F(ShuffleBatchSerializerTest, EmptyRowVector) {
   ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
   facebook::velox::test::VectorMaker maker(leafPool_.get());
@@ -180,6 +217,66 @@ TEST_F(ShuffleBatchSerializerTest, MultipleTypes) {
   EXPECT_EQ(resBool->valueAt(0), true);
   EXPECT_EQ(resBool->valueAt(1), false);
   EXPECT_EQ(resVarchar->valueAt(2).str(), "gamma");
+}
+
+TEST(ShuffleBatchSerializerBoundaryTest, PlansMoreThanFourMiBIntoBoundedBatches) {
+  const std::vector<uint64_t> estimated_row_bytes(300, 1024 * 1024);
+  const auto row_counts = planShuffleBatchRowCounts(
+      estimated_row_bytes, kMaxCanonicalShuffleBatchBytes);
+
+  ASSERT_EQ(row_counts.size(), 100);
+  for (const auto rows : row_counts) EXPECT_EQ(rows, 3);
+}
+
+TEST(ShuffleBatchSerializerBoundaryTest, RejectsPageLimitAboveFlightContract) {
+  ShuffleBatchSerializer::Config config;
+  config.max_serialized_batch_bytes = kCanonicalShuffleBatchBytes + 1;
+  EXPECT_THROW(ShuffleBatchSerializer writer(config), std::exception);
+}
+
+TEST_F(ShuffleBatchSerializerTest, SerializesRowsIntoBoundedCompletePages) {
+  ShuffleBatchSerializer::Config config;
+  config.compression_codec = "none";
+  config.max_serialized_batch_bytes = 128 * 1024;
+  ShuffleBatchSerializer writer(config);
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+
+  std::vector<std::string> values(6, std::string(40 * 1024, 'v'));
+  std::vector<facebook::velox::StringView> views;
+  views.reserve(values.size());
+  for (const auto& value : values) {
+    views.emplace_back(value);
+  }
+  auto strings = maker.flatVector<facebook::velox::StringView>(views);
+  auto row_vector = maker.rowVector({"payload"}, {strings});
+
+  auto batches = writer.serializeBatches(row_vector, leafPool_.get());
+  ASSERT_GT(batches.size(), 1);
+  int64_t total_rows = 0;
+  for (const auto& batch : batches) {
+    ASSERT_NE(batch.data, nullptr);
+    EXPECT_LE(batch.data->computeChainDataLength(),
+              config.max_serialized_batch_bytes);
+    EXPECT_GT(batch.row_count, 0);
+    total_rows += batch.row_count;
+  }
+  EXPECT_EQ(total_rows, row_vector->size());
+}
+
+TEST_F(ShuffleBatchSerializerTest, RejectsOneRowWiderThanBatchLimit) {
+  ShuffleBatchSerializer::Config config;
+  config.compression_codec = "none";
+  config.max_serialized_batch_bytes = 128 * 1024;
+  ShuffleBatchSerializer writer(config);
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+
+  const std::string value(96 * 1024, 'w');
+  auto strings = maker.flatVector<facebook::velox::StringView>(
+      {facebook::velox::StringView(value)});
+  auto row_vector = maker.rowVector({"payload"}, {strings});
+
+  EXPECT_THROW(writer.serializeBatches(row_vector, leafPool_.get()),
+               facebook::velox::VeloxUserError);
 }
 
 }  // namespace

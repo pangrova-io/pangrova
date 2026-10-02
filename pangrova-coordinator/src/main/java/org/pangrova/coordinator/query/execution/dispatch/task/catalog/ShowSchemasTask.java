@@ -23,9 +23,7 @@ public final class ShowSchemasTask implements MetadataTask<ShowSchemasStatement>
 
     @Override
     public StatementResult execute(ShowSchemasStatement statement, StatementExecutionContext context) {
-        org.pangrova.spi.security.UserIdentity user = context.session() != null
-                ? context.session().userIdentity() : null;
-        List<TypedRow> rows = executor.executeShowSchemas(statement, user);
+        List<TypedRow> rows = executor.executeShowSchemas(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
     }
 

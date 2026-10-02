@@ -13,10 +13,11 @@ import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
 import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.spi.connector.metadata.SnapshotReference;
+import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
@@ -243,31 +244,20 @@ class BranchTtlCleanupTaskLeaderGateTest {
         }
 
         @Override
+        public List<SnapshotReference> listSnapshotReferences(
+                ConnectorSession session, ConnectorTableHandle table) {
+            TestTableHandle h = (TestTableHandle) table;
+            return refs.stream()
+                    .filter(r -> r.schema.equals(h.schema()) && r.table.equals(h.table()))
+                    .map(r -> new SnapshotReference(r.name,
+                            SnapshotReference.Type.valueOf(r.type), r.snapshotId))
+                    .toList();
+        }
+
+        @Override
         public Optional<ConnectorSystemTable> getSystemTable(
                 ConnectorSession session, ConnectorTableHandle table, String systemTableName) {
-            if (!"refs".equals(systemTableName)) {
-                return Optional.empty();
-            }
-            TestTableHandle h = (TestTableHandle) table;
-            List<TypedRow> rows = refs.stream()
-                    .filter(r -> r.schema.equals(h.schema()) && r.table.equals(h.table()))
-                    .map(r -> TypedRow.builder()
-                            .putString("name", r.name)
-                            .putString("type", r.type)
-                            .putLong("snapshot_id", r.snapshotId)
-                            .build())
-                    .toList();
-            return Optional.of(new ConnectorSystemTable() {
-                @Override
-                public List<String> columns() {
-                    return List.of("name", "type", "snapshot_id");
-                }
-
-                @Override
-                public List<TypedRow> rows() {
-                    return rows;
-                }
-            });
+            throw new AssertionError("TTL cleanup must not scan system-table rows");
         }
 
         @Override
@@ -277,9 +267,21 @@ class BranchTtlCleanupTaskLeaderGateTest {
         }
 
         @Override
+        public ConditionalBranchDropResult dropBranchIfSnapshotMatches(
+                ConnectorSession session, ConnectorTableHandle table,
+                String branchName, long expectedSnapshotId) {
+            boolean removed = refs.removeIf(r -> r.name.equals(branchName)
+                    && "BRANCH".equals(r.type) && r.snapshotId == expectedSnapshotId);
+            if (removed) {
+                droppedBranches.add(branchName);
+                return ConditionalBranchDropResult.DROPPED;
+            }
+            return ConditionalBranchDropResult.REF_CHANGED;
+        }
+
+        @Override
         public void dropBranch(ConnectorSession session, ConnectorTableHandle table, String branchName) {
-            droppedBranches.add(branchName);
-            refs.removeIf(r -> r.name.equals(branchName) && "BRANCH".equals(r.type));
+            throw new AssertionError("TTL cleanup must use conditional branch removal");
         }
 
         private record TableEntry(String schema, String table, Map<String, String> properties) {}

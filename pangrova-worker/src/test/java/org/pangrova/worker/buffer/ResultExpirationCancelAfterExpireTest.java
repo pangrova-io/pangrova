@@ -1,9 +1,11 @@
 package org.pangrova.worker.buffer;
 
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -40,19 +42,20 @@ class ResultExpirationCancelAfterExpireTest {
     @Test
     void cancelAfterExpireIsNoOpAndQueryRemainsExpired() throws InterruptedException {
         Duration shortRetention = Duration.ofMillis(50);
+        CountDownLatch callbackCompleted = new CountDownLatch(1);
         ResultExpirationScheduler expirationScheduler = new ResultExpirationScheduler(
-                scheduler, shortRetention, expiredIds::add);
+                scheduler, shortRetention, id -> {
+                    expiredIds.add(id);
+                    callbackCompleted.countDown();
+                });
 
         String queryId = "q-expire-then-cancel";
         expirationScheduler.scheduleExpiration(queryId);
 
-        // Wait for expiration to fire
-        boolean expired = awaitCondition(() -> expirationScheduler.isExpired(queryId), 2000);
-        assertThat(expired)
-                .as("query should be marked expired after retention period")
-                .isTrue();
-
-        // Verify callback was invoked
+        // isExpired can become visible before the callback runs on the scheduler thread.
+        // Wait for the callback itself before asserting its side effect.
+        assertThat(callbackCompleted.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(expirationScheduler.isExpired(queryId)).isTrue();
         assertThat(expiredIds).containsExactly(queryId);
 
         // Now call cancelExpiration — must not throw
@@ -95,15 +98,4 @@ class ResultExpirationCancelAfterExpireTest {
                 .doesNotThrowAnyException();
     }
 
-    private boolean awaitCondition(java.util.function.BooleanSupplier condition, long timeoutMs)
-            throws InterruptedException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        while (System.currentTimeMillis() < deadline) {
-            if (condition.getAsBoolean()) {
-                return true;
-            }
-            Thread.sleep(10);
-        }
-        return false;
-    }
 }

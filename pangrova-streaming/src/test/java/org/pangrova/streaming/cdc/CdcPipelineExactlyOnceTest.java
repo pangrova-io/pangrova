@@ -113,7 +113,8 @@ class CdcPipelineExactlyOnceTest {
                 )""");
             stmt.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_cdc_commit_state_dedup
-                    ON cdc_commit_state (source_id, batch_key)""");
+                    ON cdc_commit_state (source_id, batch_key)
+                    WHERE state <> 'ROLLED_BACK'""");
         }
 
         stateStore = new JdbcCdcCommitStateStore(dataSource);
@@ -341,6 +342,8 @@ class CdcPipelineExactlyOnceTest {
         SourceId source = new SourceId(STREAM_NAME);
         OffsetRange range = new OffsetRange(0, 0, 49);
         PrepareToken token = coordinator.prepare(source, range);
+        assertTrue(stateStore.compareAndSetState(
+                token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING));
         coordinator.commit(token);
 
         FakeSourceReader reader = new FakeSourceReader();

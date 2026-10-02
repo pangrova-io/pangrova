@@ -1,0 +1,140 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/capability.proto";
+import "pangrova/protocol/v2/common.proto";
+import "pangrova/protocol/v2/model.proto";
+import "substrait/algebra.proto";
+import "substrait/type.proto";
+
+message NamedExpressionArgument {
+  string name = 1;
+  substrait.Expression expression = 2;
+}
+
+message CapabilityInvocation {
+  CapabilityRef capability = 1;
+  repeated NamedExpressionArgument arguments = 2;
+  repeated NamedValue options = 3;
+}
+
+enum ScoreDirection {
+  SCORE_DIRECTION_UNSPECIFIED = 0;
+  SCORE_DIRECTION_HIGHER_IS_BETTER = 1;
+  SCORE_DIRECTION_LOWER_IS_BETTER = 2;
+}
+
+message CandidateContract {
+  uint32 schema_version = 1;
+  substrait.NamedStruct schema = 2;
+  ScoreDirection score_direction = 3;
+  repeated string stable_key_fields = 4;
+}
+
+message RetrievalSourceDetail {
+  string plan_node_id = 1;
+  string source_id = 2;
+  CapabilityInvocation invocation = 3;
+  uint64 candidate_limit = 4;
+  uint64 exact_rescore_limit = 5;
+  CandidateContract output_contract = 6;
+}
+
+message RetrievalInputContract {
+  string source_id = 1;
+  CandidateContract contract = 2;
+}
+
+message RetrievalMergeDetail {
+  string plan_node_id = 1;
+  CapabilityInvocation invocation = 2;
+  repeated RetrievalInputContract inputs = 3;
+  uint64 output_limit = 4;
+  uint32 max_fan_in = 5;
+  CandidateContract output_contract = 6;
+}
+
+message RerankDetail {
+  string plan_node_id = 1;
+  CapabilityInvocation invocation = 2;
+  uint64 input_limit = 3;
+  uint64 output_limit = 4;
+  CandidateContract output_contract = 5;
+  ModelRef model = 6;
+}
+
+message CandidateFillDetail {
+  string plan_node_id = 1;
+  CapabilityInvocation invocation = 2;
+  repeated string requested_columns = 3;
+  substrait.NamedStruct output_schema = 4;
+}
+
+message AiInvokeDetail {
+  string plan_node_id = 1;
+  CapabilityInvocation invocation = 2;
+  substrait.NamedStruct output_schema = 3;
+  uint32 max_batch_items = 4;
+  uint64 max_batch_bytes = 5;
+}
+
+// Generic table capability invocation for non-AI and AI table functions. The
+// capability descriptor, rather than a function-specific wire schema, defines
+// signature, placement and limits.
+message TableFunctionDetail {
+  string plan_node_id = 1;
+  CapabilityInvocation invocation = 2;
+  substrait.NamedStruct output_schema = 3;
+}
+
+// Generic Native background sink. The invoked capability determines whether
+// the artifact is an index, embedding segment, cache shard or export; the
+// protocol deliberately contains no vector/index-specific task envelope.
+// Runtime output location and fencing are supplied by ArtifactWriteBinding.
+message ArtifactBuildDetail {
+  string plan_node_id = 1;
+  CapabilityInvocation invocation = 2;
+  repeated string input_fields = 3;
+  uint32 report_schema_version = 4;
+}
+
+enum ExchangeDistribution {
+  EXCHANGE_DISTRIBUTION_UNSPECIFIED = 0;
+  EXCHANGE_DISTRIBUTION_HASH = 1;
+  EXCHANGE_DISTRIBUTION_BROADCAST = 2;
+  EXCHANGE_DISTRIBUTION_ROUND_ROBIN = 3;
+  EXCHANGE_DISTRIBUTION_SINGLETON = 4;
+}
+
+// Typed consumer-side counterpart of the standard Substrait ExchangeRel.
+// ExchangeRel terminates the producer fragment; this extension leaf starts the
+// consumer fragment. Runtime endpoints are supplied separately by
+// ExchangeInputBinding so plans remain deterministic and retry-safe.
+message ExchangeInputDetail {
+  string plan_node_id = 1;
+  string exchange_id = 2;
+  int32 upstream_stage_id = 3;
+  int32 downstream_stage_id = 4;
+  ExchangeDistribution distribution = 5;
+  uint32 partition_count = 6;
+  substrait.NamedStruct output_schema = 7;
+  BatchSerde batch_serde = 8;
+  bool require_complete = 9;
+}
+
+message RelationDetailEnvelope {
+  uint32 schema_version = 1;
+  oneof detail {
+    RetrievalSourceDetail retrieval_source = 10;
+    RetrievalMergeDetail retrieval_merge = 11;
+    RerankDetail rerank = 12;
+    CandidateFillDetail candidate_fill = 13;
+    AiInvokeDetail ai_invoke = 14;
+    ExchangeInputDetail exchange_input = 15;
+    TableFunctionDetail table_function = 16;
+    ArtifactBuildDetail artifact_build = 17;
+  }
+}

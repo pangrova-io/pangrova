@@ -36,7 +36,7 @@ class PluginFederationHandleFactoryTest {
     void metadataBootstrapWithFederationFactory() {
         MetadataBootstrapTest.InMemoryMetadataStore store = new MetadataBootstrapTest.InMemoryMetadataStore();
         PluginConnectorHandleFactory connectorFactory =
-                new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver());
+                new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver(), descriptor -> java.util.Optional.empty());
         PluginFederationHandleFactory federationFactory =
                 new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolver());
 
@@ -56,7 +56,7 @@ class PluginFederationHandleFactoryTest {
         store.saveCatalogDescriptor(connectorDescriptor("test_iceberg", "iceberg"));
 
         PluginConnectorHandleFactory connectorFactory =
-                new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver());
+                new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver(), descriptor -> java.util.Optional.empty());
         PluginFederationHandleFactory federationFactory =
                 new PluginFederationHandleFactory(getClass().getClassLoader(), new SecretResolver());
 
@@ -79,7 +79,7 @@ class PluginFederationHandleFactoryTest {
         store.saveCatalogDescriptor(connectorDescriptor("ice_cat", "iceberg"));
 
         PluginConnectorHandleFactory connectorFactory =
-                new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver());
+                new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver(), descriptor -> java.util.Optional.empty());
         MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
 
         CatalogHandle handle = bootstrap.catalogRegistry().getCatalog("ice_cat");

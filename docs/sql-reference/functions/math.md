@@ -81,6 +81,14 @@ FLOOR(numeric_expr) → same type
 CEIL(numeric_expr) → same type
 ```
 
+For `DECIMAL(p,s)`, the canonical `ROUND` return type follows the registered
+Native signature: without `scale`, `DECIMAL(min(38,p-s+min(s,1)),0)`; with
+`scale`, `DECIMAL(min(38,p+1),s)`. The optional position is explicitly cast to
+`INTEGER` during validation. These type rules do not imply runtime admission:
+the current static SQL capability list does not admit `ROUND`/`FLOOR`/`CEIL`,
+and must be replaced by the actual registered-function inventory before those
+functions can be advertised as an end-to-end supported capability.
+
 ```sql
 SELECT ROUND(3.14159, 2) AS rounded;  -- 3.14
 SELECT FLOOR(3.7) AS floored;          -- 3

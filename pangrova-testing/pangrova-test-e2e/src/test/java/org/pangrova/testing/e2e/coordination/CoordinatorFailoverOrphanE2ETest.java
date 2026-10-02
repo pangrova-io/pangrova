@@ -1,11 +1,11 @@
 package org.pangrova.testing.e2e.coordination;
 
 import org.pangrova.coordinator.coordination.LeaseBackedLeaderElection;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.DistributedLease;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
 import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,7 +39,7 @@ class CoordinatorFailoverOrphanE2ETest extends SqlE2ETestBase {
     private static final long LEASE_MS = 5000;
 
     private DataSource dataSource;
-    private LeaseBackedLeaderElection backend;
+    private FencedLeaderElectionTestDriver backend;
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -52,11 +52,11 @@ class CoordinatorFailoverOrphanE2ETest extends SqlE2ETestBase {
         dataSource = MetadataSchemaInitializer.createDataSource(
                 mysqlJdbcUrl(), mysqlUsername(), mysqlPassword());
         ensureOrphanedQueriesTable(dataSource);
-        ensureDistributedLeaseTable(dataSource);
+        MetadataSchemaInitializer.createSchema(dataSource);
         truncateTable(dataSource, "orphaned_queries");
-        truncateTable(dataSource, "distributed_lease");
-        DistributedLease lease = new JdbcDistributedLease(dataSource);
-        backend = new LeaseBackedLeaderElection(lease);
+        DistributedLease lease = new TestLeaseNamespace().jdbc(dataSource);
+        backend = new FencedLeaderElectionTestDriver(
+                new LeaseBackedLeaderElection(lease));
     }
 
     @AfterEach
@@ -154,21 +154,6 @@ class CoordinatorFailoverOrphanE2ETest extends SqlE2ETestBase {
                         released_at          BIGINT       NOT NULL DEFAULT 0,
                         claimed_by           VARCHAR(255),
                         claimed_at           BIGINT
-                    )""");
-        }
-    }
-
-    private static void ensureDistributedLeaseTable(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS distributed_lease (
-                        lease_key   VARCHAR(255) PRIMARY KEY,
-                        holder_id   VARCHAR(255) NOT NULL,
-                        epoch       BIGINT       NOT NULL DEFAULT 0,
-                        acquired_at TIMESTAMP(3) NOT NULL,
-                        expires_at  TIMESTAMP(3) NOT NULL,
-                        version     BIGINT       NOT NULL DEFAULT 0
                     )""");
         }
     }

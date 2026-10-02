@@ -25,6 +25,18 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
             LOG.debug("event=ddl_dml_skip reason=metadata_disabled");
             return new PhaseResult.Continue(context);
         }
+        org.pangrova.parser.ast.Statement parsed = null;
+        try {
+            parsed = context.compiler().parseToAst(context.sql());
+        } catch (RuntimeException parseFailure) {
+            // Preserve the existing dispatch fallback for SQL handled directly
+            // by Calcite; CompilationPhase will report unsupported syntax.
+        }
+        String rewritten = ShowMetadataSqlRewriter.rewrite(parsed);
+        if (rewritten != null) {
+            LOG.debug("event=show_metadata_rewritten queryId={}", context.session().queryId());
+            return new PhaseResult.Continue(context.withRewrittenSql(rewritten));
+        }
         DispatchResult result = statementDispatcher.tryDispatch(
                 context.stateMachine(),
                 context.sql(),

@@ -1,10 +1,14 @@
 package org.pangrova.worker.heartbeat;
 
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.jupiter.api.Test;
 
@@ -221,5 +225,37 @@ class HeartbeatSenderTest {
 
         sender.stop();
         assertFalse(sender.isRunning());
+    }
+
+    @Test
+    void successfulHeartbeatPublishesAuthenticatedControlEpoch() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/worker/heartbeat", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] body = "{\"status\":\"ok\",\"coordinator_epoch\":42}".getBytes();
+            exchange.sendResponseHeaders(200, body.length);
+            try (java.io.OutputStream output = exchange.getResponseBody()) {
+                output.write(body);
+            }
+        });
+        server.start();
+        ScheduledExecutorService executor = newExecutor();
+        try {
+            HeartbeatConfig config = new HeartbeatConfig(
+                    "http://127.0.0.1:" + server.getAddress().getPort(), "w-epoch", 1000);
+            HeartbeatSender sender = new HeartbeatSender(
+                    config,
+                    () -> new HeartbeatPayload("w-epoch", "NONE", 0.1, 0, 1024),
+                    executor, HttpClient.newHttpClient(), null);
+            AtomicLong observed = new AtomicLong();
+            sender.setCoordinatorEpochObserver(observed::set);
+
+            sender.sendHeartbeat();
+
+            assertEquals(42L, observed.get());
+        } finally {
+            executor.shutdownNow();
+            server.stop(0);
+        }
     }
 }

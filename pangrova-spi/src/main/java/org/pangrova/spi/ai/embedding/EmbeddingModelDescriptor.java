@@ -15,6 +15,8 @@ package org.pangrova.spi.ai.embedding;
 
 import org.pangrova.spi.annotation.Experimental;
 
+import java.net.URI;
+
 /**
  * Immutable descriptor for a registered embedding model configuration.
  *
@@ -23,42 +25,128 @@ import org.pangrova.spi.annotation.Experimental;
  * actual credentials are never persisted in catalog metadata.</p>
  *
  * @param name                 unique model name (must not be null or blank)
- * @param provider             provider type identifier (e.g., "openai-compatible"; must not be null or blank)
- * @param endpoint             model service endpoint URL (must not be null or blank)
- * @param dimension            output vector dimensionality (must be positive)
- * @param apiKeySecret         opaque secret reference for authentication (must not be null or blank)
- * @param maxBatchSize         maximum inputs per batch request (must be positive)
- * @param maxRequestsPerSecond rate limit for embedding requests (must be positive)
- * @param queryPrefix          prefix prepended to query-time text (may be empty, must not be null)
- * @param documentPrefix       prefix prepended to document-time text (may be empty, must not be null)
+ * @param route                provider route and opaque credential reference
+ * @param contract             exact vector output and text-prefix contract
+ * @param limits               provider batching and rate limits
  * @param version              configuration version, incremented on ALTER (must be non-negative)
+ * @param deployment           exact Worker deployment fence selected at catalog registration
  */
 @Experimental
 public record EmbeddingModelDescriptor(
         String name,
-        String provider,
-        String endpoint,
-        int dimension,
-        String apiKeySecret,
-        int maxBatchSize,
-        int maxRequestsPerSecond,
-        String queryPrefix,
-        String documentPrefix,
-        int version) {
+        ProviderRoute route,
+        EmbeddingContract contract,
+        ServingLimits limits,
+        int version,
+        DeploymentFence deployment) {
 
     public EmbeddingModelDescriptor {
         requireText(name, "name");
-        requireText(provider, "provider");
-        requireText(endpoint, "endpoint");
-        requirePositive(dimension, "dimension");
-        requireText(apiKeySecret, "apiKeySecret");
-        requirePositive(maxBatchSize, "maxBatchSize");
-        requirePositive(maxRequestsPerSecond, "maxRequestsPerSecond");
-        requireNonNull(queryPrefix, "queryPrefix");
-        requireNonNull(documentPrefix, "documentPrefix");
+        requireNonNull(route, "route");
+        requireNonNull(contract, "contract");
+        requireNonNull(limits, "limits");
+        requireNonNull(deployment, "deployment");
         if (version < 0) {
             throw new IllegalArgumentException("version must be non-negative");
         }
+    }
+
+    /** Returns whether this catalog revision is fenced to one exact Worker deployment. */
+    public boolean isDeploymentBound() {
+        return deployment.isBound();
+    }
+
+    public String provider() { return route.provider(); }
+    public String endpoint() { return route.endpoint(); }
+    public String apiKeySecret() { return route.apiKeySecret(); }
+    public int dimension() { return contract.dimension(); }
+    public String queryPrefix() { return contract.queryPrefix(); }
+    public String documentPrefix() { return contract.documentPrefix(); }
+    public int maxBatchSize() { return limits.maxBatchSize(); }
+    public int maxRequestsPerSecond() { return limits.maxRequestsPerSecond(); }
+    public String deploymentVersion() { return deployment.version(); }
+    public String deploymentSignatureSha256() { return deployment.signatureSha256(); }
+
+    public record ProviderRoute(String provider, String endpoint, String apiKeySecret) {
+        public ProviderRoute {
+            requireText(provider, "provider");
+            requireText(endpoint, "endpoint");
+            requireCredential(apiKeySecret);
+            URI uri = URI.create(endpoint);
+            requireEndpointAddress(uri);
+            requireEndpointTransport(uri, apiKeySecret);
+        }
+
+        private static void requireCredential(String apiKeySecret) {
+            requireNonNull(apiKeySecret, "apiKeySecret");
+            if (!apiKeySecret.isEmpty() && apiKeySecret.isBlank()) {
+                throw new IllegalArgumentException(
+                        "apiKeySecret must be a non-blank reference or canonical empty value");
+            }
+        }
+
+        private static void requireEndpointAddress(URI uri) {
+            if (!uri.isAbsolute() || uri.getHost() == null || uri.getUserInfo() != null
+                    || uri.getQuery() != null || uri.getFragment() != null) {
+                throw new IllegalArgumentException(
+                        "endpoint must be an absolute URI without user-info, query or fragment");
+            }
+        }
+
+        private static void requireEndpointTransport(URI uri, String apiKeySecret) {
+            if (!"https".equalsIgnoreCase(uri.getScheme())
+                    && !(apiKeySecret.isEmpty() && "http".equalsIgnoreCase(uri.getScheme())
+                            && isLoopback(uri.getHost()))) {
+                throw new IllegalArgumentException(
+                        "endpoint must use HTTPS; HTTP is allowed only for an anonymous loopback deployment");
+            }
+        }
+
+        private static boolean isLoopback(String host) {
+            return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)
+                    || "::1".equals(host) || "[::1]".equals(host);
+        }
+
+        /** A canonical empty credential reference denotes explicit no-auth deployment. */
+        public boolean unauthenticated() {
+            return apiKeySecret.isEmpty();
+        }
+    }
+
+    public record EmbeddingContract(
+            int dimension, String queryPrefix, String documentPrefix) {
+        public EmbeddingContract {
+            requirePositive(dimension, "dimension");
+            requireNonNull(queryPrefix, "queryPrefix");
+            requireNonNull(documentPrefix, "documentPrefix");
+        }
+    }
+
+    public record ServingLimits(int maxBatchSize, int maxRequestsPerSecond) {
+        public ServingLimits {
+            requirePositive(maxBatchSize, "maxBatchSize");
+            requirePositive(maxRequestsPerSecond, "maxRequestsPerSecond");
+        }
+    }
+
+    public record DeploymentFence(String version, String signatureSha256) {
+        public DeploymentFence {
+            requireNonNull(version, "deploymentVersion");
+            requireNonNull(signatureSha256, "deploymentSignatureSha256");
+            boolean hasVersion = !version.isBlank();
+            boolean hasSignature = !signatureSha256.isBlank();
+            if (hasVersion != hasSignature) {
+                throw new IllegalArgumentException(
+                        "deployment version and signature must be present together");
+            }
+            if (hasSignature && !signatureSha256.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException(
+                        "deploymentSignatureSha256 must be 64 lowercase hexadecimal characters");
+            }
+        }
+
+        public static DeploymentFence unbound() { return new DeploymentFence("", ""); }
+        public boolean isBound() { return !version.isBlank(); }
     }
 
     private static void requireText(String value, String fieldName) {
@@ -73,7 +161,7 @@ public record EmbeddingModelDescriptor(
         }
     }
 
-    private static void requireNonNull(String value, String fieldName) {
+    private static void requireNonNull(Object value, String fieldName) {
         if (value == null) {
             throw new IllegalArgumentException(fieldName + " must not be null");
         }

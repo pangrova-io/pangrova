@@ -4,7 +4,6 @@ import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig.CoreConfig;
 import org.pangrova.coordinator.bootstrap.CoordinatorRole;
 import org.pangrova.coordinator.index.lifecycle.MaintenanceLeaderElection;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
 import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.DistributedLease;
@@ -12,6 +11,7 @@ import org.pangrova.spi.coordination.QueryStateEvent;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
 import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -26,7 +26,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -50,7 +49,7 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
     private static final String CATALOG = "iceberg_catalog";
     private static final String SCHEMA = "default";
     private static final String FQN_PREFIX = CATALOG + "." + SCHEMA + ".";
-    private static final String LEASE_KEY = "index-maintenance";
+    private static final String LEASE_KEY = "maintenance-control";
 
     private static final String DDL_INVALIDATION_LOG = """
             CREATE TABLE IF NOT EXISTS invalidation_log (
@@ -83,26 +82,24 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
     void initMultiCoordinatorInfra() throws Exception {
         stateDs = MetadataSchemaInitializer.createDataSource(
                 mysqlJdbcUrl(), mysqlUsername(), mysqlPassword());
-        ensureDistributedLeaseTable(stateDs);
-        truncateDistributedLeaseTable(stateDs);
+        MetadataSchemaInitializer.createSchema(stateDs);
         ensureInvalidationLogTable(stateDs);
-        MetadataSchemaInitializer.createStateStoreTables(stateDs);
 
-        DistributedLease lease1 = new JdbcDistributedLease(stateDs);
-        DistributedLease lease2 = new JdbcDistributedLease(stateDs);
-        DistributedLease lease3 = new JdbcDistributedLease(stateDs);
-        coordinator1 = new MaintenanceLeaderElection(lease1, "query-coord-1", new AtomicLong(0));
-        coordinator2 = new MaintenanceLeaderElection(lease2, "query-coord-2", new AtomicLong(0));
-        coordinator3 = new MaintenanceLeaderElection(lease3, "maint-coord-1", new AtomicLong(0));
+        TestLeaseNamespace leaseNamespace = new TestLeaseNamespace();
+        DistributedLease lease1 = leaseNamespace.jdbc(stateDs);
+        DistributedLease lease2 = leaseNamespace.jdbc(stateDs);
+        DistributedLease lease3 = leaseNamespace.jdbc(stateDs);
+        coordinator1 = new MaintenanceLeaderElection(lease1, "query-coord-1");
+        coordinator2 = new MaintenanceLeaderElection(lease2, "query-coord-2");
+        coordinator3 = new MaintenanceLeaderElection(lease3, "maint-coord-1");
     }
 
     @AfterEach
     void cleanupLeases() {
         try {
-            DistributedLease cleanupLease = new JdbcDistributedLease(stateDs);
-            cleanupLease.release(LEASE_KEY, "query-coord-1");
-            cleanupLease.release(LEASE_KEY, "query-coord-2");
-            cleanupLease.release(LEASE_KEY, "maint-coord-1");
+            coordinator1.release();
+            coordinator2.release();
+            coordinator3.release();
         } catch (Exception ignored) {
             // Best-effort cleanup
         }
@@ -628,28 +625,6 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
     // Schema setup helpers
     // -----------------------------------------------------------------------
-
-    private static void ensureDistributedLeaseTable(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS distributed_lease (
-                        lease_key   VARCHAR(255) PRIMARY KEY,
-                        holder_id   VARCHAR(255) NOT NULL,
-                        epoch       BIGINT       NOT NULL DEFAULT 0,
-                        acquired_at TIMESTAMP(3) NOT NULL,
-                        expires_at  TIMESTAMP(3) NOT NULL,
-                        version     BIGINT       NOT NULL DEFAULT 0
-                    )""");
-        }
-    }
-
-    private static void truncateDistributedLeaseTable(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DELETE FROM distributed_lease");
-        }
-    }
 
     private static void ensureInvalidationLogTable(DataSource ds) throws Exception {
         try (Connection conn = ds.getConnection();

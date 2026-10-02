@@ -13,19 +13,40 @@
 #include <unordered_map>
 
 #include "executor/driver/TaskLifecycle.h"
+#include "executor/driver/WriteOutputDrain.h"
 #include "executor/queue/OutputQueue.h"
 #include "observability/NativeMetricsCollector.h"
 #include "shuffle/SerializedShuffleQueue.h"
 #include "velox/type/Type.h"
+#include "velox/type/Filter.h"
 #include "velox/common/memory/Memory.h"
 
 namespace pangrova::velox {
 class VeloxTaskRunner;  // forward declaration
+class VeloxMemoryGovernor;
 }  // namespace pangrova::velox
+
+namespace pangrova::lance {
+class LanceBatchWriter;
+class LancePhysicalBatchWriter;
+}
 
 namespace pangrova::executor {
 
 struct TaskExecutorConfig;  // forward declaration
+
+// Effective per-task spill policy after intersecting a Coordinator-issued byte
+// grant with Worker-local runtime policy. Filesystem paths never cross the
+// control/data-plane boundary.
+struct WorkerLocalSpillPolicy {
+  bool enabled = false;
+  std::string directory;
+  int64_t max_bytes = 0;
+};
+
+WorkerLocalSpillPolicy resolveWorkerLocalSpillPolicy(
+    int64_t task_spill_grant_bytes,
+    const velox::VeloxMemoryGovernor* memory_governor);
 
 // Drives Velox plan execution on a background thread.
 // Owns the execution thread and delegates plan conversion + execution
@@ -58,6 +79,13 @@ class PlanExecutionDriver {
   // Join the execution thread (blocking).
   void join();
 
+  // Explicit release can fail retryably while RPC buffers retain task grants.
+  void release();
+
+  // Final actual producer statistics survive Task deletion until receipt handoff.
+  std::vector<uint8_t> collectTaskStats() const;
+  bool hasFinalTaskStats() const;
+
   // Cancel execution (best-effort, thread-safe).
   // Propagates cancel to VeloxTaskRunner if active, closes output
   // queue to unblock consumers, and transitions lifecycle to CANCELLED.
@@ -76,9 +104,37 @@ class PlanExecutionDriver {
   std::optional<facebook::velox::RowTypePtr> getScanNodeOutputType(
       const std::string& plan_node_id) const;
 
+  // Resolve a runtime-filter target to an exact scan node. Exact IDs win. A
+  // legacy/logical selector may be resolved by column only when exactly one
+  // scan exposes that column; zero or multiple matches fail closed.
+  std::string resolveScanNodeId(
+      const std::string& requested_plan_node_id,
+      const std::string& column_name) const;
+
+  // Validate and enqueue an external runtime filter. Calls racing task startup
+  // are retained and applied before the first Velox driver is started.
+  void injectDynamicFilter(
+      const std::string& plan_node_id, const std::string& filter_proto);
+
  private:
+  struct PendingDynamicFilter {
+    std::string requested_plan_node_id;
+    std::string column_name;
+    std::unique_ptr<facebook::velox::common::Filter> filter;
+  };
+
+  void applyDynamicFilter(
+      const std::shared_ptr<velox::VeloxTaskRunner>& runner,
+      PendingDynamicFilter filter);
+
   // Core Velox execution logic — runs on the background thread.
   void executeVeloxPlan();
+
+  // Close failure channels before publishing FAILED to terminal observers.
+  void notifyFailure(const std::string& message);
+
+  void closePhysicalWriter();
+  void closeDatasetWriter();
 
   const TaskExecutorConfig& config_;
   TaskLifecycle& lifecycle_;
@@ -100,27 +156,37 @@ class PlanExecutionDriver {
   // @GuardedBy: atomic, no lock needed.
   std::atomic<bool> cancelled_{false};
 
+  // Separates producer success from queue closure. cancel() participates in
+  // the same CAS state machine as the write drain, so it cannot race a stale
+  // SUCCEEDED store into publishing failed/cancelled task output.
+  WriteProducerOutcomeRef write_producer_outcome_ =
+      std::make_shared<std::atomic<WriteProducerOutcome>>(
+          WriteProducerOutcome::RUNNING);
+
   // Active VeloxTaskRunner — set on execution thread, read on cancel thread.
   // @GuardedBy: runner_mutex_
   mutable std::mutex runner_mutex_;
 
-  // Memory pools created during plan conversion (e.g., for ValuesNode vectors).
-  // Must be kept alive as long as the VeloxTaskRunner holds the plan tree,
-  // because RowVector/FlatVector buffers reference the pool for deallocation.
-  // IMPORTANT: Declared BEFORE active_runner_ so that C++ reverse-order
-  // destruction destroys the runner (and its PlanNode tree / ArrayVectors)
-  // BEFORE the pools they reference are freed.
-  // @GuardedBy: runner_mutex_
-  std::vector<std::shared_ptr<facebook::velox::memory::MemoryPool>>
-      values_pool_holders_;
-
   std::shared_ptr<velox::VeloxTaskRunner> active_runner_;
+
+  // Written only by the sink; release reads it after the producer join barrier.
+  // This owner must outlive failed SDK drain/private-stage cleanup for retry.
+  std::shared_ptr<lance::LancePhysicalBatchWriter> physical_writer_;
+  std::shared_ptr<lance::LanceBatchWriter> dataset_writer_;
+  // @GuardedBy: runner_mutex_; snapshot before actual Task deletion.
+  std::vector<uint8_t> final_task_stats_;
 
   // TableScan planNodeId → output RowType mapping.
   // Copied from VeloxPlanConverter after plan conversion.
   // @GuardedBy: runner_mutex_
   std::unordered_map<std::string, facebook::velox::RowTypePtr>
       scan_node_output_types_;
+
+  // Runtime commands may arrive after executor creation but before plan
+  // conversion publishes active_runner_. The same lock protects this queue and
+  // the runner publication, so no filter can fall through that hand-off race.
+  // @GuardedBy: runner_mutex_
+  std::vector<PendingDynamicFilter> pending_dynamic_filters_;
 };
 
 }  // namespace pangrova::executor

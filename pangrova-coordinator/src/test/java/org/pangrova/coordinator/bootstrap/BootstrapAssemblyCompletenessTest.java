@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.bootstrap;
 
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,6 +16,8 @@ import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
@@ -29,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  * <p>Each test targets a specific integration point to ensure it is non-null
  * and reachable after bootstrap completes.</p>
  */
-class BootstrapAssemblyCompletenessTest {
+class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -40,13 +43,24 @@ class BootstrapAssemblyCompletenessTest {
     private CoordinatorBootstrap coordinatorBootstrap;
     private org.pangrova.worker.bootstrap.WorkerBootstrap workerBootstrap;
 
+    @org.junit.jupiter.api.io.TempDir
+    java.nio.file.Path shuffleDirectory;
+
     @BeforeAll
     static void startStub() throws Exception {
         stubServer = com.sun.net.httpserver.HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         stubServer.createContext("/v1/workers/register", ex -> {
             ex.getRequestBody().readAllBytes();
-            ex.sendResponseHeaders(200, 2);
-            ex.getResponseBody().write("ok".getBytes());
+            byte[] response = "{\"status\":\"registered\",\"coordinator_epoch\":1}".getBytes();
+            ex.sendResponseHeaders(200, response.length);
+            ex.getResponseBody().write(response);
+            ex.getResponseBody().close();
+        });
+        stubServer.createContext("/v1/worker/heartbeat", ex -> {
+            ex.getRequestBody().readAllBytes();
+            byte[] response = "{\"status\":\"ok\",\"coordinator_epoch\":1}".getBytes();
+            ex.sendResponseHeaders(200, response.length);
+            ex.getResponseBody().write(response);
             ex.getResponseBody().close();
         });
         stubServer.createContext("/v1/task-status/report", ex -> {
@@ -54,6 +68,12 @@ class BootstrapAssemblyCompletenessTest {
             ex.sendResponseHeaders(200, 2);
             ex.getResponseBody().write("ok".getBytes());
             ex.getResponseBody().close();
+        });
+        stubServer.createContext("/v1/workers/", ex -> {
+            try (ex) {
+                ex.getRequestBody().readAllBytes();
+                ex.sendResponseHeaders("DELETE".equals(ex.getRequestMethod()) ? 200 : 405, -1);
+            }
         });
         stubServer.start();
         stubCoordinatorUrl = "http://127.0.0.1:" + stubServer.getAddress().getPort();
@@ -84,7 +104,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void coordinatorBootstrapWithAllModulesStartsSuccessfully() {
-        coordinatorBootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
@@ -93,8 +113,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void coordinatorBootstrapWithMinimalConfigStartsSuccessfully() {
-        coordinatorBootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-minimal", 0));
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-minimal", 0)));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
@@ -103,7 +122,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void coordinatorBootstrapShutdownWithAllModulesIsClean() {
-        coordinatorBootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         coordinatorBootstrap.start();
 
         assertThatCode(() -> coordinatorBootstrap.shutdown()).doesNotThrowAnyException();
@@ -116,8 +135,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void observabilityTracingProviderWiredInCoordinator() {
-        coordinatorBootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-obs", 0));
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-obs", 0)));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.getTracingProvider()).isNotNull();
@@ -125,20 +143,20 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void observabilityTracingFilterInHttpPipeline() throws Exception {
-        coordinatorBootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-tracing-http", 0));
-        coordinatorBootstrap.start();
+        coordinatorBootstrap = startAuthorizedCoordinator(CoordinatorBootstrapConfig.withDefaults("coord-tracing-http", 0));
 
         // TracingFilter (JAX-RS) is registered on /* — verify HTTP pipeline responds
         HttpResponse<String> resp = submitQuery(
                 coordinatorBootstrap.getHttpPort(), "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(200);
+        // No Worker is registered in this bootstrap-only fixture; SQL dispatch
+        // must fail closed while still traversing the HTTP filter pipeline.
+        assertThat(resp.statusCode()).isEqualTo(503);
         // traceparent header propagation is verified in ObservabilityChainTest
     }
 
     @Test
     void observabilityMetricsProviderInjectedIntoQueryManager() {
-        coordinatorBootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         coordinatorBootstrap.start();
 
         // QueryManager is constructed with MetricsProvider via QueryManagerContext
@@ -159,7 +177,7 @@ class BootstrapAssemblyCompletenessTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(config));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.getCircuitBreaker()).isNotNull();
@@ -172,8 +190,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void resilienceCircuitBreakerNullWhenDisabled() {
-        coordinatorBootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-no-cb", 0));
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-no-cb", 0)));
         coordinatorBootstrap.start();
 
         // When resilience is disabled, RemoteTaskDispatcher uses CircuitBreakerPolicy.noOp()
@@ -205,7 +222,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void governanceLineageInjectedIntoQueryDispatcher() {
-        coordinatorBootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         coordinatorBootstrap.start();
 
         // QueryDispatcherContext receives lineageEmitter from moduleWiring
@@ -227,7 +244,7 @@ class BootstrapAssemblyCompletenessTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(config));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
@@ -243,7 +260,7 @@ class BootstrapAssemblyCompletenessTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(config));
         coordinatorBootstrap.start();
 
         // AccessControlEnforcer, ColumnMaskApplier, RowFilterApplier are injected
@@ -294,8 +311,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void operationsHealthCheckEndpointInHttpPipeline() throws Exception {
-        coordinatorBootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-health", 0));
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-health", 0)));
         coordinatorBootstrap.start();
 
         HttpResponse<String> resp = httpGet(
@@ -313,12 +329,12 @@ class BootstrapAssemblyCompletenessTest {
     @Test
     @Tag("native-required")
     void workerResourceManagerWiredAfterBootstrap() {
-        workerBootstrap = new org.pangrova.worker.bootstrap.WorkerBootstrap(
+        workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
                 new org.pangrova.worker.bootstrap.WorkerBootstrapConfig("worker-res", 0, 0, stubCoordinatorUrl,
                         org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
                         new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
-                        null, null, null, null, null));
+                        null, null, null, null, null, null, null), shuffleDirectory);
         workerBootstrap.start();
 
         assertThat(workerBootstrap.getTaskManager()).isNotNull();
@@ -333,7 +349,7 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void allCrossCuttingCapabilitiesWiredInFullBootstrap() {
-        coordinatorBootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
+        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(buildAllModulesEnabled()));
         coordinatorBootstrap.start();
 
         // Observability
@@ -352,25 +368,23 @@ class BootstrapAssemblyCompletenessTest {
 
     @Test
     void fullBootstrapAcceptsQuerySubmission() throws Exception {
-        coordinatorBootstrap = new CoordinatorBootstrap(buildAllModulesEnabled());
-        coordinatorBootstrap.start();
+        coordinatorBootstrap = startAuthorizedCoordinator(buildAllModulesEnabled());
 
         HttpResponse<String> resp = submitQuery(
                 coordinatorBootstrap.getHttpPort(), "SELECT 1");
-        // Server responds — all modules initialized without error
-        assertThat(resp.statusCode()).isGreaterThan(0);
-        assertThat(resp.body()).isNotEmpty();
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
     }
 
     @Test
     @Tag("native-required")
     void workerBootstrapWithAllComponentsStartsSuccessfully() {
-        workerBootstrap = new org.pangrova.worker.bootstrap.WorkerBootstrap(
+        workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
                 new org.pangrova.worker.bootstrap.WorkerBootstrapConfig("worker-full", 0, 0, stubCoordinatorUrl,
                         org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
                         new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
-                        null, null, null, null, null));
+                        null, null, null, null, null, null, null), shuffleDirectory);
         workerBootstrap.start();
 
         assertThat(workerBootstrap.isStarted()).isTrue();
@@ -383,12 +397,12 @@ class BootstrapAssemblyCompletenessTest {
     @Test
     @Tag("native-required")
     void workerBootstrapShutdownIsClean() {
-        workerBootstrap = new org.pangrova.worker.bootstrap.WorkerBootstrap(
+        workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
                 new org.pangrova.worker.bootstrap.WorkerBootstrapConfig("worker-shutdown", 0, 0, stubCoordinatorUrl,
                         org.pangrova.worker.bootstrap.WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
                         false, null, null, 0, false,
                         new org.pangrova.worker.bootstrap.WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1),
-                        null, null, null, null, null));
+                        null, null, null, null, null, null, null), shuffleDirectory);
         workerBootstrap.start();
 
         assertThatCode(() -> workerBootstrap.shutdown()).doesNotThrowAnyException();
@@ -400,25 +414,28 @@ class BootstrapAssemblyCompletenessTest {
     // Helpers
     // ========================================================================
 
-    private static CoordinatorBootstrapConfig buildAllModulesEnabled() {
+    private CoordinatorBootstrapConfig buildAllModulesEnabled() {
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-completeness", 0,
                         CoordinatorBootstrapConfig.CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
                 new CoordinatorBootstrapConfig.FeatureFlags(
-                        false, false, false, true, true, true, true, true),
+                        false, true, false, true, true, true, true, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, null, null);
+                null, new CoordinatorBootstrapConfig.SecurityConfig(
+                        CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
+                        "bootstrap-test-internal-secret", java.util.Map.of("issuerUri", issuerUri())), null);
     }
 
-    private static HttpResponse<String> submitQuery(int port, String sql)
+    private HttpResponse<String> submitQuery(int port, String sql)
             throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

@@ -10,13 +10,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class JdbcTenantStoreTest {
@@ -25,7 +25,6 @@ class JdbcTenantStoreTest {
 
     @BeforeEach
     void setUp() {
-        assumeTrue(SharedPostgresContainer.isAvailable());
         store = new JdbcTenantStore(SharedPostgresContainer.dataSource());
         store.initSchema();
     }
@@ -41,6 +40,19 @@ class JdbcTenantStoreTest {
         assertThat(loaded.get().name()).isEqualTo("Acme Corp");
         assertThat(loaded.get().status()).isEqualTo(TenantStatus.ACTIVE);
         assertThat(loaded.get().quota().maxConcurrentQueries()).isEqualTo(10);
+    }
+
+    @Test
+    void createAndUpdatePopulateRequiredUpdatedAt() throws SQLException {
+        Tenant tenant = createTenant("timestamp-tenant", "Before", TenantStatus.ACTIVE, 10);
+        store.createTenant(tenant);
+        Instant insertedAt = readUpdatedAt("timestamp-tenant");
+        assertThat(insertedAt).isNotNull();
+
+        store.updateTenant(new Tenant("timestamp-tenant", "After", TenantStatus.ACTIVE,
+                tenant.quota(), tenant.allowedCatalogs(), tenant.allowedSchemas(),
+                tenant.resourcePool(), tenant.properties(), tenant.createdAt(), tenant.createdBy()));
+        assertThat(readUpdatedAt("timestamp-tenant")).isAfterOrEqualTo(insertedAt);
     }
 
     @Test
@@ -163,5 +175,17 @@ class JdbcTenantStoreTest {
         return new Tenant(id, name, status, quota,
                 List.of(), List.of(), null, Map.of(),
                 Instant.now(), "test-user");
+    }
+
+    private static Instant readUpdatedAt(String tenantId) throws SQLException {
+        try (var connection = SharedPostgresContainer.dataSource().getConnection();
+             var statement = connection.prepareStatement(
+                     "SELECT updated_at FROM tenants WHERE tenant_id=?")) {
+            statement.setString(1, tenantId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getTimestamp(1).toInstant();
+            }
+        }
     }
 }

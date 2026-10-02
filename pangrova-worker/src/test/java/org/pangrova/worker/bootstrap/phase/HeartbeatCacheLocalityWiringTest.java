@@ -20,6 +20,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 class HeartbeatCacheLocalityWiringTest {
 
     @Test
+    void heartbeatAdvertisesTheTighterNativeNodeBudget() {
+        var arbitrator = new org.pangrova.resource.memory.MemoryArbitrator(1024, 0);
+        var node = new org.pangrova.resource.memory.RootMemoryPool("heartbeat-root", 768)
+                .createNodePool("heartbeat-node", 768);
+        var refs = new WorkerComponentRefs();
+        refs.setNodeMemoryPool(node);
+        refs.setResourceManager(new org.pangrova.resource.ResourceManager(
+                arbitrator, new org.pangrova.resource.thread.ThreadBudgetTracker(2, 1, 1),
+                new org.pangrova.resource.spill.SpillManager()));
+        assertThat(node.tryReserve(256)).isEqualTo(256);
+
+        HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(
+                WorkerBootstrapConfig.withDefaults("heartbeat-budget"), refs);
+
+        assertThat(payload.availableMemoryBytes()).isEqualTo(512);
+        node.free(256);
+    }
+
+    @Test
     void heartbeatPayloadCarriesCachedFilePathsFromTracker() {
         RecentFileAccessTracker tracker = new RecentFileAccessTracker();
         tracker.recordAccess("/data/iceberg/t1/data/00001.parquet");
@@ -36,7 +55,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null);
+                null, null, null);
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 
@@ -58,7 +77,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null);
+                null, null, null);
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 
@@ -80,7 +99,7 @@ class HeartbeatCacheLocalityWiringTest {
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 1000, 5000),
                 null, null, null,
                 null,
-                null);
+                null, null, null);
 
         HeartbeatPayload payload = WorkerHeartbeatBootstrap.collectHeartbeatPayload(config, refs);
 

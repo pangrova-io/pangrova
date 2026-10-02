@@ -56,22 +56,19 @@ public class PangrovaCoordinator {
     }
 
     /**
-     * Graceful shutdown: drain → finish → transfer → shutdown.
+     * Graceful shutdown: drain, finish, then yield durable execution anchors.
      *
      * <p><b>R10.3 Timing dependency:</b> The ordering of shutdown phases is critical:
      * <ol>
      *   <li>{@code drain()} — sets {@code acceptingQueries=false} to reject new queries</li>
      *   <li>{@code finishInFlight()} — waits up to {@link #SHUTDOWN_TIMEOUT_MS} for running queries</li>
-     *   <li>{@code transferOwnership()} — persists orphaned queries THEN releases ownership</li>
+     *   <li>yield live execution anchors for bounded fenced takeover</li>
      * </ol>
-     * The drain MUST happen before transferOwnership: if ownership is transferred while
-     * new queries are still being accepted, a race window exists where a newly accepted
-     * query has no ownership record on the new leader. The existing protection is the
+     * The drain must happen before anchors are yielded. The existing protection is the
      * {@code running} CAS guard at the top of this method — once {@code running} is false,
      * no new queries can be submitted via the HTTP layer (QueryManager rejects them).
-     * The {@code persistOrphanedQueriesForTransfer} call inside transferOwnership ensures
-     * that any queries still in-flight after the drain timeout are recorded for the new
-     * leader to reclaim.</p>
+     * Durable anchors already contain exact process identity and fencing tokens, so a
+     * takeover never depends on best-effort orphan-row creation.</p>
      */
     public void stop() {
         if (!running.compareAndSet(true, false)) {
@@ -79,7 +76,7 @@ public class PangrovaCoordinator {
         }
         drain();
         finishInFlight();
-        transferOwnership();
+        yieldExecutionAnchors();
         LOG.info("event=coordinator_stopped coordinatorId={}", coordinatorId);
     }
 
@@ -109,46 +106,11 @@ public class PangrovaCoordinator {
         }
     }
 
-    private void transferOwnership() {
+    private void yieldExecutionAnchors() {
         Set<String> activeIds = queryManager.getActiveQueryIds();
-        // Persist orphaned queries BEFORE releasing ownership so the new
-        // leader can reclaim them. Without this, in-flight queries become zombies
-        // when awaitAllQueries times out during graceful shutdown.
-        //
-        // Note: persist and release are NOT atomic. If the coordinator crashes
-        // between persist and the for-loop below, the orphan records are still
-        // complete — the new leader reclaims all of them. The for-loop only
-        // clears the in-memory ownership map (which is lost on crash anyway).
-        if (!activeIds.isEmpty()) {
-            haService.persistOrphanedQueriesForTransfer(coordinatorId);
-            LOG.info("event=orphans_persisted_before_transfer coordinatorId={} queryCount={}",
-                    coordinatorId, activeIds.size());
-        }
-        // Release all ownership in a single batch to minimize the window
-        // where queries have no owner. Retry once on failure before giving up.
-        java.util.List<String> failedReleases = new java.util.ArrayList<>();
-        for (String queryId : activeIds) {
-            try {
-                haService.releaseQueryOwnership(queryId, coordinatorId);
-            } catch (Exception e) {
-                LOG.warn("event=ownership_release_failed coordinatorId={} queryId={} error={}",
-                        coordinatorId, queryId, e.getMessage());
-                failedReleases.add(queryId);
-            }
-        }
-        // Retry failed releases once
-        if (!failedReleases.isEmpty()) {
-            LOG.info("event=ownership_release_retry coordinatorId={} retryCount={}",
-                    coordinatorId, failedReleases.size());
-            for (String queryId : failedReleases) {
-                try {
-                    haService.releaseQueryOwnership(queryId, coordinatorId);
-                } catch (Exception e) {
-                    LOG.error("event=ownership_release_retry_failed coordinatorId={} queryId={} error={}",
-                            coordinatorId, queryId, e.getMessage());
-                }
-            }
-        }
-        LOG.info("event=ownership_transferred coordinatorId={} queryCount={}", coordinatorId, activeIds.size());
+        int yielded = haService.yieldLocalExecutions();
+        LOG.info("event=execution_anchors_yielded coordinatorId={} "
+                        + "activeQueries={} yielded={}",
+                coordinatorId, activeIds.size(), yielded);
     }
 }

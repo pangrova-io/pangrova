@@ -9,8 +9,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.pangrova.spi.connector.data.page.BatchFormat;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -149,58 +147,6 @@ class CoordinatorResultBufferTest {
         assertThat(buffer.size()).isEqualTo(threadCount);
     }
 
-    // ── ArrowPage passthrough ──
-
-    @Test
-    void putArrowPageAndGetReturnsPageData() {
-        var buffer = new CoordinatorResultBuffer(executor, 10_000L);
-        byte[] pageData = {10, 20, 30};
-        var arrowPage = new org.pangrova.spi.connector.data.page.NativePage(pageData, 3, 2, BatchFormat.ARROW_IPC);
-
-        buffer.putArrowPage("ap-q1", arrowPage);
-
-        assertThat(buffer.get("ap-q1")).isEqualTo(pageData);
-        assertThat(buffer.contains("ap-q1")).isTrue();
-        assertThat(buffer.size()).isEqualTo(1);
-    }
-
-    @Test
-    void putArrowPageRejectsNullArguments() {
-        var buffer = new CoordinatorResultBuffer(executor, 10_000L);
-
-        assertThatThrownBy(() -> buffer.putArrowPage(null, new org.pangrova.spi.connector.data.page.NativePage(new byte[]{1}, 1, 1, BatchFormat.ARROW_IPC)))
-                .isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> buffer.putArrowPage("q1", null))
-                .isInstanceOf(NullPointerException.class);
-    }
-
-    @Test
-    void putArrowPageIsIdempotentWhenEntryExists() {
-        var buffer = new CoordinatorResultBuffer(executor, 10_000L);
-        byte[] original = {1, 2};
-        buffer.put("q1", original);
-
-        byte[] newData = {3, 4, 5};
-        buffer.putArrowPage("q1", new org.pangrova.spi.connector.data.page.NativePage(newData, 1, 1, BatchFormat.ARROW_IPC));
-
-        // putIfAbsent semantics: first entry wins
-        assertThat(buffer.get("q1")).isEqualTo(original);
-    }
-
-    @Test
-    void closeReleasesAllNativePages() {
-        var buffer = new CoordinatorResultBuffer(executor, 10_000L);
-        byte[] pageData = {10, 20};
-        var page = new org.pangrova.spi.connector.data.page.NativePage(pageData, 1, 1, BatchFormat.ARROW_IPC);
-        buffer.putArrowPage("q1", page);
-        buffer.put("q2", new byte[]{1});
-
-        assertThat(page.isClosed()).isFalse();
-        buffer.close();
-        assertThat(page.isClosed()).isTrue();
-        assertThat(buffer.size()).isEqualTo(0);
-    }
-
     @Test
     void offHeapBytesTracksUsage() {
         var buffer = new CoordinatorResultBuffer(executor, 10_000L);
@@ -216,43 +162,4 @@ class CoordinatorResultBufferTest {
         assertThat(buffer.offHeapBytes()).isEqualTo(2);
     }
 
-    @Test
-    void removeClosesNativePage() {
-        var buffer = new CoordinatorResultBuffer(executor, 10_000L);
-        var page = new org.pangrova.spi.connector.data.page.NativePage(new byte[]{1}, 1, 1, BatchFormat.ARROW_IPC);
-        buffer.putArrowPage("q1", page);
-
-        buffer.remove("q1");
-        assertThat(page.isClosed()).isTrue();
-    }
-
-    @Test
-    void putArrowPageReleasesNativePageWhenBufferFull() {
-        // maxEntries=1 so the second insert will silently reject
-        var buffer = new CoordinatorResultBuffer(executor, 10_000L, 1);
-        buffer.put("q1", new byte[]{1});
-
-        var page = new org.pangrova.spi.connector.data.page.NativePage(new byte[]{2}, 1, 1, BatchFormat.ARROW_IPC);
-        assertThat(page.isClosed()).isFalse();
-
-        // Buffer is full, putArrowPage silently drops the entry
-        buffer.putArrowPage("q2", page);
-
-        // nativePage must be released even though insertion was rejected
-        assertThat(page.isClosed()).isTrue();
-    }
-
-    @Test
-    void putArrowPageReleasesNativePageWhenDuplicateEntry() {
-        var buffer = new CoordinatorResultBuffer(executor, 10_000L);
-        buffer.put("q1", new byte[]{1});
-
-        var page = new org.pangrova.spi.connector.data.page.NativePage(new byte[]{2}, 1, 1, BatchFormat.ARROW_IPC);
-        assertThat(page.isClosed()).isFalse();
-
-        // putIfAbsent semantics: first entry wins, new page should be released
-        buffer.putArrowPage("q1", page);
-
-        assertThat(page.isClosed()).isTrue();
-    }
 }

@@ -13,20 +13,20 @@
  */
 package org.pangrova.coordinator.bootstrap;
 
-import org.pangrova.coordinator.ai.cache.SemanticCache;
 import org.pangrova.coordinator.ai.index.lifecycle.VectorIndexHealthAssessor;
-import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Bootstraps and schedules the self-intelligence subsystem: semantic cache,
- * pattern recording, layout advisors, vector index health, and embedding pipeline.
+ * Bootstraps and schedules control-plane workload analysis, vector-index health,
+ * and durable embedding jobs. Data-plane AI and retrieval never execute here.
  *
  * <p>Extracted from QueryBootstrap to keep that class within the 500-line limit
  * while centralising all AI lifecycle management in one place.</p>
@@ -38,63 +38,40 @@ final class SelfIntelligenceBootstrap {
     private final CoordinatorBootstrapConfig config;
     private final ModuleIntegrationBootstrap moduleWiring;
     private final ScheduledExecutorService schedulerExecutor;
-    private final CatalogRegistry catalogRegistry;
-    private final javax.sql.DataSource metadataDataSource;
-    private final org.pangrova.security.secret.SecretResolver secretResolver;
+    private final org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
+            embeddingModelRegistry;
 
     private org.pangrova.planner.advisor.QueryPatternRecorder patternRecorder;
-    private SemanticCache semanticCache;
     private org.pangrova.coordinator.ai.layout.DataLayoutAdvisor layoutAdvisor;
-    private org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry embeddingModelRegistry;
     private VectorIndexHealthAssessor vectorIndexHealthAssessor;
     private org.pangrova.coordinator.ai.index.lifecycle.IndexRecommendationEngine indexRecommendationEngine;
     private org.pangrova.coordinator.ai.index.lifecycle.IndexRebuildScheduler indexRebuildScheduler;
-    private org.pangrova.coordinator.ai.embedding.EmbeddingQueueCoordinator embeddingQueueCoordinator;
-    private org.pangrova.coordinator.ai.embedding.PersistentEmbeddingQueueCoordinator persistentEmbeddingQueueCoordinator;
 
     SelfIntelligenceBootstrap(
             CoordinatorBootstrapConfig config,
             ModuleIntegrationBootstrap moduleWiring,
             ScheduledExecutorService schedulerExecutor,
-            CatalogRegistry catalogRegistry,
-            javax.sql.DataSource metadataDataSource,
-            org.pangrova.security.secret.SecretResolver secretResolver) {
+            org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry
+                    embeddingModelRegistry) {
         this.config = config;
         this.moduleWiring = moduleWiring;
         this.schedulerExecutor = schedulerExecutor;
-        this.catalogRegistry = catalogRegistry;
-        this.metadataDataSource = metadataDataSource;
-        this.secretResolver = secretResolver;
+        this.embeddingModelRegistry = embeddingModelRegistry;
     }
 
     void initialize(QueryExecutionBootstrap executionWiring) {
         patternRecorder = new org.pangrova.planner.advisor.QueryPatternRecorder(10_000);
-        semanticCache = new org.pangrova.coordinator.ai.cache.InMemorySemanticCache(1_000);
         layoutAdvisor = new org.pangrova.coordinator.ai.layout.DataLayoutAdvisor(patternRecorder);
-        embeddingModelRegistry = createEmbeddingModelRegistry();
         vectorIndexHealthAssessor = new VectorIndexHealthAssessor();
         indexRecommendationEngine = new org.pangrova.coordinator.ai.index.lifecycle.IndexRecommendationEngine();
         initIndexRebuildScheduler();
-        if (executionWiring != null) {
+        if (executionWiring != null && embeddingModelRegistry != null) {
             executionWiring.registerEmbeddingModelTasks(embeddingModelRegistry);
             LOG.info("event=embedding_model_tasks_registered");
         }
         scheduleLayoutAdvisor();
         scheduleIndexLifecycle();
-        LOG.info("event=self_intelligence_initialized semanticCacheSize={} maxTurns={} patternCapacity={}",
-                1_000, 50, 10_000);
-    }
-
-    void initEmbeddingPipeline() {
-        embeddingQueueCoordinator = new org.pangrova.coordinator.ai.embedding.EmbeddingQueueCoordinator();
-        if (metadataDataSource != null) {
-            tryInitPersistentQueue();
-        }
-        registerEmbeddingCommitListener();
-    }
-
-    boolean hasPersistentQueue() {
-        return persistentEmbeddingQueueCoordinator != null;
+        LOG.info("event=self_intelligence_initialized patternCapacity={}", 10_000);
     }
 
     void wireIntoQueryDispatcher(
@@ -102,148 +79,8 @@ final class SelfIntelligenceBootstrap {
         if (queryDispatcher == null) {
             return;
         }
-        queryDispatcher.setSelfIntelligence(semanticCache, patternRecorder);
-        wireEmbeddingProvider(queryDispatcher);
+        queryDispatcher.setSelfIntelligence(patternRecorder);
         LOG.info("event=self_intelligence_wired_into_pipeline");
-    }
-
-    /**
-     * Wires an embedding provider into the query pipeline so completed queries are
-     * embedded and stored in the semantic cache. Gated by the embedding feature flag;
-     * the provider resolves the catalog's default embedding model lazily, so it stays
-     * inert (skipping cache writes) until a model is registered — no zero-vector
-     * pollution and no per-query log noise.
-     */
-    private void wireEmbeddingProvider(
-            org.pangrova.coordinator.query.execution.QueryDispatcher queryDispatcher) {
-        if (!config.embeddingEnabled()) {
-            LOG.info("event=semantic_cache_embedding_disabled reason=embedding_feature_off");
-            return;
-        }
-        if (secretResolver == null || embeddingModelRegistry == null) {
-            LOG.info("event=semantic_cache_embedding_skip reason=missing_secret_resolver_or_registry");
-            return;
-        }
-        var provider = new org.pangrova.coordinator.ai.embedding.provider.RegistryBackedEmbeddingProvider(
-                embeddingModelRegistry, secretResolver);
-        queryDispatcher.setEmbeddingProvider(provider);
-        LOG.info("event=semantic_cache_embedding_wired note=activates_when_default_model_registered");
-    }
-
-    private org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry createEmbeddingModelRegistry() {
-        if (metadataDataSource != null) {
-            try {
-                var jdbcRegistry = new org.pangrova.coordinator.ai.embedding.JdbcEmbeddingModelRegistry(
-                        metadataDataSource, "admin", "users");
-                jdbcRegistry.initSchema();
-                LOG.info("event=jdbc_embedding_model_registry_initialized");
-                return jdbcRegistry;
-            } catch (Exception e) {
-                LOG.warn("event=jdbc_embedding_model_registry_failed fallback=in_memory error={}", e.getMessage());
-            }
-        }
-        return new org.pangrova.coordinator.ai.embedding.ConcurrentMapEmbeddingModelRegistry("admin", "users");
-    }
-
-    private void tryInitPersistentQueue() {
-        try {
-            var workStore = new org.pangrova.coordinator.ai.embedding.JdbcEmbeddingWorkStore(metadataDataSource);
-            workStore.initSchema();
-            persistentEmbeddingQueueCoordinator =
-                    new org.pangrova.coordinator.ai.embedding.PersistentEmbeddingQueueCoordinator(workStore);
-            persistentEmbeddingQueueCoordinator.recover();
-            LOG.info("event=persistent_embedding_queue_initialized");
-        } catch (Exception e) {
-            LOG.warn("event=persistent_embedding_queue_failed fallback=in_memory error={}", e.getMessage());
-        }
-    }
-
-    private void registerEmbeddingCommitListener() {
-        IndexingBootstrap indexing = moduleWiring != null ? moduleWiring.getIndexingBootstrap() : null;
-        if (indexing == null || catalogRegistry == null) {
-            LOG.info("event=embedding_commit_listener_skip reason=missing_indexing_or_catalog");
-            return;
-        }
-        org.pangrova.planner.embedding.EmbeddingColumnResolver resolver =
-                buildEmbeddingColumnResolver(indexing);
-        org.pangrova.coordinator.ai.embedding.AutoEmbeddingCommitListener listener =
-                persistentEmbeddingQueueCoordinator != null
-                        ? new org.pangrova.coordinator.ai.embedding.AutoEmbeddingCommitListener(
-                                resolver, persistentEmbeddingQueueCoordinator)
-                        : new org.pangrova.coordinator.ai.embedding.AutoEmbeddingCommitListener(
-                                resolver, embeddingQueueCoordinator);
-        indexing.registerAdditionalCommitListener(listener, catalogRegistry);
-        LOG.info("event=embedding_commit_listener_registered persistent={}", hasPersistentQueue());
-    }
-
-    private static org.pangrova.planner.embedding.EmbeddingColumnResolver buildEmbeddingColumnResolver(
-            IndexingBootstrap indexing) {
-        var store = indexing.getMetadataStore();
-        if (store == null) {
-            return tableName -> java.util.List.of();
-        }
-        return tableName -> resolveEmbeddingColumns(store, tableName);
-    }
-
-    private static java.util.List<org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor>
-            resolveEmbeddingColumns(
-                    org.pangrova.metadata.index.IndexMetadataStore store, String tableName) {
-        if (tableName == null || tableName.isBlank()) {
-            return java.util.List.of();
-        }
-        try {
-            return doResolveEmbeddingColumns(store, tableName);
-        } catch (Exception e) {
-            LOG.debug("event=embedding_column_resolve_failed table={} error={}", tableName, e.getMessage());
-            return java.util.List.of();
-        }
-    }
-
-    private static java.util.List<org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor>
-            doResolveEmbeddingColumns(
-                    org.pangrova.metadata.index.IndexMetadataStore store, String tableName) {
-        String[] parts = tableName.split("\\.");
-        if (parts.length < 3) {
-            return java.util.List.of();
-        }
-        var descriptors = store.findIndexesByTable(parts[0], parts[1], parts[2]);
-        var result = new java.util.ArrayList<org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor>();
-        for (var desc : descriptors) {
-            buildColumnDescriptor(desc).ifPresent(result::add);
-        }
-        return java.util.List.copyOf(result);
-    }
-
-    private static java.util.Optional<org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor>
-            buildColumnDescriptor(org.pangrova.spi.index.IndexDescriptor desc) {
-        if (desc.indexType() != org.pangrova.spi.index.IndexType.VECTOR) {
-            return java.util.Optional.empty();
-        }
-        String modelName = desc.properties().get("embedding_model");
-        String sourceColumnsStr = desc.properties().get("source_columns");
-        if (modelName == null || sourceColumnsStr == null || desc.columnNames().isEmpty()) {
-            return java.util.Optional.empty();
-        }
-        int dimension = parseDimension(desc.properties().get("dimension"));
-        if (dimension <= 0) {
-            return java.util.Optional.empty();
-        }
-        String modeStr = desc.properties().get("embedding_mode");
-        var sourceColumns = java.util.List.of(sourceColumnsStr.split(","));
-        var mode = "ASYNC".equalsIgnoreCase(modeStr)
-                ? org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor.EmbeddingMode.ASYNC
-                : org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor.EmbeddingMode.SYNC;
-        return java.util.Optional.of(new org.pangrova.planner.embedding.AutoEmbeddingColumnDescriptor(
-                desc.columnNames().get(0), modelName, sourceColumns, mode, dimension));
-    }
-
-    private static int parseDimension(String dimStr) {
-        if (dimStr == null) return 0;
-        try {
-            return Integer.parseInt(dimStr);
-        } catch (NumberFormatException ignored) {
-            return 0;
-        }
     }
 
     private void initIndexRebuildScheduler() {
@@ -259,16 +96,17 @@ final class SelfIntelligenceBootstrap {
         LOG.info("event=index_rebuild_scheduler_initialized coordinatorId={}", coordId);
     }
 
-    private static java.util.function.BiFunction<org.pangrova.spi.index.IndexDescriptor,
+    static java.util.function.BiFunction<org.pangrova.spi.index.IndexDescriptor,
             org.pangrova.coordinator.ai.index.lifecycle.IndexRebuildScheduler.RebuildAction,
             java.util.concurrent.CompletableFuture<Void>> buildRebuildFunction(IndexingBootstrap indexing) {
-        if (indexing != null && indexing.getBuildCoordinator() != null) {
-            return (descriptor, action) ->
-                    indexing.getBuildCoordinator()
-                            .submitBuildTask(descriptor, java.util.List.of(), null, null)
-                            .thenAccept(result -> {});
+        if (indexing == null || indexing.getDdlExecutor() == null) {
+            return (descriptor, action) -> java.util.concurrent.CompletableFuture.failedFuture(
+                    new IllegalStateException("durable Native AI index build service is not configured"));
         }
-        return (descriptor, action) -> java.util.concurrent.CompletableFuture.completedFuture(null);
+        return (descriptor, action) -> java.util.concurrent.CompletableFuture.failedFuture(
+                new org.pangrova.spi.security.AccessDeniedException(
+                        "Scheduled index rebuild requires current trusted authorization for "
+                                + descriptor.indexId() + "; a service principal cannot be synthesized"));
     }
 
     private void scheduleLayoutAdvisor() {
@@ -395,7 +233,9 @@ final class SelfIntelligenceBootstrap {
                 descriptor, vectorCount, dimension, availableMemory);
         if (recommendation.isPresent()) {
             LOG.info("event=algorithm_change_recommended indexId={} newAlgorithm={} reason={}",
-                    descriptor.indexId(), recommendation.get().algorithm(), recommendation.get().reason());
+                    descriptor.indexId(),
+                    recommendation.get().algorithm().getCapabilityId(),
+                    recommendation.get().reason());
         }
         return 1;
     }

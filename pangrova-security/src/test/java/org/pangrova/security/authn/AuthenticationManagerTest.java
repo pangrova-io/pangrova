@@ -23,6 +23,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AuthenticationManagerTest {
 
     @Test
+    void closedManagerRejectsAuthenticationAndRepeatedCloseIsSafe() {
+        BypassAuthenticator bypass = new BypassAuthenticator();
+        bypass.init(Map.of("bypass.enabled", "true"));
+        AuthenticationManager manager = new AuthenticationManager(List.of(bypass));
+        var request = new AuthenticationRequest(null, null, null, null, Map.of(), "127.0.0.1");
+        assertThat(manager.authenticate(request).success()).isTrue();
+        manager.close();
+        manager.close();
+        manager.runHealthChecks();
+        assertThat(manager.authenticate(request).success()).isFalse();
+        assertThat(manager.authenticate(request).errorMessage()).contains("closed");
+    }
+
+    @Test
     void delegatesToFirstSupportingAuthenticator() {
         BypassAuthenticator bypass = new BypassAuthenticator();
         bypass.init(Map.of("bypass.enabled", "true"));
@@ -40,7 +54,6 @@ class AuthenticationManagerTest {
     void returnsFailureWhenNoAuthenticatorSupports() {
         // OAuth2 only supports token requests
         OAuth2Authenticator oauth2 = new OAuth2Authenticator();
-        oauth2.init(Map.of("issuerUri", "https://example.com"));
         AuthenticationManager manager = new AuthenticationManager(List.of(oauth2));
 
         AuthenticationRequest request = new AuthenticationRequest(
@@ -53,21 +66,18 @@ class AuthenticationManagerTest {
 
     @Test
     void triesAuthenticatorsInOrder() {
-        // LDAP first (stub rejects), then Bypass (accepts all)
-        LdapAuthenticator ldap = new LdapAuthenticator();
-        ldap.init(Map.of());
+        // A matching uninitialized provider must fail closed, without trying bypass.
+        OAuth2Authenticator oauth2 = new OAuth2Authenticator();
         BypassAuthenticator bypass = new BypassAuthenticator();
         bypass.init(Map.of("bypass.enabled", "true"));
-        AuthenticationManager manager = new AuthenticationManager(List.of(ldap, bypass));
+        AuthenticationManager manager = new AuthenticationManager(List.of(oauth2, bypass));
 
-        // username+password request: LDAP supports it but rejects (stub)
         AuthenticationRequest request = new AuthenticationRequest(
-                "user", "pass".toCharArray(), null, null, Map.of(), "127.0.0.1");
+                null, null, "token", null, Map.of(), "127.0.0.1");
         AuthenticationResult result = manager.authenticate(request);
 
-        // LDAP matched first and returned failure (server unreachable in test env)
         assertThat(result.success()).isFalse();
-        assertThat(result.errorMessage()).contains("LDAP");
+        assertThat(result.errorMessage()).contains("not configured");
     }
 
     @Test

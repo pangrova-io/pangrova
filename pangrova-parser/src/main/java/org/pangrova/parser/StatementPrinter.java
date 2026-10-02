@@ -31,10 +31,14 @@ final class StatementPrinter {
 
     private final AstPrinter printer;
     private final StreamStatementPrinter streamPrinter;
+    private final SemanticFeatureStatementPrinter semanticFeaturePrinter;
+    private final IndexStatementPrinter indexPrinter;
 
     StatementPrinter(AstPrinter printer) {
         this.printer = printer;
         this.streamPrinter = new StreamStatementPrinter(printer);
+        this.semanticFeaturePrinter = new SemanticFeatureStatementPrinter(printer);
+        this.indexPrinter = new IndexStatementPrinter(printer);
     }
 
     Map<Class<? extends Statement>, Function<Statement, String>> buildDispatch() {
@@ -62,6 +66,16 @@ final class StatementPrinter {
                 Map.entry(AlterTableStatement.SetPartitionSpec.class, s -> printAlterTableSetPartitionSpec((AlterTableStatement.SetPartitionSpec) s)),
                 Map.entry(AlterTableStatement.SetSortOrder.class, s -> printAlterTableSetSortOrder((AlterTableStatement.SetSortOrder) s)),
                 Map.entry(CreateSchemaStatement.class, s -> printCreateSchema((CreateSchemaStatement) s)),
+                Map.entry(CreateSemanticViewStatement.class,
+                        s -> semanticFeaturePrinter.printCreateSemanticView((CreateSemanticViewStatement) s)),
+                Map.entry(PublishSemanticViewStatement.class,
+                        s -> semanticFeaturePrinter.printPublishSemanticView((PublishSemanticViewStatement) s)),
+                Map.entry(CreateFeatureViewStatement.class,
+                        s -> semanticFeaturePrinter.printCreateFeatureView((CreateFeatureViewStatement) s)),
+                Map.entry(PublishFeatureViewStatement.class,
+                        s -> semanticFeaturePrinter.printPublishFeatureView((PublishFeatureViewStatement) s)),
+                Map.entry(MaterializeFeatureViewStatement.class,
+                        s -> semanticFeaturePrinter.printMaterializeFeatureView((MaterializeFeatureViewStatement) s)),
                 // DML
                 Map.entry(InsertStatement.class, s -> printInsert((InsertStatement) s)),
                 Map.entry(InsertSelectStatement.class, s -> printInsertSelect((InsertSelectStatement) s)),
@@ -73,11 +87,13 @@ final class StatementPrinter {
                 Map.entry(ShowTablesStatement.class, s -> printShowTables((ShowTablesStatement) s)),
                 Map.entry(ShowSchemasStatement.class, s -> printShowSchemas((ShowSchemasStatement) s)),
                 Map.entry(DescribeTableStatement.class, s -> "DESCRIBE " + printer.printId(((DescribeTableStatement) s).tableName())),
+                Map.entry(ShowSemanticViewsStatement.class,
+                        s -> semanticFeaturePrinter.printShowSemanticViews((ShowSemanticViewsStatement) s)),
                 // Index DDL
-                Map.entry(CreateIndexStatement.class, s -> printCreateIndex((CreateIndexStatement) s)),
-                Map.entry(DropIndexStatement.class, s -> printDropIndex((DropIndexStatement) s)),
+                Map.entry(CreateIndexStatement.class, s -> indexPrinter.printCreateIndex((CreateIndexStatement) s)),
+                Map.entry(DropIndexStatement.class, s -> indexPrinter.printDropIndex((DropIndexStatement) s)),
                 Map.entry(ShowIndexesStatement.class, s -> "SHOW INDEXES ON " + printer.printId(((ShowIndexesStatement) s).tableName())),
-                Map.entry(AlterIndexStatement.class, s -> printAlterIndex((AlterIndexStatement) s)),
+                Map.entry(AlterIndexStatement.class, s -> indexPrinter.printAlterIndex((AlterIndexStatement) s)),
                 // Clustering DDL
                 Map.entry(SetClusteringOrderStatement.class, s -> printSetClusteringOrder((SetClusteringOrderStatement) s)),
                 Map.entry(ReclusterTableStatement.class, s -> printReclusterTable((ReclusterTableStatement) s)),
@@ -415,37 +431,6 @@ final class StatementPrinter {
     }
     private String printShowSchemas(ShowSchemasStatement s) {
         return "SHOW SCHEMAS FROM " + printer.quote(s.catalogName());
-    }
-
-    private String printCreateIndex(CreateIndexStatement s) {
-        var sb = new StringBuilder("CREATE INDEX ");
-        if (s.ifNotExists()) sb.append("IF NOT EXISTS ");
-        sb.append(printer.quote(s.indexName()));
-        sb.append(" ON ").append(printer.printId(s.tableName()));
-        sb.append(" (");
-        sb.append(s.columnNames().stream().map(printer::quote).collect(Collectors.joining(", ")));
-        sb.append(") USING ").append(s.indexType());
-        if (!s.properties().isEmpty()) {
-            sb.append(" WITH (");
-            sb.append(s.properties().entrySet().stream()
-                    .map(e -> "'" + e.getKey().replace("'", "''") + "' = '"
-                            + e.getValue().replace("'", "''") + "'")
-                    .collect(Collectors.joining(", ")));
-            sb.append(")");
-        }
-        return sb.toString();
-    }
-
-    private String printDropIndex(DropIndexStatement s) {
-        var sb = new StringBuilder("DROP INDEX ");
-        if (s.ifExists()) sb.append("IF EXISTS ");
-        sb.append(printer.quote(s.indexName()));
-        sb.append(" ON ").append(printer.printId(s.tableName()));
-        return sb.toString();
-    }
-    private String printAlterIndex(AlterIndexStatement s) {
-        return "ALTER INDEX " + printer.quote(s.indexName())
-                + " ON " + printer.printId(s.tableName()) + " REBUILD";
     }
 
     private String printSetClusteringOrder(SetClusteringOrderStatement s) {

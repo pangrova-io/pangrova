@@ -108,8 +108,11 @@ class SecurityStatementHandlerTest {
                 new org.pangrova.security.rowfilter.EmptyRowPolicyStore());
         var maskProcessor = new org.pangrova.security.mask.ColumnMaskingProcessor(
                 new org.pangrova.security.mask.EmptyColumnMaskStore());
+        var roles = new InMemoryRoleStore();
+        roles.createRole(Role.of("analyst"));
+        roles.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
         var accessControl = new DynamicRbacAccessControl(
-                grantStore, rlsFilter, maskProcessor, eventPublisher);
+                grantStore, roles, rlsFilter, maskProcessor);
 
         // Initially denied
         var user = new org.pangrova.spi.security.UserIdentity(

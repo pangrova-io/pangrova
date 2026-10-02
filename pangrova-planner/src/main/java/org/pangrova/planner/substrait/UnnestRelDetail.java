@@ -1,53 +1,54 @@
 package org.pangrova.planner.substrait;
 
 import com.google.protobuf.Any;
-import com.google.protobuf.StringValue;
+import io.substrait.expression.FieldReference;
 import io.substrait.relation.Extension;
 import io.substrait.relation.Rel;
+import io.substrait.relation.RelProtoConverter;
+import io.substrait.type.NamedStruct;
 import io.substrait.type.Type;
-
-import java.util.List;
+import io.substrait.type.TypeCreator;
+import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.v2.CapabilityInvocation;
+import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.v2.NamedExpressionArgument;
+import org.pangrova.protocol.v2.NamedValue;
+import org.pangrova.protocol.v2.RelationDetailEnvelope;
+import org.pangrova.protocol.v2.TableFunctionDetail;
+import org.pangrova.protocol.v2.TypedValue;
 
 /**
- * Encodes UNNEST (EXPLODE/POSEXPLODE) metadata for the native engine.
- *
- * <p>Serialized as a Substrait ExtensionSingleRel detail. The native
- * engine parses the JSON payload to build a native UnnestNode.</p>
- *
- * @param unnestColumnIndices indices of ARRAY/MAP columns to unnest (from left input)
- * @param unnestOutputNames output column names for unnested elements
- * @param withOrdinality whether to include a position index column (POSEXPLODE)
- * @param outputType the output record type of the unnest operation
+ * One structural native UNNEST, with a single canonical typed envelope.
  */
-record UnnestRelDetail(
-        List<Integer> unnestColumnIndices,
-        List<String> unnestOutputNames,
-        boolean withOrdinality,
-        Type.Struct outputType) implements Extension.SingleRelDetail {
+record UnnestRelDetail(String planNodeId, int collectionIndex, boolean withOrdinality,
+                       boolean outer, NamedStruct outputSchema) implements Extension.SingleRelDetail {
 
     @Override
     public Type.Struct deriveRecordType(Rel input) {
-        return outputType;
+        return outputSchema.struct();
     }
 
     @Override
-    public Any toProto() {
-        var json = new StringBuilder("{");
-        json.append("\"op\":\"unnest\"");
-        json.append(",\"unnestColumns\":[");
-        for (int i = 0; i < unnestColumnIndices.size(); i++) {
-            if (i > 0) json.append(",");
-            json.append(unnestColumnIndices.get(i));
-        }
-        json.append("]");
-        json.append(",\"unnestNames\":[");
-        for (int i = 0; i < unnestOutputNames.size(); i++) {
-            if (i > 0) json.append(",");
-            json.append("\"").append(unnestOutputNames.get(i)).append("\"");
-        }
-        json.append("]");
-        json.append(",\"ordinality\":").append(withOrdinality);
-        json.append("}");
-        return Any.pack(StringValue.of(json.toString()));
+    public Any toProto(RelProtoConverter converter) {
+        var collection = FieldReference.newRootStructReference(
+                collectionIndex, outputSchema.struct().fields().get(collectionIndex));
+        var invocation = CapabilityInvocation.newBuilder()
+                .setCapability(BuiltInCapabilityCatalog.unnestPlanRef())
+                .addArguments(NamedExpressionArgument.newBuilder().setName("input_0")
+                        .setExpression(converter.getExpressionProtoConverter().toProto(collection)))
+                .addOptions(option("with_ordinality", withOrdinality, converter))
+                .addOptions(option("outer", outer, converter));
+        var detail = TableFunctionDetail.newBuilder().setPlanNodeId(planNodeId)
+                .setInvocation(invocation)
+                .setOutputSchema(outputSchema.toProto(converter.getTypeProtoConverter()));
+        return Any.pack(RelationDetailEnvelope.newBuilder().setSchemaVersion(1)
+                .setTableFunction(detail).build());
+    }
+
+    private static NamedValue option(String name, boolean value, RelProtoConverter converter) {
+        return NamedValue.newBuilder().setName(name).setValue(TypedValue.newBuilder()
+                .setBoolValue(value).setType(LogicalType.newBuilder().setCanonicalSql("BOOLEAN")
+                        .setSubstraitType(converter.getTypeProtoConverter()
+                                .toProto(TypeCreator.REQUIRED.BOOLEAN)))).build();
     }
 }

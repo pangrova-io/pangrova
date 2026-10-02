@@ -84,14 +84,9 @@ class ExecutionInteropE2ETest extends PangrovaE2ETestBase {
             String tbl = CATALOG + "." + SCHEMA + ".t13_err_" + System.nanoTime();
             executeDdl("CREATE TABLE " + tbl + " (id BIGINT, val INT)");
             executeDml("INSERT INTO " + tbl + " VALUES (1, 0)");
-            // Attempt division by zero — may or may not throw depending on engine
-            // Just verify it doesn't crash the cluster
-            try {
-                executeQuery("SELECT id, 100/val FROM " + tbl);
-            } catch (AssertionError e) {
-                // Expected — error propagated cleanly
-                assertThat(e.getMessage()).isNotNull();
-            }
+            String error = executeExpectingError("SELECT id, 100/val FROM " + tbl);
+            assertThat(error).containsIgnoringCase("division by zero");
+            assertThat(executeQuery("SELECT id FROM " + tbl)).hasSize(1);
         }
     }
 }

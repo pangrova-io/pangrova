@@ -68,8 +68,12 @@ class ConcurrentMapEmbeddingModelRegistryTest {
     @Test
     void createWithNonZeroVersionThrows() {
         EmbeddingModelDescriptor badVersion = new EmbeddingModelDescriptor(
-                "model", "openai", "http://endpoint", 768,
-                "vault://key", 64, 100, "", "", 5);
+                "model",
+                new EmbeddingModelDescriptor.ProviderRoute(
+                        "openai", "https://endpoint", "vault://key"),
+                new EmbeddingModelDescriptor.EmbeddingContract(768, "", ""),
+                new EmbeddingModelDescriptor.ServingLimits(64, 100),
+                5, EmbeddingModelDescriptor.DeploymentFence.unbound());
 
         assertThatThrownBy(() -> registry.create(badVersion, adminUser))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -86,17 +90,21 @@ class ConcurrentMapEmbeddingModelRegistryTest {
 
     @Test
     void alterIncrementsVersionAndUpdatesFields() {
-        registry.create(testDescriptor("bge_m3", 1024), adminUser);
+        registry.create(boundDescriptor("bge_m3", 1024), adminUser);
 
         ModelUpdateRequest update = new ModelUpdateRequest(
                 Optional.of("https://new-endpoint/v2"),
                 Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty());
 
-        EmbeddingModelDescriptor updated = registry.alter("bge_m3", update, 0, adminUser);
+        EmbeddingModelDescriptor current = registry.find("bge_m3", adminUser).orElseThrow();
+        EmbeddingModelDescriptor updated = registry.alter(
+                registry.prepareAlter("bge_m3", adminUser),
+                replacement(current, update), adminUser);
         assertThat(updated.version()).isEqualTo(1);
         assertThat(updated.endpoint()).isEqualTo("https://new-endpoint/v2");
         assertThat(updated.dimension()).isEqualTo(1024);
+        assertThat(updated.isDeploymentBound()).isTrue();
     }
 
     @Test
@@ -107,10 +115,28 @@ class ConcurrentMapEmbeddingModelRegistryTest {
                 Optional.of("https://new"), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
-        assertThatThrownBy(() -> registry.alter("bge_m3", update, 99, adminUser))
+        EmbeddingModelDescriptor current = registry.find("bge_m3", adminUser).orElseThrow();
+        assertThatThrownBy(() -> registry.alter(
+                new EmbeddingModelAlterTarget(current, "stale-incarnation"),
+                replacement(current, update), adminUser))
                 .isInstanceOf(VersionConflictException.class)
-                .hasMessageContaining("expected version 99")
+                .hasMessageContaining("expected version 0")
                 .hasMessageContaining("current is 0");
+    }
+
+    @Test
+    void failedDropPreservesOriginalAlterTarget() {
+        registry.create(boundDescriptor("bge_m3", 1024), adminUser);
+        EmbeddingModelAlterTarget target = registry.prepareAlter("bge_m3", adminUser);
+        assertThatThrownBy(() -> registry.drop("bge_m3", false, adminUser))
+                .isInstanceOf(ModelDropUnavailableException.class);
+        ModelUpdateRequest update = new ModelUpdateRequest(
+                Optional.of("https://stale-endpoint"), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+
+        registry.alter(target, replacement(target.descriptor(), update), adminUser);
+        assertThat(registry.find("bge_m3", adminUser).orElseThrow().endpoint())
+                .isEqualTo("https://stale-endpoint");
     }
 
     @Test
@@ -119,36 +145,41 @@ class ConcurrentMapEmbeddingModelRegistryTest {
                 Optional.of("https://new"), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
-        assertThatThrownBy(() -> registry.alter("missing", update, 0, adminUser))
+        assertThatThrownBy(() -> registry.alter(
+                new EmbeddingModelAlterTarget(
+                        boundDescriptor("missing", 1024), "missing-incarnation"),
+                replacement(boundDescriptor("missing", 1024), update), adminUser))
                 .isInstanceOf(ModelNotFoundException.class);
     }
 
     @Test
-    void dropRemovesModel() {
+    void dropWithoutDependencyFlagFailsClosed() {
         registry.create(testDescriptor("bge_m3", 1024), adminUser);
-        registry.drop("bge_m3", false, adminUser);
+        assertThatThrownBy(() -> registry.drop("bge_m3", false, adminUser))
+                .isInstanceOf(ModelDropUnavailableException.class);
 
         Optional<EmbeddingModelDescriptor> found = registry.find("bge_m3", adminUser);
-        assertThat(found).isEmpty();
+        assertThat(found).isPresent();
     }
 
     @Test
-    void dropWithDependentsWithoutCascadeThrowsModelInUse() {
+    void dropWithDependentsWithoutCascadeStillFailsClosed() {
         registry.create(testDescriptor("bge_m3", 1024), adminUser);
         registry.registerDependency("bge_m3");
 
         assertThatThrownBy(() -> registry.drop("bge_m3", false, adminUser))
-                .isInstanceOf(ModelInUseException.class)
-                .hasMessageContaining("CASCADE");
+                .isInstanceOf(ModelDropUnavailableException.class)
+                .hasMessageContaining("durable catalog authority");
     }
 
     @Test
-    void dropWithCascadeSucceedsEvenWithDependents() {
+    void dropWithCascadeRetainsModelAndDependency() {
         registry.create(testDescriptor("bge_m3", 1024), adminUser);
         registry.registerDependency("bge_m3");
 
-        registry.drop("bge_m3", true, adminUser);
-        assertThat(registry.find("bge_m3", adminUser)).isEmpty();
+        assertThatThrownBy(() -> registry.drop("bge_m3", true, adminUser))
+                .isInstanceOf(ModelDropUnavailableException.class);
+        assertThat(registry.find("bge_m3", adminUser)).isPresent();
     }
 
     @Test
@@ -219,7 +250,30 @@ class ConcurrentMapEmbeddingModelRegistryTest {
 
     private static EmbeddingModelDescriptor testDescriptor(String name, int dimension) {
         return new EmbeddingModelDescriptor(
-                name, "openai-compatible", "https://api.example.com/v1/embeddings",
-                dimension, "vault://secrets/api-key", 64, 100, "query: ", "passage: ", 0);
+                name,
+                new EmbeddingModelDescriptor.ProviderRoute(
+                        "openai-compatible", "https://api.example.com/v1/embeddings",
+                        "vault://secrets/api-key"),
+                new EmbeddingModelDescriptor.EmbeddingContract(
+                        dimension, "query: ", "passage: "),
+                new EmbeddingModelDescriptor.ServingLimits(64, 100),
+                0, EmbeddingModelDescriptor.DeploymentFence.unbound());
+    }
+
+    private static EmbeddingModelDescriptor boundDescriptor(String name, int dimension) {
+        EmbeddingModelDescriptor descriptor = testDescriptor(name, dimension);
+        return new EmbeddingModelDescriptor(
+                descriptor.name(), descriptor.route(), descriptor.contract(), descriptor.limits(),
+                descriptor.version(), new EmbeddingModelDescriptor.DeploymentFence(
+                        "model-v1", "01" + "00".repeat(31)));
+    }
+
+    private static EmbeddingModelDescriptor replacement(
+            EmbeddingModelDescriptor current, ModelUpdateRequest update) {
+        EmbeddingModelDescriptor requested = EmbeddingModelRevision.applyUpdate(current, update);
+        return new EmbeddingModelDescriptor(
+                requested.name(), requested.route(), requested.contract(), requested.limits(),
+                requested.version(), new EmbeddingModelDescriptor.DeploymentFence(
+                        "model-v2", "02" + "00".repeat(31)));
     }
 }

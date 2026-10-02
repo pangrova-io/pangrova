@@ -66,7 +66,9 @@ JniThreadGuard acquireEnv(JavaVM* vm) {
 ShuffleEgressExecutor::ShuffleEgressExecutor(JNIEnv* env, jobject egressRef)
     : vm_(nullptr),
       egress_(nullptr),
-      onPartitionCommittedId_(nullptr) {
+      onPartitionBatchId_(nullptr),
+      onTaskCompletedId_(nullptr),
+      onTaskAbortedId_(nullptr) {
   if (!env || !egressRef) {
     throw std::runtime_error(
         "ShuffleEgressExecutor: env and egressRef must not be null");
@@ -75,8 +77,6 @@ ShuffleEgressExecutor::ShuffleEgressExecutor(JNIEnv* env, jobject egressRef)
   env->GetJavaVM(&vm_);
   egress_ = env->NewGlobalRef(egressRef);
 
-  // Look up the onPartitionCommitted method ID.
-  // Signature: (Ljava/lang/String;IIIJLjava/nio/ByteBuffer;)V
   jclass egressClass = env->GetObjectClass(egress_);
   if (!egressClass) {
     env->DeleteGlobalRef(egress_);
@@ -84,16 +84,21 @@ ShuffleEgressExecutor::ShuffleEgressExecutor(JNIEnv* env, jobject egressRef)
         "ShuffleEgressExecutor: failed to get class of egress object");
   }
 
-  onPartitionCommittedId_ = env->GetMethodID(
-      egressClass, "onPartitionCommitted",
-      "(Ljava/lang/String;IIIJLjava/nio/ByteBuffer;)V");
-  if (!onPartitionCommittedId_) {
+  onPartitionBatchId_ = env->GetMethodID(
+      egressClass, "onPartitionBatch",
+      "(Ljava/lang/String;Ljava/lang/String;IJLjava/nio/ByteBuffer;)V");
+  onTaskCompletedId_ = env->GetMethodID(
+      egressClass, "onTaskCompleted",
+      "(Ljava/lang/String;Ljava/lang/String;)V");
+  onTaskAbortedId_ = env->GetMethodID(
+      egressClass, "onTaskAborted",
+      "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+  if (!onPartitionBatchId_ || !onTaskCompletedId_ || !onTaskAbortedId_) {
     env->ExceptionClear();
     env->DeleteGlobalRef(egress_);
     env->DeleteLocalRef(egressClass);
     throw std::runtime_error(
-        "ShuffleEgressExecutor: failed to find method "
-        "onPartitionCommitted(String,int,int,int,long,ByteBuffer)");
+        "ShuffleEgressExecutor: failed to resolve external shuffle callbacks");
   }
 
   env->DeleteLocalRef(egressClass);
@@ -109,21 +114,29 @@ ShuffleEgressExecutor::~ShuffleEgressExecutor() {
   }
 }
 
-void ShuffleEgressExecutor::onPartitionCommitted(
-    const std::string& query_id, int32_t stage_id, int32_t partition_id,
-    int32_t map_id, int64_t attempt_id, const uint8_t* data, int64_t size) {
+void ShuffleEgressExecutor::onPartitionBatch(
+    const std::string& query_id, const std::string& task_id,
+    int32_t partition_id, int64_t row_count, const uint8_t* data,
+    int64_t size) {
+  if (row_count <= 0) {
+    throw std::invalid_argument(
+        "ShuffleEgressExecutor: row_count must be positive");
+  }
   auto guard = acquireEnv(vm_);
   JNIEnv* env = guard.env();
   if (!env) {
     throw std::runtime_error(
-        "ShuffleEgressExecutor::onPartitionCommitted: no JNIEnv");
+        "ShuffleEgressExecutor::onPartitionBatch: no JNIEnv");
   }
 
   // Create Java String for queryId.
   jstring jQueryId = env->NewStringUTF(query_id.c_str());
-  if (!jQueryId) {
+  jstring jTaskId = env->NewStringUTF(task_id.c_str());
+  if (!jQueryId || !jTaskId) {
+    if (jQueryId) env->DeleteLocalRef(jQueryId);
+    if (jTaskId) env->DeleteLocalRef(jTaskId);
     throw std::runtime_error(
-        "ShuffleEgressExecutor: failed to create queryId string");
+        "ShuffleEgressExecutor: failed to create task identity strings");
   }
 
   // Create a DirectByteBuffer wrapping the native memory.
@@ -133,26 +146,72 @@ void ShuffleEgressExecutor::onPartitionCommitted(
       const_cast<uint8_t*>(data), static_cast<jlong>(size));
   if (!jBuffer) {
     env->DeleteLocalRef(jQueryId);
+    env->DeleteLocalRef(jTaskId);
     throw std::runtime_error(
         "ShuffleEgressExecutor: failed to create DirectByteBuffer");
   }
 
-  // Call ShuffleByteEgress.onPartitionCommitted(queryId, stageId, partitionId,
-  //     mapId, attemptId, arrowIpc)
   env->CallVoidMethod(
-      egress_, onPartitionCommittedId_,
-      jQueryId,
-      static_cast<jint>(stage_id),
+      egress_, onPartitionBatchId_, jQueryId, jTaskId,
       static_cast<jint>(partition_id),
-      static_cast<jint>(map_id),
-      static_cast<jlong>(attempt_id),
+      static_cast<jlong>(row_count),
       jBuffer);
 
   // Clean up local refs before checking exception.
   env->DeleteLocalRef(jQueryId);
+  env->DeleteLocalRef(jTaskId);
   env->DeleteLocalRef(jBuffer);
 
-  checkJniException(env, "onPartitionCommitted");
+  checkJniException(env, "onPartitionBatch");
+}
+
+void ShuffleEgressExecutor::onTaskCompleted(
+    const std::string& query_id, const std::string& task_id) {
+  auto guard = acquireEnv(vm_);
+  JNIEnv* env = guard.env();
+  if (!env) {
+    throw std::runtime_error("ShuffleEgressExecutor::onTaskCompleted: no JNIEnv");
+  }
+  jstring jQueryId = env->NewStringUTF(query_id.c_str());
+  jstring jTaskId = env->NewStringUTF(task_id.c_str());
+  if (!jQueryId || !jTaskId) {
+    if (jQueryId) env->DeleteLocalRef(jQueryId);
+    if (jTaskId) env->DeleteLocalRef(jTaskId);
+    throw std::runtime_error(
+        "ShuffleEgressExecutor: failed to create completion identity strings");
+  }
+  env->CallVoidMethod(egress_, onTaskCompletedId_, jQueryId, jTaskId);
+  env->DeleteLocalRef(jQueryId);
+  env->DeleteLocalRef(jTaskId);
+  checkJniException(env, "onTaskCompleted");
+}
+
+void ShuffleEgressExecutor::onTaskAborted(
+    const std::string& query_id, const std::string& task_id,
+    const std::string& reason) noexcept {
+  try {
+    auto guard = acquireEnv(vm_);
+    JNIEnv* env = guard.env();
+    if (!env) return;
+    jstring jQueryId = env->NewStringUTF(query_id.c_str());
+    jstring jTaskId = env->NewStringUTF(task_id.c_str());
+    jstring jReason = env->NewStringUTF(reason.c_str());
+    if (!jQueryId || !jTaskId || !jReason) {
+      if (jQueryId) env->DeleteLocalRef(jQueryId);
+      if (jTaskId) env->DeleteLocalRef(jTaskId);
+      if (jReason) env->DeleteLocalRef(jReason);
+      env->ExceptionClear();
+      return;
+    }
+    env->CallVoidMethod(
+        egress_, onTaskAbortedId_, jQueryId, jTaskId, jReason);
+    env->DeleteLocalRef(jQueryId);
+    env->DeleteLocalRef(jTaskId);
+    env->DeleteLocalRef(jReason);
+    if (env->ExceptionCheck()) env->ExceptionClear();
+  } catch (...) {
+    // Abort is best-effort while preserving the original Native failure.
+  }
 }
 
 void ShuffleEgressExecutor::checkJniException(

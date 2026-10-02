@@ -6,8 +6,6 @@ import org.pangrova.client.rest.PangrovaProtocolException;
 import org.pangrova.client.rest.PangrovaRestClient;
 import org.pangrova.client.rest.PangrovaServerException;
 import org.pangrova.protocol.rest.query.QueryStatusResponse;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.query.ResultPage;
 import org.pangrova.protocol.rest.query.SubmitQueryResponse;
 import org.pangrova.transport.ArrowBatchDecoder;
 import org.pangrova.transport.ResultBatch;
@@ -19,6 +17,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
+import java.sql.SQLTimeoutException;
 import java.sql.SQLWarning;
 import java.util.Locale;
 import java.util.Map;
@@ -32,8 +31,6 @@ public final class PangrovaStatement implements java.sql.Statement {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaStatement.class);
     private static final String STATE_FINISHED = "FINISHED";
-    /** Number of rows requested when fetching the first result page. */
-    private static final int DEFAULT_PAGE_ROWS = 10_000;
     /** Length of the WITH keyword, the scan start position for CTE parsing. */
     private static final int WITH_KEYWORD_LENGTH = 4;
 
@@ -67,13 +64,14 @@ public final class PangrovaStatement implements java.sql.Statement {
     private ResultSet executeQueryInternal(String sql) throws Exception {
         PangrovaRestClient client = connection.restClient();
         Map<String, String> props = buildSessionProperties();
+        long deadlineMs = QueryCompletionWaiter.deadlineFor(queryTimeoutSeconds);
         SubmitQueryResponse submitResponse = client.submitQuery(sql, props);
         String queryId = submitResponse.queryId();
         currentQueryId.set(queryId);
         LOG.debug("Submitted query queryId={}", queryId);
         boolean success = false;
         try {
-            ResultSet rs = fetchQueryResult(client, queryId, submitResponse);
+            ResultSet rs = fetchQueryResult(client, queryId, submitResponse, deadlineMs);
             success = true;
             return rs;
         } finally {
@@ -83,10 +81,28 @@ public final class PangrovaStatement implements java.sql.Statement {
     }
 
     private ResultSet fetchQueryResult(PangrovaRestClient client, String queryId,
-                                       SubmitQueryResponse submitResponse) throws Exception {
-        ResultEndpoint endpoint = QueryCompletionWaiter.awaitCompletion(
-                client, queryId, submitResponse, queryTimeoutSeconds);
-        byte[] arrowData = client.fetchResult(endpoint);
+                                       SubmitQueryResponse submitResponse,
+                                       long deadlineMs) throws Exception {
+        QueryCompletionWaiter.ReadyEndpoint ready = QueryCompletionWaiter.awaitReadableEndpoint(
+                client, queryId, submitResponse, deadlineMs, queryTimeoutSeconds);
+        byte[] arrowData;
+        try {
+            arrowData = client.fetchResult(ready.endpoint(), deadlineMs);
+        } catch (PangrovaConnectionException failure) {
+            if ("TRANSPORT_QUERY_DEADLINE_EXCEEDED".equals(failure.errorCode())) {
+                throw new SQLTimeoutException(
+                        "Query timed out after " + queryTimeoutSeconds
+                                + "s while reading results, queryId=" + queryId,
+                        failure);
+            }
+            throw failure;
+        }
+        QueryCompletionWaiter.checkTimeout(
+                client, queryId, deadlineMs, queryTimeoutSeconds);
+        if (!ready.terminal()) {
+            QueryCompletionWaiter.awaitTerminalSuccess(
+                    client, queryId, deadlineMs, queryTimeoutSeconds);
+        }
         ResultSet rs = createResultSet(arrowData);
         currentResultSet = rs;
         return rs;
@@ -173,21 +189,20 @@ public final class PangrovaStatement implements java.sql.Statement {
         try {
             PangrovaRestClient client = connection.restClient();
             Map<String, String> props = buildSessionProperties();
+            long deadlineMs = QueryCompletionWaiter.deadlineFor(queryTimeoutSeconds);
             SubmitQueryResponse submitResponse = client.submitQuery(sql, props);
             String queryId = submitResponse.queryId();
             currentQueryId.set(queryId);
             boolean success = false;
             try {
                 if (isUpdateStatement(sql)) {
-                    currentUpdateCount = fetchUpdateCount(client, queryId);
+                    currentUpdateCount = fetchUpdateCount(
+                            client, queryId, deadlineMs);
                     success = true;
                     return false;
                 } else {
-                    if (submitResponse.resultEndpoint() != null) {
-                        currentResultSet = fetchQueryResult(client, queryId, submitResponse);
-                    } else {
-                        currentResultSet = fetchPaginatedResultSet(client, queryId);
-                    }
+                    currentResultSet = fetchQueryResult(
+                            client, queryId, submitResponse, deadlineMs);
                     success = true;
                     return true;
                 }
@@ -210,35 +225,41 @@ public final class PangrovaStatement implements java.sql.Statement {
         try {
             PangrovaRestClient client = connection.restClient();
             Map<String, String> props = buildSessionProperties();
+            long deadlineMs = QueryCompletionWaiter.deadlineFor(queryTimeoutSeconds);
             SubmitQueryResponse submitResponse = client.submitQuery(sql, props);
             String queryId = submitResponse.queryId();
-            int count = fetchUpdateCount(client, queryId);
-            currentUpdateCount = count;
-            return count;
+            currentQueryId.set(queryId);
+            boolean success = false;
+            try {
+                int count = fetchUpdateCount(client, queryId, deadlineMs);
+                currentUpdateCount = count;
+                success = true;
+                return count;
+            } finally {
+                currentQueryId.set(null);
+                cancelOnFailure(client, queryId, success);
+            }
+        } catch (SQLException e) {
+            throw e;
         } catch (Exception e) {
             throw toSqlException(e);
         }
     }
 
-    private int fetchUpdateCount(PangrovaRestClient client, String queryId) {
-        QueryStatusResponse status = client.getQueryStatus(queryId);
+    private int fetchUpdateCount(
+            PangrovaRestClient client, String queryId, long deadlineMs)
+            throws SQLException {
+        QueryStatusResponse status = QueryCompletionWaiter.awaitTerminalSuccess(
+                client, queryId, deadlineMs, queryTimeoutSeconds);
         if (status.stats() != null) {
-            return (int) status.stats().rowsReturned();
+            long affectedRows = status.stats().rowsReturned();
+            if (affectedRows < 0 || affectedRows > Integer.MAX_VALUE) {
+                throw new SQLException(
+                        "Affected row count exceeds JDBC int range, queryId=" + queryId);
+            }
+            return (int) affectedRows;
         }
         return 0;
-    }
-
-    private ResultSet fetchPaginatedResultSet(PangrovaRestClient client, String queryId)
-            throws Exception {
-        ResultPage page = client.fetchResultPage(queryId, DEFAULT_PAGE_ROWS, null);
-        if (page.data().length > 0) {
-            return createResultSet(page.data());
-        }
-        return createEmptyResultSet();
-    }
-
-    private ResultSet createEmptyResultSet() {
-        return new PangrovaResultSet(ResultBatch.EMPTY, this);
     }
 
     static boolean isUpdateStatement(String sql) {

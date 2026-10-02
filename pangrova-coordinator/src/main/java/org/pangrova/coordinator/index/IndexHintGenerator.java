@@ -43,8 +43,9 @@ public final class IndexHintGenerator {
     public static Map<String, List<IndexHint>> generate(
             RelNode relNode,
             IndexMetadataStore metadataStore,
-            IndexPredicateAnalyzer analyzer) {
-        return generate(relNode, metadataStore, analyzer, 0);
+            IndexPredicateAnalyzer analyzer,
+            String tenantId) {
+        return generate(relNode, metadataStore, analyzer, tenantId, 0);
     }
 
     /**
@@ -60,8 +61,9 @@ public final class IndexHintGenerator {
             RelNode relNode,
             IndexMetadataStore metadataStore,
             IndexPredicateAnalyzer analyzer,
+            String tenantId,
             int totalDataFiles) {
-        return generate(relNode, metadataStore, analyzer, totalDataFiles, false);
+        return generate(relNode, metadataStore, analyzer, tenantId, totalDataFiles, false);
     }
 
     /**
@@ -78,6 +80,7 @@ public final class IndexHintGenerator {
             RelNode relNode,
             IndexMetadataStore metadataStore,
             IndexPredicateAnalyzer analyzer,
+            String tenantId,
             int totalDataFiles,
             boolean includeStale) {
         List<IndexPredicate> predicates = FilterPredicateExtractor.extract(relNode);
@@ -91,7 +94,9 @@ public final class IndexHintGenerator {
         }
         Map<String, List<IndexHint>> result = new LinkedHashMap<>();
         for (TableScanInfo info : tableScans) {
-            generateForTable(info, predicates, metadataStore, analyzer, totalDataFiles, includeStale, result);
+            generateForTable(
+                    info, predicates, metadataStore, analyzer,
+                    tenantId, totalDataFiles, includeStale, result);
         }
         return Map.copyOf(result);
     }
@@ -99,6 +104,7 @@ public final class IndexHintGenerator {
     private static void generateForTable(TableScanInfo info, List<IndexPredicate> predicates,
                                          IndexMetadataStore metadataStore,
                                          IndexPredicateAnalyzer analyzer,
+                                         String tenantId,
                                          int totalDataFiles,
                                          boolean includeStale,
                                          Map<String, List<IndexHint>> result) {
@@ -113,7 +119,7 @@ public final class IndexHintGenerator {
         List<String> predColumns = tablePredicates.stream().map(IndexPredicate::column)
                 .distinct().toList();
         List<IndexDescriptor> indexes = metadataStore.findReadyIndexesForColumns(
-                info.catalog, info.schema, info.table, predColumns, includeStale);
+                tenantId, info.catalog, info.schema, info.table, predColumns, includeStale);
         LOG.debug("event=hint_gen_indexes table={} predColumns={} readyIndexCount={}",
                 info.tableKey(), predColumns, indexes.size());
         if (indexes.isEmpty()) {

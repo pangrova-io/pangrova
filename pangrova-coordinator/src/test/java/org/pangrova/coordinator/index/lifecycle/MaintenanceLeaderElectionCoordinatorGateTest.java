@@ -4,8 +4,6 @@ import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.atomic.AtomicLong;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -59,15 +57,28 @@ class MaintenanceLeaderElectionCoordinatorGateTest {
     }
 
     @Test
+    @DisplayName("A high local epoch cannot preempt an unexpired maintenance holder")
+    void highLocalEpochDoesNotPreemptLiveHolder() {
+        InMemoryDistributedLease lease = new InMemoryDistributedLease();
+        MaintenanceLeaderElection holder = new MaintenanceLeaderElection(lease, "coord-1");
+        MaintenanceLeaderElection contender = new MaintenanceLeaderElection(lease, "coord-2");
+
+        assertThat(holder.tryAcquireOrRenew()).isTrue();
+        assertThat(contender.tryAcquireOrRenew()).isFalse();
+        assertThat(lease.currentHolder("maintenance-control").orElseThrow().holderId())
+                .isEqualTo("coord-1");
+    }
+
+    @Test
     @DisplayName("Epoch increments on successive acquisitions")
     void epochIncrementsOnAcquisitions() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        AtomicLong epoch = new AtomicLong(0);
-        MaintenanceLeaderElection election = new MaintenanceLeaderElection(lease, "coord-1", epoch);
+        MaintenanceLeaderElection first = new MaintenanceLeaderElection(lease, "coord-1");
+        MaintenanceLeaderElection second = new MaintenanceLeaderElection(lease, "coord-2");
 
-        assertThat(election.tryAcquireOrRenew()).isTrue();
-        long epochAfterFirst = epoch.get();
-        assertThat(epochAfterFirst).isGreaterThan(0);
+        assertThat(first.acquireOrRenewEpoch()).hasValue(1L);
+        assertThat(first.release()).isTrue();
+        assertThat(second.acquireOrRenewEpoch()).hasValue(2L);
     }
 
     @Test
@@ -95,14 +106,13 @@ class MaintenanceLeaderElectionCoordinatorGateTest {
     }
 
     @Test
-    @DisplayName("Constructor with explicit epoch source")
-    void constructorWithExplicitEpoch() {
+    @DisplayName("Election returns the backend-issued fencing epoch")
+    void returnsBackendIssuedEpoch() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
-        AtomicLong epoch = new AtomicLong(100);
-        MaintenanceLeaderElection election = new MaintenanceLeaderElection(lease, "coord-1", epoch);
+        MaintenanceLeaderElection election = new MaintenanceLeaderElection(lease, "coord-1");
 
-        assertThat(election.tryAcquireOrRenew()).isTrue();
-        // Epoch should have been used during acquisition
-        assertThat(epoch.get()).isGreaterThanOrEqualTo(100);
+        assertThat(election.acquireOrRenewEpoch()).hasValue(1L);
+        assertThat(lease.currentHolder("maintenance-control").orElseThrow().epoch())
+                .isEqualTo(1L);
     }
 }

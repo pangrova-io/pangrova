@@ -58,7 +58,7 @@ class DdlDmlSkipLoggingTest {
                 compiler, null, null, null, httpDispatcher,
                 new TaskScheduler(new WorkerPerformanceScorer()),
                 workerManager, new CoordinatorTaskTracker(),
-                null, null, null, null, 0L);
+                null, null, null, 0L);
         // statementDispatcher = null → QueryDispatcher skips DDL/DML dispatch
         dispatcher = new QueryDispatcher(deps, null, null);
     }

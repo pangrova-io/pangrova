@@ -7,6 +7,9 @@ import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -28,6 +31,8 @@ class WorkerBootstrapE2ETest {
 
     private CoordinatorBootstrap coordinator;
     private WorkerBootstrap worker;
+    @TempDir
+    Path shuffleSpillDirectory;
 
     @AfterEach
     void tearDown() {
@@ -44,7 +49,7 @@ class WorkerBootstrapE2ETest {
         coordinator = startCoordinator("coord-e2e-reg");
         String coordinatorUrl = "http://localhost:" + coordinator.getHttpPort();
 
-        worker = startWorker("worker-e2e-reg", coordinatorUrl);
+        worker = startWorker("worker-e2e-reg", coordinatorUrl, shuffleSpillDirectory);
 
         assertThat(worker.isStarted()).isTrue();
         assertThat(worker.getTaskManager()).isNotNull();
@@ -60,7 +65,7 @@ class WorkerBootstrapE2ETest {
         coordinator = startCoordinator("coord-e2e-dereg");
         String coordinatorUrl = "http://localhost:" + coordinator.getHttpPort();
 
-        worker = startWorker("worker-e2e-dereg", coordinatorUrl);
+        worker = startWorker("worker-e2e-dereg", coordinatorUrl, shuffleSpillDirectory);
         assertThat(coordinator.getWorkerManager().getActiveWorkers()).hasSize(1);
 
         worker.shutdown();
@@ -75,7 +80,7 @@ class WorkerBootstrapE2ETest {
         coordinator = startCoordinator("coord-e2e-lc");
         String coordinatorUrl = "http://localhost:" + coordinator.getHttpPort();
 
-        worker = startWorker("worker-e2e-lc", coordinatorUrl);
+        worker = startWorker("worker-e2e-lc", coordinatorUrl, shuffleSpillDirectory);
         assertThat(worker.isStarted()).isTrue();
 
         assertThatCode(() -> {
@@ -93,15 +98,28 @@ class WorkerBootstrapE2ETest {
         return bootstrap;
     }
 
-    private static WorkerBootstrap startWorker(String workerId, String coordinatorUrl) {
+    private static WorkerBootstrap startWorker(
+            String workerId, String coordinatorUrl, Path shuffleSpillDirectory) {
+        var defaults = WorkerBootstrapConfig.ResourceConfig.defaults();
+        var resources = new WorkerBootstrapConfig.ResourceConfig(
+                defaults.memoryBudgetBytes(), defaults.systemReservedBytes(),
+                defaults.queryThreads(), defaults.ioThreads(), defaults.schedulerThreads(),
+                defaults.spillDirectory(), defaults.nodeMemoryBytes(),
+                defaults.pressureThresholdLow(), defaults.pressureThresholdMedium(),
+                defaults.pressureThresholdHigh(), defaults.pressureThresholdCritical(),
+                defaults.shuffleRetentionBytes(), defaults.shuffleTransitBytes(),
+                defaults.shuffleSpillBytes(), defaults.shuffleSpillFiles(),
+                shuffleSpillDirectory.toAbsolutePath().toString());
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 workerId, 0, 0, coordinatorUrl,
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
-                false, null, null, 0, false,
+                false, null, resources, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(3, 100, 1000),
                 null, null,
                 null, null,
-                null);
+                null,
+                org.pangrova.worker.jni.NativeFunctionConfig.DEFAULT,
+                WorkerBootstrapConfig.TransportSecurityConfig.disabled());
         WorkerBootstrap bootstrap = new WorkerBootstrap(config);
         bootstrap.start();
         return bootstrap;

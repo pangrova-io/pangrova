@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.pangrova.planner.FragmentedPlan;
+import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.PlanStage;
 import org.pangrova.planner.StageTransfer;
 import org.pangrova.shuffle.exchange.ExchangeReadMode;
@@ -81,9 +82,31 @@ public record StageDAG(
         List<StageEdge> stageEdges = fragmentedPlan.transfers().stream()
                 .map(t -> new StageEdge(
                         t.upstreamStageId(), t.downstreamStageId(),
-                        t.shuffleType(), t.distributionKeys()))
+                        t.shuffleType(), t.distributionKeys(), t.exchangeId(),
+                        t.partitionCount(), t.batchSerde(), t.requireComplete()))
                 .toList();
         return create(List.of(), nodes, fragmentedPlan.stageDependencies(), stageEdges);
+    }
+
+    /** Restores the same execution topology from immutable authorized stage bytes, without Calcite or SQL. */
+    public static StageDAG fromAuthorizedStageGraph(AuthorizedStageGraph graph) {
+        checkNotNull(graph, "graph must not be null");
+        List<StageNode> nodes = graph.stages().stream()
+                .map(stage -> new StageNode(stage.stageId(), stage, stage.parallelism(), stage.taskType(),
+                        List.of(), stage.estimatedShuffleBytes(), stage.estimatedShuffleRows()))
+                .toList();
+        List<StageEdge> transfers = graph.transfers().stream()
+                .map(edge -> new StageEdge(edge.upstreamStageId(), edge.downstreamStageId(),
+                        edge.shuffleType(), edge.distributionKeys(), edge.exchangeId(),
+                        edge.partitionCount(), edge.batchSerde(), edge.requireComplete()))
+                .toList();
+        Map<Integer, List<Integer>> dependencies = new HashMap<>();
+        for (var edge : graph.transfers()) {
+            dependencies.computeIfAbsent(edge.downstreamStageId(), ignored -> new ArrayList<>())
+                    .add(edge.upstreamStageId());
+        }
+        dependencies.replaceAll((ignored, ids) -> List.copyOf(ids));
+        return create(List.of(), nodes, dependencies, transfers);
     }
 
     /**

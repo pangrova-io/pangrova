@@ -21,7 +21,7 @@ import org.pangrova.spi.connector.data.page.Page;
  * {@link org.pangrova.spi.connector.metadata.ConnectorMetadata#finishDistributedWrite}.
  */
 @Stable(since = "1.0")
-public interface ConnectorPageSink {
+public interface ConnectorPageSink extends AutoCloseable {
 
     /**
      * Appends a page of data to this sink.
@@ -70,5 +70,6 @@ public interface ConnectorPageSink {
      *
      * <p>This method is idempotent.</p>
      */
+    @Override
     void close();
 }

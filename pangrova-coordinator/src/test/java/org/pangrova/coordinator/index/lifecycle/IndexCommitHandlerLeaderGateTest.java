@@ -79,8 +79,8 @@ class IndexCommitHandlerLeaderGateTest {
         poller = env.poller;
 
         env.store.seedCommitLogEntry(new CommitLogEntry(
-                1L, "cat", "sch", "tbl", "snap-1",
-                "file1.parquet", "", "APPEND", Instant.now()));
+                1L, "tenant-a", "cat", "sch", "tbl", "snap-1",
+                "[\"file1.parquet\"]", "[]", "APPEND", Instant.now(), null));
 
         env.poller.pollCommitLog();
 
@@ -97,8 +97,8 @@ class IndexCommitHandlerLeaderGateTest {
         poller = env.poller;
 
         env.store.seedCommitLogEntry(new CommitLogEntry(
-                1L, "cat", "sch", "tbl", "snap-1",
-                "file1.parquet", "", "APPEND", Instant.now()));
+                1L, "tenant-a", "cat", "sch", "tbl", "snap-1",
+                "[\"file1.parquet\"]", "[]", "APPEND", Instant.now(), null));
 
         env.poller.pollCommitLog();
 
@@ -115,9 +115,10 @@ class IndexCommitHandlerLeaderGateTest {
         poller = env.poller;
 
         handler.onCommit(new CommitEvent(
+                "tenant-a",
                 "cat", "sch", "tbl",
                 List.of("file1.parquet"), List.of(),
-                Instant.now(), "snap-1", CommitEventType.APPEND));
+                Instant.now(), "snap-1", CommitEventType.APPEND, null));
 
         // F-COORD-FEAT-07: processing now goes through CommitLogPoller, not processLoop
         env.poller.pollCommitLog();
@@ -136,9 +137,10 @@ class IndexCommitHandlerLeaderGateTest {
         poller = env.poller;
 
         handler.onCommit(new CommitEvent(
+                "tenant-a",
                 "cat", "sch", "tbl",
                 List.of("file1.parquet"), List.of(),
-                Instant.now(), "snap-1", CommitEventType.APPEND));
+                Instant.now(), "snap-1", CommitEventType.APPEND, null));
 
         // F-COORD-FEAT-07: processing now goes through CommitLogPoller, not processLoop
         env.poller.pollCommitLog();
@@ -157,9 +159,10 @@ class IndexCommitHandlerLeaderGateTest {
         poller = env.poller;
 
         handler.onCommit(new CommitEvent(
+                "tenant-a",
                 "cat", "sch", "tbl",
                 List.of("file1.parquet"), List.of(),
-                Instant.now(), "snap-1", CommitEventType.APPEND));
+                Instant.now(), "snap-1", CommitEventType.APPEND, null));
 
         // Commit log write should happen even when not leader
         assertThat(env.store.commitLogWriteCount.get())
@@ -172,8 +175,7 @@ class IndexCommitHandlerLeaderGateTest {
     private TestEnv createEnv(boolean isLeader) {
         var store = new TrackingMetadataStore();
         var lease = new ControllableLease(isLeader);
-        var leaderElection = new MaintenanceLeaderElection(
-                lease, "test-coord", new AtomicLong(0));
+        var leaderElection = new MaintenanceLeaderElection(lease, "test-coord");
 
         var catDesc = new CatalogDescriptor(
                 "cat", CatalogType.CONNECTOR, "test-provider",
@@ -194,9 +196,13 @@ class IndexCommitHandlerLeaderGateTest {
                 config, engineRegistry, storageManager, serializer);
         var buildCoordinator = new IndexBuildCoordinator(buildCtx, null);
 
-        var deps = new IndexCommitContext(store, buildCoordinator, resolver);
+        var deps = new IndexCommitContext(
+                store,
+                new org.pangrova.coordinator.index.ddl.IndexBuildServices(
+                        buildCoordinator, null),
+                resolver);
         var handler = new IndexCommitHandler(
-                deps, null, leaderElection, 16, 8);
+                deps, null, leaderElection, 8);
         // F-COORD-FEAT-07: wire poller to handler's processTableCommit so the
         // end-to-end path (onCommit → commit log → poller → processing) works.
         var poller = new CommitLogPoller(deps, leaderElection, 16, handler::processTableCommit);
@@ -217,25 +223,25 @@ class IndexCommitHandlerLeaderGateTest {
         }
 
         @Override
-        public boolean tryAcquire(String k, String h, long e, Duration d) {
+        public Optional<LeaseEntry> tryAcquire(String k, String h, Duration d) {
+            return allowAcquire
+                    ? Optional.of(new LeaseEntry(k, h, 1, Instant.now(), Instant.now().plus(d)))
+                    : Optional.empty();
+        }
+
+        @Override
+        public boolean tryRenew(String k, String h, long e, Duration d) {
             return allowAcquire;
         }
 
         @Override
-        public boolean tryRenew(String k, String h, Duration d) {
-            return allowAcquire;
-        }
-
-        @Override
-        public boolean release(String k, String h) { return true; }
+        public boolean release(String k, String h, long e) { return true; }
 
         @Override
         public Optional<LeaseEntry> currentHolder(String k) {
             return Optional.empty();
         }
 
-        @Override
-        public int expireStale() { return 0; }
     }
 
     /** Metadata store that tracks calls for assertion. */
@@ -257,25 +263,26 @@ class IndexCommitHandlerLeaderGateTest {
             commitLogWriteCount.incrementAndGet();
             // F-COORD-FEAT-07: store the entry so CommitLogPoller can read it
             commitLogEntries.add(new CommitLogEntry(
-                    eventIdGenerator.getAndIncrement(), request.catalogName(), request.schemaName(),
+                    eventIdGenerator.getAndIncrement(), request.tenantId(),
+                    request.catalogName(), request.schemaName(),
                     request.tableName(), request.snapshotId(), request.addedFilesJson(),
-                    request.removedFilesJson(), request.eventType(), request.createdAt()));
+                    request.removedFilesJson(), request.eventType(), request.createdAt(), request.commitFingerprint()));
         }
 
         @Override
-        public List<CommitLogEntry> pollUnprocessedCommitEvents(int limit) {
+        public List<CommitLogEntry> pollUnprocessedCommitEvents(int limit, long leaseEpoch) {
             var result = List.copyOf(commitLogEntries);
             return result.subList(0, Math.min(limit, result.size()));
         }
 
         @Override
-        public void markCommitEventProcessed(long eventId) {
+        public void markCommitEventProcessed(long eventId, long leaseEpoch) {
             processedEventIds.add(eventId);
             commitLogEntries.removeIf(e -> e.eventId() == eventId);
         }
 
         @Override
-        public List<IndexDescriptor> findIndexesByTable(String c, String s, String t) {
+        public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) {
             findIndexesByTableCallCount.incrementAndGet();
             return List.of();
         }
@@ -283,11 +290,17 @@ class IndexCommitHandlerLeaderGateTest {
         // ── Remaining no-op implementations ──
         @Override public void registerIndex(IndexDescriptor d) {}
         @Override public void updateIndexState(String id, String s, Instant t) {}
+        @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
+                Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
+        @Override public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.metadata.index.model.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+                findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) {
             return Optional.empty();
         }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(
-                String c, String s, String t, List<String> cols, boolean b) {
+                String tenantId, String c, String s, String t, List<String> cols, boolean b) {
             return List.of();
         }
         @Override public void dropIndex(String id, Instant t) {}
@@ -310,13 +323,13 @@ class IndexCommitHandlerLeaderGateTest {
         @Override public void updateLastVerifiedAt(
                 String id, String path, long ts) {}
         @Override public List<IndexDescriptor> findIndexesByColumn(
-                String c, String s, String t, String col) { return List.of(); }
+                String tenantId, String c, String s, String t, String col) { return List.of(); }
         @Override public void renameColumnInIndexes(
-                String c, String s, String t, String o, String n) {}
+                String tenantId, String c, String s, String t, String o, String n) {}
         @Override public void dropAllIndexesForTable(
-                String c, String s, String t, Instant ts) {}
+                String tenantId, String c, String s, String t, Instant ts) {}
         @Override public void renameTable(
-                String c, String s, String o, String n) {}
+                String tenantId, String c, String s, String o, String n) {}
         @Override public List<IndexDescriptor> findIndexesByState(IndexState state) {
             return List.of();
         }

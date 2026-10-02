@@ -40,4 +40,9 @@ public record VectorTopKCandidate(
         }
         queryVector = queryVector.clone();
     }
+
+    @Override
+    public float[] queryVector() {
+        return queryVector.clone();
+    }
 }

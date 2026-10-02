@@ -12,7 +12,7 @@
 
 #include "jni/command/StatusSerializer.h"
 
-#include "pangrova/native/protocol/v1/task.pb.h"
+#include "pangrova/protocol/v2/result.pb.h"
 
 #if __has_include("velox/exec/TaskStats.h")
 #include "velox/exec/TaskStats.h"
@@ -110,7 +110,7 @@ TEST_F(MarkDistinctStatsTest, MarkDistinctStatsPropagateToProto) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   // Verify task-level metrics.
@@ -184,7 +184,7 @@ TEST_F(MarkDistinctStatsTest, ChainedMarkDistinctNodesStats) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   // All 5 operators should be captured.
@@ -237,7 +237,7 @@ TEST_F(MarkDistinctStatsTest, MarkDistinctStatsContributeToAggregates) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   // Task-level aggregates should include MarkDistinct's contribution.

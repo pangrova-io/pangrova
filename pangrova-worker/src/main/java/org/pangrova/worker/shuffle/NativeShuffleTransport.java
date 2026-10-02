@@ -3,14 +3,13 @@ package org.pangrova.worker.shuffle;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.spi.execution.TaskExecutor;
-import org.pangrova.shuffle.ShuffleEndpoint;
+import org.pangrova.shuffle.ShufflePartitionTicket;
 import org.pangrova.shuffle.ShuffleServerHandle;
 import org.pangrova.shuffle.ShuffleTransport;
 import org.pangrova.worker.jni.NativeCommandBuilder;
-import org.pangrova.worker.jni.NativeCommandType;
-import org.pangrova.worker.jni.proto.ConnectExchangeSourcePayload;
-import org.pangrova.worker.jni.proto.StartFlightServerPayload;
-import org.pangrova.worker.jni.proto.StartFlightServerResponsePayload;
+import org.pangrova.protocol.v2.RuntimeCommandType;
+import org.pangrova.protocol.v2.StartShuffleServerRequest;
+import org.pangrova.protocol.v2.StartShuffleServerResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,8 +24,6 @@ import org.slf4j.LoggerFactory;
  * <ul>
  *   <li>{@code START_FLIGHT_SERVER} — starts C++ FlightShuffleServer,
  *       returns bound port</li>
- *   <li>{@code CONNECT_EXCHANGE_SOURCE} — tells C++ PangrovaExchangeSource
- *       to connect to an upstream Flight server</li>
  * </ul>
  *
  * @see ShuffleTransport
@@ -37,14 +34,18 @@ public final class NativeShuffleTransport implements ShuffleTransport {
 
     private final TaskExecutor taskExecutor;
     private final String localHost;
+    private final String localTlsIdentity;
 
     /**
      * @param taskExecutor native task executor for issuing JNI commands
      * @param localHost    hostname to report in ShuffleServerHandle
+     * @param localTlsIdentity certificate identity advertised to peer workers
      */
-    public NativeShuffleTransport(TaskExecutor taskExecutor, String localHost) {
+    public NativeShuffleTransport(
+            TaskExecutor taskExecutor, String localHost, String localTlsIdentity) {
         this.taskExecutor = checkNotNull(taskExecutor, "taskExecutor must not be null");
         this.localHost = localHost != null ? localHost : "localhost";
+        this.localTlsIdentity = localTlsIdentity == null ? "" : localTlsIdentity.trim();
     }
 
     /**
@@ -64,50 +65,22 @@ public final class NativeShuffleTransport implements ShuffleTransport {
             throw new IllegalArgumentException("numPartitions must be positive, got: " + numPartitions);
         }
 
-        byte[] commandPayload = buildStartFlightServerPayload(numPartitions);
-        byte[] command = NativeCommandBuilder.buildCommand(executorHandle, NativeCommandType.START_SHUFFLE_SERVER,
+        StartShuffleServerRequest commandPayload = buildStartFlightServerPayload(numPartitions);
+        byte[] command = NativeCommandBuilder.buildCommand(
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_START_SHUFFLE_SERVER,
                 commandPayload);
-        byte[] response = taskExecutor.executeCommand(executorHandle, command);
-
-        int boundPort = extractBoundPort(response);
+        byte[] responseBytes = taskExecutor.executeCommand(executorHandle, command);
+        StartShuffleServerResponse response = extractResponse(responseBytes);
+        int boundPort = response.getBoundPort();
         LOG.info("event=native_flight_server_started executorHandle={} numPartitions={} port={}",
                 executorHandle, numPartitions, boundPort);
 
-        return new ShuffleServerHandle(localHost, boundPort, executorHandle);
-    }
-
-    /**
-     * Connects a C++ PangrovaExchangeSource to an upstream Flight server via JNI.
-     *
-     * <p>The native side calls setFlightEndpoint() on the PangrovaExchangeSource,
-     * switching it from passive (Java push) to active (Flight pull) mode.</p>
-     */
-    @Override
-    public void connectSource(long executorHandle, String sourceId, ShuffleEndpoint upstream) {
-        checkNotNull(sourceId, "sourceId must not be null");
-        checkNotNull(upstream, "upstream must not be null");
-
-        byte[] commandPayload = buildConnectExchangeSourcePayload(
-                sourceId, upstream.host(), upstream.port(),
-                upstream.queryId(), upstream.stageId(), upstream.partitionId());
-        byte[] command = NativeCommandBuilder.buildCommand(executorHandle, NativeCommandType.CONNECT_EXCHANGE_SOURCE,
-                commandPayload);
-        taskExecutor.executeCommand(executorHandle, command);
-
-        LOG.debug("event=native_exchange_source_connected executorHandle={} sourceId={} upstream={}:{}",
-                executorHandle, sourceId, upstream.host(), upstream.port());
-    }
-
-    @Override
-    public void noMoreSources(long executorHandle) {
-        if (executorHandle == 0) {
-            LOG.debug("event=native_shuffle_no_more_sources_skipped reason=zero_handle");
-            return;
-        }
-        byte[] command = NativeCommandBuilder.buildCommand(
-                executorHandle, NativeCommandType.NO_MORE_EXCHANGE_SOURCES, new byte[0]);
-        taskExecutor.executeCommand(executorHandle, command);
-        LOG.debug("event=native_shuffle_no_more_sources executorHandle={}", executorHandle);
+        var tickets = response.getPartitionTicketsList().stream()
+                .map(ticket -> new ShufflePartitionTicket(
+                        ticket.getPartitionId(), ticket.getSignedTicket().toByteArray(),
+                        ticket.getExpiresAtEpochMs()))
+                .toList();
+        return new ShuffleServerHandle(localHost, boundPort, localTlsIdentity, tickets);
     }
 
     @Override
@@ -127,14 +100,11 @@ public final class NativeShuffleTransport implements ShuffleTransport {
             return;
         }
         byte[] command = NativeCommandBuilder.buildCommand(
-                executorHandle, NativeCommandType.STOP_SHUFFLE_SERVER, new byte[0]);
-        try {
-            taskExecutor.executeCommand(executorHandle, command);
-            LOG.info("event=native_shuffle_server_stopped executorHandle={}", executorHandle);
-        } catch (Exception e) {
-            LOG.warn("event=native_shuffle_server_stop_failed executorHandle={} error={}",
-                    executorHandle, e.getMessage());
-        }
+                RuntimeCommandType.RUNTIME_COMMAND_TYPE_STOP_SHUFFLE_SERVER,
+                null);
+        NativeCommandBuilder.requireSuccess(
+                taskExecutor.executeCommand(executorHandle, command), "stop native shuffle server");
+        LOG.info("event=native_shuffle_server_stopped executorHandle={}", executorHandle);
     }
 
     // --- Proto-generated payload encoding ---
@@ -142,41 +112,23 @@ public final class NativeShuffleTransport implements ShuffleTransport {
     /**
      * Builds StartFlightServerCommand payload using generated proto.
      */
-    private static byte[] buildStartFlightServerPayload(int numPartitions) {
-        return StartFlightServerPayload.newBuilder()
-                .setNumPartitions(numPartitions)
-                .build()
-                .toByteArray();
-    }
-
-    /**
-     * Builds ConnectExchangeSourceCommand payload using generated proto.
-     */
-    private static byte[] buildConnectExchangeSourcePayload(
-            String sourceId, String host, int port,
-            String queryId, int stageId, int partitionId) {
-        return ConnectExchangeSourcePayload.newBuilder()
-                .setSourceId(sourceId)
-                .setHost(host)
-                .setPort(port)
-                .setQueryId(queryId)
-                .setStageId(stageId)
-                .setPartitionId(partitionId)
-                .build()
-                .toByteArray();
+    private static StartShuffleServerRequest buildStartFlightServerPayload(int numPartitions) {
+        return StartShuffleServerRequest.newBuilder()
+                .setPartitionCount(numPartitions)
+                .build();
     }
 
     /**
      * Extracts bound_port from StartFlightServerResponse via generated proto.
      */
-    private static int extractBoundPort(byte[] response) {
+    private static StartShuffleServerResponse extractResponse(byte[] response) {
         byte[] payload = NativeCommandBuilder.extractResultPayload(response);
         if (payload == null || payload.length == 0) {
             throw new IllegalStateException(
                     "START_FLIGHT_SERVER command returned empty response");
         }
         try {
-            return StartFlightServerResponsePayload.parseFrom(payload).getBoundPort();
+            return StartShuffleServerResponse.parseFrom(payload);
         } catch (com.google.protobuf.InvalidProtocolBufferException e) {
             throw new IllegalStateException("Failed to parse StartFlightServerResponse", e);
         }

@@ -28,11 +28,6 @@ public interface ConnectorIndexSupport {
         return Optional.empty();
     }
 
-    /** Registers a commit listener for write-aware incremental index builds. */
-    default void registerCommitListener(CommitListener listener) {
-        // no-op by default
-    }
-
     /** Returns native index capabilities declared by this connector (L1 layer). */
     default List<NativeIndexCapability> nativeIndexCapabilities() {
         return List.of();

@@ -55,7 +55,7 @@ public final class AccessControlEnforcer {
         for (List<String> qualifiedName : tableReferences) {
             QualifiedTableName ref = QualifiedTableName.resolve(qualifiedName);
             accessControl.checkCanSelectFromTable(
-                    identity, ref.catalog(), ref.schema(), ref.table());
+                    identity, ref.catalog(), ref.schema(), authorizedReadTable(ref.table()));
         }
         for (DmlWriteTarget target : dmlWriteTargets) {
             QualifiedTableName ref = QualifiedTableName.resolve(target.qualifiedTableName());
@@ -98,10 +98,8 @@ public final class AccessControlEnforcer {
         switch (operation) {
             case INSERT -> accessControl.checkCanInsertIntoTable(identity, catalog, schema, table);
             case DELETE -> accessControl.checkCanDeleteFromTable(identity, catalog, schema, table);
-            case UPDATE, MERGE -> {
-                accessControl.checkCanInsertIntoTable(identity, catalog, schema, table);
-                accessControl.checkCanDeleteFromTable(identity, catalog, schema, table);
-            }
+            case UPDATE -> accessControl.checkCanUpdateTable(identity, catalog, schema, table);
+            case MERGE -> throw new IllegalStateException("MERGE authority requires original clause actions");
             default -> throw new IllegalStateException("Unhandled write operation: " + operation);
         }
     }
@@ -157,14 +155,13 @@ public final class AccessControlEnforcer {
     }
 
     /**
-     * Checks DML privilege for UPDATE/MERGE operations which require both INSERT and DELETE.
+     * Checks the original SQL UPDATE privilege, not physical overwrite implementation details.
      *
      * @throws AccessDeniedException if identity is null or privilege is denied
      */
     public void checkUpdateTable(UserIdentity identity, String catalog, String schema, String table) {
         rejectAnonymous(identity);
-        accessControl.checkCanInsertIntoTable(identity, catalog, schema, table);
-        accessControl.checkCanDeleteFromTable(identity, catalog, schema, table);
+        accessControl.checkCanUpdateTable(identity, catalog, schema, table);
     }
 
     /**
@@ -174,7 +171,17 @@ public final class AccessControlEnforcer {
      */
     public void checkSelectFromTable(UserIdentity identity, String catalog, String schema, String table) {
         rejectAnonymous(identity);
-        accessControl.checkCanSelectFromTable(identity, catalog, schema, table);
+        accessControl.checkCanSelectFromTable(identity, catalog, schema, authorizedReadTable(table));
+    }
+
+    /** Metadata-table contents belong to the base table, never a separate grant. */
+    private static String authorizedReadTable(String table) {
+        int suffix = table.lastIndexOf('$');
+        if (suffix > 0 && (table.substring(suffix + 1).equalsIgnoreCase("snapshots")
+                || table.substring(suffix + 1).equalsIgnoreCase("history"))) {
+            return table.substring(0, suffix);
+        }
+        return table;
     }
 
     private void rejectAnonymous(UserIdentity identity) {

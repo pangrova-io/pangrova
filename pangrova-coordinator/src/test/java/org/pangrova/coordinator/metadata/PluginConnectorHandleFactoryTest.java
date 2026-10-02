@@ -27,7 +27,7 @@ class PluginConnectorHandleFactoryTest {
 
     @BeforeEach
     void setUp() {
-        factory = new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver());
+        factory = new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver(), descriptor -> java.util.Optional.empty());
     }
 
     @AfterEach

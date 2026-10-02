@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query.security;
 
 import org.pangrova.planner.security.RowFilterApplier;
-import org.pangrova.planner.security.SecurityExpressionCache;
 import org.pangrova.planner.security.expression.FilterExpressionParser;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
@@ -9,7 +8,8 @@ import org.pangrova.spi.security.AccessControl;
 import org.pangrova.spi.security.AuthenticationRequiredException;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.security.authz.DefaultAccessControl;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedRoles;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -43,11 +45,9 @@ class RowFilterApplierTest {
 
     private static final SqlCompiler COMPILER = buildCompilerWithOrdersTable();
 
-    private static final SecurityExpressionCache CACHE = new SecurityExpressionCache();
-
     @Test
     void nullIdentityThrowsAuthenticationRequired() {
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of()), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of()));
         RelNode relNode = COMPILER.compileToRelNode("SELECT 1");
 
         assertThatThrownBy(() -> applier.applyRowFilters(relNode, null))
@@ -57,7 +57,7 @@ class RowFilterApplierTest {
 
     @Test
     void constantQueryNoTableScanReturnsSameNode() {
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of()), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of()));
         RelNode relNode = COMPILER.compileToRelNode("SELECT 1 + 2");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("readers")));
@@ -67,7 +67,7 @@ class RowFilterApplierTest {
 
     @Test
     void emptyPolicyStoreReturnsSameNode() {
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of()), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of()));
         RelNode relNode = COMPILER.compileToRelNode("SELECT 1");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("readers")));
@@ -80,7 +80,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "sales_only", "default", "default", "orders",
                 "department = 'sales'", List.of("sales_team"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("sales_team")));
@@ -102,7 +102,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "sales_only", "default", "default", "orders",
                 "department = 'sales'", List.of("sales_team"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT region, department FROM orders");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("sales_team")));
@@ -124,7 +124,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "amount_limit", "default", "default", "orders",
                 "amount > 1000", List.of("managers"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT id, amount FROM orders");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("managers")));
@@ -142,7 +142,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "region_filter", "default", "default", "orders",
                 "region = 'US' AND status = 'active'", List.of("us_team"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("us_team")));
@@ -160,7 +160,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "multi_region", "default", "default", "orders",
                 "region IN ('US', 'EU', 'APAC')", List.of("global_team"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("global_team")));
@@ -176,7 +176,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "amount_limit", "default", "default", "orders",
                 "amount > 1000", List.of("managers"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("managers")));
@@ -194,7 +194,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "sales_only", "default", "default", "orders",
                 "department = 'sales'", List.of("sales_team"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
         RelNode result = applier.applyRowFilters(relNode, testIdentity("user1", Set.of("other_team")));
@@ -207,7 +207,7 @@ class RowFilterApplierTest {
         RowPolicy policy = new RowPolicy(
                 1L, "confidential_filter", "default", "default", "orders",
                 "classification = 'public'", List.of("all_users"), true, 100);
-        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)), CACHE);
+        RowFilterApplier applier = new RowFilterApplier(buildAccessControlWithPolicies(List.of(policy)));
         RelNode relNode = COMPILER.compileToRelNode("SELECT * FROM orders");
 
         assertThatThrownBy(() -> applier.applyRowFilters(relNode, null))
@@ -268,8 +268,9 @@ class RowFilterApplierTest {
             @Override public void savePolicy(RowPolicy p) { }
             @Override public void deletePolicy(long id) { }
         };
-        return new RbacAccessControl(
-                List.of(),
+        return new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("readers", "readers"), java.util.Map.entry("sales_team", "sales_team"), java.util.Map.entry("managers", "managers"), java.util.Map.entry("us_team", "us_team"), java.util.Map.entry("global_team", "global_team"), java.util.Map.entry("other_team", "other_team"))),
                 new RowLevelSecurityFilter(policyStore),
                 new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
     }

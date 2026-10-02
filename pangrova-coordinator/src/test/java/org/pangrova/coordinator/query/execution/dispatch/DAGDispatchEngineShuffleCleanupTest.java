@@ -10,6 +10,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
+import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleStageHandler;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
@@ -18,7 +19,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.planner.SqlCompiler;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
+import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.shuffle.ShuffleCommitResult;
@@ -31,16 +32,12 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests BUG-D29 fix: shuffle resource cleanup on dispatch failure path.
- *
- * <ul>
- *   <li>D29: {@code dispatch()} catch block must call {@code cleanupShuffle(queryId)}</li>
- * </ul>
+ * Tests shuffle resource cleanup on dispatch failure paths.
  */
 class DAGDispatchEngineShuffleCleanupTest {
 
     @Test
-    @DisplayName("D29: dispatch() catch block cleans up shuffle on exception")
+    @DisplayName("dispatch failure notifies shuffle cleanup exactly once")
     void dispatchCatchBlockCleansUpShuffle() {
         RecordingShuffleManager recorder = new RecordingShuffleManager();
         DAGDispatchEngine engine = buildEngine(new FailingTaskDispatcher(), recorder);
@@ -53,8 +50,7 @@ class DAGDispatchEngineShuffleCleanupTest {
         assertThrows(Exception.class, () ->
                 engine.dispatch(session, dag, compiler, testWorkerSelector(), 5000L));
 
-        assertTrue(recorder.cleanupCalls.contains("q-d29"),
-                "cleanupShuffle must be called in dispatch() catch block");
+        assertEquals(List.of("q-d29"), recorder.cleanupCalls);
     }
 
     @Test
@@ -133,7 +129,8 @@ class DAGDispatchEngineShuffleCleanupTest {
                 new SplitAssignmentManager(),
                 null,  // resilienceRegistry
                 null); // stateJournal
-        return new DAGDispatchEngine(deps, List.of(), null);
+        return new DAGDispatchEngine(
+                deps, List.of(new ShuffleStageHandler(shuffleManager)), null);
     }
 
     private static StageDAG buildSingleStageDAG(String queryId) {
@@ -149,8 +146,13 @@ class DAGDispatchEngineShuffleCleanupTest {
             }
 
             @Override
-            public ResourceLimitPayload computeResourceLimit(int parallelism, int concurrentStages) {
-                return new ResourceLimitPayload(0, 0, 0, null);
+            public StageResourceGrant computeResourceLimit(
+                    int parallelism, int concurrentStages, WorkerInfo selectedWorker) {
+                return StageResourceGrant.newBuilder()
+                        .setGrantId("unbound-test-grant")
+                        .setNativeMemoryBytes(1024)
+                        .setCpuSlots(1)
+                        .build();
             }
         };
     }

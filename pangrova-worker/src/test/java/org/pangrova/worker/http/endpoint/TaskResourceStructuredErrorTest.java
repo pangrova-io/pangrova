@@ -39,20 +39,13 @@ class TaskResourceStructuredErrorTest {
     void submitTaskReturnsStructuredErrorOnConversionFailure() {
         TaskResource resource = buildResource();
 
-        SubmitTaskRequest request = SubmitTaskRequest.builder()
-                .taskId("task-1")
-                .queryId("query-1")
-                .stageId(0)
-                .partitionId(0)
-                .taskType("LEAF")
-                .planFragment("not-valid-base64-plan")
-                .splits(null)
-                .exchangeSources(null)
-                .resourceLimit(null)
-                .sessionProperties(null)
-                .outputConfig(null)
-                .writeConfig(null)
+        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                        "task-1", "query-1", 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .clearSubstraitPlanChecksum()
                 .build();
+        SubmitTaskRequest request = SubmitTaskRequest.from(canonical);
 
         Response response = resource.submitTask(request);
 

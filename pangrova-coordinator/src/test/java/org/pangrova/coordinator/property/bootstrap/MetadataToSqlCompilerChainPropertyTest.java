@@ -69,7 +69,7 @@ class MetadataToSqlCompilerChainPropertyTest {
             return;
         }
         warehouseDir = Files.createTempDirectory("iceberg-chain-test");
-        connectorFactory = new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver());
+        connectorFactory = new PluginConnectorHandleFactory(getClass().getClassLoader(), new SecretResolver(), descriptor -> java.util.Optional.empty());
     }
 
     @SuppressWarnings({"removal", "deprecation"})
@@ -136,7 +136,8 @@ class MetadataToSqlCompilerChainPropertyTest {
         assertThat(schemas).contains(SCHEMA_NAME);
 
         // Verify: CalciteSchema tree has catalog → schema hierarchy (Req 15.4)
-        CalciteSchema rootSchema = metadataBootstrap.buildCalciteSchema();
+        CalciteSchema rootSchema = metadataBootstrap.buildCalciteSchema(
+                org.pangrova.coordinator.metadata.MetadataPlanningTestSessions.session());
         assertThat(rootSchema.getSubSchemaMap()).containsKey(CATALOG_NAME);
         CalciteSchema catalogSchema = rootSchema.getSubSchema(CATALOG_NAME, false);
         assertThat(catalogSchema).isNotNull();

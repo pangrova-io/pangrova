@@ -4,6 +4,7 @@ import org.pangrova.spi.annotation.Experimental;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Marker interface for connector-specific output table handle.
@@ -32,5 +33,28 @@ public interface ConnectorOutputTableHandle {
      */
     default String writeMode() {
         return "UNKNOWN";
+    }
+
+    /**
+     * Snapshot captured when this write began, if the connector uses snapshot isolation.
+     * Recovery must use this value rather than reconstructing from the live table snapshot.
+     */
+    default OptionalLong writeBaseSnapshotId() {
+        return OptionalLong.empty();
+    }
+
+    /**
+     * Connector-owned Native dataset allocation, if this handle uses a Native sink.
+     * The exact same allocation must be reconstructed by the output handle codec.
+     *
+     * @return immutable dataset allocation, or empty for connector PageSink writes
+     */
+    default Optional<NativeWriteAllocation> nativeWriteAllocation() {
+        return Optional.empty();
+    }
+
+    /** Exact physical-file authority; mutually exclusive with a Native Dataset allocation. */
+    default Optional<NativePhysicalWriteAllocation> nativePhysicalWriteAllocation() {
+        return Optional.empty();
     }
 }

@@ -4,11 +4,15 @@ import java.util.List;
 
 import org.pangrova.coordinator.query.execution.split.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.coordinator.scheduler.NoAvailableWorkerException;
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.coordinator.ai.model.ExactModelResolver;
+import org.pangrova.coordinator.ai.embedding.EmbeddingModelExecutionAdmission;
+import org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.coordinator.worker.WorkerCapabilityMatcher;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
+import org.pangrova.protocol.v2.StageResourceGrant;
 
 /**
  * Selects workers for task dispatch using load-based scheduling with optional
@@ -17,21 +21,34 @@ import org.pangrova.protocol.rest.config.ResourceLimitPayload;
 public final class DefaultWorkerSelector implements WorkerSelector {
 
     private static final long MIN_TASK_MEMORY_BYTES = 64L * 1024 * 1024;
-    private static final long MIN_WORKER_AVAILABLE_BYTES = 128L * 1024 * 1024;
+    private static final long MAX_SHUFFLE_BUFFER_BYTES = 32L * 1024 * 1024;
 
     private final WorkerManager workerManager;
     private final TaskScheduler taskScheduler;
     private final SplitAssignmentManager splitAssignmentManager;
     private final SpillBudget spillBudget;
+    private final EmbeddingModelRegistry embeddingModelRegistry;
 
+    /** Creates a selector without an embedding catalog; embedding execution is denied. */
     public DefaultWorkerSelector(WorkerManager workerManager,
                                  TaskScheduler taskScheduler,
                                  SplitAssignmentManager splitAssignmentManager,
                                  SpillBudget spillBudget) {
+        this(workerManager, taskScheduler, splitAssignmentManager, spillBudget, null);
+    }
+
+    /** Creates a selector backed by the control-plane embedding model catalog. */
+    public DefaultWorkerSelector(
+            WorkerManager workerManager,
+            TaskScheduler taskScheduler,
+            SplitAssignmentManager splitAssignmentManager,
+            SpillBudget spillBudget,
+            EmbeddingModelRegistry embeddingModelRegistry) {
         this.workerManager = workerManager;
         this.taskScheduler = taskScheduler;
         this.splitAssignmentManager = splitAssignmentManager;
         this.spillBudget = spillBudget;
+        this.embeddingModelRegistry = embeddingModelRegistry;
     }
 
     @Override
@@ -43,23 +60,48 @@ public final class DefaultWorkerSelector implements WorkerSelector {
 
     @Override
     public int activeWorkerCount() {
-        return Math.max(workerManager.getActiveWorkers().size(), 1);
+        return schedulableWorkers().size();
     }
 
     @Override
-    public ResourceLimitPayload computeResourceLimit(int parallelism, int concurrentStages) {
-        List<WorkerInfo> workers = workerManager.getActiveWorkers();
-        int workerCount = Math.max(workers.size(), 1);
+    public StageResourceGrant computeResourceLimit(
+            int parallelism, int concurrentStages, WorkerInfo selectedWorker) {
+        java.util.Objects.requireNonNull(selectedWorker, "selectedWorker must not be null");
+        List<WorkerInfo> workers = schedulableWorkers();
+        WorkerInfo target = workers.stream()
+                .filter(worker -> worker.workerId().equals(selectedWorker.workerId()))
+                .findFirst()
+                .orElseThrow(() -> new NoAvailableWorkerException(
+                        "Selected worker is no longer schedulable: "
+                                + selectedWorker.workerId()));
+        int workerCount = workers.size();
         int totalParallelism = Math.max(parallelism * concurrentStages, 1);
         long clusterMemory = workers.stream()
-                .mapToLong(w -> Math.max(w.availableMemoryBytes(), MIN_WORKER_AVAILABLE_BYTES))
+                .mapToLong(WorkerInfo::availableMemoryBytes)
                 .sum();
-        long perTaskMemory = Math.max(clusterMemory / totalParallelism, MIN_TASK_MEMORY_BYTES);
+        long perTaskMemory = Math.min(target.availableMemoryBytes(),
+                Math.max(clusterMemory / totalParallelism, MIN_TASK_MEMORY_BYTES));
+        // Split one admitted worker budget between the Velox pool and the
+        // serialized producer queue; reserving both at their full size would
+        // oversubscribe a worker whose available capacity equals this grant.
+        long shuffleBufferBytes = Math.min(perTaskMemory / 4, MAX_SHUFFLE_BUFFER_BYTES);
         int perTaskThreads = (parallelism > 1)
                 ? Math.max(2, workerCount * 4 / totalParallelism)
                 : 2;
-        return new ResourceLimitPayload(perTaskMemory, perTaskThreads,
-                spillBudget.maxSpillBytes(), spillBudget.spillDirectory());
+        return StageResourceGrant.newBuilder()
+                .setGrantId("unbound-stage-grant")
+                .setCpuSlots(perTaskThreads)
+                .setNativeMemoryBytes(perTaskMemory - shuffleBufferBytes)
+                .setShuffleBufferBytes(shuffleBufferBytes)
+                .setSpillBytes(spillBudget.maxSpillBytes())
+                .setObjectStoreReadBytes(perTaskMemory)
+                .setObjectStoreWriteBytes(spillBudget.maxSpillBytes())
+                .build();
+    }
+
+    private List<WorkerInfo> schedulableWorkers() {
+        return taskScheduler.eligibleWorkers(
+                MIN_TASK_MEMORY_BYTES, workerManager.getActiveWorkers(), null);
     }
 
     @Override
@@ -68,7 +110,13 @@ public final class DefaultWorkerSelector implements WorkerSelector {
         if (assigner == null || !assigner.hasWorkers() || splitFilePaths.isEmpty()) {
             return select(tenantId);
         }
-        List<WorkerInfo> active = workerManager.getActiveWorkers();
+        List<WorkerInfo> active = taskScheduler.eligibleWorkers(
+                MIN_TASK_MEMORY_BYTES,
+                workerManager.getActiveWorkers(),
+                tenantId);
+        if (active.isEmpty()) {
+            throw new NoAvailableWorkerException();
+        }
 
         // F-CHAIN-CACHE-02: prefer workers whose CacheCatalogSummary
         // (recently-accessed file paths reported via heartbeat) covers the
@@ -80,15 +128,77 @@ public final class DefaultWorkerSelector implements WorkerSelector {
             return cacheHit;
         }
 
-        List<String> preferred = assigner.preferredWorkers(splitFilePaths, 3);
-        for (String preferredId : preferred) {
-            for (WorkerInfo w : active) {
-                if (w.workerId().equals(preferredId)) {
-                    return w;
+        WorkerInfo preferred = findPreferred(
+                active, assigner.preferredWorkers(splitFilePaths, 3));
+        if (preferred != null) {
+            return preferred;
+        }
+        return select(tenantId);
+    }
+
+    private static WorkerInfo findPreferred(
+            List<WorkerInfo> active, List<String> preferredWorkerIds) {
+        for (String preferredId : preferredWorkerIds) {
+            for (WorkerInfo worker : active) {
+                if (worker.workerId().equals(preferredId)) {
+                    return worker;
                 }
             }
         }
-        return select(tenantId);
+        return null;
+    }
+
+    @Override
+    public WorkerInfo selectForBindings(
+            String tenantId,
+            List<String> splitFilePaths,
+            List<org.pangrova.protocol.v2.OperatorBinding> bindings) {
+        if (bindings == null || bindings.isEmpty()) {
+            return selectWithCacheAffinity(
+                    tenantId, splitFilePaths == null ? List.of() : splitFilePaths);
+        }
+        List<WorkerInfo> capable = taskScheduler.eligibleWorkers(
+                        MIN_TASK_MEMORY_BYTES,
+                        workerManager.getActiveWorkers(),
+                        tenantId).stream()
+                .filter(worker -> WorkerCapabilityMatcher.supports(worker, bindings))
+                .toList();
+        if (capable.isEmpty()) {
+            throw new NoAvailableWorkerException(
+                    "No active worker provides every exact typed capability, "
+                            + "artifact format and model required by the task");
+        }
+        List<String> paths = splitFilePaths == null ? List.of() : splitFilePaths;
+        WorkerInfo cacheHit = selectByCachedFiles(capable, paths);
+        if (cacheHit != null) {
+            return cacheHit;
+        }
+        return taskScheduler.selectWorker(MIN_TASK_MEMORY_BYTES, capable, tenantId)
+                .orElseThrow(() -> new NoAvailableWorkerException(
+                        "Exact-capability workers have insufficient available resources"));
+    }
+
+    @Override
+    public org.pangrova.protocol.v2.ModelAvailability resolveExactModel(
+            String modelName,
+            org.pangrova.protocol.v2.CapabilityRef capability,
+            org.pangrova.spi.security.UserIdentity user) {
+        org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor descriptor = null;
+        if (EmbeddingModelExecutionAdmission.isEmbeddingCapability(capability)) {
+            if (embeddingModelRegistry == null) {
+                throw new NoAvailableWorkerException(
+                        "Embedding model catalog is unavailable; execution is denied");
+            }
+            descriptor = embeddingModelRegistry.find(modelName, user)
+                    .orElseThrow(() -> new NoAvailableWorkerException(
+                            "Embedding model is not registered in the catalog: " + modelName));
+        }
+        org.pangrova.protocol.v2.ModelAvailability availability = ExactModelResolver.resolve(
+                workerManager.getActiveWorkers(), modelName, capability);
+        if (descriptor != null) {
+            EmbeddingModelExecutionAdmission.requireCompatible(descriptor, availability);
+        }
+        return availability;
     }
 
     /**

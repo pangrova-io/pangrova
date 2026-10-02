@@ -16,6 +16,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration status test for speculative execution components (Task 80.2).
@@ -147,15 +148,12 @@ class SpeculativeExecutionIntegrationStatusTest {
     }
 
     @Test
-    void speculativeTaskLauncherFunctionalEndToEnd() {
+    void speculativeTaskLauncherRejectsMissingDispatchWiring() {
         SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
-
-        String specId = launcher.launchSpeculative("original-1", "worker-A");
-
-        assertThat(specId).startsWith("spec-");
-        assertThat(launcher.isSpeculative(specId)).isTrue();
-        assertThat(launcher.isSpeculative("original-1")).isFalse();
-        assertThat(launcher.getOriginalTaskId(specId)).hasValue("original-1");
+        assertThatThrownBy(() -> launcher.launchSpeculative(
+                "original-1", "worker-A", "query-1"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
     }
 
     @Test
@@ -163,24 +161,21 @@ class SpeculativeExecutionIntegrationStatusTest {
         DuplicateTaskResolver resolver = new DuplicateTaskResolver();
 
         // First task wins
-        assertThat(resolver.onTaskComplete("task-A", "stage-1", 0)).isTrue();
+        assertThat(resolver.onTaskComplete("query-1", "task-A", "stage-1", 0)).isTrue();
         // Second task loses
-        assertThat(resolver.onTaskComplete("task-B", "stage-1", 0)).isFalse();
+        assertThat(resolver.onTaskComplete("query-1", "task-B", "stage-1", 0)).isFalse();
         // Winner is retrievable
-        assertThat(resolver.getWinner("stage-1", 0)).hasValue("task-A");
+        assertThat(resolver.getWinner("query-1", "stage-1", 0)).hasValue("task-A");
         // Clear works
-        resolver.clear("stage-1");
-        assertThat(resolver.getWinner("stage-1", 0)).isEmpty();
+        resolver.clearQuery("query-1");
+        assertThat(resolver.getWinner("query-1", "stage-1", 0)).isEmpty();
     }
 
     @Test
-    void endToEndSpeculationFlowSimulation() {
-        // Simulates the full speculation flow that WOULD happen once integrated:
-        // 1. Detect straggler → 2. Launch speculative → 3. Resolve winner
+    void stragglerDetectionCannotAdvertiseUnscheduledCopy() {
 
         StragglerDetector detector = new StragglerDetector();
         SpeculativeTaskLauncher launcher = new SpeculativeTaskLauncher();
-        DuplicateTaskResolver resolver = new DuplicateTaskResolver();
 
         // Step 1: Detect stragglers
         List<TaskDuration> tasks = List.of(
@@ -193,23 +188,10 @@ class SpeculativeExecutionIntegrationStatusTest {
         List<String> stragglers = detector.detectStragglers(tasks);
         assertThat(stragglers).containsExactly("slow");
 
-        // Step 2: Launch speculative copy
-        String specId = launcher.launchSpeculative("slow", "worker-A");
-        assertThat(launcher.isSpeculative(specId)).isTrue();
-
-        // Step 3: Speculative copy finishes first → wins
-        boolean specWins = resolver.onTaskComplete(specId, "stage-0", 0);
-        assertThat(specWins).as("Speculative copy finishes first and wins").isTrue();
-
-        // Step 4: Original finishes later → loses
-        boolean originalLoses = resolver.onTaskComplete("slow", "stage-0", 0);
-        assertThat(originalLoses).as("Original task loses").isFalse();
-
-        // Step 5: Winner is the speculative copy
-        assertThat(resolver.getWinner("stage-0", 0)).hasValue(specId);
-
-        // Step 6: Verify the original task ID is recoverable from the speculative ID
-        assertThat(launcher.getOriginalTaskId(specId)).hasValue("slow");
+        assertThatThrownBy(() -> launcher.launchSpeculative(
+                "slow", "worker-A", "query-1"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
     }
 
     // ── Helpers ──

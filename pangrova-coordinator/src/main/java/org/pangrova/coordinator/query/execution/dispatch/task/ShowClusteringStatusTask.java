@@ -23,7 +23,7 @@ public final class ShowClusteringStatusTask implements MetadataTask<ShowClusteri
 
     @Override
     public StatementResult execute(ShowClusteringStatusStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeShowClusteringStatus(statement);
+        List<TypedRow> rows = executor.executeShowClusteringStatus(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.CLUSTERING);
     }
 

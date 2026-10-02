@@ -3,28 +3,35 @@ package org.pangrova.observability.audit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.observability.audit.JdbcAuditStoreTestDataSources.BlockingDataSource;
+import org.pangrova.observability.audit.JdbcAuditStoreTestDataSources.FailableDataSource;
+import org.pangrova.observability.audit.JdbcAuditStoreTestDataSources.GatedDataSource;
+import org.postgresql.ds.PGSimpleDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
-import java.io.PrintWriter;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.UUID;
+import java.util.ArrayList;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Unit tests for JdbcAuditStore.
- * Uses H2 in-memory database with a controllable DataSource wrapper
- * that can inject failures on demand.
+ * PostgreSQL integration tests for JdbcAuditStore with a controllable
+ * DataSource wrapper that can inject failures on demand.
  *
  * Validates:
  * - F-OBS-02: single DB error does not permanently disable the flusher;
@@ -32,18 +39,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * - F-OBS-09: save() never performs synchronous JDBC on the calling thread;
  *             async flush, bounded queue, overflow policy
  */
+@Testcontainers
 class JdbcAuditStoreTest {
 
-    private Connection sharedConnection;
+    @Container
+    private static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>("postgres:16-alpine")
+                    .withDatabaseName("pangrova_observability_test")
+                    .withUsername("pangrova")
+                    .withPassword("pangrova");
+
     private FailableDataSource failableDataSource;
     private JdbcAuditStore store;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Use a single H2 in-memory connection to keep the schema alive
-        sharedConnection = DriverManager.getConnection(
-                "jdbc:h2:mem:audit_test_" + System.nanoTime() + ";DB_CLOSE_DELAY=-1");
-        try (Statement stmt = sharedConnection.createStatement()) {
+        DataSource dataSource = isolatedDataSource();
+        try (Connection connection = dataSource.getConnection();
+             Statement stmt = connection.createStatement()) {
             stmt.execute("""
                     CREATE TABLE query_audit_records (
                         query_id            VARCHAR(64)   NOT NULL PRIMARY KEY,
@@ -67,17 +80,14 @@ class JdbcAuditStoreTest {
                     )
                     """);
         }
-        failableDataSource = new FailableDataSource(sharedConnection);
+        failableDataSource = new FailableDataSource(dataSource);
         store = new JdbcAuditStore(failableDataSource);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown() {
         if (store != null) {
             store.close();
-        }
-        if (sharedConnection != null && !sharedConnection.isClosed()) {
-            sharedConnection.close();
         }
     }
 
@@ -142,8 +152,9 @@ class JdbcAuditStoreTest {
         assertThat(store.consecutiveFailureCount())
                 .isEqualTo(JdbcAuditStore.MAX_CONSECUTIVE_FAILURES);
 
-        // Now save() should silently drop new events
-        store.save(buildRecord("q-dropped"));
+        assertThatThrownBy(() -> store.save(buildRecord("q-dropped")))
+                .isInstanceOf(RejectedExecutionException.class)
+                .hasMessageContaining("disabled");
 
         // Re-enable and flush — the original event should still be retried
         failableDataSource.setFailing(false);
@@ -209,9 +220,7 @@ class JdbcAuditStoreTest {
 
     @Test
     void saveDoesNotCallFlushSynchronouslyOnCallingThread() {
-        // Use a latching DataSource that blocks on getConnection() so we can detect
-        // if the calling thread enters JDBC code.
-        AtomicBoolean callerBlockedInJdbc = new AtomicBoolean(false);
+        // Track whether save() itself enters JDBC on the caller thread.
         CountDownLatch jdbcEntered = new CountDownLatch(1);
 
         BlockingDataSource blockingDs = new BlockingDataSource(failableDataSource, jdbcEntered);
@@ -225,9 +234,6 @@ class JdbcAuditStoreTest {
                 asyncStore.save(buildRecord("q-async-" + i));
             }
 
-            // save() should have returned immediately without blocking
-            // If it had called flushBuffer() synchronously, BlockingDataSource
-            // would have recorded it
             assertThat(blockingDs.wasCallerThreadSeenInJdbc())
                     .as("save() must not perform JDBC I/O on the calling thread")
                     .isFalse();
@@ -238,9 +244,9 @@ class JdbcAuditStoreTest {
 
     @Test
     void saveEnqueuesAndReturnsImmediately() {
-        // Make the DB very slow — if save() were synchronous, this would take > 1 second
-        SlowDataSource slowDs = new SlowDataSource(failableDataSource, 500);
-        JdbcAuditStore asyncStore = new JdbcAuditStore(slowDs);
+        CountDownLatch jdbcRelease = new CountDownLatch(1);
+        GatedDataSource gatedDs = new GatedDataSource(failableDataSource, jdbcRelease, new CountDownLatch(1));
+        JdbcAuditStore asyncStore = new JdbcAuditStore(gatedDs);
         try {
             long startNanos = System.nanoTime();
             for (int i = 0; i < JdbcAuditStore.BATCH_SIZE + 10; i++) {
@@ -248,11 +254,12 @@ class JdbcAuditStoreTest {
             }
             long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
 
-            // save() calls should complete in < 100ms total even though DB is slow
+            // save() must return before the explicit JDBC gate is released.
             assertThat(elapsedMs)
                     .as("save() must return immediately without waiting for JDBC flush")
                     .isLessThan(200);
         } finally {
+            jdbcRelease.countDown();
             asyncStore.close();
         }
     }
@@ -261,9 +268,7 @@ class JdbcAuditStoreTest {
     void backgroundSchedulerFlushesPeriodically() throws Exception {
         store.save(buildRecord("q-periodic"));
 
-        // Don't call flushBuffer() — rely on the background scheduler
-        // The scheduler flushes every 1 second, so wait a bit
-        Thread.sleep(2_000);
+        awaitPersisted(store, "q-periodic");
 
         assertThat(store.findById("q-periodic"))
                 .as("Background scheduler should have flushed the record")
@@ -278,17 +283,22 @@ class JdbcAuditStoreTest {
             // Disable DB so nothing gets flushed
             failableDataSource.setFailing(true);
 
-            // Fill beyond capacity — excess should be silently dropped
-            for (int i = 0; i < 20; i++) {
+            for (int i = 0; i < 5; i++) {
                 tinyStore.save(buildRecord("q-overflow-" + i));
             }
+            assertThatThrownBy(() -> tinyStore.save(buildRecord("q-overflow-rejected")))
+                    .isInstanceOf(RejectedExecutionException.class)
+                    .hasMessageContaining("capacity");
+            var service = new QueryAuditService(tinyStore);
+            assertThatThrownBy(() -> service.persist(buildRecord("q-service-rejected")))
+                    .isInstanceOfSatisfying(PangrovaException.class, e -> assertThat(e.getErrorCode())
+                            .isEqualTo(PangrovaErrorCode.OBS_AUDIT_PERSISTENCE_FAILED))
+                    .hasCauseInstanceOf(RejectedExecutionException.class);
 
-            // No exception thrown — overflow is handled gracefully
-            // Re-enable and flush what we have
             failableDataSource.setFailing(false);
             tinyStore.flushBuffer();
 
-            // At most 5 records should be persisted (the queue capacity)
+            // Every admitted record must persist; rejected records must not.
             int found = 0;
             for (int i = 0; i < 20; i++) {
                 if (tinyStore.findById("q-overflow-" + i).isPresent()) {
@@ -297,9 +307,92 @@ class JdbcAuditStoreTest {
             }
             assertThat(found)
                     .as("Only records that fit in the bounded queue should be persisted")
-                    .isLessThanOrEqualTo(5);
+                    .isEqualTo(5);
+            assertThat(tinyStore.findById("q-overflow-rejected")).isEmpty();
         } finally {
             tinyStore.close();
+        }
+    }
+
+    @Test
+    void inFlightFailedBatchReservesCapacityAgainstConcurrentProducers() throws Exception {
+        store.close();
+        store = new JdbcAuditStore(failableDataSource, 2);
+        store.save(buildRecord("q-reserved-1"));
+        store.save(buildRecord("q-reserved-2"));
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        failableDataSource.beforeFailure = () -> {
+            entered.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Failure release timed out");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        };
+        failableDataSource.setFailing(true);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var flush = executor.submit(store::flushBuffer);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> store.save(buildRecord("q-inflight-rejected")))
+                    .isInstanceOf(RejectedExecutionException.class);
+            release.countDown();
+            flush.get(5, TimeUnit.SECONDS);
+            failableDataSource.setFailing(false);
+            store.flushBuffer();
+            assertThat(store.findById("q-reserved-1")).isPresent();
+            assertThat(store.findById("q-reserved-2")).isPresent();
+            store.save(buildRecord("q-recovered-capacity"));
+            store.flushBuffer();
+            assertThat(store.findById("q-recovered-capacity")).isPresent();
+        } finally {
+            release.countDown();
+            failableDataSource.setFailing(false);
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void concurrentClosePersistsEveryAcceptedSaveAndRejectsLaterAdmissions() throws Exception {
+        var accepted = new ArrayList<String>();
+        store.save(buildRecord("q-before-close"));
+        accepted.add("q-before-close");
+        var executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            var producer = executor.submit(() -> {
+                start.await();
+                for (int i = 0; i < 250; i++) {
+                    String id = "q-close-race-" + i;
+                    try {
+                        store.save(buildRecord(id));
+                        accepted.add(id);
+                    } catch (IllegalStateException e) {
+                        assertThat(e).hasMessageContaining("closed");
+                    }
+                }
+                return null;
+            });
+            var closer = executor.submit(() -> {
+                start.await();
+                store.close();
+                return null;
+            });
+            start.countDown();
+            producer.get(10, TimeUnit.SECONDS);
+            closer.get(10, TimeUnit.SECONDS);
+            for (String id : accepted) {
+                assertThat(store.findById(id)).as("accepted audit %s", id).isPresent();
+            }
+            assertThatThrownBy(() -> store.save(buildRecord("q-after-close")))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("closed");
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
         }
     }
 
@@ -316,10 +409,8 @@ class JdbcAuditStoreTest {
         store.save(buildRecord("q-close-flush-1"));
         store.save(buildRecord("q-close-flush-2"));
 
-        // close() should do a final flush
         store.close();
 
-        // Create a new store to query (the old one is closed)
         JdbcAuditStore queryStore = new JdbcAuditStore(failableDataSource);
         try {
             assertThat(queryStore.findById("q-close-flush-1")).isPresent();
@@ -331,13 +422,11 @@ class JdbcAuditStoreTest {
 
     @Test
     void batchSizeTriggersAsyncFlush() throws Exception {
-        // Save exactly BATCH_SIZE records — should trigger an async flush
         for (int i = 0; i < JdbcAuditStore.BATCH_SIZE; i++) {
             store.save(buildRecord("q-trigger-" + i));
         }
 
-        // Wait for the async flush to complete
-        Thread.sleep(500);
+        awaitPersisted(store, "q-trigger-0");
 
         int found = 0;
         for (int i = 0; i < JdbcAuditStore.BATCH_SIZE; i++) {
@@ -352,6 +441,25 @@ class JdbcAuditStoreTest {
 
     // -- Helpers --
 
+    private static void awaitPersisted(JdbcAuditStore store, String queryId) throws Exception {
+        var observed = new CompletableFuture<Void>();
+        var poller = Executors.newSingleThreadScheduledExecutor();
+        try {
+            poller.scheduleWithFixedDelay(() -> {
+                try {
+                    if (store.findById(queryId).isPresent()) {
+                        observed.complete(null);
+                    }
+                } catch (RuntimeException e) {
+                    observed.completeExceptionally(e);
+                }
+            }, 0, 20, TimeUnit.MILLISECONDS);
+            observed.get(5, TimeUnit.SECONDS);
+        } finally {
+            poller.shutdownNow();
+        }
+    }
+
     private static QueryAuditRecord buildRecord(String queryId) {
         return new QueryAuditRecord(
                 queryId, "test-user", "SELECT 1", "test-tenant",
@@ -360,176 +468,26 @@ class JdbcAuditStoreTest {
                 Instant.now(), true);
     }
 
-    /**
-     * A DataSource wrapper that can be toggled to throw SQLException on getConnection().
-     * Uses a shared H2 in-memory connection underneath.
-     */
-    static final class FailableDataSource implements DataSource {
 
-        private final Connection realConnection;
-        private final AtomicBoolean failing = new AtomicBoolean(false);
-        private final String url;
-
-        FailableDataSource(Connection realConnection) throws SQLException {
-            this.realConnection = realConnection;
-            this.url = realConnection.getMetaData().getURL();
+    private static DataSource isolatedDataSource() throws SQLException {
+        String schema = "audit_" + UUID.randomUUID().toString().replace("-", "");
+        PGSimpleDataSource admin = postgresDataSource(null);
+        try (Connection connection = admin.getConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schema);
         }
-
-        void setFailing(boolean shouldFail) {
-            failing.set(shouldFail);
-        }
-
-        @Override
-        public Connection getConnection() throws SQLException {
-            if (failing.get()) {
-                throw new SQLException("Simulated transient DB error");
-            }
-            // Return a new connection to the same in-memory DB
-            return DriverManager.getConnection(url);
-        }
-
-        @Override
-        public Connection getConnection(String username, String password) throws SQLException {
-            return getConnection();
-        }
-
-        @Override
-        public PrintWriter getLogWriter() {
-            return null;
-        }
-
-        @Override
-        public void setLogWriter(PrintWriter out) {
-        }
-
-        @Override
-        public void setLoginTimeout(int seconds) {
-        }
-
-        @Override
-        public int getLoginTimeout() {
-            return 0;
-        }
-
-        @Override
-        public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-            throw new SQLFeatureNotSupportedException();
-        }
-
-        @Override
-        public <T> T unwrap(Class<T> iface) throws SQLException {
-            throw new SQLException("Not a wrapper");
-        }
-
-        @Override
-        public boolean isWrapperFor(Class<?> iface) {
-            return false;
-        }
+        return postgresDataSource(schema);
     }
 
-    /**
-     * DataSource wrapper that tracks which thread calls getConnection().
-     * Used to verify that save() does not perform JDBC on the calling thread.
-     */
-    private static final class BlockingDataSource implements DataSource {
-
-        private final DataSource delegate;
-        private final CountDownLatch latch;
-        private volatile Thread callerThread;
-        private final AtomicBoolean callerSeenInJdbc = new AtomicBoolean(false);
-
-        BlockingDataSource(DataSource delegate, CountDownLatch latch) {
-            this.delegate = delegate;
-            this.latch = latch;
+    private static PGSimpleDataSource postgresDataSource(String schema) {
+        PGSimpleDataSource dataSource = new PGSimpleDataSource();
+        dataSource.setURL(POSTGRES.getJdbcUrl());
+        dataSource.setUser(POSTGRES.getUsername());
+        dataSource.setPassword(POSTGRES.getPassword());
+        if (schema != null) {
+            dataSource.setCurrentSchema(schema);
         }
-
-        void setCallerThread(Thread thread) {
-            this.callerThread = thread;
-        }
-
-        boolean wasCallerThreadSeenInJdbc() {
-            return callerSeenInJdbc.get();
-        }
-
-        @Override
-        public Connection getConnection() throws SQLException {
-            if (Thread.currentThread() == callerThread) {
-                callerSeenInJdbc.set(true);
-            }
-            return delegate.getConnection();
-        }
-
-        @Override
-        public Connection getConnection(String username, String password) throws SQLException {
-            return getConnection();
-        }
-
-        @Override
-        public PrintWriter getLogWriter() { return null; }
-        @Override
-        public void setLogWriter(PrintWriter out) {}
-        @Override
-        public void setLoginTimeout(int seconds) {}
-        @Override
-        public int getLoginTimeout() { return 0; }
-        @Override
-        public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-            throw new SQLFeatureNotSupportedException();
-        }
-        @Override
-        public <T> T unwrap(Class<T> iface) throws SQLException {
-            throw new SQLException("Not a wrapper");
-        }
-        @Override
-        public boolean isWrapperFor(Class<?> iface) { return false; }
+        return dataSource;
     }
 
-    /**
-     * DataSource wrapper that introduces artificial delay on getConnection().
-     * Used to verify that save() does not block waiting for JDBC.
-     */
-    private static final class SlowDataSource implements DataSource {
-
-        private final DataSource delegate;
-        private final long delayMs;
-
-        SlowDataSource(DataSource delegate, long delayMs) {
-            this.delegate = delegate;
-            this.delayMs = delayMs;
-        }
-
-        @Override
-        public Connection getConnection() throws SQLException {
-            try {
-                Thread.sleep(delayMs);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return delegate.getConnection();
-        }
-
-        @Override
-        public Connection getConnection(String username, String password) throws SQLException {
-            return getConnection();
-        }
-
-        @Override
-        public PrintWriter getLogWriter() { return null; }
-        @Override
-        public void setLogWriter(PrintWriter out) {}
-        @Override
-        public void setLoginTimeout(int seconds) {}
-        @Override
-        public int getLoginTimeout() { return 0; }
-        @Override
-        public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-            throw new SQLFeatureNotSupportedException();
-        }
-        @Override
-        public <T> T unwrap(Class<T> iface) throws SQLException {
-            throw new SQLException("Not a wrapper");
-        }
-        @Override
-        public boolean isWrapperFor(Class<?> iface) { return false; }
-    }
 }

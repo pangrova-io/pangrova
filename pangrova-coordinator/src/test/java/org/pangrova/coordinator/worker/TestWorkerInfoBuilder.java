@@ -3,12 +3,13 @@ package org.pangrova.coordinator.worker;
 import java.time.Instant;
 import java.util.List;
 
+import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.resource.MemoryPressure;
 
 /**
  * Test factory for WorkerInfo instances using the canonical constructor.
- * All existing methods pass 0 resultServerPort, null rackId and empty dataLocality
- * for backward compatibility.
+ * All helpers construct the exact canonical v2 worker contract.
  */
 public final class TestWorkerInfoBuilder {
 
@@ -20,8 +21,8 @@ public final class TestWorkerInfoBuilder {
     public static WorkerInfo active(String workerId, String host, int httpPort, int transportPort) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
-                0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 1, List.of(),
-                null, List.of());
+                0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
+                null, List.of(), null, canonicalInventory());
     }
 
     /**
@@ -31,8 +32,8 @@ public final class TestWorkerInfoBuilder {
                                         HealthState state) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 state, MemoryPressure.NONE,
-                0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 1, List.of(),
-                null, List.of());
+                0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
+                null, List.of(), null, canonicalInventory());
     }
 
     /**
@@ -44,8 +45,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 cpuUtilization, runningTaskCount, availableMemoryBytes,
-                Instant.now(), performanceScore, null, 1, List.of(),
-                null, List.of());
+                Instant.now(), performanceScore, null, 2,
+                null, List.of(), null, canonicalInventory());
     }
 
     /**
@@ -56,8 +57,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.5, 0, 1024L * 1024 * 1024,
-                lastHeartbeat, 1.0, null, 1, List.of(),
-                null, List.of());
+                lastHeartbeat, 1.0, null, 2,
+                null, List.of(), null, canonicalInventory());
     }
 
     /**
@@ -68,8 +69,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, runningTaskCount, 1024L * 1024 * 1024,
-                Instant.now(), 1.0, null, 1, List.of(),
-                null, List.of());
+                Instant.now(), 1.0, null, 2,
+                null, List.of(), null, canonicalInventory());
     }
 
     /**
@@ -80,8 +81,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024,
-                Instant.now(), 1.0, null, 1, List.of(),
-                rackId, dataLocality);
+                Instant.now(), 1.0, null, 2,
+                rackId, dataLocality, null, canonicalInventory());
     }
 
     /**
@@ -92,8 +93,8 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024,
-                Instant.now(), 1.0, null, 1, List.of(),
-                rackId, List.of());
+                Instant.now(), 1.0, null, 2,
+                rackId, List.of(), null, canonicalInventory());
     }
 
     /**
@@ -103,8 +104,8 @@ public final class TestWorkerInfoBuilder {
                                            MemoryPressure pressure) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, 0,
                 HealthState.ACTIVE, pressure,
-                0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 1, List.of(),
-                null, List.of());
+                0.0, 0, 1024L * 1024 * 1024, Instant.now(), 1.0, null, 2,
+                null, List.of(), null, canonicalInventory());
     }
 
     /**
@@ -115,7 +116,16 @@ public final class TestWorkerInfoBuilder {
         return new WorkerInfo(workerId, host, httpPort, transportPort, resultServerPort,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 1024L * 1024 * 1024,
-                Instant.now(), 1.0, null, 1, List.of(),
-                null, List.of());
+                Instant.now(), 1.0, null, 2,
+                null, List.of(), null, canonicalInventory());
+    }
+
+    /** Returns an empty canonical v2 inventory for non-capability scheduling tests. */
+    public static CapabilityInventory canonicalInventory() {
+        return CapabilityInventory.newBuilder()
+                .setProtocol(CanonicalTaskRequests.protocolVersion())
+                .setResultEnvelopeVersion(1)
+                .setNativeEngineVersion("test-native")
+                .build();
     }
 }

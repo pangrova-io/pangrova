@@ -1,21 +1,20 @@
 package org.pangrova.protocol.index;
 
-import org.pangrova.protocol.v1.ComparableValue;
-import org.pangrova.protocol.v1.ContainsElementPredicate;
-import org.pangrova.protocol.v1.EqualToPredicate;
-import org.pangrova.protocol.v1.InListPredicate;
-import org.pangrova.protocol.v1.IndexPredicateInfo;
-import org.pangrova.protocol.v1.IsNotNullPredicate;
-import org.pangrova.protocol.v1.IsNullPredicate;
-import org.pangrova.protocol.v1.LikePatternPredicate;
-import org.pangrova.protocol.v1.RangeQueryPredicate;
-import org.pangrova.protocol.v1.SpatialQueryPredicate;
-import org.pangrova.protocol.v1.TextMatchPredicate;
+import org.pangrova.protocol.v2.ComparableValue;
+import org.pangrova.protocol.v2.ContainsElementPredicate;
+import org.pangrova.protocol.v2.EqualToPredicate;
+import org.pangrova.protocol.v2.InListPredicate;
+import org.pangrova.protocol.v2.IndexPredicate;
+import org.pangrova.protocol.v2.IsNotNullPredicate;
+import org.pangrova.protocol.v2.IsNullPredicate;
+import org.pangrova.protocol.v2.LikePatternPredicate;
+import org.pangrova.protocol.v2.RangeQueryPredicate;
+import org.pangrova.protocol.v2.SpatialQueryPredicate;
+import org.pangrova.protocol.v2.TextMatchPredicate;
 import org.pangrova.spi.index.predicate.ContainmentMode;
 import org.pangrova.spi.index.predicate.ContainsElement;
 import org.pangrova.spi.index.predicate.EqualTo;
 import org.pangrova.spi.index.predicate.InList;
-import org.pangrova.spi.index.predicate.IndexPredicate;
 import org.pangrova.spi.index.predicate.IsNotNull;
 import org.pangrova.spi.index.predicate.IsNull;
 import org.pangrova.spi.index.predicate.LikePattern;
@@ -30,7 +29,7 @@ import java.util.List;
 
 /**
  * Converts between SPI {@link IndexPredicate} objects and proto
- * {@link IndexPredicateInfo} messages for structured wire transport.
+ * {@link IndexPredicate} messages for structured wire transport.
  *
  * <p>Replaces the legacy JSON string encoding (predicate_json) with
  * proper typed proto messages, enabling schema validation and
@@ -43,8 +42,10 @@ public final class IndexPredicateProtoConverter {
     /**
      * Converts an SPI IndexPredicate to a proto IndexPredicateInfo message.
      */
-    public static IndexPredicateInfo toProto(IndexPredicate predicate) {
-        IndexPredicateInfo.Builder builder = IndexPredicateInfo.newBuilder()
+    public static org.pangrova.protocol.v2.IndexPredicate toProto(
+            org.pangrova.spi.index.predicate.IndexPredicate predicate) {
+        org.pangrova.protocol.v2.IndexPredicate.Builder builder =
+                org.pangrova.protocol.v2.IndexPredicate.newBuilder()
                 .setColumn(predicate.column());
         if (!applyCorePredicate(builder, predicate) && !applyExtendedPredicate(builder, predicate)) {
             throw new IllegalArgumentException("Unknown predicate type: " + predicate.getClass().getName());
@@ -52,7 +53,9 @@ public final class IndexPredicateProtoConverter {
         return builder.build();
     }
 
-    private static boolean applyCorePredicate(IndexPredicateInfo.Builder builder, IndexPredicate predicate) {
+    private static boolean applyCorePredicate(
+            org.pangrova.protocol.v2.IndexPredicate.Builder builder,
+            org.pangrova.spi.index.predicate.IndexPredicate predicate) {
         if (predicate instanceof EqualTo eq) {
             builder.setEqualTo(EqualToPredicate.newBuilder()
                     .setValue(toComparableValue(eq.value())));
@@ -80,7 +83,9 @@ public final class IndexPredicateProtoConverter {
         return false;
     }
 
-    private static boolean applyExtendedPredicate(IndexPredicateInfo.Builder builder, IndexPredicate predicate) {
+    private static boolean applyExtendedPredicate(
+            org.pangrova.protocol.v2.IndexPredicate.Builder builder,
+            org.pangrova.spi.index.predicate.IndexPredicate predicate) {
         if (predicate instanceof IsNull) {
             builder.setIsNull(IsNullPredicate.getDefaultInstance());
             return true;
@@ -136,10 +141,11 @@ public final class IndexPredicateProtoConverter {
     /**
      * Converts a proto IndexPredicateInfo message back to an SPI IndexPredicate.
      */
-    public static IndexPredicate fromProto(IndexPredicateInfo proto) {
+    public static org.pangrova.spi.index.predicate.IndexPredicate fromProto(
+            org.pangrova.protocol.v2.IndexPredicate proto) {
         String column = proto.getColumn();
 
-        return switch (proto.getPredicateTypeCase()) {
+        return switch (proto.getPredicateCase()) {
             case EQUAL_TO -> new EqualTo(column, fromComparableValue(proto.getEqualTo().getValue()));
             case RANGE_QUERY -> fromRangeQuery(column, proto.getRangeQuery());
             case IN_LIST -> new InList(column, fromComparableValues(proto.getInList().getValuesList()));
@@ -152,8 +158,8 @@ public final class IndexPredicateProtoConverter {
             case CONTAINS_ELEMENT -> new ContainsElement(column,
                     fromComparableValues(proto.getContainsElement().getElementsList()),
                     ContainmentMode.valueOf(proto.getContainsElement().getMode()));
-            case PREDICATETYPE_NOT_SET -> throw new IllegalArgumentException(
-                    "IndexPredicateInfo has no predicate type set for column: " + column);
+            case PREDICATE_NOT_SET -> throw new IllegalArgumentException(
+                    "IndexPredicate has no predicate set for column: " + column);
         };
     }
 
@@ -173,9 +179,9 @@ public final class IndexPredicateProtoConverter {
         if (value instanceof String s) {
             builder.setStringValue(s);
         } else if (value instanceof Long l) {
-            builder.setLongValue(l);
+            builder.setInt64Value(l);
         } else if (value instanceof Integer i) {
-            builder.setIntValue(i);
+            builder.setInt32Value(i);
         } else if (value instanceof Double d) {
             builder.setDoubleValue(d);
         } else if (value instanceof Float f) {
@@ -189,14 +195,14 @@ public final class IndexPredicateProtoConverter {
     }
 
     private static Comparable<?> fromComparableValue(ComparableValue value) {
-        return switch (value.getValueTypeCase()) {
+        return switch (value.getValueCase()) {
             case STRING_VALUE -> value.getStringValue();
-            case LONG_VALUE -> value.getLongValue();
-            case INT_VALUE -> value.getIntValue();
+            case INT64_VALUE -> value.getInt64Value();
+            case INT32_VALUE -> value.getInt32Value();
             case DOUBLE_VALUE -> value.getDoubleValue();
             case FLOAT_VALUE -> value.getFloatValue();
             case BOOL_VALUE -> value.getBoolValue();
-            case VALUETYPE_NOT_SET -> throw new IllegalArgumentException("ComparableValue has no type set");
+            case VALUE_NOT_SET -> throw new IllegalArgumentException("ComparableValue has no value set");
         };
     }
 

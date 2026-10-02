@@ -2,7 +2,9 @@ package org.pangrova.coordinator.index;
 
 import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
 import org.pangrova.coordinator.index.filter.IndexSplitFilter;
+import org.pangrova.coordinator.artifact.PublishedArtifactBindingResolver;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
+import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.index.IndexMetadataStore;
 import org.pangrova.planner.PlanFragment;
@@ -38,23 +40,51 @@ public final class IndexAwareSplitFetcher {
     private final IndexMetadataStore metadataStore;
     private final ConnectorAccessorResolver accessorResolver;
     private final IndexPredicateAnalyzer predicateAnalyzer;
+    private final PublishedArtifactBindingResolver artifactBindingResolver;
+    private volatile org.pangrova.coordinator.artifact.GeneratedValueReadResolver generatedValueReadResolver;
 
     /**
      * @param catalogRegistry   catalog registry for split enumeration
      * @param splitFilter       index split filter (nullable — null disables filtering)
      * @param metadataStore     index metadata store (nullable)
      * @param accessorResolver  connector accessor resolver (nullable)
+     * @param artifactBuildStore immutable artifact metadata store (nullable)
      */
     public IndexAwareSplitFetcher(
             CatalogRegistry catalogRegistry,
             IndexSplitFilter splitFilter,
             IndexMetadataStore metadataStore,
-            ConnectorAccessorResolver accessorResolver) {
+            ConnectorAccessorResolver accessorResolver,
+            ArtifactBuildStore artifactBuildStore) {
         this.catalogRegistry = catalogRegistry;
         this.splitFilter = splitFilter;
         this.metadataStore = metadataStore;
         this.accessorResolver = accessorResolver;
         this.predicateAnalyzer = new IndexPredicateAnalyzer();
+        this.artifactBindingResolver = artifactBuildStore == null
+                ? null : new PublishedArtifactBindingResolver(artifactBuildStore);
+    }
+
+    /** Returns the generic artifact resolver, or null when durable artifacts are disabled. */
+    public PublishedArtifactBindingResolver artifactBindingResolver() {
+        return artifactBindingResolver;
+    }
+
+    /** Binds the process-owned generated read service once after actual PostgreSQL initialization. */
+    public synchronized void bindGeneratedValueReads(
+            org.pangrova.coordinator.artifact.GeneratedValueReadResolver resolver) {
+        if (generatedValueReadResolver != null) {
+            throw new IllegalStateException("Generated query reads are already bound");
+        }
+        generatedValueReadResolver = java.util.Objects.requireNonNull(resolver, "resolver");
+    }
+
+    /** Returns the generated read service; a configured artifact store may never silently omit it. */
+    public org.pangrova.coordinator.artifact.GeneratedValueReadResolver generatedValueReads() {
+        if (artifactBindingResolver != null && generatedValueReadResolver == null) {
+            throw new IllegalStateException("Durable query reads require their actual generated read service");
+        }
+        return generatedValueReadResolver;
     }
 
     /** Returns true if index filtering is active. */
@@ -71,7 +101,7 @@ public final class IndexAwareSplitFetcher {
      * @return matching index descriptors, or empty list if metadata store is unavailable
      */
     public List<org.pangrova.spi.index.IndexDescriptor> lookupIndexes(
-            String tableName, String columnName) {
+            String tenantId, String tableName, String columnName) {
         if (metadataStore == null) {
             return List.of();
         }
@@ -79,7 +109,8 @@ public final class IndexAwareSplitFetcher {
         if (parts.length < 3) {
             return List.of();
         }
-        return metadataStore.findIndexesByTable(parts[0], parts[1], parts[2]).stream()
+        return metadataStore.findIndexesByTable(
+                tenantId, parts[0], parts[1], parts[2]).stream()
                 .filter(d -> d.columnNames().stream()
                         .anyMatch(c -> c.equalsIgnoreCase(columnName)))
                 .toList();
@@ -94,19 +125,20 @@ public final class IndexAwareSplitFetcher {
      * @return filtered splits with file path metadata
      */
     public List<SplitFetcher.SplitWithPaths> fetchAndFilterSplits(
-            PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides, String queryId) {
+            PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides,
+            String queryId, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
         LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={}",
                 queryId, isIndexFilteringEnabled());
         if (!isIndexFilteringEnabled()) {
-            return SplitFetcher.fetchSplitsWithFilePaths(plannedQuery, catalogRegistry, snapshotOverrides);
+            return SplitFetcher.fetchSplitsWithFilePaths(plannedQuery, catalogRegistry, snapshotOverrides, session);
         }
         List<ConnectorSplit> rawSplits =
-                SplitFetcher.fetchRawConnectorSplits(plannedQuery, catalogRegistry, snapshotOverrides);
+                SplitFetcher.fetchRawConnectorSplits(plannedQuery, catalogRegistry, snapshotOverrides, session);
         if (rawSplits.isEmpty()) {
             return List.of();
         }
         List<ConnectorSplit> filtered = applyIndexFiltering(
-                plannedQuery.plan(), rawSplits, snapshotOverrides, queryId);
+                plannedQuery.plan(), rawSplits, snapshotOverrides, queryId, session);
         return SplitFetcher.toSplitWithPaths(filtered);
     }
 
@@ -120,40 +152,49 @@ public final class IndexAwareSplitFetcher {
      * @return filtered splits with file path metadata
      */
     public List<SplitFetcher.SplitWithPaths> fetchAndFilterSplits(
-            PlanFragment fragment, Map<String, Long> snapshotOverrides, String queryId) {
-        return fetchAndFilterSplitsInternal(fragment.relNode(), snapshotOverrides, queryId);
+            PlanFragment fragment, Map<String, Long> snapshotOverrides,
+            String queryId, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+        return fetchAndFilterSplitsInternal(
+                fragment.relNode(), snapshotOverrides, queryId, session);
     }
 
     private List<SplitFetcher.SplitWithPaths> fetchAndFilterSplitsInternal(
-            RelNode relNode, Map<String, Long> snapshotOverrides, String queryId) {
+            RelNode relNode, Map<String, Long> snapshotOverrides,
+            String queryId, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
         LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={} relNodeType={}",
                 queryId, isIndexFilteringEnabled(), relNode.getClass().getSimpleName());
         List<SplitSourceDescriptor> sources = PlanSplitSourceExtractor.extract(relNode);
         List<String> outputColumns = PlanSplitSourceExtractor.queryOutputColumns(relNode);
         if (!isIndexFilteringEnabled()) {
-            return SplitFetcher.fetchSplitsWithFilePaths(sources, catalogRegistry, snapshotOverrides, outputColumns);
+            return SplitFetcher.fetchSplitsWithFilePaths(
+                    sources, catalogRegistry, snapshotOverrides, outputColumns, session);
         }
         List<ConnectorSplit> rawSplits =
-                SplitFetcher.fetchRawConnectorSplits(sources, catalogRegistry, snapshotOverrides, outputColumns);
+                SplitFetcher.fetchRawConnectorSplits(
+                        sources, catalogRegistry, snapshotOverrides, outputColumns, session);
         if (rawSplits.isEmpty()) {
             return List.of();
         }
         List<ConnectorSplit> filtered = applyIndexFiltering(
-                relNode, rawSplits, snapshotOverrides, queryId);
+                relNode, rawSplits, snapshotOverrides, queryId, session);
         return SplitFetcher.toSplitWithPaths(filtered);
     }
 
     private List<ConnectorSplit> applyIndexFiltering(
             RelNode relNode, List<ConnectorSplit> splits,
-            Map<String, Long> snapshotOverrides, String queryId) {
+            Map<String, Long> snapshotOverrides, String queryId,
+            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
         try {
             Map<String, List<IndexHint>> tableHints =
                     IndexHintGenerator.generate(relNode, metadataStore, predicateAnalyzer,
-                            0);
+                            session.tenantId(), 0);
             if (tableHints.isEmpty()) {
                 return splits;
             }
-            return filterSplitsByTable(splits, tableHints, snapshotOverrides, queryId);
+            return filterSplitsByTable(
+                    splits, tableHints, snapshotOverrides, queryId, session);
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+            throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=index_filtering_failed queryId={} error={} action=skip_filtering",
                     queryId, e.getMessage());
@@ -165,22 +206,22 @@ public final class IndexAwareSplitFetcher {
             List<ConnectorSplit> splits,
             Map<String, List<IndexHint>> tableHints,
             Map<String, Long> snapshotOverrides,
-            String queryId) {
+            String queryId,
+            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
         int before = splits.size();
         List<ConnectorSplit> result = new java.util.ArrayList<>(splits);
         for (var entry : tableHints.entrySet()) {
             String tableKey = entry.getKey();
             List<IndexHint> hints = entry.getValue();
-            // Snapshot-aware index selection: only use indexes whose
-            // lastIndexedSnapshotId >= querySnapshotId. Files from snapshots
-            // beyond index coverage bypass L1 filtering.
+            // Snapshot tokens are opaque identities, not ordered numbers.
+            // Time-travel pruning may use only the exact published snapshot.
             Long querySnapshotId = snapshotOverrides != null
                     ? snapshotOverrides.get(tableKey) : null;
             List<IndexHint> eligibleHints = filterHintsBySnapshotCoverage(
-                    hints, querySnapshotId, tableKey);
+                    hints, querySnapshotId, tableKey, session.tenantId());
             if (!eligibleHints.isEmpty()) {
                 result = filterSplitsForTable(
-                        result, tableKey, eligibleHints, snapshotOverrides);
+                        result, tableKey, eligibleHints, snapshotOverrides, session);
             }
         }
         logFilteringResult(queryId, before, result.size());
@@ -193,14 +234,16 @@ public final class IndexAwareSplitFetcher {
      * snapshot are excluded — their files bypass L1 evaluation.
      */
     private List<IndexHint> filterHintsBySnapshotCoverage(
-            List<IndexHint> hints, Long querySnapshotId, String tableKey) {
+            List<IndexHint> hints, Long querySnapshotId,
+            String tableKey, String tenantId) {
         if (querySnapshotId == null || metadataStore == null) {
             return hints;
         }
         String catalog = extractCatalogFromKey(tableKey);
         String schema = extractSchemaFromKey(tableKey);
         String table = extractTableFromKey(tableKey);
-        List<IndexDescriptor> descriptors = metadataStore.findIndexesByTable(catalog, schema, table);
+        List<IndexDescriptor> descriptors = metadataStore.findIndexesByTable(
+                tenantId, catalog, schema, table);
         Map<String, IndexDescriptor> descriptorMap = descriptors.stream()
                 .collect(java.util.stream.Collectors.toMap(
                         IndexDescriptor::indexId, d -> d, (a, b) -> a));
@@ -212,28 +255,26 @@ public final class IndexAwareSplitFetcher {
                             || desc.lastIndexedSnapshotId().isEmpty()) {
                         return false;
                     }
-                    try {
-                        long lastIndexed = Long.parseLong(desc.lastIndexedSnapshotId());
-                        return lastIndexed >= querySnapshotId;
-                    } catch (NumberFormatException e) {
-                        // Non-numeric snapshot IDs: fall back to string comparison
-                        return desc.lastIndexedSnapshotId().compareTo(querySnapStr) >= 0;
-                    }
+                    return desc.lastIndexedSnapshotId().equals(querySnapStr);
                 })
                 .toList();
     }
 
     private List<ConnectorSplit> filterSplitsForTable(
             List<ConnectorSplit> splits, String tableKey,
-            List<IndexHint> hints, Map<String, Long> snapshotOverrides) {
+            List<IndexHint> hints, Map<String, Long> snapshotOverrides,
+            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
         String catalogName = extractCatalogFromKey(tableKey);
         String schemaName = extractSchemaFromKey(tableKey);
         String tableName = extractTableFromKey(tableKey);
+        var queryAccessors = accessorResolver == null ? null : accessorResolver.forSession(
+                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(
+                        session, catalogName, schemaName));
         String snapshotToken = resolveSnapshotToken(tableKey, snapshotOverrides);
         Map<String, List<FileColumnStatistics>> fileStats =
-                fetchFileStatistics(catalogName, schemaName, tableName, splits, hints);
+                fetchFileStatistics(catalogName, schemaName, tableName, splits, hints, queryAccessors);
         List<ConnectorSplit> result = splitFilter.filterSplits(
-                splits, hints, catalogName, accessorResolver, snapshotToken,
+                splits, hints, catalogName, queryAccessors, snapshotToken,
                 fileStats, 0);
         return result;
     }
@@ -253,7 +294,7 @@ public final class IndexAwareSplitFetcher {
      */
     private Map<String, List<FileColumnStatistics>> fetchFileStatistics(
             String catalog, String schema, String table,
-            List<ConnectorSplit> splits, List<IndexHint> hints) {
+            List<ConnectorSplit> splits, List<IndexHint> hints, ConnectorAccessorResolver queryAccessors) {
         List<String> predicateColumns = extractPredicateColumns(hints);
         if (predicateColumns.isEmpty()) {
             return Map.of();
@@ -272,23 +313,25 @@ public final class IndexAwareSplitFetcher {
             if (stats != null && !stats.isEmpty()) {
                 return stats;
             }
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+            throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=file_statistics_fetch_failed catalog={} schema={} table={} error={}",
                     catalog, schema, table, e.getMessage());
         }
         return fetchFileStatisticsFromConnector(
-                catalog, schema, table, dataFilePaths, predicateColumns);
+                catalog, schema, table, dataFilePaths, predicateColumns, queryAccessors);
     }
 
     private Map<String, List<FileColumnStatistics>> fetchFileStatisticsFromConnector(
             String catalog, String schema, String table,
-            List<String> dataFilePaths, List<String> predicateColumns) {
-        if (accessorResolver == null) {
+            List<String> dataFilePaths, List<String> predicateColumns, ConnectorAccessorResolver queryAccessors) {
+        if (queryAccessors == null) {
             return Map.of();
         }
         try {
             List<DataFileStatistics> connectorStats =
-                    accessorResolver.resolveFileStatistics(
+                    queryAccessors.resolveFileStatistics(
                             catalog, schema, table, dataFilePaths);
             if (connectorStats.isEmpty()) {
                 return Map.of();
@@ -304,6 +347,8 @@ public final class IndexAwareSplitFetcher {
                 }
             }
             return result;
+        } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
+            throw authorityFailure;
         } catch (Exception e) {
             LOG.warn("event=connector_file_stats_failed catalog={} schema={} table={} error={}",
                     catalog, schema, table, e.getMessage());

@@ -28,11 +28,20 @@ TicketSigner::TicketSigner(std::string key, int64_t ttlMillis)
     : key_(std::move(key)), ttlMillis_(ttlMillis) {}
 
 std::string TicketSigner::sign(std::string_view payload) const {
+  return signWithMetadata(payload).ticket;
+}
+
+TicketSigner::SignedTicket TicketSigner::signWithMetadata(
+    std::string_view payload) const {
+  return signWithExpiry(payload, nowMillis() + ttlMillis_);
+}
+
+TicketSigner::SignedTicket TicketSigner::signWithExpiry(
+    std::string_view payload, int64_t expiry) const {
   if (key_.empty()) {
-    return std::string(payload);
+    return SignedTicket{std::string(payload), expiry};
   }
 
-  const int64_t expiry = nowMillis() + ttlMillis_;
   std::string message;
   message.reserve(payload.size() + 24);
   message.append(payload);
@@ -46,7 +55,7 @@ std::string TicketSigner::sign(std::string_view payload) const {
   ticket.append(message);
   ticket.push_back(kTicketDelimiter);
   ticket.append(hmac);
-  return ticket;
+  return SignedTicket{std::move(ticket), expiry};
 }
 
 }  // namespace pangrova::shuffle

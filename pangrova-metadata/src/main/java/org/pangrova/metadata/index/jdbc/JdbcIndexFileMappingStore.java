@@ -2,6 +2,7 @@ package org.pangrova.metadata.index.jdbc;
 
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.metadata.index.model.IndexFileMapping;
+import org.pangrova.metadata.index.model.IndexFileSelection;
 import org.pangrova.spi.index.IndexState;
 
 import javax.sql.DataSource;
@@ -40,6 +41,92 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         }
         validateSameIndex(mappings);
         executeBatchInsert(mappings);
+    }
+
+    long copyIndexGenerationMappings(
+            String indexId,
+            int sourceGeneration,
+            int targetGeneration,
+            List<String> excludedDataFiles) {
+        if (targetGeneration != Math.addExact(sourceGeneration, 1)) {
+            throw new IllegalArgumentException(
+                    "targetGeneration must advance exactly one generation");
+        }
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                copyMappings(connection, indexId, sourceGeneration, targetGeneration);
+                deleteExcludedMappings(
+                        connection, indexId, targetGeneration,
+                        excludedDataFiles == null ? List.of() : excludedDataFiles);
+                long copied = countMappings(connection, indexId, targetGeneration);
+                connection.commit();
+                return copied;
+            } catch (SQLException | RuntimeException failure) {
+                rollback(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Copy index generation mappings failed", failure);
+        }
+    }
+
+    private static void copyMappings(
+            Connection connection, String indexId,
+            int sourceGeneration, int targetGeneration) throws SQLException {
+        String sql = "INSERT INTO index_file_mappings "
+                + "(index_id,data_file_path,index_file_path,row_count,index_size_bytes,"
+                + "checksum,generation,snapshot_token,sequence_num,last_verified_at,created_at) "
+                + "SELECT index_id,data_file_path,index_file_path,row_count,index_size_bytes,"
+                + "checksum,?,snapshot_token,sequence_num,last_verified_at,created_at "
+                + "FROM index_file_mappings WHERE index_id=? AND generation=?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, targetGeneration);
+            statement.setString(2, indexId);
+            statement.setInt(3, sourceGeneration);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void deleteExcludedMappings(
+            Connection connection, String indexId, int generation,
+            List<String> excludedDataFiles) throws SQLException {
+        for (int offset = 0; offset < excludedDataFiles.size(); offset += BATCH_PARTITION_SIZE) {
+            List<String> batch = excludedDataFiles.subList(
+                    offset, Math.min(offset + BATCH_PARTITION_SIZE, excludedDataFiles.size()));
+            String sql = "DELETE FROM index_file_mappings WHERE index_id=? AND generation=? "
+                    + "AND data_file_path IN (" + placeholders(batch.size()) + ")";
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, indexId);
+                statement.setInt(2, generation);
+                int parameter = 3;
+                for (String path : batch) {
+                    statement.setString(parameter++, path);
+                }
+                statement.executeUpdate();
+            }
+        }
+    }
+
+    private static long countMappings(
+            Connection connection, String indexId, int generation) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM index_file_mappings WHERE index_id=? AND generation=?")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            try (java.sql.ResultSet result = statement.executeQuery()) {
+                result.next();
+                return result.getLong(1);
+            }
+        }
+    }
+
+    private static void rollback(Connection connection, Exception original) {
+        try {
+            connection.rollback();
+        } catch (SQLException rollbackFailure) {
+            original.addSuppressed(rollbackFailure);
+        }
     }
 
     private static void validateSameIndex(List<IndexFileMapping> mappings) {
@@ -90,6 +177,50 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         return result;
     }
 
+    Map<String, Map<String, IndexFileMapping>> batchGetIndexArtifacts(
+            Map<String, IndexFileSelection> selections,
+            List<String> dataFilePaths) {
+        Map<String, Map<String, IndexFileMapping>> result = new HashMap<>();
+        if (selections.isEmpty() || dataFilePaths.isEmpty()) {
+            return result;
+        }
+        List<String> indexIds = List.copyOf(selections.keySet());
+        for (int offset = 0; offset < dataFilePaths.size(); offset += BATCH_PARTITION_SIZE) {
+            List<String> batch = dataFilePaths.subList(
+                    offset, Math.min(offset + BATCH_PARTITION_SIZE, dataFilePaths.size()));
+            String sql = "SELECT * FROM index_file_mappings WHERE index_id IN ("
+                    + placeholders(indexIds.size()) + ") AND data_file_path IN ("
+                    + placeholders(batch.size()) + ")";
+            executeQuery(sql,
+                    ps -> bindMappingBatchParams(ps, indexIds, batch, null),
+                    rs -> collectArtifactResults(rs, selections, result));
+        }
+        return result;
+    }
+
+    private static Void collectArtifactResults(
+            java.sql.ResultSet rs,
+            Map<String, IndexFileSelection> selections,
+            Map<String, Map<String, IndexFileMapping>> result) throws SQLException {
+        while (rs.next()) {
+            IndexFileMapping mapping = IndexMetadataMapper.mapMapping(rs);
+            IndexFileSelection selection = selections.get(mapping.indexId());
+            if (selection == null || !selection.matches(mapping)) {
+                continue;
+            }
+            IndexFileMapping previous = result
+                    .computeIfAbsent(mapping.indexId(), ignored -> new HashMap<>())
+                    .put(mapping.dataFilePath(), mapping);
+            if (previous != null) {
+                throw new MetastoreException(
+                        "Duplicate index artifact for generation: indexId="
+                                + mapping.indexId() + " dataFile="
+                                + mapping.dataFilePath());
+            }
+        }
+        return null;
+    }
+
     Map<String, Map<String, String>> batchGetIndexFileMappings(
             List<String> indexIds, List<String> dataFilePaths, String querySnapshotToken) {
         if (querySnapshotToken == null) {
@@ -123,7 +254,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 + "FROM index_file_mappings "
                 + "WHERE index_id IN (" + idPh + ") "
                 + "AND data_file_path IN (" + pathPh + ")"
-                + (hasSnapshot ? " AND (snapshot_token IS NULL OR snapshot_token <= ?)" : "");
+                + (hasSnapshot ? " AND snapshot_token = ?" : "");
     }
 
     private static void bindMappingBatchParams(PreparedStatement ps, List<String> indexIds,
@@ -136,7 +267,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
             ps.setString(idx++, path);
         }
         if (snapshotToken != null) {
-            ps.setLong(idx, Long.parseLong(snapshotToken));
+            ps.setString(idx, snapshotToken);
         }
     }
 

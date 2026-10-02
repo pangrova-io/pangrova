@@ -43,7 +43,9 @@ class PipelineSchedulingTest {
     @Test
     void stageEdgeReadModeFromDAG() {
         StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
-        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST);
+        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST,
+                List.of(), "exchange-2-to-1", 1,
+                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
         StageDAG dag = StageDAG.fromNodes(List.of(), Map.of(), List.of(hashEdge, broadcastEdge));
 
         assertEquals(ExchangeReadMode.BLOCKING, dag.getEdgeReadMode(0, 1));
@@ -53,7 +55,7 @@ class PipelineSchedulingTest {
     }
 
     @Test
-    void collectActiveStageIdsIncludesSchedulingRunningFlushingFinished() {
+    void collectActiveStageIdsIncludesDispatchedRunningFlushingFinished() {
         // Build a 3-stage DAG: 0 → 1 → 2
         StageNode s0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyFragment(), 1, "COMPUTE", List.of());
@@ -119,8 +121,7 @@ class PipelineSchedulingTest {
         java.util.Set<Integer> ids = new java.util.HashSet<>();
         for (Stage s : dag.stageEntities()) {
             StageStateMachine.State st = s.stateMachine().getState();
-            if (st == StageStateMachine.State.SCHEDULING
-                    || st == StageStateMachine.State.RUNNING
+            if (st == StageStateMachine.State.RUNNING
                     || st == StageStateMachine.State.FLUSHING
                     || st == StageStateMachine.State.FINISHED) {
                 ids.add(s.stageId());

@@ -69,5 +69,8 @@ SHOW INDEXES ON prod.analytics.events;
   type-specific — see each index type's page.
 - Indexes are maintained as data files are written and can be rebuilt online with
   `ALTER INDEX ... REBUILD`.
+- Paimon file indexes use the catalog filesystem and read the requested physical
+  file with its owning table schema. A missing file fails the build instead of
+  reading another file or the entire table.
 - For the design behind index build and evaluation, see
   [Indexing Architecture](../architecture/indexing.md).

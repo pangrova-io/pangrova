@@ -2,10 +2,8 @@
 //
 // Before the fix, getOrCreatePartition(partition_id) silently created a buffer
 // for ANY partition_id — an out-of-range partition from a buggy producer would
-// write data that no consumer ever reads (silent data loss). After the fix,
-// out-of-range partition_ids are gracefully rejected: on the production side
-// the drain loop logs an error and skips the batch; on the read side pop()
-// returns false.
+// write data that no consumer ever reads. Invalid producer partitions must
+// fail the shuffle, not skip data and report successful completion.
 //
 // This is a deterministic non-gRPC test (no Arrow Flight) to avoid the
 // two-Arrow ODR landmine in the standalone Flight test binary.
@@ -40,7 +38,7 @@ TEST(FlightShuffleDemuxerPartitionBoundTest, InBoundsPartitionWorks) {
   for (int32_t p = 0; p < kNumPartitions; ++p) {
     ASSERT_TRUE(queue.push(makeBatch(p, p + 100), std::chrono::seconds(1)));
   }
-  queue.close();
+  ASSERT_TRUE(queue.commit());
 
   PartitionDemuxer demuxer(&queue);
   demuxer.setMaxPartitions(kNumPartitions);
@@ -65,7 +63,7 @@ TEST(FlightShuffleDemuxerPartitionBoundTest, InBoundsPartitionWorks) {
 TEST(FlightShuffleDemuxerPartitionBoundTest, PopOutOfRangeReturnsFalse) {
   constexpr int32_t kNumPartitions = 4;
   SerializedShuffleQueue queue(/*capacity=*/16);
-  queue.close();  // Immediately closed — no data, just test validation.
+  ASSERT_TRUE(queue.commit());  // No data, just test validation.
 
   PartitionDemuxer demuxer(&queue);
   demuxer.setMaxPartitions(kNumPartitions);
@@ -82,46 +80,58 @@ TEST(FlightShuffleDemuxerPartitionBoundTest, PopOutOfRangeReturnsFalse) {
   demuxer.stop();
 }
 
-// Production side: a batch with out-of-range partition_id is gracefully
-// skipped (logged and discarded) without crashing the drain loop.
+// A corrupt partition identifier invalidates the whole shuffle.
 TEST(FlightShuffleDemuxerPartitionBoundTest,
-     DrainLoopSkipsOutOfRangePartition) {
+  DrainLoopFailsOutOfRangePartition) {
   constexpr int32_t kNumPartitions = 4;
   SerializedShuffleQueue queue(/*capacity=*/16);
 
   // Push a valid batch followed by an out-of-range batch.
   ASSERT_TRUE(queue.push(makeBatch(5, 999), std::chrono::seconds(1)));
   ASSERT_TRUE(queue.push(makeBatch(2, 200), std::chrono::seconds(1)));
-  queue.close();
+  ASSERT_TRUE(queue.commit());
 
   PartitionDemuxer demuxer(&queue);
   demuxer.setMaxPartitions(kNumPartitions);
   demuxer.start();
 
-  // The out-of-range batch (partition_id=5) should be skipped, and the
-  // valid batch (partition_id=2) should still be delivered.
+  EXPECT_FALSE(demuxer.quiesce(std::chrono::seconds(2)));
+  EXPECT_TRUE(demuxer.status().IsInvalid());
+  EXPECT_FALSE(demuxer.isComplete());
   ShuffleBatch out;
-  bool got = false;
-  for (int attempt = 0; attempt < 20 && !got; ++attempt) {
-    got = demuxer.pop(2, out, std::chrono::milliseconds(50));
-  }
-  ASSERT_TRUE(got) << "Valid partition batch should be delivered";
-  EXPECT_EQ(out.row_count, 200);
-
-  // The invalid partition (5) should have been skipped — pop returns false.
+  EXPECT_FALSE(demuxer.pop(2, out, std::chrono::milliseconds(50)));
   EXPECT_FALSE(demuxer.pop(5, out, std::chrono::milliseconds(50)));
 
   demuxer.stop();
 }
 
-// With max_partitions=0 (legacy/unbounded), any partition_id is allowed.
-TEST(FlightShuffleDemuxerPartitionBoundTest, ZeroMaxPartitionsIsUnbounded) {
+TEST(FlightShuffleDemuxerPartitionBoundTest,
+     DemuxFailurePreventsLateProducerCommit) {
+  SerializedShuffleQueue queue(/*capacity=*/2);
+  PartitionDemuxer demuxer(&queue);
+  demuxer.setMaxPartitions(1);
+  demuxer.start();
+  ASSERT_TRUE(queue.push(makeBatch(1, 9), std::chrono::seconds(1)));
+
+  for (int attempt = 0; attempt < 100 && demuxer.status().ok(); ++attempt) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  ASSERT_TRUE(demuxer.status().IsInvalid());
+  demuxer.stop();
+  EXPECT_TRUE(queue.isAborted());
+  EXPECT_FALSE(queue.commit());
+  EXPECT_EQ(queue.usedBytes(), 0u);
+}
+
+TEST(FlightShuffleDemuxerPartitionBoundTest, DefaultPartitionRangeIsFinite) {
   SerializedShuffleQueue queue(/*capacity=*/16);
   ASSERT_TRUE(queue.push(makeBatch(100, 42), std::chrono::seconds(1)));
-  queue.close();
+  ASSERT_TRUE(queue.commit());
 
   PartitionDemuxer demuxer(&queue);
-  // max_partitions defaults to 0 (unbounded) — no setMaxPartitions call.
+  EXPECT_TRUE(demuxer.validPartition(100));
+  EXPECT_FALSE(demuxer.validPartition(4096));
+  EXPECT_THROW(demuxer.setMaxPartitions(0), std::invalid_argument);
   demuxer.start();
 
   ShuffleBatch out;
@@ -139,14 +149,15 @@ TEST(FlightShuffleDemuxerPartitionBoundTest, ZeroMaxPartitionsIsUnbounded) {
 TEST(FlightShuffleDemuxerPartitionBoundTest,
      RegisterHandleSetsMaxPartitions) {
   SerializedShuffleQueue queue(/*capacity=*/16);
-  queue.close();
+  ASSERT_TRUE(queue.commit());
 
   FlightShuffleServerConfig config;
   config.port = 0;
   FlightShuffleServer server(config);
   // Don't start the Flight server (avoid gRPC/two-Arrow ODR). Just test
   // the handle registration path and the demuxer's partition bound.
-  server.registerHandle(42, &queue, "q1", 0, /*num_partitions=*/8);
+  server.registerHandle(42, &queue, "q1", 0, /*num_partitions=*/8,
+                        1, 0, 1);
 
   // Verify via popForHandle: valid partition returns false (empty, not crash).
   ShuffleBatch out;

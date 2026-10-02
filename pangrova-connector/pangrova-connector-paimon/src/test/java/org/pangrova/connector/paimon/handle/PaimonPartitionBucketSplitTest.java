@@ -3,7 +3,8 @@ package org.pangrova.connector.paimon.handle;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,13 +30,13 @@ class PaimonPartitionBucketSplitTest {
                 "orders", 0L, 100L,
                 5, List.of("id"), "DEDUPLICATE", "NONE",
                 1L, 0L, 0L, "APPEND", List.of(),
-                false, false, "", Map.of(), false,
+                false, false, Map.of(), false,
                 Map.of("dt", "2024-06-01"),
-                List.of(), List.of(), "");
+                List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        assertThat(info.getPaimonInfo().getBucketId()).isEqualTo(5);
+        assertThat(DataSplitProtoCodec.fileDetail(info).getPaimon().getBucketId()).isEqualTo(5);
     }
 
     @Test
@@ -49,13 +50,12 @@ class PaimonPartitionBucketSplitTest {
                 "events", 0L, 500L,
                 2, List.of(), "DEDUPLICATE", "NONE",
                 10L, 0L, 0L, "APPEND", List.of(),
-                false, false, "", Map.of(), false,
-                partitions, List.of(), List.of(), "");
+                false, false, Map.of(), false,
+                partitions, List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        var paimonInfo = info.getPaimonInfo();
-        assertThat(paimonInfo.getPartitionValuesMap())
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info))
                 .hasSize(3)
                 .containsEntry("dt", "2024-06-01")
                 .containsEntry("region", "us-east")
@@ -68,12 +68,12 @@ class PaimonPartitionBucketSplitTest {
                 "flat_table", 0L, 200L,
                 0, List.of(), "DEDUPLICATE", "NONE",
                 1L, 0L, 0L, "APPEND", List.of(),
-                false, false, "", Map.of(), false,
-                Map.of(), List.of(), List.of(), "");
+                false, false, Map.of(), false,
+                Map.of(), List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        assertThat(info.getPaimonInfo().getPartitionValuesMap()).isEmpty();
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info)).isEmpty();
     }
 
     @Test
@@ -84,26 +84,26 @@ class PaimonPartitionBucketSplitTest {
                 "orders", 0L, 100L,
                 0, List.of("id"), "DEDUPLICATE", "NONE",
                 1L, 0L, 0L, "PRIMARY_KEY", List.of(),
-                true, false, "", Map.of(), false,
-                partition, List.of(), List.of(), "");
+                true, false, Map.of(), false,
+                partition, List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
         PaimonSplit bucket1 = new PaimonSplit(
                 "orders", 0L, 150L,
                 1, List.of("id"), "DEDUPLICATE", "NONE",
                 1L, 0L, 0L, "PRIMARY_KEY", List.of(),
-                true, false, "", Map.of(), false,
-                partition, List.of(), List.of(), "");
+                true, false, Map.of(), false,
+                partition, List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        SplitInfo info0 = SplitInfo.parseFrom(bucket0.toSplitInfoProto());
-        SplitInfo info1 = SplitInfo.parseFrom(bucket1.toSplitInfoProto());
+        DataSplit info0 = DataSplit.parseFrom(bucket0.toSplitInfoProto());
+        DataSplit info1 = DataSplit.parseFrom(bucket1.toSplitInfoProto());
 
         // Each bucket produces an independent split with its own bucket ID
-        assertThat(info0.getPaimonInfo().getBucketId()).isZero();
-        assertThat(info1.getPaimonInfo().getBucketId()).isEqualTo(1);
+        assertThat(DataSplitProtoCodec.fileDetail(info0).getPaimon().getBucketId()).isZero();
+        assertThat(DataSplitProtoCodec.fileDetail(info1).getPaimon().getBucketId()).isEqualTo(1);
 
         // Both share the same partition values
-        assertThat(info0.getPaimonInfo().getPartitionValuesMap())
-                .isEqualTo(info1.getPaimonInfo().getPartitionValuesMap())
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info0))
+                .isEqualTo(DataSplitProtoCodec.stringPartitionValues(info1))
                 .containsEntry("dt", "2024-06-01");
     }
 
@@ -113,20 +113,23 @@ class PaimonPartitionBucketSplitTest {
                 "pk_partitioned", 0L, 300L,
                 3, List.of("id", "ts"), "PARTIAL_UPDATE", "LOOKUP",
                 42L, 0L, 0L, "PRIMARY_KEY", List.of(),
-                true, false, "", Map.of("amount", "SUM"), true,
+                true, false, Map.of("amount", "SUM"), true,
                 Map.of("country", "CN", "year", "2024"),
-                List.of(), List.of(), "");
+                List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        SplitInfo info = SplitInfo.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
 
-        var paimon = info.getPaimonInfo();
+        var paimon = DataSplitProtoCodec.fileDetail(info).getPaimon();
         // Partition values preserved alongside table metadata
-        assertThat(paimon.getPartitionValuesMap())
+        assertThat(DataSplitProtoCodec.stringPartitionValues(info))
                 .containsEntry("country", "CN")
                 .containsEntry("year", "2024");
         assertThat(paimon.getBucketId()).isEqualTo(3);
         assertThat(paimon.getPrimaryKeysList()).containsExactly("id", "ts");
         assertThat(paimon.getNeedsMerge()).isTrue();
         assertThat(paimon.getChangelogMode()).isTrue();
+    }
+    private static PaimonPhysicalFile physicalFile() {
+        return new PaimonPhysicalFile("/data/file.parquet", "parquet", 4096, 500, 0);
     }
 }

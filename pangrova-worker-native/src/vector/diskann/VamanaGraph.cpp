@@ -7,6 +7,9 @@
 #include "vector/diskann/VamanaGraph.h"
 
 #include <algorithm>
+#include <atomic>
+#include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -16,6 +19,7 @@
 #include <queue>
 #include <random>
 #include <unordered_set>
+#include <thread>
 
 #include "vector/VectorDistance.h"
 
@@ -23,11 +27,88 @@ namespace pangrova::vector::diskann {
 
 namespace {
 
+constexpr uint64_t kVamanaFormatMagic = 0x56414D414E410002ULL;
+
 struct DistEntry {
   int64_t nodeId;
   float distance;
   bool operator>(const DistEntry& o) const { return distance > o.distance; }
 };
+
+void writeUint32(std::ostream& output, uint32_t value) {
+  std::array<char, 4> bytes{};
+  for (size_t index = 0; index < bytes.size(); ++index) {
+    bytes[index] = static_cast<char>((value >> (index * 8)) & 0xffU);
+  }
+  output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+void writeUint64(std::ostream& output, uint64_t value) {
+  std::array<char, 8> bytes{};
+  for (size_t index = 0; index < bytes.size(); ++index) {
+    bytes[index] = static_cast<char>((value >> (index * 8)) & 0xffU);
+  }
+  output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+}
+
+void writeFloat32(std::ostream& output, float value) {
+  writeUint32(output, std::bit_cast<uint32_t>(value));
+}
+
+bool readUint32(std::istream& input, uint32_t& value) {
+  std::array<unsigned char, 4> bytes{};
+  input.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+  if (!input.good()) {
+    return false;
+  }
+  value = 0;
+  for (size_t index = 0; index < bytes.size(); ++index) {
+    value |= static_cast<uint32_t>(bytes[index]) << (index * 8);
+  }
+  return true;
+}
+
+bool readUint64(std::istream& input, uint64_t& value) {
+  std::array<unsigned char, 8> bytes{};
+  input.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+  if (!input.good()) {
+    return false;
+  }
+  value = 0;
+  for (size_t index = 0; index < bytes.size(); ++index) {
+    value |= static_cast<uint64_t>(bytes[index]) << (index * 8);
+  }
+  return true;
+}
+
+bool readFloat32(std::istream& input, float& value) {
+  uint32_t bits = 0;
+  if (!readUint32(input, bits)) {
+    return false;
+  }
+  value = std::bit_cast<float>(bits);
+  return std::isfinite(value);
+}
+
+bool checkedAdd(uint64_t& total, uint64_t value, uint64_t limit) {
+  if (value > limit || total > limit - value) {
+    return false;
+  }
+  total += value;
+  return true;
+}
+
+uint64_t saturatingAdd(uint64_t left, uint64_t right) {
+  return left > std::numeric_limits<uint64_t>::max() - right
+      ? std::numeric_limits<uint64_t>::max()
+      : left + right;
+}
+
+uint64_t saturatingMultiply(uint64_t left, uint64_t right) {
+  return left != 0 && right > std::numeric_limits<uint64_t>::max() / left
+      ? std::numeric_limits<uint64_t>::max()
+      : left * right;
+}
 
 }  // namespace
 
@@ -35,6 +116,24 @@ VamanaIndex::VamanaIndex(VamanaConfig config, std::string indexPath)
     : config_(config), indexPath_(std::move(indexPath)) {}
 
 VamanaIndex::~VamanaIndex() = default;
+
+uint64_t VamanaIndex::memoryBytes() const {
+  uint64_t bytes = saturatingAdd(sizeof(VamanaIndex), indexPath_.capacity());
+  bytes = saturatingAdd(bytes, saturatingMultiply(
+      adjList_.capacity(), sizeof(std::vector<NeighborEntry>)));
+  for (const auto& neighbors : adjList_) {
+    bytes = saturatingAdd(bytes, saturatingMultiply(
+        neighbors.capacity(), sizeof(NeighborEntry)));
+  }
+  bytes = saturatingAdd(bytes, saturatingMultiply(
+      codebooks_.capacity(), sizeof(PQCodebook)));
+  for (const auto& codebook : codebooks_) {
+    bytes = saturatingAdd(bytes, saturatingMultiply(
+        codebook.centroids.capacity(), sizeof(float)));
+  }
+  bytes = saturatingAdd(bytes, pqCodes_.capacity() * sizeof(uint8_t));
+  return bytes;
+}
 
 void VamanaIndex::build(
     const float* vectors, int64_t numVectors, int64_t dimension) {
@@ -247,11 +346,24 @@ void VamanaIndex::buildPQCodebooks(const float* vectors) {
       encodeSubvector(s);
     }
   } else {
-    // Parallel execution: launch async tasks per subvector
+    // Parallel execution uses a bounded worker set. Launching one async task
+    // per subvector lets an untrusted dimension create thousands of threads.
+    const auto hardware = std::max(1U, std::thread::hardware_concurrency());
+    const int64_t worker_count = std::min<int64_t>(
+        config_.pqSubvectors, std::min<uint32_t>(hardware, 32));
+    std::atomic<int64_t> next_subvector{0};
     std::vector<std::future<void>> futures;
-    futures.reserve(static_cast<size_t>(config_.pqSubvectors));
-    for (int64_t s = 0; s < config_.pqSubvectors; ++s) {
-      futures.push_back(std::async(std::launch::async, encodeSubvector, s));
+    futures.reserve(static_cast<size_t>(worker_count));
+    for (int64_t worker = 0; worker < worker_count; ++worker) {
+      futures.push_back(std::async(std::launch::async, [&] {
+        for (;;) {
+          const int64_t subvector = next_subvector.fetch_add(1);
+          if (subvector >= config_.pqSubvectors) {
+            return;
+          }
+          encodeSubvector(subvector);
+        }
+      }));
     }
     for (auto& f : futures) {
       f.get();
@@ -282,7 +394,10 @@ float VamanaIndex::computePQDistance(
 }
 
 std::vector<SearchResult> VamanaIndex::search(
-    const float* query, int64_t topK, int64_t beamWidth) const {
+    const float* query,
+    int64_t topK,
+    int64_t beamWidth,
+    int64_t searchListSize) const {
   if (numVectors_ <= 0 || topK <= 0) return {};
 
   if (beamWidth <= 0) beamWidth = config_.beamWidth;
@@ -299,7 +414,9 @@ std::vector<SearchResult> VamanaIndex::search(
   visited.insert(medoid_);
 
   std::vector<DistEntry> resultCandidates;
-  int64_t budget = config_.searchListSize;
+  int64_t budget = searchListSize > 0
+      ? searchListSize
+      : config_.searchListSize;
 
   while (!frontier.empty() && budget > 0) {
     auto top = frontier.top();
@@ -349,41 +466,35 @@ bool VamanaIndex::saveToDisk(const std::string& path) const {
   if (!out) return false;
 
   // Header: magic, version, config.
-  uint64_t magic = 0x56414D414E410001ULL;
-  out.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
-  out.write(reinterpret_cast<const char*>(&numVectors_), sizeof(numVectors_));
-  out.write(
-      reinterpret_cast<const char*>(&config_.dimension),
-      sizeof(config_.dimension));
-  out.write(reinterpret_cast<const char*>(&medoid_), sizeof(medoid_));
-  out.write(
-      reinterpret_cast<const char*>(&config_.maxDegree),
-      sizeof(config_.maxDegree));
-  out.write(
-      reinterpret_cast<const char*>(&config_.pqSubvectors),
-      sizeof(config_.pqSubvectors));
-  out.write(
-      reinterpret_cast<const char*>(&config_.pqBitsPerCode),
-      sizeof(config_.pqBitsPerCode));
+  uint64_t magic = kVamanaFormatMagic;
+  writeUint64(out, magic);
+  writeUint64(out, std::bit_cast<uint64_t>(numVectors_));
+  writeUint64(out, std::bit_cast<uint64_t>(config_.dimension));
+  writeUint64(out, std::bit_cast<uint64_t>(medoid_));
+  writeUint64(out, std::bit_cast<uint64_t>(config_.maxDegree));
+  writeUint64(out, std::bit_cast<uint64_t>(config_.pqSubvectors));
+  writeUint64(out, std::bit_cast<uint64_t>(config_.pqBitsPerCode));
+  // The content-addressed cache path differs from the build path. Persist the
+  // graph/PQ structural footprint; readers add their own local path storage to
+  // the reservation before allocating.
+  writeUint64(out, memoryBytes() - indexPath_.capacity());
 
   // Adjacency lists.
   for (int64_t i = 0; i < numVectors_; ++i) {
     auto& neighbors = adjList_[static_cast<size_t>(i)];
     int32_t degree = static_cast<int32_t>(neighbors.size());
-    out.write(reinterpret_cast<const char*>(&degree), sizeof(degree));
+    writeUint32(out, std::bit_cast<uint32_t>(degree));
     for (auto& nb : neighbors) {
-      out.write(reinterpret_cast<const char*>(&nb.nodeId), sizeof(nb.nodeId));
-      out.write(
-          reinterpret_cast<const char*>(&nb.distance), sizeof(nb.distance));
+      writeUint64(out, std::bit_cast<uint64_t>(nb.nodeId));
+      writeFloat32(out, nb.distance);
     }
   }
 
   // PQ codebooks.
   for (auto& cb : codebooks_) {
-    out.write(
-        reinterpret_cast<const char*>(cb.centroids.data()),
-        static_cast<std::streamsize>(
-            cb.centroids.size() * sizeof(float)));
+    for (float centroid : cb.centroids) {
+      writeFloat32(out, centroid);
+    }
   }
 
   // PQ codes.
@@ -394,42 +505,114 @@ bool VamanaIndex::saveToDisk(const std::string& path) const {
   return out.good();
 }
 
-bool VamanaIndex::loadFromDisk(const std::string& path) {
+std::optional<uint64_t> VamanaIndex::residentBytesFromDisk(
+    const std::string& path, int64_t expectedDimension) {
+  std::ifstream input(path, std::ios::binary);
+  uint64_t magic = 0;
+  uint64_t num_vectors = 0;
+  uint64_t dimension = 0;
+  uint64_t ignored = 0;
+  uint64_t resident_bytes = 0;
+  if (!input || !readUint64(input, magic) || magic != kVamanaFormatMagic ||
+      !readUint64(input, num_vectors) || !readUint64(input, dimension) ||
+      !readUint64(input, ignored) || !readUint64(input, ignored) ||
+      !readUint64(input, ignored) || !readUint64(input, ignored) ||
+      !readUint64(input, resident_bytes) || num_vectors == 0 ||
+      dimension != static_cast<uint64_t>(expectedDimension) ||
+      resident_bytes == 0) {
+    return std::nullopt;
+  }
+  return saturatingAdd(resident_bytes, std::string(path).capacity());
+}
+
+bool VamanaIndex::loadFromDisk(
+    const std::string& path, uint64_t maxResidentBytes) {
   std::ifstream in(path, std::ios::binary);
   if (!in) return false;
+  in.seekg(0, std::ios::end);
+  const auto file_size = in.tellg();
+  if (file_size < static_cast<std::streamoff>(8 * sizeof(uint64_t)) ||
+      file_size > static_cast<std::streamoff>(2ULL * 1024 * 1024 * 1024)) {
+    return false;
+  }
+  in.seekg(0, std::ios::beg);
 
   uint64_t magic = 0;
-  in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-  if (magic != 0x56414D414E410001ULL) return false;
+  uint64_t encoded = 0;
+  if (!readUint64(in, magic) || magic != kVamanaFormatMagic ||
+      !readUint64(in, encoded)) {
+    return false;
+  }
+  numVectors_ = std::bit_cast<int64_t>(encoded);
+  if (!readUint64(in, encoded)) return false;
+  config_.dimension = std::bit_cast<int64_t>(encoded);
+  if (!readUint64(in, encoded)) return false;
+  medoid_ = std::bit_cast<int64_t>(encoded);
+  if (!readUint64(in, encoded)) return false;
+  config_.maxDegree = std::bit_cast<int64_t>(encoded);
+  if (!readUint64(in, encoded)) return false;
+  config_.pqSubvectors = std::bit_cast<int64_t>(encoded);
+  if (!readUint64(in, encoded)) return false;
+  config_.pqBitsPerCode = std::bit_cast<int64_t>(encoded);
+  uint64_t declared_structural_bytes = 0;
+  if (!readUint64(in, declared_structural_bytes) ||
+      declared_structural_bytes == 0 ||
+      saturatingAdd(declared_structural_bytes, indexPath_.capacity()) >
+          maxResidentBytes) {
+    return false;
+  }
 
-  in.read(reinterpret_cast<char*>(&numVectors_), sizeof(numVectors_));
-  in.read(
-      reinterpret_cast<char*>(&config_.dimension), sizeof(config_.dimension));
-  in.read(reinterpret_cast<char*>(&medoid_), sizeof(medoid_));
-  in.read(
-      reinterpret_cast<char*>(&config_.maxDegree), sizeof(config_.maxDegree));
-  in.read(
-      reinterpret_cast<char*>(&config_.pqSubvectors),
-      sizeof(config_.pqSubvectors));
-  in.read(
-      reinterpret_cast<char*>(&config_.pqBitsPerCode),
-      sizeof(config_.pqBitsPerCode));
+  if (numVectors_ <= 0 || numVectors_ > 1'000'000LL ||
+      config_.dimension <= 0 || config_.dimension > 65'536 ||
+      medoid_ < 0 || medoid_ >= numVectors_ || config_.maxDegree <= 0 ||
+      config_.maxDegree > 512 || config_.pqSubvectors <= 0 ||
+      config_.pqSubvectors > config_.dimension ||
+      config_.dimension % config_.pqSubvectors != 0 ||
+      config_.pqBitsPerCode <= 0 || config_.pqBitsPerCode > 8) {
+    return false;
+  }
+  const auto file_bytes = static_cast<uint64_t>(file_size);
+  if (static_cast<uint64_t>(numVectors_) > file_bytes / sizeof(uint32_t) ||
+      static_cast<uint64_t>(numVectors_) >
+          std::numeric_limits<size_t>::max() /
+              static_cast<uint64_t>(config_.pqSubvectors)) {
+    return false;
+  }
 
   config_.numVectors = numVectors_;
 
+  uint64_t resident_bytes = sizeof(VamanaIndex);
+  if (!checkedAdd(
+          resident_bytes,
+          saturatingMultiply(
+              static_cast<uint64_t>(numVectors_),
+              sizeof(std::vector<NeighborEntry>)),
+          declared_structural_bytes)) {
+    return false;
+  }
   adjList_.resize(static_cast<size_t>(numVectors_));
   for (int64_t i = 0; i < numVectors_; ++i) {
-    int32_t degree = 0;
-    in.read(reinterpret_cast<char*>(&degree), sizeof(degree));
+    uint32_t encoded_degree = 0;
+    if (!readUint32(in, encoded_degree)) return false;
+    int32_t degree = std::bit_cast<int32_t>(encoded_degree);
+    if (degree < 0 || degree > config_.maxDegree) return false;
+    if (!checkedAdd(
+            resident_bytes,
+            saturatingMultiply(
+                static_cast<uint64_t>(degree), sizeof(NeighborEntry)),
+            declared_structural_bytes)) {
+      return false;
+    }
     auto& neighbors = adjList_[static_cast<size_t>(i)];
     neighbors.resize(static_cast<size_t>(degree));
     for (int32_t j = 0; j < degree; ++j) {
-      in.read(
-          reinterpret_cast<char*>(&neighbors[static_cast<size_t>(j)].nodeId),
-          sizeof(int64_t));
-      in.read(
-          reinterpret_cast<char*>(&neighbors[static_cast<size_t>(j)].distance),
-          sizeof(float));
+      if (!readUint64(in, encoded)) return false;
+      auto& neighbor = neighbors[static_cast<size_t>(j)];
+      neighbor.nodeId = std::bit_cast<int64_t>(encoded);
+      if (neighbor.nodeId < 0 || neighbor.nodeId >= numVectors_ ||
+          !readFloat32(in, neighbor.distance) || neighbor.distance < 0) {
+        return false;
+      }
     }
   }
 
@@ -438,26 +621,61 @@ bool VamanaIndex::loadFromDisk(const std::string& path) {
   int64_t subDim = config_.dimension / config_.pqSubvectors;
   if (subDim <= 0) subDim = 1;
 
+  const auto payload_position = in.tellg();
+  if (payload_position < 0 || payload_position > file_size) {
+    return false;
+  }
+  const auto remaining_bytes =
+      static_cast<uint64_t>(file_size - payload_position);
+  const auto codebook_values =
+      static_cast<uint64_t>(numCentroids) *
+      static_cast<uint64_t>(config_.dimension);
+  const auto codebook_bytes = codebook_values * sizeof(float);
+  const auto pq_bytes =
+      static_cast<uint64_t>(numVectors_) *
+      static_cast<uint64_t>(config_.pqSubvectors);
+  if (codebook_bytes > remaining_bytes ||
+      pq_bytes != remaining_bytes - codebook_bytes) {
+    return false;
+  }
+
+  if (!checkedAdd(
+          resident_bytes,
+          saturatingMultiply(
+              static_cast<uint64_t>(config_.pqSubvectors), sizeof(PQCodebook)),
+          declared_structural_bytes) ||
+      !checkedAdd(
+          resident_bytes, codebook_bytes, declared_structural_bytes) ||
+      !checkedAdd(resident_bytes, pq_bytes, declared_structural_bytes)) {
+    return false;
+  }
+
   codebooks_.resize(static_cast<size_t>(config_.pqSubvectors));
   for (auto& cb : codebooks_) {
     cb.subvectorDim = subDim;
     cb.numCentroids = numCentroids;
     cb.centroids.resize(
         static_cast<size_t>(numCentroids) * static_cast<size_t>(subDim));
-    in.read(
-        reinterpret_cast<char*>(cb.centroids.data()),
-        static_cast<std::streamsize>(
-            cb.centroids.size() * sizeof(float)));
+    for (float& centroid : cb.centroids) {
+      if (!readFloat32(in, centroid)) return false;
+    }
   }
 
   pqCodeSize_ = config_.pqSubvectors;
   pqCodes_.resize(
       static_cast<size_t>(numVectors_) * static_cast<size_t>(pqCodeSize_));
-  in.read(
-      reinterpret_cast<char*>(pqCodes_.data()),
-      static_cast<std::streamsize>(pqCodes_.size()));
+  in.read(reinterpret_cast<char*>(pqCodes_.data()),
+          static_cast<std::streamsize>(pqCodes_.size()));
 
-  return in.good();
+  if (!in) {
+    return false;
+  }
+
+  indexPath_ = path;
+
+  return in.peek() == std::char_traits<char>::eof() &&
+      memoryBytes() - indexPath_.capacity() <= declared_structural_bytes &&
+      memoryBytes() <= maxResidentBytes;
 }
 
 bool VamanaIndex::readVector(
@@ -474,9 +692,12 @@ bool VamanaIndex::readVector(
       sizeof(float));
   in.seekg(offset);
   if (!in) return false;
-  in.read(reinterpret_cast<char*>(buffer),
-          static_cast<std::streamsize>(dimension * sizeof(float)));
-  return in.good();
+  for (int64_t index = 0; index < dimension; ++index) {
+    if (!readFloat32(in, buffer[index])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace pangrova::vector::diskann

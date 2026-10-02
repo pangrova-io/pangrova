@@ -58,6 +58,7 @@ TEST_F(NativeEngineLifecycleTest, InitShutdownReinitLifecycle) {
   ASSERT_TRUE(mgr.isInitialized());
   EXPECT_NE(mgr.veloxMemoryGovernor(), nullptr);
   EXPECT_NE(mgr.executor(), nullptr);
+  EXPECT_NE(mgr.ioExecutor(), nullptr);
 }
 
 TEST_F(NativeEngineLifecycleTest, DoubleInitIsIdempotent) {
@@ -69,6 +70,7 @@ TEST_F(NativeEngineLifecycleTest, DoubleInitIsIdempotent) {
   // Verify accessors are stable across repeated calls.
   EXPECT_NE(mgr.veloxMemoryGovernor(), nullptr);
   EXPECT_NE(mgr.executor(), nullptr);
+  EXPECT_NE(mgr.ioExecutor(), nullptr);
 }
 
 TEST_F(NativeEngineLifecycleTest, DoubleShutdownIsIdempotent) {
@@ -77,6 +79,7 @@ TEST_F(NativeEngineLifecycleTest, DoubleShutdownIsIdempotent) {
   // Verify accessors return consistent non-null values.
   EXPECT_NE(mgr.veloxMemoryGovernor(), nullptr);
   EXPECT_NE(mgr.executor(), nullptr);
+  EXPECT_NE(mgr.ioExecutor(), nullptr);
 }
 
 TEST_F(NativeEngineLifecycleTest, StaleHandlesRejectedAfterReinit) {

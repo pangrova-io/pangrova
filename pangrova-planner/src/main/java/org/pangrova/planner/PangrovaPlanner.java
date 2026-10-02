@@ -2,19 +2,18 @@ package org.pangrova.planner;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.planner.cost.CostModelConfig;
+import org.pangrova.planner.type.PlannerTypeFactory;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
-import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.sql.SqlNode;
 import org.pangrova.planner.mv.DynamicTableResolution;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.pangrova.planner.rewrite.ConstantFoldingRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
-import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.sql.validate.SqlValidator;
 import org.apache.calcite.sql2rel.SqlToRelConverter;
 import org.apache.calcite.sql2rel.StandardConvertletTable;
@@ -50,6 +49,8 @@ public final class PangrovaPlanner {
     // Optional advanced feature integrations (null when not wired)
     private final StatisticsCollector statisticsCollector;
     private final StatisticsBasedCostEstimator costEstimator;
+    private final CostModelConfig costModelConfig;
+    private final boolean cboEnabled;
     private final QueryResultCache queryResultCache;
 
     // Post-optimization: MV rewrite + DPP analysis
@@ -92,10 +93,10 @@ public final class PangrovaPlanner {
     public PangrovaPlanner(CalciteSchema rootSchema, List<String> defaultSchemaPath,
                          PlannerContext deps) {
         this.parserFactory = new PangrovaParserFactory();
-        this.typeFactory = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+        this.typeFactory = new PlannerTypeFactory();
         this.catalogReader = PlannerComponentFactory.buildCatalogReader(
                 typeFactory, rootSchema, defaultSchemaPath);
-        var hepProgram = PlannerComponentFactory.buildHepProgram(deps.statisticsCollector());
+        var hepProgram = PlannerComponentFactory.buildHepProgram();
         var hepProgramSafe = PlannerComponentFactory.buildHepProgramSafe();
         this.statisticsCollector = deps.statisticsCollector();
         this.costEstimator = deps.statisticsCollector() != null
@@ -117,11 +118,12 @@ public final class PangrovaPlanner {
         // errors (allLessThan) on correlated subqueries under CBO. Enable via
         // explicit CboConfig once the Calcite decorator issue is resolved.
         var cboConfig = deps.cboConfig() != null ? deps.cboConfig() : org.pangrova.planner.cost.CboConfig.DISABLED;
-        var costModelConfig = deps.costModelConfig() != null ? deps.costModelConfig() : CostModelConfig.SSD_DEFAULT;
-        var optimizationContext = new OptimizationContext(cboConfig, costModelConfig, this.costEstimator);
+        var selectedCostModel = deps.costModelConfig() != null ? deps.costModelConfig() : CostModelConfig.SSD_DEFAULT;
+        this.costModelConfig = selectedCostModel;
+        this.cboEnabled = cboConfig.enabled();
+        var optimizationContext = new OptimizationContext(cboConfig, selectedCostModel, this.costEstimator);
         this.optimizationRunner = new PlanOptimizationRunner(
                 List.of(
-                        new org.pangrova.planner.optimization.CteMaterializationPass(),
                         new HepOptimizationPass(hepProgram, hepProgramSafe),
                         new CascadesCboPass()),
                 optimizationContext,
@@ -160,6 +162,10 @@ public final class PangrovaPlanner {
         // PROJECT_TO_LOGICAL_PROJECT_AND_WINDOW replace user-defined aliases
         // (e.g. "next_price", "rnk") with synthetic names ("w0$o0", "$1").
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
+        if (containsMutation(relNode)) {
+            verifyMetadataVersions(pinnedVersions);
+            return new PlanResult(relNode, preOptColumnNames, List.of(), mergeOnReadHints);
+        }
         RelNode optimized = optimizationRunner.optimize(relNode);
         List<RuntimeFilterDescriptor> filterDescriptors =
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
@@ -170,6 +176,32 @@ public final class PangrovaPlanner {
         verifyMetadataVersions(pinnedVersions);
 
         return new PlanResult(folded, preOptColumnNames, filterDescriptors, mergeOnReadHints);
+    }
+
+    /** Binds SQL without deriving facts from expressions that security policies may replace. */
+    public PlanResult planForPolicyApplication(String sql) {
+        List<DynamicTableResolution.MergeOnRead> mergeOnReadHints =
+                dynamicTablePlanningSupport.collectMergeOnReadHints(sql);
+        String rewrittenSql = dynamicTablePlanningSupport.rewriteIfWired(sql);
+        dynamicTablePlanningSupport.logCteMaterializationHints(rewrittenSql);
+        SqlValidator validator = buildValidator();
+        SqlNode validated = validate(validator, parse(rewrittenSql));
+        RelNode relation = convert(validator, buildCluster(), validated);
+        Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
+        verifyMetadataVersions(pinnedVersions);
+        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of(), mergeOnReadHints);
+    }
+
+    /** Optimizes only after authorization and policies; mutations retain their physical target until COW. */
+    PlannedQuery optimizeProtectedQuery(PlannedQuery query) {
+        if (containsMutation(query.plan())) {
+            return query;
+        }
+        RelNode optimized = optimizationRunner.optimize(query.plan());
+        List<RuntimeFilterDescriptor> descriptors = materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
+        // An MV substitution would introduce a different source that has not passed this query's authority.
+        RelNode folded = constantFoldingRewriter.tryFold(optimized, optimized.getCluster());
+        return new PlannedQuery(folded, query.columnNames(), descriptors, query.mergeOnReadHints());
     }
 
     /**
@@ -187,6 +219,10 @@ public final class PangrovaPlanner {
         Map<String, Long> pinnedVersions = pinMetadataVersions(relNode);
 
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
+        if (containsMutation(relNode)) {
+            verifyMetadataVersions(pinnedVersions);
+            return new PlanResult(relNode, preOptColumnNames, List.of());
+        }
         RelNode optimized = optimizationRunner.optimizeSafe(relNode);
         List<RuntimeFilterDescriptor> filterDescriptors =
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
@@ -204,17 +240,6 @@ public final class PangrovaPlanner {
      */
     public org.pangrova.parser.ast.Statement parseToAst(String sql) {
         return parserFactory.parseToAst(sql);
-    }
-
-    /**
-     * Converts an AST Statement to a SQL string via Calcite SqlNode serialization.
-     * Used to provide originalSql for the REDUCE_EXPRESSIONS retry path when
-     * the caller only has a pre-parsed AST.
-     */
-    public String statementToSql(org.pangrova.parser.ast.Statement stmt) {
-        SqlNode sqlNode = parserFactory.convertAstToSqlNode(stmt);
-        return sqlNode.toSqlString(org.apache.calcite.sql.SqlDialect.DatabaseProduct.CALCITE
-                .getDialect()).getSql();
     }
 
     /**
@@ -251,6 +276,10 @@ public final class PangrovaPlanner {
         RelNode relNode = convert(validator, cluster, validated);
         Map<String, Long> pinnedVersions = pinMetadataVersions(relNode);
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
+        if (containsMutation(relNode)) {
+            verifyMetadataVersions(pinnedVersions);
+            return new PlanResult(relNode, preOptColumnNames, List.of());
+        }
         RelNode optimized = optimizationRunner.optimize(relNode);
         List<RuntimeFilterDescriptor> filterDescriptors =
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
@@ -262,6 +291,19 @@ public final class PangrovaPlanner {
     }
 
     // ---- Cross-catalog metadata version pinning ----
+
+    /**
+     * Mutation predicates describe matches, not all physical rows in a replacement write.
+     * Relational optimizers can substitute original columns using those predicates or
+     * discard nonmatching rows. Preserve the validated mutation until security policies
+     * and copy-on-write conversion have established the complete replacement relation.
+     */
+    private static boolean containsMutation(RelNode node) {
+        if (node instanceof org.apache.calcite.rel.core.TableModify) {
+            return true;
+        }
+        return node.getInputs().stream().anyMatch(PangrovaPlanner::containsMutation);
+    }
 
     private Map<String, Long> pinMetadataVersions(RelNode relNode) {
         return versionPinner != null ? versionPinner.pinMetadataVersions(relNode) : Map.of();
@@ -382,7 +424,8 @@ public final class PangrovaPlanner {
                     StandardConvertletTable.INSTANCE,
                     SqlToRelConverter.config());
             RelNode rel = converter.convertQuery(validated, false, true).rel;
-            return DecorrelationSupport.safeDecorrelate(rel);
+            return org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(
+                    DecorrelationSupport.safeDecorrelate(rel), validated, operatorTable);
         } catch (Exception e) {
             throw new PlannerException(
                     PangrovaErrorCode.PLANNER_OPTIMIZATION_FAILURE,
@@ -424,6 +467,7 @@ public final class PangrovaPlanner {
     }
 
     private RelOptCluster buildCluster() {
-        return PlannerComponentFactory.buildCluster(typeFactory, costEstimator);
+        return PlannerComponentFactory.buildCluster(
+                typeFactory, costEstimator, costModelConfig, cboEnabled);
     }
 }

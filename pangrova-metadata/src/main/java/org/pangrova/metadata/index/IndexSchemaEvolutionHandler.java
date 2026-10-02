@@ -60,7 +60,7 @@ public final class IndexSchemaEvolutionHandler {
 
     private void handleDropColumn(SchemaChangeEvent event) {
         List<IndexDescriptor> affected = metadataStore.findIndexesByColumn(
-                event.catalogName(), event.schemaName(), event.tableName(),
+                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(),
                 event.oldColumnName());
 
         Instant now = Instant.now();
@@ -89,7 +89,7 @@ public final class IndexSchemaEvolutionHandler {
 
     private void handleRenameColumn(SchemaChangeEvent event) {
         metadataStore.renameColumnInIndexes(
-                event.catalogName(), event.schemaName(), event.tableName(),
+                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(),
                 event.oldColumnName(), event.newColumnName());
         LOG.info("action=schema_evolution type=RENAME_COLUMN table={}.{}.{} "
                         + "oldColumn={} newColumn={}",
@@ -99,7 +99,7 @@ public final class IndexSchemaEvolutionHandler {
 
     private void handleModifyColumnType(SchemaChangeEvent event) {
         List<IndexDescriptor> affected = metadataStore.findIndexesByColumn(
-                event.catalogName(), event.schemaName(), event.tableName(),
+                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(),
                 event.oldColumnName());
 
         Instant now = Instant.now();
@@ -127,7 +127,7 @@ public final class IndexSchemaEvolutionHandler {
     private void handleDropTable(SchemaChangeEvent event) {
         Instant now = Instant.now();
         metadataStore.dropAllIndexesForTable(
-                event.catalogName(), event.schemaName(), event.tableName(), now);
+                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(), now);
         try {
             metadataStore.insertCacheEvent("SCHEMA_CHANGE", "",
                     event.catalogName(), event.schemaName(), event.tableName(), now);
@@ -141,7 +141,7 @@ public final class IndexSchemaEvolutionHandler {
 
     private void handleRenameTable(SchemaChangeEvent event) {
         metadataStore.renameTable(
-                event.catalogName(), event.schemaName(),
+                event.tenantId(), event.catalogName(), event.schemaName(),
                 event.oldTableName(), event.tableName());
         LOG.info("action=schema_evolution type=RENAME_TABLE table={}.{}.{} oldTable={}",
                 event.catalogName(), event.schemaName(), event.tableName(),

@@ -71,7 +71,7 @@ class IcebergDeleteOperationIntegrationTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "delete-operation-test"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> TEST_COLUMNS = List.of(
@@ -166,12 +166,12 @@ class IcebergDeleteOperationIntegrationTest {
     }
 
     private void writeRows(ConnectorOutputTableHandle handle, List<Map<String, Object>> rows) {
-        ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, handle);
-        List<TypedRow> typedRows = rows.stream().map(TypedRow::fromRawMap).toList();
-        sink.appendPage(new Page(List.of("id", "name"), typedRows));
-        byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, handle, List.of(commitMetadata));
-        sink.close();
+        try (ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, handle)) {
+            List<TypedRow> typedRows = rows.stream().map(TypedRow::fromRawMap).toList();
+            sink.appendPage(new Page(List.of("id", "name"), typedRows));
+            byte[] commitMetadata = sink.finishWithMetadata();
+            metadata.finishDistributedWrite(SESSION, handle, List.of(commitMetadata));
+        }
     }
 
     private List<Map<String, Object>> buildRows(int startInclusive, int endExclusive) {

@@ -1,0 +1,65 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "pangrova/protocol/v2/capability.proto";
+import "pangrova/protocol/v2/common.proto";
+
+message ModelRef {
+  string model_id = 1;
+  string version = 2;
+  bytes signature_sha256 = 3;
+  string service_id = 4;
+}
+
+enum BatchFailurePolicy {
+  BATCH_FAILURE_POLICY_UNSPECIFIED = 0;
+  BATCH_FAILURE_POLICY_ATOMIC = 1;
+  BATCH_FAILURE_POLICY_ITEMIZED = 2;
+}
+
+message InvocationItem {
+  string item_id = 1;
+  repeated NamedValue arguments = 2;
+}
+
+message AiInvocationRequest {
+  string invocation_id = 1;
+  CapabilityRef capability = 2;
+  ModelRef model = 3;
+  repeated InvocationItem items = 4;
+  repeated NamedValue options = 5;
+  BatchFailurePolicy failure_policy = 6;
+  uint64 deadline_epoch_ms = 7;
+  string idempotency_key = 8;
+  TraceContext trace_context = 9;
+  string budget_reservation_id = 10;
+}
+
+message AiUsage {
+  uint64 input_tokens = 1;
+  uint64 output_tokens = 2;
+  uint64 cached_input_tokens = 3;
+  uint64 image_units = 4;
+  uint64 audio_milliseconds = 5;
+  uint64 video_milliseconds = 6;
+  uint64 document_pages = 7;
+  string provider_request_id = 8;
+  string usage_source = 9;
+}
+
+message InvocationItemResult {
+  string item_id = 1;
+  repeated NamedValue outputs = 2;
+  ExecutionError error = 3;
+}
+
+message AiInvocationResult {
+  string invocation_id = 1;
+  ModelRef resolved_model = 2;
+  repeated InvocationItemResult items = 3;
+  AiUsage usage = 4;
+  ExecutionError error = 5;
+}

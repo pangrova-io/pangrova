@@ -41,20 +41,20 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
 
     private static final TypeReference<List<String>> LIST_TYPE = new TypeReference<>() {};
 
-    private static final String SQL_REGISTER =
+    private static final String SQL_INSERT =
             "INSERT INTO worker_registry "
                     + "(worker_id, host, http_port, transport_port, protocol_version, "
-                    + "capabilities, rack_id, data_locality, memory_pressure, cpu_utilization, "
-                    + "running_task_count, available_memory_bytes, last_heartbeat_ms, registered_at_ms) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    + "ON CONFLICT (worker_id) DO UPDATE SET "
-                    + "host=EXCLUDED.host, http_port=EXCLUDED.http_port, "
-                    + "transport_port=EXCLUDED.transport_port, protocol_version=EXCLUDED.protocol_version, "
-                    + "capabilities=EXCLUDED.capabilities, rack_id=EXCLUDED.rack_id, "
-                    + "data_locality=EXCLUDED.data_locality, memory_pressure=EXCLUDED.memory_pressure, "
-                    + "cpu_utilization=EXCLUDED.cpu_utilization, running_task_count=EXCLUDED.running_task_count, "
-                    + "available_memory_bytes=EXCLUDED.available_memory_bytes, "
-                    + "last_heartbeat_ms=EXCLUDED.last_heartbeat_ms";
+                    + "rack_id, data_locality, memory_pressure, cpu_utilization, "
+                    + "running_task_count, available_memory_bytes, last_heartbeat_ms, registered_at_ms, "
+                    + "result_server_port, capability_inventory_proto) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+    private static final String SQL_UPDATE_REGISTRATION =
+            "UPDATE worker_registry SET host=?, http_port=?, transport_port=?, "
+                    + "protocol_version=?, rack_id=?, data_locality=?, "
+                    + "memory_pressure=?, cpu_utilization=?, running_task_count=?, "
+                    + "available_memory_bytes=?, last_heartbeat_ms=?, result_server_port=?, "
+                    + "capability_inventory_proto=? WHERE worker_id=?";
 
     private static final String SQL_HEARTBEAT =
             "UPDATE worker_registry SET memory_pressure=?, cpu_utilization=?, "
@@ -73,21 +73,24 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
     private static final String SQL_EXPIRE_STALE =
             "DELETE FROM worker_registry WHERE last_heartbeat_ms < ?";
 
-    // PreparedStatement parameter indices for SQL_REGISTER.
+    // PreparedStatement parameter indices for SQL_INSERT.
     private static final int PARAM_WORKER_ID = 1;
     private static final int PARAM_HOST = 2;
     private static final int PARAM_HTTP_PORT = 3;
     private static final int PARAM_TRANSPORT_PORT = 4;
     private static final int PARAM_PROTOCOL_VERSION = 5;
-    private static final int PARAM_CAPABILITIES = 6;
-    private static final int PARAM_RACK_ID = 7;
-    private static final int PARAM_DATA_LOCALITY = 8;
-    private static final int PARAM_MEMORY_PRESSURE = 9;
-    private static final int PARAM_CPU_UTILIZATION = 10;
-    private static final int PARAM_RUNNING_TASK_COUNT = 11;
-    private static final int PARAM_AVAILABLE_MEMORY_BYTES = 12;
-    private static final int PARAM_LAST_HEARTBEAT_MS = 13;
-    private static final int PARAM_REGISTERED_AT_MS = 14;
+    private static final int PARAM_RACK_ID = 6;
+    private static final int PARAM_DATA_LOCALITY = 7;
+    private static final int PARAM_MEMORY_PRESSURE = 8;
+    private static final int PARAM_CPU_UTILIZATION = 9;
+    private static final int PARAM_RUNNING_TASK_COUNT = 10;
+    private static final int PARAM_AVAILABLE_MEMORY_BYTES = 11;
+    private static final int PARAM_LAST_HEARTBEAT_MS = 12;
+    private static final int PARAM_REGISTERED_AT_MS = 13;
+    private static final int PARAM_RESULT_SERVER_PORT = 14;
+    private static final int PARAM_CAPABILITY_INVENTORY = 15;
+
+    private static final int MAX_REGISTER_ATTEMPTS = 3;
 
     private final DataSource dataSource;
 
@@ -98,26 +101,80 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
     @Override
     public void register(WorkerSnapshot worker) {
         Objects.requireNonNull(worker, "worker must not be null");
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(SQL_REGISTER)) {
-            bindWorkerSnapshot(ps, worker);
-            ps.executeUpdate();
-            LOG.info("event=worker_registered workerId={} host={} httpPort={}",
-                    worker.workerId(), worker.host(), worker.httpPort());
-        } catch (SQLException e) {
-            LOG.error("event=worker_register_error workerId={} error={}",
-                    worker.workerId(), e.getMessage(), e);
-            throw new RuntimeException("Failed to register worker: " + worker.workerId(), e);
+        SQLException lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_REGISTER_ATTEMPTS; attempt++) {
+            try {
+                registerOnce(worker);
+                LOG.info("event=worker_registered workerId={} host={} httpPort={}",
+                        worker.workerId(), worker.host(), worker.httpPort());
+                return;
+            } catch (SQLException failure) {
+                lastFailure = failure;
+                if (!isUniqueViolation(failure) || attempt == MAX_REGISTER_ATTEMPTS) {
+                    break;
+                }
+            }
+        }
+        LOG.error("event=worker_register_error workerId={} error={}",
+                worker.workerId(), lastFailure == null ? "unknown" : lastFailure.getMessage(),
+                lastFailure);
+        throw new RuntimeException(
+                "Failed to register worker: " + worker.workerId(), lastFailure);
+    }
+
+    private void registerOnce(WorkerSnapshot worker) throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                if (updateRegistration(conn, worker) == 0) {
+                    insertRegistration(conn, worker);
+                }
+                conn.commit();
+            } catch (SQLException failure) {
+                conn.rollback();
+                throw failure;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         }
     }
 
-    private static void bindWorkerSnapshot(PreparedStatement ps, WorkerSnapshot w) throws SQLException {
+    private static void insertRegistration(Connection conn, WorkerSnapshot worker)
+            throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_INSERT)) {
+            bindInsert(ps, worker);
+            ps.executeUpdate();
+        }
+    }
+
+    private static int updateRegistration(Connection conn, WorkerSnapshot w)
+            throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(SQL_UPDATE_REGISTRATION)) {
+            int parameter = 1;
+            ps.setString(parameter++, w.host());
+            ps.setInt(parameter++, w.httpPort());
+            ps.setInt(parameter++, w.transportPort());
+            ps.setInt(parameter++, w.protocolVersion());
+            ps.setString(parameter++, w.rackId());
+            ps.setString(parameter++, serializeList(w.dataLocality()));
+            ps.setString(parameter++, w.memoryPressure());
+            ps.setDouble(parameter++, w.cpuUtilization());
+            ps.setInt(parameter++, w.runningTaskCount());
+            ps.setLong(parameter++, w.availableMemoryBytes());
+            ps.setLong(parameter++, w.lastHeartbeatMs());
+            ps.setInt(parameter++, w.resultServerPort());
+            ps.setString(parameter++, w.capabilityInventory());
+            ps.setString(parameter, w.workerId());
+            return ps.executeUpdate();
+        }
+    }
+
+    private static void bindInsert(PreparedStatement ps, WorkerSnapshot w) throws SQLException {
         ps.setString(PARAM_WORKER_ID, w.workerId());
         ps.setString(PARAM_HOST, w.host());
         ps.setInt(PARAM_HTTP_PORT, w.httpPort());
         ps.setInt(PARAM_TRANSPORT_PORT, w.transportPort());
         ps.setInt(PARAM_PROTOCOL_VERSION, w.protocolVersion());
-        ps.setString(PARAM_CAPABILITIES, serializeList(w.capabilities()));
         ps.setString(PARAM_RACK_ID, w.rackId());
         ps.setString(PARAM_DATA_LOCALITY, serializeList(w.dataLocality()));
         ps.setString(PARAM_MEMORY_PRESSURE, w.memoryPressure());
@@ -126,6 +183,12 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
         ps.setLong(PARAM_AVAILABLE_MEMORY_BYTES, w.availableMemoryBytes());
         ps.setLong(PARAM_LAST_HEARTBEAT_MS, w.lastHeartbeatMs());
         ps.setLong(PARAM_REGISTERED_AT_MS, w.registeredAtMs());
+        ps.setInt(PARAM_RESULT_SERVER_PORT, w.resultServerPort());
+        ps.setString(PARAM_CAPABILITY_INVENTORY, w.capabilityInventory());
+    }
+
+    private static boolean isUniqueViolation(SQLException failure) {
+        return "23505".equals(failure.getSQLState());
     }
 
     @Override
@@ -230,7 +293,6 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 rs.getInt("http_port"),
                 rs.getInt("transport_port"),
                 rs.getInt("protocol_version"),
-                deserializeList(rs.getString("capabilities")),
                 rs.getString("rack_id"),
                 deserializeList(rs.getString("data_locality")),
                 rs.getString("memory_pressure"),
@@ -238,7 +300,10 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 rs.getInt("running_task_count"),
                 rs.getLong("available_memory_bytes"),
                 rs.getLong("last_heartbeat_ms"),
-                rs.getLong("registered_at_ms")
+                rs.getLong("registered_at_ms"),
+                rs.getInt("result_server_port"),
+                null,
+                rs.getString("capability_inventory_proto")
         );
     }
 

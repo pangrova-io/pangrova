@@ -1,8 +1,9 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.connector.paimon.scan.PaimonReadSchema;
+
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
@@ -11,21 +12,19 @@ import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.pangrova.spi.connector.metadata.table.ColumnHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
-import org.apache.paimon.schema.Schema;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.types.DataField;
-import org.apache.paimon.types.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,6 +42,7 @@ public class PaimonMetadata implements ConnectorMetadata {
     private final PaimonProcedureExecutor procedures;
     private final PaimonSnapshotPins snapshotPins;
     private final PaimonCommitNotifier commitNotifier;
+    private final PaimonWriteLifecycle writes;
     private final org.pangrova.connector.paimon.index.PaimonNativeIndexEvaluator nativeIndexEvaluator =
             new org.pangrova.connector.paimon.index.PaimonNativeIndexEvaluator();
 
@@ -53,6 +53,7 @@ public class PaimonMetadata implements ConnectorMetadata {
         this.procedures = new PaimonProcedureExecutor(catalog);
         this.snapshotPins = new PaimonSnapshotPins(catalogName);
         this.commitNotifier = new PaimonCommitNotifier(catalogName);
+        this.writes = new PaimonWriteLifecycle(catalog, catalogName, commitNotifier);
     }
 
     /** Pins the current snapshot for the duration of a query. */
@@ -116,20 +117,26 @@ public class PaimonMetadata implements ConnectorMetadata {
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
         PaimonTableHandle handle = (PaimonTableHandle) table;
-        RowType rowType = PaimonTableHandleFactory.parseRowType(handle);
-        var typedColumns = PaimonTypeMapper.toPangrovaColumns(rowType, handle.properties());
+        var schema = readSchema(handle);
+        var typedColumns = PaimonTypeMapper.toPangrovaColumns(schema.rowType(), schema.options());
         List<String> columnNames = typedColumns.stream()
                 .map(ConnectorTableMetadata.Column::name)
                 .toList();
         SchemaTableName name = new SchemaTableName(handle.schemaName(), handle.tableName());
-        return new ConnectorTableMetadata(name, columnNames, typedColumns, Map.of());
+        return new ConnectorTableMetadata(name, columnNames, typedColumns, schema.options());
+    }
+
+    @Override
+    public ConnectorTableReadMetadata getTableReadMetadata(
+            ConnectorSession session, ConnectorTableHandle table) {
+        return new ConnectorTableReadMetadata(getTableMetadata(session, table),
+                ConnectorTableReadMetadata.DeclarationEvidence.EXACT);
     }
 
     @Override
     public Map<String, ColumnHandle> getColumnHandles(ConnectorSession session, ConnectorTableHandle table) {
         PaimonTableHandle handle = (PaimonTableHandle) table;
-        RowType rowType = PaimonTableHandleFactory.parseRowType(handle);
-        return buildColumnHandles(rowType.getFields(), handle.properties());
+        return readSchema(handle).columnHandles();
     }
 
     @Override
@@ -149,82 +156,62 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorOutputTableHandle createTable(ConnectorSession session, ConnectorTableMetadata metadata) {
-        Schema schema = buildPaimonSchema(metadata);
-        Identifier id = Identifier.create(metadata.table().schema(), metadata.table().table());
-        try {
-            catalog.createTable(id, schema, false);
-            Table table = catalog.getTable(id);
-            return PaimonTableHandleFactory.outputFromTable(
-                    metadata.table().schema(), metadata.table().table(), table);
-        } catch (Catalog.TableAlreadyExistException e) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_ALREADY_EXISTS,
-                    "Table already exists: " + id, e);
-        } catch (Catalog.DatabaseNotExistException e) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_SCHEMA_NOT_FOUND,
-                    "Database not found: " + id.getDatabaseName(), e);
-        } catch (Catalog.TableNotExistException e) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
-                    "Failed to load created table: " + id, e);
-        }
+        return writes.create(metadata);
     }
 
     @Override
     public ConnectorOutputTableHandle beginInsert(ConnectorSession session, ConnectorTableHandle table) {
-        PaimonTableHandle handle = (PaimonTableHandle) table;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
-        PaimonDdlOperations.warnCrossPartitionUpdateIfNeeded(freshTable, handle);
-        return PaimonTableHandleFactory.outputFromTable(
-                handle.schemaName(), handle.tableName(), freshTable);
+        return writes.insert((PaimonTableHandle) table);
     }
 
     @Override
     public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session, ConnectorTableHandle table) {
-        PaimonTableHandle handle = (PaimonTableHandle) table;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
-        return PaimonTableHandleFactory.outputFromTable(
-                handle.schemaName(), handle.tableName(), freshTable);
+        return writes.overwrite((PaimonTableHandle) table);
     }
 
     @Override
     public ConnectorOutputTableHandle beginOverwrite(ConnectorSession session,
                                                      ConnectorTableHandle table,
                                                      java.util.Map<String, String> staticPartition) {
-        PaimonTableHandle handle = (PaimonTableHandle) table;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
-        return PaimonTableHandleFactory.outputFromTable(
-                handle.schemaName(), handle.tableName(), freshTable, staticPartition);
+        return writes.overwrite((PaimonTableHandle) table, staticPartition);
     }
 
     @Override
     public ConnectorOutputTableHandle beginDelete(ConnectorSession session, ConnectorTableHandle table) {
-        PaimonTableHandle handle = (PaimonTableHandle) table;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
-        if (freshTable.primaryKeys().isEmpty()) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "DELETE requires a primary key table: " + handle.schemaName() + "." + handle.tableName());
-        }
-        return PaimonTableHandleFactory.outputFromTable(
-                handle.schemaName(), handle.tableName(), freshTable);
+        return writes.delete((PaimonTableHandle) table);
     }
 
     @Override
     public void deleteByFilter(ConnectorSession session,
                                 ConnectorTableHandle table,
                                 org.pangrova.spi.connector.metadata.DeleteFilter filter) {
-        PaimonTableHandle handle = (PaimonTableHandle) table;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
-        PaimonDeleteByFilterExecutor.execute(freshTable, filter,
-                handle.schemaName(), handle.tableName());
+        writes.deleteByFilter((PaimonTableHandle) table, filter);
     }
 
     @Override
     public void finishDistributedWrite(ConnectorSession session,
                                        ConnectorOutputTableHandle outputHandle,
                                        java.util.List<byte[]> fragments) {
-        PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputHandle;
-        Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
-        PaimonDistributedWriteFinisher.finish(freshTable, handle, fragments, this::notifyCommitListener);
+        throw new UnsupportedOperationException(
+                "Paimon distributed commit requires a durable commit context");
     }
+
+    @Override
+    public void finishDistributedWrite(ConnectorSession session,
+                                       ConnectorOutputTableHandle outputHandle,
+                                       java.util.List<byte[]> fragments,
+                                       DistributedWriteCommitContext context) {
+        writes.finish(session, (PaimonOutputTableHandle) outputHandle, fragments, context);
+    }
+
+    @Override
+    public ConnectorOutputTableHandle reconstructOutputHandle(
+            ConnectorSession session, SchemaTableName tableName,
+            String writeMode, long baseSnapshotId) {
+        return writes.reconstruct(tableName, writeMode, baseSnapshotId);
+    }
+
+    org.pangrova.spi.connector.metadata.NativePhysicalWriteProvider physicalWriteProvider() { return writes.physical(); }
 
     @Override
     public void dropTable(ConnectorSession session, ConnectorTableHandle table) {
@@ -322,8 +309,8 @@ public class PaimonMetadata implements ConnectorMetadata {
         }
     }
 
-    private Schema buildPaimonSchema(ConnectorTableMetadata metadata) {
-        return org.pangrova.connector.paimon.schema.PaimonSchemaBuilder.buildPaimonSchema(metadata);
+    private PaimonReadSchema readSchema(PaimonTableHandle handle) {
+        return PaimonReadSchema.resolve(handle, loadFreshTable(handle.schemaName(), handle.tableName()));
     }
 
     @Override
@@ -350,18 +337,25 @@ public class PaimonMetadata implements ConnectorMetadata {
                 .toList();
     }
 
-    private Map<String, ColumnHandle> buildColumnHandles(List<DataField> fields,
-                                                          Map<String, String> tableProperties) {
-        Map<String, ColumnHandle> handles = new LinkedHashMap<>();
-        for (DataField field : fields) {
-            PangrovaType pangrovaType = PaimonTypeMapper.toPangrovaType(
-                    field.type(), field.name(), tableProperties);
-            handles.put(field.name(), new PaimonColumnHandle(field.id(), field.name(), pangrovaType));
+    // --- Index SPI overrides ---
+
+    @Override
+    public Optional<org.pangrova.spi.connector.index.FileSystemAccessor> getFileSystemAccessor() {
+        Catalog underlying = catalog;
+        while (underlying instanceof org.apache.paimon.catalog.DelegateCatalog delegate) {
+            underlying = delegate.wrapped();
         }
-        return handles;
+        if (underlying instanceof org.apache.paimon.catalog.AbstractCatalog filesystemCatalog) {
+            return Optional.of(new org.pangrova.connector.paimon.fs.PaimonFileSystemAccessor(
+                    filesystemCatalog.fileIO()));
+        }
+        return Optional.empty();
     }
 
-    // --- Index SPI overrides ---
+    @Override
+    public Optional<org.pangrova.spi.connector.index.ColumnValueReader> getColumnValueReader() {
+        return Optional.of(new PaimonCatalogColumnValueReader(catalog));
+    }
 
     @Override
     public java.util.List<org.pangrova.spi.connector.index.NativeIndexCapability> nativeIndexCapabilities() {
@@ -379,7 +373,7 @@ public class PaimonMetadata implements ConnectorMetadata {
         return java.util.Optional.of(nativeIndexEvaluator);
     }
 
-    @Override
+    /** Registers the connector's internal lifecycle callback without a data session. */
     public void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
         commitNotifier.register(listener);
     }
@@ -407,23 +401,28 @@ public class PaimonMetadata implements ConnectorMetadata {
      * Never fails the commit due to listener errors.
      */
     protected void notifyCommitListener(
+            String tenantId,
             String schemaName,
             String tableName,
             java.util.List<String> addedFiles,
             java.util.List<String> removedFiles,
             String snapshotId,
             org.pangrova.spi.connector.index.CommitEventType eventType) {
-        commitNotifier.notify(schemaName, tableName, addedFiles, removedFiles, snapshotId, eventType);
+        commitNotifier.notify(
+                tenantId, schemaName, tableName,
+                addedFiles, removedFiles, snapshotId, eventType);
     }
 
     /** Backward-compatible overload defaulting to APPEND. */
     protected void notifyCommitListener(
+            String tenantId,
             String schemaName,
             String tableName,
             java.util.List<String> addedFiles,
             java.util.List<String> removedFiles,
             String snapshotId) {
-        commitNotifier.notify(schemaName, tableName, addedFiles, removedFiles, snapshotId);
+        commitNotifier.notify(
+                tenantId, schemaName, tableName, addedFiles, removedFiles, snapshotId);
     }
 
     // --- Branch/Tag SPI overrides ---

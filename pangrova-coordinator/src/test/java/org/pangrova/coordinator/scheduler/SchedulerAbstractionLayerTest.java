@@ -1,5 +1,13 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
+
+import org.pangrova.coordinator.scheduler.failure.CircuitBreakerOpenException;
+
+import org.pangrova.coordinator.scheduler.failure.TaskDispatchException;
+
+import org.pangrova.coordinator.scheduler.failure.ErrorCategory;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,20 +57,25 @@ class SchedulerAbstractionLayerTest {
                 "StageScheduler.java",
                 "TaskScheduler.java",
                 "SubmitTaskRequestConverter.java",
-                "CircuitBreakerOpenException.java",
-                "NoAvailableWorkerException.java",
                 "NoOpSchedulerControlLoop.java",
                 "SchedulerCancelResult.java",
                 "LoadBalancedStrategy.java",
                 "FairShareStrategy.java",
-                "ErrorCategory.java",
-                "TaskDispatchException.java",
                 "SchedulerEventLoop.java",
+                "WorkerTaskControlClient.java",
                 "package-info.java");
 
         assertThat(rootFiles)
                 .as("scheduler/ root should contain only core dispatch/scheduling files")
                 .containsExactlyInAnyOrderElementsOf(expectedCore);
+    }
+
+    @Test
+    void failureSubPackageOwnsTheDispatchFailureContract() throws IOException {
+        assertThat(listJavaFileNames(SCHEDULER_PKG.resolve("failure")))
+                .containsExactlyInAnyOrder("CircuitBreakerOpenException.java", "NoAvailableWorkerException.java",
+                        "ErrorCategory.java", "TaskDispatchException.java", "package-info.java");
+        assertThat(ErrorCategory.class.getPackageName()).isEqualTo("org.pangrova.coordinator.scheduler.failure");
     }
 
     @Test
@@ -84,8 +97,8 @@ class SchedulerAbstractionLayerTest {
     void schedulerRootPackage_fileCountWithinHealthyThreshold() throws IOException {
         long count = listJavaFileNames(SCHEDULER_PKG).size();
         assertThat(count)
-                .as("scheduler/ root should have ≤15 files (healthy threshold)")
-                .isLessThanOrEqualTo(15);
+                .as("scheduler/ root should have ≤16 files (healthy threshold)")
+                .isLessThanOrEqualTo(16);
     }
 
     @Test
@@ -123,8 +136,8 @@ class SchedulerAbstractionLayerTest {
         // strategy/ should not depend on RemoteTaskDispatcher or exceptions
         List<String> violations = scanForImports(STRATEGY_PKG,
                 "import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher",
-                "import org.pangrova.coordinator.scheduler.CircuitBreakerOpenException",
-                "import org.pangrova.coordinator.scheduler.NoAvailableWorkerException",
+                "import org.pangrova.coordinator.scheduler.failure.CircuitBreakerOpenException",
+                "import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException",
                 "import org.pangrova.coordinator.scheduler.SubmitTaskRequestConverter");
 
         assertThat(violations)

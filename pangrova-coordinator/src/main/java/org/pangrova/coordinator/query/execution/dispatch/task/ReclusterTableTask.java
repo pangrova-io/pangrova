@@ -24,8 +24,8 @@ public final class ReclusterTableTask implements MetadataTask<ReclusterTableStat
 
     @Override
     public StatementResult execute(ReclusterTableStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeReclusterTable(statement);
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeReclusterTable(statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.CLUSTERING);
     }
 

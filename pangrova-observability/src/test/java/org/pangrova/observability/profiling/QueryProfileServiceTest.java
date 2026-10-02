@@ -6,15 +6,42 @@ import org.pangrova.observability.audit.QueryAuditService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests QueryProfileService: wires LogAuditStore.findById into profile lookup
  * and verifies structured JSON output with operator tree, timing, and memory.
  */
 class QueryProfileServiceTest {
+
+    @Test
+    void profileCopiesInputCollectionsAndExposesOnlyImmutableLists() {
+        var children = new ArrayList<QueryProfileService.OperatorNode>();
+        var child = new QueryProfileService.OperatorNode("child", "task", 1, 1, 1, 1, List.of());
+        children.add(child);
+        var root = new QueryProfileService.OperatorNode("root", "root", 1, 1, 1, 1, children);
+        var tree = new ArrayList<>(List.of(root));
+        var frame = new QueryProfileService.FlameGraphFrame("root", 1);
+        var frames = new ArrayList<>(List.of(frame));
+        var profile = new QueryProfileService.QueryProfile("q", "SELECT 1", true,
+                tree, new QueryProfileService.TimingBreakdown(1, 1, 0, 1, 1),
+                new QueryProfileService.MemoryUsage(1, 0, 1, 1, 0, 0), frames);
+        children.clear();
+        tree.clear();
+        frames.clear();
+
+        assertThat(profile.operatorTree()).containsExactly(root);
+        assertThat(root.children()).containsExactly(child);
+        assertThat(profile.flameGraph()).containsExactly(frame);
+        assertThatThrownBy(() -> profile.operatorTree().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> root.children().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> profile.flameGraph().clear()).isInstanceOf(UnsupportedOperationException.class);
+    }
 
     @Test
     void getProfileReturnsEmptyWhenQueryNotFound() {

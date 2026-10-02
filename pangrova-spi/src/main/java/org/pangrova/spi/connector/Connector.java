@@ -5,6 +5,7 @@ import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
+import org.pangrova.spi.connector.metadata.ConnectorOutputHandleCodec;
 import org.pangrova.spi.connector.metadata.HealthCheckResult;
 import org.pangrova.spi.connector.metadata.IncrementalScanCapability;
 import org.pangrova.spi.connector.metadata.IsolationLevel;
@@ -33,6 +34,11 @@ public interface Connector {
      */
     ConnectorMetadata getMetadata(ConnectorSession session);
 
+    /** Registers a process-lifecycle listener without opening user-scoped connector metadata. */
+    default void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
+        throw new UnsupportedOperationException("Connector does not publish commit events");
+    }
+
     /**
      * Returns the split manager for this connector.
      *
@@ -58,6 +64,19 @@ public interface Connector {
      */
     default ConnectorPageSinkProvider getPageSinkProvider() {
         throw new UnsupportedOperationException("Write not supported");
+    }
+
+    /**
+     * Returns the codec used to transport exact Coordinator-allocated output
+     * handles to Workers. Writable connectors must override this method.
+     */
+    default ConnectorOutputHandleCodec getOutputHandleCodec() {
+        throw new UnsupportedOperationException("Distributed write handle codec not supported");
+    }
+
+    /** Metadata-only adapter for Native physical-file writes, when actually supported. */
+    default Optional<org.pangrova.spi.connector.metadata.NativePhysicalWriteProvider> getNativePhysicalWriteProvider() {
+        return Optional.empty();
     }
 
     /**

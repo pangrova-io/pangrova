@@ -26,7 +26,6 @@ class InMemoryWorkerRegistryPropertyTest {
     /** Intermediate record to hold the first 8 fields of WorkerSnapshot. */
     private record IdentityPart(
             String workerId, String host, int httpPort, int transportPort,
-            int protocolVersion, List<String> capabilities,
             String rackId, List<String> dataLocality) {}
 
     /** Intermediate record to hold the remaining 6 fields of WorkerSnapshot. */
@@ -44,8 +43,6 @@ class InMemoryWorkerRegistryPropertyTest {
                 Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(10).map(s -> "host-" + s),
                 Arbitraries.integers().between(1024, 65535),
                 Arbitraries.integers().between(1024, 65535),
-                Arbitraries.integers().between(1, 10),
-                Arbitraries.of("SCAN", "JOIN", "AGG", "SHUFFLE").list().ofMinSize(0).ofMaxSize(4),
                 Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(8)
                         .map(s -> "rack-" + s).injectNull(0.3),
                 Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(8)
@@ -63,9 +60,10 @@ class InMemoryWorkerRegistryPropertyTest {
 
         return Combinators.combine(identity, metrics).as((id, m) -> new WorkerSnapshot(
                 id.workerId(), id.host(), id.httpPort(), id.transportPort(),
-                id.protocolVersion(), id.capabilities(), id.rackId(), id.dataLocality(),
+                2, id.rackId(), id.dataLocality(),
                 m.memoryPressure(), m.cpuUtilization(), m.runningTaskCount(),
-                m.availableMemoryBytes(), m.lastHeartbeatMs(), m.registeredAtMs()));
+                m.availableMemoryBytes(), m.lastHeartbeatMs(), m.registeredAtMs(),
+                0, null, "dGVzdA=="));
     }
 
     @Provide
@@ -96,7 +94,7 @@ class InMemoryWorkerRegistryPropertyTest {
     /**
      * For any registered worker and any HeartbeatSnapshot, after heartbeat(),
      * the static fields (workerId, host, httpPort, transportPort,
-     * protocolVersion, capabilities, rackId, dataLocality, registeredAtMs)
+     * protocolVersion, capabilityInventory, rackId, dataLocality, registeredAtMs)
      * remain unchanged.
      */
     @Property(tries = 200)
@@ -113,7 +111,7 @@ class InMemoryWorkerRegistryPropertyTest {
         assertThat(updated.httpPort()).isEqualTo(worker.httpPort());
         assertThat(updated.transportPort()).isEqualTo(worker.transportPort());
         assertThat(updated.protocolVersion()).isEqualTo(worker.protocolVersion());
-        assertThat(updated.capabilities()).isEqualTo(worker.capabilities());
+        assertThat(updated.capabilityInventory()).isEqualTo(worker.capabilityInventory());
         assertThat(updated.rackId()).isEqualTo(worker.rackId());
         assertThat(updated.dataLocality()).isEqualTo(worker.dataLocality());
         assertThat(updated.registeredAtMs()).isEqualTo(worker.registeredAtMs());
@@ -157,20 +155,23 @@ class InMemoryWorkerRegistryPropertyTest {
         var fresh = new WorkerSnapshot(
                 "fresh-" + template.workerId(), template.host(),
                 template.httpPort(), template.transportPort(),
-                template.protocolVersion(), template.capabilities(),
+                template.protocolVersion(),
                 template.rackId(), template.dataLocality(),
                 template.memoryPressure(), template.cpuUtilization(),
                 template.runningTaskCount(), template.availableMemoryBytes(),
-                now, template.registeredAtMs());
+                now, template.registeredAtMs(), template.resultServerPort(),
+                template.cacheSummary(), template.capabilityInventory());
 
         var stale = new WorkerSnapshot(
                 "stale-" + template.workerId(), template.host(),
                 template.httpPort(), template.transportPort(),
-                template.protocolVersion(), template.capabilities(),
+                template.protocolVersion(),
                 template.rackId(), template.dataLocality(),
                 template.memoryPressure(), template.cpuUtilization(),
                 template.runningTaskCount(), template.availableMemoryBytes(),
-                now - thresholdMs - 10_000, template.registeredAtMs());
+                now - thresholdMs - 10_000, template.registeredAtMs(),
+                template.resultServerPort(), template.cacheSummary(),
+                template.capabilityInventory());
 
         registry.register(fresh);
         registry.register(stale);

@@ -64,6 +64,41 @@ public final class WorkerOptions {
             .withDescription("Listen port for the Arrow Flight transport server (0 = auto-assign)")
             .build();
 
+    public static final ConfigOption<Boolean> TRANSPORT_TLS_ENABLED =
+            ConfigOptions.key("worker.transport.tls.enabled")
+            .booleanType()
+            .defaultValue(false)
+            .withDescription("Require mutual TLS for native shuffle and result transport")
+            .build();
+
+    public static final ConfigOption<String> TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH =
+            ConfigOptions.key("worker.transport.tls.certificate-chain-path")
+            .stringType()
+            .defaultValue("")
+            .withDescription("PEM certificate chain presented by the worker transport")
+            .build();
+
+    public static final ConfigOption<String> TRANSPORT_TLS_PRIVATE_KEY_PATH =
+            ConfigOptions.key("worker.transport.tls.private-key-path")
+            .stringType()
+            .defaultValue("")
+            .withDescription("PEM private key for the worker transport certificate")
+            .build();
+
+    public static final ConfigOption<String> TRANSPORT_TLS_ROOT_CA_PATH =
+            ConfigOptions.key("worker.transport.tls.root-ca-path")
+            .stringType()
+            .defaultValue("")
+            .withDescription("PEM root CA used for mutual peer verification")
+            .build();
+
+    public static final ConfigOption<String> TRANSPORT_TLS_IDENTITY =
+            ConfigOptions.key("worker.transport.tls.identity")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Certificate DNS identity advertised to transport peers")
+            .build();
+
     // ---- Task Execution ----
 
     public static final ConfigOption<Integer> RESULT_RETENTION_SECONDS =
@@ -168,6 +203,36 @@ public final class WorkerOptions {
             .withDescription("Directory for spilling intermediate data to disk")
             .build();
 
+    public static final ConfigOption<Long> SHUFFLE_SERVICE_RETENTION_BYTES =
+            ConfigOptions.key("worker.shuffle.service.retention-bytes")
+                    .longType().defaultValue(16L * 1024 * 1024)
+                    .withDescription("Node-reserved bytes for Native Flight shuffle retention")
+                    .build();
+
+    public static final ConfigOption<Long> SHUFFLE_SERVICE_TRANSIT_BYTES =
+            ConfigOptions.key("worker.shuffle.service.transit-bytes")
+                    .longType().defaultValue(16L * 1024 * 1024)
+                    .withDescription("Node-reserved bytes for Native Flight replay and responses")
+                    .build();
+
+    public static final ConfigOption<Long> SHUFFLE_SERVICE_SPILL_BYTES =
+            ConfigOptions.key("worker.shuffle.service.spill-bytes")
+                    .longType().defaultValue(1024L * 1024 * 1024)
+                    .withDescription("Hard byte cap for Native Flight shuffle spill files")
+                    .build();
+
+    public static final ConfigOption<Integer> SHUFFLE_SERVICE_SPILL_FILES =
+            ConfigOptions.key("worker.shuffle.service.spill-files")
+                    .intType().defaultValue(256)
+                    .withDescription("Hard file cap for Native Flight shuffle spill files")
+                    .build();
+
+    public static final ConfigOption<String> SHUFFLE_SERVICE_SPILL_DIRECTORY =
+            ConfigOptions.key("worker.shuffle.service.spill-directory")
+                    .stringType()
+                    .withDescription("Required existing, writable, absolute Native Flight spill directory")
+                    .build();
+
     // ---- Native Engine ----
 
     public static final ConfigOption<String> NATIVE_PATH = ConfigOptions.key("worker.native.path")
@@ -228,6 +293,27 @@ public final class WorkerOptions {
                     + "restart). Set to 0 to disable checkpointing (cache lost on restart).")
             .build();
 
+    public static final ConfigOption<String> CACHE_ARTIFACT_PATH =
+            ConfigOptions.key("worker.native.cache.artifact-path")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Dedicated local filesystem path for immutable AI/search artifacts")
+            .build();
+
+    public static final ConfigOption<Long> CACHE_ARTIFACT_BYTES =
+            ConfigOptions.key("worker.native.cache.artifact-bytes")
+            .longType()
+            .defaultValue(100L * 1024 * 1024 * 1024)
+            .withDescription("Independent SSD capacity for immutable AI/search artifact objects")
+            .build();
+
+    public static final ConfigOption<Long> CACHE_ARTIFACT_INDEX_MEMORY_BYTES =
+            ConfigOptions.key("worker.native.cache.artifact-index-memory-bytes")
+            .longType()
+            .defaultValue(2L * 1024 * 1024 * 1024)
+            .withDescription("Hard RAM quota for parsed immutable artifact indexes")
+            .build();
+
     // ---- Registration Retry ----
 
     public static final ConfigOption<Integer> REGISTRATION_MAX_ATTEMPTS =
@@ -269,6 +355,50 @@ public final class WorkerOptions {
             .build();
 
     public static final ConfigOption<Boolean> SECURITY_ENABLED = CommonOptions.SECURITY_ENABLED;
+
+    // ---- AI invocation governance ----
+
+    public static final ConfigOption<String> AI_AUTHORIZATION_MODE =
+            ConfigOptions.key("worker.ai.authorization.mode")
+            .stringType()
+            .defaultValue("deny")
+            .withDescription("AI invocation policy: deny or authenticated")
+            .build();
+
+    public static final ConfigOption<String> AI_ALLOWED_MODELS =
+            ConfigOptions.key("worker.ai.authorization.allowed-models")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Comma-separated exact AI model allowlist")
+            .build();
+
+    public static final ConfigOption<String> AI_ALLOWED_CAPABILITIES =
+            ConfigOptions.key("worker.ai.authorization.allowed-capabilities")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Comma-separated exact AI capability allowlist")
+            .build();
+
+    public static final ConfigOption<String> AI_GRANTED_PERMISSIONS =
+            ConfigOptions.key("worker.ai.authorization.granted-permissions")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Comma-separated permissions granted to authenticated AI task contexts")
+            .build();
+
+    public static final ConfigOption<Integer> AI_MAX_BATCH_SIZE =
+            ConfigOptions.key("worker.ai.authorization.max-batch-size")
+            .intType()
+            .defaultValue(128)
+            .withDescription("Maximum AI items admitted in one provider call")
+            .build();
+
+    public static final ConfigOption<Long> AI_MAX_INPUT_BYTES =
+            ConfigOptions.key("worker.ai.authorization.max-input-bytes")
+            .longType()
+            .defaultValue(8L * 1024 * 1024)
+            .withDescription("Maximum aggregate input bytes admitted in one AI provider call")
+            .build();
 
     // ---- Observability ----
 

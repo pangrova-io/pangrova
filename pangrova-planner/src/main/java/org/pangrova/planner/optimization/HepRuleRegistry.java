@@ -196,7 +196,7 @@ public final class HepRuleRegistry {
         // AGGREGATE_EXPAND_DISTINCT_AGGREGATES excluded: it rewrites single-DISTINCT
         // + non-DISTINCT aggregates into GROUPING SETS with GROUPING() calls that
         // the native engine cannot execute. The native engine handles DISTINCT invocation natively via
-        // AggregationNode; multi-DISTINCT uses MarkDistinctNode (see MultiDistinctHint).
+        // AggregationNode's per-measure distinct and BOOLEAN masks.
         return List.of(
                 CoreRules.AGGREGATE_REDUCE_FUNCTIONS,
                 CoreRules.AGGREGATE_PROJECT_MERGE,

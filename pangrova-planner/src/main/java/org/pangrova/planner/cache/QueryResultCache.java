@@ -29,7 +29,7 @@ import java.util.function.Predicate;
  * contention between concurrent gets and puts.</p>
  */
 @ThreadSafe
-public class QueryResultCache {
+public class QueryResultCache implements AutoCloseable {
 
     /** Default maximum L1 cache entries to prevent unbounded memory growth. */
     private static final int DEFAULT_MAX_L1_ENTRIES = 10_000;
@@ -42,6 +42,8 @@ public class QueryResultCache {
     private final ConcurrentHashMap<CacheKey, CacheEntryMetadata> metadataIndex = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<CacheKey, Long> l1PutTime = new ConcurrentHashMap<>();
     private final L2CacheStore l2;
+    private final java.util.concurrent.atomic.AtomicBoolean closed =
+            new java.util.concurrent.atomic.AtomicBoolean();
     private final int maxL1Entries;
     private final long l1TtlMs;
     private final AtomicLong hitCount = new AtomicLong();
@@ -60,6 +62,19 @@ public class QueryResultCache {
         this.l2 = l2;
         this.maxL1Entries = maxL1Entries > 0 ? maxL1Entries : DEFAULT_MAX_L1_ENTRIES;
         this.l1TtlMs = l1TtlMs > 0 ? l1TtlMs : DEFAULT_L1_TTL_MS;
+    }
+
+    /** Releases the process-owned external store exactly once. */
+    @Override
+    public void close() throws Exception {
+        if (closed.compareAndSet(false, true)) {
+            l1.clear();
+            metadataIndex.clear();
+            l1PutTime.clear();
+            if (l2 instanceof AutoCloseable resource) {
+                resource.close();
+            }
+        }
     }
 
     /**

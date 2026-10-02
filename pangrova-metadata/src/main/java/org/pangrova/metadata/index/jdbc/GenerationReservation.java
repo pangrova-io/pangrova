@@ -1,0 +1,15 @@
+package org.pangrova.metadata.index.jdbc;
+
+import org.pangrova.spi.index.IndexState;
+
+import java.time.Instant;
+
+/** Immutable arguments for reserving one fenced index generation. */
+record GenerationReservation(
+        String indexId,
+        int newGeneration,
+        String buildSnapshotId,
+        Instant timestamp,
+        Instant expectedUpdatedAt,
+        IndexState expectedState,
+        int expectedGeneration) {}

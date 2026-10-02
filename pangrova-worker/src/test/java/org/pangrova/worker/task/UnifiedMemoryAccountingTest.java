@@ -3,13 +3,13 @@ package org.pangrova.worker.task;
 import org.pangrova.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
+import org.pangrova.worker.memory.NativeMemoryCoordinator;
 import org.pangrova.spi.execution.PlanFragment;
 import org.pangrova.spi.execution.PlanNodeId;
 import org.pangrova.spi.execution.QueryId;
 import org.pangrova.spi.execution.TaskDescriptor;
 import org.pangrova.spi.execution.TaskResourceLimit;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies unified memory accounting: the MemoryArbitrator is the single
@@ -116,6 +117,76 @@ class UnifiedMemoryAccountingTest {
     }
 
     @Test
+    void shuffleBufferRequiresExactAdmittedGrant() {
+        long grant = 16L * 1024 * 1024;
+        MemoryArbitrator arbitrator = new MemoryArbitrator(64L * 1024 * 1024, 0);
+        TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
+        TaskInfo info = buildShuffleTaskInfo(grant);
+
+        requestor.requestBufferMemory(info);
+        assertThat(info.allocatedBufferMemory()).isEqualTo(grant);
+        assertThat(arbitrator.getUsedMemory()).isEqualTo(grant);
+        requestor.releaseBufferMemory(info);
+        assertThat(arbitrator.getUsedMemory()).isZero();
+    }
+
+    @Test
+    void partialShuffleBufferAllocationIsRejectedAndRolledBack() {
+        MemoryArbitrator arbitrator = new MemoryArbitrator(8L * 1024 * 1024, 0);
+        TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
+        TaskInfo info = buildShuffleTaskInfo(16L * 1024 * 1024);
+
+        assertThatThrownBy(() -> requestor.requestBufferMemory(info))
+                .hasMessageContaining("complete buffer grant");
+        assertThat(info.allocatedBufferMemory()).isZero();
+        assertThat(arbitrator.getUsedMemory()).isZero();
+    }
+
+    @Test
+    void canonicalNativeLimitIsNotChargedBeforeActualNativeGrowth() {
+        MemoryArbitrator arbitrator = new MemoryArbitrator(8L * 1024 * 1024, 0);
+        TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
+        TaskInfo info = buildShuffleTaskInfo(16L * 1024 * 1024);
+
+        requestor.requestMemoryForTask(info);
+        assertThat(info.allocatedMemory()).isZero();
+        assertThat(arbitrator.getUsedMemory()).isZero();
+        assertThat(new TaskMemoryAllocator(arbitrator).resolveNativeMemoryLimit(info))
+                .isEqualTo(32L * 1024 * 1024);
+        NativeMemoryCoordinator nativeMemory = new NativeMemoryCoordinator(8L * 1024 * 1024,
+                arbitrator);
+        assertThat(nativeMemory.reserve(4L * 1024 * 1024)).isEqualTo(4L * 1024 * 1024);
+        assertThat(arbitrator.getUsedMemory()).isEqualTo(4L * 1024 * 1024);
+        nativeMemory.unreserve(4L * 1024 * 1024);
+        assertThat(arbitrator.getUsedMemory()).isZero();
+    }
+
+    @Test
+    void insufficientNodePoolRejectsShuffleWithoutArbitratorCharge() {
+        MemoryArbitrator arbitrator = new MemoryArbitrator(BUDGET, 0);
+        TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
+        var root = new org.pangrova.resource.memory.RootMemoryPool(
+                "shuffle-root", 8L * 1024 * 1024);
+        var node = root.createNodePool("shuffle-node", 8L * 1024 * 1024);
+        requestor.setNodeMemoryPool(node);
+
+        assertThatThrownBy(() -> requestor.requestBufferMemory(
+                buildShuffleTaskInfo(16L * 1024 * 1024)))
+                .hasMessageContaining("insufficient node buffer budget");
+        assertThat(node.getUsedBytes()).isZero();
+        assertThat(arbitrator.getUsedMemory()).isZero();
+    }
+
+    @Test
+    void missingShuffleBufferGrantIsRejected() {
+        MemoryArbitrator arbitrator = new MemoryArbitrator(BUDGET, 0);
+        TaskMemoryRequestor requestor = new TaskMemoryRequestor(arbitrator, 0.0);
+        assertThatThrownBy(() -> requestor.requestBufferMemory(buildShuffleTaskInfo(0)))
+                .hasMessageContaining("positive serialized-buffer grant");
+        assertThat(arbitrator.getUsedMemory()).isZero();
+    }
+
+    @Test
     void allocatorAndRequestor_shareExactlySameArbitrator() {
         MemoryArbitrator arbitrator = new MemoryArbitrator(BUDGET, 0);
         TaskMemoryAllocator allocator = new TaskMemoryAllocator(arbitrator);
@@ -137,21 +208,32 @@ class UnifiedMemoryAccountingTest {
                 new TestPlanFragment(),
                 List.of(), Map.of(),
                 0, 0, "COMPUTE", limit);
-        SubmitTaskRequest request = SubmitTaskRequest.builder()
-                .taskId(taskId)
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment("cGxhbg==")
-                .splits(List.of())
-                .exchangeSources(List.of())
-                .resourceLimit(new ResourceLimitPayload(memoryBytes, 1, 0, ""))
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
-        return new TaskInfo(taskId, queryId, request, descriptor, Instant.now());
+        return new TaskInfo(taskId, queryId, null, descriptor, Instant.now());
+    }
+
+    private TaskInfo buildShuffleTaskInfo(long bufferBytes) {
+        String taskId = "shuffle-task";
+        String queryId = "shuffle-query";
+        long memoryBytes = 32L * 1024 * 1024;
+        TaskDescriptor descriptor = new TaskDescriptor(
+                new QueryId(queryId), new TestPlanFragment(), List.of(), Map.of(),
+                0, 0, "COMPUTE", new TaskResourceLimit(memoryBytes, 1, 0, ""));
+        var shuffle = org.pangrova.protocol.v2.ShuffleTaskOptions.newBuilder()
+                .setSerde(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW)
+                .setCompressionCodec("NONE").setBatchSize(1000).setPartitionCount(1)
+                .setPersistenceMode(org.pangrova.protocol.v2.ShufflePersistenceMode
+                        .SHUFFLE_PERSISTENCE_MODE_MEMORY_ONLY);
+        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                        taskId, queryId, 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_SHUFFLE_WRITE,
+                        "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                        .setGrantId(taskId + ":grant").setNativeMemoryBytes(memoryBytes)
+                        .setShuffleBufferBytes(bufferBytes).setCpuSlots(1))
+                .setExecutionOptions(org.pangrova.protocol.v2.TaskExecutionOptions
+                        .newBuilder().setShuffle(shuffle));
+        return new TaskInfo(taskId, queryId,
+                SubmitTaskRequest.from(canonical.build()), descriptor, Instant.now());
     }
 
     private static final class TestPlanFragment implements PlanFragment {

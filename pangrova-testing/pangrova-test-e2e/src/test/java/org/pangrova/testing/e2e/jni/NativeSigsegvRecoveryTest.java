@@ -51,7 +51,7 @@ class NativeSigsegvRecoveryTest extends SqlE2ETestBase {
     @DisplayName("Use-after-free on released handle throws NativeRuntimeException, not SIGSEGV")
     void useAfterFree_throwsNativeRuntimeException() {
         // 1. Create a task executor handle
-        long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+        long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
         assertThat(handle).as("Handle must be non-zero").isNotZero();
 
         // 2. Release the executor — handle becomes stale
@@ -84,7 +84,7 @@ class NativeSigsegvRecoveryTest extends SqlE2ETestBase {
                 .isTrue();
 
         // 1. Create a new task executor — proves HandleRegistry works
-        long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+        long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
         assertThat(handle)
                 .as("New handle must be non-zero")
                 .isNotZero();

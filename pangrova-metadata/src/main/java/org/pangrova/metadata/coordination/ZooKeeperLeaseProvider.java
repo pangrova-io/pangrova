@@ -99,7 +99,7 @@ public final class ZooKeeperLeaseProvider implements AutoCloseable {
         return registry;
     }
 
-    /** Resolves a sibling znode of {@code basePath} (e.g. /pangrova/leases + coordinators -> /pangrova/coordinators). */
+    /** Resolves a sibling znode of {@code basePath}, preserving its parent path. */
     private static String siblingPath(String basePath, String sibling) {
         int slash = basePath.lastIndexOf('/');
         String parent = slash > 0 ? basePath.substring(0, slash) : "";

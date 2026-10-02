@@ -13,6 +13,6 @@ LogicalProject(C_NAME=[$1], C_CUSTKEY=[$0], O_ORDERKEY=[$2], O_ORDERDATE=[$4], O
               LogicalTableScan(table=[[lineitem]])
           LogicalProject(l_orderkey=[$0])
             LogicalProject(l_orderkey=[$0])
-              LogicalFilter(condition=[>($1, 300)])
+              LogicalFilter(condition=[>($1, 300.00)])
                 LogicalAggregate(group=[{0}], agg#0=[$SUM0($4)])
                   LogicalTableScan(table=[[lineitem]])

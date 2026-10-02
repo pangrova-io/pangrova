@@ -13,8 +13,15 @@
  */
 package org.pangrova.planner;
 
+import org.pangrova.common.concurrent.NotThreadSafe;
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.Project;
 import org.apache.calcite.rel.core.Window;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.rex.RexLiteral;
+import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
+import org.pangrova.planner.type.ModelBoundVectorRelDataType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,9 +33,12 @@ import java.util.List;
  * planner module. Coordinator code holds and passes {@code PlanFragment} without
  * importing any Calcite types.
  *
- * <p>Thread-safe: immutable once constructed.</p>
+ * <p>The Calcite tree belongs to one query's planning lifecycle. Planner-only
+ * consumers borrow it without concurrent mutation; dispatch serializes it into
+ * immutable protocol bytes. This wrapper does not make Calcite nodes thread-safe.</p>
  */
-public final class PlanFragment {
+@NotThreadSafe
+public final class PlanFragment implements StagePlanAccess {
 
     private static final Logger LOG = LoggerFactory.getLogger(PlanFragment.class);
 
@@ -51,6 +61,16 @@ public final class PlanFragment {
         return estimatedShuffleRows;
     }
 
+    @Override
+    public Mode mode() {
+        return Mode.LIVE_QUERY;
+    }
+
+    @Override
+    public PlanFragment requireLiveFragment() {
+        return this;
+    }
+
     /**
      * Returns the internal Calcite RelNode for components that require
      * deep plan traversal (SplitFetcher, IndexAwareSplitFetcher).
@@ -62,7 +82,7 @@ public final class PlanFragment {
 
     /**
      * Returns true if this fragment's plan tree contains a Window (analytic function) node.
-     * Coordinator dispatch uses this to force single-task execution for window queries.
+     * Distribution is enforced by PlanFragmenter before dispatch, not by collapsing scan tasks.
      */
     public boolean containsWindowFunction() {
         return hasWindow(planNode);
@@ -102,6 +122,48 @@ public final class PlanFragment {
         return planNode.getRowType().getFieldNames();
     }
 
+    /** Returns exact-model intents for SQL-visible VECTOR result columns. */
+    public List<ResultColumnModel> resultColumnModels() {
+        var fields = planNode.getRowType().getFieldList();
+        var results = new java.util.ArrayList<ResultColumnModel>();
+        for (int index = 0; index < fields.size(); index++) {
+            if (fields.get(index).getType() instanceof ModelBoundVectorRelDataType) {
+                String model = resultModel(planNode, index);
+                if (model == null) {
+                    throw new IllegalStateException(
+                            "VECTOR result column has no exact model origin: " + index);
+                }
+                results.add(new ResultColumnModel(index, model));
+            }
+        }
+        return List.copyOf(results);
+    }
+
+    /** Planner-only association; the Coordinator resolves the model's exact logical type. */
+    public record ResultColumnModel(int columnIndex, String modelName) {}
+
+    private static String resultModel(RelNode node, int columnIndex) {
+        if (node instanceof PangrovaExchangeInput input) {
+            return input.resultModel(columnIndex);
+        }
+        if (node instanceof Project project) {
+            var expression = project.getProjects().get(columnIndex);
+            if (expression instanceof RexInputRef reference) {
+                return resultModel(project.getInput(), reference.getIndex());
+            }
+            if (expression instanceof RexCall call
+                    && "AI_EMBED".equalsIgnoreCase(call.getOperator().getName())
+                    && call.getOperands().get(0) instanceof RexLiteral model) {
+                return model.getValueAs(String.class);
+            }
+            return null;
+        }
+        if (node.getInputs().size() == 1) {
+            return resultModel(node.getInput(0), columnIndex);
+        }
+        return null;
+    }
+
     /**
      * Serializes this fragment to Substrait bytes for dispatch to a worker.
      */
@@ -111,14 +173,17 @@ public final class PlanFragment {
     }
 
     /**
-     * Serializes with explicit column names and optional retry on originalSql.
+     * Serializes the already authorized fragment with explicit column names.
      */
-    public byte[] toSubstraitBytes(SqlCompiler compiler, java.util.List<String> columnNames,
-                                    String originalSql) {
-        if (originalSql != null && !originalSql.isEmpty()) {
-            return compiler.convertValidateAndSerializeWithRetry(planNode, columnNames, originalSql);
-        }
-        return compiler.convertValidateAndSerialize(planNode, columnNames);
+    public byte[] toSubstraitBytes(SqlCompiler compiler, java.util.List<String> columnNames) {
+        return toSerializedPlan(compiler, columnNames).planBytes();
+    }
+
+    /** Serializes this fragment and retains typed relation intents for protocol binding. */
+    public SerializedPlanFragment toSerializedPlan(
+            SqlCompiler compiler,
+            java.util.List<String> columnNames) {
+        return compiler.convertValidateAndSerializeFragment(planNode, columnNames);
     }
 
     /**

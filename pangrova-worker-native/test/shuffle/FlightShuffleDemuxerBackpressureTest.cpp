@@ -1,22 +1,10 @@
-// Regression test for F-CHAIN-SHUFFLE-04 / F-NATIVE-SHUF-02 (tasks #101/#103):
-// PartitionDemuxer::drainLoop fanned a BOUNDED SerializedShuffleQueue into an
-// UNBOUNDED per-partition deque — backpressure was severed at the demux point,
-// so a skewed partition could buffer without limit (OOM) and the upstream Velox
-// producer never yielded.
-//
-// The fix gives each partition deque a configurable cap
-// (setMaxBufferedBatchesPerPartition). When the cap is set, drainLoop blocks
-// (credit-based backpressure) once a partition reaches the cap instead of
-// pushing unconditionally; a consumer pop() frees a slot and wakes the drain
-// thread. This test asserts the deque never exceeds the cap while many batches
-// are staged, and that data still flows out fully in FIFO order. It is a
-// deterministic non-gRPC test (no Arrow Flight) to avoid the two-Arrow ODR
-// landmine in the standalone Flight test binary.
+// Retention is byte-bounded. Full resident credit spills rather than parking
+// the source drain behind a partition that may have no consumer.
 
 #include <gtest/gtest.h>
 
 #include <chrono>
-#include <thread>
+#include <future>
 
 #include <folly/io/IOBuf.h>
 
@@ -48,65 +36,45 @@ bool popWithin(PartitionDemuxer& d, int32_t pid, ShuffleBatch& out,
   return false;
 }
 
-// Polls until the predicate holds or the deadline passes; returns the predicate
-// result at exit.
-template <typename Pred>
-bool waitFor(Pred pred, std::chrono::milliseconds budget) {
-  auto deadline = std::chrono::steady_clock::now() + budget;
-  while (std::chrono::steady_clock::now() < deadline) {
-    if (pred()) return true;
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  }
-  return pred();
-}
-
-TEST(FlightShuffleDemuxerBackpressureTest, BoundedDequeNeverExceedsCap) {
+TEST(FlightShuffleDemuxerBackpressureTest, BoundedResidentBytesPreserveFifoWithSpill) {
   constexpr int32_t kPartition = 0;
-  constexpr size_t kCap = 2;
   constexpr int kStaged = 5;
   SerializedShuffleQueue queue(/*capacity=*/16);
 
-  // Stage more batches than the cap, then close the source. With backpressure
-  // the drain can fill only up to kCap until a consumer makes room.
+  auto sample = makeBatch(kPartition, 0);
+  ShuffleBufferLimits limits;
+  limits.memory_bytes = sample.data->capacity() + sizeof(folly::IOBuf);
+  auto store = std::make_shared<ShuffleBufferStore>(limits);
   for (int i = 1; i <= kStaged; ++i) {
     ASSERT_TRUE(queue.push(makeBatch(kPartition, i), std::chrono::seconds(1)));
   }
-  queue.close();
+  ASSERT_TRUE(queue.commit());
 
-  PartitionDemuxer demuxer(&queue);
-  demuxer.setMaxBufferedBatchesPerPartition(kCap);
+  PartitionDemuxer demuxer(&queue, store);
   demuxer.start();
 
-  // Drain fills to exactly the cap, then parks.
-  ASSERT_TRUE(waitFor(
-      [&] { return demuxer.bufferedBatchCount(kPartition) >= kCap; },
-      std::chrono::seconds(2)));
+  ASSERT_TRUE(demuxer.quiesce(std::chrono::seconds(2)));
+  EXPECT_EQ(demuxer.bufferedBatchCount(kPartition), kStaged);
+  EXPECT_LE(store->usage().memory_bytes, limits.memory_bytes);
+  EXPECT_EQ(store->usage().spill_files, kStaged - 1);
 
-  // Backpressure holds: depth pinned at the cap, never exceeds it, even though
-  // kStaged batches are staged and the source is already closed.
-  for (int i = 0; i < 30; ++i) {
-    EXPECT_LE(demuxer.bufferedBatchCount(kPartition), kCap);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  }
-  EXPECT_EQ(demuxer.bufferedBatchCount(kPartition), kCap)
-      << "drain should hold exactly at the cap under backpressure";
-
-  // Data still flows out fully, in FIFO order, with depth bounded throughout.
   for (int expected = 1; expected <= kStaged; ++expected) {
     ShuffleBatch out;
     ASSERT_TRUE(popWithin(demuxer, kPartition, out, std::chrono::seconds(2)));
     EXPECT_EQ(out.row_count, expected);
-    EXPECT_LE(demuxer.bufferedBatchCount(kPartition), kCap);
+    EXPECT_LE(store->usage().memory_bytes, limits.memory_bytes);
   }
 
   // Fully drained.
   ShuffleBatch none;
   EXPECT_FALSE(popWithin(demuxer, kPartition, none, std::chrono::seconds(1)));
   EXPECT_TRUE(demuxer.isPartitionDrained(kPartition));
+  EXPECT_EQ(store->usage().spill_files, 0u);
+  EXPECT_EQ(store->usage().memory_bytes, 0u);
   demuxer.stop();
 }
 
-TEST(FlightShuffleDemuxerBackpressureTest, UnboundedDefaultBuffersEverything) {
+TEST(FlightShuffleDemuxerBackpressureTest, DefaultBudgetBuffersSmallInput) {
   constexpr int32_t kPartition = 3;
   constexpr int kStaged = 5;
   SerializedShuffleQueue queue(/*capacity=*/16);
@@ -114,18 +82,12 @@ TEST(FlightShuffleDemuxerBackpressureTest, UnboundedDefaultBuffersEverything) {
   for (int i = 1; i <= kStaged; ++i) {
     ASSERT_TRUE(queue.push(makeBatch(kPartition, i), std::chrono::seconds(1)));
   }
-  queue.close();
+  ASSERT_TRUE(queue.commit());
 
   PartitionDemuxer demuxer(&queue);
-  // No cap set (default 0 == unbounded): legacy behavior, drain buffers all.
   demuxer.start();
 
-  ASSERT_TRUE(waitFor(
-      [&] {
-        return demuxer.bufferedBatchCount(kPartition) ==
-               static_cast<size_t>(kStaged);
-      },
-      std::chrono::seconds(2)));
+  ASSERT_TRUE(demuxer.quiesce(std::chrono::seconds(2)));
   EXPECT_EQ(demuxer.bufferedBatchCount(kPartition),
             static_cast<size_t>(kStaged));
 
@@ -135,6 +97,71 @@ TEST(FlightShuffleDemuxerBackpressureTest, UnboundedDefaultBuffersEverything) {
     EXPECT_EQ(out.row_count, expected);
   }
   EXPECT_TRUE(demuxer.isPartitionDrained(kPartition));
+  demuxer.stop();
+}
+
+TEST(FlightShuffleDemuxerBackpressureTest, FullRetentionDrainsWithIndependentTransitCredit) {
+  using namespace std::chrono_literals;
+  SerializedShuffleQueue queue(4);
+  auto sample = makeBatch(0, 1);
+  ShuffleBufferLimits limits;
+  limits.memory_bytes = sample.data->capacity() + sizeof(folly::IOBuf);
+  limits.transit_bytes = 3 * sizeof(int64_t) + 64 * 1024;
+  auto store = std::make_shared<ShuffleBufferStore>(limits);
+  ASSERT_TRUE(queue.push(std::move(sample), 1s));
+  ASSERT_TRUE(queue.push(makeBatch(0, 2), 1s));
+  ASSERT_TRUE(queue.commit());
+  PartitionDemuxer demuxer(&queue, store);
+  demuxer.start();
+  ASSERT_TRUE(demuxer.quiesce(2s));
+  ASSERT_GT(store->usage().memory_bytes, 0u);
+  ASSERT_GT(store->usage().spill_bytes, 0u);
+  ShuffleBatch first;
+  ASSERT_TRUE(demuxer.pop(0, first, 1s));
+  EXPECT_EQ(first.row_count, 1);
+  EXPECT_EQ(store->usage().transit_bytes, limits.transit_bytes);
+  auto second = std::async(std::launch::async, [&] {
+    ShuffleBatch result;
+    const bool popped = demuxer.pop(0, result, 1s);
+    return popped ? result.row_count : -1;
+  });
+  EXPECT_EQ(second.wait_for(50ms), std::future_status::timeout);
+  first = ShuffleBatch{};
+  ASSERT_EQ(second.wait_for(1s), std::future_status::ready);
+  EXPECT_EQ(second.get(), 2);
+  EXPECT_EQ(store->usage().transit_bytes, 0u);
+  demuxer.stop();
+}
+
+TEST(FlightShuffleDemuxerBackpressureTest, CancelledReaderReturnsUnreplayedEntry) {
+  using namespace std::chrono_literals;
+  SerializedShuffleQueue queue(4);
+  ShuffleBufferLimits limits;
+  limits.transit_bytes = 3 * sizeof(int64_t) + 64 * 1024;
+  auto store = std::make_shared<ShuffleBufferStore>(limits);
+  ASSERT_TRUE(queue.push(makeBatch(0, 1), 1s));
+  ASSERT_TRUE(queue.push(makeBatch(0, 2), 1s));
+  ASSERT_TRUE(queue.commit());
+  PartitionDemuxer demuxer(&queue, store);
+  demuxer.start();
+  ASSERT_TRUE(demuxer.quiesce(2s));
+  ShuffleBatch first;
+  ASSERT_TRUE(demuxer.pop(0, first, 1s));
+  std::atomic<bool> cancelled{false};
+  auto abandoned = std::async(std::launch::async, [&] {
+    ShuffleBatch ignored;
+    return demuxer.pop(0, ignored, 1s, [&] { return cancelled.load(); });
+  });
+  EXPECT_EQ(abandoned.wait_for(50ms), std::future_status::timeout);
+  cancelled.store(true);
+  ASSERT_EQ(abandoned.wait_for(1s), std::future_status::ready);
+  EXPECT_FALSE(abandoned.get());
+  EXPECT_TRUE(demuxer.status().ok());
+  EXPECT_EQ(demuxer.bufferedBatchCount(0), 1u);
+  first = ShuffleBatch{};
+  ShuffleBatch resumed;
+  ASSERT_TRUE(demuxer.pop(0, resumed, 1s));
+  EXPECT_EQ(resumed.row_count, 2);
   demuxer.stop();
 }
 

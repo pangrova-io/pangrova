@@ -1,13 +1,16 @@
 package org.pangrova.coordinator.index.lifecycle;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.coordinator.index.BuildMappingPersister;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.indexing.config.ConsistencyConfig;
-import org.pangrova.metadata.index.model.IndexFileMapping;
 import org.pangrova.metadata.index.IndexMetadataStore;
-import org.pangrova.spi.connector.index.ColumnValueReader;
-import org.pangrova.spi.connector.index.FileSystemAccessor;
+import org.pangrova.metadata.index.model.IndexFileMapping;
+import org.pangrova.metadata.index.model.IndexGenerationManifest;
+import org.pangrova.spi.connector.index.SnapshotAwareMetadata;
+import org.pangrova.spi.connector.index.SnapshotDataFile;
+import org.pangrova.spi.connector.index.SnapshotExpiredException;
+import org.pangrova.spi.connector.index.SnapshotFileDelta;
+import org.pangrova.spi.connector.index.SnapshotRelation;
 import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.IndexState;
 import org.slf4j.Logger;
@@ -35,6 +38,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
 
     private final IndexConsistencyContext deps;
     private final IndexLifecycleMetrics lifecycleMetrics;
+    private final IndexGenerationRefresher generationRefresher;
     private final ScheduledExecutorService scheduler;
     private volatile ScheduledFuture<?> scheduledTask;
 
@@ -42,6 +46,10 @@ public final class IndexConsistencyChecker implements AutoCloseable {
                                    IndexLifecycleMetrics lifecycleMetrics) {
         this.deps = deps;
         this.lifecycleMetrics = lifecycleMetrics;
+        this.generationRefresher = new IndexGenerationRefresher(
+                new IndexCommitContext(
+                        deps.metadataStore(), deps.buildServices(), deps.accessorResolver()),
+                lifecycleMetrics);
         this.scheduler = ManagedExecutorFactory.newSingleThreadScheduledExecutor("index-consistency");
     }
 
@@ -75,7 +83,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
     @org.pangrova.common.VisibleForTesting
     void checkAll() {
         MaintenanceLeaderElection leaderElection = deps.leaderElection();
-        if (leaderElection != null && !leaderElection.tryAcquireOrRenew()) {
+        if (!leaderElection.tryAcquireOrRenew()) {
             LOG.debug("action=consistency_check_skipped reason=not_leader");
             return;
         }
@@ -96,192 +104,296 @@ public final class IndexConsistencyChecker implements AutoCloseable {
                                   ConsistencyConfig config) {
         int pageSize = 100;
         int offset = 0;
+        Set<String> seen = new HashSet<>();
         while (true) {
             List<IndexDescriptor> page = store.findIndexesByStatePaginated(
                     state, offset, pageSize);
             if (page.isEmpty()) {
                 break;
             }
-            for (IndexDescriptor descriptor : page) {
+            List<IndexDescriptor> unseen = page.stream()
+                    .filter(descriptor -> seen.add(descriptor.indexId()))
+                    .toList();
+            for (IndexDescriptor descriptor : unseen) {
                 checkSingleIndex(descriptor, config);
             }
-            offset += page.size();
+            if (unseen.isEmpty()) {
+                offset += page.size();
+            } else {
+                offset = 0;
+            }
         }
     }
 
-    /**
-     * Scans STALE indexes and rebuilds them. Each STALE index is transitioned
-     * to BUILDING, rebuilt, then advanced to READY on success.
-     */
+    /** Reconciles STALE indexes through the same immutable publication path. */
     private void paginateAndRebuildStale(IndexMetadataStore store, ConsistencyConfig config) {
         int pageSize = 100;
         int offset = 0;
+        Set<String> seen = new HashSet<>();
         while (true) {
             List<IndexDescriptor> page = store.findIndexesByStatePaginated(
                     IndexState.STALE, offset, pageSize);
             if (page.isEmpty()) {
                 break;
             }
-            for (IndexDescriptor descriptor : page) {
-                rebuildStaleIndex(store, descriptor);
+            List<IndexDescriptor> unseen = page.stream()
+                    .filter(descriptor -> seen.add(descriptor.indexId()))
+                    .toList();
+            for (IndexDescriptor descriptor : unseen) {
+                reconcileIndex(descriptor, config, true);
             }
-            offset += page.size();
-        }
-    }
-
-    private void rebuildStaleIndex(IndexMetadataStore store, IndexDescriptor descriptor) {
-        try {
-            java.time.Instant now = java.time.Instant.now();
-            // Transition STALE -> BUILDING
-            store.updateIndexState(descriptor.indexId(), IndexState.BUILDING.name(), now);
-            LOG.info("action=stale_rebuild_start indexId={}", descriptor.indexId());
-
-            // Perform rebuild (resolve files and build index)
-            List<String> currentDataFiles = resolveDataFiles(
-                    descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
-            if (!currentDataFiles.isEmpty()) {
-                List<DataFileInfo> files = deps.accessorResolver().resolveDataFileInfos(
-                        descriptor.catalogName(), descriptor.schemaName(),
-                        descriptor.tableName(), currentDataFiles);
-                if (!files.isEmpty()) {
-                    FileSystemAccessor fsAccessor = deps.accessorResolver()
-                            .resolve(descriptor.catalogName());
-                    ColumnValueReader columnReader = deps.accessorResolver()
-                            .resolveColumnValueReader(descriptor.catalogName());
-                    deps.buildCoordinator().submitBuildTask(
-                            descriptor, files, fsAccessor, columnReader,
-                            batch -> BuildMappingPersister.persist(
-                                    store, batch, descriptor.generation()));
-                }
+            if (unseen.isEmpty()) {
+                offset += page.size();
+            } else {
+                offset = 0;
             }
-
-            // Transition BUILDING -> READY
-            store.updateIndexState(descriptor.indexId(), IndexState.READY.name(), now);
-            LOG.info("action=stale_rebuild_complete indexId={}", descriptor.indexId());
-            if (lifecycleMetrics != null) {
-                lifecycleMetrics.recordConsistencyRebuild();
-            }
-        } catch (Exception e) {
-            LOG.error("action=stale_rebuild_failed indexId={} error={}",
-                    descriptor.indexId(), e.getMessage(), e);
         }
     }
 
     private void checkSingleIndex(IndexDescriptor descriptor, ConsistencyConfig config) {
-        IndexMetadataStore store = deps.metadataStore();
-        Set<String> indexedFiles = collectIndexedFiles(store, descriptor);
-        List<String> currentDataFiles = resolveDataFiles(
-                descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
-        if (currentDataFiles.isEmpty()) {
-            LOG.debug("action=consistency_skip indexId={} reason=no_data_files", descriptor.indexId());
-            return;
-        }
-        double coverageRatio = computeCoverage(currentDataFiles, indexedFiles);
-        LOG.info("action=consistency_check indexId={} coverage={} total={} covered={}",
-                descriptor.indexId(), String.format("%.3f", coverageRatio),
-                currentDataFiles.size(), countCovered(currentDataFiles, indexedFiles));
-        handleLowCoverage(descriptor, config, coverageRatio, currentDataFiles, indexedFiles);
+        reconcileIndex(descriptor, config, false);
     }
 
-    private static Set<String> collectIndexedFiles(IndexMetadataStore store, IndexDescriptor descriptor) {
-        List<IndexFileMapping> mappings = store.getIndexFileMappings(descriptor.indexId());
-        Set<String> indexedFiles = new HashSet<>(mappings.size());
-        for (IndexFileMapping m : mappings) {
-            indexedFiles.add(m.dataFilePath());
-        }
-        return indexedFiles;
-    }
-
-    private static double computeCoverage(List<String> dataFiles, Set<String> indexedFiles) {
-        return (double) countCovered(dataFiles, indexedFiles) / dataFiles.size();
-    }
-
-    private static int countCovered(List<String> dataFiles, Set<String> indexedFiles) {
-        int count = 0;
-        for (String f : dataFiles) {
-            if (indexedFiles.contains(f)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private void handleLowCoverage(IndexDescriptor descriptor, ConsistencyConfig config,
-                                   double coverageRatio, List<String> currentDataFiles,
-                                   Set<String> indexedFiles) {
-        if (coverageRatio >= config.rebuildThreshold()) {
-            return;
-        }
-        LOG.warn("event=index_low_coverage indexId={} coverage={} threshold={}",
-                descriptor.indexId(), String.format("%.3f", coverageRatio),
-                config.rebuildThreshold());
-        if (lifecycleMetrics != null) {
-            lifecycleMetrics.recordLowCoverage(descriptor.indexId(), coverageRatio);
-        }
-        if (!config.autoRebuildEnabled()) {
-            LOG.warn("action=consistency_low_coverage indexId={} coverage={} threshold={} autoRebuild=disabled",
-                    descriptor.indexId(), String.format("%.3f", coverageRatio),
-                    config.rebuildThreshold());
-            return;
-        }
-        submitIncrementalBuild(descriptor, currentDataFiles, indexedFiles);
-    }
-
-    private void submitIncrementalBuild(
-            IndexDescriptor descriptor,
-            List<String> currentDataFiles,
-            Set<String> indexedFiles) {
+    private void reconcileIndex(
+            IndexDescriptor descriptor, ConsistencyConfig config, boolean fullReplacement) {
         try {
-            List<DataFileInfo> uncoveredFiles = resolveUncoveredFiles(descriptor, currentDataFiles, indexedFiles);
-            if (uncoveredFiles.isEmpty()) {
+            SnapshotAwareMetadata snapshotMetadata = deps.accessorResolver()
+                    .resolveSnapshotAwareMetadata(
+                            descriptor.catalogName(), descriptor.schemaName(),
+                            descriptor.tableName());
+            if (snapshotMetadata == null) {
+                verifyWithoutSnapshotIdentity(descriptor);
                 return;
             }
-            executeIncrementalBuild(descriptor, uncoveredFiles);
+            reconcileSnapshot(descriptor, config, fullReplacement, snapshotMetadata);
         } catch (Exception e) {
-            LOG.error("action=consistency_rebuild_failed indexId={} error={}",
+            LOG.error("action=consistency_reconcile_failed indexId={} error={}",
                     descriptor.indexId(), e.getMessage(), e);
         }
     }
 
-    private List<DataFileInfo> resolveUncoveredFiles(IndexDescriptor descriptor,
-                                                     List<String> currentDataFiles,
-                                                     Set<String> indexedFiles) {
-        List<String> uncoveredPaths = currentDataFiles.stream()
-                .filter(f -> !indexedFiles.contains(f))
-                .toList();
-        if (uncoveredPaths.isEmpty()) {
-            return List.of();
+    private void reconcileSnapshot(
+            IndexDescriptor descriptor,
+            ConsistencyConfig config,
+            boolean fullReplacement,
+            SnapshotAwareMetadata snapshotMetadata) {
+        String currentSnapshot = snapshotMetadata.currentSnapshotId().orElse(null);
+        if (currentSnapshot == null || currentSnapshot.isBlank()) {
+            LOG.debug("action=consistency_skip indexId={} reason=no_current_snapshot",
+                    descriptor.indexId());
+            return;
         }
-        return deps.accessorResolver().resolveDataFileInfos(
-                descriptor.catalogName(), descriptor.schemaName(),
-                descriptor.tableName(), uncoveredPaths);
+        IndexGenerationManifest active = deps.metadataStore()
+                .findActiveIndexGeneration(descriptor.indexId()).orElse(null);
+        if (active == null && descriptor.state() == IndexState.READY) {
+            markReadyIndexStale(descriptor, "missing_active_generation_manifest");
+            return;
+        }
+        SnapshotCoverage coverage = loadSnapshotCoverage(
+                descriptor, snapshotMetadata, currentSnapshot, active);
+        recordCoverage(descriptor, config, currentSnapshot, coverage);
+        boolean currentManifest = active != null
+                && active.sourceSnapshot().equals(currentSnapshot);
+        if (!fullReplacement && coverage.isExact() && currentManifest) {
+            return;
+        }
+        refreshSnapshot(descriptor, config, fullReplacement, snapshotMetadata,
+                currentSnapshot, active, coverage);
     }
 
-    private void executeIncrementalBuild(IndexDescriptor descriptor, List<DataFileInfo> uncoveredFiles) {
-        FileSystemAccessor fsAccessor = deps.accessorResolver()
-                .resolve(descriptor.catalogName());
-        ColumnValueReader columnReader = deps.accessorResolver()
-                .resolveColumnValueReader(descriptor.catalogName());
-        IndexMetadataStore store = deps.metadataStore();
-        deps.buildCoordinator().submitBuildTask(
-                descriptor, uncoveredFiles, fsAccessor, columnReader,
-                batch -> BuildMappingPersister.persist(
-                        store, batch, descriptor.generation()));
+    private SnapshotCoverage loadSnapshotCoverage(
+            IndexDescriptor descriptor,
+            SnapshotAwareMetadata snapshotMetadata,
+            String currentSnapshot,
+            IndexGenerationManifest active) {
+        List<SnapshotDataFile> snapshotFiles =
+                snapshotMetadata.listFilesAtSnapshot(currentSnapshot);
+        int activeGeneration = active == null
+                ? descriptor.generation() : active.generation();
+        Set<String> indexedFiles = collectIndexedFiles(
+                deps.metadataStore(), descriptor.indexId(), activeGeneration);
+        Set<String> currentFiles = snapshotFiles.stream()
+                .map(SnapshotDataFile::path)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return new SnapshotCoverage(snapshotFiles, currentFiles, indexedFiles);
+    }
+
+    private void recordCoverage(
+            IndexDescriptor descriptor,
+            ConsistencyConfig config,
+            String currentSnapshot,
+            SnapshotCoverage coverage) {
+        double ratio = coverage.ratio();
+        LOG.info("action=consistency_check indexId={} snapshot={} coverage={} total={} covered={}",
+                descriptor.indexId(), currentSnapshot, String.format("%.3f", ratio),
+                coverage.currentFiles().size(),
+                countCovered(coverage.currentFiles(), coverage.indexedFiles()));
+        if (ratio < config.rebuildThreshold() && lifecycleMetrics != null) {
+            lifecycleMetrics.recordLowCoverage(descriptor.indexId(), ratio);
+        }
+    }
+
+    private void refreshSnapshot(
+            IndexDescriptor descriptor,
+            ConsistencyConfig config,
+            boolean fullReplacement,
+            SnapshotAwareMetadata snapshotMetadata,
+            String currentSnapshot,
+            IndexGenerationManifest active,
+            SnapshotCoverage coverage) {
+        if (!config.autoRebuildEnabled()) {
+            LOG.warn("action=consistency_refresh_required indexId={} "
+                            + "snapshotCurrent={} snapshotIndexed={} autoRebuild=disabled",
+                    descriptor.indexId(), currentSnapshot,
+                    active == null ? "none" : active.sourceSnapshot());
+            return;
+        }
+        SnapshotDelta delta = fullReplacement || active == null
+                || active.sourceSnapshot().isBlank()
+                ? SnapshotDelta.full(coverage.snapshotFiles(), coverage.indexedFiles())
+                : resolveDelta(snapshotMetadata, active, currentSnapshot,
+                        coverage.snapshotFiles(), coverage.currentFiles(), coverage.indexedFiles());
+        boolean currentManifest = active != null
+                && active.sourceSnapshot().equals(currentSnapshot);
+        boolean refreshed = generationRefresher.refresh(
+                descriptor, new IndexRefreshInput(
+                        currentSnapshot,
+                        delta.added().stream()
+                                .map(IndexConsistencyChecker::toDataFileInfo).toList(),
+                        delta.removed(), fullReplacement || currentManifest));
+        if (!refreshed) {
+            LOG.info("action=consistency_refresh_deferred indexId={} snapshot={}",
+                    descriptor.indexId(), currentSnapshot);
+            return;
+        }
         if (lifecycleMetrics != null) {
             lifecycleMetrics.recordConsistencyRebuild();
         }
-        LOG.info("action=consistency_rebuild_submitted indexId={} uncoveredFiles={}",
-                descriptor.indexId(), uncoveredFiles.size());
+    }
+
+    private SnapshotDelta resolveDelta(
+            SnapshotAwareMetadata snapshotMetadata,
+            IndexGenerationManifest active,
+            String currentSnapshot,
+            List<SnapshotDataFile> currentSnapshotFiles,
+            Set<String> currentFiles,
+            Set<String> indexedFiles) {
+        try {
+            SnapshotRelation relation = snapshotMetadata.relation(
+                    active.sourceSnapshot(), currentSnapshot);
+            if (relation != SnapshotRelation.LEFT_ANCESTOR
+                    && relation != SnapshotRelation.SAME) {
+                LOG.warn("action=snapshot_lineage_changed indexId={} relation={} "
+                                + "action=full_replacement",
+                        active.indexId(), relation);
+                return SnapshotDelta.full(currentSnapshotFiles, indexedFiles);
+            }
+            SnapshotFileDelta connectorDelta = snapshotMetadata.diffFiles(
+                    active.sourceSnapshot(), currentSnapshot);
+            Set<String> addedPaths = connectorDelta.added().stream()
+                    .map(SnapshotDataFile::path)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            Set<String> removed = Set.copyOf(connectorDelta.removed());
+            Set<String> predicted = new HashSet<>(indexedFiles);
+            predicted.removeAll(removed);
+            predicted.addAll(addedPaths);
+            if (predicted.equals(currentFiles)) {
+                return new SnapshotDelta(
+                        connectorDelta.added(), connectorDelta.removed());
+            }
+            LOG.warn("action=snapshot_diff_validation_failed indexId={} "
+                            + "predictedFiles={} currentFiles={} action=full_replacement",
+                    active.indexId(), predicted.size(), currentFiles.size());
+        } catch (SnapshotExpiredException expired) {
+            LOG.warn("action=snapshot_diff_expired indexId={} snapshot={} "
+                            + "action=full_replacement",
+                    active.indexId(), expired.snapshotId());
+        }
+        return SnapshotDelta.full(currentSnapshotFiles, indexedFiles);
+    }
+
+    private void verifyWithoutSnapshotIdentity(IndexDescriptor descriptor) {
+        IndexMetadataStore store = deps.metadataStore();
+        IndexGenerationManifest active = store.findActiveIndexGeneration(
+                descriptor.indexId()).orElse(null);
+        int generation = active == null ? descriptor.generation() : active.generation();
+        Set<String> indexedFiles = collectIndexedFiles(
+                store, descriptor.indexId(), generation);
+        List<String> currentDataFiles = resolveDataFiles(
+                descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
+        if (!indexedFiles.equals(Set.copyOf(currentDataFiles))
+                && descriptor.state() == IndexState.READY) {
+            markReadyIndexStale(descriptor, "snapshot_identity_unavailable_with_file_drift");
+        }
+    }
+
+    private void markReadyIndexStale(IndexDescriptor descriptor, String reason) {
+        boolean updated = deps.metadataStore().updateIndexState(
+                descriptor.indexId(), IndexState.STALE.name(), java.time.Instant.now(),
+                reason, descriptor.updatedAt(), descriptor.state().name(),
+                descriptor.generation());
+        LOG.warn("action=index_marked_stale indexId={} reason={} updated={}",
+                descriptor.indexId(), reason, updated);
+    }
+
+    private static Set<String> collectIndexedFiles(
+            IndexMetadataStore store, String indexId, int generation) {
+        Set<String> indexedFiles = new HashSet<>();
+        for (IndexFileMapping mapping : store.getIndexFileMappings(indexId)) {
+            if (mapping.generation() == generation) {
+                indexedFiles.add(mapping.dataFilePath());
+            }
+        }
+        return Set.copyOf(indexedFiles);
+    }
+
+    private static double computeCoverage(
+            Set<String> dataFiles, Set<String> indexedFiles) {
+        if (dataFiles.isEmpty()) {
+            return indexedFiles.isEmpty() ? 1.0 : 0.0;
+        }
+        return (double) countCovered(dataFiles, indexedFiles) / dataFiles.size();
+    }
+
+    private static int countCovered(
+            Set<String> dataFiles, Set<String> indexedFiles) {
+        return Math.toIntExact(dataFiles.stream().filter(indexedFiles::contains).count());
+    }
+
+    private static DataFileInfo toDataFileInfo(SnapshotDataFile file) {
+        return new DataFileInfo(
+                file.path(), file.rowCount(), file.sizeBytes(), file.format());
+    }
+
+    private record SnapshotDelta(
+            List<SnapshotDataFile> added, List<String> removed) {
+        private SnapshotDelta {
+            added = List.copyOf(added);
+            removed = List.copyOf(removed);
+        }
+
+        private static SnapshotDelta full(
+                List<SnapshotDataFile> currentFiles, Set<String> indexedFiles) {
+            return new SnapshotDelta(
+                    currentFiles, List.copyOf(indexedFiles));
+        }
+    }
+
+    private record SnapshotCoverage(
+            List<SnapshotDataFile> snapshotFiles,
+            Set<String> currentFiles,
+            Set<String> indexedFiles) {
+        private double ratio() {
+            return computeCoverage(currentFiles, indexedFiles);
+        }
+
+        private boolean isExact() {
+            return indexedFiles.equals(currentFiles);
+        }
     }
 
     private List<String> resolveDataFiles(String catalog, String schema, String table) {
-        try {
-            return deps.accessorResolver().listDataFiles(catalog, schema, table);
-        } catch (Exception e) {
-            LOG.warn("action=list_data_files_failed catalog={} schema={} table={} error={}",
-                    catalog, schema, table, e.getMessage());
-            return List.of();
-        }
+        return deps.accessorResolver().listDataFiles(catalog, schema, table);
     }
 
     @Override

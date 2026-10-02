@@ -15,7 +15,6 @@ import org.pangrova.parser.ast.statement.AlterCatalogStatement;
 import org.pangrova.parser.ast.statement.DescribeCatalogStatement;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.spi.security.AccessControl;
-import org.pangrova.spi.security.UserIdentity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +34,6 @@ public final class StatementDispatcher {
     private final CoordinatorResultService resultService;
     private final AccessControl accessControl;
     private final DdlLeadershipGuard ddlGuard;
-    private volatile org.pangrova.coordinator.query.execution.dispatch.task.SystemTableQueryTask systemTableQueryTask;
 
     public StatementDispatcher(StatementDispatcherContext deps) {
         this.compiler = deps.compiler();
@@ -62,21 +60,6 @@ public final class StatementDispatcher {
             return null;
         }
 
-        // Intercept SELECT queries with system table references (e.g., table$snapshots).
-        // System tables are virtual metadata tables handled in Java, not sent to Native.
-        if (ast instanceof org.pangrova.parser.ast.Query query && systemTableQueryTask != null) {
-            var sysRef = org.pangrova.coordinator.query.execution.dispatch.task
-                    .SystemTableQueryTask.extractSystemTableRef(query);
-            if (sysRef.isPresent()) {
-                var context = new StatementExecutionContext(
-                        sm, queryId, session, currentCompiler, resultService);
-                StatementResult result = systemTableQueryTask.execute(
-                        query, sysRef.get(), context);
-                fireCompletionEvent(queryId, ast, result, session);
-                return toDispatchResult(result, queryId, sm);
-            }
-        }
-
         if (!isRoutable(ast)) {
             return null;
         }
@@ -91,7 +74,7 @@ public final class StatementDispatcher {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "No factory registered for: " + ast.getClass().getSimpleName());
         }
-        checkPermission(ast, session.userIdentity());
+        checkPermission(ast, session);
         var context = new StatementExecutionContext(sm, queryId, session, currentCompiler, resultService);
         StatementResult result = executeUnchecked(factory, ast, context);
         fireCompletionEvent(queryId, ast, result, session);
@@ -116,8 +99,7 @@ public final class StatementDispatcher {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "No factory registered for: " + ast.getClass().getSimpleName());
         }
-        PermissionChecker.check(ast,
-                session != null ? session.userIdentity() : null, accessControl);
+        PermissionChecker.check(ast, session, accessControl);
         var context = new StatementExecutionContext(
                 sm, queryId, session, compiler, resultService);
         StatementResult result = executeUnchecked(factory, ast, context);
@@ -135,18 +117,12 @@ public final class StatementDispatcher {
         registerAll(factory);
     }
 
-    /** Sets the system table query task for intercepting system table references. */
-    public void setSystemTableQueryTask(
-            org.pangrova.coordinator.query.execution.dispatch.task.SystemTableQueryTask task) {
-        this.systemTableQueryTask = task;
-    }
-
     /**
      * Enforces table-level access control before factory execution.
      * Delegates to PermissionChecker for consistent permission enforcement.
      */
-    private void checkPermission(Statement stmt, UserIdentity user) {
-        PermissionChecker.check(stmt, user, accessControl);
+    private void checkPermission(Statement stmt, CoordinatorSessionContext session) {
+        PermissionChecker.check(stmt, session, accessControl);
     }
 
     /**
@@ -205,8 +181,8 @@ public final class StatementDispatcher {
             return null;
         }
         if (resultService != null) {
-            return DispatchResult.fromLocal(
-                    resultService.dispatchLocalFromTypedRows(
+            return DispatchResult.fromControlPlane(
+                    resultService.dispatchControlPlaneRows(
                             queryId, result.rows(), result.columnNames(), sm.toFinisher()));
         }
         sm.tryTransition(QueryStateMachine.State.SCHEDULING);

@@ -20,6 +20,7 @@ int64_t HandleRegistry::create(
     throw std::runtime_error("HandleRegistry::create: null executor");
   }
   int64_t handle = next_handle_.fetch_add(1, std::memory_order_relaxed);
+  executor->bindHandle(handle);
   {
     // F-NATIVE-04: Read current_generation_ inside the lock to prevent TOCTOU
     // race with destroyAll() which increments generation under exclusive lock.
@@ -49,10 +50,17 @@ std::shared_ptr<pangrova::executor::TaskExecutor> HandleRegistry::acquire(
   return it->second.executor;
 }
 
-void HandleRegistry::release(int64_t handle) {
+void HandleRegistry::release(
+    int64_t handle,
+    const std::function<void(pangrova::executor::TaskExecutor&)>& prepare_receipt) {
+  // Quiesce actual readers, buffers and drivers before removing ownership.
+  // A failed resource drain leaves the exact handle available for retry.
+  auto executor = acquire(handle);
+  executor->release();
+  if (prepare_receipt) prepare_receipt(*executor);
   std::unique_lock<std::shared_mutex> lock(mutex_);
   auto it = handles_.find(handle);
-  if (it == handles_.end()) {
+  if (it == handles_.end() || it->second.executor != executor) {
     throw std::runtime_error(
         "HandleRegistry::release: handle " + std::to_string(handle) +
         " not found (double release or stale handle)");
@@ -61,10 +69,13 @@ void HandleRegistry::release(int64_t handle) {
 }
 
 void HandleRegistry::destroyAll() {
-  std::unique_lock<std::shared_mutex> lock(mutex_);
-  for (auto& [handle, entry] : handles_) {
-    auto state = entry.executor ? entry.executor->state()
-                                : pangrova::executor::ExecutorState::FINISHED;
+  std::vector<std::pair<int64_t, Entry>> snapshot;
+  {
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    for (const auto& entry : handles_) snapshot.push_back(entry);
+  }
+  for (const auto& [handle, entry] : snapshot) {
+    auto state = entry.executor->state();
     bool terminal =
         (state == pangrova::executor::ExecutorState::FINISHED ||
          state == pangrova::executor::ExecutorState::FAILED ||
@@ -76,39 +87,14 @@ void HandleRegistry::destroyAll() {
                 << (entry.executor ? entry.executor->taskId() : "null")
                 << std::endl;
     }
-  }
-  handles_.clear();
-  current_generation_.fetch_add(1, std::memory_order_release);
-}
-
-void HandleRegistry::removeTerminated() {
-  // Two-phase lock: shared lock to collect, exclusive lock to remove.
-  // TOCTOU between phases is benign: handle IDs are monotonically increasing
-  // (next_handle_ never reuses), so a handle collected in Phase 1 that gets
-  // released by another thread before Phase 2 simply results in a no-op erase.
-  // Phase 1: Read lock to collect terminated handle IDs.
-  std::vector<int64_t> terminated;
-  {
-    std::shared_lock<std::shared_mutex> lock(mutex_);
-    for (const auto& [handle, entry] : handles_) {
-      if (entry.executor) {
-        auto s = entry.executor->state();
-        if (s == pangrova::executor::ExecutorState::FINISHED ||
-            s == pangrova::executor::ExecutorState::FAILED ||
-            s == pangrova::executor::ExecutorState::CANCELLED) {
-          terminated.push_back(handle);
-        }
-      }
-    }
-  }
-
-  // Phase 2: Write lock only for removal of collected handles.
-  if (!terminated.empty()) {
+    entry.executor->release();
     std::unique_lock<std::shared_mutex> lock(mutex_);
-    for (auto handle : terminated) {
-      handles_.erase(handle);
-    }
+    auto current = handles_.find(handle);
+    if (current != handles_.end() && current->second.executor == entry.executor) handles_.erase(current);
   }
+  std::unique_lock<std::shared_mutex> lock(mutex_);
+  if (!handles_.empty()) throw std::runtime_error("Executors were registered during shutdown");
+  current_generation_.fetch_add(1, std::memory_order_release);
 }
 
 size_t HandleRegistry::size() const {

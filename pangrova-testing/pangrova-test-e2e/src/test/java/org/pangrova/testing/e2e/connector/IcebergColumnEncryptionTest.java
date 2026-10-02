@@ -60,9 +60,7 @@ class IcebergColumnEncryptionTest extends SqlE2ETestBase {
 
     @BeforeAll
     static void setupCatalog() {
-        if (!isDockerReady()) {
-            return;
-        }
+        isDockerReady();
         Configuration hadoopConf = new Configuration();
         icebergCatalog = new HadoopCatalog(hadoopConf, icebergWarehouse().toString());
     }

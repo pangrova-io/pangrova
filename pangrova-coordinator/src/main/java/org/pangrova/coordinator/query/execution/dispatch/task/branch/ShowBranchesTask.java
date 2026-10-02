@@ -23,7 +23,7 @@ public final class ShowBranchesTask implements MetadataTask<ShowBranchesStatemen
 
     @Override
     public StatementResult execute(ShowBranchesStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeShowBranches(statement);
+        List<TypedRow> rows = executor.executeShowBranches(statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.SHOW);
     }
 

@@ -76,7 +76,8 @@ class NativeWriteExecutorSessionCleanupPropertyTest {
     // --- Test infrastructure (hand-written test doubles, no mocks) ---
 
     private static NativeWriteExecutor buildExecutor(List<TrackingPageSink> sinkCollector) {
-        return new NativeWriteExecutor(catalogName -> {
+        return new NativeWriteExecutor(new org.pangrova.worker.jni.write.TestCatalogResourceResolver(
+                (taskId, catalogName) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) -> {
                 var sink = new TrackingPageSink();
@@ -84,8 +85,10 @@ class NativeWriteExecutorSessionCleanupPropertyTest {
                 return sink;
             };
             ConnectorSession session = new StubSession();
-            return new CatalogResourceResolver.CatalogResources(metadata, provider, session);
-        });
+            return new CatalogResourceResolver.CatalogResources(metadata, provider, session,
+                    org.pangrova.worker.jni.write.TestOutputHandles.outputHandle(),
+                    List.of("id"));
+        }));
     }
 
     private static WriteDescriptor descriptor(String tableName) {
@@ -93,7 +96,7 @@ class NativeWriteExecutorSessionCleanupPropertyTest {
                 "test-catalog", "test-schema", tableName,
                 WriteDescriptor.DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")),
-                Map.of());
+                Map.of("taskId", "property-task"));
     }
 
     /** Tracks abort/close calls without performing real I/O. */

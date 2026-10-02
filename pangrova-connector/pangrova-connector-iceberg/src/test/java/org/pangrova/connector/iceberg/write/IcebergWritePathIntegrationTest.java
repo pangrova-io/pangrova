@@ -66,7 +66,7 @@ class IcebergWritePathIntegrationTest {
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "write-path-test"); }
     };
 
     private static final List<ConnectorTableMetadata.Column> TEST_COLUMNS = List.of(
@@ -159,12 +159,12 @@ class IcebergWritePathIntegrationTest {
     }
 
     private void writeRows(ConnectorOutputTableHandle outputHandle, List<TypedRow> rows) {
-        ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, outputHandle);
-        Page page = new Page(List.of("id", "name", "amount"), rows);
-        sink.appendPage(page);
-        byte[] commitMetadata = sink.finishWithMetadata();
-        metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
-        sink.close();
+        try (ConnectorPageSink sink = pageSinkProvider.createPageSink(TX, SESSION, outputHandle)) {
+            Page page = new Page(List.of("id", "name", "amount"), rows);
+            sink.appendPage(page);
+            byte[] commitMetadata = sink.finishWithMetadata();
+            metadata.finishDistributedWrite(SESSION, outputHandle, List.of(commitMetadata));
+        }
     }
 
     private List<TypedRow> buildRows(int startInclusive, int endExclusive) {

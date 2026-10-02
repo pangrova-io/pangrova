@@ -1,22 +1,26 @@
 package org.pangrova.coordinator.property.query.execution;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.IntStream;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
+import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine.StageDispatchRecord;
+import org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAccess;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.protocol.rest.task.ExchangeSourceDescriptor;
+import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
+import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.RelNode;
@@ -32,11 +36,6 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class NonLeafDispatchParallelismPropertyTest {
 
-    private static final String ESB_CLS =
-            "org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeSourceBuilder";
-    private static final String SDR_CLS =
-            "org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine$StageDispatchRecord";
-
     /** Exchange sources carry the requested partitionId. */
     @Property(tries = 10)
     void exchangeSourcesCarryRequestedPartitionId(
@@ -44,10 +43,10 @@ class NonLeafDispatchParallelismPropertyTest {
             @ForAll @IntRange(min = 0, max = 31) int raw) {
         int pid = raw % par;
         StageDAG dag = twoStageDAG(1, par);
-        List<Object> disp = List.of(rec(0, "t0", "h1"));
-        List<ExchangeSourceDescriptor> res = call(node(1, par, "OUTPUT"), dag, disp, pid);
+        List<StageDispatchRecord> disp = List.of(rec(0, 0, "t0", "h1"));
+        List<ExchangePartitionSource> res = call(node(1, par, "OUTPUT"), dag, disp, pid);
         assertThat(res).isNotEmpty();
-        res.forEach(s -> assertThat(s.partitionId()).isEqualTo(pid));
+        res.forEach(s -> assertThat(s.getOutputPartitionId()).isEqualTo(pid));
     }
 
 
@@ -55,12 +54,12 @@ class NonLeafDispatchParallelismPropertyTest {
     @Property(tries = 10)
     void allPartitionsCovered(@ForAll @IntRange(min = 2, max = 16) int par) {
         StageDAG dag = twoStageDAG(1, par);
-        List<Object> disp = List.of(rec(0, "t0", "h1"));
+        List<StageDispatchRecord> disp = List.of(rec(0, 0, "t0", "h1"));
         Set<Integer> seen = new HashSet<>();
         for (int p = 0; p < par; p++) {
-            List<ExchangeSourceDescriptor> r = call(node(1, par, "OUTPUT"), dag, disp, p);
+            List<ExchangePartitionSource> r = call(node(1, par, "OUTPUT"), dag, disp, p);
             assertThat(r).hasSize(1);
-            seen.add(r.get(0).partitionId());
+            seen.add(r.get(0).getOutputPartitionId());
         }
         Set<Integer> exp = new HashSet<>();
         for (int i = 0; i < par; i++) exp.add(i);
@@ -83,41 +82,42 @@ class NonLeafDispatchParallelismPropertyTest {
             @ForAll @IntRange(min = 2, max = 8) int upCnt,
             @ForAll @IntRange(min = 1, max = 8) int par) {
         StageDAG dag = twoStageDAG(upCnt, par);
-        List<Object> disp = new ArrayList<>();
-        for (int i = 0; i < upCnt; i++) disp.add(rec(0, "t" + i, "h" + i));
+        List<StageDispatchRecord> disp = new ArrayList<>();
+        for (int i = 0; i < upCnt; i++) {
+            disp.add(rec(0, i, "t" + i, "h" + i));
+        }
         int tp = par / 2;
-        List<ExchangeSourceDescriptor> r = call(node(1, par, "OUTPUT"), dag, disp, tp);
+        List<ExchangePartitionSource> r = call(node(1, par, "OUTPUT"), dag, disp, tp);
         assertThat(r).hasSize(upCnt);
-        r.forEach(s -> assertThat(s.partitionId()).isEqualTo(tp));
+        r.forEach(s -> assertThat(s.getOutputPartitionId()).isEqualTo(tp));
     }
 
     // --- helpers ---
 
-    @SuppressWarnings("unchecked")
-    private static List<ExchangeSourceDescriptor> call(
-            StageNode stage, StageDAG dag, List<?> disp, int pid) {
-        try {
-            Class<?> c = Class.forName(ESB_CLS);
-            Method m = c.getDeclaredMethod("buildExchangeSources",
-                    StageNode.class, StageDAG.class, List.class, int.class);
-            m.setAccessible(true);
-            return (List<ExchangeSourceDescriptor>) m.invoke(null, stage, dag, disp, pid);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+    private static List<ExchangePartitionSource> call(
+            StageNode stage, StageDAG dag, List<StageDispatchRecord> disp, int pid) {
+        return ExchangeInputTestAccess.build(stage, dag, disp, pid).stream()
+                .flatMap(input -> input.getDirect().getSourcesList().stream())
+                .toList();
     }
 
-    private static Object rec(int sid, String tid, String host) {
-        try {
-            ResultEndpoint ep = new ResultEndpoint(host, 8080, "tk", "http");
-            DispatchResult dr = new DispatchResult(host, tid, ep);
-            Class<?> cls = Class.forName(SDR_CLS);
-            Constructor<?> ct = cls.getDeclaredConstructors()[0];
-            ct.setAccessible(true);
-            return ct.newInstance(sid, dr, 8080, 9090);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+    private static StageDispatchRecord rec(int sid, int sourcePartition, String tid, String host) {
+        long expiresAt = System.currentTimeMillis() + 600_000L;
+        var tickets = IntStream.range(0, 32)
+                .mapToObj(partition -> new ShufflePartitionTicketDescriptor(
+                        partition, java.util.Base64.getEncoder().encodeToString(
+                                ("ticket-" + tid + "-" + partition).getBytes(
+                                        java.nio.charset.StandardCharsets.UTF_8)), expiresAt))
+                .toList();
+        ResultEndpoint ep = new ResultEndpoint(host, 8080, "tk", "http");
+        DispatchResult dr = new DispatchResult(host, tid, ep).withShuffleEndpoint(
+                new ShuffleEndpointDescriptor(host, 9090, "", tickets));
+        SubmitTaskRequest request =
+                org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                        tid, "query", sid, sourcePartition,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                        "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return new StageDispatchRecord(sid, dr, 8080, 9090, request);
     }
 
     private static StageDAG twoStageDAG(int upPar, int downPar) {

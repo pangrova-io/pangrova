@@ -13,12 +13,14 @@
  */
 package org.pangrova.planner;
 
+import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.planner.mv.DynamicTableResolution;
 import org.pangrova.planner.lineage.ColumnDerivation;
 import org.pangrova.planner.lineage.ColumnLineageExtractor;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
+import org.pangrova.planner.stability.PlanHasher;
 import org.pangrova.planner.vector.VectorSearchNode;
 import org.pangrova.planner.vector.VectorSearchRewriter;
 import org.pangrova.spi.index.IndexDescriptor;
@@ -27,6 +29,9 @@ import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableModify;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.logical.LogicalSort;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexShuttle;
+import org.apache.calcite.rex.RexSubQuery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,8 +46,11 @@ import java.util.function.BiFunction;
  * public API — coordinator code holds and passes {@code PlannedQuery} without any
  * Calcite imports.
  *
- * <p>Thread-safe: immutable once constructed.</p>
+ * <p>Metadata is immutable. The Calcite tree remains query-owned and must not be
+ * cached across queries or mutated concurrently. Worker dispatch uses serialized
+ * immutable protocol bytes, not this tree.</p>
  */
+@NotThreadSafe
 public final class PlannedQuery {
 
     private static final Logger LOG = LoggerFactory.getLogger(PlannedQuery.class);
@@ -94,11 +102,12 @@ public final class PlannedQuery {
      */
     public List<String> queryOutputColumnTypeNames() {
         return plan.getRowType().getFieldList().stream()
-                .map(f -> mapSqlTypeName(f.getType().getSqlTypeName()))
+                .map(f -> mapSqlTypeName(f.getType()))
                 .toList();
     }
 
-    private static String mapSqlTypeName(org.apache.calcite.sql.type.SqlTypeName sqlType) {
+    private static String mapSqlTypeName(org.apache.calcite.rel.type.RelDataType type) {
+        org.apache.calcite.sql.type.SqlTypeName sqlType = type.getSqlTypeName();
         return switch (sqlType) {
             case INTEGER -> "INT";
             case BIGINT -> "BIGINT";
@@ -111,7 +120,9 @@ public final class PlannedQuery {
             case VARBINARY, BINARY -> "VARBINARY";
             case DECIMAL -> "DECIMAL";
             case DATE -> "DATE";
-            case TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE -> "TIMESTAMP";
+            case TIMESTAMP -> type.getPrecision() > 6 ? "TIMESTAMP_NS" : "TIMESTAMP";
+            case TIMESTAMP_TZ, TIMESTAMP_WITH_LOCAL_TIME_ZONE -> throw new IllegalArgumentException(
+                    "CTAS cannot preserve timezone timestamp precision in the destination schema: " + type);
             case TIME -> "TIME";
             case INTERVAL_YEAR, INTERVAL_YEAR_MONTH, INTERVAL_MONTH -> "BIGINT";
             case INTERVAL_DAY, INTERVAL_DAY_HOUR, INTERVAL_DAY_MINUTE, INTERVAL_DAY_SECOND,
@@ -125,15 +136,15 @@ public final class PlannedQuery {
     // ── Plan metadata ──
 
     public List<String> columnNames() {
-        return columnNames;
+        return List.copyOf(columnNames);
     }
 
     public List<RuntimeFilterDescriptor> runtimeFilterDescriptors() {
-        return runtimeFilterDescriptors;
+        return List.copyOf(runtimeFilterDescriptors);
     }
 
     public List<DynamicTableResolution.MergeOnRead> mergeOnReadHints() {
-        return mergeOnReadHints;
+        return List.copyOf(mergeOnReadHints);
     }
 
     // ── Query classification predicates ──
@@ -162,6 +173,76 @@ public final class PlannedQuery {
         return plan.explain();
     }
 
+    /**
+     * Returns a stable digest of the fully rewritten plan.
+     *
+     * <p>Callers that use this value for result-cache isolation must invoke it
+     * only after row filters and column masks have been applied. The digest
+     * includes filter and projection expressions, so a change to an effective
+     * security policy cannot reuse an entry produced by the previous policy.</p>
+     */
+    public String effectivePlanDigest() {
+        return PlanHasher.planHash(plan);
+    }
+
+    /** Serializes this protected relation without reparsing an unprotected SQL string. */
+    public byte[] serializeValidated(SqlCompiler compiler) {
+        return compiler.convertValidateAndSerializeFragment(plan, columnNames).planBytes();
+    }
+
+    /** Whether this plan can be evaluated independently on each source partition. */
+    public boolean isSplitIndependent() {
+        return PartitionLocalPlanInspector.isIndependent(plan);
+    }
+
+    /**
+     * Returns whether this secured plan is safe for ordinary result caching.
+     * External AI/FILE invocations and non-deterministic expressions are never
+     * cached because provider state, policy, usage accounting, and side effects
+     * are not represented by relational source invalidation events.
+     */
+    public boolean isResultCacheSafe() {
+        return isResultCacheSafe(plan);
+    }
+
+    private static boolean isResultCacheSafe(RelNode node) {
+        if (node instanceof TableModify) {
+            return false;
+        }
+        CacheSafetyInspector inspector = new CacheSafetyInspector();
+        node.accept(inspector);
+        if (!inspector.safe) {
+            return false;
+        }
+        for (RelNode input : node.getInputs()) {
+            if (!isResultCacheSafe(input)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static final class CacheSafetyInspector extends RexShuttle {
+        private boolean safe = true;
+
+        @Override
+        public org.apache.calcite.rex.RexNode visitCall(RexCall call) {
+            if (!call.getOperator().isDeterministic()) {
+                safe = false;
+            }
+            String operator = call.getOperator().getName()
+                    .toLowerCase(java.util.Locale.ROOT);
+            if (operator.startsWith("ai_") || operator.startsWith("ai:")
+                    || operator.startsWith("file_") || operator.startsWith("file:")) {
+                safe = false;
+            }
+            if (call instanceof RexSubQuery subQuery && !isResultCacheSafe(subQuery.rel)) {
+                safe = false;
+            }
+            return super.visitCall(call);
+        }
+    }
+
     // ── Table reference extraction (for access control, cache, lineage) ──
 
     public List<List<String>> tableReferences() {
@@ -172,7 +253,7 @@ public final class PlannedQuery {
 
     private static void collectTableRefsRecursive(RelNode node, List<List<String>> refs) {
         if (node instanceof TableScan scan) {
-            refs.add(scan.getTable().getQualifiedName());
+            refs.add(PlanTable.require(scan).getQualifiedName());
         }
         for (RelNode input : node.getInputs()) {
             collectTableRefsRecursive(input, refs);
@@ -224,9 +305,10 @@ public final class PlannedQuery {
     public Optional<DmlWriteTarget> dmlWriteTarget() {
         return findTableModify(plan).map(modify ->
                 new DmlWriteTarget(
-                        modify.getTable().getQualifiedName(),
+                        PlanTable.require(modify).getQualifiedName(),
                         DmlWriteTarget.DmlOperation.fromCalciteName(
-                                modify.getOperation().name())));
+                                modify.getOperation().name()),
+                        org.pangrova.planner.declaration.CompiledWriteDeclaration.capture(modify)));
     }
 
     private static Optional<TableModify> findTableModify(RelNode node) {
@@ -271,6 +353,13 @@ public final class PlannedQuery {
 
     public FragmentedPlan fragment() {
         return PlanFragmenter.fragment(plan, -1);
+    }
+
+    /** Serializes only this protected plan's exchange stages; no original SQL retry or persisted node is needed. */
+    public AuthorizedStageGraph serializeAuthorizedStageGraph(SqlCompiler compiler, int parallelism) {
+        var purpose = AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT;
+        return AuthorizedStageGraph.compile(PlanFragmenter.fragment(plan, parallelism, purpose),
+                compiler, columnNames, purpose);
     }
 
     // ── Constant plan evaluation ──

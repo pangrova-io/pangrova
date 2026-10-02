@@ -7,6 +7,10 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,8 +23,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * operations, NULL handling, COALESCE, boolean logic, nested expressions, type
  * coercion).</p>
  *
- * <p>All constant expressions are folded by the planner and served via
- * Coordinator transport (Arrow IPC). No table data required.</p>
+ * <p>Constant expressions follow the canonical planner-to-Native task path and
+ * are served from a Worker result endpoint. No table data is required.</p>
  *
  * <p>Merged from {@code ConstantFoldingE2ETest} and {@code ConstantExpressionTest}.</p>
  */
@@ -45,6 +49,23 @@ class ConstantQueryE2ETest extends SqlE2ETestBase {
     // ── SELECT 1 ──
 
     @Test
+    @DisplayName("SQL HTTP entry rejects a request without authenticated identity")
+    void unauthenticatedQuerySubmissionIsRejected() throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + coordinatorHttpPort()
+                        + "/v1/query/submit"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(
+                        "{\"query\":\"SELECT 1\",\"session_properties\":{}}"))
+                .build();
+
+        HttpResponse<String> response = HttpClient.newHttpClient().send(
+                request, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).isEqualTo(401);
+    }
+
+    @Test
     @DisplayName("SELECT 1 returns single row with integer value 1 via transport")
     void selectOneReturnsOneViaTransport() {
         List<TypedRow> rows = sqlRunner.execute("SELECT 1");
@@ -52,6 +73,39 @@ class ConstantQueryE2ETest extends SqlE2ETestBase {
         assertThat(rows).hasSize(1);
         assertThat(firstColumnValue(rows.get(0))).isInstanceOf(Number.class);
         assertThat(((Number) firstColumnValue(rows.get(0))).intValue()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Native result remains nonterminal until Flight DoGet drains it")
+    void nativeResultIsNotFinishedBeforeDoGet() throws Exception {
+        var submitted = submitQueryViaHttp("SELECT CAST(42 AS BIGINT)");
+        String queryId = submitted.queryId();
+        String canonicalTaskId = submitted.resultEndpoint() == null
+                ? null : submitted.resultEndpoint().ticket();
+        String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
+        boolean finished = false;
+        try {
+            assertThat(submitted.state()).isEqualTo("RUNNING");
+            assertThat(submitted.resultEndpoint()).isNotNull();
+            assertThat(workerTaskId).isNotBlank();
+
+            List<TypedRow> rows = fetchResultsViaTransport(
+                    submitted.resultEndpoint(), queryId);
+            assertThat(rows).hasSize(1);
+            assertThat(((Number) firstColumnValue(rows.get(0))).longValue())
+                    .isEqualTo(42L);
+
+            var terminal = org.pangrova.common.json.JsonMapperFactory.shared()
+                    .readTree(pollUntilTerminal(queryId));
+            assertThat(terminal.path("state").asText()).isEqualTo("FINISHED");
+            finished = true;
+        } finally {
+            if (finished) {
+                releaseNativeTaskAfterTerminal(workerTaskId);
+            } else {
+                cancelNativeTaskAfterFetch(canonicalTaskId, workerTaskId);
+            }
+        }
     }
 
     // ── Multi-expression ──

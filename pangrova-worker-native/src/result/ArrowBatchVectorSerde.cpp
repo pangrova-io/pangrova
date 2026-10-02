@@ -2,6 +2,8 @@
 // See ArrowBatchVectorSerde.h for class documentation.
 
 #include "result/ArrowBatchVectorSerde.h"
+#include "columnar/CanonicalBatchStream.h"
+#include <limits>
 
 #include <arrow/buffer.h>
 #include <arrow/c/abi.h>
@@ -22,37 +24,41 @@ namespace pangrova::result {
 
 namespace {
 
+struct ExportedColumnarData {
+  ArrowArray array{};
+  ArrowSchema schema{};
+  ~ExportedColumnarData() {
+    if (array.release) array.release(&array);
+    if (schema.release) schema.release(&schema);
+  }
+};
+
 // Validates that all column types in the RowVector are representable in Arrow
 // IPC format. Throws ArrowBatchUnsupportedTypeException for opaque types.
-void validateTypesForExport(
-    const facebook::velox::RowVectorPtr& vector) {
-  const auto& type = vector->type()->asRow();
-  for (decltype(type.size()) i = 0; i < type.size(); ++i) {
-    const auto& child_type = type.childAt(i);
-    if (child_type->kind() == facebook::velox::TypeKind::OPAQUE) {
-      throw ArrowBatchUnsupportedTypeException(child_type->toString());
-    }
+void validateExportType(const facebook::velox::TypePtr& type) {
+  if (type->kind() == facebook::velox::TypeKind::OPAQUE) {
+    throw ArrowBatchUnsupportedTypeException(type->toString());
   }
+  for (uint32_t i = 0; i < type->size(); ++i) validateExportType(type->childAt(i));
+}
+void validateTypesForExport(const facebook::velox::RowVectorPtr& vector) {
+  validateExportType(vector->type());
 }
 
 // Exports a Velox RowVector to an Arrow RecordBatch via Arrow C Data Interface.
-// L2-3: preserve_dictionary controls whether dictionary-encoded vectors are
-// exported as-is (true) or flattened to flat encoding (false). Arrow IPC
-// format natively supports dictionary encoding; preserving it reduces
-// serialized size for low-cardinality columns.
+// Physical encodings are normalized so every batch has one logical wire schema.
 std::shared_ptr<arrow::RecordBatch> exportToBatch(
     const facebook::velox::RowVectorPtr& vector,
-    facebook::velox::memory::MemoryPool* pool,
-    bool preserve_dictionary = false) {
-  ArrowArray out_array;
-  ArrowSchema out_schema;
+    facebook::velox::memory::MemoryPool* pool) {
+  ExportedColumnarData data;
   ArrowOptions arrow_opts;
-  arrow_opts.flattenDictionary = !preserve_dictionary;
+  // Transport schema is fixed by the logical types, not per-batch encodings.
+  arrow_opts.flattenDictionary = true;
   arrow_opts.flattenConstant = true;
-  facebook::velox::exportToArrow(vector, out_array, pool, arrow_opts);
-  facebook::velox::exportToArrow(vector, out_schema, arrow_opts);
+  facebook::velox::exportToArrow(vector, data.array, pool, arrow_opts);
+  facebook::velox::exportToArrow(vector, data.schema, arrow_opts);
 
-  auto result = arrow::ImportRecordBatch(&out_array, &out_schema);
+  auto result = arrow::ImportRecordBatch(&data.array, &data.schema);
   VELOX_CHECK(
       result.ok(),
       "Failed to export RowVector to RecordBatch: {}",
@@ -60,51 +66,15 @@ std::shared_ptr<arrow::RecordBatch> exportToBatch(
   return *result;
 }
 
-// Serializes an Arrow RecordBatch to IPC stream format bytes and writes to
-// the output stream with a 4-byte length prefix for message framing.
-// Uses Arrow IPC stream format which embeds the schema, enabling self-describing
-// deserialization without external schema information.
-void writeBatchToStream(
-    const std::shared_ptr<arrow::RecordBatch>& batch,
-    facebook::velox::OutputStream* stream) {
-  // Use IPC stream writer which includes schema + batch in one stream.
-  auto sink_result = arrow::io::BufferOutputStream::Create();
-  VELOX_CHECK(
-      sink_result.ok(),
-      "Failed to create buffer output stream: {}",
-      sink_result.status().ToString());
-  auto sink = *sink_result;
-
-  auto writer_result = arrow::ipc::MakeStreamWriter(
-      sink, batch->schema(), arrow::ipc::IpcWriteOptions::Defaults());
-  VELOX_CHECK(
-      writer_result.ok(),
-      "Failed to create IPC stream writer: {}",
-      writer_result.status().ToString());
-  auto writer = *writer_result;
-
-  auto write_status = writer->WriteRecordBatch(*batch);
-  VELOX_CHECK(
-      write_status.ok(),
-      "Failed to write RecordBatch: {}",
-      write_status.ToString());
-
-  auto close_status = writer->Close();
-  VELOX_CHECK(
-      close_status.ok(),
-      "Failed to close IPC stream writer: {}",
-      close_status.ToString());
-
-  auto buffer_result = sink->Finish();
-  VELOX_CHECK(
-      buffer_result.ok(),
-      "Failed to finish buffer output stream: {}",
-      buffer_result.status().ToString());
-
-  auto buffer = *buffer_result;
-  int32_t length = static_cast<int32_t>(buffer->size());
-  stream->write(reinterpret_cast<const char*>(&length), sizeof(length));
-  stream->write(reinterpret_cast<const char*>(buffer->data()), length);
+// One plain Arrow stream per OutputBuffer payload, without private framing.
+void writeBatchesToStream(
+    const std::vector<std::shared_ptr<arrow::RecordBatch>>& batches,
+    facebook::velox::OutputStream* stream,
+    const std::shared_ptr<pangrova::memory::ColumnarMemoryPool>& pool) {
+  const auto encoded = columnar::encodeBatchStream(batches, pool);
+  VELOX_CHECK(encoded.ok(), "Arrow stream serialization failed: {}", encoded.status().ToString());
+  const auto& buffer = *encoded;
+  stream->write(reinterpret_cast<const char*>(buffer->data()), buffer->size());
 }
 
 // Selects rows from a RowVector by index ranges, returning a flat RowVector.
@@ -138,16 +108,12 @@ facebook::velox::RowVectorPtr selectRows(
 }
 
 // BatchVectorSerializer that writes Arrow IPC RecordBatch format.
-// L2-2: Caches the Arrow schema to avoid redundant schema export/negotiation
-// on every serialize() call when the input schema is unchanged.
-// L2-3: When preserve_dictionary is true, dictionary-encoded vectors are
-// exported without flattening, reducing transfer size for low-cardinality cols.
 class ArrowBatchSerializer : public facebook::velox::BatchVectorSerializer {
  public:
   ArrowBatchSerializer(
-      facebook::velox::memory::MemoryPool* pool,
-      bool preserve_dictionary)
-      : pool_(pool), preserve_dictionary_(preserve_dictionary) {}
+      facebook::velox::memory::MemoryPool* pool)
+      : pool_(pool),
+        columnar_pool_(std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool->shared_from_this())) {}
 
   void serialize(
       const facebook::velox::RowVectorPtr& vector,
@@ -164,19 +130,9 @@ class ArrowBatchSerializer : public facebook::velox::BatchVectorSerializer {
       target = selectRows(vector, ranges, pool_);
     }
 
-    auto batch = exportToBatch(target, pool_, preserve_dictionary_);
+    auto batch = exportToBatch(target, pool_);
 
-    // L2-2: Cache the Arrow schema for change detection. Each serialize()
-    // call produces an independent IPC message (schema + batch), so the
-    // StreamWriter cannot be reused across calls. However, caching the schema
-    // enables: (1) fast schema-change detection without deep comparison on
-    // every call, and (2) future optimization where schema-unchanged batches
-    // could use a more compact encoding.
-    if (!cached_schema_ || !cached_schema_->Equals(batch->schema())) {
-      cached_schema_ = batch->schema();
-    }
-
-    writeBatchToStream(batch, stream);
+    writeBatchesToStream({batch}, stream, columnar_pool_);
   }
 
   // F-NATIVE-SHUF-06: Distribute per-row estimate across the range instead
@@ -205,9 +161,7 @@ class ArrowBatchSerializer : public facebook::velox::BatchVectorSerializer {
 
  private:
   facebook::velox::memory::MemoryPool* pool_;
-  bool preserve_dictionary_;
-  // L2-2: Cached schema to detect schema changes and avoid redundant work.
-  std::shared_ptr<arrow::Schema> cached_schema_;
+  std::shared_ptr<pangrova::memory::ColumnarMemoryPool> columnar_pool_;
 };
 
 // IterativeVectorSerializer that accumulates rows and serializes as Arrow IPC.
@@ -219,17 +173,19 @@ class ArrowBatchIterativeSerializer
   ArrowBatchIterativeSerializer(
       facebook::velox::RowTypePtr type,
       int32_t /*numRows*/,
-      facebook::velox::StreamArena* streamArena,
-      bool preserve_dictionary)
+      facebook::velox::StreamArena* streamArena)
       : type_(std::move(type)),
         pool_(streamArena->pool()),
-        preserve_dictionary_(preserve_dictionary) {}
+        columnar_pool_(std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool_->shared_from_this())) {}
 
   void append(
       const facebook::velox::RowVectorPtr& vector,
       const folly::Range<const facebook::velox::IndexRange*>& ranges,
       facebook::velox::Scratch& /*scratch*/) override {
     validateTypesForExport(vector);
+    VELOX_USER_CHECK(vector->type()->equivalent(*type_),
+        "Arrow stream input type differs from its declared output type");
+    encoded_.reset();
 
     for (const auto& range : ranges) {
       if (range.size == vector->size() && range.begin == 0) {
@@ -244,36 +200,38 @@ class ArrowBatchIterativeSerializer
   }
 
   size_t maxSerializedSize() const override {
-    size_t total = 0;
-    for (const auto& vec : buffered_vectors_) {
-      total += vec->estimateFlatSize();
-    }
-    // 1.1x for IPC metadata overhead + 4 bytes length prefix per batch.
-    return static_cast<size_t>(total * 1.1) +
-        buffered_vectors_.size() * sizeof(int32_t);
+    prepareEncoded();
+    return encoded_ ? static_cast<size_t>(encoded_->size()) : 0;
   }
 
   void flush(facebook::velox::OutputStream* stream) override {
-    for (const auto& vector : buffered_vectors_) {
-      // L4-4: Respect class-level preserve_dictionary setting.
-      auto batch = exportToBatch(vector, pool_, preserve_dictionary_);
-      writeBatchToStream(batch, stream);
-    }
-    buffered_vectors_.clear();
-    num_rows_ = 0;
+    prepareEncoded();
+    if (encoded_) stream->write(reinterpret_cast<const char*>(encoded_->data()), encoded_->size());
+    clear();
   }
 
   void clear() override {
     buffered_vectors_.clear();
+    encoded_.reset();
     num_rows_ = 0;
   }
 
  private:
+  void prepareEncoded() const {
+    if (encoded_ || buffered_vectors_.empty()) return;
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    for (const auto& vector : buffered_vectors_) batches.push_back(exportToBatch(vector, pool_));
+    auto encoded = columnar::encodeBatchStream(batches, columnar_pool_);
+    VELOX_CHECK(encoded.ok(), "Arrow stream serialization failed: {}", encoded.status().ToString());
+    encoded_ = *encoded;
+  }
+
   facebook::velox::RowTypePtr type_;
   facebook::velox::memory::MemoryPool* pool_;
-  bool preserve_dictionary_;
+  std::shared_ptr<pangrova::memory::ColumnarMemoryPool> columnar_pool_;
   std::vector<facebook::velox::RowVectorPtr> buffered_vectors_;
   facebook::velox::vector_size_t num_rows_ = 0;
+  mutable std::shared_ptr<arrow::Buffer> encoded_;
 };
 
 }  // namespace
@@ -285,14 +243,14 @@ ArrowBatchVectorSerde::createIterativeSerializer(
     facebook::velox::StreamArena* streamArena,
     const Options* /*options*/) {
   return std::make_unique<ArrowBatchIterativeSerializer>(
-      std::move(type), numRows, streamArena, preserve_dictionary_);
+      std::move(type), numRows, streamArena);
 }
 
 std::unique_ptr<facebook::velox::BatchVectorSerializer>
 ArrowBatchVectorSerde::createBatchSerializer(
     facebook::velox::memory::MemoryPool* pool,
     const Options* /*options*/) {
-  return std::make_unique<ArrowBatchSerializer>(pool, preserve_dictionary_);
+  return std::make_unique<ArrowBatchSerializer>(pool);
 }
 
 void ArrowBatchVectorSerde::deserialize(
@@ -301,62 +259,49 @@ void ArrowBatchVectorSerde::deserialize(
     facebook::velox::RowTypePtr type,
     facebook::velox::RowVectorPtr* result,
     const Options* /*options*/) {
-  // Read the 4-byte length prefix.
-  int32_t length = 0;
-  source->readBytes(reinterpret_cast<uint8_t*>(&length), sizeof(length));
-  VELOX_CHECK_GT(length, 0, "Invalid Arrow batch message length: {}", length);
-
-  // Allocate an Arrow-owned buffer and read serialized IPC stream bytes into it.
-  // This is critical: Arrow IPC deserialization uses zero-copy slicing, so the
-  // resulting RecordBatch columns reference slices of this buffer. Using a
-  // non-owning wrapper over a local vector would cause use-after-free.
-  auto alloc_result = arrow::AllocateBuffer(length);
-  VELOX_CHECK(
-      alloc_result.ok(),
-      "Failed to allocate buffer for IPC deserialization: {}",
-      alloc_result.status().ToString());
-  auto owned_buffer = std::shared_ptr<arrow::Buffer>(
-      std::move(*alloc_result));
-  source->readBytes(owned_buffer->mutable_data(), length);
-
-  // F-NATIVE-SHUF-07: Use IPC stream reader which reads the embedded schema
-  // and record batch from the self-describing stream format. This avoids
-  // the broken ReadSchema-on-RecordBatch-message approach and ensures schema
-  // round-trip fidelity for all types including complex types (Map, Array, Row).
-  auto buf_reader = std::make_shared<arrow::io::BufferReader>(owned_buffer);
-
-  // Open a stream reader which reads schema + batches from the IPC stream.
-  auto reader_result = arrow::ipc::RecordBatchStreamReader::Open(buf_reader);
-  VELOX_CHECK(
-      reader_result.ok(),
-      "Failed to open IPC stream reader: {}",
-      reader_result.status().ToString());
-  auto reader = *reader_result;
-
-  // Read the first (and only) RecordBatch from the stream.
-  std::shared_ptr<arrow::RecordBatch> batch;
-  auto read_status = reader->ReadNext(&batch);
-  VELOX_CHECK(
-      read_status.ok(),
-      "Failed to read RecordBatch from IPC stream: {}",
-      read_status.ToString());
-  VELOX_CHECK(
-      batch != nullptr,
-      "No RecordBatch found in IPC stream");
-
-  // Import Arrow RecordBatch to Velox RowVector via Arrow C Data Interface.
-  ArrowArray out_array;
-  ArrowSchema out_schema;
-  auto export_status =
-      arrow::ExportRecordBatch(*batch, &out_array, &out_schema);
-  VELOX_CHECK(
-      export_status.ok(),
-      "Failed to export RecordBatch to C interface: {}",
-      export_status.ToString());
-
+  VELOX_CHECK_NOT_NULL(source);
+  VELOX_CHECK_NOT_NULL(pool);
+  VELOX_CHECK_NOT_NULL(result);
+  const auto length = source->remainingSize();
+  VELOX_CHECK_LE(length, static_cast<size_t>(columnar::kMaximumBatchStreamBytes));
+  auto allocator = std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool->shared_from_this());
+  auto allocation = arrow::AllocateBuffer(length, allocator.get());
+  VELOX_CHECK(allocation.ok(), "Arrow stream allocation failed: {}", allocation.status().ToString());
+  auto buffer = pangrova::memory::retainColumnarBuffer(
+      std::shared_ptr<arrow::Buffer>(std::move(*allocation)), allocator);
+  source->readBytes(buffer->mutable_data(), length);
+  auto decoded = columnar::decodeBatchStream(std::move(buffer), allocator);
+  VELOX_CHECK(decoded.ok(), "Arrow stream decode failed: {}", decoded.status().ToString());
+  std::vector<facebook::velox::RowVectorPtr> vectors;
+  int64_t rows = 0;
+  for (const auto& batch : *decoded) {
+    ExportedColumnarData data;
+    const auto exported = arrow::ExportRecordBatch(*batch, &data.array, &data.schema);
+    VELOX_CHECK(exported.ok(), "Arrow batch export failed: {}", exported.ToString());
+    auto ownedArray = data.array;
+    auto ownedSchema = data.schema;
+    data.array.release = nullptr;
+    data.schema.release = nullptr;
+    auto vector = std::dynamic_pointer_cast<facebook::velox::RowVector>(
+        facebook::velox::importFromArrowAsOwner(ownedSchema, ownedArray, pool));
+    VELOX_CHECK_NOT_NULL(vector);
+    VELOX_CHECK(vector->type()->equivalent(*type) && vector->type()->asRow().names() == type->names(),
+        "Arrow stream schema differs from the exact task output schema");
+    rows += vector->size();
+    VELOX_CHECK_LE(rows, std::numeric_limits<facebook::velox::vector_size_t>::max());
+    vectors.push_back(std::move(vector));
+  }
+  if (vectors.size() == 1) {
+    *result = std::move(vectors.front());
+    return;
+  }
   *result = std::dynamic_pointer_cast<facebook::velox::RowVector>(
-      facebook::velox::importFromArrowAsOwner(
-          out_schema, out_array, pool));
+      facebook::velox::BaseVector::create(type, rows, pool));
+  facebook::velox::vector_size_t offset = 0;
+  for (const auto& vector : vectors) {
+    (*result)->copy(vector.get(), offset, 0, vector->size());
+    offset += vector->size();
+  }
 }
 
 void ArrowBatchVectorSerde::registerNamedVectorSerde() {

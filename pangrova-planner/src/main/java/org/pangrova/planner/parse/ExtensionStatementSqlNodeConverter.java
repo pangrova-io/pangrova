@@ -119,10 +119,10 @@ final class ExtensionStatementSqlNodeConverter {
     }
 
     private void addDmlHandlers(Map<Class<? extends Statement>, Function<Statement, SqlNode>> map) {
-        map.put(InsertStatement.class, s -> ext(PangrovaOperatorTable.INSERT_INTO));
+        map.put(InsertStatement.class, s -> convertInsertValues((InsertStatement) s));
         map.put(InsertSelectStatement.class, s -> convertInsertSelect((InsertSelectStatement) s));
         map.put(InsertOverwriteStatement.class,
-                s -> ext(PangrovaOperatorTable.INSERT_OVERWRITE, id(((InsertOverwriteStatement) s).tableName())));
+                s -> convertInsertOverwriteValues((InsertOverwriteStatement) s));
         map.put(DeleteStatement.class, s -> convertDelete((DeleteStatement) s));
         map.put(UpdateStatement.class, s -> convertUpdate((UpdateStatement) s));
         map.put(MergeStatement.class, s -> convertMerge((MergeStatement) s));
@@ -197,6 +197,30 @@ final class ExtensionStatementSqlNodeConverter {
         SqlNodeList columnList = stmt.columns()
                 .map(this::toColumnNodeList).orElse(null);
         return new SqlInsert(POS, SqlNodeList.EMPTY, targetTable, source, columnList);
+    }
+
+    private SqlNode convertInsertValues(InsertStatement stmt) {
+        return valuesInsert(stmt.tableName(), stmt.columns(), stmt.values());
+    }
+
+    private SqlNode convertInsertOverwriteValues(InsertOverwriteStatement stmt) {
+        return valuesInsert(stmt.tableName(), stmt.columns(), stmt.values());
+    }
+
+    private SqlInsert valuesInsert(
+            Identifier tableName,
+            java.util.Optional<List<String>> columns,
+            List<List<Expression>> rows) {
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("INSERT VALUES requires at least one row");
+        }
+        SqlNode[] rowNodes = rows.stream()
+                .map(row -> SqlStdOperatorTable.ROW.createCall(
+                        POS, row.stream().map(this::convertExpression).toArray(SqlNode[]::new)))
+                .toArray(SqlNode[]::new);
+        SqlNode values = SqlStdOperatorTable.VALUES.createCall(POS, rowNodes);
+        SqlNodeList columnList = columns.map(this::toColumnNodeList).orElse(null);
+        return new SqlInsert(POS, SqlNodeList.EMPTY, id(tableName), values, columnList);
     }
 
     private SqlNode convertCall(CallStatement stmt) {

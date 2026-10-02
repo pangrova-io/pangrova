@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <set>
 #include <stdexcept>
+#include <unordered_set>
 #include <vector>
 
 #include "jni/RuntimeInitializer.h"
@@ -24,6 +25,7 @@
 #endif
 #include "velox/connector/PangrovaVeloxConnector.h"
 #include "velox/filter/PendingFilterRegistry.h"
+#include "velox/exchange/PendingEndpointRegistry.h"
 #include "executor/NativeUnsupportedFeatureException.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
 #include "velox/core/PlanFragment.h"
@@ -34,6 +36,7 @@
 #include "velox/exec/TaskStats.h"
 #include "velox/common/future/VeloxPromise.h"
 #include "velox/exec/HashPartitionFunction.h"
+#include "velox/exec/Exchange.h"
 
 namespace pangrova::velox {
 
@@ -68,21 +71,33 @@ void collectSplitLeafNodes(
   if (!node) {
     return;
   }
-  if (node->sources().empty()) {
-    if (node->requiresSplits()) {
-      std::string tableName;
-      // Try to extract table name from TableScanNode.
-      auto scanNode = std::dynamic_pointer_cast<
-          const facebook::velox::core::TableScanNode>(node);
-      if (scanNode && scanNode->tableHandle()) {
-        tableName = scanNode->tableHandle()->name();
-      }
-      leafNodes.push_back({node->id(), std::move(tableName)});
+  auto scanNode = std::dynamic_pointer_cast<
+      const facebook::velox::core::TableScanNode>(node);
+  if (scanNode) {
+    std::string tableName;
+    if (scanNode->tableHandle()) {
+      tableName = scanNode->tableHandle()->name();
     }
+    leafNodes.push_back({node->id(), std::move(tableName)});
     return;
   }
   for (const auto& source : node->sources()) {
     collectSplitLeafNodes(source, leafNodes);
+  }
+}
+
+void collectExchangeNodes(
+    const std::shared_ptr<const facebook::velox::core::PlanNode>& node,
+    std::vector<facebook::velox::core::PlanNodeId>& node_ids) {
+  if (!node) {
+    return;
+  }
+  if (std::dynamic_pointer_cast<
+          const facebook::velox::core::ExchangeNode>(node)) {
+    node_ids.push_back(node->id());
+  }
+  for (const auto& source : node->sources()) {
+    collectExchangeNodes(source, node_ids);
   }
 }
 
@@ -93,10 +108,13 @@ VeloxTaskRunner::VeloxTaskRunner(
     std::shared_ptr<const facebook::velox::core::PlanNode> plan,
     const std::vector<split::SplitConfig>& splits,
     pangrova::executor::OutputQueue* output_queue,
-    pangrova::shuffle::SerializedShuffleQueue* shuffle_queue)
+    pangrova::shuffle::SerializedShuffleQueue* shuffle_queue,
+    std::unordered_map<std::string, std::vector<split::SplitConfig>>
+        scan_split_overrides)
     : config_(config),
       plan_(std::move(plan)),
       splits_(splits),
+      scan_split_overrides_(std::move(scan_split_overrides)),
       output_queue_(output_queue),
       shuffle_queue_(shuffle_queue) {
   if (!plan_) {
@@ -138,6 +156,11 @@ void VeloxTaskRunner::start() {
 
   // Build QueryConfig map with spill settings and advanced features.
   std::unordered_map<std::string, std::string> query_config_values;
+  // The Flight shuffle writer and Velox Exchange deserializer must use the
+  // same codec. Small pages may be emitted uncompressed, but larger pages
+  // carry the configured codec and otherwise fail during Exchange::getOutput.
+  query_config_values[facebook::velox::core::QueryConfig::kShuffleCompressionKind] =
+      config_.shuffle_compression_codec;
   if (config_.spill_enabled) {
     query_config_values[facebook::velox::core::QueryConfig::kSpillEnabled] = "true";
     query_config_values[facebook::velox::core::QueryConfig::kAggregationSpillEnabled] = "true";
@@ -162,6 +185,28 @@ void VeloxTaskRunner::start() {
       std::to_string(config_.preferred_output_batch_rows);
   query_config_values[facebook::velox::core::QueryConfig::kPreferredOutputBatchBytes] =
       std::to_string(config_.max_output_batch_bytes);
+
+  // Engine-owned execution identity. These values originate from the
+  // internally authenticated coordinator task request, not user SQL, and are
+  // consumed by JVM-backed AI functions for authorization, deadline and audit.
+  query_config_values["pangrova.task_id"] = config_.task_id;
+  query_config_values["pangrova.query_id"] = config_.query_id;
+  query_config_values["pangrova.tenant_id"] = config_.tenant_id;
+  query_config_values["pangrova.principal"] = config_.principal;
+  query_config_values["pangrova.policy_context_hash"] =
+      config_.policy_context_hash;
+  query_config_values["pangrova.dependency_scope_hash"] =
+      config_.dependency_scope_hash;
+  query_config_values["pangrova.dependency_version_hash"] =
+      config_.dependency_version_hash;
+  query_config_values["pangrova.trace_id"] = config_.trace_id;
+  query_config_values["pangrova.deadline_epoch_ms"] =
+      std::to_string(config_.deadline_epoch_ms);
+  query_config_values["pangrova.provider_concurrency"] =
+      std::to_string(config_.max_provider_concurrency);
+  query_config_values["pangrova.execution_callback_context"] = config_.callback_context;
+  query_config_values["pangrova.media_bytes"] =
+      std::to_string(config_.max_media_bytes);
 
   // Lazy materialization: Velox enables lazy vector loading by default.
   // Ensure it is not explicitly disabled.
@@ -233,43 +278,41 @@ void VeloxTaskRunner::start() {
   // P1-VELOX-4: Pass AsyncDataCache to QueryCtx::create() for data caching.
   auto* asyncCache = pangrova::jni::globalAsyncDataCache();
   auto* memGovernor = pangrova::jni::globalVeloxMemoryGovernor();
-  if (memGovernor) {
-    // Create a dedicated pool for this task under Pangrova's memory governance.
-    // P0-VELOX-2: Use per-task max_memory_bytes from ResourceLimit when set,
-    // instead of totalMemory() which gives every task the entire budget.
-    int64_t taskMaxBytes = (config_.max_memory_bytes > 0)
-        ? config_.max_memory_bytes
-        : memGovernor->totalMemory();
-    auto taskPool = memGovernor->createTaskPool(
-        config_.query_id, config_.task_id, taskMaxBytes);
-    // Build connector configs from session properties for Velox connector.
-    std::unordered_map<std::string,
-        std::shared_ptr<facebook::velox::config::ConfigBase>> connectorConfigs;
-    if (!config_.session_properties.empty()) {
-      std::unordered_map<std::string, std::string> connectorProps;
-      for (const auto& [key, value] : config_.session_properties) {
-        // Forward session properties with connector-relevant prefixes.
-        if (key.find("connector.") == 0 || key.find("s3.") == 0 ||
-            key.find("hive.") == 0 || key.find("file.") == 0) {
-          connectorProps[key] = value;
-        }
-      }
-      if (!connectorProps.empty()) {
-        connectorConfigs[pangrova::velox::PangrovaVeloxConnector::kConnectorId] =
-            std::make_shared<facebook::velox::config::ConfigBase>(
-                std::move(connectorProps));
+  if (!executor || !memGovernor) {
+    throw std::runtime_error(
+        "VeloxTaskRunner: Native runtime is not initialized");
+  }
+  // Create a dedicated pool for this task under Pangrova's memory governance.
+  // P0-VELOX-2: Use per-task max_memory_bytes from ResourceLimit when set,
+  // instead of totalMemory() which gives every task the entire budget.
+  int64_t taskMaxBytes = (config_.max_memory_bytes > 0)
+      ? config_.max_memory_bytes
+      : memGovernor->totalMemory();
+  auto taskPool = memGovernor->createTaskPool(
+      config_.query_id, config_.task_id, taskMaxBytes);
+  // Build connector configs from session properties for Velox connector.
+  std::unordered_map<std::string,
+      std::shared_ptr<facebook::velox::config::ConfigBase>> connectorConfigs;
+  if (!config_.session_properties.empty()) {
+    std::unordered_map<std::string, std::string> connectorProps;
+    for (const auto& [key, value] : config_.session_properties) {
+      // Forward session properties with connector-relevant prefixes.
+      if (key.find("connector.") == 0 || key.find("s3.") == 0 ||
+          key.find("hive.") == 0 || key.find("file.") == 0) {
+        connectorProps[key] = value;
       }
     }
-
-    queryCtx = facebook::velox::core::QueryCtx::create(
-        executor.get(),
-        facebook::velox::core::QueryConfig{std::move(query_config_values)},
-        std::move(connectorConfigs), asyncCache, std::move(taskPool));
-  } else {
-    queryCtx = facebook::velox::core::QueryCtx::create(
-        executor.get(),
-        facebook::velox::core::QueryConfig{std::move(query_config_values)});
+    if (!connectorProps.empty()) {
+      connectorConfigs[pangrova::velox::PangrovaVeloxConnector::kConnectorId] =
+          std::make_shared<facebook::velox::config::ConfigBase>(
+              std::move(connectorProps));
+    }
   }
+
+  queryCtx = facebook::velox::core::QueryCtx::create(
+      executor.get(),
+      facebook::velox::core::QueryConfig{std::move(query_config_values)},
+      std::move(connectorConfigs), asyncCache, std::move(taskPool));
 
   // Execution mode: always parallel. PlanExecutionDriver enforces
   // max_drivers >= 2, and parallel mode (Task::start() +
@@ -359,6 +402,45 @@ void VeloxTaskRunner::start() {
             std::chrono::milliseconds(self->config_.shuffle_push_timeout_ms);
 
         if (self->config_.num_shuffle_partitions > 1) {
+          if (!self->config_.shuffle_output_spec) {
+            throw std::runtime_error(
+                "Multi-partition shuffle lacks producer ExchangeRel binding");
+          }
+          const auto distribution =
+              self->config_.shuffle_output_spec->distribution;
+          if (distribution != ShuffleOutputSpec::Distribution::HASH) {
+            const auto numRows = vector->size();
+            const auto numPartitions = self->config_.num_shuffle_partitions;
+            std::vector<std::vector<facebook::velox::vector_size_t>> partitionRows(
+                numPartitions);
+            if (distribution == ShuffleOutputSpec::Distribution::BROADCAST) {
+              for (int32_t pid = 0; pid < numPartitions; ++pid) {
+                partitionRows[pid].reserve(numRows);
+                for (facebook::velox::vector_size_t row = 0; row < numRows; ++row) {
+                  partitionRows[pid].push_back(row);
+                }
+              }
+            } else {
+              const uint64_t first = self->shuffle_next_row_.fetch_add(numRows);
+              for (facebook::velox::vector_size_t row = 0; row < numRows; ++row) {
+                partitionRows[(first + row) % numPartitions].push_back(row);
+              }
+            }
+            for (int32_t pid = 0; pid < numPartitions; ++pid) {
+              if (!partitionRows[pid].empty() &&
+                  !self->shuffle_accumulator_->accumulate(
+                      pid, vector, std::move(partitionRows[pid]))) {
+                self->cancelled_.store(true);
+                std::lock_guard<std::mutex> lock(self->error_mutex_);
+                self->error_message_ =
+                    "Shuffle accumulator flush timed out (query_id=" +
+                    self->config_.query_id + ", task_id=" +
+                    self->config_.task_id + ")";
+                break;
+              }
+            }
+            return facebook::velox::exec::BlockingReason::kNotBlocked;
+          }
           // Multi-partition: hash-partition rows and accumulate per-partition
           // row sets. The accumulator coalesces small partitions and flushes
           // automatically when a partition exceeds kMinPartitionFlushRows.
@@ -447,15 +529,26 @@ void VeloxTaskRunner::start() {
             }
           }
         } else {
-          // Single partition: serialize entire batch with partition_id=0.
+          // Single partition: serialize into canonical bounded pages.
           auto* pool = vector->pool();
-          auto serialized = self->shuffle_writer_->serialize(vector, pool);
-          shuffle::ShuffleBatch batch;
-          batch.partition_id = 0;
-          batch.data = std::move(serialized);
-          batch.row_count = vector->size();
-          self->shuffle_queue_->push(
-              std::move(batch), kShufflePushTimeout);
+          auto serialized_batches =
+              self->shuffle_writer_->serializeBatches(vector, pool);
+          for (auto& serialized : serialized_batches) {
+            shuffle::ShuffleBatch batch;
+            batch.partition_id = 0;
+            batch.data = std::move(serialized.data);
+            batch.row_count = serialized.row_count;
+            if (!self->shuffle_queue_->push(
+                    std::move(batch), kShufflePushTimeout)) {
+              self->cancelled_.store(true);
+              std::lock_guard<std::mutex> lock(self->error_mutex_);
+              self->error_message_ =
+                  "Shuffle batch push timed out (query_id=" +
+                  self->config_.query_id +
+                  ", task_id=" + self->config_.task_id + ")";
+              break;
+            }
+          }
         }
 
         return facebook::velox::exec::BlockingReason::kNotBlocked;
@@ -588,8 +681,78 @@ void VeloxTaskRunner::start() {
       0,  // memoryArbitrationPriority
       std::move(spillDiskOpts));
 
+  // Publish the result schema before the OutputBuffer becomes visible to
+  // Flight DoGet. The cache carries exact logical column types with the
+  // physical Velox row type as one atomic registration.
+#if PANGROVA_HAS_FLIGHT
+  if (config_.is_result_task) {
+    auto output_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
+        plan_->outputType());
+    if (output_type) {
+      pangrova::result::FlightResultServer::TaskOutputInfo info;
+      info.output_type = output_type;
+      info.result_column_types = config_.result_column_types;
+      info.column_labels = config_.result_column_labels;
+      info.pool = std::make_shared<pangrova::memory::ColumnarMemoryPool>(
+          velox_task_->pool()->addLeafChild("result-stream"));
+      result_ownership_ = std::make_shared<pangrova::result::ResultOwnershipState>();
+      info.ownership = result_ownership_;
+      if (!info.authority.ParseFromString(config_.callback_context)) {
+        throw std::runtime_error("Result task lacks its admitted callback authority");
+      }
+      pangrova::result::FlightResultServer::registerTaskOutputType(config_.task_id, std::move(info));
+    }
+  }
+#endif
+
+  std::vector<facebook::velox::core::PlanNodeId> exchangeNodeIds;
+  collectExchangeNodes(plan_, exchangeNodeIds);
+  if (!exchangeNodeIds.empty() && config_.executor_handle <= 0) {
+    throw std::runtime_error(
+        "Exchange plan requires a registry-bound executor handle");
+  }
+  for (const auto& nodeId : exchangeNodeIds) {
+    auto binding = PendingEndpointRegistry::instance().takeSealedInput(
+        config_.executor_handle, nodeId);
+    if (!binding.has_value()) {
+      throw std::runtime_error(
+          "Exchange input is missing or not sealed: plan_node_id=" + nodeId);
+    }
+    if (binding->sources.size() != binding->expected_source_partitions) {
+      throw std::runtime_error(
+          "Sealed exchange input cardinality changed: plan_node_id=" + nodeId);
+    }
+    for (const auto& source : binding->sources) {
+      auto remoteSplit = std::make_shared<
+          facebook::velox::exec::RemoteConnectorSplit>(
+          source.runtime_source_id);
+      velox_task_->addSplit(
+          nodeId, facebook::velox::exec::Split(std::move(remoteSplit)));
+    }
+    velox_task_->noMoreSplits(nodeId);
+  }
+
   std::vector<SplitLeafNode> splitLeafNodes;
   collectSplitLeafNodes(plan_, splitLeafNodes);
+
+  std::unordered_set<std::string> overridden_nodes;
+  for (const auto& leaf : splitLeafNodes) {
+    auto override = scan_split_overrides_.find(leaf.nodeId);
+    if (override == scan_split_overrides_.end()) {
+      continue;
+    }
+    overridden_nodes.emplace(leaf.nodeId);
+    for (const auto& split_config : override->second) {
+      auto connector_split = std::make_shared<PangrovaConnectorSplit>(
+          PangrovaVeloxConnector::kConnectorId, split_config);
+      velox_task_->addSplit(
+          leaf.nodeId, facebook::velox::exec::Split(connector_split));
+    }
+  }
+  if (overridden_nodes.size() != scan_split_overrides_.size()) {
+    throw std::runtime_error(
+        "Retrieval split override references an unknown scan node");
+  }
 
   // Deduplicate splits by (split_id, table_name, file_path, start_offset, length).
   // When a plan has multiple scan nodes for the same table (e.g. UNION ALL),
@@ -625,6 +788,9 @@ void VeloxTaskRunner::start() {
     bool routed = false;
     if (!splitConfig.table_name.empty()) {
       for (const auto& leaf : splitLeafNodes) {
+        if (overridden_nodes.contains(leaf.nodeId)) {
+          continue;
+        }
         if (leaf.tableName == splitConfig.table_name ||
             matchesSuffix(leaf.tableName, splitConfig.table_name) ||
             matchesSuffix(splitConfig.table_name, leaf.tableName)) {
@@ -637,6 +803,9 @@ void VeloxTaskRunner::start() {
     // Fallback: broadcast to all leaf nodes (backward compatible).
     if (!routed) {
       for (const auto& leaf : splitLeafNodes) {
+        if (overridden_nodes.contains(leaf.nodeId)) {
+          continue;
+        }
         velox_task_->addSplit(leaf.nodeId,
             facebook::velox::exec::Split(connectorSplit));
       }
@@ -651,29 +820,38 @@ void VeloxTaskRunner::start() {
   observability::NativeProfiler::instance().registerTask(
       config_.task_id, velox_task_);
 
-  // Cache output type for FlightResultServer — DoGet may arrive after
-  // the task completes and leaves getRunningTasks().
-  if (config_.is_result_task) {
-    auto output_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
-        plan_->outputType());
-#if PANGROVA_HAS_FLIGHT
-    if (output_type) {
-      pangrova::result::FlightResultServer::registerTaskOutputType(
-          config_.task_id, output_type);
-      pangrova::result::FlightResultServer::registerTaskSerdeMode(
-          config_.task_id, config_.result_serde_mode);
-    }
-#endif
-  }
 }
 
 void VeloxTaskRunner::cancel() {
   cancelled_.store(true);
+  revokeResultOutput();
   if (velox_task_) {
     velox_task_->requestCancel().wait();
   }
+  if (result_ownership_) result_ownership_->stopProducer();
   cleanup();
   finished_.store(true);
+}
+
+void VeloxTaskRunner::releaseTaskAndWaitForDeletion() {
+  if (!velox_task_) {
+    return;
+  }
+
+  // A completion future is fulfilled when the Task becomes terminal, before
+  // the executor necessarily releases its last Driver/DriverCtx reference.
+  // Keep this runner (and its plan-conversion pool holders) alive while the
+  // Task destructor clears the plan and all vectors backed by those pools.
+  cancelled_.store(true);
+  revokeResultOutput();
+  velox_task_->requestCancel().wait();
+  cleanup();
+  if (result_ownership_) {
+    result_ownership_->stopProducer();
+  }
+  auto deletion_future = velox_task_->taskDeletionFuture();
+  velox_task_.reset();
+  deletion_future.wait();
 }
 
 bool VeloxTaskRunner::waitForCompletion() {
@@ -834,14 +1012,12 @@ bool VeloxTaskRunner::isFinished() const {
   return finished_.load();
 }
 
-bool VeloxTaskRunner::isResultSerdeUnsupportedTypeError() const {
-  std::lock_guard<std::mutex> lock(error_mutex_);
-  // ArrowBatchUnsupportedTypeException produces messages starting with
-  // "ArrowBatch serde does not support type: ".
-  static constexpr const char* kUnsupportedTypePrefix =
-      "ArrowBatch serde does not support type: ";
-  return !error_message_.empty() &&
-         error_message_.find(kUnsupportedTypePrefix) != std::string::npos;
+pangrova::result::ResultOwnershipState::Evidence VeloxTaskRunner::resultDrainEvidence() const {
+  if (!result_ownership_) return {false, false, false, 0, 0};
+  if (velox_task_ && velox_task_->state() != facebook::velox::exec::TaskState::kRunning) {
+    result_ownership_->stopProducer();
+  }
+  return result_ownership_->evidence();
 }
 
 std::string VeloxTaskRunner::errorMessage() const {
@@ -853,7 +1029,7 @@ void VeloxTaskRunner::injectDynamicFilter(
     const std::string& plan_node_id,
     facebook::velox::column_index_t column_index,
     std::unique_ptr<facebook::velox::common::Filter> filter) {
-  if (!velox_task_ || !filter) {
+  if (!filter) {
     return;
   }
 
@@ -864,7 +1040,7 @@ void VeloxTaskRunner::injectDynamicFilter(
   // This bridges the gap between the external injection path (Java → JNI →
   // TaskExecutor → VeloxTaskRunner) and the DataSource that applies filters.
   PendingFilterRegistry::instance().push(
-      config_.task_id, column_index,
+      config_.task_id, plan_node_id, column_index,
       std::shared_ptr<facebook::velox::common::Filter>(std::move(filter)));
 
 #if __has_include(<glog/logging.h>)
@@ -880,12 +1056,6 @@ facebook::velox::exec::Task* VeloxTaskRunner::veloxTask() const {
   return velox_task_.get();
 }
 
-void VeloxTaskRunner::attachPoolHolders(
-    std::vector<std::shared_ptr<facebook::velox::memory::MemoryPool>>
-        holders) {
-  plan_pool_holders_ = std::move(holders);
-}
-
 std::vector<uint8_t> VeloxTaskRunner::collectTaskStats() const {
   if (!velox_task_) {
     return {};
@@ -895,36 +1065,43 @@ std::vector<uint8_t> VeloxTaskRunner::collectTaskStats() const {
   return pangrova::jni::serializeNativeTaskStats(velox_task_->taskStats());
 }
 
+void VeloxTaskRunner::finalizeShuffleOutput() {
+  std::lock_guard<std::mutex> lock(shuffle_accumulator_mutex_);
+  if (!shuffle_queue_ || !shuffle_accumulator_) {
+    return;
+  }
+  auto* flush_pool = velox_task_ ? velox_task_->pool() : nullptr;
+  if (!flush_pool || !shuffle_accumulator_->flushAll(flush_pool)) {
+    throw std::runtime_error(
+        "Failed to flush all buffered shuffle rows before producer completion");
+  }
+  shuffle_accumulator_.reset();
+}
+
+void VeloxTaskRunner::revokeResultOutput() {
+#if PANGROVA_HAS_FLIGHT
+  if (config_.is_result_task) {
+    pangrova::result::FlightResultServer::unregisterTaskOutputType(config_.task_id);
+    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
+    if (buffers) {
+      buffers->deleteResults(config_.task_id, 0);
+      if (result_ownership_) result_ownership_->revokeAndClearQueue();
+    }
+  }
+#endif
+}
+
 void VeloxTaskRunner::cleanup() {
   std::call_once(cleanup_once_, [this] {
     observability::NativeProfiler::instance().unregisterTask(config_.task_id);
     PendingFilterRegistry::instance().remove(config_.task_id);
-    // Fallback cleanup for output type cache. The primary cleanup is in
-    // OutputBufferBatchReader destructor (after DoGet completes). This
-    // handles the case where the task fails and DoGet is never called,
-    // preventing unbounded cache growth. The unregister call is idempotent
-    // — if the reader already cleaned up, this is a no-op (map erase on
-    // missing key).
-    if (config_.is_result_task) {
-#if PANGROVA_HAS_FLIGHT
-      pangrova::result::FlightResultServer::unregisterTaskOutputType(
-          config_.task_id);
-      pangrova::result::FlightResultServer::unregisterTaskSerdeMode(
-          config_.task_id);
-#endif
-    }
+    // Successful producer completion is not consumption or result revocation.
+    if (cancelled_.load() || !errorMessage().empty()) revokeResultOutput();
     // Result tasks use Velox OutputBufferManager — no OutputQueue to close.
-    // Flush any remaining accumulated shuffle rows before closing queues.
-    // This ensures rows below kMinPartitionFlushRows are not lost.
-    if (shuffle_accumulator_) {
-      // Use the task's memory pool from velox_task_ if available.
-      facebook::velox::memory::MemoryPool* flush_pool = nullptr;
-      if (velox_task_) {
-        flush_pool = velox_task_->pool();
-      }
-      if (flush_pool) {
-        shuffle_accumulator_->flushAll(flush_pool);
-      }
+    // A successful producer flushes explicitly before publishing FINISHED.
+    // Cancellation/failure discards buffered rows; its queue is aborted.
+    {
+      std::lock_guard<std::mutex> lock(shuffle_accumulator_mutex_);
       shuffle_accumulator_.reset();
     }
     if (output_queue_) {

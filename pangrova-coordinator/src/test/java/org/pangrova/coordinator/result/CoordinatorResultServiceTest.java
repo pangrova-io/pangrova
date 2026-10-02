@@ -2,10 +2,8 @@ package org.pangrova.coordinator.result;
 
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.result.CoordinatorResultService.LocalDispatchResult;
+import org.pangrova.coordinator.result.CoordinatorResultService.ControlPlaneDispatchResult;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
-import org.pangrova.spi.connector.data.page.BatchFormat;
-import org.pangrova.spi.connector.data.page.NativePage;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.AfterEach;
@@ -20,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Tests for {@link CoordinatorResultService} — the unified local-dispatch facade.
+ * Tests for the control-plane-only result service.
  */
 class CoordinatorResultServiceTest {
 
@@ -47,50 +45,51 @@ class CoordinatorResultServiceTest {
     }
 
     @Test
-    void dispatchLocalBuffersBytesAndReturnsCoordinatorEndpoint() {
-        byte[] resultBytes = {1, 2, 3, 4};
+    void dispatchControlPlaneRowsReturnsCoordinatorEndpoint() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        LocalDispatchResult result = service.dispatchLocal(QUERY_ID, resultBytes, sm.toFinisher());
+        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+                QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result).isNotNull();
-        assertThat(result.workerHost()).isEqualTo("coordinator-local");
+        assertThat(result.workerHost()).isEqualTo("coordinator-control");
         assertThat(result.taskId()).isEqualTo(QUERY_ID);
         assertThat(result.resultEndpoint().host()).isEqualTo("localhost");
         assertThat(result.resultEndpoint().port()).isEqualTo(9091);
         assertThat(result.resultEndpoint().ticket()).isEqualTo(QUERY_ID);
-        assertThat(buffer.get(QUERY_ID)).isEqualTo(resultBytes);
+        assertThat(buffer.get(QUERY_ID)).isNotEmpty();
     }
 
     @Test
-    void dispatchLocalTransitionsStateMachineToFinished() {
+    void dispatchControlPlaneRowsTransitionsStateMachineToFinished() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        service.dispatchLocal(QUERY_ID, new byte[]{1}, sm.toFinisher());
+        service.dispatchControlPlaneRows(
+                QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
         assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
         assertThat(sm.isTerminal()).isTrue();
     }
 
     @Test
-    void dispatchLocalFromTypedRowsConvertsAndBuffers() {
+    void dispatchControlPlaneRowsConvertsAndBuffers() {
         List<TypedRow> rows = List.of(
                 TypedRow.builder().putInt("result", 42).build());
         List<String> columnNames = List.of("result");
         QueryStateMachine sm = new QueryStateMachine();
 
-        LocalDispatchResult result = service.dispatchLocalFromTypedRows(
+        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
                 QUERY_ID, rows, columnNames, sm.toFinisher());
 
         assertThat(result).isNotNull();
-        assertThat(result.workerHost()).isEqualTo("coordinator-local");
+        assertThat(result.workerHost()).isEqualTo("coordinator-control");
         assertThat(buffer.get(QUERY_ID)).isNotNull();
         assertThat(buffer.get(QUERY_ID).length).isGreaterThan(0);
         assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
     }
 
     @Test
-    void dispatchLocalFromTypedRowsHandlesMultipleColumns() {
+    void dispatchControlPlaneRowsHandlesMultipleColumns() {
         TypedRow row = TypedRow.builder()
                 .putInt("id", 1)
                 .putString("name", "hello")
@@ -98,7 +97,7 @@ class CoordinatorResultServiceTest {
         List<String> columnNames = List.of("id", "name");
         QueryStateMachine sm = new QueryStateMachine();
 
-        LocalDispatchResult result = service.dispatchLocalFromTypedRows(
+        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
                 "multi-col-q", List.of(row), columnNames, sm.toFinisher());
 
         assertThat(result).isNotNull();
@@ -107,10 +106,10 @@ class CoordinatorResultServiceTest {
     }
 
     @Test
-    void dispatchLocalFromTypedRowsHandlesEmptyRows() {
+    void dispatchControlPlaneRowsHandlesEmptyRows() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        LocalDispatchResult result = service.dispatchLocalFromTypedRows(
+        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
                 "empty-q", List.of(), List.of(), sm.toFinisher());
 
         assertThat(result).isNotNull();
@@ -123,7 +122,8 @@ class CoordinatorResultServiceTest {
         String queryId = "ticket-check-q";
         QueryStateMachine sm = new QueryStateMachine();
 
-        LocalDispatchResult result = service.dispatchLocal(queryId, new byte[]{1}, sm.toFinisher());
+        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+                queryId, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result.resultEndpoint().ticket()).isEqualTo(queryId);
     }
@@ -132,41 +132,18 @@ class CoordinatorResultServiceTest {
     void resultEndpointPreservesProtocol() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        LocalDispatchResult result = service.dispatchLocal(QUERY_ID, new byte[]{1}, sm.toFinisher());
+        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+                QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result.resultEndpoint().protocol()).isEqualTo("grpc");
     }
 
     @Test
-    void dispatchLocalFromNativePageBuffersAndReturnsEndpoint() {
-        byte[] pageData = {10, 20, 30};
-        NativePage nativePage = new NativePage(pageData, 3, 2, BatchFormat.ARROW_IPC);
+    void dispatchControlPlaneTransitionsThroughAllStatesToFinished() {
         QueryStateMachine sm = new QueryStateMachine();
 
-        LocalDispatchResult result = service.dispatchLocalFromNativePage(QUERY_ID, nativePage, sm.toFinisher());
-
-        assertThat(result).isNotNull();
-        assertThat(result.workerHost()).isEqualTo("coordinator-local");
-        assertThat(buffer.get(QUERY_ID)).isEqualTo(pageData);
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
-    }
-
-    @Test
-    void dispatchLocalFromNativePageTransitionsStateMachine() {
-        NativePage nativePage = new NativePage(new byte[]{1}, 1, 1, BatchFormat.ARROW_IPC);
-        QueryStateMachine sm = new QueryStateMachine();
-
-        service.dispatchLocalFromNativePage("ap-q", nativePage, sm.toFinisher());
-
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
-        assertThat(sm.isTerminal()).isTrue();
-    }
-
-    @Test
-    void dispatchLocalTransitionsThroughAllStatesToFinished() {
-        QueryStateMachine sm = new QueryStateMachine();
-
-        LocalDispatchResult result = service.dispatchLocal(QUERY_ID, new byte[]{1}, sm.toFinisher());
+        ControlPlaneDispatchResult result = service.dispatchControlPlaneRows(
+                QUERY_ID, List.of(), List.of(), sm.toFinisher());
 
         assertThat(result).isNotNull();
         assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
@@ -174,22 +151,24 @@ class CoordinatorResultServiceTest {
     }
 
     @Test
-    void dispatchLocalThrowsWhenQueryAlreadyFailed() {
+    void dispatchControlPlaneThrowsWhenQueryAlreadyFailed() {
         QueryStateMachine sm = new QueryStateMachine();
         sm.tryTransition(QueryStateMachine.State.FAILED);
 
-        assertThatThrownBy(() -> service.dispatchLocal(QUERY_ID, new byte[]{1}, sm.toFinisher()))
+        assertThatThrownBy(() -> service.dispatchControlPlaneRows(
+                QUERY_ID, List.of(), List.of(), sm.toFinisher()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("Cannot transition query to FINISHED")
                 .hasMessageContaining("FAILED");
     }
 
     @Test
-    void dispatchLocalThrowsWhenQueryAlreadyCancelled() {
+    void dispatchControlPlaneThrowsWhenQueryAlreadyCancelled() {
         QueryStateMachine sm = new QueryStateMachine();
         sm.tryTransition(QueryStateMachine.State.CANCELLED);
 
-        assertThatThrownBy(() -> service.dispatchLocal(QUERY_ID, new byte[]{1}, sm.toFinisher()))
+        assertThatThrownBy(() -> service.dispatchControlPlaneRows(
+                QUERY_ID, List.of(), List.of(), sm.toFinisher()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("Cannot transition query to FINISHED")
                 .hasMessageContaining("CANCELLED");

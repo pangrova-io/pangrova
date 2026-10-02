@@ -125,18 +125,24 @@ public final class IcebergTableHandleFactory {
             String tableName,
             Table table,
             Schema writeSchema) {
-        String tableLocation = table.location();
-        String schemaJson = SchemaParser.toJson(writeSchema);
-        String partitionSpecJson = PartitionSpecParser.toJson(table.spec());
-        int formatVersion = extractFormatVersion(table);
-
+        var metadata = ((org.apache.iceberg.HasTableOperations) table).operations().refresh();
+        String schemaJson = SchemaParser.toJson(metadata.schema());
+        if (!schemaJson.equals(SchemaParser.toJson(writeSchema))) {
+            throw new IllegalStateException("Iceberg created write schema changed before allocation");
+        }
         return new IcebergOutputTableHandle(
                 schemaName,
                 tableName,
-                tableLocation,
+                metadata.uuid(),
+                metadata.location(),
                 schemaJson,
-                partitionSpecJson,
-                formatVersion);
+                PartitionSpecParser.toJson(metadata.spec()),
+                metadata.formatVersion(),
+                metadata.currentSnapshot() != null
+                        ? metadata.currentSnapshot().snapshotId()
+                        : IcebergOutputTableHandle.NO_SNAPSHOT,
+                IcebergOutputTableHandle.MODE_INSERT, java.util.Map.of(),
+                IcebergDeclarationProperties.capture(metadata.properties()));
     }
 
     // ========== Schema/PartitionSpec Parsing ==========

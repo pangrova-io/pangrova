@@ -10,14 +10,13 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
+
+import static org.pangrova.metadata.store.JdbcSupport.getInstant;
+import static org.pangrova.metadata.store.JdbcSupport.setInstant;
 
 /**
  * JDBC-backed distributed lease using a single {@code distributed_lease} table.
@@ -27,14 +26,15 @@ import java.util.concurrent.TimeUnit;
  *   lease_key   VARCHAR(255) PRIMARY KEY,
  *   holder_id   VARCHAR(255) NOT NULL,
  *   epoch       BIGINT       NOT NULL DEFAULT 0,
- *   acquired_at TIMESTAMP    NOT NULL,
- *   expires_at  TIMESTAMP    NOT NULL,
+ *   acquired_at TIMESTAMPTZ(6) NOT NULL,
+ *   expires_at  TIMESTAMPTZ(6) NOT NULL,
  *   version     BIGINT       NOT NULL DEFAULT 0
  * </pre>
  *
  * <p>Concurrency strategy: database-level row locking via {@code version}
  * column provides distributed mutual exclusion across JVM processes.
- * Epoch fencing allows a new leader to force-replace a stale holder.</p>
+ * The database allocates fencing epochs while holding the lease row lock;
+ * callers cannot supply or advance them.</p>
  */
 public final class JdbcDistributedLease implements DistributedLease {
 
@@ -51,26 +51,25 @@ public final class JdbcDistributedLease implements DistributedLease {
     private static final String SQL_INSERT =
             "INSERT INTO distributed_lease "
                     + "(lease_key, holder_id, epoch, acquired_at, expires_at, version) "
-                    + "VALUES (?, ?, ?, ?, ?, 1)";
+                    + "VALUES (?, ?, 1, ?, ?, 1) ON CONFLICT DO NOTHING";
 
     private static final String SQL_ACQUIRE_REPLACE =
             "UPDATE distributed_lease "
-                    + "SET holder_id = ?, epoch = ?, acquired_at = ?, expires_at = ?, "
+                    + "SET holder_id = ?, epoch = epoch + 1, acquired_at = ?, expires_at = ?, "
                     + "version = version + 1 "
                     + "WHERE lease_key = ? AND version = ? "
-                    + "AND (expires_at < ? OR holder_id = ? OR epoch < ?)";
+                    + "AND expires_at <= ?";
 
     private static final String SQL_RENEW =
             "UPDATE distributed_lease "
-                    + "SET acquired_at = ?, expires_at = ?, version = version + 1 "
-                    + "WHERE lease_key = ? AND holder_id = ? AND version = ? "
+                    + "SET expires_at = ?, version = version + 1 "
+                    + "WHERE lease_key = ? AND holder_id = ? AND epoch = ? AND version = ? "
                     + "AND expires_at >= ?";
 
     private static final String SQL_RELEASE =
-            "DELETE FROM distributed_lease WHERE lease_key = ? AND holder_id = ?";
-
-    private static final String SQL_EXPIRE_STALE =
-            "DELETE FROM distributed_lease WHERE expires_at < CURRENT_TIMESTAMP";
+            "UPDATE distributed_lease SET expires_at = CURRENT_TIMESTAMP, version = version + 1 "
+                    + "WHERE lease_key = ? AND holder_id = ? AND epoch = ? "
+                    + "AND expires_at > CURRENT_TIMESTAMP";
 
     private final DataSource dataSource;
 
@@ -79,85 +78,103 @@ public final class JdbcDistributedLease implements DistributedLease {
     }
 
     @Override
-    public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
-        Objects.requireNonNull(leaseKey, "leaseKey must not be null");
-        Objects.requireNonNull(holderId, "holderId must not be null");
-        return executeAcquire(leaseKey, holderId, epoch, duration);
+    public Optional<LeaseEntry> tryAcquire(
+            String leaseKey, String holderId, Duration duration) {
+        requireRequest(leaseKey, holderId, duration);
+        return executeAcquire(leaseKey, holderId, duration);
     }
 
-    private boolean executeAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
+    private Optional<LeaseEntry> executeAcquire(
+            String leaseKey, String holderId, Duration duration) {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             // A-LEASE-01: anchor timing on the DB server clock (single authoritative clock) so that
             // coordinator clock skew / GC pauses cannot disagree on expiry and cause split-brain.
             Instant now = dbNow(conn);
-            Instant expiresAt = now.plus(duration);
-            boolean acquired = doAcquire(conn, leaseKey, holderId, epoch, now, expiresAt);
+            Instant expiresAt = now.plusMillis(duration.toMillis());
+            Optional<LeaseEntry> acquired = doAcquire(
+                    conn, leaseKey, holderId, now, expiresAt);
             conn.commit();
-            if (acquired) {
+            if (acquired.isPresent()) {
                 LOG.info("event=lease_acquired leaseKey={} holderId={} epoch={} expiresAt={}",
-                        leaseKey, holderId, epoch, expiresAt);
+                        leaseKey, holderId, acquired.get().epoch(),
+                        acquired.get().expiresAt());
             }
             return acquired;
         } catch (SQLException e) {
             LOG.warn("event=lease_acquire_failed leaseKey={} holderId={} error={}",
                     leaseKey, holderId, e.getMessage());
-            return false;
+            return Optional.empty();
         }
     }
 
-    private boolean doAcquire(Connection conn, String leaseKey, String holderId,
-                              long epoch, Instant now, Instant expiresAt) throws SQLException {
+    private Optional<LeaseEntry> doAcquire(
+            Connection conn, String leaseKey, String holderId,
+            Instant now, Instant expiresAt) throws SQLException {
         LeaseRow existing = selectLease(conn, leaseKey);
         if (existing == null) {
-            if (insertLease(conn, leaseKey, holderId, epoch, now, expiresAt)) {
-                return true;
+            if (insertLease(conn, leaseKey, holderId, now, expiresAt)) {
+                return Optional.of(new LeaseEntry(
+                        leaseKey, holderId, 1, now, expiresAt));
             }
-            // INSERT failed due to concurrent insert (PK conflict) — re-read with FOR UPDATE
             existing = selectLease(conn, leaseKey);
             if (existing == null) {
-                return false; // unexpected: row vanished between insert and select
+                return Optional.empty();
             }
         }
-        return replaceExpiredOrFenced(conn, leaseKey, holderId, epoch, now, expiresAt, existing);
+        if (existing.expiresAt.isAfter(now)) {
+            return existing.holderId.equals(holderId)
+                    ? Optional.of(toEntry(leaseKey, existing)) : Optional.empty();
+        }
+        long nextEpoch = Math.incrementExact(existing.epoch);
+        return replaceExpired(conn, leaseKey, holderId, nextEpoch,
+                now, expiresAt, existing)
+                ? Optional.of(new LeaseEntry(
+                        leaseKey, holderId, nextEpoch, now, expiresAt))
+                : Optional.empty();
     }
 
-    private boolean replaceExpiredOrFenced(Connection conn, String leaseKey, String holderId,
-                                           long epoch, Instant now, Instant expiresAt,
-                                           LeaseRow existing) throws SQLException {
+    private boolean replaceExpired(
+            Connection conn, String leaseKey, String holderId, long nextEpoch,
+            Instant now, Instant expiresAt, LeaseRow existing) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_ACQUIRE_REPLACE)) {
             ps.setString(1, holderId);
-            ps.setLong(2, epoch);
-            ps.setTimestamp(3, Timestamp.from(now));
-            ps.setTimestamp(4, Timestamp.from(expiresAt));
-            ps.setString(5, leaseKey);
-            ps.setLong(6, existing.version);
-            ps.setTimestamp(7, Timestamp.from(now));  // expires_at < now
-            ps.setString(8, holderId);                // holder_id = self (re-entrant)
-            ps.setLong(9, epoch);                     // epoch < new epoch (fencing)
-            return ps.executeUpdate() > 0;
+            setInstant(ps, 2, now);
+            setInstant(ps, 3, expiresAt);
+            ps.setString(4, leaseKey);
+            ps.setLong(5, existing.version);
+            setInstant(ps, 6, now);
+            boolean replaced = ps.executeUpdate() > 0;
+            if (replaced && nextEpoch <= existing.epoch) {
+                throw new SQLException("Lease epoch did not advance");
+            }
+            return replaced;
         }
     }
 
     @Override
-    public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
-        Objects.requireNonNull(leaseKey, "leaseKey must not be null");
-        Objects.requireNonNull(holderId, "holderId must not be null");
-        return executeRenew(leaseKey, holderId, duration);
+    public boolean tryRenew(
+            String leaseKey, String holderId, long epoch, Duration duration) {
+        requireRequest(leaseKey, holderId, duration);
+        requireEpoch(epoch);
+        return executeRenew(leaseKey, holderId, epoch, duration);
     }
 
-    private boolean executeRenew(String leaseKey, String holderId, Duration duration) {
+    private boolean executeRenew(
+            String leaseKey, String holderId, long epoch, Duration duration) {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             // A-LEASE-01: the DB server clock governs renewal validity and the new deadline.
             Instant now = dbNow(conn);
-            Instant expiresAt = now.plus(duration);
+            Instant expiresAt = now.plusMillis(duration.toMillis());
             LeaseRow existing = selectLease(conn, leaseKey);
-            if (existing == null || !existing.holderId.equals(holderId)) {
+            if (existing == null || !existing.holderId.equals(holderId)
+                    || existing.epoch != epoch) {
                 conn.rollback();
                 return false;
             }
-            boolean renewed = renewLease(conn, leaseKey, holderId, now, expiresAt, existing.version);
+            boolean renewed = renewLease(
+                    conn, leaseKey, holderId, epoch, now, expiresAt, existing.version);
             conn.commit();
             if (renewed) {
                 LOG.debug("event=lease_renewed leaseKey={} holderId={} expiresAt={}",
@@ -171,42 +188,16 @@ public final class JdbcDistributedLease implements DistributedLease {
         }
     }
 
-    /**
-     * Starts a background task that periodically renews the lease before it expires.
-     * The renewal runs at half the lease duration interval to ensure the lease
-     * is refreshed well before expiration. If a renewal fails, the failure is
-     * logged but the scheduler continues attempting renewals.
-     *
-     * @param scheduler the executor to schedule renewal tasks on
-     * @param leaseKey the lease key to renew
-     * @param holderId the holder ID that owns the lease
-     * @param leaseDuration the full lease duration (renewal runs at half this interval)
-     * @return a ScheduledFuture that can be cancelled to stop auto-renewal
-     */
-    public ScheduledFuture<?> startAutoRenewal(ScheduledExecutorService scheduler,
-                                               String leaseKey, String holderId,
-                                               Duration leaseDuration) {
-        Objects.requireNonNull(scheduler, "scheduler must not be null");
-        Objects.requireNonNull(leaseKey, "leaseKey must not be null");
-        Objects.requireNonNull(holderId, "holderId must not be null");
-        Objects.requireNonNull(leaseDuration, "leaseDuration must not be null");
-        long renewalIntervalMs = leaseDuration.toMillis() / 2;
-        return scheduler.scheduleAtFixedRate(() -> {
-            boolean renewed = tryRenew(leaseKey, holderId, leaseDuration);
-            if (!renewed) {
-                LOG.warn("event=auto_renewal_failed leaseKey={} holderId={}", leaseKey, holderId);
-            }
-        }, renewalIntervalMs, renewalIntervalMs, TimeUnit.MILLISECONDS);
-    }
-
     @Override
-    public boolean release(String leaseKey, String holderId) {
+    public boolean release(String leaseKey, String holderId, long epoch) {
         Objects.requireNonNull(leaseKey, "leaseKey must not be null");
         Objects.requireNonNull(holderId, "holderId must not be null");
+        requireEpoch(epoch);
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(SQL_RELEASE)) {
             ps.setString(1, leaseKey);
             ps.setString(2, holderId);
+            ps.setLong(3, epoch);
             int updated = ps.executeUpdate();
             if (updated > 0) {
                 LOG.info("event=lease_released leaseKey={} holderId={}", leaseKey, holderId);
@@ -235,22 +226,6 @@ public final class JdbcDistributedLease implements DistributedLease {
         }
     }
 
-    @Override
-    public int expireStale() {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(SQL_EXPIRE_STALE)) {
-            // A-LEASE-01: compare against the DB server clock (CURRENT_TIMESTAMP), not the caller's.
-            int deleted = ps.executeUpdate();
-            if (deleted > 0) {
-                LOG.info("event=lease_stale_expired count={}", deleted);
-            }
-            return deleted;
-        } catch (SQLException e) {
-            LOG.error("event=lease_expire_stale_error error={}", e.getMessage(), e);
-            return 0;
-        }
-    }
-
     private LeaseRow selectLease(Connection conn, String leaseKey) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_SELECT)) {
             ps.setString(1, leaseKey);
@@ -259,8 +234,8 @@ public final class JdbcDistributedLease implements DistributedLease {
                     return new LeaseRow(
                             rs.getString("holder_id"),
                             rs.getLong("epoch"),
-                            rs.getTimestamp("acquired_at").toInstant(),
-                            rs.getTimestamp("expires_at").toInstant(),
+                            getInstant(rs, "acquired_at"),
+                            getInstant(rs, "expires_at"),
                             rs.getLong("version"));
                 }
                 return null;
@@ -276,8 +251,8 @@ public final class JdbcDistributedLease implements DistributedLease {
                     return new LeaseRow(
                             rs.getString("holder_id"),
                             rs.getLong("epoch"),
-                            rs.getTimestamp("acquired_at").toInstant(),
-                            rs.getTimestamp("expires_at").toInstant(),
+                            getInstant(rs, "acquired_at"),
+                            getInstant(rs, "expires_at"),
                             rs.getLong("version"));
                 }
                 return null;
@@ -286,34 +261,49 @@ public final class JdbcDistributedLease implements DistributedLease {
     }
 
     private boolean insertLease(Connection conn, String leaseKey, String holderId,
-                                long epoch, Instant now, Instant expiresAt) throws SQLException {
+                                Instant now, Instant expiresAt) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_INSERT)) {
             ps.setString(1, leaseKey);
             ps.setString(2, holderId);
-            ps.setLong(3, epoch);
-            ps.setTimestamp(4, Timestamp.from(now));
-            ps.setTimestamp(5, Timestamp.from(expiresAt));
+            setInstant(ps, 3, now);
+            setInstant(ps, 4, expiresAt);
             return ps.executeUpdate() > 0;
-        } catch (SQLException e) {
-            // SQLState 23xxx = integrity constraint violation (duplicate key)
-            if (e.getSQLState() != null && e.getSQLState().startsWith("23")) {
-                LOG.debug("event=lease_insert_conflict leaseKey={} holderId={}", leaseKey, holderId);
-                return false;
-            }
-            throw e;
         }
     }
 
-    private boolean renewLease(Connection conn, String leaseKey, String holderId,
-                               Instant now, Instant expiresAt, long version) throws SQLException {
+    private boolean renewLease(
+            Connection conn, String leaseKey, String holderId, long epoch,
+            Instant now, Instant expiresAt, long version) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement(SQL_RENEW)) {
-            ps.setTimestamp(1, Timestamp.from(now));
-            ps.setTimestamp(2, Timestamp.from(expiresAt));
-            ps.setString(3, leaseKey);
-            ps.setString(4, holderId);
+            setInstant(ps, 1, expiresAt);
+            ps.setString(2, leaseKey);
+            ps.setString(3, holderId);
+            ps.setLong(4, epoch);
             ps.setLong(5, version);
-            ps.setTimestamp(6, Timestamp.from(now));  // expires_at >= now
+            setInstant(ps, 6, now);
             return ps.executeUpdate() > 0;
+        }
+    }
+
+    private static LeaseEntry toEntry(String leaseKey, LeaseRow row) {
+        return new LeaseEntry(leaseKey, row.holderId, row.epoch,
+                row.acquiredAt, row.expiresAt);
+    }
+
+    private static void requireRequest(
+            String leaseKey, String holderId, Duration duration) {
+        Objects.requireNonNull(leaseKey, "leaseKey must not be null");
+        Objects.requireNonNull(holderId, "holderId must not be null");
+        Objects.requireNonNull(duration, "duration must not be null");
+        if (leaseKey.isBlank() || holderId.isBlank() || duration.toMillis() <= 0) {
+            throw new IllegalArgumentException(
+                    "leaseKey and holderId must be non-blank and duration must be positive");
+        }
+    }
+
+    private static void requireEpoch(long epoch) {
+        if (epoch <= 0) {
+            throw new IllegalArgumentException("epoch must be positive");
         }
     }
 
@@ -327,9 +317,9 @@ public final class JdbcDistributedLease implements DistributedLease {
         try (PreparedStatement ps = conn.prepareStatement("SELECT CURRENT_TIMESTAMP");
              ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
-                Timestamp ts = rs.getTimestamp(1);
-                if (ts != null) {
-                    return ts.toInstant();
+                Instant now = getInstant(rs, 1);
+                if (now != null) {
+                    return now;
                 }
             }
             throw new SQLException("CURRENT_TIMESTAMP query returned no row");

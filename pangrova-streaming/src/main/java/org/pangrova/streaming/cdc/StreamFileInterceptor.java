@@ -34,7 +34,7 @@ import java.util.function.BiFunction;
  * to be:</p>
  * <ol>
  *   <li>Decoded from base64</li>
- *   <li>Written to external blob storage via BlobExternalWriter</li>
+ *   <li>Written to the governed content-addressed FILE store</li>
  *   <li>Replaced in the CDC record with a FILE struct reference</li>
  * </ol>
  *

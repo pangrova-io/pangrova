@@ -3,13 +3,18 @@ package org.pangrova.coordinator.query.execution;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
+import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.coordinator.query.statement.StatementConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.shuffle.ShuffleLifecycleManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,6 +38,9 @@ public final class QueryOwnershipTracker {
     private final SplitAssignmentManager splitAssignmentManager;
     private final TaskCancelRetrier cancelRetrier;
     private final AtomicReference<OwnershipSnapshot> ownershipSnapshot = new AtomicReference<>();
+    private final ConcurrentHashMap<String, List<ConnectorMetadata>> queryMetadata = new ConcurrentHashMap<>();
+    private volatile JdbcShuffleCleanupIntentStore shuffleCleanupIntents;
+    private volatile ShuffleLifecycleManager shuffleLifecycleManager;
 
     /** Immutable snapshot for atomic HA ownership reads. */
     record OwnershipSnapshot(
@@ -71,6 +79,15 @@ public final class QueryOwnershipTracker {
         }
     }
 
+    /** Wires durable remote Shuffle cleanup before execution ownership release. */
+    public void setShuffleCleanup(
+            JdbcShuffleCleanupIntentStore intents,
+            ShuffleLifecycleManager lifecycleManager) {
+        shuffleCleanupIntents = checkNotNull(intents, "intents must not be null");
+        shuffleLifecycleManager = checkNotNull(
+                lifecycleManager, "lifecycleManager must not be null");
+    }
+
     /**
      * Acquires query ownership via the HA coordination service.
      * Returns true if ownership was acquired or if ownership tracking is not configured.
@@ -96,6 +113,26 @@ public final class QueryOwnershipTracker {
 
     /** Cleans up split assignment state, releases ownership, and notifies connectors. */
     public void cleanupQuery(String queryId) {
+        JdbcShuffleCleanupIntentStore intents = shuffleCleanupIntents;
+        if (intents != null) {
+            // QueryStateMachine writes the durable intent before its terminal
+            // transition. A retry must only consume that intent: recreating it
+            // after remote cleanup atomically deleted the scope and intent
+            // would make cleanup loop forever.
+            if (intents.isPending(queryId)) {
+                if (shuffleLifecycleManager instanceof
+                        org.pangrova.coordinator.query.execution.dispatch.shuffle
+                                .CoordinatorShuffleLifecycleManager remote) {
+                    remote.recoverCleanupShuffle(queryId);
+                } else {
+                    shuffleLifecycleManager.cleanupShuffle(queryId);
+                }
+                if (intents.isPending(queryId)) {
+                    throw new IllegalStateException(
+                            "shuffle cleanup is still pending: " + queryId);
+                }
+            }
+        }
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
         if (snapshot != null) {
             try {
@@ -130,17 +167,21 @@ public final class QueryOwnershipTracker {
         return cancelRetrier;
     }
 
+    void registerConnectorMetadata(String queryId, ConnectorMetadata metadata) {
+        queryMetadata.computeIfAbsent(queryId, ignored -> new CopyOnWriteArrayList<>()).add(metadata);
+    }
+
     private void notifyConnectorsCleanupQuery(String queryId) {
-        if (catalogRegistry == null) {
+        List<ConnectorMetadata> metadata = queryMetadata.remove(queryId);
+        if (metadata == null) {
             return;
         }
-        for (String catalogName : catalogRegistry.listCatalogNames()) {
+        for (var connector : metadata) {
             try {
-                var session = new StatementConnectorSession(catalogName, "default");
-                catalogRegistry.getCatalog(catalogName).getMetadata(session).cleanupQuery(queryId);
+                connector.cleanupQuery(queryId);
             } catch (Exception e) {
-                LOG.debug("event=connector_cleanup_query_failed catalog={} queryId={} error={}",
-                        catalogName, queryId, e.getMessage());
+                LOG.warn("event=connector_cleanup_query_failed queryId={} error={}",
+                        queryId, e.getMessage());
             }
         }
     }

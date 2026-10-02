@@ -12,9 +12,11 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.planner.runtimefilter.RuntimeFilter;
 import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
+import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.ValueEncoding;
 import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
 
@@ -57,9 +59,13 @@ class DynamicFilterBinderTest {
         assertThat(payload.filterId()).isEqualTo("dpp-2");
         assertThat(payload.filterType()).isEqualTo("MIN_MAX");
         assertThat(payload.targetStageId()).isEqualTo("2");
-        assertThat(payload.version()).isEqualTo(1);
-        String data = new String(payload.filterData(), StandardCharsets.UTF_8);
-        assertThat(data).isEqualTo("customer_id|10|500");
+        assertThat(payload.version()).isEqualTo(2);
+        InjectRuntimeFilterRequest typed = parse(payload);
+        assertThat(typed.getFiltersCount()).isEqualTo(1);
+        assertThat(typed.getFilters(0).getColumnName()).isEqualTo("customer_id");
+        assertThat(typed.getFilters(0).hasRange()).isTrue();
+        assertThat(typed.getFilters(0).getRange().getLower().getInt64Value()).isEqualTo(10);
+        assertThat(typed.getFilters(0).getRange().getUpper().getInt64Value()).isEqualTo(500);
     }
 
     @Test
@@ -81,6 +87,10 @@ class DynamicFilterBinderTest {
         assertThat(payload.filterType()).isEqualTo("BLOOM");
         assertThat(payload.targetStageId()).isEqualTo("3");
         assertThat(payload.filterData()).isNotEmpty();
+        InjectRuntimeFilterRequest typed = parse(payload);
+        assertThat(typed.getFilters(0).hasBloom()).isTrue();
+        assertThat(typed.getFilters(0).getBloom().getValueEncoding())
+                .isEqualTo(ValueEncoding.VALUE_ENCODING_UTF8);
     }
 
     @Test
@@ -103,14 +113,15 @@ class DynamicFilterBinderTest {
         var filters = DynamicFilterBinder.resolveFilters("0", "q-single", registry);
         CoordinatorSessionContext session = createSession("q-single");
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
-        ResourceLimitPayload limit = new ResourceLimitPayload(1024L, 2, 0L, "");
+        StageResourceGrant limit = resourceGrant();
 
         SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
-                session, planBytes, createStageNode(0), 0, limit, List.of(), filters);
+                leafTask(session, planBytes, createStageNode(0), limit, filters));
 
-        assertThat(request.dynamicFilters()).hasSize(1);
-        assertThat(request.dynamicFilters().get(0).targetStageId()).isEqualTo("0");
-        assertThat(request.dynamicFilters().get(0).filterType()).isEqualTo("MIN_MAX");
+        assertThat(request.taskRequest().getInitialRuntimeFiltersList()).hasSize(1);
+        var bound = request.taskRequest().getInitialRuntimeFilters(0);
+        assertThat(bound.getPlanNodeId()).isEqualTo("scan_id");
+        assertThat(bound.getFilters(0).hasRange()).isTrue();
     }
 
     @Test
@@ -123,27 +134,27 @@ class DynamicFilterBinderTest {
         CoordinatorSessionContext session = createSession("q-multi");
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
         StageNode stage = createStageNode(2);
-        ResourceLimitPayload limit = new ResourceLimitPayload(1024L, 2, 0L, "");
+        StageResourceGrant limit = resourceGrant();
 
         SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
-                session, planBytes, stage, 0, limit, List.of(), filters);
+                leafTask(session, planBytes, stage, limit, filters));
 
-        assertThat(request.dynamicFilters()).hasSize(1);
-        assertThat(request.dynamicFilters().get(0).filterId()).isEqualTo("dpp-2");
-        assertThat(request.dynamicFilters().get(0).targetStageId()).isEqualTo("2");
-        assertThat(request.stageId()).isEqualTo(2);
+        assertThat(request.taskRequest().getInitialRuntimeFiltersList()).hasSize(1);
+        assertThat(request.taskRequest().getInitialRuntimeFilters(0).getPlanNodeId())
+                .isEqualTo("scan_customer_id");
+        assertThat(request.taskRequest().getAttempt().getStageId()).isEqualTo(2);
     }
 
     @Test
     void noFilters_taskRequestHasEmptyFilterList() {
         CoordinatorSessionContext session = createSession("q-empty");
         byte[] planBytes = "plan".getBytes(StandardCharsets.UTF_8);
-        ResourceLimitPayload limit = new ResourceLimitPayload(1024L, 2, 0L, "");
+        StageResourceGrant limit = resourceGrant();
 
         SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
-                session, planBytes, createStageNode(0), 0, limit, List.of(), List.of());
+                leafTask(session, planBytes, createStageNode(0), limit, List.of()));
 
-        assertThat(request.dynamicFilters()).isEmpty();
+        assertThat(request.taskRequest().getInitialRuntimeFiltersList()).isEmpty();
     }
 
     @Test
@@ -158,17 +169,50 @@ class DynamicFilterBinderTest {
         DynamicFilterPayload payload = DynamicFilterBinder.toPayload("7", bloom);
 
         // Verify SBBF binary can be deserialized back
-        byte[] data = payload.filterData();
+        byte[] data = parse(payload).getFilters(0)
+                .getBloom().getSerializedFilter().toByteArray();
         SplitBlockBloomFilter restored = SplitBlockBloomFilter.readFrom(data);
         assertThat(restored.mightContain("alpha")).isTrue();
         assertThat(restored.mightContain("beta")).isTrue();
         assertThat(restored.mightContain("gamma")).isTrue();
     }
 
+    private static InjectRuntimeFilterRequest parse(DynamicFilterPayload payload) {
+        try {
+            return InjectRuntimeFilterRequest.parseFrom(payload.filterData());
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new AssertionError(failure);
+        }
+    }
+
     private static CoordinatorSessionContext createSession(String queryId) {
         UserIdentity identity = new UserIdentity(
                 "testUser", Set.of(), Map.of(), java.time.Instant.now());
         return new CoordinatorSessionContext(queryId, Map.of(), identity, "default-tenant");
+    }
+
+    private static StageResourceGrant resourceGrant() {
+        return StageResourceGrant.newBuilder()
+                .setGrantId("unbound-test-grant")
+                .setNativeMemoryBytes(1024L)
+                .setCpuSlots(2)
+                .build();
+    }
+
+    private static TaskRequestFactory.LeafTask leafTask(
+            CoordinatorSessionContext session,
+            byte[] planBytes,
+            StageNode stage,
+            StageResourceGrant resourceGrant,
+            List<DynamicFilterPayload> filters) {
+        return new TaskRequestFactory.LeafTask(
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session),
+                planBytes, stage, 0, resourceGrant,
+                List.of(), filters, null, List.of(),
+                org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskDeadline.after(
+                        java.time.Duration.ofMinutes(5), java.time.Instant.now()),
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1L, 0),
+                List.of(), null, List.of());
     }
 
     private static StageNode createStageNode(int stageId) {

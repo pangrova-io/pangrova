@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that {@link ConnectorAccessorResolver#resolveDataFileInfos} enriches
@@ -45,6 +46,7 @@ class ConnectorAccessorResolverDataFileInfoTest {
     private static final String TABLE = "orders";
 
     private ConnectorAccessorResolver resolver;
+    private ConnectorAccessorResolver processResolver;
 
     @BeforeEach
     void setUp() {
@@ -60,7 +62,40 @@ class ConnectorAccessorResolverDataFileInfoTest {
                 metadataStore, factory, null, null);
         registry.initialize();
 
-        resolver = new ConnectorAccessorResolver(registry);
+        processResolver = new ConnectorAccessorResolver(registry);
+        resolver = processResolver.forSession(
+                org.pangrova.coordinator.query.statement.StatementTestSessions.connector(CATALOG, SCHEMA));
+    }
+
+    @Test
+    void processResourceCannotReadMetadataWithoutCurrentAuthority() {
+        assertThatThrownBy(() -> processResolver.listDataFiles(CATALOG, SCHEMA, TABLE))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("reauthorize");
+        assertThatThrownBy(processResolver::resolveSnapshotPinProvider)
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
+    }
+
+    @Test
+    void queryScopeCannotReadAnotherCatalogOrSchema() {
+        assertThatThrownBy(() -> resolver.listDataFiles("other-catalog", SCHEMA, TABLE))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("catalog");
+        assertThatThrownBy(() -> resolver.resolveFileStatistics(CATALOG, "other-schema", TABLE, List.of()))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("schema");
+    }
+
+    @Test
+    void missingTenantCannotBecomeAnAuthorizedIndexScope() {
+        ConnectorSession incomplete = new ConnectorSession() {
+            @Override public String getUser() { return "authenticated-user"; }
+            @Override public Optional<String> getCatalog() { return Optional.of(CATALOG); }
+            @Override public Optional<String> getSchema() { return Optional.of(SCHEMA); }
+            @Override public Map<String, String> getProperties() { return Map.of(); }
+        };
+        assertThatThrownBy(() -> processResolver.forSession(incomplete))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
     }
 
     @Test

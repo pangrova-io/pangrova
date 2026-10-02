@@ -1,12 +1,13 @@
 package org.pangrova.protocol.rest.task.convert;
 
-import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.protocol.rest.config.ResourceLimitPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.StageResourceGrant;
+import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.spi.execution.PlanFragment;
 import org.pangrova.spi.execution.PlanNodeId;
 import org.pangrova.spi.execution.QueryId;
@@ -15,11 +16,10 @@ import org.pangrova.spi.execution.TaskDescriptor;
 import org.pangrova.spi.execution.TaskResourceLimit;
 
 /**
- * Shared converter from REST protocol DTOs to SPI execution types.
+ * Shared converter from canonical task protocol to SPI scheduling types.
  *
- * <p>Single source of truth for {@link SubmitTaskRequest} → {@link TaskDescriptor}
- * conversion. Both coordinator and worker modules delegate to this class,
- * eliminating duplicate conversion logic.</p>
+ * <p>The REST object is only a byte envelope; conversion reads the parsed
+ * canonical {@link TaskRequest} and never reconstructs it from JSON fields.</p>
  */
 public final class TaskRequestDtoConverter {
 
@@ -29,53 +29,55 @@ public final class TaskRequestDtoConverter {
      * Converts a REST SubmitTaskRequest to an SPI TaskDescriptor.
      */
     public static TaskDescriptor toTaskDescriptor(SubmitTaskRequest request) {
-        QueryId queryId = new QueryId(request.queryId());
-        PlanFragment fragment = toPlanFragment(request.planFragment());
-        List<Split> splits = toSplits(request.splits());
-        Map<String, String> props = nullSafe(request.sessionProperties());
-        String taskType = (request.taskType() != null) ? request.taskType() : "COMPUTE";
-        TaskResourceLimit limit = toResourceLimit(request.resourceLimit());
+        TaskRequest canonical = request.taskRequest();
+        QueryId queryId = new QueryId(canonical.getAttempt().getQueryOrJobId());
+        PlanFragment fragment = new SerializedPlanFragment(
+                canonical.getSubstraitPlan().toByteArray());
+        List<Split> splits = canonical.getSplitsList().stream()
+                .map(split -> (Split) new SerializedSplit(split.toByteArray()))
+                .toList();
+        Map<String, String> props = canonical.hasExecutionOptions()
+                ? canonical.getExecutionOptions().getSessionPropertiesMap()
+                : Map.of();
+        String taskType = taskType(canonical.getTaskKind(), canonical);
+        TaskResourceLimit limit = toResourceLimit(canonical.hasResourceGrant()
+                ? canonical.getResourceGrant() : null);
         return new TaskDescriptor(queryId, fragment, splits, props,
-                request.stageId(), request.partitionId(), taskType, limit);
+                canonical.getAttempt().getStageId(),
+                canonical.getAttempt().getPartitionId(), taskType, limit);
     }
 
     /**
      * Converts protocol ResourceLimit to SPI TaskResourceLimit.
      */
-    public static TaskResourceLimit toResourceLimit(ResourceLimitPayload limit) {
-        if (limit == null) {
+    public static TaskResourceLimit toResourceLimit(StageResourceGrant grant) {
+        if (grant == null) {
             return TaskResourceLimit.NONE;
         }
         return new TaskResourceLimit(
-                limit.maxMemoryBytes(), limit.maxThreads(),
-                limit.maxSpillBytes(),
-                (limit.spillDirectory() != null) ? limit.spillDirectory() : "");
-    }
-
-    /**
-     * Wraps a base64-encoded plan fragment string into a PlanFragment SPI type.
-     */
-    public static PlanFragment toPlanFragment(String planFragmentBase64) {
-        byte[] bytes = (planFragmentBase64 != null)
-                ? Base64.getDecoder().decode(planFragmentBase64)
-                : new byte[0];
-        return new SerializedPlanFragment(bytes);
-    }
-
-    /**
-     * Converts base64-encoded split strings into Split SPI types.
-     */
-    public static List<Split> toSplits(List<String> splitsBase64) {
-        if (splitsBase64 == null || splitsBase64.isEmpty()) {
-            return List.of();
-        }
-        return splitsBase64.stream()
-                .map(b64 -> (Split) new SerializedSplit(Base64.getDecoder().decode(b64)))
-                .toList();
+                grant.getNativeMemoryBytes(), grant.getCpuSlots(),
+                grant.getSpillBytes(), "");
     }
 
     static Map<String, String> nullSafe(Map<String, String> map) {
         return (map != null) ? map : Map.of();
+    }
+
+    private static String taskType(TaskKind kind, TaskRequest request) {
+        if (request.hasExecutionOptions()
+                && request.getExecutionOptions().getDirectResultOutput()) {
+            return "OUTPUT";
+        }
+        return switch (kind) {
+            case TASK_KIND_READ, TASK_KIND_SHUFFLE_READ, TASK_KIND_SHUFFLE_WRITE ->
+                    "COMPUTE";
+            case TASK_KIND_WRITE -> "WRITE";
+            case TASK_KIND_BACKGROUND_BUILD -> "BACKGROUND_BUILD";
+            case TASK_KIND_BACKGROUND_VALIDATE -> "BACKGROUND_VALIDATE";
+            case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";
+            default -> throw new IllegalArgumentException(
+                    "Unsupported canonical task kind: " + kind);
+        };
     }
 
     /**

@@ -16,6 +16,12 @@ class AstPrinterTest {
     // ── Literal round-trips ──
 
     @Test
+    void printWindowFramesPreservesRowsVersusRange() {
+        assertRoundTrip("SELECT SUM(a) OVER (ORDER BY a ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t");
+        assertRoundTrip("SELECT SUM(a) OVER (ORDER BY a ASC RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM t");
+    }
+
+    @Test
     void printSelectInteger() {
         assertRoundTrip("SELECT 1");
     }
@@ -89,6 +95,11 @@ class AstPrinterTest {
         assertRoundTrip("SELECT SUM(a, b)");
     }
 
+    @Test
+    void printArrayConstructorInVectorInsert() {
+        assertRoundTrip("INSERT INTO vectors (id, embedding) VALUES (1, ARRAY[1.0, 0.0, 2.0])");
+    }
+
     // ── Custom extensions ──
 
     @Test
@@ -131,6 +142,12 @@ class AstPrinterTest {
     @Test
     void printAlterCatalog() {
         assertRoundTrip("ALTER CATALOG my_cat SET PROPERTIES (connector = 'hive')");
+    }
+
+    @Test
+    void printIndexLifecycleStatements() {
+        assertRoundTrip("CREATE INDEX idx1 ON t1 (name) USING BLOOM_FILTER");
+        assertRoundTrip("DROP INDEX idx1 ON t1");
     }
 
     // ── CALL ──

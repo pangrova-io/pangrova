@@ -1,70 +1,62 @@
 package org.pangrova.worker.execution;
 
+import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Verifies thread-safety of {@link NativeTaskExecutor#close()} with
- * concurrent access. Tests structural concurrency guarantees without
- * requiring native library.
- */
+/** Real JNI cleanup must remain idempotent under concurrent Worker shutdown. */
 @Tag("native-required")
+@ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class NativeTaskExecutorConcurrentCloseTest {
 
     @Test
     void concurrentCloseCallsAreIdempotent() throws Exception {
-        int threadCount = 10;
-        CountDownLatch ready = new CountDownLatch(threadCount);
-        CountDownLatch go = new CountDownLatch(1);
-        AtomicInteger exceptionCount = new AtomicInteger(0);
-        AtomicReference<Exception> firstException = new AtomicReference<>();
-
-        NativeTaskExecutor executor = new NativeTaskExecutor();
-
-        Thread[] threads = new Thread[threadCount];
-        for (int i = 0; i < threadCount; i++) {
-            threads[i] = new Thread(() -> {
-                ready.countDown();
-                try {
-                    go.await();
-                    executor.close();
-                } catch (Exception e) {
-                    exceptionCount.incrementAndGet();
-                    firstException.compareAndSet(null, e);
-                }
-            }, "close-thread-" + i);
-            threads[i].start();
+        try (var fixture = new ActualNativeTaskFixture()) {
+            long handle = fixture.createPending(fixture.valuesRequest(false));
+            fixture.stopTransports();
+            var ready = new CountDownLatch(10);
+            var go = new CountDownLatch(1);
+            var done = new CountDownLatch(10);
+            var failure = new AtomicReference<Throwable>();
+            for (int index = 0; index < 10; index++) {
+                new Thread(() -> {
+                    ready.countDown();
+                    try {
+                        if (!go.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("Concurrent close start timed out");
+                        }
+                        fixture.executor().close();
+                    } catch (Throwable error) {
+                        failure.compareAndSet(null, error);
+                    } finally {
+                        done.countDown();
+                    }
+                }, "close-thread-" + index).start();
+            }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+            assertThat(done.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(failure.get()).isNull();
+            NativeTaskExecutorReleaseRaceTest.assertNativeHandleGone(handle);
         }
-
-        ready.await();
-        go.countDown();
-
-        for (Thread t : threads) {
-            t.join(5000);
-        }
-
-        assertThat(exceptionCount.get())
-                .as("Concurrent close() must not throw")
-                .isZero();
     }
 
     @Test
     void createTaskAfterCloseThrowsIllegalState() {
-        NativeTaskExecutor executor = new NativeTaskExecutor();
-        executor.close();
-
-        try {
-            executor.createTask(new byte[]{1, 2, 3});
-        } catch (IllegalStateException e) {
-            assertThat(e.getMessage()).contains("closed");
-        } catch (UnsatisfiedLinkError e) {
-            // Expected when native library is not loaded
+        try (var fixture = new ActualNativeTaskFixture()) {
+            var request = fixture.valuesRequest(false);
+            fixture.stopTransports();
+            fixture.executor().close();
+            assertThatThrownBy(() -> fixture.executor().createTask(request.toByteArray()))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("closed");
         }
     }
 }

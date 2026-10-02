@@ -7,30 +7,29 @@ package org.pangrova.streaming.cdc.commit;
  * <pre>
  *   PREPARED → COMMITTING → COMMITTED
  *   PREPARED → ROLLING_BACK → ROLLED_BACK
- *   COMMITTING → ROLLING_BACK → ROLLED_BACK  (on commit failure)
  * </pre>
  *
  * <p>Recovery semantics:</p>
  * <ul>
  *   <li>PREPARED past deadline → rollback</li>
- *   <li>COMMITTING → retry commit (idempotent)</li>
+ *   <li>COMMITTING → quarantine until the external catalog outcome is reconciled</li>
  *   <li>ROLLING_BACK → retry rollback (idempotent)</li>
  * </ul>
  */
 public enum CdcCommitState {
 
-    /** Phase 1 complete: both refresh and offset are prepared but not committed. */
+    /** Source-batch intent exists; external publication has not started. */
     PREPARED,
 
     /** Phase 2 in progress: commit has been initiated. */
     COMMITTING,
 
-    /** Terminal: transaction successfully committed on both sides. */
+    /** Terminal: ordered participant commits completed and state was acknowledged. */
     COMMITTED,
 
     /** Rollback in progress. */
     ROLLING_BACK,
 
-    /** Terminal: transaction rolled back on both sides. */
+    /** Terminal: prepare was abandoned before external publication. */
     ROLLED_BACK
 }

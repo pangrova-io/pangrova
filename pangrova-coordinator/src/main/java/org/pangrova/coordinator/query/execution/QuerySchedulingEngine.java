@@ -24,30 +24,36 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.security.SecurityPolicySignatureProvider;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
+import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RerankIntent;
+import org.pangrova.coordinator.query.execution.retrieval.RetrievalIntentCollector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DefaultWorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.RuntimeFilterStageHandler;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.task.NativeWriteCommitTracker;
-import org.pangrova.coordinator.result.CoordinatorResultService;
+import org.pangrova.coordinator.query.task.write.WriteAllocationIntent;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 import org.pangrova.protocol.rest.config.WriteConfig;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.ConnectorMetadata;
+import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Handles query scheduling and dispatch to native workers: local dispatch for
- * constant queries, DAG-based distributed dispatch for multi-stage queries,
- * vector search enrichment, and DML task completion awaiting.
+ * Handles query scheduling and dispatch to native workers. Every relational
+ * query, including constants and zero-row plans, follows the same DAG/Native
+ * execution path. The coordinator never evaluates or buffers query rows.
  *
  * <p>Thread safety: all fields are final or volatile. DAGDispatchEngine and
  * WorkerManager are internally thread-safe.</p>
@@ -57,11 +63,16 @@ final class QuerySchedulingEngine {
 
     private static final Logger LOG = LoggerFactory.getLogger(
             QuerySchedulingEngine.class);
+    private static final String POLICY_CONTEXT_PROPERTY =
+            "pangrova.policy_context_hash";
+    private static final int SQL_PREVIEW_LIMIT = 80;
 
     private final SchedulingDependencies deps;
     private final DispatchContextEnricher enricher;
-    private final QueryVectorResultMerger vectorResultMerger;
+    private final RetrievalIntentCollector retrievalIntents;
     private volatile NativeWriteCommitTracker writeCommitTracker;
+    private volatile GeneratedWriteAuthoritySupplier generatedWriteAuthoritySupplier;
+    private java.util.function.BiConsumer<String, ConnectorMetadata> connectorRegistrar;
 
     /**
      * Groups scheduling dependencies into a single parameter object.
@@ -71,7 +82,6 @@ final class QuerySchedulingEngine {
             DefaultWorkerSelector workerSelector,
             WorkerManager workerManager,
             CoordinatorTaskTracker taskTracker,
-            CoordinatorResultService resultService,
             CatalogRegistry catalogRegistry,
             IndexAwareSplitFetcher indexAwareSplitFetcher,
             RuntimeFilterStageHandler runtimeFilterStageHandler,
@@ -80,11 +90,19 @@ final class QuerySchedulingEngine {
     QuerySchedulingEngine(SchedulingDependencies deps) {
         this.deps = deps;
         this.enricher = new DispatchContextEnricher(deps.indexAwareSplitFetcher());
-        this.vectorResultMerger = new QueryVectorResultMerger(deps.workerManager());
+        this.retrievalIntents = new RetrievalIntentCollector(deps.workerManager());
     }
 
     void setWriteCommitTracker(NativeWriteCommitTracker tracker) {
         this.writeCommitTracker = tracker;
+    }
+
+    void setGeneratedWriteAuthoritySupplier(GeneratedWriteAuthoritySupplier supplier) {
+        this.generatedWriteAuthoritySupplier = java.util.Objects.requireNonNull(supplier);
+    }
+
+    void setConnectorRegistrar(java.util.function.BiConsumer<String, ConnectorMetadata> registrar) {
+        this.connectorRegistrar = java.util.Objects.requireNonNull(registrar);
     }
 
     DAGDispatchEngine dagEngine() {
@@ -101,70 +119,26 @@ final class QuerySchedulingEngine {
                 session.queryId(),
                 session.userIdentity() != null
                         ? session.userIdentity() : "anonymous",
-                ctx.originalSql() != null && ctx.originalSql().length() > 80
-                        ? ctx.originalSql().substring(0, 80) + "..."
+                ctx.originalSql() != null && ctx.originalSql().length() > SQL_PREVIEW_LIMIT
+                        ? ctx.originalSql().substring(0, SQL_PREVIEW_LIMIT) + "..."
                         : ctx.originalSql());
-        DispatchResult localResult = tryLocalDispatch(sm, session, plannedQuery);
-        if (localResult != null) {
-            return localResult;
-        }
         DispatchQueryContext effectiveCtx = enricher.enrichWithVectorSearch(
-                plannedQuery, ctx, session.queryId());
-        effectiveCtx = enricher.enrichWithReranker(effectiveCtx, session.queryId());
-        return dispatchToWorker(sm, session, plannedQuery, effectiveCtx);
+                plannedQuery, ctx, session.queryId(), session.tenantId());
+        effectiveCtx = enricher.enrichWithReranker(
+                effectiveCtx, session.queryId(), session.tenantId());
+        return dispatchToWorker(
+                sm, withPolicyContext(session, plannedQuery), plannedQuery, effectiveCtx);
     }
 
-    // ── Local dispatch (constant queries) ──
-
-    private DispatchResult tryLocalDispatch(QueryStateMachine sm,
-                                            CoordinatorSessionContext session,
-                                            PlannedQuery plannedQuery) {
-        if (plannedQuery.isConstant()) {
-            return dispatchFoldedConstant(sm, session, plannedQuery);
-        }
-        if (plannedQuery.isZeroFetchSort() && deps.resultService() != null) {
-            return DispatchResult.fromLocal(
-                    deps.resultService().dispatchLocalFromTypedRows(
-                            session.queryId(), List.of(),
-                            plannedQuery.columnNames(),
-                            sm.toFinisher()));
-        }
-        if (plannedQuery.isTablelessConstant() && deps.resultService() != null) {
-            var evaluated = plannedQuery.evaluateConstant();
-            return DispatchResult.fromLocal(
-                    deps.resultService().dispatchLocalFromTypedRows(
-                            session.queryId(), evaluated.rows(),
-                            evaluated.columnNames(), sm.toFinisher()));
-        }
-        // UNNEST flows through the normal Substrait→Native path.
-        // PlanNodeConverter encodes UNNEST as ExtensionSingleRel → Velox UnnestNode.
-        return null;
-    }
-
-    private DispatchResult dispatchFoldedConstant(
-            QueryStateMachine sm,
-            CoordinatorSessionContext session,
-            PlannedQuery plannedQuery) {
-        if (deps.resultService() != null) {
-            var evaluated = plannedQuery.evaluateConstant();
-            return DispatchResult.fromLocal(
-                    deps.resultService().dispatchLocalFromTypedRows(
-                            session.queryId(), evaluated.rows(),
-                            evaluated.columnNames(), sm.toFinisher()));
-        }
-        if (!deps.workerManager().getActiveWorkers().isEmpty()) {
-            return null;
-        }
-        LOG.debug("event=folded_constant_local_complete queryId={} "
-                + "reason=no_result_service_no_workers", session.queryId());
-        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.tryTransition(QueryStateMachine.State.FINISHING);
-        sm.tryTransition(QueryStateMachine.State.FINISHED);
-        return new DispatchResult("localhost",
-                "local-" + session.queryId(),
-                new ResultEndpoint("localhost", 0,
-                        "local-" + session.queryId(), "local"));
+    private static CoordinatorSessionContext withPolicyContext(
+            CoordinatorSessionContext session, PlannedQuery securedPlan) {
+        String signature = SecurityPolicySignatureProvider.computeEffectiveSignature(
+                session.userIdentity(), securedPlan);
+        Map<String, String> properties = new java.util.HashMap<>(
+                session.sessionProperties());
+        properties.put(POLICY_CONTEXT_PROPERTY, signature);
+        return new CoordinatorSessionContext(
+                session.queryId(), properties, session.userIdentity(), session.tenantId());
     }
 
     // ── Worker dispatch ──
@@ -177,34 +151,12 @@ final class QuerySchedulingEngine {
             return null;
         }
         try (var connectorScope = new ConnectorQueryScope(
-                session.queryId(), deps.catalogRegistry())) {
+                session, deps.catalogRegistry(), plannedQuery.splitSources(),
+                metadata -> connectorRegistrar.accept(session.queryId(), metadata))) {
             if (ctx.dmlWriteContext().isPresent()) {
-                String writeMode = ctx.dmlWriteContext().get().writeMode();
-                boolean skipSplitCheck = "MERGE".equals(writeMode)
-                        || "OVERWRITE".equals(writeMode)
-                        || "UPDATE".equals(writeMode)
-                        || plannedQuery.isMergeOperation();
-                if (!skipSplitCheck) {
-                    var splits = fetchAndFilterSplits(
-                            plannedQuery, ctx.snapshotOverrides(), session.queryId());
-                    if (splits.isEmpty()) {
-                        return handleZeroSplitsDml(sm, session, ctx);
-                    }
-                }
-                ensureWriteContextRegistered(session.queryId(), ctx.dmlWriteContext().get());
+                ensureWriteContextRegistered(session, ctx.dmlWriteContext().get());
             }
-            CoordinatorSessionContext effectiveSession =
-                    ctx.vectorSearchNode().isPresent()
-                            ? DispatchContextEnricher.injectVectorSearchProperties(
-                                    session, ctx.vectorSearchNode().get())
-                            : session;
-            if (ctx.rerankerPlan().isPresent()) {
-                effectiveSession = DispatchContextEnricher.injectRerankerProperties(
-                        effectiveSession, ctx.rerankerPlan().get());
-            }
-            DispatchResult result = dispatchByTopology(sm, effectiveSession, plannedQuery, ctx);
-            result = vectorResultMerger.finalizeDispatchResult(
-                    result, ctx, session.queryId());
+            DispatchResult result = dispatchByTopology(sm, session, plannedQuery, ctx);
             if (ctx.dmlWriteContext().isPresent()) {
                 awaitTaskCompletion(session.queryId(), result.taskId());
             }
@@ -216,74 +168,158 @@ final class QuerySchedulingEngine {
         }
     }
 
-    private DispatchResult handleZeroSplitsDml(
-            QueryStateMachine sm,
-            CoordinatorSessionContext session,
-            DispatchQueryContext ctx) {
-        LOG.info("event=dml_write_noop queryId={} reason=zero_splits table={}",
-                session.queryId(),
-                ctx.dmlWriteContext().get().targetTable());
-        if (writeCommitTracker != null) {
-            writeCommitTracker.clearWriteState(session.queryId());
-        }
-        sm.tryTransition(QueryStateMachine.State.RUNNING);
-        sm.tryTransition(QueryStateMachine.State.FINISHING);
-        sm.tryTransition(QueryStateMachine.State.FINISHED);
-        return new DispatchResult("localhost",
-                "noop-" + session.queryId(),
-                new ResultEndpoint("localhost", 0,
-                        "noop-" + session.queryId(), "local"));
-    }
-
     // ── DAG topology dispatch ──
 
     /**
      * Ensures a write context is registered with the commit tracker before native
-     * DML dispatch. Idempotent: no-op if already registered (e.g., by
-     * PlanExecutionFactory or MergeDecomposer). This catches code paths like CTAS
-     * that call executeDmlStatement() directly without prior registration.
+     * DML dispatch, after the single protected compilation. This is the sole
+     * allocation path, including CTAS and pre-parsed statement entry points.
      */
-    private void ensureWriteContextRegistered(String queryId, DmlWriteContext dmlCtx) {
-        if (writeCommitTracker == null || deps.catalogRegistry() == null) {
-            return;
-        }
-        if (writeCommitTracker.hasWriteContext(queryId)) {
-            return;
+    void ensureWriteContextRegistered(
+            CoordinatorSessionContext session, DmlWriteContext dmlCtx) {
+        String queryId = session.queryId();
+        requireWritePrerequisites(session);
+        var observation = dmlCtx.policyObservation().orElseThrow(() ->
+                new IllegalStateException("Distributed write requires actual compiled policy observations"));
+        if (deps.catalogRegistry() == null) {
+            throw new IllegalStateException(
+                    "Distributed write requires a catalog registry to create its commit context");
         }
         String targetTable = dmlCtx.targetTable();
-        String[] parts = targetTable.split("\\.");
-        if (parts.length < 3) {
-            LOG.warn("event=write_context_skip reason=unparseable_table queryId={} table={}",
-                    queryId, targetTable);
-            return;
-        }
+        String[] parts = parseWriteTarget(targetTable);
         String catalog = parts[0];
         String schema = parts[1];
         String table = parts[2];
         try {
+            var allocationIntent = new WriteAllocationIntent(dmlCtx.writeMode(),
+                    staticPartitionBindings(dmlCtx.partitionSpec()));
             var catalogHandle = deps.catalogRegistry().getCatalog(catalog);
             if (catalogHandle == null) {
-                LOG.warn("event=write_context_skip reason=catalog_not_found queryId={} catalog={}",
-                        queryId, catalog);
-                return;
+                throw new IllegalStateException(
+                        "Distributed write catalog not found: " + catalog);
             }
-            var connectorSession = org.pangrova.coordinator.query.statement.TableResolver.buildSession(catalog);
+            var connectorSession = org.pangrova.coordinator.query.SessionContextConverter
+                    .toConnectorSession(session, catalog, schema);
             var metadata = catalogHandle.getMetadata(connectorSession);
             var qualifiedName = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(
                     catalog, schema, table);
             var tableHandle = org.pangrova.coordinator.query.statement.TableResolver
                     .requireTableHandle(metadata, connectorSession, qualifiedName);
-            boolean useInsert = "INSERT".equals(dmlCtx.writeMode());
-            var outputHandle = useInsert
-                    ? metadata.beginInsert(connectorSession, tableHandle)
-                    : metadata.beginOverwrite(connectorSession, tableHandle);
-            writeCommitTracker.registerWriteContext(queryId, catalog, outputHandle, connectorSession);
+            var deferredAuthority = resolveGeneratedWriteAuthority(
+                    qualifiedName, metadata, tableHandle, connectorSession, dmlCtx.writeMode(), observation);
+            var reservation = writeCommitTracker.reserveWriteContext(queryId);
+            if (!reservation.owner()) {
+                requireSameAdmittedWrite(reservation.awaitResult(), connectorSession,
+                        deferredAuthority, allocationIntent);
+                return;
+            }
+            allocateReservedWrite(reservation, new WriteAdmission(queryId, catalog, connectorSession, metadata,
+                    tableHandle, dmlCtx, catalogHandle, deferredAuthority, allocationIntent));
             LOG.info("event=write_context_auto_registered queryId={} table={} writeMode={}",
                     queryId, targetTable, dmlCtx.writeMode());
         } catch (Exception e) {
-            LOG.warn("event=write_context_registration_failed queryId={} table={} error={}",
-                    queryId, targetTable, e.getMessage());
+            throw new IllegalStateException(
+                    "Distributed write context registration failed for queryId="
+                            + queryId + " table=" + targetTable, e);
         }
+    }
+
+    private record WriteAdmission(String queryId, String catalogName, ConnectorSession session,
+            ConnectorMetadata metadata, ConnectorTableHandle table, DmlWriteContext context,
+            org.pangrova.metadata.catalog.CatalogHandle catalogHandle,
+            org.pangrova.spi.coordination.WriteAuthorizationReceipt authority, WriteAllocationIntent intent) {}
+
+    private void allocateReservedWrite(
+            NativeWriteCommitTracker.WriteReservation reservation, WriteAdmission admission) {
+        ConnectorOutputTableHandle outputHandle = null;
+        try {
+            reservation.beginAllocation();
+            outputHandle = beginWrite(admission.metadata(), admission.session(),
+                    admission.table(), admission.context());
+            var allocated = outputHandle;
+            byte[] binding = ConnectorWriteBindingFactory.create(admission.catalogHandle(), allocated).toByteArray();
+            reservation.publish(() -> writeCommitTracker.registerWriteContext(
+                    admission.queryId(), admission.catalogName(),
+                    allocated, admission.session(), binding, admission.authority(), admission.intent()));
+        } catch (RuntimeException | Error failure) {
+            reservation.fail(failure, outputHandle);
+            throw failure;
+        }
+    }
+
+    private void requireWritePrerequisites(CoordinatorSessionContext session) {
+        if (session.tenantId() == null || session.tenantId().isBlank()) {
+            throw new IllegalArgumentException("Distributed write requires a resolved tenant identity");
+        }
+        if (writeCommitTracker == null) {
+            throw new IllegalStateException("Distributed write requires a commit tracker");
+        }
+    }
+
+    private static void requireSameAdmittedWrite(NativeWriteCommitTracker.WriteCommitState existing,
+            ConnectorSession current, org.pangrova.spi.coordination.WriteAuthorizationReceipt authority,
+            WriteAllocationIntent allocationIntent) {
+        if (!existing.authorizationReceipt().equals(authority)
+                || !existing.allocationIntent().equals(allocationIntent)
+                || !existing.session().getUser().equals(current.getUser())
+                || !java.util.Objects.equals(existing.session().getProperties().get("tenant_id"),
+                        current.getProperties().get("tenant_id"))) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "A query write context cannot be reused with different authority or declaration");
+        }
+    }
+
+    private org.pangrova.spi.coordination.WriteAuthorizationReceipt resolveGeneratedWriteAuthority(
+            org.pangrova.spi.connector.metadata.table.QualifiedTableName table,
+            ConnectorMetadata metadata, ConnectorTableHandle handle,
+            ConnectorSession session, String writeMode, WritePolicyObservation observation) {
+        var currentMetadata = metadata.getTableMetadata(session, handle);
+        var definitions = org.pangrova.protocol.GeneratedColumnMetadataCodec.decode(currentMetadata.properties());
+        var currentDeclaration = org.pangrova.spi.coordination.WriteDeclarationSnapshot.capture(
+                table, currentMetadata, definitions.toByteArray(), definitions.getDefinitionsCount() != 0);
+        if (!currentDeclaration.equals(observation.declaration())) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Compiled write declaration changed before admission");
+        }
+        return GeneratedWriteAuthorityAdmission.resolve(
+                new GeneratedWriteAuthoritySupplier.WriteAuthorityRequest(table, session, writeMode,
+                        observation.reads(), observation.writePrivileges(), observation.declaration()),
+                definitions, generatedWriteAuthoritySupplier);
+    }
+
+    private static String[] parseWriteTarget(String targetTable) {
+        String[] parts = targetTable.split("\\.");
+        if (parts.length != 3) {
+            throw new IllegalArgumentException(
+                    "Distributed write target must be catalog.schema.table: " + targetTable);
+        }
+        return parts;
+    }
+
+    private static ConnectorOutputTableHandle beginWrite(
+            ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle table, DmlWriteContext context) {
+        return switch (context.writeMode()) {
+            case "INSERT" -> metadata.beginInsert(session, table);
+            case "OVERWRITE", "UPDATE", "DELETE", "MERGE" ->
+                    context.partitionSpec().isEmpty() ? metadata.beginOverwrite(session, table)
+                            : metadata.beginOverwrite(session, table, staticPartitionBindings(context.partitionSpec()));
+            default -> throw new IllegalArgumentException(
+                    "Unsupported distributed write mode: " + context.writeMode());
+        };
+    }
+
+    private static Map<String, String> staticPartitionBindings(List<String> specification) {
+        Map<String, String> result = new java.util.TreeMap<>();
+        for (String binding : specification) {
+            int separator = binding.indexOf('=');
+            if (separator <= 0 || result.putIfAbsent(binding.substring(0, separator),
+                    binding.substring(separator + 1)) != null) {
+                throw new IllegalArgumentException(
+                        "Static overwrite partition bindings must be unique name=value pairs");
+            }
+        }
+        return Map.copyOf(result);
     }
 
     private DispatchResult dispatchByTopology(
@@ -299,17 +335,57 @@ final class QuerySchedulingEngine {
 
         WriteConfig writeConfig = ctx.dmlWriteContext()
                 .map(d -> new WriteConfig(d.targetTable(), d.writeMode(),
-                        List.of(), "parquet", 0))
+                        d.partitionSpec(), writeFileFormat(session.queryId()), 0,
+                        connectorWriteBinding(session.queryId())))
                 .orElse(null);
+        java.util.Optional<RerankIntent> rerank = retrievalIntents.collectRerankIntent(ctx);
         var dagQueryContext = new DAGQueryContext(
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session),
                 ctx.snapshotOverrides(), ctx.originalSql(),
-                ctx.preOptColumnNames(), writeConfig);
+                ctx.preOptColumnNames(), writeConfig,
+                retrievalIntents.collectRetrievalArtifactIntents(ctx, session.tenantId()),
+                retrievalIntents.collectRetrievalMergeIntent(ctx),
+                rerank);
 
         DispatchResult result = deps.dagEngine().dispatch(
                 session, dag, ctx.compiler(), deps.workerSelector(),
-                deps.dagDispatchTimeoutMs(), dagQueryContext);
+                deps.dagDispatchTimeoutMs(), dagQueryContext,
+                ready -> onTaskReady(sm, ctx, ready.resultEndpoint()));
         sm.tryTransition(QueryStateMachine.State.RUNNING);
         return result;
+    }
+
+    static void onTaskReady(QueryStateMachine sm, DispatchQueryContext context,
+                            org.pangrova.protocol.rest.query.ResultEndpoint endpoint) {
+        // A WRITE task emits commit metadata, not a Flight result. Publish its
+        // bounded control-plane acknowledgement after the fenced catalog commit.
+        if (context.dmlWriteContext().isEmpty()) {
+            sm.setResultEndpoint(endpoint);
+        }
+        sm.tryTransition(QueryStateMachine.State.RUNNING);
+    }
+
+    private String connectorWriteBinding(String queryId) {
+        if (writeCommitTracker == null || deps.catalogRegistry() == null) {
+            throw new IllegalStateException(
+                    "Distributed write binding requires commit tracker and catalog registry");
+        }
+        var writeState = writeCommitTracker.peekWriteState(queryId);
+        if (writeState == null) {
+            throw new IllegalStateException(
+                    "Distributed write output handle is not registered: " + queryId);
+        }
+        return java.util.Base64.getEncoder().encodeToString(writeState.writeOutputBinding());
+    }
+
+    private String writeFileFormat(String queryId) {
+        var state = writeCommitTracker.peekWriteState(queryId);
+        if (state == null) {
+            throw new IllegalStateException("Distributed write output handle is not registered: " + queryId);
+        }
+        var physical = state.outputHandle().nativePhysicalWriteAllocation();
+        if (physical.isPresent()) return physical.orElseThrow().policy().options().get("file.format");
+        return state.outputHandle().nativeWriteAllocation().isPresent() ? "lance" : "parquet";
     }
 
     // ── Task completion ──
@@ -345,13 +421,13 @@ final class QuerySchedulingEngine {
 
     List<SplitFetcher.SplitWithPaths> fetchAndFilterSplits(
             PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides,
-            String queryId) {
+            String queryId, CoordinatorSessionContext session) {
         if (deps.indexAwareSplitFetcher() != null) {
             return deps.indexAwareSplitFetcher().fetchAndFilterSplits(
-                    plannedQuery, snapshotOverrides, queryId);
+                    plannedQuery, snapshotOverrides, queryId, session);
         }
         return SplitFetcher.fetchSplitsWithFilePaths(
-                plannedQuery, deps.catalogRegistry(), snapshotOverrides);
+                plannedQuery, deps.catalogRegistry(), snapshotOverrides, session);
     }
 
     void registerStageListeners(StageDAG dag, QueryStateMachine querySm) {

@@ -5,39 +5,44 @@
 // Terminal states are monotonic — no further transitions once reached.
 #include "executor/driver/TaskExecutor.h"
 
+#include <chrono>
 #include <stdexcept>
 
+#include "cache/SemanticResultCache.h"
 #include "jni/RuntimeInitializer.h"
+#include "pangrova/protocol/v2/result.pb.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
-#include "velox/filter/DynamicFilterConverter.h"
 #include "velox/runner/VeloxTaskRunner.h"
-
-#if __has_include("pangrova/native/protocol/v1/dynamic_filter.pb.h")
-#include "pangrova/native/protocol/v1/dynamic_filter.pb.h"
-#define PANGROVA_HAS_FILTER_PROTO 1
-#else
-#define PANGROVA_HAS_FILTER_PROTO 0
-#endif
 
 // Logging for dynamic filter column index out-of-bounds warnings.
 #include "observability/PangrovaLog.h"
+#include "velox/exchange/PendingEndpointRegistry.h"
 
 namespace pangrova::executor {
+
+const std::string& TaskExecutor::callbackContext() const { return config_.callback_context; }
+bool TaskExecutor::isResultTask() const { return config_.is_result_task; }
 
 TaskExecutor::TaskExecutor(const TaskExecutorConfig& config)
     : config_(config),
       router_(config.num_shuffle_partitions,
               config.output_queue_capacity,
               config.shuffle_queue_capacity,
+              static_cast<size_t>(config.resource_limit.max_shuffle_buffer_bytes),
               config.queue_poll_timeout),
       trace_id_(config.trace_id) {
   execution_driver_ = std::make_unique<PlanExecutionDriver>(
       config_, lifecycle_, router_.outputQueue(),
       router_.serializedShuffleQueue(), metrics_collector_);
+  startDeadlineWatchdog();
 }
 
 TaskExecutor::~TaskExecutor() {
-  release();
+  stopDeadlineWatchdog();
+  cancel();
+  if (execution_driver_) execution_driver_->join();
+  drainUnconsumedOutput();
+  cache::SemanticResultCache::instance().releaseTaskUsage(config_.task_id);
 }
 
 void TaskExecutor::start() {
@@ -49,20 +54,103 @@ void TaskExecutor::start() {
   execution_driver_->executeAsync();
 }
 
+void TaskExecutor::bindHandle(int64_t executor_handle) {
+  if (executor_handle <= 0) {
+    throw std::invalid_argument("executor handle must be positive");
+  }
+  if (config_.executor_handle != 0) {
+    throw std::logic_error("executor handle is already bound for task " +
+                           config_.task_id);
+  }
+  if (lifecycle_.state() != ExecutorState::PENDING) {
+    throw std::logic_error("executor handle must be bound before task start");
+  }
+  config_.executor_handle = executor_handle;
+}
+
 void TaskExecutor::cancel() {
+  stopDeadlineWatchdog();
   if (lifecycle_.isTerminal()) return;
-  lifecycle_.transitionTo(ExecutorState::CANCELLED);
+  if (!router_.abortShuffle()) return;  // committed producer wins
   execution_driver_->cancel();
   router_.closeAll();
+  lifecycle_.transitionTo(ExecutorState::CANCELLED);
 }
 
 void TaskExecutor::release() {
+  stopDeadlineWatchdog();
+  if (lifecycle_.state() != ExecutorState::FINISHED) {
+    router_.abortShuffle();
+  }
   cancel();
   if (execution_driver_) {
     execution_driver_->join();
   }
   // F-NATIVE-EXEC-05: Use drainUnconsumedOutput() for consistent cleanup.
   drainUnconsumedOutput();
+  if (execution_driver_) execution_driver_->release();
+  if (config_.executor_handle > 0) {
+    pangrova::velox::PendingEndpointRegistry::instance().discardExecutor(
+        config_.executor_handle);
+  }
+}
+
+void TaskExecutor::startDeadlineWatchdog() {
+  if (config_.deadline_epoch_ms <= 0) {
+    return;
+  }
+  const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  if (config_.deadline_epoch_ms <= now_ms) {
+    failDeadline();
+    return;
+  }
+  deadline_thread_ = std::thread([this] {
+    const auto deadline = std::chrono::system_clock::time_point(
+        std::chrono::milliseconds(config_.deadline_epoch_ms));
+    std::unique_lock<std::mutex> lock(deadline_mutex_);
+    while (!deadline_stop_ && !lifecycle_.isTerminal()) {
+      const auto now = std::chrono::system_clock::now();
+      if (now >= deadline) {
+        lock.unlock();
+        failDeadline();
+        return;
+      }
+      const auto poll_at = now + std::chrono::milliseconds(100) < deadline
+          ? now + std::chrono::milliseconds(100)
+          : deadline;
+      if (deadline_cv_.wait_until(
+              lock, poll_at, [this] { return deadline_stop_; })) {
+        return;
+      }
+    }
+  });
+}
+
+void TaskExecutor::stopDeadlineWatchdog() {
+  {
+    std::lock_guard<std::mutex> lock(deadline_mutex_);
+    deadline_stop_ = true;
+  }
+  deadline_cv_.notify_all();
+  if (deadline_thread_.joinable() &&
+      deadline_thread_.get_id() != std::this_thread::get_id()) {
+    deadline_thread_.join();
+  }
+}
+
+void TaskExecutor::failDeadline() {
+  if (lifecycle_.isTerminal()) {
+    return;
+  }
+  if (!router_.abortShuffle()) {
+    return;  // committed producer wins
+  }
+  execution_driver_->cancel();
+  router_.closeAll();
+  lifecycle_.notifyTaskFailed(
+      "Task deadline exceeded: task_id=" + config_.task_id +
+      " deadline_epoch_ms=" + std::to_string(config_.deadline_epoch_ms));
 }
 
 void TaskExecutor::drainUnconsumedOutput() {
@@ -104,36 +192,66 @@ int TaskExecutor::getNextBatch(
   return (s == ExecutorState::FAILED) ? kError : kNotReady;
 }
 
-int TaskExecutor::getSerializedShuffleBatch(
-    pangrova::shuffle::ShuffleBatch& batch) {
-  auto s = lifecycle_.state();
-  if (s == ExecutorState::FAILED) return kError;
-  if (s == ExecutorState::CANCELLED) return kEof;
-  if (router_.getSerializedShuffleBatch(batch, config_.queue_poll_timeout)) {
-    return kDataAvailable;
-  }
-  s = lifecycle_.state();
-  if (s == ExecutorState::FLUSHING) {
-    auto* queue = router_.serializedShuffleQueue();
-    if (queue && queue->isClosed() && queue->size() == 0) {
-      // P0-7: Check for runner error before transitioning to FINISHED.
-      auto* runner = veloxTaskRunner();
-      if (runner && !runner->errorMessage().empty()) {
-        lifecycle_.notifyTaskFailed(runner->errorMessage());
-        return kError;
-      }
-      lifecycle_.transitionTo(ExecutorState::FINISHED);
-      return kEof;
-    }
-  }
-  if (s == ExecutorState::FINISHED || s == ExecutorState::CANCELLED) {
-    return kEof;
-  }
-  return (s == ExecutorState::FAILED) ? kError : kNotReady;
-}
-
 ExecutorState TaskExecutor::state() const { return lifecycle_.state(); }
 std::string TaskExecutor::taskId() const { return config_.task_id; }
+
+std::string TaskExecutor::queryId() const { return config_.query_id; }
+
+int32_t TaskExecutor::stageId() const { return config_.stage_id; }
+
+int32_t TaskExecutor::partitionId() const { return config_.partition_id; }
+
+uint64_t TaskExecutor::planEpoch() const { return config_.plan_epoch; }
+
+uint32_t TaskExecutor::attemptId() const { return config_.attempt_id; }
+
+uint64_t TaskExecutor::fencingToken() const { return config_.fencing_token; }
+
+uint64_t TaskExecutor::controlEpoch() const {
+  return config_.control_epoch;
+}
+
+const std::string& TaskExecutor::ownerId() const {
+  return config_.owner_id;
+}
+
+const std::string& TaskExecutor::ownerIncarnation() const {
+  return config_.owner_incarnation;
+}
+
+uint64_t TaskExecutor::ownerFencingToken() const {
+  return config_.owner_fencing_token;
+}
+
+const std::vector<split::SplitConfig>& TaskExecutor::splits() const {
+  return config_.splits;
+}
+
+const std::unordered_map<
+    std::string, pangrova::protocol::v2::OperatorBinding>&
+TaskExecutor::operatorBindings() const {
+  return config_.operator_bindings;
+}
+
+int64_t TaskExecutor::deadlineEpochMs() const {
+  return config_.deadline_epoch_ms;
+}
+
+int64_t TaskExecutor::nativeMemoryLimitBytes() const {
+  return config_.resource_limit.max_memory_bytes;
+}
+
+int32_t TaskExecutor::shufflePartitionCount() const {
+  return config_.num_shuffle_partitions;
+}
+
+bool TaskExecutor::usesExternalShuffle() const {
+  return config_.shuffle_execution.has_value();
+}
+
+int64_t TaskExecutor::executorHandle() const {
+  return config_.executor_handle;
+}
 std::string TaskExecutor::errorMessage() const {
   return lifecycle_.errorMessage();
 }
@@ -142,80 +260,21 @@ std::string TaskExecutor::nativeStackTrace() const {
   return lifecycle_.nativeStackTrace();
 }
 
-void TaskExecutor::addExchangeBatch(
-    const std::string& source_id,
-    facebook::velox::RowVectorPtr row_vector) {
-  if (lifecycle_.isTerminal()) return;
-  router_.addExchangeBatch(source_id, std::move(row_vector));
-}
-
-void TaskExecutor::noMoreExchangeData(const std::string& source_id) {
-  router_.noMoreExchangeData(source_id);
-}
-
-void TaskExecutor::noMoreExchangeSources() {
-  router_.noMoreExchangeSources();
+std::optional<protocol::v2::ArtifactWorkReport>
+TaskExecutor::artifactWorkReport() const {
+  return config_.artifact_report_state
+      ? config_.artifact_report_state->snapshot()
+      : std::nullopt;
 }
 
 void TaskExecutor::injectDynamicFilter(
     const std::string& plan_node_id,
     const std::string& filter_proto) {
   if (!execution_driver_) {
-    return;
+    throw std::runtime_error(
+        "TaskExecutor: Native execution driver is unavailable");
   }
-
-#if PANGROVA_HAS_FILTER_PROTO
-  pangrova::native::protocol::v1::InjectDynamicFilterPayload payload;
-  if (!payload.ParseFromString(filter_proto)) {
-    PANGROVA_LOG_WARN
-        << "TaskExecutor: failed to parse dynamic filter proto"
-        << " plan_node_id=" << plan_node_id
-        << " task_id=" << config_.task_id;
-    return;
-  }
-
-  auto converted = pangrova::velox::convertDynamicFilters(payload);
-  auto* runner = execution_driver_->veloxTaskRunner();
-  if (!runner) {
-    return;
-  }
-
-  // Resolve column names using the scan node output type persisted
-  // in PlanExecutionDriver after plan conversion.
-  auto output_type_opt =
-      execution_driver_->getScanNodeOutputType(plan_node_id);
-
-  for (auto& cf : converted) {
-    facebook::velox::column_index_t col_idx =
-        static_cast<facebook::velox::column_index_t>(-1);
-
-    if (output_type_opt.has_value()) {
-      int resolved = pangrova::velox::resolveColumnIndex(
-          cf.column_name, output_type_opt.value());
-      if (resolved >= 0) {
-        col_idx = static_cast<facebook::velox::column_index_t>(resolved);
-      }
-    }
-
-    if (col_idx == static_cast<facebook::velox::column_index_t>(-1)) {
-      PANGROVA_LOG_WARN
-          << "TaskExecutor: cannot resolve dynamic filter column"
-          << " trace_id=" << trace_id_
-          << " plan_node_id=" << plan_node_id
-          << " column_name=" << cf.column_name
-          << " task_id=" << config_.task_id;
-      continue;
-    }
-
-    runner->injectDynamicFilter(
-        plan_node_id,
-        col_idx,
-        std::move(cf.filter));
-  }
-#else
-  (void)plan_node_id;
-  (void)filter_proto;
-#endif
+  execution_driver_->injectDynamicFilter(plan_node_id, filter_proto);
 }
 
 void TaskExecutor::updateMemoryLimit(int64_t new_limit_bytes) {
@@ -255,20 +314,14 @@ void TaskExecutor::updateMemoryLimit(int64_t new_limit_bytes) {
 
 void TaskExecutor::setTraceId(const std::string& trace_id) {
   trace_id_ = trace_id;
-}
-
-void TaskExecutor::notifyTaskComplete() {
-  lifecycle_.notifyTaskComplete();
+  config_.trace_id = trace_id;
 }
 
 void TaskExecutor::notifyTaskFailed(const std::string& message) {
+  if (!router_.abortShuffle()) return;  // committed producer wins
+  execution_driver_->cancel();
+  router_.closeAll();
   lifecycle_.notifyTaskFailed(message);
-  router_.closeAll();
-}
-
-void TaskExecutor::notifyQueuesDrained() {
-  lifecycle_.transitionTo(ExecutorState::FINISHED);
-  router_.closeAll();
 }
 
 OutputQueue* TaskExecutor::outputQueue() { return router_.outputQueue(); }
@@ -277,20 +330,39 @@ pangrova::shuffle::SerializedShuffleQueue* TaskExecutor::serializedShuffleQueue(
   return router_.serializedShuffleQueue();
 }
 
-ExchangeBuffer* TaskExecutor::exchangeBuffer() {
-  return router_.exchangeBuffer();
-}
-
 observability::NativeMetricsCollector& TaskExecutor::metricsCollector() {
   return metrics_collector_;
 }
 
 std::vector<uint8_t> TaskExecutor::collectTaskStats() const {
-  auto* runner = veloxTaskRunner();
-  if (runner) {
-    return runner->collectTaskStats();
+  if (execution_driver_) {
+    auto serialized = execution_driver_->collectTaskStats();
+    if (serialized.empty()) return {};
+    protocol::v2::NativeTaskStats stats;
+    if (!serialized.empty() &&
+        !stats.ParseFromArray(
+            serialized.data(), static_cast<int>(serialized.size()))) {
+      throw std::runtime_error("Native task stats protobuf is invalid");
+    }
+    const auto cache_usage =
+        cache::SemanticResultCache::instance().taskUsage(config_.task_id);
+    stats.set_cache_hit_bytes(cache_usage.hit_bytes);
+    stats.set_cache_miss_bytes(cache_usage.miss_bytes);
+    stats.set_cache_hit_count(cache_usage.hits);
+    stats.set_cache_miss_count(cache_usage.misses);
+    stats.set_cache_eviction_count(cache_usage.evictions);
+    stats.set_cache_admission_rejection_count(
+        cache_usage.admission_rejections);
+    serialized.resize(stats.ByteSizeLong());
+    stats.SerializeToArray(
+        serialized.data(), static_cast<int>(serialized.size()));
+    return serialized;
   }
   return {};
+}
+
+bool TaskExecutor::hasFinalTaskStats() const {
+  return execution_driver_ && execution_driver_->hasFinalTaskStats();
 }
 
 velox::VeloxTaskRunner* TaskExecutor::veloxTaskRunner() const {

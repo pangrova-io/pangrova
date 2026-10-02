@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalOutputAssertions.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
 #include "substrait/algebra.pb.h"
@@ -56,6 +57,7 @@ void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
   auto* ref = expr->mutable_selection();
+  ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
 }
@@ -70,7 +72,7 @@ std::string rightColName(int idx) {
   return "r" + std::to_string(idx);
 }
 
-// Build a Substrait Plan with a CrossRel that has a condition comparing
+// Build a Substrait Plan with a JoinRel that has a condition comparing
 // a left column to a right column using "lt" (less than).
 // Left schema has left_width columns, right schema has right_width columns.
 // Condition: left[condition_left_col] < right[condition_right_col]
@@ -90,11 +92,13 @@ std::vector<uint8_t> buildNljPlan(
 
   auto* plan_rel = plan.add_relations();
   auto* root = plan_rel->mutable_root();
-  root->add_names("output");
-  auto* cross = root->mutable_input()->mutable_cross();
+  for (int i = 0; i < left_width; ++i) root->add_names(leftColName(i));
+  for (int i = 0; i < right_width; ++i) root->add_names(rightColName(i));
+  auto* join = root->mutable_input()->mutable_join();
+  join->set_type(substrait::JoinRel::JOIN_TYPE_INNER);
 
   // Left input with left_width columns.
-  auto* left_read = cross->mutable_left()->mutable_read();
+  auto* left_read = join->mutable_left()->mutable_read();
   left_read->mutable_named_table()->add_names("left_table");
   auto* left_schema = left_read->mutable_base_schema();
   for (int i = 0; i < left_width; ++i) {
@@ -102,7 +106,7 @@ std::vector<uint8_t> buildNljPlan(
   }
 
   // Right input with right_width columns.
-  auto* right_read = cross->mutable_right()->mutable_read();
+  auto* right_read = join->mutable_right()->mutable_read();
   right_read->mutable_named_table()->add_names("right_table");
   auto* right_schema = right_read->mutable_base_schema();
   for (int i = 0; i < right_width; ++i) {
@@ -113,7 +117,7 @@ std::vector<uint8_t> buildNljPlan(
   // In combined schema:
   //   left col index = condition_left_col (unchanged, 0-based in combined)
   //   right col index = left_width + condition_right_col
-  auto* expr = cross->mutable_expression();
+  auto* expr = join->mutable_expression();
   auto* func = expr->mutable_scalar_function();
   func->set_function_reference(0);  // anchor for "lt"
   func->mutable_output_type()->mutable_bool_();
@@ -178,15 +182,12 @@ TEST_P(NljColumnReferenceResolutionTest, FilterUsesCorrectFieldIndices) {
 
   // Verify left columns are at indices 0..N-1.
   for (int i = 0; i < param.left_width; ++i) {
-    EXPECT_EQ(output_type->nameOf(i), leftColName(i))
-        << "Left column at index " << i << " should be " << leftColName(i);
+    expectCanonicalOutputField(converter, output_type, i, leftColName(i));
   }
 
   // Verify right columns are at indices N..N+M-1.
   for (int i = 0; i < param.right_width; ++i) {
-    EXPECT_EQ(output_type->nameOf(param.left_width + i), rightColName(i))
-        << "Right column at index " << (param.left_width + i)
-        << " should be " << rightColName(i);
+    expectCanonicalOutputField(converter, output_type, param.left_width + i, rightColName(i));
   }
 
   // Extract the NestedLoopJoinNode and verify filter.
@@ -209,7 +210,7 @@ TEST_P(NljColumnReferenceResolutionTest, FilterUsesCorrectFieldIndices) {
       const facebook::velox::core::FieldAccessTypedExpr>(call->inputs()[0]);
   ASSERT_NE(left_ref, nullptr)
       << "First arg should be FieldAccessTypedExpr for " << param.name;
-  EXPECT_EQ(left_ref->name(), leftColName(param.condition_left_col))
+  EXPECT_EQ(left_ref->name(), physicalFieldAlias(param.condition_left_col))
       << "Left field should reference column "
       << leftColName(param.condition_left_col)
       << " (combined index " << param.condition_left_col << ")";
@@ -219,7 +220,7 @@ TEST_P(NljColumnReferenceResolutionTest, FilterUsesCorrectFieldIndices) {
       const facebook::velox::core::FieldAccessTypedExpr>(call->inputs()[1]);
   ASSERT_NE(right_ref, nullptr)
       << "Second arg should be FieldAccessTypedExpr for " << param.name;
-  EXPECT_EQ(right_ref->name(), rightColName(param.condition_right_col))
+  EXPECT_EQ(right_ref->name(), physicalFieldAlias(param.left_width + param.condition_right_col))
       << "Right field should reference column "
       << rightColName(param.condition_right_col)
       << " (combined index "
@@ -261,10 +262,10 @@ TEST_P(NljColumnReferenceResolutionTest, CombinedSchemaOrderIsLeftThenRight) {
 
   // Verify the ordering: left columns first, then right columns.
   for (int i = 0; i < param.left_width; ++i) {
-    EXPECT_EQ(output_type->nameOf(i), leftColName(i));
+    expectCanonicalOutputField(converter, output_type, i, leftColName(i));
   }
   for (int i = 0; i < param.right_width; ++i) {
-    EXPECT_EQ(output_type->nameOf(param.left_width + i), rightColName(i));
+    expectCanonicalOutputField(converter, output_type, param.left_width + i, rightColName(i));
   }
 }
 

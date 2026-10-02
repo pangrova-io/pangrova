@@ -10,6 +10,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "split/SplitConfig.h"
@@ -17,15 +18,15 @@
 #include "merge/MergeReader.h"
 #include "merge/MergeReaderFactory.h"
 #include "velox/connector/AdaptiveBatchSizer.h"
+#include "velox/connector/IcebergMetadataJsonReader.h"
 #include "velox/connector/PartitionColumnInjector.h"
 #include "velox/connector/SchemaEvolution.h"
+#include "velox/connector/SourceObjectIdentityInjector.h"
 
 #include "velox/connectors/Connector.h"
 #include "velox/core/Expressions.h"
 
-#if PANGROVA_LANCE_AVAILABLE
 #include "lance/LanceBatchReader.h"
-#endif
 
 #if __has_include("velox/dwio/common/ReaderFactory.h")
 #include "velox/dwio/common/ReaderFactory.h"
@@ -97,7 +98,9 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   explicit PangrovaVeloxDataSource(
       facebook::velox::memory::MemoryPool* pool,
       const facebook::velox::RowTypePtr& outputType,
+      const facebook::velox::RowTypePtr& scanSchema,
       const std::string& taskId = "",
+      const std::string& planNodeId = "",
       std::shared_ptr<const facebook::velox::core::ITypedExpr>
           remainingFilter = nullptr,
       int64_t preferredOutputBatchBytes = kDefaultBatchTargetBytes,
@@ -124,6 +127,10 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // then compacts via dictionary wrapping (same pattern as applyDeleteFilter).
   facebook::velox::RowVectorPtr applyDynamicFilters(
       facebook::velox::RowVectorPtr rowVector);
+  // Applies a Native retrieval allowlist using the DWIO physical row-index
+  // column, then removes that hidden column before the relational pipeline.
+  facebook::velox::RowVectorPtr applyArtifactCandidateFilter(
+      facebook::velox::RowVectorPtr rowVector);
   // Prepare split-level state: partition values, schema evolution,
   // delete filters, changelog mode, and Paimon deletion vectors.
   // Called from addSplit() before reader dispatch.
@@ -135,14 +142,16 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Open Lance reader for the current split's file.
   // Dispatched when split format is LANCE. Uses LanceBatchReader via
   // Lance C FFI instead of Velox DWIO readers.
-#if PANGROVA_LANCE_AVAILABLE
   void openLanceReader(const split::SplitConfig& split);
-#endif
+
+  // Adds signed source identity and exact physical offsets before policy filtering.
+  facebook::velox::RowVectorPtr applyLanceIdentity(
+      facebook::velox::RowVectorPtr rows, facebook::velox::VectorPtr datasetPositions);
 
   // Load Paimon MOW deletion vector when DV is enabled.
   // Reads the DV file via DeletionVectorReader and creates a
   // DeletionVectorRowFilter added to delete_filters_.
-  void loadPaimonDeletionVector(const split::PaimonConfig& paimon);
+  void loadPaimonDeletionVector(const split::SplitConfig& split);
 
   // Create a Velox DWIO Reader + RowReader pair for a file path.
   // Shared by openVeloxReader() and initializeMergeReader() to eliminate
@@ -154,7 +163,8 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
       split::FileFormatType fileFormat,
       std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
       std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
-      std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec = nullptr);
+      std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec = nullptr,
+      facebook::velox::RowTypePtr requestedType = nullptr);
 
   // Initialize Paimon MOR merge reader from LSM level files.
   // Creates one VeloxBatchReader per level file, then delegates
@@ -176,9 +186,15 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Shared by both the normal read path and the merge reader path.
   facebook::velox::RowVectorPtr applyPostProcessing(
       facebook::velox::RowVectorPtr rowVector);
+  facebook::velox::RowVectorPtr applyLancePostProcessing(
+      facebook::velox::RowVectorPtr rowVector);
 
   facebook::velox::memory::MemoryPool* pool_;
   facebook::velox::RowTypePtr output_type_;
+  facebook::velox::RowTypePtr scan_schema_;
+  facebook::velox::RowTypePtr current_reader_output_type_;
+  facebook::velox::RowTypePtr lance_data_output_type_;
+  facebook::velox::RowTypePtr file_evolution_output_type_;
   uint64_t completed_rows_ = 0;
   uint64_t completed_bytes_ = 0;
 
@@ -191,12 +207,22 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // PendingFilterRegistry. Empty when not associated with a task.
   std::string task_id_;
 
+  // Exact scan-node ID. Together with task_id_ this prevents a filter for one
+  // scan from being consumed by a sibling scan in the same task.
+  std::string plan_node_id_;
+
   // Remaining filter expression for DWIO reader-level predicate pushdown.
   // Set on RowReaderOptions in openVeloxReader() to enable row group pruning.
   std::shared_ptr<const facebook::velox::core::ITypedExpr> remaining_filter_;
 
   // Current split file path for structured logging.
   std::string current_file_path_;
+
+  // Canonical immutable object identity carried by SplitConfig. It is
+  // materialized as a Native constant column only when the plan explicitly
+  // requests $pangrova$source_object_id.
+  std::string current_data_object_id_;
+  bool source_object_identity_requested_ = false;
 
   // Velox native reader state.
 #if PANGROVA_HAS_VELOX_DWIO
@@ -208,6 +234,11 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Iceberg delete filter (operates directly on RowVector).
   std::vector<std::unique_ptr<delete_filter::RowDeleteFilter>> delete_filters_;
   int64_t row_index_offset_ = 0;
+
+  bool artifact_candidate_filter_enabled_ = false;
+  std::unordered_set<uint64_t> artifact_candidate_positions_;
+  bool materialized_retrieval_score_enabled_ = false;
+  std::unordered_map<uint64_t, double> materialized_retrieval_scores_;
 
   // Adaptive batch sizer — computes optimal row count from output schema
   // and adjusts under memory pressure. NOT thread-safe; single-threaded
@@ -235,14 +266,18 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // from the merge reader instead of the single Velox row reader.
   // Set to nullptr when merge reader is exhausted or not needed.
   std::unique_ptr<merge::MergeReader> merge_reader_;
+  facebook::velox::RowTypePtr merge_reader_output_type_;
 
   // Lance file format reader. Non-null when the current split uses
   // LANCE format. When present, next() pulls from the Lance reader
   // instead of the Velox DWIO row reader. Supports mixed-format scans
   // where some splits are Parquet/ORC and others are Lance.
-#if PANGROVA_LANCE_AVAILABLE
   std::unique_ptr<pangrova::lance::LanceBatchReader> lance_reader_;
-#endif
+  bool physical_lance_file_ = false;
+
+  // Pinned Iceberg metadata object; read on the worker through its registered
+  // filesystem, never materialized in the coordinator or connector JVM.
+  std::unique_ptr<IcebergMetadataJsonReader> metadata_reader_;
 
   // Paimon changelog mode flag for the current split.
   // When true, the split's Parquet file contains a _row_kind column.

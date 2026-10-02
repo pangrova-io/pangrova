@@ -5,7 +5,7 @@
 // Key safety guarantees:
 //   - acquire() on a stale handle (from previous init cycle) throws instead of SIGSEGV
 //   - double release() throws NativeBridgeException instead of SIGSEGV
-//   - destroyAll() force-releases leaked handles and increments generation
+//   - failed release retains the exact handle for retry
 //   - concurrent acquire/release from multiple JNI threads is safe
 //
 // @ThreadSafe — all public methods are safe for concurrent access.
@@ -13,6 +13,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -40,16 +41,15 @@ class HandleRegistry {
   // Release the executor for the given handle.
   // The executor is destroyed when the last shared_ptr reference drops.
   // Throws std::runtime_error on double-release (handle not found).
-  void release(int64_t handle);
+  // Complete the caller's receipt allocation after drain and before erase.
+  // Any preparation failure retains the exact executor for retry.
+  void release(int64_t handle,
+               const std::function<void(pangrova::executor::TaskExecutor&)>&
+                   prepare_receipt = {});
 
-  // Force-release all handles, log warnings for leaked (non-terminal) handles,
-  // and increment the generation counter. Called during nativeShutdown().
-  // After this call, all previously issued handles become stale.
+  // Join and release each actual executor outside the registry lock. Failed
+  // release retains that executor and does not advance the generation.
   void destroyAll();
-
-  // Remove handles whose executor is in a terminal state (FINISHED/FAILED/CANCELLED).
-  // Opportunistic cleanup — called periodically from nativeGetTaskStatus.
-  void removeTerminated();
 
   // Current number of active handles (for diagnostics/testing).
   size_t size() const;

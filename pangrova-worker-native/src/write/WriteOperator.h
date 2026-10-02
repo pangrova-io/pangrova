@@ -16,15 +16,16 @@
 // Placement: src/ — top-level write operator component.
 #pragma once
 
-#include <cstdint>
-#include <memory>
-
-#include <arrow/buffer.h>
-#include <arrow/record_batch.h>
-
 #include "write/NativeWriteExecutor.h"
 
 #include "velox/exec/Operator.h"
+
+#include <arrow/buffer.h>
+#include <arrow/record_batch.h>
+#include <arrow/result.h>
+
+#include <cstdint>
+#include <memory>
 
 namespace pangrova::write {
 
@@ -64,6 +65,15 @@ class WriteOperator : public facebook::velox::exec::Operator {
   // Serializes the input RowVector to Arrow IPC format and calls
   // bridge_->appendBatchData(). Increments rows/bytes counters.
   void addInput(facebook::velox::RowVectorPtr input) override;
+
+  /// Serializes one batch as an uncompressed IPC stream: schema, batch, EOS.
+  /// Preserves source column order and dimensions, including zero-row batches.
+  /// @param batch Valid batch with dictionaries already flattened during export.
+  /// @return Owning buffer, or an error for invalid data, dictionary fields
+  /// (including nested fields), dimensions outside JNI int32 range, or IPC I/O.
+  /// The caller must retain the buffer until synchronous appendBatchData returns.
+  static arrow::Result<std::shared_ptr<arrow::Buffer>> serializeBatch(
+      const arrow::RecordBatch& batch);
 
   // Returns nullptr — this is a sink operator with no output.
   facebook::velox::RowVectorPtr getOutput() override;

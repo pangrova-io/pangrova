@@ -35,8 +35,8 @@ final class JdbcIndexStatisticsStore extends JdbcStoreSupport {
         String sql = "INSERT INTO file_column_statistics "
                 + "(catalog_name, schema_name, table_name, data_file_path, snapshot_id, "
                 + "column_name, min_value, max_value, null_count, row_count, "
-                + "approximate_ndv, total_size_bytes) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + "approximate_ndv, total_size_bytes, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)";
         try (Connection conn = dataSource().getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             bindStatisticsBatch(ps, catalog, schema, table, statistics);

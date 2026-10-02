@@ -41,6 +41,11 @@ descriptions live in the per-component pages.
 | `worker.coordinator-url` | — | Coordinator URL to register with |
 | `worker.heartbeat-interval` | `"10s"` | Heartbeat interval |
 | `worker.transport.port` | `0` | Arrow Flight port (`0` = auto-assign) |
+| `worker.transport.tls.enabled` | `false` | Require mutual TLS for Native data transport; required in distributed production |
+| `worker.transport.tls.certificate-chain-path` | `""` | Worker PEM certificate chain |
+| `worker.transport.tls.private-key-path` | `""` | Worker PEM private key |
+| `worker.transport.tls.root-ca-path` | `""` | Peer-verification PEM root CA |
+| `worker.transport.tls.identity` | `""` | Advertised certificate DNS identity |
 | `worker.task.result-retention-seconds` | `300` | Result retention window |
 | `worker.shuffle.buffer-capacity` | `100` | Batches per shuffle partition buffer |
 | `worker.shuffle.max-memory-bytes` | 512 MB | Total shuffle memory budget |
@@ -64,6 +69,9 @@ descriptions live in the per-component pages.
 | `worker.registration.initial-backoff` / `max-backoff` | `"1s"` / `"30s"` | Registration retry backoff |
 | `worker.cdc.enabled` | `true` | Enable CDC processing |
 | `worker.internal-auth-secret` | — | Shared `X-Internal-Auth` secret |
+| `worker.ai.authorization.*` | fail closed | AI model/capability/permission allowlists and invocation ceilings; see [Worker configuration](worker.md#workerai) |
+| `worker.ai.models.<id>.*` | — | Exact versioned provider/model descriptor; no implicit model or credential fallback |
+| `worker.ai.file.*` | — | Governed FILE S3 backend, external capability secret, limits and HTTPS-import policy; required when AI functions are registered |
 
 ## Feature Flags (shared)
 
@@ -72,7 +80,7 @@ descriptions live in the per-component pages.
 | `governance.enabled` | `true` | Governance module |
 | `resilience.enabled` | `true` | Resilience module |
 | `streaming.enabled` | `true` | Streaming module |
-| `tenant.enabled` | `true` | Multi-tenant module |
+| `tenant.enabled` | `false` | Multi-tenant module; requires authenticated security (not NOOP) |
 | `indexing.enabled` | `true` | Indexing module |
 | `operations.enabled` | `true` | Operations module |
 | `observability.enabled` | `true` | Observability module |
@@ -89,19 +97,11 @@ Coordinator:
 | `pangrova.coordination.lease.zookeeper.connectString` | — | ZK ensemble (zookeeper backend) |
 | `pangrova.coordination.lease.zookeeper.basePath` | `/pangrova/leases` | ZK lease parent znode |
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit |
-| `pangrova.shuffle.manager` | (auto) | Shuffle provider (`native`, `celeborn`, …); unset = highest-durability provider |
+| `pangrova.shuffle.manager` | (auto) | Shuffle provider (`native`, `local-spill`, or `object-store`); unset = highest-durability provider |
 | `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Index artifact directory |
 | `pangrova.cache.result.redis-url` | — | External result cache Redis URL |
 | `pangrova.cache.result.ttl-seconds` | `3600` | Result cache TTL |
 | `pangrova.cache.result.max-entry-bytes` | `10485760` | Max cached result size |
-
-Worker:
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `pangrova.ai.inference.endpoint` | `http://localhost:11434/v1` | AI_* function inference endpoint |
-| `pangrova.ai.inference.api-key` | _(empty)_ | Bearer token for the endpoint |
-| `pangrova.ai.inference.model` | `llama3` | Default inference model |
 
 ## Environment Variables
 

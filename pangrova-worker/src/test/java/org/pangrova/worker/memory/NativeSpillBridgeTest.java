@@ -36,6 +36,16 @@ class NativeSpillBridgeTest {
     }
 
     @Test
+    void unavailableNativeReclaimFailsClosed() {
+        var bridge = new NativeSpillBridge(bytes -> {
+            throw new UnsatisfiedLinkError("native reclaim unavailable");
+        });
+        assertThat(bridge.requestSpill(1024)).isFalse();
+        assertThat(bridge.spillFailureCount()).isEqualTo(1);
+        assertThat(bridge.totalBytesSpilled()).isZero();
+    }
+
+    @Test
     void requestSpillDeniedWhenDisabled() {
         var bridge = new NativeSpillBridge(bytes -> bytes);
         bridge.setSpillEnabled(false);

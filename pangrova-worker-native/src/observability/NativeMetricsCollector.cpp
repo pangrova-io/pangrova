@@ -30,6 +30,15 @@ void NativeMetricsCollector::updatePeakMemory(int64_t bytes) {
     }
 }
 
+void NativeMetricsCollector::observeColumnarConversionCopiedBytes(
+    uint64_t cumulative_bytes) {
+    auto current = columnar_conversion_copied_bytes_.load(std::memory_order_relaxed);
+    while (cumulative_bytes > current &&
+           !columnar_conversion_copied_bytes_.compare_exchange_weak(
+               current, cumulative_bytes, std::memory_order_relaxed)) {
+    }
+}
+
 TaskStatsSnapshot NativeMetricsCollector::snapshot() const {
     return TaskStatsSnapshot{
         cpu_time_ns_.load(std::memory_order_relaxed),
@@ -45,7 +54,8 @@ TaskStatsSnapshot NativeMetricsCollector::snapshot() const {
         predicate_pushdown_row_groups_skipped_.load(std::memory_order_relaxed),
         // F-NATIVE-EXEC-08: Queue metrics are populated by TaskExecutor at
         // snapshot time, not accumulated here. Default to 0.
-        0, 0, 0, 0
+        0, 0, 0, 0,
+        columnar_conversion_copied_bytes_.load(std::memory_order_relaxed)
     };
 }
 
@@ -62,6 +72,7 @@ void NativeMetricsCollector::reset() {
     peak_memory_bytes_.store(0, std::memory_order_relaxed);
     rows_read_.store(0, std::memory_order_relaxed);
     bytes_read_.store(0, std::memory_order_relaxed);
+    columnar_conversion_copied_bytes_.store(0, std::memory_order_relaxed);
     merge_reader_input_rows_.store(0, std::memory_order_relaxed);
     merge_reader_output_rows_.store(0, std::memory_order_relaxed);
     deletion_vector_filtered_rows_.store(0, std::memory_order_relaxed);

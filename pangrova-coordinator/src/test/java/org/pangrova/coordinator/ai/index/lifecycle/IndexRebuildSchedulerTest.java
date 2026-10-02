@@ -191,18 +191,21 @@ class IndexRebuildSchedulerTest {
         boolean released;
 
         @Override
-        public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
+        public Optional<LeaseEntry> tryAcquire(
+                String leaseKey, String holderId, Duration duration) {
             acquired = true;
+            return Optional.of(new LeaseEntry(
+                    leaseKey, holderId, 1, Instant.now(), Instant.now().plus(duration)));
+        }
+
+        @Override
+        public boolean tryRenew(
+                String leaseKey, String holderId, long epoch, Duration duration) {
             return true;
         }
 
         @Override
-        public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
-            return true;
-        }
-
-        @Override
-        public boolean release(String leaseKey, String holderId) {
+        public boolean release(String leaseKey, String holderId, long epoch) {
             released = true;
             return true;
         }
@@ -212,25 +215,23 @@ class IndexRebuildSchedulerTest {
             return Optional.empty();
         }
 
-        @Override
-        public int expireStale() {
-            return 0;
-        }
     }
 
     private static final class DenyingLease implements DistributedLease {
         @Override
-        public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
+        public Optional<LeaseEntry> tryAcquire(
+                String leaseKey, String holderId, Duration duration) {
+            return Optional.empty();
+        }
+
+        @Override
+        public boolean tryRenew(
+                String leaseKey, String holderId, long epoch, Duration duration) {
             return false;
         }
 
         @Override
-        public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
-            return false;
-        }
-
-        @Override
-        public boolean release(String leaseKey, String holderId) {
+        public boolean release(String leaseKey, String holderId, long epoch) {
             return false;
         }
 
@@ -239,9 +240,5 @@ class IndexRebuildSchedulerTest {
             return Optional.empty();
         }
 
-        @Override
-        public int expireStale() {
-            return 0;
-        }
     }
 }

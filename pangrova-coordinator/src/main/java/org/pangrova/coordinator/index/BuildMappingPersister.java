@@ -3,9 +3,6 @@ package org.pangrova.coordinator.index;
 import org.pangrova.indexing.build.BuildFileMapping;
 import org.pangrova.metadata.index.model.IndexFileMapping;
 import org.pangrova.metadata.index.IndexMetadataStore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,8 +16,6 @@ import java.util.List;
  * {@code IndexConsistencyChecker}.</p>
  */
 public final class BuildMappingPersister {
-
-    private static final Logger LOG = LoggerFactory.getLogger(BuildMappingPersister.class);
 
     private BuildMappingPersister() {}
 
@@ -49,21 +44,17 @@ public final class BuildMappingPersister {
                                List<BuildFileMapping> batch,
                                int generation,
                                String snapshotToken) {
-        try {
-            Instant now = Instant.now();
-            long verifiedAt = System.currentTimeMillis();
-            String token = snapshotToken != null ? snapshotToken : "";
-            List<IndexFileMapping> mappings = new ArrayList<>(batch.size());
-            for (BuildFileMapping bfm : batch) {
-                mappings.add(new IndexFileMapping(
-                        bfm.indexId(), bfm.dataFilePath(), bfm.indexFilePath(),
-                        bfm.rowCount(), bfm.indexSizeBytes(), bfm.checksum(),
-                        generation, token, 0L, now, verifiedAt));
-            }
-            store.batchRegisterIndexFiles(mappings);
-        } catch (Exception e) {
-            LOG.warn("action=persist_file_mappings_failed batch={} error={}",
-                    batch.size(), e.getMessage());
+        Instant now = Instant.now();
+        long verifiedAt = System.currentTimeMillis();
+        String token = snapshotToken != null ? snapshotToken : "";
+        List<IndexFileMapping> mappings = new ArrayList<>(batch.size());
+        long sequence = 0;
+        for (BuildFileMapping bfm : batch) {
+            mappings.add(new IndexFileMapping(
+                    bfm.indexId(), bfm.dataFilePath(), bfm.indexFilePath(),
+                    bfm.rowCount(), bfm.indexSizeBytes(), bfm.checksum(),
+                    generation, token, sequence++, now, verifiedAt));
         }
+        store.batchRegisterIndexFiles(mappings);
     }
 }

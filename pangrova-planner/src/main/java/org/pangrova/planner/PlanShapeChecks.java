@@ -52,8 +52,8 @@ final class PlanShapeChecks {
             return false;
         }
         if (sort.fetch instanceof org.apache.calcite.rex.RexLiteral literal) {
-            return literal.getValueAs(Integer.class) != null
-                    && literal.getValueAs(Integer.class) == 0;
+            Integer fetch = literal.getValueAs(Integer.class);
+            return fetch != null && fetch == 0;
         }
         return false;
     }

@@ -8,6 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.OptionalLong;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -19,7 +22,9 @@ import java.util.function.Consumer;
  *
  * <p>Concurrency strategy: single-threaded scheduled executor. The
  * {@code pollingActive} flag gates new poll cycles; in-progress cycles
- * complete naturally.</p>
+ * complete naturally. Each event checks the maintenance epoch before its
+ * external effect and before acknowledgement. Effects remain at-least-once:
+ * processors must tolerate replay after an effect succeeds but its ACK fails.</p>
  */
 public final class CommitLogPoller implements AutoCloseable {
 
@@ -77,34 +82,70 @@ public final class CommitLogPoller implements AutoCloseable {
     }
 
     void pollCommitLog() {
-        if (leaderElection != null && !leaderElection.tryAcquireOrRenew()) {
+        if (leaderElection == null) {
+            throw new IllegalStateException("Commit log polling requires a maintenance lease");
+        }
+        OptionalLong leaseEpoch = leaderElection.acquireOrRenewEpoch();
+        if (leaseEpoch.isEmpty()) {
             LOG.debug("action=commit_log_poll_skipped reason=not_leader");
             return;
         }
         IndexMetadataStore store = deps.metadataStore();
-        List<CommitLogEntry> entries = store.pollUnprocessedCommitEvents(batchMax);
+        List<CommitLogEntry> entries = store.pollUnprocessedCommitEvents(
+                batchMax, leaseEpoch.getAsLong());
         if (entries.isEmpty()) {
             return;
         }
+        Set<String> blockedTables = new HashSet<>();
+        int processed = 0;
         for (CommitLogEntry entry : entries) {
-            processCommitLogEntry(store, entry);
+            OptionalLong currentEpoch = leaderElection.acquireOrRenewEpoch();
+            if (currentEpoch.isEmpty() || currentEpoch.getAsLong() != leaseEpoch.getAsLong()) {
+                LOG.warn("action=commit_log_batch_stopped reason=lease_changed "
+                                + "batchEpoch={} currentEpoch={}",
+                        leaseEpoch.getAsLong(), currentEpoch);
+                return;
+            }
+            String tableKey = tableKey(entry);
+            if (blockedTables.contains(tableKey)) {
+                continue;
+            }
+            if (processCommitLogEntry(store, entry, leaseEpoch.getAsLong())) {
+                processed++;
+            } else {
+                blockedTables.add(tableKey);
+            }
         }
-        LOG.debug("action=commit_log_poll_completed processed={}", entries.size());
+        LOG.debug("action=commit_log_poll_completed fetched={} processed={} blockedTables={}",
+                entries.size(), processed, blockedTables.size());
     }
 
-    private void processCommitLogEntry(IndexMetadataStore store, CommitLogEntry entry) {
+    private boolean processCommitLogEntry(
+            IndexMetadataStore store, CommitLogEntry entry, long leaseEpoch) {
         try {
             IndexCommitHandler.MergedCommitFiles files = toMergedCommitFiles(entry);
             commitProcessor.accept(files);
+            OptionalLong currentEpoch = leaderElection.acquireOrRenewEpoch();
+            if (currentEpoch.isEmpty() || currentEpoch.getAsLong() != leaseEpoch) {
+                throw new IllegalStateException(
+                        "Maintenance lease changed before commit-event acknowledgement");
+            }
             // F-COORD-FEAT-07: mark as processed AFTER successful processing.
             // If processing fails, the entry remains unprocessed for retry
             // (at-least-once semantics). The previous order (mark-first) silently
             // discarded entries on processing failure.
-            store.markCommitEventProcessed(entry.eventId());
+            store.markCommitEventProcessed(entry.eventId(), leaseEpoch);
+            return true;
         } catch (Exception e) {
             LOG.error("action=commit_log_entry_failed eventId={} error={}",
                     entry.eventId(), e.getMessage(), e);
+            return false;
         }
+    }
+
+    private static String tableKey(CommitLogEntry entry) {
+        return entry.tenantId() + '\u0000' + entry.catalogName() + '\u0000'
+                + entry.schemaName() + '\u0000' + entry.tableName();
     }
 
     static IndexCommitHandler.MergedCommitFiles toMergedCommitFiles(CommitLogEntry entry) {
@@ -112,25 +153,19 @@ public final class CommitLogPoller implements AutoCloseable {
         List<String> removedFiles = parseFileList(entry.removedFilesJson());
         CommitEventType eventType = parseEventType(entry.eventType());
         return new IndexCommitHandler.MergedCommitFiles(
-                entry.catalogName(), entry.schemaName(), entry.tableName(),
-                addedFiles, removedFiles, eventType, entry.snapshotId());
+                entry.tenantId(), entry.catalogName(), entry.schemaName(), entry.tableName(),
+                addedFiles, removedFiles, eventType, entry.snapshotId(), entry.commitFingerprint());
     }
 
     static List<String> parseFileList(String csv) {
-        if (csv == null || csv.isEmpty()) {
-            return List.of();
-        }
-        return List.of(csv.split(","));
+        return CommitFileListCodec.decode(csv);
     }
 
     static CommitEventType parseEventType(String value) {
-        if (value == null || value.isEmpty()) {
-            return CommitEventType.APPEND;
-        }
         try {
             return CommitEventType.valueOf(value);
-        } catch (IllegalArgumentException e) {
-            return CommitEventType.APPEND;
+        } catch (IllegalArgumentException | NullPointerException failure) {
+            throw new IllegalArgumentException("Unknown commit event type: " + value, failure);
         }
     }
 

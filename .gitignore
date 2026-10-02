@@ -21,6 +21,7 @@ hs_err_pid*
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
 dependency-reduced-pom.xml
+javac.*.args
 
 # jqwik property-based testing
 .jqwik-database

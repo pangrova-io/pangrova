@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
+import org.pangrova.testing.ContainerTestBase;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -26,6 +28,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -39,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Property 27: Security chain from main() to HTTP filter</b></p>
  * <p><b>Validates: Requirements 20.1-20.5, 62.1-62.4, 63.1-63.5, 64.1-64.3, 94.1-94.5</b></p>
  */
-class SecurityChainTest {
+class SecurityChainTest extends ContainerTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -82,10 +86,9 @@ class SecurityChainTest {
         int port = bootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
-        assertThat(resp.statusCode()).isEqualTo(200);
-
-        Map<String, Object> body = parseJson(resp);
-        assertThat(body.get("query_id")).isNotNull();
+        // NOOP passes authentication; without a Worker, execution is unavailable.
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("COORDINATOR-0001");
     }
 
     /**
@@ -128,9 +131,9 @@ class SecurityChainTest {
         startSecurityBootstrap("coord-reject-test");
         int port = bootstrap.getHttpPort();
 
-        // NoOp accepts all — verify the chain is active by confirming 200
+        // NOOP accepts authentication; no Worker is registered for execution.
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(503);
 
         // Now test with a separate HTTP server using a rejecting authenticator
         // to validate the filter correctly returns 401
@@ -149,10 +152,8 @@ class SecurityChainTest {
         int port = bootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", "Bearer test-token");
-        assertThat(resp.statusCode()).isEqualTo(200);
-
-        Map<String, Object> body = parseJson(resp);
-        assertThat(body.get("query_id")).isNotNull();
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("COORDINATOR-0001");
     }
 
     /**
@@ -166,7 +167,7 @@ class SecurityChainTest {
         int port = bootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(503);
 
         // Audit events are emitted asynchronously via AuditEventEmitter.
         // The bootstrap wires LoggingAuditEventWriter + LogAuditStore.
@@ -176,20 +177,21 @@ class SecurityChainTest {
     }
 
     /**
-     * Bootstrap without security enabled skips auth filter — all requests pass without auth.
+     * Without security, the HTTP auth filter is absent but protected compilation still fails closed.
      *
      * <p><b>Validates: Requirements 94.5 (security disabled path)</b></p>
      */
     @Test
-    void securityDisabledSkipsAuthFilter() throws Exception {
+    void securityDisabledStillRejectsUnprotectedCompilation() throws Exception {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 "coord-nosec", 0);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         int port = bootstrap.getHttpPort();
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(403);
+        assertThat(resp.body()).contains("Protected compilation requires complete authorization and policy enforcement");
     }
 
 
@@ -210,9 +212,9 @@ class SecurityChainTest {
             HttpResponse<String> noAuth = submitQuery(rejectPort, "SELECT 1", null);
             assertThat(noAuth.statusCode()).isEqualTo(401);
 
-            // Valid token → 200
+            // Valid token passes auth; dispatch still requires a Native Worker.
             HttpResponse<String> validAuth = submitQuery(rejectPort, "SELECT 1", "Bearer valid");
-            assertThat(validAuth.statusCode()).isEqualTo(200);
+            assertThat(validAuth.statusCode()).isEqualTo(503);
         } finally {
             server.stop();
         }
@@ -232,7 +234,7 @@ class SecurityChainTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, SecurityConfig.noop(), null);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
         assertThat(bootstrap.isStarted()).isTrue();
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
@@ -267,17 +269,12 @@ class SecurityChainTest {
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> parseJson(HttpResponse<String> resp) throws Exception {
-        return MAPPER.readValue(resp.body(), Map.class);
-    }
-
-
     private static org.pangrova.coordinator.http.CoordinatorHttpServer buildStandaloneServer(
             AuthenticationManager authManager) {
         var workerManager = new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
         var taskTracker = new org.pangrova.coordinator.task.CoordinatorTaskTracker();
-        var deps = org.pangrova.coordinator.query.execution.QueryDispatcherContext.withDefaults(
+        var deps = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies(
+                org.pangrova.coordinator.query.execution.QueryDispatcherContext.withDefaults(
                 new org.pangrova.planner.SqlCompiler(),
                 null, null, null,
                 new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
@@ -285,7 +282,7 @@ class SecurityChainTest {
                         new org.pangrova.observability.noop.NoOpTracingProvider()),
                 new org.pangrova.coordinator.scheduler.TaskScheduler(
                         new org.pangrova.coordinator.worker.WorkerPerformanceScorer()),
-                workerManager, taskTracker, null, null, null, null, 0L);
+                workerManager, taskTracker, null, null, null, 0L));
         var orchestrator = new org.pangrova.coordinator.query.execution.QueryDispatcher(
                 deps, null, null);
         var queryManager = new org.pangrova.coordinator.query.QueryManager(

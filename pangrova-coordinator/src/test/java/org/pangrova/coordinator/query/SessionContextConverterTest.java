@@ -108,6 +108,49 @@ class SessionContextConverterTest {
     }
 
     @Test
+    void toConnectorSession_bindsQualifiedTableWithoutTrustingDefaultCatalogOrTenantProperty() {
+        UserIdentity identity = new UserIdentity("writer", Set.of(), Map.of(), Instant.now());
+        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
+                "q-qualified",
+                Map.of("catalog", "default_catalog", "schema", "default_schema",
+                        "tenant_id", "spoofed", "timezone", "UTC"),
+                identity, "resolved-tenant");
+
+        ConnectorSession result = SessionContextConverter.toConnectorSession(
+                ctx, "target_catalog", "target_schema");
+
+        assertThat(result.getUser()).isEqualTo("writer");
+        assertThat(result.getCatalog()).contains("target_catalog");
+        assertThat(result.getSchema()).contains("target_schema");
+        assertThat(result.getProperties()).containsEntry("tenant_id", "resolved-tenant")
+                .containsEntry("catalog", "target_catalog")
+                .containsEntry("schema", "target_schema")
+                .containsEntry("timezone", "UTC");
+    }
+
+    @Test
+    void toConnectorSession_usesResolvedTenantInsteadOfClientProperty() {
+        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
+                "q-tenant", Map.of("tenant_id", "spoofed", "pangrova.tenant_id", "also-spoofed"),
+                null, "tenant-1");
+
+        ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
+
+        assertThat(result.getProperties()).containsEntry("tenant_id", "tenant-1")
+                .doesNotContainKey("pangrova.tenant_id");
+    }
+
+    @Test
+    void toConnectorSession_dropsClientTenantWhenUnresolved() {
+        CoordinatorSessionContext ctx = new CoordinatorSessionContext(
+                "q-unresolved", Map.of("tenant_id", "spoofed"), null, null);
+
+        ConnectorSession result = SessionContextConverter.toConnectorSession(ctx);
+
+        assertThat(result.getProperties()).doesNotContainKey("tenant_id");
+    }
+
+    @Test
     void toConnectorSession_returnsEmptyOptionalWhenNoCatalogOrSchema() {
         CoordinatorSessionContext ctx = new CoordinatorSessionContext("q-5", Map.of(), null, null);
 

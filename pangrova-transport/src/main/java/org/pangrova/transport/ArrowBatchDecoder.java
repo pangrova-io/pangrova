@@ -24,6 +24,7 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.FixedSizeListVector;
+import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
@@ -36,6 +37,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Decodes Arrow IPC stream bytes into a type-erased {@link ResultBatch}.
@@ -55,6 +57,9 @@ public final class ArrowBatchDecoder {
     private static final int DOUBLE_DECIMAL_PRECISION = 15;
     /** Reported display precision of an Arrow {@code Timestamp} column (date + time + fractional digits). */
     private static final int TIMESTAMP_DISPLAY_PRECISION = 29;
+    private static final String EXTENSION_NAME_KEY = "ARROW:extension:name";
+    private static final String EXTENSION_METADATA_KEY = "ARROW:extension:metadata";
+    private static final String VECTOR_EXTENSION_NAME = "pangrova.vector";
 
     private ArrowBatchDecoder() {}
 
@@ -108,6 +113,9 @@ public final class ArrowBatchDecoder {
         if (vector.isNull(row)) {
             return null;
         }
+        if (isVectorField(vector.getField())) {
+            return decodeVectorField(vector, row);
+        }
         if (vector instanceof IntVector iv) return iv.get(row);
         if (vector instanceof BigIntVector bv) return bv.get(row);
         if (vector instanceof Float4Vector fv) return (double) fv.get(row);
@@ -116,19 +124,55 @@ public final class ArrowBatchDecoder {
         return extractComplexValue(vector, row);
     }
 
+    /**
+     * Returns whether this field declares the Pangrova VECTOR Arrow extension.
+     *
+     * @param field Arrow schema field
+     * @return true only for a field with the Pangrova VECTOR extension name
+     */
+    public static boolean isVectorField(Field field) {
+        Map<String, String> metadata = field.getMetadata();
+        return metadata != null
+                && VECTOR_EXTENSION_NAME.equals(metadata.get(EXTENSION_NAME_KEY));
+    }
+
+    /**
+     * Decodes one annotated VECTOR field, enforcing its exact Arrow schema.
+     *
+     * @param vector Arrow vector with the Pangrova VECTOR extension
+     * @param row zero-based row index
+     * @return FP32 coordinates, or {@code null} for an Arrow null
+     */
+    public static float[] decodeVectorField(FieldVector vector, int row) {
+        if (!isVectorField(vector.getField())) {
+            throw invalidVector("field does not declare the Pangrova VECTOR extension");
+        }
+        int dimension = vectorDimension(vector.getField());
+        return vector.isNull(row) ? null : extractVectorValue(vector, row, dimension);
+    }
+
     private static Object extractComplexValue(FieldVector vector, int row) {
         if (vector instanceof BitVector bv) return bv.get(row) != 0;
-        if (vector instanceof FixedSizeListVector lv) return extractVectorValue(lv, row);
         return vector.getObject(row);
     }
 
-    private static float[] extractVectorValue(FixedSizeListVector lv, int row) {
-        int dim = lv.getListSize();
-        float[] result = new float[dim];
-        Float4Vector child = (Float4Vector) lv.getDataVector();
-        int offset = row * dim;
-        for (int i = 0; i < dim; i++) {
-            result[i] = child.get(offset + i);
+    private static float[] extractVectorValue(
+            FieldVector vector, int row, int dimension) {
+        List<?> values;
+        if (vector instanceof ListVector || vector instanceof FixedSizeListVector) {
+            values = (List<?>) vector.getObject(row);
+        } else {
+            throw invalidVector("VECTOR extension requires a list storage type");
+        }
+        if (values == null || values.size() != dimension) {
+            throw invalidVector("VECTOR value length differs from declared dimension " + dimension);
+        }
+        float[] result = new float[dimension];
+        for (int i = 0; i < dimension; i++) {
+            if (!(values.get(i) instanceof Float coordinate) || !Float.isFinite(coordinate)) {
+                throw invalidVector("VECTOR coordinates must be finite Float32 values");
+            }
+            result[i] = coordinate;
         }
         return result;
     }
@@ -144,12 +188,51 @@ public final class ArrowBatchDecoder {
 
     private static ColumnDescriptor toDescriptor(Field field) {
         ArrowType type = field.getType();
+        int vectorDimension = vectorDimension(field);
+        if (vectorDimension > 0) {
+            return new ColumnDescriptor(
+                    field.getName(), Types.ARRAY,
+                    "VECTOR(" + vectorDimension + ")", vectorDimension, 0);
+        }
         return new ColumnDescriptor(
                 field.getName(),
                 mapSqlType(type),
                 type.toString(),
                 resolvePrecision(type),
                 resolveScale(type));
+    }
+
+    private static int vectorDimension(Field field) {
+        if (!isVectorField(field)) {
+            return 0;
+        }
+        Map<String, String> metadata = field.getMetadata();
+        if (!(field.getType() instanceof ArrowType.List
+                || field.getType() instanceof ArrowType.FixedSizeList)
+                || field.getChildren().size() != 1
+                || !(field.getChildren().get(0).getType() instanceof ArrowType.FloatingPoint fp)
+                || fp.getPrecision()
+                        != org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE) {
+            throw invalidVector("VECTOR extension requires List<Float32> storage");
+        }
+        String encodedDimension = metadata.get(EXTENSION_METADATA_KEY);
+        if (encodedDimension == null || !encodedDimension.matches("[1-9][0-9]*")) {
+            throw invalidVector("VECTOR extension requires a positive decimal dimension");
+        }
+        try {
+            int dimension = Integer.parseInt(encodedDimension);
+            if (field.getType() instanceof ArrowType.FixedSizeList fixed
+                    && fixed.getListSize() != dimension) {
+                throw invalidVector("VECTOR extension dimension differs from storage width");
+            }
+            return dimension;
+        } catch (NumberFormatException failure) {
+            throw invalidVector("VECTOR extension dimension exceeds integer range");
+        }
+    }
+
+    private static TransportException invalidVector(String message) {
+        return new TransportException("DECODE_FAILED", message, null);
     }
 
     static int mapSqlType(ArrowType type) {

@@ -7,7 +7,10 @@ import java.util.List;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.operations.bootstrap.BootstrapFailedException;
+import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +27,8 @@ class WorkerRegistrationSerializationTest {
         WorkerRegistrationClient client = new WorkerRegistrationClient(
                 "http://localhost:8080", HttpClient.newHttpClient());
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
-                "worker-1", "localhost", 8080, 9090, 0, 1, List.of(), null, null, null);
+                "worker-1", "localhost", 8080, 9090, 0, 2,
+                null, List.of(), null, canonicalInventory());
 
         byte[] result = client.serialize(request);
 
@@ -38,7 +42,8 @@ class WorkerRegistrationSerializationTest {
         WorkerRegistrationClient client = new WorkerRegistrationClient(
                 "http://localhost:8080", HttpClient.newHttpClient());
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
-                "w-42", "host-a", 3000, 4000, 0, 2, List.of("shuffle", "spill"), "rack-1", List.of("/data/1"), null);
+                "w-42", "host-a", 3000, 4000, 0, 2,
+                "rack-1", List.of("/data/1"), null, canonicalInventory());
 
         byte[] result = client.serialize(request);
         String json = new String(result);
@@ -47,8 +52,9 @@ class WorkerRegistrationSerializationTest {
         assertThat(json).contains("host-a");
         assertThat(json).contains("3000");
         assertThat(json).contains("4000");
-        assertThat(json).contains("shuffle");
         assertThat(json).contains("rack-1");
+        assertThat(json).contains("capability_inventory");
+        assertThat(json).doesNotContain("\"capabilities\"");
     }
 
     @Test
@@ -58,7 +64,8 @@ class WorkerRegistrationSerializationTest {
         WorkerRegistrationClient client = new WorkerRegistrationClient(
                 "http://192.0.2.1:1", HttpClient.newHttpClient());
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
-                "worker-1", "localhost", 8080, 9090, 0, 1, List.of(), null, null, null);
+                "worker-1", "localhost", 8080, 9090, 0, 2,
+                null, List.of(), null, canonicalInventory());
 
         byte[] serialized = client.serialize(request);
         assertThat(serialized).isNotNull();
@@ -82,5 +89,13 @@ class WorkerRegistrationSerializationTest {
                 .isEqualTo("WORKER-0001");
         assertThat(PangrovaErrorCode.WORKER_REGISTRATION_SERIALIZATION_FAILED.getDescription())
                 .isEqualTo("Worker registration serialization failed");
+    }
+
+    private static String canonicalInventory() {
+        return CapabilityInventoryCodec.encode(CapabilityInventory.newBuilder()
+                .setProtocol(CanonicalTaskRequests.protocolVersion())
+                .setResultEnvelopeVersion(1)
+                .setNativeEngineVersion("test-native")
+                .build());
     }
 }

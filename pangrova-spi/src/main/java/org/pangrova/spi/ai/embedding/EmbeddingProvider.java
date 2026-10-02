@@ -13,8 +13,14 @@
  */
 package org.pangrova.spi.ai.embedding;
 
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
+import org.pangrova.spi.ai.AiCapabilityDescriptor;
+import org.pangrova.spi.ai.AiInvocationException;
+import org.pangrova.spi.ai.Modality;
 import org.pangrova.spi.annotation.Experimental;
 import org.pangrova.spi.annotation.ThreadSafe;
 
@@ -30,35 +36,24 @@ import org.pangrova.spi.annotation.ThreadSafe;
 @ThreadSafe
 public interface EmbeddingProvider {
 
-    /**
-     * Embeds a single text input.
-     *
-     * @param text the text to embed (must not be null)
-     * @return dense embedding vector of length {@link #dimensions()}
-     * @throws IllegalArgumentException if text is null
-     */
-    float[] embed(String text);
+    /** Default initial delay for retryable provider failures. */
+    Duration DEFAULT_RETRY_INITIAL_DELAY = Duration.ofMillis(500);
 
     /**
-     * Embeds a batch of text inputs in a single request.
+     * Embeds one ordered batch using its explicit semantic purpose.
      *
-     * <p>Batch size must not exceed {@link #maxBatchSize()}. Implementations
-     * should optimize for throughput (e.g., single HTTP round-trip).</p>
+     * <p>One input and many inputs have the same semantics. Providers must return
+     * one vector per input in the same order, or fail the complete request.</p>
      *
-     * @param texts the texts to embed (must not be null or empty; size &le; maxBatchSize)
-     * @return list of dense embedding vectors, one per input text, in order
-     * @throws IllegalArgumentException if texts is null, empty, or exceeds maxBatchSize
+     * @param request nonempty homogeneous input, size at most {@link #maxBatchSize()}
+     * @return complete ordered vectors and provider request identity
+     * @throws IllegalArgumentException if the request exceeds the serving limits
+     * @throws AiInvocationException if purpose or modality is not supported
      */
-    List<float[]> embedBatch(List<String> texts);
+    EmbeddingBatchResult embed(EmbeddingBatchRequest request);
 
-    /**
-     * Embeds binary content referenced by blob descriptors.
-     *
-     * @param refs blob references to embed (must not be null or empty)
-     * @return list of dense embedding vectors, one per blob reference, in order
-     * @throws IllegalArgumentException if refs is null or empty
-     */
-    List<float[]> embedBlob(List<BlobReference> refs);
+    /** Exact purposes supported by this provider, checked before any provider I/O. */
+    Set<EmbeddingPurpose> supportedPurposes();
 
     /**
      * Returns the output vector dimensionality of this provider.
@@ -80,4 +75,62 @@ public interface EmbeddingProvider {
      * @return positive integer representing the max batch size
      */
     int maxBatchSize();
+
+    /** Exact provider-visible model version used in invocation/audit records. */
+    default String modelVersion() {
+        return "unversioned";
+    }
+
+    /** Exact public model descriptor signature, or an empty array if unavailable. */
+    default byte[] modelSignatureSha256() {
+        return new byte[0];
+    }
+
+    /** Exact serving limits for this provider deployment. */
+    default AiCapabilityDescriptor.ResourceLimits resourceLimits() {
+        throw new IllegalStateException(
+                "Embedding provider must declare exact resource limits");
+    }
+
+    /** Canonical capability descriptor consumed by dispatch and governance. */
+    default Set<AiCapabilityDescriptor> capabilities() {
+        Set<Modality> modalities = Set.copyOf(supportedModalities());
+        List<AiCapabilityDescriptor.Signature> signatures = new ArrayList<>();
+        signatures.add(new AiCapabilityDescriptor.Signature(
+                "VECTOR", List.of("VARCHAR")));
+        if (modalities.stream().anyMatch(modality -> modality != Modality.TEXT)) {
+            signatures.add(new AiCapabilityDescriptor.Signature(
+                    "VECTOR", List.of("FILE")));
+        }
+        return Set.of(new AiCapabilityDescriptor(
+                "embedding:" + modelName(),
+                modelVersion(),
+                AiCapabilityDescriptor.Operation.EMBEDDING,
+                signatures,
+                Set.of(AiCapabilityDescriptor.ExecutionMode.SCALAR,
+                        AiCapabilityDescriptor.ExecutionMode.BATCH,
+                        AiCapabilityDescriptor.ExecutionMode.SYNC,
+                        AiCapabilityDescriptor.ExecutionMode.ASYNC),
+                modalities,
+                maxBatchSize(),
+                resourceLimits(),
+                true,
+                new AiCapabilityDescriptor.RetryPolicy(
+                        4,
+                        DEFAULT_RETRY_INITIAL_DELAY,
+                        Duration.ofSeconds(4),
+                        Set.of(
+                                AiInvocationException.Category.RATE_LIMIT,
+                                AiInvocationException.Category.TIMEOUT,
+                                AiInvocationException.Category.PROVIDER_UNAVAILABLE)),
+                Set.of("AI_MODEL_USAGE")));
+    }
+
+    /**
+     * Modalities accepted by this exact model. Text is the conservative
+     * default; providers must explicitly advertise binary modalities.
+     */
+    default Set<Modality> supportedModalities() {
+        return Set.of(Modality.TEXT);
+    }
 }

@@ -32,6 +32,9 @@ public class CoordinatorQueryLifecycle implements QueryLifecycle {
         String id = UUID.randomUUID().toString();
         org.pangrova.coordinator.query.CoordinatorSessionContext coordinatorSession =
                 SessionContextConverter.fromSpiSessionContext(id, session);
+        if (coordinatorSession.userIdentity() == null || coordinatorSession.tenantId() == null) {
+            throw new IllegalArgumentException("Query submission requires an authenticated tenant and principal");
+        }
         queryManager.submitQuery(id, sql, coordinatorSession);
         return new QueryId(id);
     }

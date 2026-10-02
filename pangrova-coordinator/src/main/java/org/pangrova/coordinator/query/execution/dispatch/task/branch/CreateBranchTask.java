@@ -24,8 +24,8 @@ public final class CreateBranchTask implements MetadataTask<CreateBranchStatemen
 
     @Override
     public StatementResult execute(CreateBranchStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeCreateBranch(statement, context.session().userIdentity());
-        String mutatedTable = TableNameExtractor.extract(statement);
+        List<TypedRow> rows = executor.executeCreateBranch(statement, context.session());
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         return new StatementResult(rows, extractColumnNames(rows), mutatedTable, StatementCategory.DDL);
     }
 

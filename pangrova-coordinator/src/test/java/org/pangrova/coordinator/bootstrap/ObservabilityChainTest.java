@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <p><b>Property 28: Observability chain from main() to OTel export</b></p>
  */
-class ObservabilityChainTest {
+class ObservabilityChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -51,13 +51,24 @@ class ObservabilityChainTest {
     private CoordinatorBootstrap coordinatorBootstrap;
     private WorkerBootstrap workerBootstrap;
 
+    @org.junit.jupiter.api.io.TempDir
+    java.nio.file.Path shuffleDirectory;
+
     @BeforeAll
     static void startStub() throws Exception {
         stubServer = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         stubServer.createContext("/v1/workers/register", ex -> {
             ex.getRequestBody().readAllBytes();
-            ex.sendResponseHeaders(200, 2);
-            ex.getResponseBody().write("ok".getBytes());
+            byte[] response = "{\"status\":\"registered\",\"coordinator_epoch\":1}".getBytes();
+            ex.sendResponseHeaders(200, response.length);
+            ex.getResponseBody().write(response);
+            ex.getResponseBody().close();
+        });
+        stubServer.createContext("/v1/worker/heartbeat", ex -> {
+            ex.getRequestBody().readAllBytes();
+            byte[] response = "{\"status\":\"ok\",\"coordinator_epoch\":1}".getBytes();
+            ex.sendResponseHeaders(200, response.length);
+            ex.getResponseBody().write(response);
             ex.getResponseBody().close();
         });
         stubServer.createContext("/v1/task-status/report", ex -> {
@@ -65,6 +76,12 @@ class ObservabilityChainTest {
             ex.sendResponseHeaders(200, 2);
             ex.getResponseBody().write("ok".getBytes());
             ex.getResponseBody().close();
+        });
+        stubServer.createContext("/v1/workers/", ex -> {
+            try (ex) {
+                ex.getRequestBody().readAllBytes();
+                ex.sendResponseHeaders("DELETE".equals(ex.getRequestMethod()) ? 200 : 405, -1);
+            }
         });
         stubServer.start();
         stubCoordinatorUrl = "http://127.0.0.1:" + stubServer.getAddress().getPort();
@@ -105,8 +122,8 @@ class ObservabilityChainTest {
 
     /**
      * P28a: For any coordinatorId, bootstrap with default config (NoOp observability)
-     * starts successfully and query submission does not NPE — proving TracingProvider
-     * and LoggingProvider are wired end-to-end.
+     * starts successfully and query submission reaches worker admission without
+     * NPE. No Worker is bootstrapped by this test, so admission must fail closed.
      */
     @Property(tries = 5)
     @Tag("Feature: e2e-pipeline-integration, Property 28: Observability chain from main() to OTel export")
@@ -117,10 +134,8 @@ class ObservabilityChainTest {
         int port = coordinatorBootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(200);
-
-        Map<String, Object> body = parseJson(resp);
-        assertThat(body.get("query_id")).isNotNull();
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
     }
 
     /**
@@ -226,8 +241,9 @@ class ObservabilityChainTest {
                 false, null, null, 0, false,
                 new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        workerBootstrap = org.pangrova.coordinator.testinfra.NativeWorkerLifecycleFixture.create(
+                config, shuffleDirectory);
 
         assertThatCode(() -> workerBootstrap.start()).doesNotThrowAnyException();
         assertThat(workerBootstrap.isStarted()).isTrue();
@@ -263,7 +279,8 @@ class ObservabilityChainTest {
         int port = coordinatorBootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 42");
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
 
         assertThat(coordinatorBootstrap.getQueryManager()).isNotNull();
     }
@@ -274,8 +291,7 @@ class ObservabilityChainTest {
         shutdownCoordinator();
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 coordinatorId, 0);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
-        coordinatorBootstrap.start();
+        coordinatorBootstrap = startAuthorizedCoordinator(config);
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
         assertThat(coordinatorBootstrap.getHttpPort()).isGreaterThan(0);
     }
@@ -301,19 +317,21 @@ class ObservabilityChainTest {
 
     // -- HTTP helpers --
 
-    private static HttpResponse<String> submitQuery(int port, String sql) throws Exception {
+    private HttpResponse<String> submitQuery(int port, String sql) throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    private static HttpResponse<String> sendGet(int port, String path) throws Exception {
+    private HttpResponse<String> sendGet(int port, String path) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
+                .header("Authorization", authorizationHeader())
                 .GET().build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
     }

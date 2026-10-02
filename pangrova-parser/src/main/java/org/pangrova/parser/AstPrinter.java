@@ -1,6 +1,7 @@
 package org.pangrova.parser;
 
 import org.pangrova.parser.ast.*;
+import org.pangrova.parser.ast.expression.ArrayConstructor;
 import org.pangrova.parser.ast.expression.BinaryExpression;
 import org.pangrova.parser.ast.expression.CaseExpression;
 import org.pangrova.parser.ast.expression.CastExpression;
@@ -198,6 +199,7 @@ public final class AstPrinter {
                 Map.entry(UnaryMinusExpression.class, e -> printUnaryMinus((UnaryMinusExpression) e)),
                 Map.entry(ExtractExpression.class, e -> printExtract((ExtractExpression) e)),
                 Map.entry(SubstringExpression.class, e -> printSubstringExpr((SubstringExpression) e)),
+                Map.entry(ArrayConstructor.class, e -> printArrayConstructor((ArrayConstructor) e)),
                 Map.entry(MapConstructor.class, e -> printMapConstructor((MapConstructor) e)),
                 Map.entry(StructConstructor.class, e -> printStructConstructor((StructConstructor) e))
         );
@@ -328,7 +330,7 @@ public final class AstPrinter {
         }
         spec.frame().ifPresent(frame -> {
             if (!sb.isEmpty()) sb.append(" ");
-            sb.append("ROWS BETWEEN ").append(printFrameBound(frame.lowerBound()))
+            sb.append(frame.frameType().name()).append(" BETWEEN ").append(printFrameBound(frame.lowerBound()))
               .append(" AND ").append(printFrameBound(frame.upperBound()));
         });
         return sb.toString();
@@ -367,6 +369,10 @@ public final class AstPrinter {
 
     private String printMapConstructor(MapConstructor map) {
         return "MAP[" + joinExprs(map.entries()) + "]";
+    }
+
+    private String printArrayConstructor(ArrayConstructor array) {
+        return "ARRAY[" + joinExprs(array.elements()) + "]";
     }
 
     private String printStructConstructor(StructConstructor struct) {

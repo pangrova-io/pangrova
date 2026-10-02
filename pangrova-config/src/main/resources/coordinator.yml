@@ -39,6 +39,21 @@ coordinator:
     heartbeat-timeout: "30s"
     max-retry: 3
 
+  # ---- Internal Transport ----
+  # Development defaults to plaintext. Distributed production deployments
+  # must enable mutual TLS and mount all three PEM files on every coordinator.
+  transport:
+    tls:
+      enabled: false
+      certificate-chain-path: ""
+      private-key-path: ""
+      root-ca-path: ""
+
+  # ---- Remote Shuffle ----
+  shuffle:
+    tls:
+      server-identity: ""  # DNS identity present in the shuffle server certificate
+
 # ---- Feature Flags ----
 # All modules default to enabled except security.
 
@@ -64,7 +79,7 @@ streaming:
   enabled: true
 
 tenant:
-  enabled: true
+  enabled: false
 
 indexing:
   enabled: true

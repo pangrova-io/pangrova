@@ -2,6 +2,8 @@ package org.pangrova.coordinator.clustering;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.statement.TableResolver;
 
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.parser.ast.statement.ReclusterTableStatement;
@@ -43,9 +45,9 @@ public final class ClusteringDdlExecutor {
      * Handles ALTER TABLE t SET CLUSTERING ORDER (col1, col2) [MODE ...].
      * Validates connector support, stores descriptor, returns confirmation.
      */
-    public List<TypedRow> executeSetClusteringOrder(SetClusteringOrderStatement stmt) {
-        QualifiedTableName tableRef = resolveTableRef(stmt.tableName().parts());
-        ClusteringCapability capability = resolveCapability(tableRef);
+    public List<TypedRow> executeSetClusteringOrder(SetClusteringOrderStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        ClusteringCapability capability = resolveCapability(tableRef, context);
         ClusteringMode mode = parseMode(stmt.mode());
 
         if (!capability.supportsMode(mode)) {
@@ -73,9 +75,9 @@ public final class ClusteringDdlExecutor {
      * Submits an async recluster task and returns the task ID immediately.
      * Users can poll progress via SHOW CLUSTERING STATUS.
      */
-    public List<TypedRow> executeReclusterTable(ReclusterTableStatement stmt) {
-        QualifiedTableName tableRef = resolveTableRef(stmt.tableName().parts());
-        ClusteringCapability capability = resolveCapability(tableRef);
+    public List<TypedRow> executeReclusterTable(ReclusterTableStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        ClusteringCapability capability = resolveCapability(tableRef, context);
         var spiTableName = toSpiTableName(tableRef);
 
         ClusteringDescriptor descriptor = deps.metadataStore().find(spiTableName)
@@ -98,9 +100,9 @@ public final class ClusteringDdlExecutor {
      * Handles SHOW CLUSTERING STATUS FOR TABLE t.
      * Returns clustering ratio, file counts, and state.
      */
-    public List<TypedRow> executeShowClusteringStatus(ShowClusteringStatusStatement stmt) {
-        QualifiedTableName tableRef = resolveTableRef(stmt.tableName().parts());
-        ClusteringCapability capability = resolveCapability(tableRef);
+    public List<TypedRow> executeShowClusteringStatus(ShowClusteringStatusStatement stmt, CoordinatorSessionContext context) {
+        QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
+        ClusteringCapability capability = resolveCapability(tableRef, context);
 
         ClusteringStatus status = deps.statusReporter().getStatus(
                 toSpiTableName(tableRef), capability);
@@ -119,19 +121,15 @@ public final class ClusteringDdlExecutor {
 
     // --- Private helpers ---
 
-    private ClusteringCapability resolveCapability(QualifiedTableName tableRef) {
+    private ClusteringCapability resolveCapability(QualifiedTableName tableRef, CoordinatorSessionContext context) {
         CatalogHandle handle = deps.catalogRegistry().getCatalog(tableRef.catalog());
-        ConnectorSession session = new ClusteringConnectorSession(tableRef.catalog());
+        ConnectorSession session = TableResolver.buildSession(context, tableRef.catalog(), tableRef.schema());
         ConnectorMetadata metadata = handle.getMetadata(session);
         return metadata.getClusteringCapability()
                 .orElseThrow(() -> new PangrovaException(
                         PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                         "Connector for catalog '" + tableRef.catalog()
                                 + "' does not support clustering"));
-    }
-
-    private static QualifiedTableName resolveTableRef(List<String> parts) {
-        return QualifiedTableName.resolve(parts);
     }
 
     private static ClusteringMode parseMode(String modeStr) {

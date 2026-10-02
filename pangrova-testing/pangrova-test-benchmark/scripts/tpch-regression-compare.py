@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""TPC-H SF=10 performance regression comparison and monthly report generation.
+"""TPC-H performance regression comparison and monthly report generation.
 
 Compares current benchmark results against the version-controlled baseline.
 Alerts on >15% regression for any query. Generates monthly trend reports.
+Exit codes: 0 = within threshold, 1 = regression, 2 = invalid input or uncalibrated baseline.
+See tpch_regression_validation.py for the full-run JSON contract.
 
 Environment variables:
     BASELINE_PATH: path to the baseline JSON file
@@ -13,25 +15,53 @@ Environment variables:
 """
 
 import json
+import math
 import os
 import sys
 from datetime import datetime
 from pathlib import Path
 
+from tpch_regression_validation import require_number, validate_results
 
-def load_json(path):
-    with open(path) as f:
-        return json.load(f)
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key {key!r}; remove ambiguous measurements")
+        result[key] = value
+    return result
+
+
+def load_json(path, source="results"):
+    category = "INVALID_BASELINE" if source == "baseline" else "INVALID_RESULTS"
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f, object_pairs_hook=unique_object)
+    except FileNotFoundError as error:
+        if source == "baseline":
+            raise ValueError(
+                f"UNCALIBRATED_BASELINE {path}: file missing; supply a calibrated matching-scale baseline"
+            ) from error
+        raise ValueError(f"{category} {path}: file missing; run the complete benchmark first") from error
+    except (OSError, ValueError) as error:
+        raise ValueError(f"{category} {path}: cannot read valid JSON: {error}") from error
 
 
 def compute_change(baseline_ms, current_ms):
-    if baseline_ms <= 0:
-        return 0.0
-    return (current_ms - baseline_ms) / baseline_ms
+    require_number(baseline_ms, "INVALID_BASELINE comparison latency")
+    require_number(current_ms, "INVALID_RESULTS comparison latency")
+    try:
+        change = (current_ms - baseline_ms) / baseline_ms
+    except OverflowError as error:
+        raise ValueError("INVALID_RESULTS: non-finite computed change; verify measurement units") from error
+    if not math.isfinite(change):
+        raise ValueError("INVALID_RESULTS: non-finite computed change; verify measurement units")
+    return change
 
 
 def compare_results(baseline, results):
-    threshold = float(baseline.get("regressionThreshold", 0.15))
+    results, threshold = validate_results(baseline, results)
     queries = baseline["queries"]
     comparisons = []
     has_failure = False
@@ -39,23 +69,13 @@ def compare_results(baseline, results):
     for qid in sorted(queries.keys(), key=lambda x: int(x[1:])):
         qdata = queries[qid]
         baseline_p99 = qdata["baselineP99Ms"]
-        baseline_p50 = qdata.get("baselineP50Ms", 0)
-        current_p99 = results.get("queries", {}).get(qid, {}).get("p99Ms")
-        current_p50 = results.get("queries", {}).get(qid, {}).get("p50Ms")
-
-        if current_p99 is None:
-            comparisons.append({
-                "query": qid,
-                "name": qdata["name"],
-                "baselineP99": baseline_p99,
-                "currentP99": None,
-                "changeP99": None,
-                "status": "SKIP"
-            })
-            continue
+        baseline_p50 = qdata.get("baselineP50Ms")
+        current_p99 = results["queries"][qid]["p99Ms"]
+        current_p50 = results["queries"][qid].get("p50Ms")
 
         change_p99 = compute_change(baseline_p99, current_p99)
-        change_p50 = compute_change(baseline_p50, current_p50) if current_p50 and baseline_p50 else None
+        change_p50 = (compute_change(baseline_p50, current_p50)
+                      if current_p50 is not None and baseline_p50 is not None else None)
 
         if change_p99 > threshold:
             status = "FAIL"
@@ -67,7 +87,7 @@ def compare_results(baseline, results):
 
         comparisons.append({
             "query": qid,
-            "name": qdata["name"],
+            "name": qdata.get("name", qid),
             "baselineP99": baseline_p99,
             "currentP99": current_p99,
             "changeP99": change_p99,
@@ -81,18 +101,16 @@ def compare_results(baseline, results):
 
 
 def load_history(history_dir):
-    """Load historical results from a directory of JSON files sorted by date."""
-    if not history_dir or not Path(history_dir).is_dir():
+    """Load historical results in filename order (use date-prefixed filenames)."""
+    if not history_dir:
         return []
+    if not Path(history_dir).is_dir():
+        raise ValueError(f"INVALID_RESULTS history {history_dir}: directory does not exist")
 
     history = []
     for f in sorted(Path(history_dir).glob("*.json")):
-        try:
-            data = load_json(f)
-            date_str = data.get("date", f.stem)
-            history.append({"date": date_str, "file": str(f), "data": data})
-        except (json.JSONDecodeError, KeyError):
-            continue
+        data = load_json(f)
+        history.append({"file": str(f), "data": data})
     return history
 
 
@@ -103,13 +121,20 @@ def compute_trends(baseline, history):
 
     queries = baseline["queries"]
     trends = {}
+    validated = []
+    for entry in history:
+        try:
+            data, _ = validate_results(baseline, entry["data"])
+        except ValueError as error:
+            raise ValueError(f"History {entry['file']}: {error}") from error
+        date_str = data.get("date", data.get("timestamp", Path(entry["file"]).stem))
+        validated.append({"date": date_str, "data": data})
 
     for qid in queries:
         query_history = []
-        for entry in history:
-            p99 = entry["data"].get("queries", {}).get(qid, {}).get("p99Ms")
-            if p99 is not None:
-                query_history.append({"date": entry["date"], "p99Ms": p99})
+        for entry in validated:
+            p99 = entry["data"]["queries"][qid]["p99Ms"]
+            query_history.append({"date": entry["date"], "p99Ms": p99})
         if query_history:
             trends[qid] = query_history
 
@@ -151,10 +176,10 @@ def generate_report(comparisons, has_failure, threshold, baseline, history_dir):
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     report_lines.append("=" * 72)
-    report_lines.append("  Pangrova TPC-H SF=10 Monthly Performance Regression Report")
+    report_lines.append(f"  Pangrova TPC-H SF={baseline['scaleFactor']} Monthly Performance Regression Report")
     report_lines.append("=" * 72)
     report_lines.append(f"  Generated: {now}")
-    report_lines.append(f"  Baseline:  SF={baseline['scaleFactor']} ({baseline['lastUpdated']})")
+    report_lines.append(f"  Baseline:  SF={baseline['scaleFactor']} ({baseline.get('lastUpdated', 'undated')})")
     report_lines.append(f"  Threshold: {threshold * 100:.0f}% regression triggers alert")
     report_lines.append(f"  Queries:   {len(comparisons)} TPC-H queries evaluated")
     report_lines.append("")
@@ -163,12 +188,11 @@ def generate_report(comparisons, has_failure, threshold, baseline, history_dir):
     passed = sum(1 for c in comparisons if c["status"] == "PASS")
     warned = sum(1 for c in comparisons if c["status"] == "WARN")
     failed = sum(1 for c in comparisons if c["status"] == "FAIL")
-    skipped = sum(1 for c in comparisons if c["status"] == "SKIP")
 
     report_lines.append("─" * 72)
     report_lines.append("  SUMMARY")
     report_lines.append("─" * 72)
-    report_lines.append(f"  ✅ PASS: {passed}  ⚠️  WARN: {warned}  ❌ FAIL: {failed}  ⏭️  SKIP: {skipped}")
+    report_lines.append(f"  ✅ PASS: {passed}  ⚠️  WARN: {warned}  ❌ FAIL: {failed}")
     report_lines.append(f"  Overall: {'FAILED - Regression detected' if has_failure else 'PASSED - All within threshold'}")
     report_lines.append("")
 
@@ -181,17 +205,12 @@ def generate_report(comparisons, has_failure, threshold, baseline, history_dir):
     report_lines.append("  " + "-" * 68)
 
     for c in comparisons:
-        if c["currentP99"] is None:
-            report_lines.append(
-                f"  {c['query']:<6} {c['name']:<35} {c['baselineP99']:<10} {'N/A':<10} {'N/A':<10} {c['status']}"
-            )
-        else:
-            sign = "+" if c["changeP99"] >= 0 else ""
-            change_str = f"{sign}{c['changeP99'] * 100:.1f}%"
-            status_icon = "✅" if c["status"] == "PASS" else ("⚠️" if c["status"] == "WARN" else "❌")
-            report_lines.append(
-                f"  {c['query']:<6} {c['name']:<35} {c['baselineP99']:<10} {c['currentP99']:<10.0f} {change_str:<10} {status_icon} {c['status']}"
-            )
+        sign = "+" if c["changeP99"] >= 0 else ""
+        change_str = f"{sign}{c['changeP99'] * 100:.1f}%"
+        status_icon = "✅" if c["status"] == "PASS" else ("⚠️" if c["status"] == "WARN" else "❌")
+        report_lines.append(
+            f"  {c['query']:<6} {c['name']:<35} {c['baselineP99']:<10} {c['currentP99']:<10.0f} {change_str:<10} {status_icon} {c['status']}"
+        )
 
     report_lines.append("")
 
@@ -218,7 +237,7 @@ def generate_report(comparisons, has_failure, threshold, baseline, history_dir):
         for qid in sorted(trends.keys(), key=lambda x: int(x[1:])):
             entries = trends[qid]
             values = [e["p99Ms"] for e in entries]
-            report_lines.append(f"\n  {qid} - {baseline['queries'][qid]['name']}:")
+            report_lines.append(f"\n  {qid} - {baseline['queries'][qid].get('name', qid)}:")
             report_lines.append(f"  Range: {min(values):.0f}ms - {max(values):.0f}ms")
             report_lines.append(format_ascii_chart(values))
             dates = [e["date"] for e in entries]
@@ -273,22 +292,27 @@ def main():
     alert_webhook = os.environ.get("ALERT_WEBHOOK", "")
 
     if not baseline_file or not results_file:
-        print("ERROR: BASELINE_PATH and RESULTS_PATH environment variables required")
+        print("ERROR: BASELINE_PATH and RESULTS_PATH environment variables required", file=sys.stderr)
         sys.exit(2)
 
-    baseline = load_json(baseline_file)
-    results = load_json(results_file)
-
-    comparisons, has_failure, threshold = compare_results(baseline, results)
-
-    # Generate report
-    report = generate_report(comparisons, has_failure, threshold, baseline, history_dir)
+    try:
+        baseline = load_json(baseline_file, source="baseline")
+        results = load_json(results_file)
+        comparisons, has_failure, threshold = compare_results(baseline, results)
+        report = generate_report(comparisons, has_failure, threshold, baseline, history_dir)
+    except (ValueError, OSError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        sys.exit(2)
 
     # Output report
     if report_output:
-        Path(report_output).parent.mkdir(parents=True, exist_ok=True)
-        with open(report_output, "w") as f:
-            f.write(report)
+        try:
+            Path(report_output).parent.mkdir(parents=True, exist_ok=True)
+            with open(report_output, "w", encoding="utf-8") as f:
+                f.write(report)
+        except OSError as error:
+            print(f"ERROR: cannot write report {report_output}: {error}", file=sys.stderr)
+            sys.exit(2)
         print(f"Report written to: {report_output}")
     else:
         print(report)

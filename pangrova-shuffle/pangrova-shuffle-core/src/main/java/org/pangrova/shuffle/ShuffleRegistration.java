@@ -1,5 +1,7 @@
 package org.pangrova.shuffle;
 
+import java.util.Arrays;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 /**
@@ -11,13 +13,19 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * @param numPartitions              number of output partitions (must be positive)
  * @param estimatedBytesPerPartition estimated bytes per partition for capacity planning (non-negative)
  * @param requireReplication         whether shuffle data should be replicated for fault tolerance
+ * @param planEpoch                  immutable physical-plan epoch for this stage attempt
+ * @param expectedProducerCount      number of logical producer partitions expected at finalization
+ * @param expectedProducerSetChecksum canonical SHA-256 of the logical producer identity set
  */
 public record ShuffleRegistration(
         String queryId,
         int stageId,
         int numPartitions,
         long estimatedBytesPerPartition,
-        boolean requireReplication
+        boolean requireReplication,
+        long planEpoch,
+        int expectedProducerCount,
+        byte[] expectedProducerSetChecksum
 ) {
 
     public ShuffleRegistration {
@@ -29,5 +37,26 @@ public record ShuffleRegistration(
             throw new IllegalArgumentException(
                     "estimatedBytesPerPartition must be non-negative, got: " + estimatedBytesPerPartition);
         }
+        if (planEpoch <= 0) {
+            throw new IllegalArgumentException("planEpoch must be positive, got: " + planEpoch);
+        }
+        if (expectedProducerCount <= 0) {
+            throw new IllegalArgumentException(
+                    "expectedProducerCount must be positive, got: " + expectedProducerCount);
+        }
+        checkNotNull(expectedProducerSetChecksum,
+                "expectedProducerSetChecksum must not be null");
+        if (expectedProducerSetChecksum.length != 32) {
+            throw new IllegalArgumentException(
+                    "expectedProducerSetChecksum must be a SHA-256 digest");
+        }
+        expectedProducerSetChecksum = Arrays.copyOf(
+                expectedProducerSetChecksum, expectedProducerSetChecksum.length);
+    }
+
+    @Override
+    public byte[] expectedProducerSetChecksum() {
+        return Arrays.copyOf(
+                expectedProducerSetChecksum, expectedProducerSetChecksum.length);
     }
 }

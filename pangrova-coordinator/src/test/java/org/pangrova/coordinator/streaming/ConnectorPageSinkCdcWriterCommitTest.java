@@ -25,9 +25,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Regression for the CDC silent-data-loss bug: {@link ConnectorPageSinkCdcWriter}
@@ -46,10 +50,8 @@ class ConnectorPageSinkCdcWriterCommitTest {
         RecordingMetadata metadata = new RecordingMetadata();
         RecordingPageSinkProvider sinkProvider = new RecordingPageSinkProvider();
         ConnectorSession session = new StatementConnectorSession("iceberg", "default");
-        ConnectorOutputTableHandle outputHandle = new TestOutputHandle("default.cdc_target");
-
         PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
-                metadata, sinkProvider, session, outputHandle, "iceberg.default.cdc_target");
+                metadata, sinkProvider, session, "iceberg.default.cdc_target");
         ConnectorPageSinkCdcWriter writer = new ConnectorPageSinkCdcWriter(deps);
 
         CdcWriteResult r1 = writer.writeBatch(List.of(insert(1L, "alice")));
@@ -77,29 +79,145 @@ class ConnectorPageSinkCdcWriterCommitTest {
     }
 
     @Test
-    void commitFailureDiscardsStagedFiles() {
+    void commitFailurePreservesFilesWhenPublicationOutcomeIsUnknown() {
         RecordingMetadata metadata = new RecordingMetadata();
         metadata.failCommit = true;
         RecordingPageSinkProvider sinkProvider = new RecordingPageSinkProvider();
         ConnectorSession session = new StatementConnectorSession("iceberg", "default");
-        ConnectorOutputTableHandle outputHandle = new TestOutputHandle("default.cdc_target");
-
         PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
-                metadata, sinkProvider, session, outputHandle, "iceberg.default.cdc_target");
+                metadata, sinkProvider, session, "iceberg.default.cdc_target");
         ConnectorPageSinkCdcWriter writer = new ConnectorPageSinkCdcWriter(deps);
 
-        try {
-            writer.writeBatch(List.of(insert(1L, "alice")));
-        } catch (RuntimeException expected) {
-            // expected
-        }
-        // A-EOS-02 staged 2PC: the sink is finished+closed at stage time, so a commit (publish)
-        // failure discards the staged files via abortDistributedWrite rather than aborting the
-        // already-closed sink. The invariant preserved is "a failed commit leaks no files".
+        assertThatThrownBy(() -> writer.writeBatch(List.of(insert(1L, "alice"))))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("commit failed");
+        // The connector may have published the snapshot before reporting failure. Deleting
+        // the staged file here would make that snapshot unreadable.
         assertThat(metadata.abortCount.get())
-                .as("commit failure must discard staged files via abortDistributedWrite")
-                .isEqualTo(1);
+                .as("an attempted catalog commit must never trigger file deletion")
+                .isZero();
         assertThat(sinkProvider.lastSink.closed).isTrue();
+    }
+
+    @Test
+    void discardBeforePublicationDeletesOnlyUnpublishedFiles() {
+        RecordingMetadata metadata = new RecordingMetadata();
+        RecordingPageSinkProvider sinkProvider = new RecordingPageSinkProvider();
+        ConnectorSession session = new StatementConnectorSession("iceberg", "default");
+        PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
+                metadata, sinkProvider, session, "iceberg.default.cdc_target");
+        ConnectorPageSinkCdcWriter writer = new ConnectorPageSinkCdcWriter(deps);
+
+        var staged = writer.stage(List.of(insert(1L, "alice")));
+        writer.discard(staged);
+        writer.discard(staged);
+
+        assertThat(metadata.abortCount.get()).isEqualTo(1);
+        assertThat(metadata.commitCount.get()).isZero();
+    }
+
+    @Test
+    void stagedTokenCannotBePublishedOrDiscardedByAnotherWriter() {
+        RecordingMetadata metadata = new RecordingMetadata();
+        ConnectorSession session = new StatementConnectorSession("iceberg", "default");
+        PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
+                metadata, new RecordingPageSinkProvider(), session, "iceberg.default.cdc_target");
+        ConnectorPageSinkCdcWriter owner = new ConnectorPageSinkCdcWriter(deps);
+        ConnectorPageSinkCdcWriter other = new ConnectorPageSinkCdcWriter(deps);
+        var staged = owner.stage(List.of(insert(1L, "alice")));
+
+        assertThatThrownBy(() -> other.publish(staged))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> other.discard(staged))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(metadata.commitCount.get()).isZero();
+        assertThat(metadata.abortCount.get()).isZero();
+
+        owner.discard(staged);
+        assertThat(metadata.abortCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    void failedSecondStageDiscardsAlreadyPreparedDeleteFiles() {
+        RecordingMetadata metadata = new RecordingMetadata();
+        RecordingPageSinkProvider sinkProvider = new RecordingPageSinkProvider();
+        sinkProvider.failInsertSinkCreation = true;
+        ConnectorSession session = new StatementConnectorSession("iceberg", "default");
+        PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
+                metadata, sinkProvider, session, "iceberg.default.cdc_target");
+        ConnectorPageSinkCdcWriter writer = new ConnectorPageSinkCdcWriter(deps);
+        CdcEnvelope update = new CdcEnvelope(CdcOperation.UPDATE, "cdc_target",
+                CdcRow.of(Map.of("id", 1L, "name", "alice")),
+                CdcRow.of(Map.of("id", 1L, "name", "bob")),
+                Instant.now(), 1, Map.of());
+
+        assertThatThrownBy(() -> writer.stage(List.of(update)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("insert sink unavailable");
+
+        assertThat(metadata.abortCount.get()).isEqualTo(1);
+        assertThat(metadata.commitCount.get()).isZero();
+        assertThat(sinkProvider.lastSink.closed).isTrue();
+    }
+
+    @Test
+    void offsetCommitAbortDoesNotDeletePublishedFiles() {
+        RecordingMetadata metadata = new RecordingMetadata();
+        RecordingPageSinkProvider sinkProvider = new RecordingPageSinkProvider();
+        ConnectorSession session = new StatementConnectorSession("iceberg", "default");
+        PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
+                metadata, sinkProvider, session, "iceberg.default.cdc_target");
+        ConnectorPageSinkCdcWriter writer = new ConnectorPageSinkCdcWriter(deps);
+
+        var staged = writer.stage(List.of(insert(1L, "alice")));
+        assertThat(writer.publish(staged).rowsWritten()).isEqualTo(1);
+        writer.discard(staged);
+        assertThat(writer.publish(staged).rowsWritten()).isEqualTo(1);
+
+        assertThat(metadata.abortCount.get()).isZero();
+        assertThat(metadata.commitCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    void listenerFailureAfterCatalogCommitDoesNotDeletePublishedFiles() {
+        RecordingMetadata metadata = new RecordingMetadata();
+        metadata.failAfterCommit = true;
+        RecordingPageSinkProvider sinkProvider = new RecordingPageSinkProvider();
+        ConnectorSession session = new StatementConnectorSession("iceberg", "default");
+        PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
+                metadata, sinkProvider, session, "iceberg.default.cdc_target");
+        ConnectorPageSinkCdcWriter writer = new ConnectorPageSinkCdcWriter(deps);
+
+        assertThatThrownBy(() -> writer.writeBatch(List.of(insert(1L, "alice"))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("notification failed");
+
+        assertThat(metadata.commitCount.get()).isEqualTo(1);
+        assertThat(metadata.abortCount.get()).isZero();
+    }
+
+    @Test
+    void discardCannotRaceWithCatalogPublication() throws Exception {
+        RecordingMetadata metadata = new RecordingMetadata();
+        metadata.commitEntered = new CountDownLatch(1);
+        metadata.continueCommit = new CountDownLatch(1);
+        ConnectorSession session = new StatementConnectorSession("iceberg", "default");
+        PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
+                metadata, new RecordingPageSinkProvider(), session, "iceberg.default.cdc_target");
+        ConnectorPageSinkCdcWriter writer = new ConnectorPageSinkCdcWriter(deps);
+        var staged = writer.stage(List.of(insert(1L, "alice")));
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var publication = executor.submit(() -> writer.publish(staged));
+            assertThat(metadata.commitEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            writer.discard(staged);
+            metadata.continueCommit.countDown();
+            assertThat(publication.get(5, TimeUnit.SECONDS).rowsWritten()).isEqualTo(1);
+            assertThat(metadata.abortCount.get()).isZero();
+        } finally {
+            metadata.continueCommit.countDown();
+            executor.shutdownNow();
+        }
     }
 
     /**
@@ -130,9 +248,8 @@ class ConnectorPageSinkCdcWriterCommitTest {
         RecordingMetadata metadata = new RecordingMetadata();
         RecordingPageSinkProvider sinkProvider = new RecordingPageSinkProvider();
         ConnectorSession session = new StatementConnectorSession("iceberg", "default");
-        ConnectorOutputTableHandle outputHandle = new TestOutputHandle("out");
         PageSinkStreamWriterContext deps = new PageSinkStreamWriterContext(
-                metadata, sinkProvider, session, outputHandle, qualifiedTarget);
+                metadata, sinkProvider, session, qualifiedTarget);
         new ConnectorPageSinkCdcWriter(deps).writeBatch(List.of(insert(1L, "alice")));
         return metadata.requestedTables.get(metadata.requestedTables.size() - 1);
     }
@@ -152,6 +269,9 @@ class ConnectorPageSinkCdcWriterCommitTest {
         final List<ConnectorOutputTableHandle> committedHandles = new ArrayList<>();
         final List<SchemaTableName> requestedTables = new ArrayList<>();
         boolean failCommit = false;
+        boolean failAfterCommit = false;
+        CountDownLatch commitEntered;
+        CountDownLatch continueCommit;
         final AtomicInteger abortCount = new AtomicInteger();
 
         @Override
@@ -193,15 +313,34 @@ class ConnectorPageSinkCdcWriterCommitTest {
         }
 
         @Override
+        public ConnectorOutputTableHandle beginDelete(ConnectorSession session, ConnectorTableHandle table) {
+            return new TestOutputHandle("delete");
+        }
+
+        @Override
         public void finishDistributedWrite(ConnectorSession session,
                                            ConnectorOutputTableHandle outputHandle,
                                            List<byte[]> fragments) {
             if (failCommit) {
                 throw new RuntimeException("commit failed");
             }
+            if (commitEntered != null) {
+                commitEntered.countDown();
+                try {
+                    if (!continueCommit.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("timed out waiting to finish commit");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("commit interrupted", interrupted);
+                }
+            }
             committedFragments.add(List.copyOf(fragments));
             committedHandles.add(outputHandle);
             commitCount.incrementAndGet();
+            if (failAfterCommit) {
+                throw new IllegalStateException("notification failed after catalog publication");
+            }
         }
 
         @Override
@@ -223,12 +362,24 @@ class ConnectorPageSinkCdcWriterCommitTest {
     private static final class RecordingPageSinkProvider implements ConnectorPageSinkProvider {
         RecordingPageSink lastSink;
         final AtomicInteger sinkSeq = new AtomicInteger();
+        boolean failInsertSinkCreation;
 
         @Override
         public ConnectorPageSink createPageSink(ConnectorTransactionHandle txn,
                                                 ConnectorSession session,
                                                 ConnectorOutputTableHandle outputHandle) {
+            if (failInsertSinkCreation) {
+                throw new IllegalStateException("insert sink unavailable");
+            }
             lastSink = new RecordingPageSink("commit-" + sinkSeq.getAndIncrement());
+            return lastSink;
+        }
+
+        @Override
+        public ConnectorPageSink createDeletePageSink(ConnectorTransactionHandle txn,
+                                                      ConnectorSession session,
+                                                      ConnectorOutputTableHandle outputHandle) {
+            lastSink = new RecordingPageSink("delete-" + sinkSeq.getAndIncrement());
             return lastSink;
         }
     }

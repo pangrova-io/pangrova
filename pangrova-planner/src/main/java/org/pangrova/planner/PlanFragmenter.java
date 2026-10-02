@@ -16,273 +16,476 @@ package org.pangrova.planner;
 import org.apache.calcite.rel.RelDistribution;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Exchange;
+import org.apache.calcite.rel.core.Aggregate;
+import org.apache.calcite.rel.core.Sort;
+import org.apache.calcite.rel.core.Values;
+import org.apache.calcite.rel.core.Window;
+import org.apache.calcite.rex.RexLiteral;
+import org.pangrova.planner.cost.distribution.PangrovaDistribution;
+import org.pangrova.planner.cost.distribution.PangrovaExchange;
+import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
+import org.pangrova.planner.cost.distribution.WindowPartitioning;
+import org.pangrova.protocol.v2.BatchSerde;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 /**
- * Fragments a RelNode tree into a {@link FragmentedPlan} at Exchange boundaries.
- * Each {@link PlanStage} wraps a sub-tree as an opaque {@link PlanFragment} — no
- * Calcite types escape into coordinator code.
- *
- * <p>Lives in {@code org.pangrova.planner} (same package as {@link PlanFragment}) so it
- * can access {@link PlanFragment}'s package-private constructor and static helpers.</p>
- *
- * <p>Coordinator code reaches this only via {@link PlannedQuery#fragment(int)} —
- * it never imports this class directly.</p>
+ * Splits a physical plan into self-contained producer and consumer fragments.
+ * A producer terminates in a standard Substrait exchange and a consumer starts
+ * at a typed exchange-input leaf. Runtime endpoints never enter plan bytes.
  */
 final class PlanFragmenter {
 
     private static final Logger LOG = LoggerFactory.getLogger(PlanFragmenter.class);
-    private static final int DEFAULT_HASH_PARALLELISM = 4;
+    private static final int DEFAULT_PARALLELISM = 4;
     private static final int SINGLE_PARALLELISM = 1;
-    private static final long DEFAULT_BYTES_PER_PARTITION = 256L * 1024 * 1024; // 256 MB
+    private static final long DEFAULT_BYTES_PER_PARTITION = 256L * 1024 * 1024;
     private static final int DEFAULT_MAX_PARALLELISM = 128;
+    private static final BatchSerde EXCHANGE_SERDE = BatchSerde.BATCH_SERDE_NATIVE_ROW;
 
     private PlanFragmenter() {}
 
-    /**
-     * Fragments the plan using the given parallelism override.
-     *
-     * @param root                       the root RelNode to fragment
-     * @param sessionParallelismOverride positive value overrides dynamic parallelism; -1 means auto
-     */
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride) {
-        checkNotNull(root, "root RelNode must not be null");
-        FragmentContext ctx = new FragmentContext(
-                sessionParallelismOverride, DEFAULT_BYTES_PER_PARTITION, DEFAULT_MAX_PARALLELISM);
-        int rootStageId = ctx.visitNode(root);
-        ctx.setTaskType(rootStageId, "OUTPUT");
-        // OUTPUT stage must have parallelism=1 so the client has a single result endpoint.
-        ctx.setParallelism(rootStageId, SINGLE_PARALLELISM);
-        return ctx.buildFragmentedPlan();
+        return fragment(root, sessionParallelismOverride, AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT);
     }
 
-    /** Converts a Calcite RelDistribution.Type to the coordinator-safe ShuffleType. */
-    static ShuffleType toShuffleType(RelDistribution.Type distType) {
-        return switch (distType) {
+    static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
+            AuthorizedStageGraph.TerminalPurpose terminalPurpose) {
+        checkNotNull(root, "root RelNode must not be null");
+        FragmentContext context = new FragmentContext(
+                sessionParallelismOverride,
+                DEFAULT_BYTES_PER_PARTITION,
+                DEFAULT_MAX_PARALLELISM,
+                checkNotNull(terminalPurpose, "terminalPurpose must not be null"));
+        return context.fragment(root);
+    }
+
+    static ShuffleType toShuffleType(RelDistribution.Type distributionType) {
+        return switch (distributionType) {
             case BROADCAST_DISTRIBUTED -> ShuffleType.BROADCAST;
             case HASH_DISTRIBUTED -> ShuffleType.HASH;
             case RANGE_DISTRIBUTED -> ShuffleType.RANGE;
+            case RANDOM_DISTRIBUTED, ROUND_ROBIN_DISTRIBUTED -> ShuffleType.ROUND_ROBIN;
             case SINGLETON -> ShuffleType.SINGLETON;
-            default -> ShuffleType.ANY;
+            case ANY -> ShuffleType.ANY;
         };
     }
 
-    /**
-     * Mutable context accumulating stages and edges during the RelNode tree walk.
-     */
+    private static ShuffleType toShuffleType(PangrovaDistribution distribution) {
+        return switch (distribution.type()) {
+            case HASH -> ShuffleType.HASH;
+            case BROADCAST -> ShuffleType.BROADCAST;
+            case ROUND_ROBIN -> ShuffleType.ROUND_ROBIN;
+            case SINGLETON -> ShuffleType.SINGLETON;
+            case ANY -> ShuffleType.ANY;
+        };
+    }
+
     private static final class FragmentContext {
 
-        private int nextStageId;
-        private final Map<Integer, MutableStage> stageMap = new HashMap<>();
-        private final Map<Integer, List<Integer>> edges = new HashMap<>();
+        private final Map<Integer, MutableStage> stages = new HashMap<>();
+        private final Map<Integer, List<Integer>> dependencies = new HashMap<>();
         private final List<StageTransfer> transfers = new ArrayList<>();
-
         private final int sessionParallelismOverride;
         private final long bytesPerPartition;
         private final int maxParallelism;
+        private final AuthorizedStageGraph.TerminalPurpose terminalPurpose;
+        private int nextStageId;
 
-        FragmentContext(int sessionParallelismOverride,
-                        long bytesPerPartition, int maxParallelism) {
+        private FragmentContext(
+                int sessionParallelismOverride,
+                long bytesPerPartition,
+                int maxParallelism,
+                AuthorizedStageGraph.TerminalPurpose terminalPurpose) {
             this.sessionParallelismOverride = sessionParallelismOverride;
-            this.bytesPerPartition = bytesPerPartition > 0
-                    ? bytesPerPartition : DEFAULT_BYTES_PER_PARTITION;
-            this.maxParallelism = maxParallelism > 0
-                    ? maxParallelism : DEFAULT_MAX_PARALLELISM;
+            this.bytesPerPartition = bytesPerPartition;
+            this.maxParallelism = maxParallelism;
+            this.terminalPurpose = terminalPurpose;
         }
 
-        int visitNode(RelNode node) {
-            if (node instanceof Exchange exchange) {
-                return visitRootExchange(exchange);
+        FragmentedPlan fragment(RelNode root) {
+            root = enforceGlobalOperators(root, true);
+            int parallelism = resolveStageParallelism(root);
+            int computeStageId = createStage(root, parallelism, "COMPUTE");
+            setPlan(computeStageId, rewrite(root, computeStageId, parallelism));
+            if (parallelism == SINGLE_PARALLELISM
+                    || terminalPurpose == AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT) {
+                stages.get(computeStageId).taskType = "OUTPUT";
+            } else {
+                addOutputStage(computeStageId);
             }
-            List<RelNode> inputs = node.getInputs();
-            if (inputs.isEmpty()) {
-                return createStage(node, SINGLE_PARALLELISM, "COMPUTE");
-            }
-            return visitWithChildren(node, inputs);
+            return build();
         }
 
-        private int visitRootExchange(Exchange exchange) {
-            int upstreamId = visitNode(exchange.getInput());
-            int parallelism = resolveParallelism(exchange);
-            int stageId = createStage(exchange, parallelism, "COMPUTE");
-            addEdgeWithDist(stageId, upstreamId, exchange.getDistribution());
-            return stageId;
-        }
-
-        private int visitWithChildren(RelNode node, List<RelNode> inputs) {
-            List<ChildResult> children = collectChildren(inputs);
-            boolean anyExchange = children.stream().anyMatch(c -> c.fromExchange);
-            if (!anyExchange) {
-                return collapseIntoFirst(node, children);
-            }
-            return createStageWithDeps(node, children);
-        }
-
-        private List<ChildResult> collectChildren(List<RelNode> inputs) {
-            List<ChildResult> results = new ArrayList<>(inputs.size());
-            for (RelNode input : inputs) {
-                if (input instanceof Exchange exchange) {
-                    int upstreamId = visitNode(exchange.getInput());
-                    int parallelism = resolveParallelism(exchange);
-                    results.add(new ChildResult(upstreamId, true, parallelism,
-                            exchange.getDistribution()));
-                } else {
-                    int childId = visitNode(input);
-                    results.add(new ChildResult(childId, false, SINGLE_PARALLELISM, null));
+        /** Aggregates, windows and global ordering require a semantically complete input distribution. */
+        private RelNode enforceGlobalOperators(RelNode node, boolean root) {
+            if (!node.getInputs().isEmpty()) {
+                List<RelNode> inputs = new ArrayList<>(node.getInputs().size());
+                boolean changed = false;
+                for (RelNode input : node.getInputs()) {
+                    RelNode rewritten = enforceGlobalOperators(input, false);
+                    inputs.add(rewritten);
+                    changed |= rewritten != input;
+                }
+                if (changed) {
+                    node = node.copy(node.getTraitSet(), inputs);
                 }
             }
-            return results;
-        }
-
-        private int collapseIntoFirst(RelNode node, List<ChildResult> children) {
-            int merged = children.get(0).stageId;
-            replacePlan(merged, node);
-            for (int i = 1; i < children.size(); i++) {
-                mergeStage(children.get(i).stageId, merged);
-            }
-            return merged;
-        }
-
-        private int createStageWithDeps(RelNode node, List<ChildResult> children) {
-            int maxPar = children.stream()
-                    .filter(c -> c.fromExchange)
-                    .mapToInt(c -> c.parallelism)
-                    .max()
-                    .orElse(SINGLE_PARALLELISM);
-            int stageId = createStage(node, maxPar, "COMPUTE");
-            for (ChildResult c : children) {
-                if (c.fromExchange && c.distribution != null) {
-                    addEdgeWithDist(stageId, c.stageId, c.distribution);
-                } else {
-                    addEdge(stageId, c.stageId);
+            if (node instanceof Aggregate aggregate
+                    && !hasOnlyValuesLeaves(aggregate.getInput())) {
+                PangrovaDistribution distribution = (aggregate.getGroupSets() == null
+                        || aggregate.getGroupSets().size() == 1)
+                        && !aggregate.getGroupSet().isEmpty()
+                        ? PangrovaDistribution.hash(aggregate.getGroupSet().asList())
+                        : PangrovaDistribution.SINGLETON;
+                RelNode input = enforceDistribution(aggregate.getInput(), distribution);
+                if (input != aggregate.getInput()) {
+                    return aggregate.copy(aggregate.getTraitSet(), input,
+                            aggregate.getGroupSet(), aggregate.getGroupSets(),
+                            aggregate.getAggCallList());
                 }
             }
-            return stageId;
+            if (node instanceof Window window && !hasOnlyValuesLeaves(window.getInput())) {
+                return WindowPartitioning.enforce(window, FragmentContext::enforceDistribution);
+            }
+            if (node instanceof Sort sort
+                    && !(root && terminalPurpose == AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT
+                            && sort.fetch != null
+                            && (sort.offset == null || RexLiteral.intValue(sort.offset) == 0))
+                    && !hasOnlyValuesLeaves(sort.getInput())) {
+                RelNode input = enforceDistribution(sort.getInput(),
+                        PangrovaDistribution.SINGLETON);
+                if (input != sort.getInput()) {
+                    return sort.copy(sort.getTraitSet(), input,
+                            sort.getCollation(), sort.offset, sort.fetch);
+                }
+            }
+            return node;
         }
 
-        private int resolveParallelism(Exchange exchange) {
+        private static RelNode enforceDistribution(
+                RelNode input, PangrovaDistribution distribution) {
+            ExchangeBoundary boundary = exchangeBoundary(input);
+            if (boundary != null && boundary.distribution().equals(distribution)) {
+                return input;
+            }
+            return new PangrovaExchange(input.getCluster(),
+                    input.getTraitSet().replace(distribution), input, distribution);
+        }
+
+        private RelNode rewrite(RelNode node, int stageId, int stageParallelism) {
+            ExchangeBoundary boundary = exchangeBoundary(node);
+            if (boundary != null) {
+                return materializeBoundary(boundary, stageId, stageParallelism);
+            }
+            if (node.getInputs().isEmpty()) {
+                return node;
+            }
+            List<RelNode> rewrittenInputs = new ArrayList<>(node.getInputs().size());
+            boolean changed = false;
+            for (RelNode input : node.getInputs()) {
+                RelNode rewritten = rewrite(input, stageId, stageParallelism);
+                rewrittenInputs.add(rewritten);
+                changed |= rewritten != input;
+            }
+            return changed ? node.copy(node.getTraitSet(), rewrittenInputs) : node;
+        }
+
+        private RelNode materializeBoundary(
+                ExchangeBoundary boundary,
+                int downstreamStageId,
+                int downstreamParallelism) {
+            int producerParallelism = resolveStageParallelism(boundary.input());
+            int upstreamStageId = createStage(
+                    boundary.input(), producerParallelism, "COMPUTE");
+            RelNode producerInput = rewrite(
+                    boundary.input(), upstreamStageId, producerParallelism);
+            PangrovaExchange producer = boundProducer(
+                    boundary, producerInput, downstreamParallelism);
+            setPlan(upstreamStageId, producer);
+
+            String exchangeId = exchangeId(upstreamStageId, downstreamStageId);
+            addTransfer(boundary.distribution(), exchangeId,
+                    upstreamStageId, downstreamStageId, downstreamParallelism);
+            return new PangrovaExchangeInput(
+                    boundary.node().getCluster(),
+                    boundary.node().getTraitSet(),
+                    boundary.node().getRowType(),
+                    new PangrovaExchangeInput.Specification(
+                            "exchange-input-" + exchangeId,
+                            exchangeId,
+                            upstreamStageId,
+                            downstreamStageId,
+                            boundary.distribution(),
+                            downstreamParallelism,
+                            EXCHANGE_SERDE,
+                            true),
+                    new PlanFragment(producerInput, 0, 0).resultColumnModels());
+        }
+
+        private PangrovaExchange boundProducer(
+                ExchangeBoundary boundary,
+                RelNode producerInput,
+                int partitionCount) {
+            PangrovaDistribution distribution = boundary.distribution();
+            validateMaterializedDistribution(distribution);
+            return new PangrovaExchange(
+                    boundary.node().getCluster(),
+                    boundary.node().getTraitSet(),
+                    producerInput,
+                    distribution,
+                    partitionCount);
+        }
+
+        private void addOutputStage(int computeStageId) {
+            MutableStage compute = stages.get(computeStageId);
+            RelNode computeRoot = compute.plan;
+            int outputStageId = createStage(
+                    computeRoot, SINGLE_PARALLELISM, "OUTPUT");
+            String exchangeId = exchangeId(computeStageId, outputStageId);
+            PangrovaExchange producer = new PangrovaExchange(
+                    computeRoot.getCluster(),
+                    computeRoot.getTraitSet(),
+                    computeRoot,
+                    PangrovaDistribution.SINGLETON,
+                    SINGLE_PARALLELISM);
+            compute.plan = producer;
+            addTransfer(PangrovaDistribution.SINGLETON, exchangeId,
+                    computeStageId, outputStageId, SINGLE_PARALLELISM);
+            RelNode exchangeInput = new PangrovaExchangeInput(
+                    compute.plan.getCluster(),
+                    compute.plan.getTraitSet(),
+                    compute.plan.getRowType(),
+                    new PangrovaExchangeInput.Specification(
+                            "exchange-input-" + exchangeId,
+                            exchangeId,
+                            computeStageId,
+                            outputStageId,
+                            PangrovaDistribution.SINGLETON,
+                            SINGLE_PARALLELISM,
+                            EXCHANGE_SERDE,
+                            true),
+                    new PlanFragment(computeRoot, 0, 0).resultColumnModels());
+            setPlan(outputStageId, finalReducer(computeRoot, exchangeInput));
+        }
+
+        /** Native reapplies Top-K after the singleton boundary to globally order task-local candidates. */
+        private static RelNode finalReducer(RelNode computeRoot, RelNode exchangeInput) {
+            if (computeRoot instanceof Sort sort
+                    && sort.fetch != null
+                    && (sort.offset == null || RexLiteral.intValue(sort.offset) == 0)) {
+                return sort.copy(
+                        sort.getTraitSet(),
+                        exchangeInput,
+                        sort.getCollation(),
+                        sort.offset,
+                        sort.fetch);
+            }
+            return exchangeInput;
+        }
+
+        private void addTransfer(
+                PangrovaDistribution distribution,
+                String exchangeId,
+                int upstreamStageId,
+                int downstreamStageId,
+                int partitionCount) {
+            dependencies.computeIfAbsent(
+                    downstreamStageId, ignored -> new ArrayList<>()).add(upstreamStageId);
+            transfers.add(new StageTransfer(
+                    upstreamStageId,
+                    downstreamStageId,
+                    toShuffleType(distribution),
+                    distribution.keys(),
+                    exchangeId,
+                    partitionCount,
+                    EXCHANGE_SERDE,
+                    true));
+        }
+
+        private int resolveStageParallelism(RelNode root) {
+            List<ExchangeBoundary> boundaries = new ArrayList<>();
+            collectDirectBoundaries(root, boundaries);
+            // An unfragmented VALUES source is replicated verbatim by every
+            // task. It has no splits to partition, so an explicit session
+            // override must not multiply rows or provider calls. A boundary
+            // itself still keeps its requested downstream partition count.
+            if (boundaries.isEmpty() && hasOnlyValuesLeaves(root)) {
+                return SINGLE_PARALLELISM;
+            }
+            if (boundaries.stream().anyMatch(FragmentContext::isSingleton)) {
+                return SINGLE_PARALLELISM;
+            }
             if (sessionParallelismOverride > 0) {
                 return Math.min(sessionParallelismOverride, maxParallelism);
             }
-            RelDistribution distribution = exchange.getDistribution();
-            return switch (distribution.getType()) {
-                case HASH_DISTRIBUTED, RANGE_DISTRIBUTED ->
-                        computeDynamicParallelism(exchange);
-                default -> SINGLE_PARALLELISM;
-            };
+            if (boundaries.isEmpty()) {
+                return computeDynamicParallelism(root);
+            }
+            return boundaries.stream()
+                    .filter(boundary -> boundary.distribution().type()
+                            != PangrovaDistribution.Type.BROADCAST)
+                    .mapToInt(boundary -> computeDynamicParallelism(boundary.input()))
+                    .max()
+                    .orElseGet(() -> computeDynamicParallelism(root));
         }
 
-        private int computeDynamicParallelism(Exchange exchange) {
-            RelNode input = exchange.getInput();
+        private static boolean hasOnlyValuesLeaves(RelNode node) {
+            if (exchangeBoundary(node) != null) {
+                return false;
+            }
+            if (node.getInputs().isEmpty()) {
+                return node instanceof Values;
+            }
+            return node.getInputs().stream()
+                    .allMatch(FragmentContext::hasOnlyValuesLeaves);
+        }
+
+        private static boolean isSingleton(ExchangeBoundary boundary) {
+            return boundary.distribution().type() == PangrovaDistribution.Type.SINGLETON;
+        }
+
+        private void collectDirectBoundaries(
+                RelNode node,
+                List<ExchangeBoundary> boundaries) {
+            ExchangeBoundary boundary = exchangeBoundary(node);
+            if (boundary != null) {
+                boundaries.add(boundary);
+                return;
+            }
+            for (RelNode input : node.getInputs()) {
+                collectDirectBoundaries(input, boundaries);
+            }
+        }
+
+        private int computeDynamicParallelism(RelNode node) {
             try {
-                var metadata = input.getCluster().getMetadataQuery();
-                Double rowCount = metadata.getRowCount(input);
-                Double avgRowSize = metadata.getAverageRowSize(input);
-                if (rowCount != null && avgRowSize != null) {
-                    if (rowCount <= 0 || avgRowSize <= 0) {
-                        return SINGLE_PARALLELISM;
-                    }
-                    long estimatedBytes = (long) (rowCount * avgRowSize * 0.5);
-                    if (estimatedBytes > bytesPerPartition) {
-                        return (int) Math.min(maxParallelism,
-                                estimatedBytes / bytesPerPartition + 1);
-                    }
+                var metadata = node.getCluster().getMetadataQuery();
+                Double rowCount = metadata.getRowCount(node);
+                Double rowSize = metadata.getAverageRowSize(node);
+                if (isFinitePositive(rowCount) && isFinitePositive(rowSize)) {
+                    double estimatedBytes = rowCount * rowSize;
+                    long partitions = (long) Math.ceil(estimatedBytes / bytesPerPartition);
+                    return (int) Math.max(SINGLE_PARALLELISM,
+                            Math.min(maxParallelism, partitions));
                 }
-            } catch (Exception e) {
-                LOG.warn("event=dynamic_parallelism_fallback reason={}", e.getMessage());
+            } catch (RuntimeException e) {
+                LOG.warn("event=dynamic_parallelism_unavailable reason={}", e.getMessage());
             }
-            return DEFAULT_HASH_PARALLELISM;
+            return Math.min(DEFAULT_PARALLELISM, maxParallelism);
         }
 
-        int createStage(RelNode plan, int parallelism, String taskType) {
-            int id = nextStageId++;
-            stageMap.put(id, new MutableStage(id, plan, parallelism, taskType));
-            return id;
+        private static boolean isFinitePositive(Double value) {
+            return value != null && value > 0 && Double.isFinite(value);
         }
 
-        void setTaskType(int stageId, String taskType) {
-            findStage(stageId).taskType = taskType;
+        private int createStage(RelNode plan, int parallelism, String taskType) {
+            int stageId = nextStageId++;
+            stages.put(stageId, new MutableStage(
+                    stageId, plan, parallelism, taskType));
+            return stageId;
         }
 
-        void setParallelism(int stageId, int parallelism) {
-            findStage(stageId).parallelism = parallelism;
-        }
-
-        void replacePlan(int stageId, RelNode newPlan) {
-            findStage(stageId).plan = newPlan;
-        }
-
-        void addEdge(int downstream, int upstream) {
-            edges.computeIfAbsent(downstream, k -> new ArrayList<>()).add(upstream);
-        }
-
-        void addEdgeWithDist(int downstream, int upstream, RelDistribution dist) {
-            addEdge(downstream, upstream);
-            List<Integer> keys = dist.getKeys() != null
-                    ? dist.getKeys().stream().map(Integer::valueOf).toList()
-                    : List.of();
-            transfers.add(new StageTransfer(upstream, downstream,
-                    toShuffleType(dist.getType()), keys));
-        }
-
-        void mergeStage(int sourceId, int targetId) {
-            for (List<Integer> deps : edges.values()) {
-                deps.replaceAll(id -> id == sourceId ? targetId : id);
-            }
-            List<Integer> sourceDeps = edges.remove(sourceId);
-            if (sourceDeps != null) {
-                edges.computeIfAbsent(targetId, k -> new ArrayList<>())
-                        .addAll(sourceDeps);
-            }
-            transfers.replaceAll(t -> {
-                int up = t.upstreamStageId() == sourceId ? targetId : t.upstreamStageId();
-                int down = t.downstreamStageId() == sourceId ? targetId : t.downstreamStageId();
-                return (up != t.upstreamStageId() || down != t.downstreamStageId())
-                        ? new StageTransfer(up, down, t.shuffleType(), t.distributionKeys())
-                        : t;
-            });
-            stageMap.remove(sourceId);
-        }
-
-        FragmentedPlan buildFragmentedPlan() {
-            List<PlanStage> stages = stageMap.values().stream()
-                    .map(s -> {
-                        long estBytes = PlanFragment.estimateBytes(s.plan);
-                        long estRows = PlanFragment.estimateRows(s.plan);
-                        PlanFragment fragment = new PlanFragment(s.plan, estBytes, estRows);
-                        return new PlanStage(s.id, fragment, s.parallelism, s.taskType);
-                    })
-                    .toList();
-            return new FragmentedPlan(stages, transfers, edges);
-        }
-
-        private MutableStage findStage(int stageId) {
-            MutableStage stage = stageMap.get(stageId);
+        private void setPlan(int stageId, RelNode plan) {
+            MutableStage stage = stages.get(stageId);
             if (stage == null) {
                 throw new IllegalStateException("Stage not found: " + stageId);
             }
-            return stage;
+            stage.plan = plan;
+        }
+
+        private FragmentedPlan build() {
+            List<PlanStage> planStages = stages.values().stream()
+                    .sorted(Comparator.comparingInt(stage -> stage.id))
+                    .map(FragmentContext::immutableStage)
+                    .toList();
+            Map<Integer, List<Integer>> immutableDependencies = new LinkedHashMap<>();
+            dependencies.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> immutableDependencies.put(
+                            entry.getKey(), List.copyOf(entry.getValue())));
+            return new FragmentedPlan(planStages, transfers, immutableDependencies);
+        }
+
+        private static PlanStage immutableStage(MutableStage stage) {
+            PlanFragment fragment = new PlanFragment(
+                    stage.plan,
+                    PlanFragment.estimateBytes(stage.plan),
+                    PlanFragment.estimateRows(stage.plan));
+            return new PlanStage(
+                    stage.id, fragment, stage.parallelism, stage.taskType);
+        }
+
+        private static ExchangeBoundary exchangeBoundary(RelNode node) {
+            if (node instanceof PangrovaExchange exchange) {
+                return new ExchangeBoundary(
+                        node, exchange.getInput(), exchange.targetDistribution());
+            }
+            if (node instanceof Exchange exchange) {
+                return new ExchangeBoundary(
+                        node, exchange.getInput(), mapDistribution(exchange.getDistribution()));
+            }
+            return null;
+        }
+
+        private static PangrovaDistribution mapDistribution(RelDistribution distribution) {
+            return switch (distribution.getType()) {
+                case HASH_DISTRIBUTED -> PangrovaDistribution.hash(
+                        distribution.getKeys().stream().map(Integer::valueOf).toList());
+                case BROADCAST_DISTRIBUTED -> PangrovaDistribution.BROADCAST;
+                case RANDOM_DISTRIBUTED, ROUND_ROBIN_DISTRIBUTED ->
+                        PangrovaDistribution.ROUND_ROBIN;
+                case SINGLETON -> PangrovaDistribution.SINGLETON;
+                case RANGE_DISTRIBUTED -> throw new IllegalArgumentException(
+                        "Range exchange requires typed partition bounds");
+                case ANY -> throw new IllegalArgumentException(
+                        "ANY distribution cannot materialize an exchange");
+            };
+        }
+
+        private static void validateMaterializedDistribution(
+                PangrovaDistribution distribution) {
+            if (distribution.type() == PangrovaDistribution.Type.ANY) {
+                throw new IllegalArgumentException(
+                        "ANY distribution cannot materialize an exchange");
+            }
+            if (distribution.type() == PangrovaDistribution.Type.HASH
+                    && distribution.keys().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "Hash exchange requires at least one partition key");
+            }
+        }
+
+        private static String exchangeId(int upstreamStageId, int downstreamStageId) {
+            return "exchange-" + upstreamStageId + "-to-" + downstreamStageId;
         }
     }
 
-    private record ChildResult(int stageId, boolean fromExchange,
-                               int parallelism, RelDistribution distribution) {}
+    private record ExchangeBoundary(
+            RelNode node,
+            RelNode input,
+            PangrovaDistribution distribution) {}
 
     private static final class MutableStage {
-        final int id;
-        RelNode plan;
-        int parallelism;
-        String taskType;
+        private final int id;
+        private final int parallelism;
+        private RelNode plan;
+        private String taskType;
 
-        MutableStage(int id, RelNode plan, int parallelism, String taskType) {
+        private MutableStage(
+                int id,
+                RelNode plan,
+                int parallelism,
+                String taskType) {
             this.id = id;
             this.plan = plan;
             this.parallelism = parallelism;

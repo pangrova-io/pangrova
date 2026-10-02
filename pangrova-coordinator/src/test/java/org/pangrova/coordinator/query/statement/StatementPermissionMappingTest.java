@@ -15,7 +15,8 @@ import org.pangrova.parser.ast.statement.dml.UpdateStatement;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
@@ -26,6 +27,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.*;
+
+import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedRoles;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -130,8 +133,9 @@ class StatementPermissionMappingTest {
     }
 
     private static StatementDispatcher dispatcherWithGrants(PrivilegeGrant... grants) {
-        RbacAccessControl ac = new RbacAccessControl(
-                List.of(grants),
+        DynamicRbacAccessControl ac = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of(grants)),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("role1", "role1"))),
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
                 new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
         return buildDispatcher(ac);

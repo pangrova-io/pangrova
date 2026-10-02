@@ -408,14 +408,14 @@ Note: Catalog registration and lifecycle management are handled uniformly by `Me
 └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.3 Responsibility Boundary Between PangrovaReadExtension and SplitInfo
+### 3.3 Responsibility Boundary Between PangrovaReadExtension and DataSplit
 
 Pangrova's read protocol is split into two layers:
 
 | Layer | Proto Message | Definition Location | Responsibility | Consumer |
 |---|---|---|---|---|
 | Substrait extension layer | `PangrovaReadExtension` | This section (connectors.md) | Table-level read description within the Substrait Plan, used by the Planner for optimization | Calcite Planner → Substrait Converter |
-| JNI transport layer | `SplitInfo` | native-execution.md §5.3 (single authority) | Complete execution description for a single file split, executed directly by Native | Java SplitManager → NativeRuntime → C++ TaskExecutor |
+| JNI transport layer | `DataSplit` | canonical v2 `task.proto` (single authority) | Snapshot-pinned generic execution input for one source range, executed directly by Native | Java SplitManager → canonical TaskRequest → Native task parser |
 
 Conversion flow:
 ```
@@ -427,22 +427,26 @@ PangrovaReadExtension (table-level, Planner phase)
     │  - Schema Evolution → compute column_mappings
     │  - Delete File association → populate delete_files
     ▼
-repeated SplitInfo (file-level, execution phase)
+repeated DataSplit (snapshot-pinned execution inputs)
     │
-    │  Serialized into TaskRequest.splits
+    │  Identity/range stay generic; connector_detail packs FileSplitDetail
+    │  Serialized directly into canonical TaskRequest.splits
     │  Passed to Native via nativeCreateTaskExecutor(byte[])
     ▼
-C++ TaskExecutor: assembles read components based on SplitInfo
+C++ task parser validates DataSplit and its exact FileSplitDetail type URL
 ```
 
-PangrovaReadExtension is an intermediate representation in the Planner phase and is not passed directly to Native. Native only receives SplitInfo (defined in native-execution.md §5.3).
+PangrovaReadExtension is an intermediate Planner representation and is not
+passed directly to Native. Native receives only canonical `DataSplit` values;
+Iceberg/Paimon read fields live in the typed `FileSplitDetail` packed into
+`connector_detail`.
 
 ```protobuf
 /**
  * PangrovaReadExtension — table-level read extension within the Substrait Plan
  *
  * Purpose: in the Planner phase, describes "which version of which table to read"; contains no file-level details
- * Conversion: Java SplitManager expands it into repeated SplitInfo
+ * Conversion: Java SplitManager expands it into repeated DataSplit
  */
 message PangrovaReadExtension {
     string source_id = 1;                    // data source identifier

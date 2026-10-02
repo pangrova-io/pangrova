@@ -42,7 +42,7 @@ class ClusteringSchedulerTest {
     void reclusterAcquiresAndReleasesLease() throws Exception {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         ClusteringScheduler scheduler = new ClusteringScheduler(
-                executor, null, lease, "coord-1");
+                executor, null, lease, "coord-1", null);
 
         ClusteringResult result = scheduler.scheduleManualRecluster(
                 DESCRIPTOR, new StubCapability(3)).get();
@@ -56,7 +56,7 @@ class ClusteringSchedulerTest {
     void reclusterReleasesLeaseOnFailure() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         ClusteringScheduler scheduler = new ClusteringScheduler(
-                executor, null, lease, "coord-1");
+                executor, null, lease, "coord-1", null);
 
         assertThatThrownBy(() -> scheduler.scheduleManualRecluster(
                 DESCRIPTOR, new FailingCapability()).get())
@@ -71,11 +71,11 @@ class ClusteringSchedulerTest {
     void reclusterDeniedWhenLeaseHeldByAnotherCoordinator() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
         // Another coordinator holds the lease
-        lease.tryAcquire("recluster:" + TABLE, "coord-other", 0,
+        lease.tryAcquire("recluster:" + TABLE, "coord-other",
                 java.time.Duration.ofMinutes(30));
 
         ClusteringScheduler scheduler = new ClusteringScheduler(
-                executor, null, lease, "coord-1");
+                executor, null, lease, "coord-1", null);
 
         assertThatThrownBy(() -> scheduler.scheduleManualRecluster(
                 DESCRIPTOR, new StubCapability(1)).get())

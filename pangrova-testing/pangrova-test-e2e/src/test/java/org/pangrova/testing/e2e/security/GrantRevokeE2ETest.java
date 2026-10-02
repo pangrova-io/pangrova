@@ -3,7 +3,8 @@ package org.pangrova.testing.e2e.security;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.Privilege;
 import org.pangrova.security.authz.PrivilegeGrant;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.mask.EmptyColumnMaskStore;
 import org.pangrova.security.rowfilter.EmptyRowPolicyStore;
@@ -27,6 +28,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import static org.pangrova.testing.e2e.security.E2eRoleFixtures.mappedRoles;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -34,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * E2E test for GRANT/REVOKE privilege lifecycle covering every {@link Privilege} enum value.
  *
  * <p>Validates the full grant → check → deny → revoke → check cycle through
- * real RbacAccessControl with PrivilegeGrant records. Every Privilege enum value
+ * real DynamicRbacAccessControl with PrivilegeGrant records. Every Privilege enum value
  * is tested with grant + deny + revoke cycle.
  *
  * <p>Validates: Requirements R12.2
@@ -87,15 +90,15 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
                     // to schema (table=null) or catalog (schema=null, table=null).
                     List<PrivilegeGrant> withGrant = List.of(
                             buildGrantForPrivilege(privilege));
-                    AccessControl acGranted = new RbacAccessControl(withGrant, NO_RLS, NO_MASK);
+                    AccessControl acGranted = accessControl(withGrant);
                     assertPrivilegeGranted(acGranted, ANALYST, privilege);
 
                     // Phase 2: Deny — without grant, privilege is denied
-                    AccessControl acDenied = new RbacAccessControl(List.of(), NO_RLS, NO_MASK);
+                    AccessControl acDenied = accessControl(List.of());
                     assertPrivilegeDenied(acDenied, ANALYST, privilege);
 
                     // Phase 3: Revoke — re-grant then remove, verify denied
-                    AccessControl acRevoked = new RbacAccessControl(List.of(), NO_RLS, NO_MASK);
+                    AccessControl acRevoked = accessControl(List.of());
                     assertPrivilegeDenied(acRevoked, ANALYST, privilege);
                 }));
     }
@@ -114,7 +117,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             ac.checkCanSelectFromTable(ANALYST, CATALOG, SCHEMA, tableName);
         }
@@ -125,7 +128,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.INSERT, "TABLE",
                             CATALOG, SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             assertThatThrownBy(() ->
                     ac.checkCanSelectFromTable(ANALYST, CATALOG, SCHEMA, tableName))
@@ -147,10 +150,10 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> withGrant = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, tableName, null));
-            AccessControl acBefore = new RbacAccessControl(withGrant, NO_RLS, NO_MASK);
+            AccessControl acBefore = accessControl(withGrant);
             acBefore.checkCanSelectFromTable(ANALYST, CATALOG, SCHEMA, tableName);
 
-            AccessControl acAfter = new RbacAccessControl(List.of(), NO_RLS, NO_MASK);
+            AccessControl acAfter = accessControl(List.of());
             assertThatThrownBy(() ->
                     acAfter.checkCanSelectFromTable(ANALYST, CATALOG, SCHEMA, tableName))
                     .isInstanceOf(AuthorizationDeniedException.class);
@@ -173,7 +176,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
                             CATALOG, SCHEMA, tableName, null),
                     PrivilegeGrant.of("analysts", Privilege.INSERT, "TABLE",
                             CATALOG, SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             ac.checkCanSelectFromTable(ANALYST, CATALOG, SCHEMA, tableName);
             ac.checkCanInsertIntoTable(ANALYST, CATALOG, SCHEMA, tableName);
@@ -193,7 +196,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
                             "*", "*", "*", null),
                     PrivilegeGrant.of("admins", Privilege.DELETE, "TABLE",
                             "*", "*", "*", null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             ac.checkCanSelectFromTable(ADMIN, CATALOG, SCHEMA, tableName);
             ac.checkCanInsertIntoTable(ADMIN, CATALOG, SCHEMA, tableName);
@@ -230,7 +233,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, tableName, "name"));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             ac.checkCanSelectFromColumns(ANALYST, CATALOG, SCHEMA, tableName, Set.of("name"));
         }
@@ -241,7 +244,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             CATALOG, SCHEMA, "*", null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             ac.checkCanSelectFromTable(ANALYST, CATALOG, SCHEMA, tableName);
             ac.checkCanSelectFromTable(ANALYST, CATALOG, SCHEMA, "any_other_table");
@@ -265,7 +268,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             catalogA, SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             // Catalog A — granted
             ac.checkCanSelectFromTable(ANALYST, catalogA, SCHEMA, tableName);
@@ -282,7 +285,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             "*", SCHEMA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             ac.checkCanSelectFromTable(ANALYST, "any_catalog", SCHEMA, tableName);
             ac.checkCanSelectFromTable(ANALYST, "another_catalog", SCHEMA, tableName);
@@ -297,7 +300,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
             List<PrivilegeGrant> grants = List.of(
                     PrivilegeGrant.of("analysts", Privilege.SELECT, "TABLE",
                             CATALOG, schemaA, tableName, null));
-            AccessControl ac = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+            AccessControl ac = accessControl(grants);
 
             ac.checkCanSelectFromTable(ANALYST, CATALOG, schemaA, tableName);
 
@@ -316,13 +319,13 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
 
                         List<PrivilegeGrant> grants = List.of(
                                 buildGrantForPrivilege(privilege, grantedCatalog));
-                        AccessControl acGranted = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+                        AccessControl acGranted = accessControl(grants);
 
                         // Granted catalog — privilege effective
                         assertPrivilegeGranted(acGranted, ANALYST, privilege, grantedCatalog);
 
                         // Other catalog — privilege denied
-                        AccessControl acOther = new RbacAccessControl(grants, NO_RLS, NO_MASK);
+                        AccessControl acOther = accessControl(grants);
                         assertPrivilegeDeniedForCatalog(acOther, ANALYST, privilege, otherCatalog);
                     }));
         }
@@ -381,6 +384,11 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
      * Asserts that the given privilege is granted for the user.
      * Dispatches to the appropriate AccessControl check method based on privilege type.
      */
+    private static AccessControl accessControl(List<PrivilegeGrant> grants) {
+        return new DynamicRbacAccessControl(new StaticGrantStore(grants),
+                mappedRoles(java.util.Map.of("analysts", "analysts", "admins", "admins")), NO_RLS, NO_MASK);
+    }
+
     private void assertPrivilegeGranted(AccessControl ac, UserIdentity user, Privilege privilege) {
         switch (privilege) {
             case SELECT -> ac.checkCanSelectFromTable(user, CATALOG, SCHEMA, tableName);
@@ -452,7 +460,7 @@ class GrantRevokeE2ETest extends SqlE2ETestBase {
 
     /**
      * For privileges without a direct AccessControl check method,
-     * verify the grant record exists by constructing RbacAccessControl
+     * verify the grant record exists by constructing DynamicRbacAccessControl
      * and checking the grant covers the table.
      */
     private void assertGrantExists(AccessControl ac, UserIdentity user, Privilege privilege) {

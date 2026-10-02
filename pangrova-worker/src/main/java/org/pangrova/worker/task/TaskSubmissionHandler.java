@@ -21,7 +21,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.List;
 
 /**
  * Handles task submission, cancellation, and release operations.
@@ -40,12 +39,18 @@ final class TaskSubmissionHandler {
     String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
         checkNotNull(descriptor, "descriptor must not be null");
         checkNotNull(request, "request must not be null");
+        // Leadership fencing must run before draining checks, tenant admission,
+        // deduplication, memory allocation, or Native task creation. In
+        // particular, a stale leader must not receive a successful dedup reply.
+        var canonical = request.taskRequest();
+        owner.verifyControlEpochForAdmission(canonical.getAttempt().getControlEpoch());
+        owner.verifyExecutionOwnerForAdmission(request);
         if (owner.drainExecutor.isDraining()) {
             throw new IllegalStateException("Worker is draining — new tasks are rejected");
         }
         checkTenantQuota(request);
 
-        String coordinatorTaskId = request.taskId();
+        String coordinatorTaskId = canonical.getAttempt().getTaskId();
         boolean hasCoordinatorId = coordinatorTaskId != null && !coordinatorTaskId.isBlank();
 
         if (hasCoordinatorId) {
@@ -60,16 +65,23 @@ final class TaskSubmissionHandler {
         String taskId = descriptor.queryId().toString() + "-" + owner.taskIdCounter.incrementAndGet();
         String queryId = descriptor.queryId().toString();
 
+        TaskInfo info = new TaskInfo(taskId, queryId, request, descriptor, Instant.now());
+        if (owner.lifecycleManager != null) {
+            owner.lifecycleManager.reserveAdmissionResources(info);
+        }
+
         if (hasCoordinatorId) {
             String race = owner.coordinatorTaskIndex.putIfAbsent(coordinatorTaskId, taskId);
             if (race != null) {
+                if (owner.lifecycleManager != null) {
+                    owner.lifecycleManager.releaseMemoryIfNeeded(info);
+                }
                 LOG.info("event=task_submit_dedup_race coordinatorTaskId={} workerTaskId={}",
                         coordinatorTaskId, race);
                 return race;
             }
         }
 
-        TaskInfo info = new TaskInfo(taskId, queryId, request, descriptor, Instant.now());
         owner.tasks.put(taskId, info);
         owner.transition(taskId, TaskManager.TaskState.INITIALIZING);
         registerSubmittedTask(taskId, queryId, request);
@@ -84,6 +96,7 @@ final class TaskSubmissionHandler {
 
     String submitTask(TaskDescriptor descriptor) {
         checkNotNull(descriptor, "descriptor must not be null");
+        owner.verifyControlEpochForAdmission(null);
         if (owner.tasks.size() >= TaskManager.MAX_TRACKED_TASKS) {
             throw new IllegalStateException(
                     "Task tracking limit reached: " + owner.tasks.size()
@@ -112,21 +125,22 @@ final class TaskSubmissionHandler {
             return TaskCancelResult.notFound(taskId);
         }
         TaskManager.TaskState current = info.getState();
-        if (!owner.transition(taskId, TaskManager.TaskState.CANCELLED)) {
+        if (owner.lifecycleManager == null) {
+            if (!owner.transition(taskId, TaskManager.TaskState.CANCELLING)) {
+                return TaskCancelResult.notCancellable(taskId, current.name());
+            }
+            owner.transition(taskId, TaskManager.TaskState.CANCELLED);
+            owner.removeCoordinatorIndex(info);
+            return TaskCancelResult.cancelled();
+        }
+        if (current != TaskManager.TaskState.CANCELLING
+                && !owner.transition(taskId, TaskManager.TaskState.CANCELLING)) {
             return TaskCancelResult.notCancellable(taskId, current.name());
         }
-        if (owner.lifecycleManager != null) {
-            try {
-                owner.lifecycleManager.cancelNativeExecutor(info);
-            } finally {
-                owner.lifecycleManager.releaseMemoryIfNeeded(info);
-            }
-        }
-        if (owner.statusCollector != null) {
-            owner.statusCollector.reportStatus(info, "CANCELLED", null);
-        }
-        owner.removeCoordinatorIndex(info);
-        LOG.info("event=task_cancelled taskId={} queryId={}", taskId, info.queryId());
+        owner.lifecycleManager.cancelNativeExecutor(info);
+        // The completion monitor sends canonical CANCELLED and clears the
+        // coordinator index only after Native releaseTask has joined its driver.
+        LOG.info("event=task_cancel_requested taskId={} queryId={}", taskId, info.queryId());
         return TaskCancelResult.cancelled();
     }
 
@@ -139,7 +153,7 @@ final class TaskSubmissionHandler {
 
     private void checkTenantQuota(SubmitTaskRequest request) {
         TenantExecutionQuotaEnforcer enforcer = owner.quotaEnforcer;
-        String tenantId = request.tenantId();
+        String tenantId = request.taskRequest().getSecurity().getTenantId();
         if (enforcer != null && tenantId != null && !tenantId.isBlank()) {
             if (!enforcer.canAdmitTask(tenantId)) {
                 throw new IllegalStateException(
@@ -152,7 +166,7 @@ final class TaskSubmissionHandler {
     private void registerSubmittedTask(String taskId, String queryId,
                                        SubmitTaskRequest request) {
         TenantExecutionQuotaEnforcer enforcer = owner.quotaEnforcer;
-        String tenantId = request.tenantId();
+        String tenantId = request.taskRequest().getSecurity().getTenantId();
         if (enforcer != null && tenantId != null && !tenantId.isBlank()) {
             enforcer.registerTask(taskId, tenantId);
         }
@@ -171,30 +185,15 @@ final class TaskSubmissionHandler {
         if (tracker == null) {
             return;
         }
-        List<String> splits = request.splits();
-        if (splits == null || splits.isEmpty()) {
+        var splits = request.taskRequest().getSplitsList();
+        if (splits.isEmpty()) {
             return;
         }
-        for (String encoded : splits) {
-            recordEncodedSplit(tracker, encoded);
-        }
-    }
-
-    private static void recordEncodedSplit(
-            org.pangrova.worker.cache.RecentFileAccessTracker tracker, String encoded) {
-        if (encoded == null || encoded.isBlank()) {
-            return;
-        }
-        try {
-            byte[] bytes = java.util.Base64.getDecoder().decode(encoded);
-            org.pangrova.protocol.v1.SplitInfo split =
-                    org.pangrova.protocol.v1.SplitInfo.parseFrom(bytes);
-            String filePath = split.getFilePath();
-            if (filePath != null && !filePath.isEmpty()) {
+        for (var split : splits) {
+            String filePath = split.getOpaqueLocation();
+            if (!filePath.isEmpty()) {
                 tracker.recordAccess(filePath);
             }
-        } catch (Exception e) {
-            LOG.debug("event=split_file_path_record_failed error={}", e.getMessage());
         }
     }
 
@@ -207,12 +206,22 @@ final class TaskSubmissionHandler {
         owner.transition(taskId, TaskManager.TaskState.RUNNING);
         owner.transition(taskId, TaskManager.TaskState.FINISHING);
         owner.transition(taskId, TaskManager.TaskState.FINISHED);
-        String coordinatorTaskId = request != null ? request.taskId() : taskId;
+        if (request == null || !request.taskRequest().hasAttempt()) {
+            throw new IllegalStateException(
+                    "Auto-finish task is missing fenced request identity: " + taskId);
+        }
+        var canonical = request.taskRequest();
+        String coordinatorTaskId = canonical.getAttempt().getTaskId();
         var report = new org.pangrova.protocol.rest.task.TaskStatusReport(
-                coordinatorTaskId != null ? coordinatorTaskId : taskId,
-                queryId, 0, 0, "COMPUTE", "auto-finish-worker",
+                coordinatorTaskId, queryId,
+                canonical.getAttempt().getStageId(),
+                canonical.getAttempt().getPartitionId(),
+                owner.tasks.get(taskId).descriptor().taskType(),
+                "auto-finish-worker",
                 "FINISHED", null, null, null, 1,
-                System.currentTimeMillis(), null, null);
+                System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        canonical.getAttempt()));
         reporter.report(report);
         LOG.info("event=task_auto_finished taskId={} queryId={}", taskId, queryId);
     }

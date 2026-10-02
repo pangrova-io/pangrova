@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.TimeUnit;
 
+import org.pangrova.shuffle.ShuffleServerEndpoint;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,23 +33,23 @@ class RemoteShuffleClientPoolTest {
 
     @Test
     void getOrCreateReturnsNonNullClient() {
-        RemoteShuffleClient client = pool.getOrCreateClient("localhost", 9400);
+        RemoteShuffleClient client = pool.getOrCreateClient(endpoint("localhost", 9400));
         assertNotNull(client);
         assertEquals(1, pool.activeConnectionCount());
     }
 
     @Test
     void sameEndpointReturnsSameClient() {
-        RemoteShuffleClient first = pool.getOrCreateClient("localhost", 9400);
-        RemoteShuffleClient second = pool.getOrCreateClient("localhost", 9400);
+        RemoteShuffleClient first = pool.getOrCreateClient(endpoint("localhost", 9400));
+        RemoteShuffleClient second = pool.getOrCreateClient(endpoint("localhost", 9400));
         assertSame(first, second, "Same endpoint should return pooled client");
         assertEquals(1, pool.activeConnectionCount());
     }
 
     @Test
     void differentEndpointsReturnDifferentClients() {
-        RemoteShuffleClient a = pool.getOrCreateClient("host-a", 9400);
-        RemoteShuffleClient b = pool.getOrCreateClient("host-b", 9401);
+        RemoteShuffleClient a = pool.getOrCreateClient(endpoint("host-a", 9400));
+        RemoteShuffleClient b = pool.getOrCreateClient(endpoint("host-b", 9401));
         assertNotNull(a);
         assertNotNull(b);
         assertEquals(2, pool.activeConnectionCount());
@@ -56,8 +57,8 @@ class RemoteShuffleClientPoolTest {
 
     @Test
     void closeDrainsAllEntries() {
-        pool.getOrCreateClient("host-a", 9400);
-        pool.getOrCreateClient("host-b", 9401);
+        pool.getOrCreateClient(endpoint("host-a", 9400));
+        pool.getOrCreateClient(endpoint("host-b", 9401));
         assertEquals(2, pool.activeConnectionCount());
 
         pool.close();
@@ -75,12 +76,20 @@ class RemoteShuffleClientPoolTest {
     }
 
     @Test
+    void plaintextPoolRejectsTlsBoundEndpoint() {
+        assertThrows(IllegalArgumentException.class,
+                () -> pool.getOrCreateClient(
+                        new ShuffleServerEndpoint(
+                                "localhost", 9400, 0, 1, "shuffle.example")));
+    }
+
+    @Test
     void maxPoolSizeEvictsOldestEntries() {
         int maxPoolSize = 5;
         try (RemoteShuffleClientPool bounded = new RemoteShuffleClientPool(
                 5000, 10000, 8, 5, TimeUnit.MINUTES, maxPoolSize, false)) {
             for (int i = 0; i < maxPoolSize + 3; i++) {
-                bounded.getOrCreateClient("host-" + i, 9400);
+                bounded.getOrCreateClient(endpoint("host-" + i, 9400));
             }
             bounded.cleanUp();
             int size = bounded.activeConnectionCount();
@@ -93,7 +102,7 @@ class RemoteShuffleClientPoolTest {
     void idleTimeoutEvictsExpiredEntries() throws Exception {
         try (RemoteShuffleClientPool shortLived = new RemoteShuffleClientPool(
                 5000, 10000, 8, 50, TimeUnit.MILLISECONDS, 100, false)) {
-            shortLived.getOrCreateClient("localhost", 9400);
+            shortLived.getOrCreateClient(endpoint("localhost", 9400));
             assertEquals(1, shortLived.activeConnectionCount());
 
             Thread.sleep(200);
@@ -108,14 +117,14 @@ class RemoteShuffleClientPoolTest {
     void accessResetsIdleTimer() throws Exception {
         try (RemoteShuffleClientPool shortLived = new RemoteShuffleClientPool(
                 5000, 10000, 8, 150, TimeUnit.MILLISECONDS, 100, false)) {
-            shortLived.getOrCreateClient("localhost", 9400);
+            shortLived.getOrCreateClient(endpoint("localhost", 9400));
 
             // Access before timeout to reset idle timer
             Thread.sleep(80);
-            shortLived.getOrCreateClient("localhost", 9400);
+            shortLived.getOrCreateClient(endpoint("localhost", 9400));
 
             Thread.sleep(80);
-            shortLived.getOrCreateClient("localhost", 9400);
+            shortLived.getOrCreateClient(endpoint("localhost", 9400));
 
             shortLived.cleanUp();
             assertEquals(1, shortLived.activeConnectionCount(),
@@ -132,8 +141,12 @@ class RemoteShuffleClientPoolTest {
     @Test
     void defaultPoolUsesExpectedDefaults() {
         try (RemoteShuffleClientPool defaultPool = new RemoteShuffleClientPool(5000, 10000, 8)) {
-            assertNotNull(defaultPool.getOrCreateClient("localhost", 9400));
+            assertNotNull(defaultPool.getOrCreateClient(endpoint("localhost", 9400)));
             assertEquals(1, defaultPool.activeConnectionCount());
         }
+    }
+
+    private static ShuffleServerEndpoint endpoint(String host, int port) {
+        return new ShuffleServerEndpoint(host, port, 0, 1, "");
     }
 }

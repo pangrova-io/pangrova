@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,6 +46,26 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
 
     private String fqn() {
         return FQN_PREFIX + tableName;
+    }
+
+    @Test
+    @DisplayName("CTAS preserves nanos and creates a suitable v3 destination without explicit properties")
+    void timestampNsCtasPreservesPrecision() {
+        sqlRunner.executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, event_time TIMESTAMP_NS)");
+        sqlRunner.execute("INSERT INTO " + fqn() + " VALUES "
+                + "(1, TIMESTAMP '2025-01-01 00:00:00.123456789'), "
+                + "(2, TIMESTAMP '2025-01-01 00:00:00.123456788'), "
+                + "(3, TIMESTAMP '1969-12-31 23:59:59.999999999')");
+        String destination = fqn() + "_ctas";
+        sqlRunner.executeDdl("CREATE TABLE " + destination + " AS SELECT id, event_time FROM " + fqn());
+        var rows = sqlRunner.execute("SELECT event_time FROM " + destination + " ORDER BY id");
+        assertThat(rows).extracting(row -> LocalDateTime.parse(row.getString("event_time")))
+                .containsExactly(LocalDateTime.parse("2025-01-01T00:00:00.123456789"),
+                        LocalDateTime.parse("2025-01-01T00:00:00.123456788"),
+                        LocalDateTime.parse("1969-12-31T23:59:59.999999999"));
+        assertThat(sqlRunner.execute("SELECT id FROM " + destination
+                + " WHERE event_time = TIMESTAMP '2025-01-01 00:00:00.123456789'"))
+                .extracting(row -> row.getLong("id")).containsExactly(1L);
     }
 
     @Test
@@ -109,5 +130,49 @@ class IcebergTimestampNsTest extends SqlE2ETestBase {
         assertThat(rows.get(0).getLong("id")).isEqualTo(2L);
         assertThat(rows.get(1).getLong("id")).isEqualTo(3L);
         assertThat(rows.get(2).getLong("id")).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("VALUES writes retain epoch sign and nanosecond fractions")
+    void timestampValuesPreserveEpochAndFraction() {
+        sqlRunner.executeDdl("CREATE TABLE " + fqn()
+                + " (id BIGINT, event_time TIMESTAMP_NS)"
+                + " TBLPROPERTIES ('format-version' = '3')");
+        sqlRunner.execute("INSERT INTO " + fqn() + " VALUES "
+                + "(1, TIMESTAMP '2025-01-01 00:00:00.123456789'), "
+                + "(2, TIMESTAMP '1969-12-31 23:59:59.999999999'), "
+                + "(3, TIMESTAMP '1970-01-01 00:00:00'), "
+                + "(4, TIMESTAMP '2025-01-01 00:00:00.123456788')");
+
+        List<TypedRow> rows = sqlRunner.execute(
+                "SELECT id, event_time FROM " + fqn() + " ORDER BY event_time");
+
+        assertThat(rows).extracting(row -> row.getLong("id")).containsExactly(2L, 3L, 4L, 1L);
+        assertThat(rows).extracting(row -> LocalDateTime.parse(row.getString("event_time")))
+                .containsExactly(
+                        LocalDateTime.parse("1969-12-31T23:59:59.999999999"),
+                        LocalDateTime.parse("1970-01-01T00:00:00"),
+                        LocalDateTime.parse("2025-01-01T00:00:00.123456788"),
+                        LocalDateTime.parse("2025-01-01T00:00:00.123456789"));
+    }
+
+    @Test
+    @DisplayName("Ordinary TIMESTAMP VALUES writes retain microsecond fractions")
+    void timestampMicrosecondsPreserveEpochAndFraction() {
+        sqlRunner.executeDdl("CREATE TABLE " + fqn()
+                + " (id BIGINT, event_time TIMESTAMP)");
+        sqlRunner.execute("INSERT INTO " + fqn() + " VALUES "
+                + "(1, TIMESTAMP '1969-12-31 23:59:59.999999'), "
+                + "(2, TIMESTAMP '1970-01-01 00:00:00.000001'), "
+                + "(3, TIMESTAMP '2025-01-01 00:00:00.123456')");
+
+        List<TypedRow> rows = sqlRunner.execute(
+                "SELECT event_time FROM " + fqn() + " ORDER BY id");
+
+        assertThat(rows).extracting(row -> LocalDateTime.parse(row.getString("event_time")))
+                .containsExactly(
+                        LocalDateTime.parse("1969-12-31T23:59:59.999999"),
+                        LocalDateTime.parse("1970-01-01T00:00:00.000001"),
+                        LocalDateTime.parse("2025-01-01T00:00:00.123456"));
     }
 }

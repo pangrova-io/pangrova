@@ -3,6 +3,7 @@
 #include "vector/diskann/DiskAnnSearcher.h"
 
 #include <algorithm>
+#include <stdexcept>
 
 #include "vector/VectorDistance.h"
 
@@ -15,7 +16,8 @@ DiskAnnSearcher::DiskAnnSearcher(
 std::vector<DiskAnnResult> DiskAnnSearcher::search(
     const float* query, const DiskAnnSearchConfig& config) const {
   int64_t pqCandidates = config.topK * config.rerankMultiplier;
-  auto pqResults = index_.search(query, pqCandidates, config.beamWidth);
+  auto pqResults = index_.search(
+      query, pqCandidates, config.beamWidth, config.searchListSize);
 
   // L4-11D: Pre-filter bitset check helper.
   // When a pre-filter bitset is provided, only nodes whose bit is set
@@ -46,7 +48,8 @@ std::vector<DiskAnnResult> DiskAnnSearcher::search(
           l2Distance(query, vectorBuf.data(), static_cast<size_t>(dim)));
       results.push_back({pr.nodeId, exactDist});
     } else {
-      results.push_back({pr.nodeId, pr.distance});
+      throw std::runtime_error(
+          "DiskANN full-precision rescore could not read a candidate vector");
     }
   }
 

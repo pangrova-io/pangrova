@@ -152,9 +152,15 @@ class BuildClaimMutualExclusionPropertyTest {
 
         @Override public void registerIndex(IndexDescriptor d) { }
         @Override public void updateIndexState(String id, String s, Instant t) { }
+        @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
+                Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
+        @Override public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.metadata.index.model.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+                findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
-        @Override public List<IndexDescriptor> findIndexesByTable(String c, String s, String t) { return List.of(); }
-        @Override public List<IndexDescriptor> findReadyIndexesForColumns(String c, String s, String t, List<String> cols, boolean stale) { return List.of(); }
+        @Override public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) { return List.of(); }
+        @Override public List<IndexDescriptor> findReadyIndexesForColumns(String tenantId, String c, String s, String t, List<String> cols, boolean stale) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) { }
         @Override public void purgeIndex(String id) { }
         @Override public void registerIndexFile(IndexFileMapping m) { }
@@ -166,10 +172,10 @@ class BuildClaimMutualExclusionPropertyTest {
         @Override public void markOrphanedByDataFiles(String id, List<String> paths) { }
         @Override public List<IndexFileMapping> listStaleFileMappings(long older) { return List.of(); }
         @Override public void updateLastVerifiedAt(String id, String path, long ts) { }
-        @Override public List<IndexDescriptor> findIndexesByColumn(String c, String s, String t, String col) { return List.of(); }
-        @Override public void renameColumnInIndexes(String c, String s, String t, String o, String n) { }
-        @Override public void dropAllIndexesForTable(String c, String s, String t, Instant ts) { }
-        @Override public void renameTable(String c, String s, String o, String n) { }
+        @Override public List<IndexDescriptor> findIndexesByColumn(String tenantId, String c, String s, String t, String col) { return List.of(); }
+        @Override public void renameColumnInIndexes(String tenantId, String c, String s, String t, String o, String n) { }
+        @Override public void dropAllIndexesForTable(String tenantId, String c, String s, String t, Instant ts) { }
+        @Override public void renameTable(String tenantId, String c, String s, String o, String n) { }
         @Override public List<IndexDescriptor> findIndexesByState(IndexState state) { return List.of(); }
         @Override public void updateLastIndexedSnapshotId(String id, String snap) { }
     }

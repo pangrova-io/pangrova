@@ -95,8 +95,8 @@ public final class MetadataBootstrap {
      * Builds a CalciteSchema bridging MetadataService to Calcite's table resolution.
      * Passes CatalogRegistry so LazyMetadataSchema can resolve tables from connectors.
      */
-    public CalciteSchema buildCalciteSchema() {
-        return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema();
+    public CalciteSchema buildCalciteSchema(org.pangrova.spi.connector.ConnectorSession session) {
+        return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session);
     }
 
     public CatalogRegistry catalogRegistry() {

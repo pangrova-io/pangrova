@@ -192,7 +192,7 @@ TEST_F(PartialUpdateMergeReaderTest, MergesNonNullFieldsFromVersions) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -230,7 +230,7 @@ TEST_F(PartialUpdateMergeReaderTest, LatestNonNullTakesPriority) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -270,7 +270,7 @@ TEST_F(PartialUpdateMergeReaderTest, ThreeVersionsMergeProgressively) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b2}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -308,7 +308,7 @@ TEST_F(PartialUpdateMergeReaderTest, AllNullStaysNull) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -345,7 +345,7 @@ TEST_F(PartialUpdateMergeReaderTest, MultipleKeysWithPartialUpdates) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -378,7 +378,7 @@ TEST_F(PartialUpdateMergeReaderTest, MultipleKeysWithPartialUpdates) {
 
 TEST_F(PartialUpdateMergeReaderTest, EmptyReaders) {
   auto type = makeSchema();
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   merger.initialize(std::move(readers));
   EXPECT_FALSE(merger.hasNext());
@@ -399,7 +399,7 @@ TEST_F(PartialUpdateMergeReaderTest, SingleVersionPassthrough) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b0}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -434,7 +434,7 @@ TEST_F(PartialUpdateMergeReaderTest, StatsTracking) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
   drainAll(merger);
 
@@ -450,7 +450,7 @@ TEST_F(PartialUpdateMergeReaderTest, StatsTracking) {
 
 TEST_F(PartialUpdateMergeReaderTest, CloseIsIdempotent) {
   auto type = makeSchema();
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   merger.initialize(std::move(readers));
 
@@ -466,7 +466,7 @@ TEST_F(PartialUpdateMergeReaderTest, CloseIsIdempotent) {
 TEST_F(PartialUpdateMergeReaderTest, RejectsEmptyKeyIndices) {
   auto type = makeSchema();
   EXPECT_THROW(
-      PartialUpdateMergeReader({}, 1, type),
+      PartialUpdateMergeReader({}, 1, type, MergeDeletePolicy{}),
       std::invalid_argument);
 }
 
@@ -486,7 +486,7 @@ TEST_F(PartialUpdateMergeReaderTest, OutputIsSortedByPrimaryKey) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  PartialUpdateMergeReader merger({0}, 1, type);
+  PartialUpdateMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -498,6 +498,25 @@ TEST_F(PartialUpdateMergeReaderTest, OutputIsSortedByPrimaryKey) {
   EXPECT_EQ(keys->valueAt(1), 2);
   EXPECT_EQ(keys->valueAt(2), 3);
   EXPECT_EQ(keys->valueAt(3), 4);
+}
+
+TEST_F(PartialUpdateMergeReaderTest, DeleteResetPreventsOlderFieldsFromCrossingAReinsert) {
+  auto type = ROW({"key", "_SEQUENCE_NUMBER", "a", "b", "_VALUE_KIND"},
+      {BIGINT(), BIGINT(), BIGINT(), BIGINT(), TINYINT()});
+  auto batch = std::make_shared<RowVector>(pool_.get(), type, nullptr, 3,
+      std::vector<VectorPtr>{makeFlatVector<int64_t>({1, 1, 1}), makeFlatVector<int64_t>({1, 2, 3}),
+          makeFlatVectorNullable<int64_t>({100, 0, 0}, {false, true, true}),
+          makeFlatVectorNullable<int64_t>({200, 0, 300}, {false, true, false}),
+          makeFlatVector<int8_t>({0, 3, 0})});
+  PartialUpdateMergeReader reader({0}, 1, type, MergeDeletePolicy{false, true});
+  std::vector<std::unique_ptr<RowReaderWrapper>> sources;
+  sources.push_back(std::make_unique<TestRowReaderWrapper>(std::vector<RowVectorPtr>{batch}));
+  reader.initialize(std::move(sources));
+  auto result = reader.next(10, pool_.get());
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->size(), 1);
+  EXPECT_TRUE(result->childAt(2)->isNullAt(0));
+  EXPECT_EQ(result->childAt(3)->asFlatVector<int64_t>()->valueAt(0), 300);
 }
 
 }  // namespace

@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Property 31: Planner chain from main() to optimized plan</b></p>
  */
 @Tag("Feature: e2e-pipeline-integration - Property 31: Planner chain")
-class PlannerChainTest {
+class PlannerChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -203,18 +203,15 @@ class PlannerChainTest {
     void coordinatorBootstrapPlannerChainActive() throws Exception {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 "planner-chain-test", 0);
-        bootstrap = new CoordinatorBootstrap(config);
-        bootstrap.start();
+        bootstrap = startAuthorizedCoordinator(config);
 
         assertThat(bootstrap.isStarted()).isTrue();
         int port = bootstrap.getHttpPort();
         assertThat(port).isGreaterThan(0);
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(200);
-
-        Map<String, Object> body = parseJson(resp);
-        assertThat(body.get("query_id")).isNotNull();
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
     }
 
     @Test
@@ -245,12 +242,13 @@ class PlannerChainTest {
 
     // -- HTTP helpers --
 
-    private static HttpResponse<String> submitQuery(int port, String sql)
+    private HttpResponse<String> submitQuery(int port, String sql)
             throws Exception {
         String body = MAPPER.writeValueAsString(Map.of("query", sql));
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());

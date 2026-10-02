@@ -10,6 +10,7 @@ import net.jqwik.api.Tag;
 import net.jqwik.api.lifecycle.AfterProperty;
 import org.pangrova.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.buffer.ResultExpirationScheduler;
+import org.pangrova.worker.jni.write.TestCatalogResourceResolver;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -205,8 +206,12 @@ class ResourceGovernanceTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        workerBootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        workerBootstrap = new WorkerBootstrap(TestShuffleServiceConfig.config(config));
+        workerBootstrap.setCatalogResourceResolver(new TestCatalogResourceResolver(
+                (taskId, catalogName) -> {
+                    throw new AssertionError("Resource governance test must not resolve a catalog");
+                }));
         workerBootstrap.start();
     }
 

@@ -36,65 +36,23 @@ public record DAGDispatchContext(
         ResilienceRegistry resilienceRegistry,
         QueryStateJournal stateJournal
 ) {
-    public DAGDispatchContext(
-            TaskDispatcher dispatcher,
-            CoordinatorTaskTracker taskTracker,
-            LineageEventEmitter lineageEmitter,
-            CatalogRegistry catalogRegistry,
-            long taskTimeoutSeconds,
-            AdaptiveQueryExecutor adaptiveQueryExecutor,
-            RuntimeFilterRegistry runtimeFilterRegistry,
-            AdaptiveQueryConfig adaptiveQueryConfig,
-            SpeculativeStageHandler speculativeStageHandler,
-            PipelineConfig pipelineConfig,
-            ShuffleLifecycleManager shuffleLifecycleManager,
-            SplitAssignmentManager splitAssignmentManager,
-            ResilienceRegistry resilienceRegistry,
-            QueryStateJournal stateJournal) {
+    private static final long DEFAULT_TASK_TIMEOUT_SECONDS = 300;
+
+    /** Validates the sole process configuration; zero means its explicit bounded default. */
+    public DAGDispatchContext {
         checkNotNull(dispatcher, "dispatcher must not be null");
         // catalogRegistry: nullable — absent in minimal bootstrap without metadata module
         checkNotNull(splitAssignmentManager, "splitAssignmentManager must not be null");
-        this.dispatcher = dispatcher;
-        this.taskTracker = taskTracker;
-        this.lineageEmitter = lineageEmitter;
-        this.catalogRegistry = catalogRegistry;
-        this.taskTimeoutSeconds = taskTimeoutSeconds;
-        this.adaptiveQueryExecutor = adaptiveQueryExecutor;
-        this.runtimeFilterRegistry = runtimeFilterRegistry;
-        this.adaptiveQueryConfig = adaptiveQueryConfig;
-        this.speculativeStageHandler = speculativeStageHandler;
-        this.pipelineConfig = pipelineConfig != null ? pipelineConfig : PipelineConfig.DISABLED;
-        this.shuffleLifecycleManager = shuffleLifecycleManager != null
+        if (taskTimeoutSeconds < 0) {
+            throw new IllegalArgumentException("Configured task timeout must not be negative");
+        }
+        // Zero denotes an unset process setting, not an unbounded task deadline.
+        taskTimeoutSeconds = taskTimeoutSeconds == 0 ? DEFAULT_TASK_TIMEOUT_SECONDS : taskTimeoutSeconds;
+        pipelineConfig = pipelineConfig != null ? pipelineConfig : PipelineConfig.DISABLED;
+        shuffleLifecycleManager = shuffleLifecycleManager != null
                 ? shuffleLifecycleManager : LocalShuffleLifecycleManager.INSTANCE;
-        this.splitAssignmentManager = splitAssignmentManager;
         // resilienceRegistry: nullable — absent when resilience module is disabled
-        this.resilienceRegistry = resilienceRegistry;
         // stateJournal: nullable — absent when HA journaling is disabled
-        this.stateJournal = stateJournal;
     }
 
-    /**
-     * Backward-compatible constructor without stateJournal.
-     * Used by existing callers that don't need dispatch-level journaling.
-     */
-    public DAGDispatchContext(
-            TaskDispatcher dispatcher,
-            CoordinatorTaskTracker taskTracker,
-            LineageEventEmitter lineageEmitter,
-            CatalogRegistry catalogRegistry,
-            long taskTimeoutSeconds,
-            AdaptiveQueryExecutor adaptiveQueryExecutor,
-            RuntimeFilterRegistry runtimeFilterRegistry,
-            AdaptiveQueryConfig adaptiveQueryConfig,
-            SpeculativeStageHandler speculativeStageHandler,
-            PipelineConfig pipelineConfig,
-            ShuffleLifecycleManager shuffleLifecycleManager,
-            SplitAssignmentManager splitAssignmentManager,
-            ResilienceRegistry resilienceRegistry) {
-        this(dispatcher, taskTracker, lineageEmitter, catalogRegistry,
-                taskTimeoutSeconds, adaptiveQueryExecutor, runtimeFilterRegistry,
-                adaptiveQueryConfig, speculativeStageHandler, pipelineConfig,
-                shuffleLifecycleManager, splitAssignmentManager, resilienceRegistry,
-                null);
-    }
 }

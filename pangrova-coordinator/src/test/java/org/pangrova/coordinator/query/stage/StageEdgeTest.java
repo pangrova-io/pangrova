@@ -27,15 +27,25 @@ class StageEdgeTest {
     }
 
     @Test
-    void broadcastDistributionMapsToStreaming() {
+    void completeBroadcastDistributionMapsToBlocking() {
         StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.BROADCAST);
-        assertEquals(ExchangeReadMode.STREAMING, edge.readMode());
+        assertEquals(ExchangeReadMode.BLOCKING, edge.readMode());
     }
 
     @Test
-    void singletonDistributionMapsToStreaming() {
+    void completeSingletonDistributionMapsToBlocking() {
         StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.SINGLETON);
-        assertEquals(ExchangeReadMode.STREAMING, edge.readMode());
+        assertEquals(ExchangeReadMode.BLOCKING, edge.readMode());
+    }
+
+    @Test
+    void onlyExplicitlyIncompleteSingletonOrBroadcastCanStream() {
+        for (var distribution : List.of(org.pangrova.planner.ShuffleType.SINGLETON,
+                org.pangrova.planner.ShuffleType.BROADCAST)) {
+            var edge = new StageEdge(0, 1, distribution, List.of(), "stream", 1,
+                    org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
+            assertEquals(ExchangeReadMode.STREAMING, edge.readMode());
+        }
     }
 
     @Test
@@ -51,7 +61,7 @@ class StageEdgeTest {
         StageDAG dag = StageDAG.fromNodes(List.of(), Map.of(), List.of(hashEdge, broadcastEdge));
 
         assertEquals(ExchangeReadMode.BLOCKING, dag.getEdgeReadMode(0, 1));
-        assertEquals(ExchangeReadMode.STREAMING, dag.getEdgeReadMode(2, 1));
+        assertEquals(ExchangeReadMode.BLOCKING, dag.getEdgeReadMode(2, 1));
     }
 
     @Test

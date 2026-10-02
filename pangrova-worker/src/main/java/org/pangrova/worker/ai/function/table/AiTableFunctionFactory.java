@@ -16,10 +16,6 @@ package org.pangrova.worker.ai.function.table;
 import org.pangrova.spi.connector.index.FileSystemAccessor;
 import org.pangrova.spi.function.table.TableFunction;
 import org.pangrova.spi.function.table.TableFunctionFactory;
-import org.pangrova.spi.index.vector.VectorIndexLoader;
-import org.pangrova.worker.execution.VectorSearchExecutor;
-
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -27,8 +23,9 @@ import java.util.ServiceLoader;
 /**
  * Factory that registers AI-related table-valued functions.
  *
- * <p>Discovered via {@link ServiceLoader}. Provides
- * {@code VECTOR_SEARCH} and {@code DIRECTORY_LISTING}.</p>
+ * <p>Discovered via {@link ServiceLoader}. Provides the control-plane-visible
+ * {@code DIRECTORY_LISTING} metadata function. Vector search is represented by
+ * a typed canonical operator binding and executes exclusively in Native.</p>
  */
 public final class AiTableFunctionFactory implements TableFunctionFactory {
 
@@ -39,27 +36,8 @@ public final class AiTableFunctionFactory implements TableFunctionFactory {
 
     @Override
     public List<TableFunction> getTableFunctions(Map<String, String> config) {
-        List<TableFunction> functions = new ArrayList<>();
-
-        // Vector search function
-        VectorIndexLoader indexLoader = discoverIndexLoader();
-        if (indexLoader != null) {
-            VectorSearchExecutor executor = new VectorSearchExecutor(indexLoader);
-            functions.add(new VectorSearchTableFunction(executor));
-        }
-
-        // Directory listing function for multimodal file ingestion
         FileSystemAccessor storageAccessor = discoverStorageAccessor();
-        functions.add(new DirectoryListingTableFunction(() -> storageAccessor));
-
-        return List.copyOf(functions);
-    }
-
-    private static VectorIndexLoader discoverIndexLoader() {
-        for (VectorIndexLoader loader : ServiceLoader.load(VectorIndexLoader.class)) {
-            return loader;
-        }
-        return null;
+        return List.of(new DirectoryListingTableFunction(() -> storageAccessor));
     }
 
     private static FileSystemAccessor discoverStorageAccessor() {

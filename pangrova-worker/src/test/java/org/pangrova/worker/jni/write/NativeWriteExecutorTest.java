@@ -16,8 +16,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for {@link NativeWriteExecutor} session lifecycle management,
@@ -25,6 +27,129 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@link AutoCloseable} behavior.
  */
 class NativeWriteExecutorTest {
+
+    @Test
+    void missingCanonicalTaskIdFailsBeforeOpeningConnectorSink() {
+        var sinks = new ArrayList<TrackingPageSink>();
+        NativeWriteExecutor executor = createExecutor(sinks);
+        WriteDescriptor missingTaskId = new WriteDescriptor(
+                "test-catalog", "test-schema", "orders",
+                WriteDescriptor.DmlOperation.INSERT,
+                List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")), Map.of());
+
+        assertThatThrownBy(() -> executor.beginWrite(missingTaskId))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("canonical taskId");
+        assertThat(sinks).isEmpty();
+        assertThat(executor.activeSessionCount()).isZero();
+    }
+
+    @Test
+    void lanceFormatFailsBeforeOpeningConnectorSink() {
+        var sinks = new ArrayList<TrackingPageSink>();
+        NativeWriteExecutor executor = createExecutor(sinks);
+        WriteDescriptor lance = new WriteDescriptor(
+                "test-catalog", "test-schema", "orders",
+                WriteDescriptor.DmlOperation.INSERT,
+                List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")),
+                Map.of("taskId", "lance-task",
+                        WriteDescriptor.FILE_FORMAT_PROPERTY, "LANCE"));
+
+        assertThatThrownBy(() -> executor.beginWrite(lance))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("external-file commit metadata");
+        assertThat(sinks).isEmpty();
+        assertThat(executor.activeSessionCount()).isZero();
+    }
+
+    @Test
+    void blankDrainTaskIdIsRejectedRatherThanDrainingAnotherTask() {
+        NativeWriteExecutor executor = createExecutor(new ArrayList<>());
+
+        assertThatThrownBy(() -> executor.drainCommitMetadataForTask(" "))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Canonical taskId");
+    }
+
+    @Test
+    void nativeCommitMetadataIsTaskIsolatedImmutableAndConflictFenced() {
+        NativeWriteExecutor executor = createExecutor(new ArrayList<>());
+        byte[] source = {1, 2, 3};
+        executor.publishCommitMetadataForTask("write-task", source);
+        source[0] = 9;
+        executor.publishCommitMetadataForTask("write-task", new byte[] {1, 2, 3});
+
+        assertThat(executor.drainCommitMetadataForTask("other-task")).isEmpty();
+        assertThatThrownBy(() -> executor.publishCommitMetadataForTask(
+                "write-task", new byte[] {4}))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Conflicting write commit metadata");
+        assertThat(executor.drainCommitMetadataForTask("write-task")).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void nativeCommitMetadataRequiresExactTaskAndNonemptyPayload() {
+        NativeWriteExecutor executor = createExecutor(new ArrayList<>());
+
+        assertThatThrownBy(() -> executor.publishCommitMetadataForTask(" ", new byte[] {1}))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> executor.publishCommitMetadataForTask("write-task", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> executor.publishCommitMetadataForTask("write-task", new byte[0]))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(executor.drainCommitMetadataForTask("write-task")).isEmpty();
+    }
+
+    @Test
+    void overwriteForwardsCanonicalStaticPartitionBindings() {
+        AtomicReference<Map<String, String>> partition = new AtomicReference<>();
+        var sinks = new ArrayList<TrackingPageSink>();
+        ConnectorMetadata metadata = new StubMetadata() {
+            @Override
+            public ConnectorOutputTableHandle beginOverwrite(
+                    ConnectorSession session, ConnectorTableHandle table,
+                    Map<String, String> staticPartition) {
+                partition.set(staticPartition);
+                return new ConnectorOutputTableHandle() {};
+            }
+        };
+        ConnectorPageSinkProvider provider = new ConnectorPageSinkProvider() {
+            @Override
+            public ConnectorPageSink createPageSink(
+                    org.pangrova.spi.connector.ConnectorTransactionHandle txn,
+                    ConnectorSession session, ConnectorOutputTableHandle outputHandle) {
+                throw new AssertionError("Static overwrite must not use append sink");
+            }
+
+            @Override
+            public ConnectorPageSink createOverwritePageSink(
+                    org.pangrova.spi.connector.ConnectorTransactionHandle txn,
+                    ConnectorSession session, ConnectorOutputTableHandle outputHandle) {
+                TrackingPageSink sink = new TrackingPageSink(false);
+                sinks.add(sink);
+                return sink;
+            }
+        };
+        ConnectorOutputTableHandle exactOutputHandle = new ConnectorOutputTableHandle() {};
+        NativeWriteExecutor executor = new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, ignored) ->
+                new CatalogResourceResolver.CatalogResources(
+                        metadata, provider, new StubSession(), exactOutputHandle,
+                        List.of("id"))));
+        WriteDescriptor descriptor = new WriteDescriptor(
+                "test-catalog", "test-schema", "orders",
+                WriteDescriptor.DmlOperation.OVERWRITE,
+                List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")),
+                Map.of("taskId", "overwrite-task",
+                        "staticPartition.day", "2026-09-19",
+                        "staticPartition.region", "cn"));
+
+        long handle = executor.beginWrite(descriptor);
+
+        assertThat(partition.get()).isNull();
+        executor.abortWrite(handle);
+        assertThat(sinks).hasSize(1);
+        assertThat(sinks.get(0).aborted.get()).isTrue();
+    }
 
     @Test
     void closeAllSessionsAbortsAndClosesEachActiveSink() {
@@ -129,7 +254,7 @@ class NativeWriteExecutorTest {
 
     private static NativeWriteExecutor createExecutor(
             List<TrackingPageSink> sinkCollector, boolean abortThrows) {
-        return new NativeWriteExecutor(catalogName -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) -> {
                 var sink = new TrackingPageSink(abortThrows);
@@ -137,8 +262,10 @@ class NativeWriteExecutorTest {
                 return sink;
             };
             ConnectorSession session = new StubSession();
-            return new CatalogResourceResolver.CatalogResources(metadata, provider, session);
-        });
+            return new CatalogResourceResolver.CatalogResources(
+                    metadata, provider, session, TestOutputHandles.outputHandle(),
+                    List.of("id"));
+        }));
     }
 
     private static WriteDescriptor descriptor(String tableName) {
@@ -146,7 +273,7 @@ class NativeWriteExecutorTest {
                 "test-catalog", "test-schema", tableName,
                 WriteDescriptor.DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "BIGINT")),
-                Map.of());
+                Map.of("taskId", "executor-task"));
     }
 
     private static final class TrackingPageSink implements ConnectorPageSink {
@@ -182,7 +309,7 @@ class NativeWriteExecutorTest {
         }
     }
 
-    private static final class StubMetadata implements ConnectorMetadata {
+    private static class StubMetadata implements ConnectorMetadata {
         private static final ConnectorTableHandle TABLE_HANDLE =
                 new ConnectorTableHandle() {};
         private static final ConnectorOutputTableHandle OUTPUT_HANDLE =

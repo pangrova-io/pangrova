@@ -4,11 +4,14 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
+import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
@@ -19,6 +22,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -126,6 +130,30 @@ class ResultBatchDecoderTest {
         assertThat(table).contains("id");
         assertThat(table).contains("name");
         assertThat(table).contains("3 rows");
+    }
+
+    @Test
+    void formatsVectorCoordinatesInsteadOfArrayIdentity() throws Exception {
+        Field child = new Field("item", FieldType.notNullable(
+                new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)), null);
+        Field vector = new Field("embedding", new FieldType(true, ArrowType.List.INSTANCE,
+                null, Map.of("ARROW:extension:name", "pangrova.vector",
+                        "ARROW:extension:metadata", "2")), List.of(child));
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(vector)), allocator)) {
+            root.allocateNew();
+            ListVector list = (ListVector) root.getVector(0);
+            list.startNewValue(0);
+            Float4Vector coordinates = (Float4Vector) list.getDataVector();
+            coordinates.setSafe(0, 0.25f);
+            coordinates.setSafe(1, -0.5f);
+            list.endValue(0, 2);
+            root.setRowCount(1);
+
+            ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(serializeToIpc(root));
+
+            assertThat(result.rows().get(0)).containsExactly("[0.25, -0.5]");
+        }
     }
 
     // ---- Arrow IPC byte builders ----

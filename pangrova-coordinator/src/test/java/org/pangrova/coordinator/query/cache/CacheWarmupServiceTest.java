@@ -46,6 +46,7 @@ import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.pangrova.coordinator.query.statement.StatementTestSessions.context;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -65,6 +66,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  * </ul>
  */
 class CacheWarmupServiceTest {
+
+    private static org.pangrova.coordinator.query.CoordinatorSessionContext statementSession() {
+        return context();
+    }
 
     private static final String CATALOG = "testcat";
     private static final String SCHEMA = "analytics";
@@ -88,7 +93,7 @@ class CacheWarmupServiceTest {
 
     @Test
     void warmupSingleTable_success() {
-        WarmupResult result = service.warmupSingleTable(FQN);
+        WarmupResult result = service.warmupSingleTable(FQN, statementSession());
 
         assertThat(result.success()).isTrue();
         assertThat(result.tableName()).isEqualTo(FQN);
@@ -103,7 +108,7 @@ class CacheWarmupServiceTest {
     void warmupTables_multipleTablesCommaSeparated() {
         String tableList = FQN + " , " + CATALOG + ".analytics.customers";
 
-        List<WarmupResult> results = service.warmupTables(tableList);
+        List<WarmupResult> results = service.warmupTables(tableList, statementSession());
 
         assertThat(results).hasSize(2);
         assertThat(results.get(0).success()).isTrue();
@@ -116,14 +121,14 @@ class CacheWarmupServiceTest {
 
     @Test
     void warmupTables_emptyString_returnsEmptyList() {
-        assertThat(service.warmupTables("")).isEmpty();
-        assertThat(service.warmupTables(null)).isEmpty();
-        assertThat(service.warmupTables("  ")).isEmpty();
+        assertThat(service.warmupTables("", statementSession())).isEmpty();
+        assertThat(service.warmupTables(null, statementSession())).isEmpty();
+        assertThat(service.warmupTables("  ", statementSession())).isEmpty();
     }
 
     @Test
     void warmupSingleTable_invalidFqn_returnsFailure() {
-        WarmupResult result = service.warmupSingleTable("just_a_name");
+        WarmupResult result = service.warmupSingleTable("just_a_name", statementSession());
 
         assertThat(result.success()).isFalse();
         assertThat(result.errorMessage()).contains("catalog.schema.table");
@@ -131,7 +136,7 @@ class CacheWarmupServiceTest {
 
     @Test
     void warmupSingleTable_tableNotFound_returnsFailure() {
-        WarmupResult result = service.warmupSingleTable(CATALOG + ".analytics.nonexistent");
+        WarmupResult result = service.warmupSingleTable(CATALOG + ".analytics.nonexistent", statementSession());
 
         assertThat(result.success()).isFalse();
         assertThat(result.errorMessage()).isNotNull();
@@ -141,7 +146,7 @@ class CacheWarmupServiceTest {
     void warmupTables_oneFailsOtherSucceeds() {
         String tableList = CATALOG + ".analytics.nonexistent," + FQN;
 
-        List<WarmupResult> results = service.warmupTables(tableList);
+        List<WarmupResult> results = service.warmupTables(tableList, statementSession());
 
         assertThat(results).hasSize(2);
         assertThat(results.get(0).success()).isFalse();
@@ -209,7 +214,7 @@ class CacheWarmupServiceTest {
 
     @Test
     void warmupAndPinTables_pinsSuccessfulWarmups() {
-        List<WarmupResult> results = service.warmupAndPinTables(FQN);
+        List<WarmupResult> results = service.warmupAndPinTables(FQN, statementSession());
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).success()).isTrue();
@@ -220,7 +225,7 @@ class CacheWarmupServiceTest {
     void warmupAndPinTables_doesNotPinFailedWarmups() {
         String tableList = CATALOG + ".analytics.ghost," + FQN;
 
-        List<WarmupResult> results = service.warmupAndPinTables(tableList);
+        List<WarmupResult> results = service.warmupAndPinTables(tableList, statementSession());
 
         assertThat(results).hasSize(2);
         // Failed table not pinned.

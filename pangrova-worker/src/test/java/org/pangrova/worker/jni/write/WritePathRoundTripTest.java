@@ -1,8 +1,9 @@
 package org.pangrova.worker.jni.write;
 
+import org.pangrova.protocol.batch.ColumnarBatch;
+import org.pangrova.protocol.batch.ColumnarPageSink;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ColumnValue;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
 import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
 import org.pangrova.spi.connector.data.page.Page;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
@@ -21,6 +22,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
@@ -45,16 +47,24 @@ import static org.assertj.core.api.Assertions.assertThat;
  * with the read path, and schema propagation works correctly through the format.</p>
  */
 class WritePathRoundTripTest {
+    private NativeWriteExecutor executor;
+
+    @AfterEach
+    void closeExecutor() {
+        if (executor != null) {
+            executor.close();
+        }
+    }
 
     @Test
     void writeViaSerializedBatchPreservesDataCorrectly() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("round_trip_table"));
 
         byte[] batchData = buildBatch(5);
-        executor.appendSerializedBatch(handle, batchData, 5, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batchData), 5, 2);
 
         WriteCommitResult result = executor.commitWrite(handle);
 
@@ -75,14 +85,14 @@ class WritePathRoundTripTest {
     @Test
     void writeMultipleBatchesPreservesOrderAndSchema() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("multi_batch_table"));
 
         byte[] batch1 = buildBatch(3);
         byte[] batch2 = buildBatchWithOffset(4, 3);
-        executor.appendSerializedBatch(handle, batch1, 3, 2);
-        executor.appendSerializedBatch(handle, batch2, 4, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch1), 3, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch2), 4, 2);
 
         WriteCommitResult result = executor.commitWrite(handle);
 
@@ -105,12 +115,12 @@ class WritePathRoundTripTest {
     @Test
     void emptyBatchProducesEmptyPage() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("empty_table"));
 
         byte[] emptyBatch = buildBatch(0);
-        executor.appendSerializedBatch(handle, emptyBatch, 0, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(emptyBatch), 0, 2);
 
         executor.commitWrite(handle);
 
@@ -122,12 +132,12 @@ class WritePathRoundTripTest {
     @Test
     void schemaPreservedThroughRoundTrip() throws Exception {
         var receivedPages = new ArrayList<Page>();
-        NativeWriteExecutor executor = createExecutor(receivedPages);
+        executor = createExecutor(receivedPages);
 
         long handle = executor.beginWrite(descriptor("schema_table"));
 
         byte[] batchData = buildBatch(2);
-        executor.appendSerializedBatch(handle, batchData, 2, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batchData), 2, 2);
         executor.commitWrite(handle);
 
         Page page = receivedPages.get(0);
@@ -172,13 +182,15 @@ class WritePathRoundTripTest {
     }
 
     private static NativeWriteExecutor createExecutor(List<Page> pageCollector) {
-        return new NativeWriteExecutor(catalogName -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) ->
                     new CollectingPageSink(pageCollector);
             ConnectorSession session = new StubSession();
-            return new CatalogResourceResolver.CatalogResources(metadata, provider, session);
-        });
+            return new CatalogResourceResolver.CatalogResources(
+                    metadata, provider, session, TestOutputHandles.outputHandle(),
+                    List.of("id", "name"));
+        }));
     }
 
     private static WriteDescriptor descriptor(String tableName) {
@@ -188,10 +200,10 @@ class WritePathRoundTripTest {
                 List.of(
                         new WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new WriteDescriptor.ColumnSchema("name", "VARCHAR")),
-                Map.of());
+                Map.of("taskId", "round-trip-task"));
     }
 
-    private static final class CollectingPageSink implements ConnectorPageSink {
+    private static final class CollectingPageSink implements ColumnarPageSink {
         private final List<Page> pages;
 
         CollectingPageSink(List<Page> pages) {
@@ -200,7 +212,12 @@ class WritePathRoundTripTest {
 
         @Override
         public void appendPage(Page page) {
-            pages.add(page);
+            throw new AssertionError("Columnar capability must not dispatch appendPage");
+        }
+
+        @Override
+        public void appendColumnarBatch(ColumnarBatch batch) {
+            pages.add(WriteBatchFixtures.snapshot(batch));
         }
 
         @Override

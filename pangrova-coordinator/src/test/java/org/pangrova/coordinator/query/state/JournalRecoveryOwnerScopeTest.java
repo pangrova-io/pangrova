@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.state;
 
 import java.util.List;
+import java.util.Set;
 
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
@@ -60,6 +61,28 @@ class JournalRecoveryOwnerScopeTest {
                 "Queries owned by other coordinators must not be replayed");
         assertFalse(qm.getQueryState("q-legacy").isPresent(),
                 "Unowned legacy queries must not be replayed in scoped mode");
+    }
+
+    @Test
+    void explicitQueryFenceDoesNotReplayLiveQueryFromReusedOwnerId() {
+        InMemoryReplayJournal journal = new InMemoryReplayJournal();
+        journal.queryEvents.add(new QueryStateEvent(
+                "q-orphan", "SELECT 1", "{}", "RUNNING",
+                System.currentTimeMillis(), "coord-1"));
+        journal.queryEvents.add(new QueryStateEvent(
+                "q-live", "SELECT 2", "{}", "RUNNING",
+                System.currentTimeMillis(), "coord-1"));
+
+        QueryManager queryManager = buildQueryManager(journal);
+        JournalRecoveryService recovery = new JournalRecoveryService(
+                journal, queryManager, new CoordinatorTaskTracker(),
+                null, "coord-1", 0);
+
+        int recovered = recovery.recover(Set.of("q-orphan"));
+
+        assertEquals(1, recovered);
+        assertTrue(queryManager.getQueryState("q-orphan").isPresent());
+        assertFalse(queryManager.getQueryState("q-live").isPresent());
     }
 
     @Test
@@ -154,7 +177,8 @@ class JournalRecoveryOwnerScopeTest {
                 org.pangrova.coordinator.worker.HealthState.ACTIVE,
                 MemoryPressure.NONE, 0.0, 0, 1_000_000L,
                 Instant.now().minusSeconds(120), // 2 minutes ago → DEAD
-                0.0, null, 1, null, null, null);
+                0.0, null, 2, null, java.util.List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
         wm.registerWorker(deadWorker);
 
         // Even with grace window, truly DEAD workers (registered but stale) fail the query
@@ -209,8 +233,7 @@ class JournalRecoveryOwnerScopeTest {
                         (req, worker) -> null,
                         scheduler, wm, tracker,
                         null, null, null, null),
-                org.pangrova.coordinator.query.execution.CacheContextBundle.none(),
-                null, null, null, 0, null, null, null, null, null, null, null, null);
+                null, null, 0, null, null, null, null, null, null, null, null, null);
         return new QueryDispatcher(deps, null, null);
     }
 

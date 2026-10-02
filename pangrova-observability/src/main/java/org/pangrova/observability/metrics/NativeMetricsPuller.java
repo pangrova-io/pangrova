@@ -49,10 +49,11 @@ public final class NativeMetricsPuller {
     public byte[] pull() {
         try {
             byte[] stats = statsSupplier.getStats(timeoutMs);
-            lastStats = stats;
+            byte[] snapshot = stats == null ? null : stats.clone();
+            lastStats = snapshot;
             lastSuccessTimestamp.set(System.currentTimeMillis());
             consecutiveFailures.set(0);
-            return stats;
+            return snapshot == null ? null : snapshot.clone();
         } catch (Exception e) {
             long failures = consecutiveFailures.incrementAndGet();
             LOG.warn("Native stats pull failed (consecutive failures: {}): {}",
@@ -81,7 +82,10 @@ public final class NativeMetricsPuller {
         return pullIntervalMs * multiplier;
     }
 
-    public byte[] getLastStats() { return lastStats; }
+    public byte[] getLastStats() {
+        byte[] snapshot = lastStats;
+        return snapshot == null ? null : snapshot.clone();
+    }
 
     public long getConsecutiveFailures() { return consecutiveFailures.get(); }
 

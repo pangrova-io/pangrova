@@ -77,7 +77,7 @@ class BatchLoggingReductionTest {
 
         for (int i = 0; i < 100; i++) {
             byte[] batch = buildBatch(10, i * 10);
-            executor.appendSerializedBatch(handle, batch, 10, 2);
+            executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch), 10, 2);
         }
 
         executor.commitWrite(handle);
@@ -126,7 +126,7 @@ class BatchLoggingReductionTest {
         long handle = executor.beginWrite(descriptor("pii_test"));
 
         byte[] batch = buildBatch(5, 0);
-        executor.appendSerializedBatch(handle, batch, 5, 2);
+        executor.appendDirectBatch(handle, WriteBatchFixtures.directRange(batch), 5, 2);
 
         executor.commitWrite(handle);
 
@@ -180,13 +180,15 @@ class BatchLoggingReductionTest {
     }
 
     private static NativeWriteExecutor createExecutor() {
-        return new NativeWriteExecutor(catalogName -> {
+        return new NativeWriteExecutor(new TestCatalogResourceResolver((taskId, catalogName) -> {
             ConnectorMetadata metadata = new StubMetadata();
             ConnectorPageSinkProvider provider = (txn, session, outputHandle) ->
                     new NoOpPageSink();
             ConnectorSession session = new StubSession();
-            return new CatalogResourceResolver.CatalogResources(metadata, provider, session);
-        });
+            return new CatalogResourceResolver.CatalogResources(
+                    metadata, provider, session, TestOutputHandles.outputHandle(),
+                    List.of("id"));
+        }));
     }
 
     private static WriteDescriptor descriptor(String tableName) {
@@ -195,7 +197,7 @@ class BatchLoggingReductionTest {
                 WriteDescriptor.DmlOperation.INSERT,
                 List.of(new WriteDescriptor.ColumnSchema("id", "INTEGER"),
                         new WriteDescriptor.ColumnSchema("name", "VARCHAR")),
-                Map.of());
+                Map.of("taskId", "logging-task"));
     }
 
     private static final class NoOpPageSink implements ConnectorPageSink {

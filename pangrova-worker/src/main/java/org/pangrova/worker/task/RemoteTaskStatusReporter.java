@@ -25,16 +25,17 @@ import org.slf4j.LoggerFactory;
  * Injects W3C trace context into outgoing HTTP headers for distributed tracing.
  * Client side only — no Jetty dependency needed.
  *
- * <p>Final-state reports (FAILED/FINISHED) use exponential backoff retry to
- * guarantee at-least-once delivery. Non-final-state reports (RUNNING etc.)
+ * <p>Final-state reports (FAILED/FINISHED/CANCELLED) use bounded exponential
+ * backoff retry. Delivery may still fail after the retry budget is exhausted;
+ * non-final-state reports (RUNNING etc.)
  * remain best-effort — loss is compensated by the next heartbeat cycle.</p>
  *
  * <p>Each status report carries a {@code reportSequence} field that serves as
  * an idempotency key. The Coordinator deduplicates by {@code taskId + reportSequence},
  * making retried deliveries safe.</p>
  *
- * <p>On HTTP 409 (Conflict), the report is silently dropped — re-registration
- * is handled by WorkerBootstrap, not by the reporter.</p>
+ * <p>HTTP 409 means the Coordinator has not registered this Worker. A terminal
+ * report remains undelivered and is retried while registration can recover.</p>
  */
 public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseable {
 
@@ -45,6 +46,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     static final long MAX_BACKOFF_MS = 30_000L;
     private static final String FINAL_STATE_FAILED = "FAILED";
     private static final String FINAL_STATE_FINISHED = "FINISHED";
+    private static final String FINAL_STATE_CANCELLED = "CANCELLED";
 
     private final HttpClient httpClient;
     private final org.pangrova.common.http.ManagedHttpClient managedClient;
@@ -52,6 +54,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     private volatile String baseUrl;
     private final TracingProvider tracingProvider;
     private final LongCounter reportFailedCounter;
+    private final String internalAuthSecret;
 
     /**
      * Constructs reporter with default HTTP client and NoOp metrics.
@@ -59,8 +62,10 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
      * @param coordinatorBaseUrl full base URL including scheme (e.g. "https://coordinator:8443")
      * @param tracingProvider    tracing context propagation
      */
-    public RemoteTaskStatusReporter(String coordinatorBaseUrl,
-                                  TracingProvider tracingProvider) {
+    public RemoteTaskStatusReporter(
+            String coordinatorBaseUrl,
+            TracingProvider tracingProvider,
+            String internalAuthSecret) {
         org.pangrova.common.http.ManagedHttpClient managed =
                 org.pangrova.common.http.HttpClientFactory.createDefault();
         this.managedClient = managed;
@@ -70,6 +75,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         this.baseUrl = coordinatorBaseUrl;
         this.mapper = JsonMapperFactory.shared();
         this.tracingProvider = tracingProvider;
+        this.internalAuthSecret = normalizeSecret(internalAuthSecret);
         this.reportFailedCounter = new org.pangrova.observability.noop.NoOpMetricsProvider()
                 .createCounter("noop", "noop", "1");
     }
@@ -82,9 +88,12 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
      * @param tracingProvider    tracing context propagation
      * @param metricsProvider    metrics recording (nullable — uses no-op counter if null)
      */
-    public RemoteTaskStatusReporter(String coordinatorBaseUrl,
-                                  HttpClient httpClient, TracingProvider tracingProvider,
-                                  MetricsProvider metricsProvider) {
+    public RemoteTaskStatusReporter(
+            String coordinatorBaseUrl,
+            HttpClient httpClient,
+            TracingProvider tracingProvider,
+            MetricsProvider metricsProvider,
+            String internalAuthSecret) {
         checkNotNull(coordinatorBaseUrl, "coordinatorBaseUrl must not be null");
         checkNotNull(httpClient, "httpClient must not be null");
         checkNotNull(tracingProvider, "tracingProvider must not be null");
@@ -93,6 +102,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         this.managedClient = null; // externally provided — caller owns lifecycle
         this.mapper = JsonMapperFactory.shared();
         this.tracingProvider = tracingProvider;
+        this.internalAuthSecret = normalizeSecret(internalAuthSecret);
         this.reportFailedCounter = metricsProvider != null
                 ? metricsProvider.createCounter(
                         "task_status_report_failed",
@@ -155,7 +165,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     }
 
     /**
-     * Sends a final-state report with exponential backoff retry.
+     * Sends a final-state report with bounded exponential backoff retry.
      * Initial backoff: 1s, max backoff: 30s, max attempts: 5.
      * On exhaustion, records {@code task_status_report_failed} metric.
      */
@@ -198,15 +208,17 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         }
     }
 
-    /**
-     * Sends a single HTTP POST. Returns true on success (HTTP 200 or 409).
-     */
+    /** Sends a single HTTP POST. Returns true only when the Coordinator accepts it. */
     private boolean sendPost(byte[] body, TaskStatusReport report) {
         String url = baseUrl + "/v1/task/status-report";
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+
+        if (internalAuthSecret != null) {
+            builder.header("Authorization", "Bearer " + internalAuthSecret);
+        }
 
         injectTraceContext(builder);
 
@@ -232,9 +244,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     /** HTTP status code indicating the worker is not registered. */
     private static final int HTTP_CONFLICT = 409;
 
-    /**
-     * Returns true if the response indicates the report was accepted or already known.
-     */
+    /** Returns true if the response indicates the report was accepted. */
     private boolean handleResponseStatus(HttpResponse<String> response, TaskStatusReport report) {
         int statusCode = response.statusCode();
         if (statusCode == HTTP_OK) {
@@ -244,7 +254,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
             LOG.warn("event=status_report_rejected reason=worker_not_registered "
                     + "taskId={} statusCode=409 body={}",
                     report.taskId(), response.body());
-            return true;
+            return false;
         }
         LOG.warn("event=status_report_error taskId={} statusCode={} body={}",
                 report.taskId(), statusCode, response.body());
@@ -255,8 +265,13 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         tracingProvider.inject(null, builder, HttpRequest.Builder::header);
     }
 
+    private static String normalizeSecret(String secret) {
+        return secret == null || secret.isBlank() ? null : secret;
+    }
+
     static boolean isFinalState(String state) {
-        return FINAL_STATE_FAILED.equals(state) || FINAL_STATE_FINISHED.equals(state);
+        return FINAL_STATE_FAILED.equals(state) || FINAL_STATE_FINISHED.equals(state)
+                || FINAL_STATE_CANCELLED.equals(state);
     }
 
     /**

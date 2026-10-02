@@ -1,6 +1,8 @@
 package org.pangrova.spi.connector.metadata;
 
 import org.pangrova.spi.annotation.Stable;
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
@@ -128,6 +130,19 @@ public interface ConnectorWriteMetadata {
     }
 
     /**
+     * Commits a journaled distributed write with a stable identity shared by the first attempt and
+     * crash recovery. A connector must explicitly implement the replay-safe commit contract;
+     * falling back to the context-free overload could publish the same write twice after a crash.
+     */
+    default void finishDistributedWrite(ConnectorSession session,
+                                        ConnectorOutputTableHandle outputHandle,
+                                        java.util.List<byte[]> fragments,
+                                        DistributedWriteCommitContext context) {
+        throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                "Replay-safe distributed write commit is not implemented by this connector");
+    }
+
+    /**
      * A-EOS-02 (2PC abort/discard leg): discards data STAGED by a distributed write but not yet
      * published — i.e. fragments whose {@link #finishDistributedWrite} has not been, and will not
      * be, called. Deletes the staged data files so a prepared-but-aborted streaming batch leaves no
@@ -166,5 +181,18 @@ public interface ConnectorWriteMetadata {
                                                                SchemaTableName tableName,
                                                                String writeMode) {
         throw new UnsupportedOperationException("reconstructOutputHandle not supported");
+    }
+
+    /**
+     * Reconstructs a recovery handle while preserving the snapshot captured by the original write.
+     * Default is fail-closed because substituting the current snapshot changes conflict semantics.
+     */
+    default ConnectorOutputTableHandle reconstructOutputHandle(
+            ConnectorSession session,
+            SchemaTableName tableName,
+            String writeMode,
+            long baseSnapshotId) {
+        throw new UnsupportedOperationException(
+                "snapshot-preserving reconstructOutputHandle not supported");
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.coordinator.scheduler.failure.CircuitBreakerOpenException;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -68,9 +70,10 @@ class RemoteTaskDispatcherErrorMappingTest {
     }
 
     private static SubmitTaskRequest buildRequest() {
-        return new SubmitTaskRequest(
-                "task-1", "query-1", 0, 0, "SCAN", null, null, null, null, null, null, null,
-                null, null, null, null, null, null, null);
+        return org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                "task-1", "query-1", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     private static TracingProvider noopTracingProvider() {

@@ -4,9 +4,9 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.spi.connector.metadata.SnapshotReference;
+import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
@@ -199,66 +199,62 @@ public final class BranchTtlCleanupTask implements AutoCloseable {
     private int dropExpiredBranches(ConnectorMetadata metadata, ConnectorSession session,
                                     ConnectorTableHandle tableHandle, String catalogName,
                                     SchemaTableName tableName, Duration ttl, Instant now) {
-        Optional<ConnectorSystemTable> refsTable;
+        List<SnapshotReference> refs;
         try {
-            refsTable = metadata.getSystemTable(session, tableHandle, "refs");
+            refs = metadata.listSnapshotReferences(session, tableHandle);
         } catch (Exception e) {
-            LOG.debug("action=skip_refs_table table={}.{} reason={}",
-                    catalogName, tableName, e.getMessage());
-            return 0;
-        }
-
-        if (refsTable.isEmpty()) {
-            return 0;
-        }
-
-        List<TypedRow> refs;
-        try {
-            refs = refsTable.get().rows();
-        } catch (Exception e) {
-            LOG.debug("action=refs_read_failed table={}.{} reason={}",
+            LOG.warn("action=list_snapshot_references_failed table={}.{} reason={}",
                     catalogName, tableName, e.getMessage());
             return 0;
         }
 
         Instant cutoff = now.minus(ttl);
         int dropped = 0;
-        for (TypedRow ref : refs) {
-            if (isExpiredBranch(metadata, session, tableName, ref, cutoff)
-                    && dropBranch(metadata, session, tableHandle, catalogName, tableName, ref.getString("name"))) {
+        for (SnapshotReference ref : refs) {
+            if (!isExpiredBranch(metadata, session, tableName, ref, cutoff)) {
+                continue;
+            }
+            ConditionalBranchDropResult result = dropBranch(
+                    metadata, session, tableHandle, catalogName, tableName, ref);
+            if (result == ConditionalBranchDropResult.DROPPED) {
                 dropped++;
+            } else {
+                // The table metadata may have changed or the commit outcome may
+                // be unknown. Do not act on further refs from the stale listing.
+                break;
             }
         }
         return dropped;
     }
 
     private boolean isExpiredBranch(ConnectorMetadata metadata, ConnectorSession session,
-                                    SchemaTableName tableName, TypedRow ref, Instant cutoff) {
-        String type = ref.getString("type");
-        String branchName = ref.getString("name");
-        if (!"BRANCH".equals(type) || MAIN_BRANCH.equals(branchName)) {
+                                    SchemaTableName tableName, SnapshotReference ref, Instant cutoff) {
+        if (ref.type() != SnapshotReference.Type.BRANCH || MAIN_BRANCH.equals(ref.name())) {
             return false;
         }
-        Long snapshotId = ref.getLong("snapshot_id");
-        if (snapshotId == null) {
-            return false;
-        }
-        Instant createdAt = resolveSnapshotTimestamp(metadata, session, tableName, snapshotId);
+        Instant createdAt = resolveSnapshotTimestamp(metadata, session, tableName, ref.snapshotId());
         return createdAt != null && createdAt.isBefore(cutoff);
     }
 
-    private boolean dropBranch(ConnectorMetadata metadata, ConnectorSession session,
-                               ConnectorTableHandle tableHandle, String catalogName,
-                               SchemaTableName tableName, String branchName) {
+    private ConditionalBranchDropResult dropBranch(
+            ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorTableHandle tableHandle, String catalogName,
+            SchemaTableName tableName, SnapshotReference ref) {
         try {
-            metadata.dropBranch(session, tableHandle, branchName);
-            LOG.info("action=branch_ttl_expired catalog={} table={}.{} branch={}",
-                    catalogName, tableName.schema(), tableName.table(), branchName);
-            return true;
+            ConditionalBranchDropResult result = metadata.dropBranchIfSnapshotMatches(
+                    session, tableHandle, ref.name(), ref.snapshotId());
+            if (result == ConditionalBranchDropResult.DROPPED) {
+                LOG.info("action=branch_ttl_expired catalog={} table={}.{} branch={}",
+                        catalogName, tableName.schema(), tableName.table(), ref.name());
+                return result;
+            }
+            LOG.warn("action=branch_ttl_drop_deferred catalog={} table={}.{} branch={} status={}",
+                    catalogName, tableName.schema(), tableName.table(), ref.name(), result);
+            return result;
         } catch (Exception e) {
             LOG.warn("action=branch_drop_failed catalog={} table={}.{} branch={} error={}",
-                    catalogName, tableName.schema(), tableName.table(), branchName, e.getMessage());
-            return false;
+                    catalogName, tableName.schema(), tableName.table(), ref.name(), e.getMessage(), e);
+            return ConditionalBranchDropResult.FAILED;
         }
     }
 

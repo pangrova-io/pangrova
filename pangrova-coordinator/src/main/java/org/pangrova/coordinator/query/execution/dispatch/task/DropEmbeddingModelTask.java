@@ -14,8 +14,9 @@
 package org.pangrova.coordinator.query.execution.dispatch.task;
 
 import java.util.List;
-import java.util.Map;
 
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
@@ -26,8 +27,8 @@ import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.security.UserIdentity;
 
 /**
- * Executes DROP EMBEDDING MODEL by removing the model from the
- * {@link EmbeddingModelRegistry}.
+ * Routes DROP EMBEDDING MODEL to the registry. The registry currently rejects
+ * both modes until generated-column dependencies can be fenced durably.
  */
 public final class DropEmbeddingModelTask implements MetadataTask<DropEmbeddingModelStatement> {
 
@@ -42,8 +43,9 @@ public final class DropEmbeddingModelTask implements MetadataTask<DropEmbeddingM
                                    StatementExecutionContext context) {
         UserIdentity user = context.session() != null ? context.session().userIdentity() : null;
         if (user == null) {
-            user = new UserIdentity("system", java.util.Set.of("admin"),
-                    Map.of(), java.time.Instant.now());
+            throw new PangrovaException(
+                    PangrovaErrorCode.ACCESS_DENIED,
+                    "DROP EMBEDDING MODEL requires an authenticated session");
         }
         registry.drop(statement.modelName(), statement.cascade(), user);
 

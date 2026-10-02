@@ -40,6 +40,8 @@ import org.pangrova.protocol.rest.query.SubmitQueryResponse;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.resource.ResourceManager;
 import org.pangrova.resource.memory.MemoryArbitrator;
+import org.pangrova.resource.memory.NodeMemoryPool;
+import org.pangrova.resource.memory.RootMemoryPool;
 import org.pangrova.resource.spill.SpillManager;
 import org.pangrova.resource.thread.ThreadBudgetTracker;
 import org.pangrova.spi.connector.data.TypedRow;
@@ -93,6 +95,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
@@ -114,38 +117,45 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(SqlE2ETestBase.class);
 
-    /**
-     * Extends parent's skip logic to also skip jqwik properties when
-     * FlightResultServer is unavailable (Arrow Flight not linked).
-     * Without this, jqwik properties pass the Docker check but fail with
-     * empty SELECT results because native query output cannot be fetched.
-     */
-    @Override
-    public net.jqwik.api.lifecycle.SkipExecutionHook.SkipResult shouldBeSkipped(
-            net.jqwik.api.lifecycle.LifecycleContext context) {
-        var parentResult = super.shouldBeSkipped(context);
-        if (parentResult.isSkipped()) {
-            return parentResult;
-        }
-        // Skip jqwik properties cleanly when the C++ native lib isn't packaged
-        // on the classpath, or when a prior bootstrap attempt revealed an ABI
-        // mismatch with current Java declarations (stale CMake build).
-        // jqwik @BeforeContainer does not honor JUnit Assumptions.abort() —
-        // it converts to ERROR — so the skip must happen here before
-        // bootstrapTestEnvironment is invoked.
-        if (!org.pangrova.worker.jni.NativeLibraryLoader.isFunctional()) {
-            return net.jqwik.api.lifecycle.SkipExecutionHook.SkipResult.skip(
-                    "Native library not built or ABI mismatch — skipping E2E property tests");
-        }
-        if (sharedResultServerPort <= 0) {
-            return net.jqwik.api.lifecycle.SkipExecutionHook.SkipResult.skip(
-                    "FlightResultServer not available (Arrow Flight not linked)");
-        }
-        return net.jqwik.api.lifecycle.SkipExecutionHook.SkipResult.doNotSkip();
+    protected static final String WORKER_ID = "e2e-worker-1";
+    private static final String IN_PROCESS_WORKER_HOST = resolveWorkerAdvertisedHost();
+
+    protected static String workerAdvertisedHost() {
+        return IN_PROCESS_WORKER_HOST;
     }
 
-    protected static final String WORKER_ID = "e2e-worker-1";
+    private static String resolveWorkerAdvertisedHost() {
+        try {
+            for (var interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+                    interfaces.hasMoreElements();) {
+                var network = interfaces.nextElement();
+                if (!network.isUp() || network.isLoopback()) {
+                    continue;
+                }
+                for (var addresses = network.getInetAddresses(); addresses.hasMoreElements();) {
+                    var address = addresses.nextElement();
+                    if (address instanceof java.net.Inet4Address
+                            && !address.isLoopbackAddress()
+                            && !address.isLinkLocalAddress()) {
+                        return address.getHostAddress();
+                    }
+                }
+            }
+        } catch (java.net.SocketException failure) {
+            LOG.warn("event=e2e_worker_host_lookup_failed error={}", failure.getMessage());
+        }
+        return "localhost";
+    }
+    private static final String E2E_COORDINATOR_ID = "e2e-coordinator";
+    protected static final String E2E_INTERNAL_AUTH_SECRET =
+            "e2e-internal-service-credential-key";
+    private static final String E2E_USER_BEARER_TOKEN = "e2e-user-token";
+    private static final String E2E_USER_PRINCIPAL = "e2e-user";
+    private static final String E2E_TENANT_ID = "e2e-tenant";
     private static final long WORKER_MEMORY_BYTES = 2L * 1024 * 1024 * 1024; // 2GB — balances Velox memory needs vs OS process limits
+    // A small explicit fixture ceiling, not a production sizing recommendation.
+    // This is separate from the shuffle disk service budget and directory.
+    private static final long NATIVE_WRITE_STAGE_BYTES = 16L * 1024 * 1024;
     private static final long POLL_INTERVAL_MS = 50;
     private static final long POLL_TIMEOUT_MS =
             Long.parseLong(System.getProperty("pangrova.e2e.poll.timeout.ms", "600000"));
@@ -206,6 +216,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static volatile CoordinatorResultBuffer coordinatorResultBuffer;
     protected static volatile CoordinatorResultService coordinatorResultService;
     private static ScheduledExecutorService resultBufferExecutor;
+    private static ScheduledExecutorService controlEpochObserver;
+    private static volatile ExecutorService asyncQueryExecutor;
 
     // Shared MaterializedViewManager — used by both DT DDL executor and planner rewriter
     private static volatile org.pangrova.planner.mv.MaterializedViewManager sharedMvManager;
@@ -226,15 +238,52 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // commit metadata draining (TaskStatusCollector relies on this to surface
     // commit metadata to the coordinator).
     private static volatile org.pangrova.worker.jni.write.NativeWriteExecutor sharedNativeWriteExecutor;
+    private static volatile org.pangrova.worker.jni.write.WorkerCatalogRuntime sharedWorkerCatalogRuntime;
+    private static volatile String workerCatalogCoordinatorUrl;
+    private static volatile TaskExecutor sharedWorkerTaskExecutor;
+    private static volatile int sharedWorkerHttpPort;
+    private static volatile org.pangrova.coordinator.metadata.NativeDatasetControlClient sharedDatasetControlClient;
+    private static volatile org.pangrova.spi.coordination.WriteCommitJournal sharedWriteCommitJournal;
+    private static volatile TaskStatusReceiver sharedTaskStatusReceiver;
+    private static final org.pangrova.coordinator.query.task.WriteCommitFencer E2E_WRITE_COMMIT_FENCER =
+            new E2eWriteCommitFencer();
     // Additional resources that leak if not closed between test classes.
     private static volatile org.apache.arrow.memory.RootAllocator coordinatorArrowAllocator;
-    private static volatile org.pangrova.indexing.storage.IndexCache sharedIndexCache;
+    private static volatile org.pangrova.coordinator.bootstrap.IndexingBootstrap sharedIndexingBootstrap;
+    private static volatile org.pangrova.metadata.artifact.build.ArtifactBuildStore
+            sharedArtifactBuildStore;
+    private static volatile org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher
+            sharedArtifactBuildDispatcher;
+    private static volatile RemoteTaskDispatcher artifactTaskDispatcher;
+    private static volatile org.pangrova.coordinator.artifact.DurableArtifactPublisher
+            sharedArtifactPublisher;
+    private static volatile ScheduledExecutorService artifactDispatchExecutor;
     private static volatile RemoteTaskStatusReporter sharedStatusReporter;
     // Coordinator-side resources that leak HttpClient thread pools if not closed.
     private static volatile RemoteTaskDispatcher sharedTaskDispatcher;
+    private static volatile QueryDispatcher sharedQueryDispatcher;
+    private static volatile org.pangrova.spi.security.AccessControl featureAccessControl;
+    private static volatile org.pangrova.spi.security.AccessControl currentAccessControl;
+    private static volatile org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
+            sharedGeneratedValueCoordinator;
+    private static volatile org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier
+            sharedWriteAuthoritySupplier;
+    private static volatile org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
+            e2eCoordinationService;
     private static volatile org.pangrova.worker.memory.NativeMemoryCoordinator nativeMemoryCoordinatorRef;
+    private static volatile MemoryArbitrator sharedWorkerMemoryArbitrator;
+    private static volatile NodeMemoryPool sharedWorkerNodePool;
+    private static volatile org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease
+            sharedShuffleServiceLease;
     private static volatile org.pangrova.coordinator.query.statement.DdlExecutor sharedDdlExecutor;
     protected static volatile int sharedResultServerPort;
+    private static volatile boolean aiFunctionsEnabled;
+    private static volatile org.pangrova.security.authn.AuthenticationManager
+            e2eAuthenticationManager;
+    private static volatile org.pangrova.worker.bootstrap.WorkerComponentRefs
+            e2eNativeFunctionRefs;
+    private static volatile org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement.Advertisement
+            e2eCapabilityAdvertisement;
 
     // State store DataSource — shared PostgreSQL backend for journal, registry, tenant, etc.
     // Created alongside metadata DataSource during bootstrap; exposed for subclass E2E tests.
@@ -250,14 +299,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static final java.util.Set<String> lastRegisteredCatalogs =
             java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
-    /**
-     * jqwik property guard: skips property trials when infrastructure is unavailable.
-     * jqwik's SkipExecutionHook is unreliable across module boundaries; this
-     * BeforeProperty hook provides a guaranteed skip via Assume.that().
-     */
+    /** Fails jqwik properties when required E2E infrastructure is unavailable. */
     @net.jqwik.api.lifecycle.BeforeProperty
-    void assumeInfrastructureReady() {
-        net.jqwik.api.Assume.that(isDockerReady() && sqlRunner != null);
+    void requirePropertyInfrastructure() {
+        requireInfrastructureReady();
     }
 
     /**
@@ -267,11 +312,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      */
     @BeforeEach
     void ensureConnectorsRegistered() {
-        org.junit.jupiter.api.Assumptions.assumeTrue(isDockerReady(),
-                "Docker is not available — skipping container-based tests");
-        org.junit.jupiter.api.Assumptions.assumeTrue(sharedResultServerPort > 0,
-                "FlightResultServer not available (Arrow Flight not linked) — "
-                + "native SELECT results cannot be fetched");
+        requireInfrastructureReady();
         Class<?> registrationKey = getClass();
         while (registrationKey.getEnclosingClass() != null
                && SqlE2ETestBase.class.isAssignableFrom(registrationKey.getEnclosingClass())) {
@@ -348,9 +389,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
 
         ContainerTestBase.ensureDockerAvailable();
-        if (!isDockerReady()) {
-            return;
-        }
+        isDockerReady();
 
         if (tempDir == null) {
             try {
@@ -362,25 +401,63 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             }
         }
 
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-                org.pangrova.worker.jni.NativeLibraryLoader.isAvailable(),
-                "Native library not built (run `cmake --build` + `mvn process-resources -pl pangrova-worker`); skipping E2E tests");
+        if (!org.pangrova.worker.jni.NativeLibraryLoader.isAvailable()) {
+            throw new IllegalStateException(
+                    "Native library is required for pangrova-test-e2e; run `cmake --build` "
+                            + "and `mvn process-test-resources -pl pangrova-testing/pangrova-test-e2e`");
+        }
         if (!NativeRuntime.isInitialized()) {
-            byte[] configBytes = org.pangrova.protocol.v1.NativeInitConfig.newBuilder()
+            Path shuffleSpillDirectory = tempDir.resolve("native-shuffle-spill");
+            try {
+                java.nio.file.Files.createDirectories(shuffleSpillDirectory);
+            } catch (java.io.IOException e) {
+                throw new IllegalStateException("Failed to create explicit E2E Native shuffle spill directory", e);
+            }
+            Path writeStageDirectory = prepareNativeWriteStage();
+            MemoryArbitrator arbitrator = new MemoryArbitrator(
+                    WORKER_MEMORY_BYTES, 128L * 1024 * 1024);
+            NodeMemoryPool nodePool = new RootMemoryPool(
+                    "root-" + WORKER_ID, WORKER_MEMORY_BYTES)
+                    .createNodePool("node-" + WORKER_ID, WORKER_MEMORY_BYTES);
+            var serviceLease = org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease.reserve(
+                    WORKER_ID, 16L * 1024 * 1024, 16L * 1024 * 1024, nodePool, arbitrator);
+            sharedWorkerMemoryArbitrator = arbitrator;
+            sharedWorkerNodePool = nodePool;
+            sharedShuffleServiceLease = serviceLease;
+            byte[] configBytes = org.pangrova.protocol.v2.RuntimeInitConfig.newBuilder()
                     .setMaxMemoryBytes(WORKER_MEMORY_BYTES)
                     .setIoThreadCount(4)
+                    .setSpillEnabled(true)
+                    .setSpillDirectory(writeStageDirectory.toString())
+                    .setShuffleRetentionBytes(16L * 1024 * 1024)
+                    .setShuffleTransitBytes(16L * 1024 * 1024)
+                    .setShuffleSpillBytes(1024L * 1024 * 1024)
+                    .setShuffleSpillFiles(256)
+                    .setShuffleSpillDirectory(shuffleSpillDirectory.toString())
                     .build()
                     .toByteArray();
             try {
-                var coordinator = new org.pangrova.worker.memory.NativeMemoryCoordinator(WORKER_MEMORY_BYTES);
+                var coordinator = new org.pangrova.worker.memory.NativeMemoryCoordinator(
+                        WORKER_MEMORY_BYTES, arbitrator);
                 nativeMemoryCoordinatorRef = coordinator;
                 NativeRuntime.initNativeRuntime(configBytes, coordinator);
+                // This in-process Worker does not run WorkerTaskBootstrap, which
+                // installs a process-local signing key before exposing Native
+                // Flight shuffle tickets. Mirror that production security step.
+                byte[] shuffleKey = new byte[32];
+                new java.security.SecureRandom().nextBytes(shuffleKey);
+                NativeRuntime.nativeSetHmacKey(shuffleKey, new byte[0]);
             } catch (UnsatisfiedLinkError e) {
                 org.pangrova.worker.jni.NativeLibraryLoader.markUnsupported();
-                org.junit.jupiter.api.Assumptions.abort(
-                        "Native library ABI mismatch (rebuild via `cmake --build` + "
-                                + "`mvn process-resources -pl pangrova-worker`): " + e.getMessage());
+                throw new IllegalStateException(
+                        "Native library ABI mismatch; rebuild the native library and test resources",
+                        e);
             }
+        }
+        if (e2eCapabilityAdvertisement == null) {
+            e2eCapabilityAdvertisement = org.pangrova.worker.bootstrap
+                    .NativeCapabilityAdvertisement.load(
+                            org.pangrova.worker.jni.NativeFunctionConfig.DISABLED);
         }
 
         POSTGRES = SharedTestContainers.POSTGRES;
@@ -405,6 +482,21 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 "e2e-infra-cleanup"));
     }
 
+    private static Path prepareNativeWriteStage() {
+        Path directory = tempDir.resolve("native-write-stage");
+        try {
+            java.nio.file.Files.createDirectories(directory);
+            long usableBytes = java.nio.file.Files.getFileStore(directory).getUsableSpace();
+            if (usableBytes < NATIVE_WRITE_STAGE_BYTES) {
+                throw new IllegalStateException("E2E Native write stage requires " + NATIVE_WRITE_STAGE_BYTES
+                        + " available bytes; actual usable bytes=" + usableBytes);
+            }
+            return directory;
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("Failed to prepare independent E2E Native write stage", failure);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Lifecycle: @AfterAll — single method to guarantee teardown order
     // (reverse of bootstrap: cluster → containers → native)
@@ -423,10 +515,20 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static void shutdownSharedInfrastructure() {
         if (framework != null) framework.teardown();
+        stopArtifactControlLoops();
+        if (controlEpochObserver != null) {
+            controlEpochObserver.shutdownNow();
+            controlEpochObserver = null;
+        }
+        closeE2ECoordination();
         stopQuietly(workerHttpServer);
+        closeWorkerCatalogRuntime();
+        closeQuietly(sharedDatasetControlClient, "native_dataset_control_client");
+        sharedDatasetControlClient = null;
         stopCoordinatorTransportQuietly();
         stopQuietly(coordinatorHttpServer);
         if (resultBufferExecutor != null) resultBufferExecutor.shutdownNow();
+        if (asyncQueryExecutor != null) asyncQueryExecutor.shutdownNow();
         if (coordinatorResultBuffer != null) coordinatorResultBuffer.close();
         if (metadataBootstrap != null) {
             try {
@@ -445,7 +547,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
         closeQuietly(sharedStatusReporter, "status_reporter");
         closeQuietly(sharedTaskDispatcher, "task_dispatcher");
+        if (e2eNativeFunctionRefs != null) {
+            org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.close(
+                    e2eNativeFunctionRefs);
+        }
+        closeQuietly(e2eAuthenticationManager, "authentication_manager");
         if (queryManager != null) queryManager.stopPeriodicCleanup();
+        // Flight may retain IPC batches after a task exits. Only release its
+        // process-lifetime NodePool/arbitrator lease after Native confirms stop.
+        NativeRuntime.shutdownNativeRuntime();
+        if (sharedShuffleServiceLease != null) {
+            sharedShuffleServiceLease.close();
+            sharedShuffleServiceLease = null;
+        }
         if (SharedTestContainers.POSTGRES != null) SharedTestContainers.POSTGRES.stop();
         if (SharedTestContainers.NETWORK != null) SharedTestContainers.NETWORK.close();
     }
@@ -486,12 +600,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                             .pollDelay(java.time.Duration.ZERO)
                             .ignoreExceptions()
                             .until(() -> workerTaskManagerRef.cancelAllRunningTasks() == 0);
-                } catch (org.awaitility.core.ConditionTimeoutException ignored) {
-                    LOG.warn("event=inter_class_drain_timeout note=tasks_still_running");
+                } catch (org.awaitility.core.ConditionTimeoutException timeout) {
+                    throw new IllegalStateException(
+                            "Native tasks did not quiesce before inter-class budget reset", timeout);
                 }
             }
         } catch (Exception e) {
-            LOG.warn("event=inter_class_drain_error error={}", e.getMessage());
+            throw new IllegalStateException("Native task drain failed; retaining all memory reservations", e);
         }
         if (nativeMemoryCoordinatorRef != null) {
             nativeMemoryCoordinatorRef.resetBudget();
@@ -505,15 +620,93 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     /** Override to provide connector configurations for the test suite. */
     protected abstract List<ConnectorTestConfig> connectorConfigs();
 
+    static void verifyRequiredInfrastructure(
+            boolean dockerReady,
+            boolean nativeFunctional,
+            int resultServerPort,
+            boolean runnerReady) {
+        if (!dockerReady) {
+            throw new IllegalStateException(
+                    "Docker is required for pangrova-test-e2e but is unavailable");
+        }
+        if (!nativeFunctional) {
+            throw new IllegalStateException(
+                    "The packaged native library is required and must match the Java ABI");
+        }
+        if (resultServerPort <= 0) {
+            throw new IllegalStateException(
+                    "The native result server is required for E2E SELECT results");
+        }
+        if (!runnerReady) {
+            throw new IllegalStateException(
+                    "The E2E SQL runner was not initialized");
+        }
+    }
+
+    protected static void requireInfrastructureReady() {
+        verifyRequiredInfrastructure(
+                isDockerReady(),
+                org.pangrova.worker.jni.NativeLibraryLoader.isFunctional(),
+                sharedResultServerPort,
+                sqlRunner != null);
+    }
+
+    /**
+     * Installs the production AI function bootstrap against the already running
+     * Native runtime, publishes its exact capability inventory, and rebuilds the
+     * Coordinator HTTP path with an authenticated user and tenant context.
+     *
+     * <p>The Native UDF registry is process-scoped and finalizes after its first
+     * registration, so this method is intentionally one-shot for the shared E2E
+     * JVM.</p>
+     */
+    protected static synchronized void enableAuthenticatedAiFunctions(
+            org.pangrova.worker.jni.NativeFunctionConfig functionConfig) {
+        if (!infrastructureInitialized || !NativeRuntime.isInitialized()) {
+            throw new IllegalStateException(
+                    "E2E Coordinator/Worker and Native runtime must be initialized first");
+        }
+        if (e2eNativeFunctionRefs != null) {
+            throw new IllegalStateException(
+                    "AI Native functions are already configured in this E2E JVM");
+        }
+
+        var refs = new org.pangrova.worker.bootstrap.WorkerComponentRefs();
+        refs.setNativeAvailable(true);
+        try {
+            org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.initialize(
+                    refs, functionConfig);
+            e2eCapabilityAdvertisement = org.pangrova.worker.bootstrap
+                    .NativeCapabilityAdvertisement.load(functionConfig);
+            e2eNativeFunctionRefs = refs;
+            aiFunctionsEnabled = true;
+            rebuildQueryPipeline();
+            registerWorker(workerHttpServer.getPort(),
+                    sharedResultServerPort > 0
+                            ? sharedResultServerPort
+                            : coordinatorTransportServer.getPort());
+        } catch (RuntimeException failure) {
+            org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.close(refs);
+            throw failure;
+        }
+    }
+
+    /** Ends the AI-specific E2E phase; Native callbacks close at shared teardown. */
+    protected static synchronized void disableAuthenticatedAiMode() {
+        if (!aiFunctionsEnabled) {
+            return;
+        }
+        aiFunctionsEnabled = false;
+        rebuildQueryPipeline();
+    }
+
     /**
      * Registers connector catalogs and rebuilds the query pipeline.
      * Must be called from subclass @BeforeAll after base class initialization completes.
      * Catalogs are registered via CatalogRegistry; Calcite schema and orchestrator are rebuilt.
      */
     protected static void registerTestConnectors(List<ConnectorTestConfig> configs) {
-        if (!isDockerReady()) {
-            return;
-        }
+        requireInfrastructureReady();
         if (configs.isEmpty()) {
             // Register a "default" catalog so unqualified table/schema references resolve
             configs = List.of(ConnectorTestConfig.icebergLocal(
@@ -545,19 +738,49 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 // Catalog may not exist yet — that's fine
             }
         }
-        TestCatalogRegistrar.registerAll(registry, configs);
+        TestCatalogRegistrar.registerAll(registry, configs, E2eCatalogSession::new);
         lastRegisteredCatalogs.clear();
         lastRegisteredCatalogs.addAll(catalogNames);
         rebuildQueryPipeline();
         LOG.info("Registered {} test connectors and rebuilt query pipeline", configs.size());
     }
 
+    private record E2eCatalogSession(String catalogName) implements org.pangrova.spi.connector.ConnectorSession {
+        @Override public String getUser() { return E2E_USER_PRINCIPAL; }
+        @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of(catalogName); }
+        @Override public java.util.Optional<String> getSchema() { return java.util.Optional.empty(); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", E2E_TENANT_ID); }
+    }
+
+    /** Returns the catalog session corresponding to this fixture's authenticated HTTP actor. */
+    protected static org.pangrova.spi.connector.ConnectorSession authenticatedCatalogSession(String catalog) {
+        return new E2eCatalogSession(catalog);
+    }
+
+    /** Binds real persistent policy collaborators to the existing authenticated SQL pipeline. */
+    protected static void configureFeatureSecurity(org.pangrova.spi.security.AccessControl accessControl) {
+        E2eCurrentAuthority.removeDefault(stateStoreDataSource, E2E_USER_PRINCIPAL);
+        featureAccessControl = java.util.Objects.requireNonNull(accessControl);
+        rebuildQueryPipeline();
+    }
+
+    /** Releases a scenario's policy wiring; no alternative compilation path is retained. */
+    protected static void clearFeatureSecurity() {
+        featureAccessControl = null;
+        rebuildQueryPipeline();
+    }
+
     private static void rebuildQueryPipeline() {
+        // Dispatchers retain their task tracker: stop the old consumers before replacing it.
+        stopArtifactControlLoops();
         if (queryManager != null) {
             queryManager.stopPeriodicCleanup();
         }
         QueryDispatcher dispatcher = buildQueryDispatcher();
-        queryManager = new QueryManager(QueryManagerContext.minimal(dispatcher, TRACING_PROVIDER));
+        queryManager = new QueryManager(queryManagerContext(dispatcher));
+        if (e2eCoordinationService != null) {
+            queryManager.setLocalCoordinatorId(E2E_COORDINATOR_ID);
+        }
         var dagEngine = dispatcher.dagEngine();
         StageCompletionCallback stageCallback = new StageCompletionCallback() {
             @Override
@@ -576,12 +799,119 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         null, null, null,
                         org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
                         metadataBootstrap.catalogRegistry(), writeCommitTracker,
-                        stageCallback, null, null));
+                        stageCallback, null, sharedWriteCommitJournal, artifactWorkReportSink()));
+        receiver.setWriteCommitFencer(E2E_WRITE_COMMIT_FENCER);
+        sharedTaskStatusReceiver = receiver;
         // Coordinator HTTP server already running — QueryManager is referenced by resources
         // via the existing server instance, so we need to update the reference.
         // Since QueryResource holds a direct reference to QueryManager,
         // we rebuild the HTTP server with the new QueryManager.
         rebuildCoordinatorHttp(receiver);
+        if (e2eCoordinationService != null) {
+            startArtifactControlLoops();
+        }
+    }
+
+    private static QueryManagerContext queryManagerContext(QueryDispatcher dispatcher) {
+        // Every SQL E2E request traverses the same authenticated tenant path;
+        // enabling AI functions changes Native callbacks, not HTTP identity.
+        var store = E2eCurrentAuthority.tenants(stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL);
+        return new QueryManagerContext(
+                dispatcher,
+                TRACING_PROVIDER,
+                METRICS_PROVIDER,
+                new org.pangrova.security.tenant.resolver.TenantResolver(store),
+                new org.pangrova.security.tenant.quota.QuotaChecker(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                org.pangrova.coordinator.coordination.inmemory
+                        .InMemoryQueryStateJournal.INSTANCE,
+                null,
+                null,
+                org.pangrova.coordinator.query.AsyncSubmitConfig.defaultEnabled(),
+                sharedAsyncQueryExecutor());
+    }
+
+    private static synchronized ExecutorService sharedAsyncQueryExecutor() {
+        if (asyncQueryExecutor == null || asyncQueryExecutor.isShutdown()) {
+            asyncQueryExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newBoundedThreadPool("e2e-async-query-submit", 4, 128);
+        }
+        return asyncQueryExecutor;
+    }
+
+    private static CoordinatorHttpServer createCoordinatorHttpServer(
+            int port,
+            TaskStatusReceiver receiver,
+            HealthCheckEndpoint healthEndpoint) {
+        return new CoordinatorHttpServer(
+                port,
+                new org.pangrova.coordinator.http.CoordinatorHttpServerContext(
+                        receiver,
+                        queryManager,
+                        TRACING_HTTP_FILTER,
+                        authenticationManager(),
+                        healthEndpoint,
+                        workerManager,
+                        null,
+                        null,
+                        null,
+                        null,
+                        metadataBootstrap.metadataService(),
+                        E2E_INTERNAL_AUTH_SECRET,
+                        () -> requireE2ECoordination().getCurrentEpoch()));
+    }
+
+    private static synchronized org.pangrova.security.authn.AuthenticationManager
+            authenticationManager() {
+        if (e2eAuthenticationManager == null) {
+            e2eAuthenticationManager = new org.pangrova.security.authn.AuthenticationManager(
+                    List.of(new E2eBearerAuthenticator()));
+        }
+        return e2eAuthenticationManager;
+    }
+
+    private static final class E2eBearerAuthenticator
+            implements org.pangrova.security.authn.Authenticator {
+
+        @Override
+        public String getName() {
+            return "e2e-bearer";
+        }
+
+        @Override
+        public void init(Map<String, String> config) {}
+
+        @Override
+        public org.pangrova.security.authn.AuthenticationResult authenticate(
+                org.pangrova.security.authn.AuthenticationRequest request) {
+            if (!E2E_USER_BEARER_TOKEN.equals(request.token())) {
+                return org.pangrova.security.authn.AuthenticationResult.failure(
+                        "invalid E2E bearer credential");
+            }
+            return org.pangrova.security.authn.AuthenticationResult.success(
+                    new org.pangrova.spi.security.UserIdentity(
+                            E2E_USER_PRINCIPAL,
+                            java.util.Set.of("ai-e2e"),
+                            Map.of(),
+                            Instant.now()));
+        }
+
+        @Override
+        public boolean supports(org.pangrova.security.authn.AuthenticationRequest request) {
+            return request.token() != null;
+        }
+
+        @Override
+        public boolean isHealthy() {
+            return true;
+        }
+
+        @Override
+        public void close() {}
     }
 
     private static void rebuildCoordinatorHttp(TaskStatusReceiver receiver) {
@@ -596,8 +926,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         HealthCheckEndpoint healthEndpoint = createCoordinatorHealthEndpoint();
         try {
-            coordinatorHttpServer = new CoordinatorHttpServer(
-                    previousPort, receiver, queryManager, TRACING_HTTP_FILTER, null, healthEndpoint);
+            coordinatorHttpServer = createCoordinatorHttpServer(
+                    previousPort, receiver, healthEndpoint);
             startServerOrFail(coordinatorHttpServer);
         } catch (RuntimeException e) {
             // Re-binding the previous port can race with the old server's socket
@@ -606,8 +936,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             // the shared worker follows the new port.
             LOG.warn("event=coordinator_http_rebind_failed port={} error={} — retrying on random port",
                     previousPort, e.getMessage());
-            coordinatorHttpServer = new CoordinatorHttpServer(
-                    0, receiver, queryManager, TRACING_HTTP_FILTER, null, healthEndpoint);
+            coordinatorHttpServer = createCoordinatorHttpServer(
+                    0, receiver, healthEndpoint);
             startServerOrFail(coordinatorHttpServer);
         }
         LOG.info("Rebuilt coordinator HTTP on port {}", coordinatorHttpServer.getPort());
@@ -687,30 +1017,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     /**
      * Executes SQL through the real HTTP pipeline:
-     * POST /v1/query/submit → poll state → fetch results via transport.
+     * POST /v1/query/submit → fetch results via transport → poll terminal state.
      */
     private static List<TypedRow> executeViaRealPipeline(String sql) {
         try {
-            // Registry-based per-query buffer isolation (P0-FPV-5):
-            // TaskResultPipelineWirer.registerQueryBuffer() creates a dedicated
-            // OutputBufferManager per queryId in the registry. No global swap needed.
-
-            SubmitQueryResponse submitResponse = submitQueryViaHttp(sql);
-            String queryId = submitResponse.queryId();
-            List<String> columnNames = submitResponse.columnNames();
-
-            String terminalBody = pollUntilTerminal(queryId);
-            var terminalJson = MAPPER.readTree(terminalBody);
-            String terminalState = terminalJson.get("state").asText();
-            if ("FAILED".equals(terminalState)) {
-                String detail = extractErrorDetail(terminalJson);
-                throw new RuntimeException("Query failed: " + queryId + " — " + detail);
-            }
-
-            List<TypedRow> rows = fetchResultsViaTransport(
-                    submitResponse.resultEndpoint(), queryId);
-            List<TypedRow> remapped = remapColumnNames(rows, columnNames);
-            return remapped;
+            return consumeSubmittedQuery(submitQueryViaHttp(sql));
         } catch (TimeoutException e) {
             throw new RuntimeException("Query polling timed out after " + POLL_TIMEOUT_MS + "ms", e);
         } catch (RuntimeException e) {
@@ -720,13 +1031,44 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
     }
 
-    private static SubmitQueryResponse submitQueryViaHttp(String sql) throws Exception {
+    /** Drains the submitted query's stream, validates its terminal state, and releases its task. */
+    protected static List<TypedRow> consumeSubmittedQuery(SubmitQueryResponse submitResponse)
+            throws Exception {
+        String queryId = submitResponse.queryId();
+        ResultEndpoint endpoint = awaitResultEndpoint(queryId, submitResponse.resultEndpoint());
+        String canonicalTaskId = endpoint.ticket();
+        String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
+        List<TypedRow> rows;
+        try {
+            if ("FAILED".equals(submitResponse.state())
+                    || "CANCELLED".equals(submitResponse.state())) {
+                var terminal = MAPPER.readTree(pollUntilTerminal(queryId));
+                throw new IllegalStateException("Query terminated before result fetch: "
+                        + queryId + " state=" + terminal.path("state").asText()
+                        + " error=" + extractErrorDetail(terminal));
+            }
+            // Bounded OUTPUT tasks finish after the client drains their stream.
+            rows = fetchResultsViaTransport(endpoint, queryId);
+            var terminal = MAPPER.readTree(pollUntilTerminal(queryId));
+            String state = terminal.path("state").asText();
+            if (!"FINISHED".equals(state)) {
+                throw new IllegalStateException("Query failed: " + queryId + " state="
+                        + state + " — " + extractErrorDetail(terminal));
+            }
+        } catch (Exception failure) {
+            cancelNativeTaskAfterFetch(canonicalTaskId, workerTaskId);
+            throw failure;
+        }
+        releaseNativeTaskAfterTerminal(workerTaskId);
+        return remapColumnNames(rows, submitResponse.columnNames());
+    }
+
+    protected static SubmitQueryResponse submitQueryViaHttp(String sql) throws Exception {
         String url = "http://localhost:" + coordinatorHttpServer.getPort() + "/v1/query/submit";
         SubmitQueryRequest request = new SubmitQueryRequest(sql, Map.of());
         byte[] body = MAPPER.writeValueAsBytes(request);
 
-        HttpRequest httpReq = HttpRequest.newBuilder()
-                .uri(URI.create(url))
+        HttpRequest httpReq = authenticatedHttpRequest(URI.create(url))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
@@ -747,7 +1089,46 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return MAPPER.readValue(respBody, SubmitQueryResponse.class);
     }
 
-    private static String pollUntilTerminal(String queryId) throws Exception {
+    private static ResultEndpoint awaitResultEndpoint(
+            String queryId, ResultEndpoint submittedEndpoint) throws Exception {
+        if (submittedEndpoint != null) {
+            return submittedEndpoint;
+        }
+        String url = "http://localhost:" + coordinatorHttpServer.getPort()
+                + "/v1/query/" + queryId + "/state";
+        ResultEndpoint[] endpoint = new ResultEndpoint[1];
+        org.awaitility.Awaitility.await("query-result-endpoint: " + queryId)
+                .atMost(java.time.Duration.ofMillis(POLL_TIMEOUT_MS))
+                .pollInterval(java.time.Duration.ofMillis(POLL_INTERVAL_MS))
+                .pollDelay(java.time.Duration.ZERO)
+                .until(() -> {
+                    HttpRequest request = authenticatedHttpRequest(URI.create(url))
+                            .GET().build();
+                    HttpResponse<String> response = HTTP_CLIENT.send(
+                            request, HttpResponse.BodyHandlers.ofString());
+                    var status = MAPPER.readTree(response.body());
+                    String state = status.path("state").asText();
+                    if ("FAILED".equals(state) || "CANCELLED".equals(state)) {
+                        throw new IllegalStateException(
+                                "Query terminated before result endpoint: " + queryId
+                                        + " state=" + state
+                                        + " error=" + extractErrorDetail(status));
+                    }
+                    if (status.hasNonNull("result_endpoint")) {
+                        endpoint[0] = MAPPER.treeToValue(
+                                status.get("result_endpoint"), ResultEndpoint.class);
+                        return true;
+                    }
+                    if ("FINISHED".equals(state)) {
+                        throw new IllegalStateException(
+                                "Finished query has no result endpoint: " + queryId);
+                    }
+                    return false;
+                });
+        return endpoint[0];
+    }
+
+    protected static String pollUntilTerminal(String queryId) throws Exception {
         String url = "http://localhost:" + coordinatorHttpServer.getPort()
                 + "/v1/query/" + queryId + "/state";
 
@@ -763,11 +1144,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     .pollDelay(java.time.Duration.ZERO)
                     .ignoreExceptions()
                     .until(() -> {
-                        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
+                        HttpRequest req = authenticatedHttpRequest(URI.create(url))
+                                .GET()
+                                .build();
                         HttpResponse<String> resp = HTTP_CLIENT.send(req, HttpResponse.BodyHandlers.ofString());
                         String body = resp.body();
                         String state = MAPPER.readTree(body).get("state").asText();
-                        if ("FINISHED".equals(state) || "FAILED".equals(state)) {
+                        if ("FINISHED".equals(state) || "FAILED".equals(state)
+                                || "CANCELLED".equals(state)) {
                             terminalBody[0] = body;
                             return true;
                         }
@@ -777,6 +1161,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             throw new TimeoutException("Query " + queryId + " did not reach terminal state");
         }
         return terminalBody[0];
+    }
+
+    /** Builds a user request using the same bearer identity as the SQL runner. */
+    protected static HttpRequest.Builder authenticatedHttpRequest(URI uri) {
+        return HttpRequest.newBuilder()
+                .uri(uri)
+                .header("Authorization", "Bearer " + E2E_USER_BEARER_TOKEN);
     }
 
     private static String extractErrorDetail(com.fasterxml.jackson.databind.JsonNode json) {
@@ -862,10 +1253,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return b.build();
     }
 
-    private static List<TypedRow> fetchResultsViaTransport(
+    protected static List<TypedRow> fetchResultsViaTransport(
             ResultEndpoint endpoint, String queryId) {
         if (endpoint == null) {
-            return List.of();
+            throw new IllegalStateException(
+                    "Missing result endpoint for finished query: queryId=" + queryId);
         }
         // Direct buffer read bypasses the coordinator transport server entirely.
         if (coordinatorResultBuffer != null) {
@@ -876,18 +1268,24 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 return decodeResultBytes(buffered);
             }
         }
-        // Native result tasks serve data via C++ FlightResultServer on
-        // sharedResultServerPort. The coordinator transport server only
-        // holds constant-fold and DDL/DML results. For native SELECT
-        // queries, connect directly to FlightResultServer via Arrow Flight.
-        if (sharedResultServerPort > 0) {
-            System.err.println("[E2E-DIAG] fetchResults: using Flight DoGet queryId=" + queryId
-                    + " port=" + sharedResultServerPort);
-            List<TypedRow> rows = fetchResultsViaFlight(queryId, taskTracker);
-            System.err.println("[E2E-DIAG] fetchResults: Flight returned " + rows.size() + " rows queryId=" + queryId);
-            return rows;
+        // The terminal task may run on any physical Worker. Resolve the
+        // actual task placement and require the returned endpoint to match
+        // that Worker's registered Native result server.
+        String nativeTaskId = queryId.equals(endpoint.ticket())
+                ? null : requireNativeResultTaskId(endpoint, queryId, taskTracker);
+        if (nativeTaskId != null) {
+            String workerId = taskTracker.getWorkerForTask(nativeTaskId);
+            var worker = workerId == null ? null : workerManager.getWorker(workerId);
+            if (worker == null || worker.resultServerPort() <= 0
+                    || !worker.host().equals(endpoint.host())
+                    || worker.resultServerPort() != endpoint.port()) {
+                throw new IllegalStateException(
+                        "Native result endpoint does not match task placement: queryId="
+                                + queryId + " taskId=" + nativeTaskId);
+            }
+            return fetchResultsViaFlight(endpoint, queryId, taskTracker);
         }
-        // Fallback to transport for non-native results
+        // Control-plane results use their separately registered transport.
         System.err.println("[E2E-DIAG] fetchResults: using TransportClient queryId=" + queryId);
         DataTicket ticket = new DataTicket(
                 queryId, "result", 0, DataTicket.TicketType.RESULT);
@@ -955,14 +1353,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * indefinitely because PartitionedOutputNode waits for DoGet).</p>
      */
     protected static List<TypedRow> fetchResultsViaFlight(
-            String queryId, CoordinatorTaskTracker tracker) {
-        String nativeTaskId = resolveNativeTaskId(queryId, tracker);
-        if (nativeTaskId == null) {
-            LOG.warn("event=flight_fetch_no_task_id queryId={}", queryId);
-            return List.of();
+            ResultEndpoint endpoint, String queryId, CoordinatorTaskTracker tracker) {
+        String nativeTaskId = requireNativeResultTaskId(endpoint, queryId, tracker);
+        if (endpoint.host() == null || endpoint.host().isBlank()
+                || endpoint.port() <= 0) {
+            throw new IllegalStateException(
+                    "Native Flight result endpoint is not bound to task: queryId=" + queryId);
         }
         var location = org.apache.arrow.flight.Location.forGrpcInsecure(
-                "localhost", sharedResultServerPort);
+                endpoint.host(), endpoint.port());
 
         Exception lastException = null;
         for (int attempt = 0; attempt <= FLIGHT_FETCH_MAX_RETRIES; attempt++) {
@@ -992,7 +1391,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 }
                 LOG.info("event=flight_fetch_complete queryId={} taskId={} rows={} attempt={}",
                         queryId, nativeTaskId, rows.size(), attempt);
-                cancelNativeTaskAfterFetch(nativeTaskId);
                 return rows;
             } catch (Exception e) {
                 lastException = e;
@@ -1010,16 +1408,25 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 queryId, nativeTaskId,
                 lastException != null ? lastException.getMessage() : "unknown", lastException);
         cancelNativeTaskAfterFetch(nativeTaskId);
-        return List.of();
+        throw new IllegalStateException(
+                "Native Flight result fetch failed: queryId=" + queryId
+                        + " taskId=" + nativeTaskId, lastException);
     }
 
-    private static void cancelNativeTaskAfterFetch(String coordinatorTaskId) {
+    protected static void cancelNativeTaskAfterFetch(String coordinatorTaskId) {
+        cancelNativeTaskAfterFetch(coordinatorTaskId, null);
+    }
+
+    protected static void cancelNativeTaskAfterFetch(
+            String coordinatorTaskId, String knownWorkerTaskId) {
         if (workerTaskManagerRef == null || coordinatorTaskId == null) {
             return;
         }
         try {
             // TaskManager uses worker task IDs (queryId-NNN), so resolve first
-            String workerTaskId = workerTaskManagerRef.resolveWorkerTaskId(coordinatorTaskId);
+            String workerTaskId = knownWorkerTaskId != null
+                    ? knownWorkerTaskId
+                    : workerTaskManagerRef.resolveWorkerTaskId(coordinatorTaskId);
             String taskIdToCancel = workerTaskId != null ? workerTaskId : coordinatorTaskId;
             var result = workerTaskManagerRef.cancelTask(taskIdToCancel);
             // Always release the task executor after cancel to reclaim folly threads.
@@ -1032,6 +1439,20 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             LOG.warn("event=flight_fetch_cancel_failed taskId={} error={}",
                     coordinatorTaskId, e.getMessage());
         }
+    }
+
+    /** Releases the captured Worker task only after the canonical query terminal state. */
+    protected static void releaseNativeTaskAfterTerminal(String workerTaskId) {
+        if (workerTaskManagerRef == null || workerTaskId == null) {
+            return;
+        }
+        workerTaskManagerRef.releaseTaskExecutor(workerTaskId);
+    }
+
+    /** Captures the Worker-local ID before terminal cleanup removes its canonical index. */
+    protected static String resolveWorkerTaskId(String coordinatorTaskId) {
+        return workerTaskManagerRef == null || coordinatorTaskId == null
+                ? null : workerTaskManagerRef.resolveWorkerTaskId(coordinatorTaskId);
     }
 
     /**
@@ -1077,7 +1498,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     /**
-     * Resolves the native task ID for a query from the task tracker.
+     * Resolves the exact result task from the canonical endpoint ticket.
      * The coordinator tracks its own dispatch UUID, but the C++
      * OutputBufferManager registers under the coordinator dispatch UUID
      * (the taskId from the SubmitTaskRequest proto, which the C++ native
@@ -1085,19 +1506,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * the worker-generated queryId-NNN format — the worker ID is only
      * used for Java-side task management.
      */
-    protected static String resolveNativeTaskId(
-            String queryId, CoordinatorTaskTracker tracker) {
-        if (tracker != null) {
-            String coordinatorTaskId = tracker.getLatestStartedTaskId(queryId);
-            if (coordinatorTaskId == null) {
-                var taskIds = tracker.getTaskIds(queryId);
-                if (taskIds != null && !taskIds.isEmpty()) {
-                    coordinatorTaskId = taskIds.iterator().next();
-                }
-            }
-            return coordinatorTaskId;
+    protected static String requireNativeResultTaskId(
+            ResultEndpoint endpoint, String queryId, CoordinatorTaskTracker tracker) {
+        if (endpoint == null || endpoint.ticket() == null
+                || tracker == null || !tracker.getTaskIds(queryId).contains(endpoint.ticket())) {
+            throw new IllegalStateException(
+                    "Missing Native task ID for finished query: queryId=" + queryId
+                            + " ticket=" + (endpoint == null ? null : endpoint.ticket()));
         }
-        return null;
+        return endpoint.ticket();
     }
 
     /**
@@ -1120,8 +1537,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 appendBatchRows(reader.getVectorSchemaRoot(), rows);
             }
         } catch (Exception e) {
-            LOG.warn("Failed to decode Arrow IPC bytes ({} bytes): {}",
-                    resultBytes.length, e.getMessage());
+            throw new IllegalStateException(
+                    "Failed to decode result bytes: length=" + resultBytes.length, e);
         }
         return rows;
     }
@@ -1173,6 +1590,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             org.apache.arrow.vector.FieldVector vector, int row) {
         if (vector.isNull(row)) {
             return null;
+        }
+        if (org.pangrova.transport.ArrowBatchDecoder.isVectorField(vector.getField())) {
+            return org.pangrova.transport.ArrowBatchDecoder.decodeVectorField(vector, row);
         }
         Object value = vector.getObject(row);
         // Arrow Text → Java String.
@@ -1233,6 +1653,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
         return () -> {
             stopQuietly(coordinatorHttpServer);
+            closeE2ECoordination();
             shutdownMetadata();
         };
     }
@@ -1258,10 +1679,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         metadataBootstrap = initializeMetadata();
         System.err.println("[E2E-DEBUG] initCoordinatorServices: metadata initialized");
         writeCommitTracker = new org.pangrova.coordinator.query.task.NativeWriteCommitTracker();
-        registerNativeWriter();
         QueryDispatcher dispatcher = buildQueryDispatcher();
         System.err.println("[E2E-DEBUG] initCoordinatorServices: dispatcher built");
-        queryManager = new QueryManager(QueryManagerContext.minimal(dispatcher, TRACING_PROVIDER));
+        queryManager = new QueryManager(queryManagerContext(dispatcher));
         System.err.println("[E2E-DEBUG] initCoordinatorServices: queryManager created");
         new CoordinatorMetrics(METRICS_PROVIDER, () -> (double) workerManager.getActiveWorkers().size());
         System.err.println("[E2E-DEBUG] initCoordinatorServices: metrics created");
@@ -1270,21 +1690,53 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new TaskStatusReceiverContext(queryManager, taskTracker, workerManager,
                         null, null, null,
                         org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
-                        metadataBootstrap.catalogRegistry(), writeCommitTracker, null, null, null));
+                        metadataBootstrap.catalogRegistry(), writeCommitTracker, null, null, sharedWriteCommitJournal,
+                        artifactWorkReportSink()));
         System.err.println("[E2E-DEBUG] initCoordinatorServices: receiver created");
         HealthCheckEndpoint healthEndpoint = createCoordinatorHealthEndpoint();
-        coordinatorHttpServer = new CoordinatorHttpServer(
-                0, receiver, queryManager, TRACING_HTTP_FILTER, null, healthEndpoint);
+        coordinatorHttpServer = createCoordinatorHttpServer(
+                0, receiver, healthEndpoint);
         System.err.println("[E2E-DEBUG] initCoordinatorServices: http server created");
         startServerOrFail(coordinatorHttpServer);
+        sharedTaskStatusReceiver = receiver;
+        registerNativeWriter();
         coordinatorHttpReady.set(true);
         LOG.info("Coordinator COORDINATORS: metadata + queryManager + HTTP started on port {}",
                 coordinatorHttpServer.getPort());
     }
 
     private static void initCoordinatorReadiness() {
-        // HA registration — in tests, coordinator is always leader
-        LOG.info("Coordinator READINESS: HA registration complete");
+        var coordination = new org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService(
+                new org.pangrova.metadata.coordination.JdbcDistributedLease(
+                        stateStoreDataSource));
+        coordination.setExecutionAnchorStore(
+                new org.pangrova.metadata.coordination.JdbcExecutionAnchorStore(
+                        stateStoreDataSource));
+        coordination.start(E2E_COORDINATOR_ID);
+        if (!coordination.isLeader(E2E_COORDINATOR_ID)
+                || coordination.getCurrentEpoch() <= 0) {
+            coordination.close();
+            throw new IllegalStateException("E2E Coordinator did not acquire its durable control lease");
+        }
+        e2eCoordinationService = coordination;
+        java.util.Objects.requireNonNull(sharedTaskStatusReceiver, "E2E task receiver is not initialized")
+                .setWriteCommitFencer(E2E_WRITE_COMMIT_FENCER);
+        sharedQueryDispatcher.setOwnershipTracking(coordination, E2E_COORDINATOR_ID);
+        queryManager.setLocalCoordinatorId(E2E_COORDINATOR_ID);
+        startArtifactControlLoops();
+        LOG.info("Coordinator READINESS: durable lease and execution anchors ready epoch={}",
+                coordination.getCurrentEpoch());
+    }
+
+    private static void closeE2ECoordination() {
+        closeQuietly(sharedIndexingBootstrap, "indexing_lifecycle");
+        sharedIndexingBootstrap = null;
+        stopArtifactControlLoops();
+        var coordination = e2eCoordinationService;
+        e2eCoordinationService = null;
+        if (coordination != null) {
+            coordination.close();
+        }
     }
 
     /**
@@ -1328,6 +1780,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                             TaskManager[] taskManagerHolder) {
         // Phase 1: native engine (mandatory)
         TaskExecutor taskExecutor = initNativeExecutor();
+        sharedWorkerTaskExecutor = taskExecutor;
         executorHolder[0] = taskExecutor;
         workerNativeReady.set(true);
 
@@ -1354,7 +1807,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 ? sharedResultServerPort
                 : coordinatorTransportServer.getPort();
         workerHttpServer = startWorkerHttpServer(workerTaskManager, taskExecutor,
-                workerTransportPort, healthEndpoint);
+                workerTransportPort, healthEndpoint, 0);
         workerHttpReady.set(true);
 
         LOG.info("Worker WORKERS: native + resources + taskManager + transport:{} + http:{} started",
@@ -1368,49 +1821,93 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 : coordinatorTransportServer.getPort();
         registerWorker(workerHttpServer.getPort(), workerTransportPort);
         configureStatusReporter();
+        // The in-process Worker does not run WorkerHeartbeatBootstrap. Model its
+        // authenticated control heartbeat periodically so a durable lease
+        // reacquisition advances the Worker's independently observed epoch.
+        // Dispatch itself never advances the epoch on HTTP 425.
+        controlEpochObserver = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
+                r -> {
+                    Thread thread = new Thread(r, "e2e-worker-control-heartbeat");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+        controlEpochObserver.scheduleWithFixedDelay(() -> {
+            try {
+                var coordination = e2eCoordinationService;
+                var manager = workerTaskManagerRef;
+                if (coordination != null && manager != null
+                        && coordination.isLeader(E2E_COORDINATOR_ID)) {
+                    long epoch = coordination.getCurrentEpoch();
+                    if (epoch > 0) {
+                        manager.observeControlEpoch(epoch);
+                    }
+                }
+            } catch (RuntimeException error) {
+                LOG.warn("event=e2e_control_heartbeat_failed error={}", error.toString());
+            }
+        }, 0, 1, java.util.concurrent.TimeUnit.SECONDS);
         LOG.info("Worker READINESS: cluster registration complete");
     }
 
     private static TaskExecutor initNativeExecutor() {
         // nativeInit already called in bootstrapTestEnvironment — skip duplicate init
-        return new NativeTaskExecutor();
+        var executor = new NativeTaskExecutor();
+        executor.setCatalogRuntime(java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime));
+        return executor;
     }
 
     private static TaskManager createTaskManager(
             TaskExecutor executor, ResourceManager resourceManager) {
         int coordPort = coordinatorHttpServer != null ? coordinatorHttpServer.getPort() : 0;
-        statusReporter = new RemoteTaskStatusReporter("http://localhost:" + coordPort, TRACING_PROVIDER);
+        statusReporter = new RemoteTaskStatusReporter(
+                "http://localhost:" + coordPort,
+                TRACING_PROVIDER,
+                E2E_INTERNAL_AUTH_SECRET);
         sharedStatusReporter = statusReporter;
         TransportRefs transportDeps = createTestTransportRefs(executor);
         TaskManagerContext deps = new TaskManagerContext(
                 statusReporter, executor,
-                new MemoryRefs(resourceManager),
+                new MemoryRefs(resourceManager, sharedWorkerNodePool, null),
                 transportDeps,
                 java.util.concurrent.Executors.newCachedThreadPool(r -> {
                     Thread t = new Thread(r, "test-completion-monitor");
                     t.setDaemon(true);
                     return t;
                 }));
-        return new TaskManager(deps, WORKER_ID, 0.0);
+        TaskManager manager = new TaskManager(deps, WORKER_ID, 0.0);
+        manager.requireControlEpochHandshake();
+        manager.observeControlEpoch(requireE2ECoordination().getCurrentEpoch());
+        return manager;
     }
 
-    private static TransportRefs createTestTransportRefs(TaskExecutor executor) {
+    static TransportRefs createTestTransportRefs(TaskExecutor executor) {
+        org.pangrova.worker.result.NativeResultTransport resultTransport = null;
         try {
-            var shuffleTransport = new org.pangrova.worker.shuffle.NativeShuffleTransport(executor, "localhost");
-            var resultTransport = new org.pangrova.worker.result.NativeResultTransport(executor, "localhost");
+            var shuffleTransport = new org.pangrova.worker.shuffle.NativeShuffleTransport(
+                    executor, IN_PROCESS_WORKER_HOST, "");
+            resultTransport = new org.pangrova.worker.result.NativeResultTransport(
+                    executor, IN_PROCESS_WORKER_HOST);
             resultTransport.startServer(0);
             sharedResultServerPort = resultTransport.boundPort();
             var exchangeTransport = new org.pangrova.worker.exchange.NativeExchangeTransport(executor);
             LOG.info("event=e2e_transport_initialized resultPort={}", sharedResultServerPort);
             return new TransportRefs(shuffleTransport, resultTransport, exchangeTransport);
         } catch (Exception e) {
-            LOG.warn("event=e2e_transport_init_failed error={} fallback=empty", e.getMessage());
-            return TransportRefs.empty();
+            sharedResultServerPort = 0;
+            if (resultTransport != null) {
+                try {
+                    resultTransport.close();
+                } catch (Exception cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
+            }
+            throw new IllegalStateException("Failed to initialize E2E Native transports", e);
         }
     }
 
     private static ResourceManager createResourceManager() {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(WORKER_MEMORY_BYTES, 128L * 1024 * 1024);
+        MemoryArbitrator arbitrator = java.util.Objects.requireNonNull(
+                sharedWorkerMemoryArbitrator, "E2E Worker arbitrator must be initialized before task admission");
         SpillManager spillManager = new SpillManager();
         ThreadBudgetTracker threadPoolManager = new ThreadBudgetTracker(8, 4, 2);
         return new ResourceManager(arbitrator, threadPoolManager, spillManager);
@@ -1445,12 +1942,17 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static WorkerHttpServer startWorkerHttpServer(
             TaskManager taskManager, TaskExecutor taskExecutor,
-            int transportPort, HealthCheckEndpoint healthEndpoint) {
+            int transportPort, HealthCheckEndpoint healthEndpoint, int httpPort) {
         var exchangeTransport = new NativeExchangeTransport(taskExecutor);
-        var httpConfig = new WorkerHttpServer.WorkerHttpConfig(0, "localhost", transportPort);
+        var httpConfig = new WorkerHttpServer.WorkerHttpConfig(
+                httpPort, IN_PROCESS_WORKER_HOST, transportPort,
+                E2E_INTERNAL_AUTH_SECRET, "grpc");
         WorkerHttpServer server = new WorkerHttpServer(
-                httpConfig, taskManager, exchangeTransport, healthEndpoint);
+                httpConfig, taskManager, exchangeTransport, healthEndpoint,
+                new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager,
+                        java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")));
         startServerOrFail(server);
+        sharedWorkerHttpPort = server.getPort();
         return server;
     }
 
@@ -1461,10 +1963,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static QueryDispatcher buildQueryDispatcher() {
         // StatementDispatcher must be built BEFORE SqlCompiler so that sharedMvManager
         // is initialized when buildSqlCompiler() creates the DynamicTableRewriter.
-        // Late-bound NativeDmlCompileFunction: INSERT SELECT, DELETE, UPDATE, MERGE
-        // re-enter the QueryDispatcher pipeline for native execution.
-        // Uses executeDmlSql() to bypass StatementDispatchPhase and avoid
-        // re-entering the statement dispatch pipeline.
+        // Match production DML routing: compile the parsed statement once and
+        // preserve its write mode, partition binding, and execution ownership.
         var queryDispatcherRef = new java.util.concurrent.atomic.AtomicReference<QueryDispatcher>();
         org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch =
                 (sm, session, stmt) -> {
@@ -1472,118 +1972,186 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     if (qd == null) {
                         throw new IllegalStateException("QueryDispatcher not initialized");
                     }
-                    // Delegate to executeDmlStatement for MERGE (handles Complete MERGE
-                    // decomposition with write context registration).
-                    if (stmt instanceof org.pangrova.parser.ast.statement.dml.MergeStatement) {
-                        return qd.executeDmlStatement(sm, stmt, session);
-                    }
-                    // DELETE: handle in Java via Iceberg API.
-                    // DELETE ALL and partition-level deletes use deleteByFilter (MoR).
-                    // Row-level deletes (WHERE on non-partition columns) use native
-                    // copy-on-write path: read surviving rows → overwrite.
-                    if (stmt instanceof org.pangrova.parser.ast.statement.dml.DeleteStatement delStmt) {
-                        if (delStmt.where().isEmpty()) {
-                            // DELETE ALL: pure metadata operation
-                            var ref = org.pangrova.coordinator.query.statement.TableResolver
-                                    .resolveTableRef(delStmt.tableName().parts());
-                            var connSession = org.pangrova.coordinator.query.statement.TableResolver
-                                    .buildSession(ref.catalog());
-                            var catHandle = metadataBootstrap.catalogRegistry().getCatalog(ref.catalog());
-                            var meta = catHandle.getMetadata(connSession);
-                            var tblHandle = org.pangrova.coordinator.query.statement.TableResolver
-                                    .requireTableHandle(meta, connSession, ref);
-                            meta.deleteByFilter(connSession, tblHandle,
-                                    new org.pangrova.spi.connector.metadata.DeleteFilter.All());
-                            LOG.info("event=delete_all table={}", ref);
-                            sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.SCHEDULING);
-                            sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.RUNNING);
-                            sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.FINISHING);
-                            sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.FINISHED);
-                            return new org.pangrova.coordinator.query.execution.dispatch.DispatchResult("localhost", "delete-" + session.queryId(),
-                                    new org.pangrova.protocol.rest.query.ResultEndpoint(
-                                            "localhost", 0, "delete-" + session.queryId(), "local"));
-                        }
-                        // Row-level DELETE with WHERE: native copy-on-write path.
-                        // DmlOperationConverter.convertDelete() inverts the WHERE filter to
-                        // produce surviving rows (CoW). The write mode must be OVERWRITE so
-                        // the commit replaces existing data with the surviving-rows files.
-                        String sql = new org.pangrova.parser.AstPrinter().print(stmt);
-                        return qd.executeDmlSql(sm, sql, session, "OVERWRITE");
-                    }
-                    // INSERT OVERWRITE SELECT: override write mode to OVERWRITE so
-                    // native workers produce overwrite-format fragments and
-                    // IcebergMetadata.commitAtomicOverwrite() replaces data files.
-                    if (stmt instanceof org.pangrova.parser.ast.statement.dml.InsertSelectStatement iss
-                            && iss.overwrite()) {
-                        String sql = new org.pangrova.parser.AstPrinter().print(stmt);
-                        return qd.executeDmlSql(sm, sql, session, "OVERWRITE");
-                    }
-                    // UPDATE and other DML: compile to native plan and dispatch.
-                    String sql = new org.pangrova.parser.AstPrinter().print(stmt);
-                    return qd.executeDmlSql(sm, sql, session, null);
+                    return qd.executeDmlStatement(sm, stmt, session);
                 };
         // Build CoordinatorResultService BEFORE StatementDispatcher so DDL/metadata
         // results (SHOW INDEXES, DESCRIBE, etc.) are buffered and returned to clients.
         CoordinatorResultService resultSvc = buildCoordinatorResultService();
-        var statementDispatcher = buildStatementDispatcher(dmlDispatch, queryDispatcherRef, taskTracker, resultSvc);
-        var indexAwareSplitFetcher = registerIndexHandlers(statementDispatcher);
-        statementDispatcher.setSystemTableQueryTask(
-                new org.pangrova.coordinator.query.execution.dispatch.task.SystemTableQueryTask(
-                        metadataBootstrap.catalogRegistry()));
-        SqlCompiler compiler = buildSqlCompiler();
-        statementDispatcher.updateCompiler(compiler);
-        closeQuietly(sharedTaskDispatcher, "task_dispatcher");
-        RemoteTaskDispatcher httpDispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TRACING_PROVIDER);
-        sharedTaskDispatcher = httpDispatcher;
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
         if (workerManager == null) {
             workerManager = new WorkerManager();
         }
-        var security = new org.pangrova.coordinator.query.execution.SecurityContextBundle(null, null, null);
+        E2eCurrentAuthority.tenants(stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL);
+        E2eCurrentAuthority.provisionModels(stateStoreDataSource, E2E_USER_PRINCIPAL);
+        currentAccessControl = featureAccessControl == null
+                ? E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL) : featureAccessControl;
+        var embeddingRegistry = new org.pangrova.coordinator.ai.embedding.JdbcEmbeddingModelRegistry(
+                java.util.Objects.requireNonNull(
+                        stateStoreDataSource, "E2E PostgreSQL state store must be initialized"),
+                E2eCurrentAuthority.MODEL_ADMIN_ROLE, E2eCurrentAuthority.MODEL_USAGE_ROLE);
+        embeddingRegistry.initSchema();
+        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        sharedGeneratedValueCoordinator = E2eCurrentAuthority.generatedValues(new E2eCurrentAuthority.GeneratedServices(
+                stateStoreDataSource, metadataBootstrap.catalogRegistry(), sharedArtifactBuildStore,
+                sharedWriteCommitJournal, workerManager, scheduler, embeddingRegistry,
+                tempDir.resolve("generated-artifacts").toUri().toString()));
+        var generatedCoordinator = sharedGeneratedValueCoordinator;
+        generatedCoordinator.bindSourceCompiler((sql, actor) -> {
+            QueryDispatcher dispatcher = queryDispatcherRef.get();
+            if (dispatcher == null) {
+                throw new IllegalStateException("QueryDispatcher not initialized for generated input compilation");
+            }
+            return dispatcher.compileAuthorizedRelation(sql, actor);
+        });
+        sharedWriteAuthoritySupplier = generatedCoordinator::writeAuthority;
+        var statementDispatcher = buildStatementDispatcher(
+                dmlDispatch, queryDispatcherRef, taskTracker, resultSvc,
+                embeddingRegistry, workerManager);
+        var indexAwareSplitFetcher = registerIndexHandlers(statementDispatcher);
+        SqlCompiler compiler = buildSqlCompiler();
+        statementDispatcher.updateCompiler(compiler);
+        closeQuietly(sharedTaskDispatcher, "task_dispatcher");
+        RemoteTaskDispatcher httpDispatcher = createE2ETaskDispatcher();
+        sharedTaskDispatcher = httpDispatcher;
+        var security = new org.pangrova.coordinator.query.execution.SecurityContextBundle(
+                new org.pangrova.coordinator.query.security.AccessControlEnforcer(currentAccessControl),
+                new org.pangrova.planner.security.ColumnMaskApplier(currentAccessControl),
+                new org.pangrova.planner.security.RowFilterApplier(currentAccessControl));
         var scheduling = new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
-                httpDispatcher, scheduler, workerManager, taskTracker, null, null, null, null);
+                httpDispatcher, scheduler, workerManager, taskTracker, null, null,
+                new org.pangrova.coordinator.query.execution.dispatch.dag.SpillBudget(
+                        NATIVE_WRITE_STAGE_BYTES, ""), null);
         var deps = new QueryDispatcherContext(
                 compiler, security, scheduling,
-                org.pangrova.coordinator.query.execution.CacheContextBundle.none(),
-                metadataBootstrap.catalogRegistry(), null, resultSvc, 0L,
-                null, null, null, null, null, null, null, indexAwareSplitFetcher);
+                metadataBootstrap.catalogRegistry(), null, 0L,
+                null, null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry);
         var queryDispatcher = new QueryDispatcher(
                 deps, statementDispatcher);
         queryDispatcher.setWriteCommitTracker(writeCommitTracker);
+        queryDispatcher.setGeneratedWriteAuthoritySupplier(sharedWriteAuthoritySupplier);
+        sharedQueryDispatcher = queryDispatcher;
+        if (e2eCoordinationService != null) {
+            queryDispatcher.setOwnershipTracking(e2eCoordinationService,
+                    E2E_COORDINATOR_ID);
+        }
         queryDispatcherRef.set(queryDispatcher);
         return queryDispatcher;
     }
 
+    /** Uses the same fenced control identity contract as production HA wiring. */
+    static RemoteTaskDispatcher createE2ETaskDispatcher() {
+        RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
+                CircuitBreakerPolicy.noOp(),
+                TRACING_PROVIDER,
+                E2E_INTERNAL_AUTH_SECRET);
+        dispatcher.setControlEpochSupplier(
+                () -> requireE2ECoordination().getCurrentEpoch());
+        dispatcher.setExecutionOwnerResolver(executionId -> {
+            var anchor = requireE2ECoordination().requireExecutionAnchor(executionId);
+            return new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
+                    anchor.ownerId(), anchor.ownerIncarnation(), anchor.fencingToken());
+        });
+        return dispatcher;
+    }
+
+    private static org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
+            requireE2ECoordination() {
+        var coordination = e2eCoordinationService;
+        if (coordination == null) {
+            throw new IllegalStateException("E2E durable coordination is not initialized");
+        }
+        return coordination;
+    }
+
+    private static org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink
+            artifactWorkReportSink() {
+        return new org.pangrova.coordinator.query.task.report.DurableArtifactWorkReportSink(
+                java.util.Objects.requireNonNull(sharedArtifactBuildStore,
+                        "E2E durable artifact store must be initialized"),
+                new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(stateStoreDataSource));
+    }
+
+    private static void stopArtifactControlLoops() {
+        if (artifactDispatchExecutor != null) {
+            artifactDispatchExecutor.shutdownNow();
+            artifactDispatchExecutor = null;
+        }
+        closeQuietly(sharedArtifactBuildDispatcher, "artifact_build_dispatcher");
+        sharedArtifactBuildDispatcher = null;
+        closeQuietly(artifactTaskDispatcher, "artifact_task_dispatcher");
+        artifactTaskDispatcher = null;
+        closeQuietly(sharedArtifactPublisher, "artifact_publisher");
+        sharedArtifactPublisher = null;
+    }
+
+    private static void startArtifactControlLoops() {
+        if (sharedArtifactBuildDispatcher == null) {
+            artifactTaskDispatcher = createE2ETaskDispatcher();
+            sharedArtifactBuildDispatcher = new org.pangrova.coordinator.artifact
+                    .DurableArtifactBuildDispatcher(
+                            new org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher.Dependencies(
+                                    sharedArtifactBuildStore,
+                                    new TaskScheduler(new WorkerPerformanceScorer()),
+                                    workerManager, artifactTaskDispatcher, taskTracker,
+                                    E2E_COORDINATOR_ID,
+                                    () -> requireE2ECoordination().getCurrentEpoch(),
+                                    new org.pangrova.coordinator.artifact.ArtifactExecutionOwnership(
+                                            requireE2ECoordination(), E2E_COORDINATOR_ID),
+                                    new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(
+                                            stateStoreDataSource),
+                                    new org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore(stateStoreDataSource),
+                                    java.util.Objects.requireNonNull(sharedQueryDispatcher,
+                                            "shared QueryDispatcher must be initialized").dagEngine()),
+                            new org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher.Settings(
+                                    Duration.ofMinutes(2), Duration.ofSeconds(5), 32));
+        }
+        if (sharedArtifactPublisher == null) {
+            sharedArtifactPublisher = new org.pangrova.coordinator.artifact.DurableArtifactPublisher(
+                    sharedArtifactBuildStore, E2eArtifactPublications.stores(stateStoreDataSource),
+                    new org.pangrova.coordinator.artifact.ArtifactExecutionOwnership(
+                            requireE2ECoordination(), E2E_COORDINATOR_ID));
+            sharedArtifactPublisher.start();
+        }
+        if (artifactDispatchExecutor == null) {
+            artifactDispatchExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newSingleThreadScheduledExecutor("e2e-artifact-dispatch");
+            artifactDispatchExecutor.scheduleWithFixedDelay(() -> {
+                try {
+                    sharedArtifactBuildDispatcher.pollOnce();
+                } catch (RuntimeException failure) {
+                    LOG.error("event=e2e_artifact_dispatch_failed error={}",
+                            failure.getMessage(), failure);
+                }
+            }, 0, 1, java.util.concurrent.TimeUnit.SECONDS);
+        }
+    }
+
+    protected static org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
+            e2eCoordinationForTest() {
+        return requireE2ECoordination();
+    }
+
     /**
      * Prepares index DDL infrastructure and query-time index pruning for E2E tests.
-     * Creates a minimal IndexDdlExecutor backed by the same PostgreSQL DataSource
-     * used for metadata. The index cache is stored for use by other E2E tests.
+     * Uses the same durable Native artifact build service as production,
+     * backed by the E2E PostgreSQL metadata store.
      * Returns an IndexAwareSplitFetcher for query-time split pruning.
      */
     private static org.pangrova.coordinator.index.IndexAwareSplitFetcher registerIndexHandlers(
             org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher statementDispatcher) {
         try {
-            javax.sql.DataSource ds = org.pangrova.testing.e2e.setup.MetadataSchemaInitializer
-                    .createDataSource(pgJdbcUrl(), pgUsername(), pgPassword());
-            var indexMetadataStore = new org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore(ds);
-            var indexCache = new org.pangrova.indexing.storage.IndexCache(64L * 1024 * 1024);
-            sharedIndexCache = indexCache;
-            var engineRegistry = new org.pangrova.indexing.IndexEngineRegistry();
-            var storageManager = new org.pangrova.indexing.storage.IndexStorageManager();
-            var serdeRegistry = org.pangrova.indexing.serde.TypeSerializerRegistry.createDefault();
-            var serializer = new org.pangrova.indexing.serde.IndexSerializer(serdeRegistry);
-            var config = new org.pangrova.indexing.config.IndexingConfig(
-                    "/tmp/pangrova/indexes-e2e", true, null, null);
-            var buildDeps = new org.pangrova.indexing.build.IndexBuildContext(
-                    config, engineRegistry, storageManager, serializer);
-            var buildCoordinator = new org.pangrova.indexing.build.IndexBuildCoordinator(buildDeps, null);
-            var accessorResolver = new org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver(
-                    metadataBootstrap.catalogRegistry());
-            var ddlDeps = new org.pangrova.coordinator.index.ddl.IndexDdlContext(
-                    indexMetadataStore, buildCoordinator, metadataBootstrap.catalogRegistry(),
-                    accessorResolver);
-            var indexExecutor = new org.pangrova.coordinator.index.ddl.IndexDdlExecutor(
-                    ddlDeps, indexCache, null);
+            var indexMetadataStore = new org.pangrova.metadata.index.jdbc.JdbcIndexMetadataStore(stateStoreDataSource);
+            closeQuietly(sharedIndexingBootstrap, "indexing_lifecycle_rebuild");
+            sharedIndexingBootstrap = new org.pangrova.coordinator.bootstrap.IndexingBootstrap(
+                    tempDir.resolve("index-artifacts").toString(),
+                    new org.pangrova.metadata.coordination.JdbcDistributedLease(stateStoreDataSource),
+                    sharedArtifactBuildStore, E2eArtifactPublications.router(stateStoreDataSource));
+            sharedIndexingBootstrap.start(indexMetadataStore, metadataBootstrap.catalogRegistry(),
+                    null, currentAccessControl);
+            sharedGeneratedValueCoordinator.activateCatalogs(
+                    sharedIndexingBootstrap.registerDurableCommitProcessor(sharedGeneratedValueCoordinator));
+            sharedIndexingBootstrap.onLeaderElected();
+            var indexExecutor = sharedIndexingBootstrap.getDdlExecutor();
+            var accessorResolver = sharedIndexingBootstrap.getAccessorResolver();
 
             var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(
                     java.util.Map.of());
@@ -1602,18 +2170,20 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 sharedDdlExecutor.setSchemaEvolutionHandler(schemaEvolutionHandler);
             }
 
-            var evalConfig = new org.pangrova.coordinator.index.filter.IndexEvalConfig(null, 5000, 0);
-            var splitFilter = new org.pangrova.coordinator.index.filter.IndexSplitFilter(
-                    indexMetadataStore, null, evalConfig);
             var indexAwareSplitFetcher = new org.pangrova.coordinator.index.IndexAwareSplitFetcher(
-                    metadataBootstrap.catalogRegistry(), splitFilter, indexMetadataStore, accessorResolver);
+                    metadataBootstrap.catalogRegistry(), sharedIndexingBootstrap.getSplitFilter(), indexMetadataStore,
+                    accessorResolver, sharedArtifactBuildStore);
+            indexAwareSplitFetcher.bindGeneratedValueReads(
+                    new org.pangrova.coordinator.artifact.GeneratedValueReadResolver(
+                            metadataBootstrap.catalogRegistry(), sharedArtifactBuildStore,
+                            new org.pangrova.metadata.artifact.jdbc.JdbcGeneratedValueArtifactPublicationStore(
+                                    stateStoreDataSource)));
 
             LOG.info("event=index_infrastructure_initialized_in_e2e executor_type={} pruning=enabled",
                     indexExecutor.getClass().getSimpleName());
             return indexAwareSplitFetcher;
         } catch (Exception e) {
-            LOG.warn("event=index_handler_registration_failed error={}", e.getMessage());
-            return null;
+            throw new IllegalStateException("E2E index infrastructure failed to initialize", e);
         }
     }
 
@@ -1641,30 +2211,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch,
             java.util.concurrent.atomic.AtomicReference<QueryDispatcher> queryDispatcherRef,
             org.pangrova.coordinator.task.CoordinatorTaskTracker tt,
-            org.pangrova.coordinator.result.CoordinatorResultService resultSvc) {
+            org.pangrova.coordinator.result.CoordinatorResultService resultSvc,
+            org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry embeddingRegistry,
+            WorkerManager embeddingWorkers) {
         var catalog = metadataBootstrap.catalogRegistry();
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
                 org.pangrova.coordinator.metadata.MetadataSchemaBuilder::invalidateTableCaches);
         sharedDdlExecutor = ddlExecutor;
-        var dmlExecutor = new org.pangrova.coordinator.query.statement.dml.DmlExecutor(catalog,
-                new org.pangrova.coordinator.query.statement.dml.DmlExecutorConfig(
-                        null, dmlDispatch, null,
-                        org.pangrova.coordinator.query.statement.dml.DmlExecutorConfig.DEFAULT_MAX_CONCURRENT_DML,
-                        120_000L,
-                        writeCommitTracker));
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
         var dtExecutor = buildDynamicTableDdlExecutor();
-
-        // INSERT SELECT: dispatch to native worker via late-bound QueryDispatcher
-        org.pangrova.coordinator.query.execution.dispatch.dag.insert.InsertSelectDispatchPipeline.DispatchFunction
-                insertSelectDispatchFn = (sm, session, plannedQuery) -> {
-                    QueryDispatcher qd = queryDispatcherRef.get();
-                    if (qd == null) {
-                        throw new IllegalStateException("QueryDispatcher not initialized");
-                    }
-                    return qd.dispatchPlan(sm, session, plannedQuery);
-                };
 
         // 2-Factory architecture: MetadataExecutionFactory + PlanExecutionFactory
         var tasks = new java.util.HashMap<Class<? extends org.pangrova.parser.ast.Statement>,
@@ -1693,11 +2249,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateCatalogTask(ddlExecutor));
         tasks.put(org.pangrova.parser.ast.statement.DropCatalogStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.DropCatalogTask(ddlExecutor));
-        // DML (INSERT only)
-        tasks.put(org.pangrova.parser.ast.InsertStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.InsertValuesTask(dmlExecutor));
-        tasks.put(org.pangrova.parser.ast.statement.dml.InsertOverwriteStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.InsertOverwriteTask(dmlExecutor));
         // SHOW / DESCRIBE
         tasks.put(org.pangrova.parser.ast.ShowSchemasStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowSchemasTask(showDescribeExecutor));
@@ -1727,12 +2278,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         // Procedures
         tasks.put(org.pangrova.parser.ast.statement.maintenance.CallStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(catalog));
-        // SHOW metadata (redirects to system table queries)
-        var showMetadataTask = new org.pangrova.coordinator.query.execution.dispatch.task.ShowMetadataRedirectTask(catalog);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowSnapshots.class, showMetadataTask);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowFiles.class, showMetadataTask);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowManifests.class, showMetadataTask);
-        tasks.put(org.pangrova.parser.ast.statement.ShowMetadataStatement.ShowPartitions.class, showMetadataTask);
         // Incremental read (CHANGES BETWEEN SNAPSHOT x AND y)
         tasks.put(org.pangrova.parser.ast.statement.IncrementalReadStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalog));
@@ -1753,6 +2298,22 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.ast.statement.ShowTagsStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.branch.ShowTagsTask(branchExecutor));
         var metadataFactory = new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
+        if (featureAccessControl != null) {
+            var exports = new org.pangrova.coordinator.feature.DurableFeatureExportService(
+                    sharedArtifactBuildStore,
+                    new org.pangrova.coordinator.artifact.SnapshotArtifactSplitPlanner(catalog),
+                    tempDir.resolve("feature-exports").toString(), catalog);
+            var features = org.pangrova.metadata.ai.AiInfrastructureStores.jdbc(stateStoreDataSource).features();
+            var service = new org.pangrova.coordinator.feature.FeatureViewStatementService(
+                    features, exports, featureAccessControl,
+                    (sql, actor) -> java.util.Objects.requireNonNull(queryDispatcherRef.get(),
+                            "QueryDispatcher must be initialized").compileAuthorizedRelation(sql, actor));
+            org.pangrova.coordinator.feature.FeatureViewMetadataTasks.register(metadataFactory, service);
+        }
+        if (embeddingRegistry != null) {
+            org.pangrova.coordinator.ai.embedding.EmbeddingModelTaskRegistration.register(
+                    metadataFactory, embeddingRegistry, embeddingWorkers);
+        }
         if (dtExecutor != null) {
             metadataFactory.registerTask(org.pangrova.parser.ast.CreateDynamicTableStatement.class,
                     new org.pangrova.coordinator.query.execution.dispatch.task.CreateDynamicTableTask(dtExecutor));
@@ -1771,8 +2332,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
                         dmlDispatch, null,
-                        (sql, sess) -> sql, writeCommitTracker,
-                        metadataBootstrap.catalogRegistry(), null));
+                        (sql, sess) -> sql,
+                        metadataBootstrap.catalogRegistry(),
+                        sharedGeneratedValueCoordinator));
 
         var factories = new java.util.ArrayList<
                 org.pangrova.coordinator.query.execution.dispatch.StatementExecutionFactory<?>>();
@@ -1780,7 +2342,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         factories.add(planFactory);
 
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
-                null, resultSvc, List.copyOf(factories), List.of(), null);
+                null, resultSvc, List.copyOf(factories), List.of(), currentAccessControl);
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
     }
 
@@ -1944,15 +2506,25 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     protected static SqlCompiler buildSqlCompiler() {
-        CalciteSchema rootSchema = metadataBootstrap.buildCalciteSchema();
         if (sharedMvManager != null && sharedDtRewriter == null) {
             sharedDtRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(sharedMvManager);
         }
-        org.pangrova.planner.PlannerContext deps =
-                new org.pangrova.planner.PlannerContext(
-                        null, null, null, null, null, sharedDtRewriter, null);
-        PangrovaPlanner planner = new PangrovaPlanner(rootSchema, defaultSchemaPath, deps);
-        return new SqlCompiler(planner, new SubstraitConverter(), new SubstraitPlanSerializer());
+        List<String> schemaPath = List.copyOf(defaultSchemaPath);
+        PangrovaPlanner template = new PangrovaPlanner(
+                CalciteSchema.createRootSchema(false, false), schemaPath);
+        return new SqlCompiler(template, new SubstraitConverter(), new SubstraitPlanSerializer())
+                .withSessionPlanner(session -> {
+                    var deps = new org.pangrova.planner.PlannerContext(
+                            new org.pangrova.planner.stats.StatisticsCollector(
+                                    new org.pangrova.coordinator.metadata.CatalogStatisticsProvider(
+                                            metadataBootstrap.catalogRegistry(), session)),
+                            null, null,
+                            org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig.DEFAULT,
+                            null, sharedDtRewriter, null,
+                            org.pangrova.planner.cost.CboConfig.DEFAULT,
+                            org.pangrova.planner.cost.CostModelConfig.SSD_DEFAULT);
+                    return new PangrovaPlanner(metadataBootstrap.buildCalciteSchema(session), schemaPath, deps);
+                });
     }
 
     private static MetadataBootstrap initializeMetadata() {
@@ -1963,19 +2535,29 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             System.err.println("[E2E-DEBUG] initializeMetadata: datasource created");
             MetadataSchemaInitializer.createSchema(ds);
             System.err.println("[E2E-DEBUG] initializeMetadata: schema created");
-            MetadataSchemaInitializer.createStateStoreTables(ds);
-            System.err.println("[E2E-DEBUG] initializeMetadata: state store tables created");
             stateStoreDataSource = ds;
+            sharedWriteCommitJournal = new org.pangrova.metadata.coordination.JdbcWriteCommitJournal(ds);
+            sharedDatasetControlClient = new org.pangrova.coordinator.metadata.NativeDatasetControlClient(
+                    E2E_INTERNAL_AUTH_SECRET);
+            sharedArtifactBuildStore = new org.pangrova.metadata.artifact.jdbc.build
+                    .JdbcArtifactBuildStore(ds);
             MetadataStore store = new JdbcMetadataStore(ds);
             System.err.println("[E2E-DEBUG] initializeMetadata: JdbcMetadataStore created");
-            TestConnectorHandleFactory connectorFactory = new TestConnectorHandleFactory();
+            var dependencies = new org.pangrova.coordinator.metadata.WorkerNativeDatasetControl.Dependencies(
+                    () -> java.util.Objects.requireNonNull(workerManager, "E2E Worker registry").getActiveWorkers(),
+                    () -> java.util.Objects.requireNonNull(sharedWriteCommitJournal, "E2E write commit journal"),
+                    () -> E2E_WRITE_COMMIT_FENCER,
+                    () -> requireE2ECoordination().getCurrentEpoch());
+            TestConnectorHandleFactory connectorFactory = new TestConnectorHandleFactory(descriptor ->
+                    java.util.Optional.of(new org.pangrova.coordinator.metadata.WorkerNativeDatasetControl(
+                            descriptor, dependencies, sharedDatasetControlClient)));
             MetadataBootstrap bootstrap = MetadataBootstrap.initialize(store, connectorFactory);
             System.err.println("[E2E-DEBUG] initializeMetadata: bootstrap initialized");
             LOG.info("MetadataBootstrap initialized with state store tables");
             return bootstrap;
         } catch (Exception e) {
             throw new IllegalStateException(
-                    "MetadataBootstrap initialization failed — PostgreSQL may not be ready", e);
+                    "MetadataBootstrap initialization failed", e);
         }
     }
 
@@ -1997,11 +2579,20 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      */
     private static void reinitializeMetadataAfterPgRestart() {
         LOG.warn("event=pg_metadata_reinit newUrl={}", pgJdbcUrl());
+        closeE2ECoordination();
+        stopQuietly(workerHttpServer);
+        closeWorkerCatalogRuntime();
+        closeQuietly(sharedDatasetControlClient, "native_dataset_control_client");
+        sharedDatasetControlClient = null;
         shutdownMetadata();
         metadataBootstrap = initializeMetadata();
-        registerNativeWriter();
         lastRegisteredCatalogs.clear();
         rebuildQueryPipeline();
+        initCoordinatorReadiness();
+        if (workerTaskManagerRef != null) {
+            workerTaskManagerRef.observeControlEpoch(
+                    requireE2ECoordination().getCurrentEpoch());
+        }
         LOG.info("event=pg_metadata_reinit_complete");
     }
 
@@ -2016,21 +2607,26 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * Must be called after metadataBootstrap is initialized (CatalogRegistry available).
      */
     private static void registerNativeWriter() {
-        if (metadataBootstrap == null || !NativeRuntime.isInitialized()) {
-            return;
+        java.util.Objects.requireNonNull(metadataBootstrap, "E2E metadata must be initialized");
+        String coordinatorUrl = "http://localhost:" + java.util.Objects.requireNonNull(
+                coordinatorHttpServer, "E2E Coordinator HTTP server").getPort();
+        var runtime = org.pangrova.worker.jni.write.WorkerCatalogRuntime.discover(
+                coordinatorUrl, E2E_INTERNAL_AUTH_SECRET, Thread.currentThread().getContextClassLoader());
+        var writer = new org.pangrova.worker.jni.write.NativeWriteExecutor(runtime);
+        try {
+            NativeRuntime.nativeRegisterWriter(writer);
+        } catch (RuntimeException | Error failure) {
+            try {
+                writer.close();
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw failure;
         }
-        var catalogRegistry = metadataBootstrap.catalogRegistry();
-        org.pangrova.worker.jni.write.CatalogResourceResolver resolver = catalogName -> {
-            var catalogHandle = catalogRegistry.getCatalog(catalogName);
-            var session = org.pangrova.coordinator.query.statement.TableResolver.buildSession(catalogName);
-            var metadata = catalogHandle.getMetadata(session);
-            var sinkProvider = catalogHandle.getPageSinkProvider();
-            return new org.pangrova.worker.jni.write.CatalogResourceResolver.CatalogResources(
-                    metadata, sinkProvider, session);
-        };
-        var writer = new org.pangrova.worker.jni.write.NativeWriteExecutor(resolver);
-        NativeRuntime.nativeRegisterWriter(writer);
+        sharedWorkerCatalogRuntime = runtime;
+        workerCatalogCoordinatorUrl = coordinatorUrl;
         sharedNativeWriteExecutor = writer;
+        if (sharedWorkerTaskExecutor instanceof NativeTaskExecutor executor) executor.setCatalogRuntime(runtime);
         // If the worker TaskManager has already been created (e.g. metadata reinit
         // after the worker is up), wire the new writer immediately so that
         // TaskStatusCollector can drain commit metadata for write tasks.
@@ -2040,13 +2636,61 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         LOG.info("event=native_writer_registered");
     }
 
+    private static void closeWorkerCatalogRuntime() {
+        var writer = sharedNativeWriteExecutor;
+        sharedNativeWriteExecutor = null;
+        var runtime = sharedWorkerCatalogRuntime;
+        sharedWorkerCatalogRuntime = null;
+        workerCatalogCoordinatorUrl = null;
+        if (writer != null) writer.close();
+        else if (runtime != null) runtime.close();
+    }
+
+    private static void refreshWorkerCatalogEndpoint() {
+        String currentUrl = "http://localhost:" + coordinatorHttpServer.getPort();
+        if (workerTaskManagerRef == null || currentUrl.equals(workerCatalogCoordinatorUrl)) return;
+        int workerPort = sharedWorkerHttpPort;
+        if (workerPort <= 0) throw new IllegalStateException("E2E Worker HTTP port is not initialized");
+        try {
+            workerHttpServer.stop();
+        } catch (Exception failure) {
+            throw new IllegalStateException("Failed to drain Worker HTTP before rebinding catalog control", failure);
+        }
+        closeWorkerCatalogRuntime();
+        registerNativeWriter();
+        workerHttpServer = startWorkerHttpServer(workerTaskManagerRef,
+                java.util.Objects.requireNonNull(sharedWorkerTaskExecutor, "Worker task executor"),
+                sharedResultServerPort, createWorkerHealthEndpoint(), workerPort);
+        registerWorker(workerHttpServer.getPort(), sharedResultServerPort);
+    }
+
+    private static final class E2eWriteCommitFencer implements org.pangrova.coordinator.query.task.WriteCommitFencer {
+        @Override
+        public org.pangrova.spi.coordination.ExecutionAnchor currentAnchor(String executionId) {
+            return requireE2ECoordination().requireExecutionAnchor(executionId);
+        }
+
+        @Override
+        public boolean isCurrent(String executionId, long fencingToken) {
+            return requireE2ECoordination().validateDurableExecutionToken(executionId, fencingToken);
+        }
+    }
+
     protected static void registerWorker(int workerHttpPort, int transportPort) {
+        var advertisement = java.util.Objects.requireNonNull(
+                e2eCapabilityAdvertisement,
+                "Native capability advertisement must be initialized before registration");
+        long availableMemoryBytes = java.util.Objects.requireNonNull(
+                sharedWorkerMemoryArbitrator,
+                "E2E Worker arbitrator must be initialized before registration")
+                .getAvailableMemory();
         WorkerInfo workerInfo = new WorkerInfo(
-                WORKER_ID, "localhost", workerHttpPort, transportPort, sharedResultServerPort,
+                WORKER_ID, IN_PROCESS_WORKER_HOST, workerHttpPort,
+                transportPort, sharedResultServerPort,
                 HealthState.ACTIVE, MemoryPressure.NONE,
-                0.0, 0, WORKER_MEMORY_BYTES,
-                Instant.now(), 1.0, null, 1, List.of(),
-                null, List.of());
+                0.0, 0, availableMemoryBytes,
+                Instant.now(), 1.0, null, 2,
+                null, List.of(), null, advertisement.inventory());
         workerManager.registerWorker(workerInfo);
     }
 
@@ -2059,8 +2703,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     /**
      * Redirects the worker's status reporter to a specific port.
-     * Used by {@code MultiWorkerTestBase} to point the shared worker at the
-     * multi-worker coordinator without overwriting {@link #coordinatorHttpServer}.
+     * Used by {@code VirtualWorkerRoutingIntegrationTestBase} to point the shared
+     * worker at the routing-test coordinator without overwriting
+     * {@link #coordinatorHttpServer}.
      */
     protected static void configureStatusReporterForPort(int port) {
         if (statusReporter == null) {
@@ -2086,6 +2731,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         // (status reports die with Connection refused). Syncing here — on every
         // successful start — covers all bootstrap and rebuild paths.
         configureStatusReporter();
+        refreshWorkerCatalogEndpoint();
     }
 
     protected static void startServerOrFail(WorkerHttpServer server) {

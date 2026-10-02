@@ -19,8 +19,6 @@ import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Compiles SQL to a planned query and applies security policies (access control,
@@ -29,13 +27,12 @@ import org.slf4j.LoggerFactory;
  */
 public class SecurityPolicyApplier {
 
-    private static final Logger LOG = LoggerFactory.getLogger(SecurityPolicyApplier.class);
-
     private final VersionedCompilerHolder compilerHolder;
     private final AccessControlEnforcer accessControlEnforcer;
     private final ColumnMaskApplier columnMaskApplier;
     private final RowFilterApplier rowFilterApplier;
 
+    /** Creates the query-local compilation and policy assembly. */
     public SecurityPolicyApplier(SqlCompiler compiler,
                                  AccessControlEnforcer accessControlEnforcer,
                                  ColumnMaskApplier columnMaskApplier,
@@ -91,17 +88,29 @@ public class SecurityPolicyApplier {
      */
     public PlannedQuery applyPolicies(PlannedQuery plannedQuery,
                                       CoordinatorSessionContext session) {
-        if (accessControlEnforcer != null) {
-            accessControlEnforcer.checkTableAccess(
-                    plannedQuery.tableReferences(), session.userIdentity());
+        return applyPoliciesObserved(plannedQuery, session).plan();
+    }
+
+    /** Applies the same authority while retaining the exact policy values consumed. */
+    public ObservedPlan applyPoliciesObserved(PlannedQuery plan, CoordinatorSessionContext session) {
+        if (accessControlEnforcer == null || columnMaskApplier == null || rowFilterApplier == null) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Protected compilation requires complete authorization and policy enforcement");
         }
-        if (columnMaskApplier != null) {
-            plannedQuery = plannedQuery.applyColumnMasks(columnMaskApplier, session.userIdentity());
+        accessControlEnforcer.checkTableAccess(plan.tableReferences(), session.userIdentity());
+        ObservedQueryPolicies observations = new ObservedQueryPolicies();
+        PlannedQuery protectedPlan = plan
+                .applyColumnMasks(columnMaskApplier.observing(observations), session.userIdentity())
+                .applyRowFilters(rowFilterApplier.observing(observations), session.userIdentity());
+        return new ObservedPlan(protectedPlan, observations.snapshot());
+    }
+
+    /** One protected plan and observations from exactly that policy application. */
+    public record ObservedPlan(PlannedQuery plan,
+            java.util.Map<String, org.pangrova.security.authz.DeferredAuthorizationScope.PolicySnapshot> policies) {
+        public ObservedPlan {
+            policies = java.util.Map.copyOf(policies);
         }
-        if (rowFilterApplier != null) {
-            plannedQuery = plannedQuery.applyRowFilters(rowFilterApplier, session.userIdentity());
-        }
-        return plannedQuery;
     }
 
     /**
@@ -111,29 +120,9 @@ public class SecurityPolicyApplier {
      */
     public PlannedQuery compileAndApplyPolicies(String sql, CoordinatorSessionContext session,
                                                 SqlCompiler compilerSnapshot) {
-        PlannedQuery plannedQuery = compileSql(sql, compilerSnapshot);
-        return applyPolicies(plannedQuery, session);
-    }
-
-    private PlannedQuery compileSql(String sql, SqlCompiler compilerToUse) {
-        try {
-            return compilerToUse.compileToPlannedQuery(sql);
-        } catch (Exception e) {
-            if (isReduceExpressionsCrash(e)) {
-                LOG.warn("event=compile_reduce_expressions_crash action=retry_safe sql_length={}",
-                        sql.length());
-                return compilerToUse.planner().planSafe(sql).toPlannedQuery();
-            }
-            throw e;
-        }
-    }
-
-    private static boolean isReduceExpressionsCrash(Exception e) {
-        String msg = e.getMessage();
-        if (msg == null) {
-            msg = "";
-        }
-        return msg.contains("-2147483648")
-                || (e instanceof IndexOutOfBoundsException && msg.contains("out of bounds"));
+        SqlCompiler compiler = compilerSnapshot.forSession(
+                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(session));
+        PlannedQuery query = compiler.compileForPolicyApplication(sql).toPlannedQuery();
+        return compiler.optimizeProtectedQuery(applyPoliciesObserved(query, session).plan());
     }
 }

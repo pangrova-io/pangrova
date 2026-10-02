@@ -51,7 +51,9 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
     public StatementResult execute(CreateTableAsSelectStatement statement, StatementExecutionContext context) {
         // 1. Compile the inner SELECT to derive output schema
         String innerSql = new AstPrinter().print(statement.query());
-        PlannedQuery plannedQuery = context.compiler().compileToPlannedQuery(innerSql);
+        PlannedQuery plannedQuery = context.compiler().forSession(
+                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(context.session()))
+                .compileToPlannedQuery(innerSql);
         List<String> columnNames = plannedQuery.queryOutputColumns();
         List<String> typeNames = plannedQuery.queryOutputColumnTypeNames();
 
@@ -62,7 +64,7 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
         CreateTableStatement createStmt = new CreateTableStatement(
                 statement.tableName(), columns, statement.ifNotExists(),
                 List.of(), List.of(), Optional.empty(), Map.of());
-        ddlExecutor.executeCreateTable(createStmt);
+        ddlExecutor.executeCreateTable(createStmt, context.session());
         LOG.info("event=ctas_table_created table={}", String.join(".", statement.tableName().parts()));
 
         // 4. Route data insertion through native DML pipeline (workers write directly)
@@ -76,7 +78,7 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
                             + String.join(".", statement.tableName().parts()));
         }
 
-        String mutatedTable = TableNameExtractor.extract(statement);
+        String mutatedTable = TableNameExtractor.extractQualified(statement, context.session()).toString();
         LOG.info("event=ctas_complete table={}", mutatedTable);
         return new StatementResult(List.of(), List.of(), mutatedTable, StatementCategory.DDL);
     }

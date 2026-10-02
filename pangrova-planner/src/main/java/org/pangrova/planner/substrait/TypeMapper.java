@@ -9,15 +9,12 @@ import org.pangrova.spi.connector.data.type.primitive.DecimalType;
 import org.pangrova.spi.connector.data.type.primitive.VarcharType;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.pangrova.planner.type.PlannerTypeSystem;
 
 /**
  * Maps Calcite RelDataType to Substrait Type, respecting nullability.
  */
 public class TypeMapper {
-
-    private static final Logger LOG = LoggerFactory.getLogger(TypeMapper.class);
 
     /**
      * Map a Calcite RelDataType to the corresponding Substrait Type.
@@ -49,16 +46,8 @@ public class TypeMapper {
             SqlTypeName sqlType, RelDataType calciteType) {
         return switch (sqlType) {
             case DECIMAL -> {
-                int p = calciteType.getPrecision();
-                int s = calciteType.getScale();
-                if (p <= 0 || p == Integer.MIN_VALUE) {
-                    p = 38;
-                    s = Math.max(s, 0);
-                }
-                if (s < 0 || s > p) {
-                    s = Math.min(Math.max(s, 0), p);
-                }
-                yield new DecimalType(p, s);
+                validateDecimalType(calciteType);
+                yield new DecimalType(calciteType.getPrecision(), calciteType.getScale());
             }
             case VARCHAR, CHAR -> resolveVarchar(calciteType);
             case NULL -> VarcharType.UNBOUNDED;
@@ -87,15 +76,15 @@ public class TypeMapper {
     }
 
     private Type mapByTypeName(TypeCreator creator, RelDataType calciteType) {
-        Type primitive = mapPrimitiveType(creator, calciteType.getSqlTypeName());
+        Type primitive = mapPrimitiveType(creator, calciteType);
         if (primitive != null) {
             return primitive;
         }
         return mapComplexType(creator, calciteType);
     }
 
-    private Type mapPrimitiveType(TypeCreator creator, SqlTypeName typeName) {
-        return switch (typeName) {
+    private Type mapPrimitiveType(TypeCreator creator, RelDataType calciteType) {
+        return switch (calciteType.getSqlTypeName()) {
             case TINYINT -> creator.I8;
             case SMALLINT -> creator.I16;
             case INTEGER -> creator.I32;
@@ -105,9 +94,10 @@ public class TypeMapper {
             case VARCHAR, CHAR -> creator.STRING;
             case BOOLEAN -> creator.BOOLEAN;
             case DATE -> creator.DATE;
-            case TIME -> creator.TIME;
-            case TIMESTAMP -> creator.TIMESTAMP;
-            case TIMESTAMP_WITH_LOCAL_TIME_ZONE -> creator.TIMESTAMP_TZ;
+            case TIME -> creator.precisionTime(temporalPrecision(calciteType));
+            case TIMESTAMP -> creator.precisionTimestamp(temporalPrecision(calciteType));
+            case TIMESTAMP_WITH_LOCAL_TIME_ZONE ->
+                    creator.precisionTimestampTZ(temporalPrecision(calciteType));
             case BINARY, VARBINARY -> creator.BINARY;
             // NULL type: Calcite represents untyped NULL literals as SqlTypeName.NULL.
             // Substrait has no "nothing" type; we map to nullable BOOLEAN as the smallest
@@ -116,6 +106,13 @@ public class TypeMapper {
             case NULL -> TypeCreator.of(true).BOOLEAN;
             default -> null;
         };
+    }
+
+    private static int temporalPrecision(RelDataType type) {
+        int precision = type.getPrecision();
+        return precision < 0 || precision == Integer.MAX_VALUE
+                ? 6
+                : Math.min(precision, 9);
     }
 
     private Type mapComplexType(TypeCreator creator, RelDataType calciteType) {
@@ -134,28 +131,19 @@ public class TypeMapper {
         };
     }
 
-    /**
-     * Maps DECIMAL with defensive precision/scale handling.
-     * Calcite constant folding can produce Integer.MIN_VALUE precision for folded literals;
-     * we normalize to default 38/10 in that case.
-     */
+    /** Preserves valid decimal parameters without repairing malformed generated types. */
     private Type mapDecimalType(TypeCreator creator, RelDataType calciteType) {
-        int precision = calciteType.getPrecision();
-        int scale = calciteType.getScale();
-        if (precision <= 0 || precision == Integer.MIN_VALUE) {
-            LOG.warn("event=decimal_abnormal_precision original_precision={} original_scale={} "
-                            + "action=normalize_to_default",
-                    precision, scale);
-            precision = 38;
-            scale = Math.max(scale, 0);
-            if (scale > precision) {
-                scale = 10;
-            }
+        validateDecimalType(calciteType);
+        return creator.decimal(calciteType.getPrecision(), calciteType.getScale());
+    }
+
+    private static void validateDecimalType(RelDataType type) {
+        try {
+            PlannerTypeSystem.INSTANCE.validateDecimal(type.getPrecision(), type.getScale());
+        } catch (IllegalArgumentException failure) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Invalid DECIMAL type: " + failure.getMessage(), failure);
         }
-        if (scale < 0 || scale > precision) {
-            scale = Math.min(Math.max(scale, 0), precision);
-        }
-        return creator.decimal(precision, scale);
     }
 
     private Type mapIntervalOrThrow(TypeCreator creator, RelDataType calciteType) {
@@ -163,25 +151,28 @@ public class TypeMapper {
             case INTERVAL_YEAR, INTERVAL_YEAR_MONTH, INTERVAL_MONTH -> creator.INTERVAL_YEAR;
             case INTERVAL_DAY, INTERVAL_DAY_HOUR, INTERVAL_DAY_MINUTE, INTERVAL_DAY_SECOND, INTERVAL_HOUR,
                     INTERVAL_HOUR_MINUTE, INTERVAL_HOUR_SECOND, INTERVAL_MINUTE, INTERVAL_MINUTE_SECOND,
-                    INTERVAL_SECOND -> creator.INTERVAL_DAY;
+                    INTERVAL_SECOND -> creator.intervalDay(6);
             default -> throw unsupportedType(calciteType);
         };
     }
 
     private Type mapArrayType(TypeCreator creator, RelDataType calciteType) {
-        Type elementType = mapByTypeName(creator, calciteType.getComponentType());
+        var component = calciteType.getComponentType();
+        if (component == null) throw unsupportedType(calciteType);
+        Type elementType = map(component);
         return creator.list(elementType);
     }
 
     private Type mapMapType(TypeCreator creator, RelDataType calciteType) {
-        Type keyType = mapByTypeName(creator, calciteType.getKeyType());
-        Type valueType = mapByTypeName(creator, calciteType.getValueType());
-        return creator.map(keyType, valueType);
+        var key = calciteType.getKeyType();
+        var value = calciteType.getValueType();
+        if (key == null || value == null) throw unsupportedType(calciteType);
+        return creator.map(map(key), map(value));
     }
 
     private Type mapRowType(TypeCreator creator, RelDataType calciteType) {
         java.util.List<Type> fieldTypes = calciteType.getFieldList().stream()
-                .map(f -> mapByTypeName(creator, f.getType()))
+                .map(f -> map(f.getType()))
                 .toList();
         return creator.struct(fieldTypes);
     }

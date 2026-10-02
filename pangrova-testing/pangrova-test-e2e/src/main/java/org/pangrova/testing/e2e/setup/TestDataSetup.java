@@ -63,7 +63,7 @@ public final class TestDataSetup {
         ConnectorMetadata metadata = connector.getMetadata(session);
         createDefaultSchema(metadata, session);
         Map<String, TableSchema> schemas = TestDataGenerator.getSchemas();
-        for (String tableName : schemas.keySet()) {
+        for (String tableName : schemas.keySet().stream().sorted().toList()) {
             loadTableViaConnector(metadata, session, tableName, scaleFactor);
         }
         LOG.info("Loaded {} TPC-H tables via Connector SPI", schemas.size());
@@ -86,7 +86,7 @@ public final class TestDataSetup {
         if (scaleFactor <= 0) {
             throw new IllegalArgumentException("scaleFactor must be positive, got: " + scaleFactor);
         }
-        for (String tableName : TestDataGenerator.getSchemas().keySet()) {
+        for (String tableName : TestDataGenerator.getSchemas().keySet().stream().sorted().toList()) {
             createTable(catalog, schema, tableName);
             insertData(catalog, schema, tableName, scaleFactor);
         }
@@ -280,6 +280,8 @@ public final class TestDataSetup {
         @Override public String getUser() { return "test-setup"; }
         @Override public Optional<String> getCatalog() { return Optional.empty(); }
         @Override public Optional<String> getSchema() { return Optional.of(DEFAULT_SCHEMA); }
-        @Override public Map<String, String> getProperties() { return Map.of(); }
+        @Override public Map<String, String> getProperties() {
+            return Map.of("tenant_id", "e2e-tenant");
+        }
     }
 }

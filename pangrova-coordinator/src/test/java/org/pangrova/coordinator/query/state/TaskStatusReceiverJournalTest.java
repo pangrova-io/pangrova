@@ -36,12 +36,13 @@ class TaskStatusReceiverJournalTest {
 
     private QueryManagerJournalTest.RecordingJournal journal;
     private TaskStatusReceiver receiver;
+    private CoordinatorTaskTracker tracker;
 
     @BeforeEach
     void setUp() {
         journal = new QueryManagerJournalTest.RecordingJournal();
         QueryManager qm = buildQueryManager(journal);
-        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+        tracker = new CoordinatorTaskTracker();
         WorkerManager wm = new WorkerManager(5000, 15000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
         wm.registerWorker(workerInfo("w-1"));
 
@@ -51,8 +52,10 @@ class TaskStatusReceiverJournalTest {
         // Register TWO tasks so a single report does not trigger query-level
         // transitions (allTasksFinished / hasFailedTask remain false).
         tracker.registerTask("q-1", "t-1");
+        registerCanonicalRequest("t-1");
         tracker.markScheduled("q-1", "t-1");
         tracker.registerTask("q-1", "t-2");
+        registerCanonicalRequest("t-2");
         tracker.markScheduled("q-1", "t-2");
     }
 
@@ -60,7 +63,8 @@ class TaskStatusReceiverJournalTest {
     void terminalStateJournaledSynchronously() {
         TaskStatusReport report = new TaskStatusReport(
                 "t-1", "q-1", 0, 0, "COMPUTE", "w-1", "FINISHED",
-                null, null, null, 1L, 0L);
+                null, null, null, 1L, 0L, null, null,
+                attempt(), canonicalReport("FINISHED"));
         receiver.onTaskStatus(report);
 
         assertEquals(1, journal.syncTaskEvents.size());
@@ -74,7 +78,8 @@ class TaskStatusReceiverJournalTest {
     void nonTerminalStateJournaledAsynchronously() {
         TaskStatusReport report = new TaskStatusReport(
                 "t-1", "q-1", 0, 0, "COMPUTE", "w-1", "RUNNING",
-                null, null, null, 1L, 0L);
+                null, null, null, 1L, 0L, null, null,
+                attempt(), canonicalReport("RUNNING"));
         receiver.onTaskStatus(report);
 
         assertEquals(1, journal.asyncTaskEvents.size());
@@ -87,11 +92,57 @@ class TaskStatusReceiverJournalTest {
     void failedStateJournaledSynchronously() {
         TaskStatusReport report = new TaskStatusReport(
                 "t-1", "q-1", 0, 0, "COMPUTE", "w-1", "FAILED",
-                null, null, null, 1L, 0L);
+                null, null, null, 1L, 0L, null, null,
+                attempt(), canonicalReport("FAILED"));
         receiver.onTaskStatus(report);
 
         assertEquals(1, journal.syncTaskEvents.size());
         assertEquals("FAILED", journal.syncTaskEvents.get(0).state());
+    }
+
+    private void registerCanonicalRequest(String taskId) {
+        var request = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                taskId, "q-1", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, new byte[]{1});
+        tracker.registerTaskRequest(taskId, request);
+        tracker.registerTaskAttempt(taskId,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                        request.taskRequest().getAttempt()));
+    }
+
+    private org.pangrova.protocol.rest.task.TaskAttemptDescriptor attempt() {
+        return org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(
+                tracker.getTaskRequest("t-1").taskRequest().getAttempt());
+    }
+
+    private byte[] canonicalReport(String state) {
+        var report = org.pangrova.protocol.v2.TaskReport.newBuilder()
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
+                        .TASK_REPORT_ORIGIN_NATIVE)
+                .setAttempt(tracker.getTaskRequest("t-1").taskRequest().getAttempt());
+        var coverage = org.pangrova.protocol.v2.CoverageReport.newBuilder()
+                .setExpectedWorkUnits(1);
+        switch (state) {
+            case "FINISHED" -> {
+                report.setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
+                coverage.setCompletedWorkUnits(1).setCoverageRatio(1.0)
+                        .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                                .COMPLETION_STATE_COMPLETE);
+            }
+            case "FAILED" -> {
+                report.setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED)
+                        .setError(org.pangrova.protocol.v2.ExecutionError.newBuilder()
+                                .setErrorClass(org.pangrova.protocol.v2.ErrorClass.ERROR_CLASS_INTERNAL)
+                                .setCode("TEST_FAILURE").setMessage("failed"));
+                coverage.addFailedWorkUnitIds("t-1")
+                        .setCompletionState(org.pangrova.protocol.v2.CompletionState
+                                .COMPLETION_STATE_PARTIAL);
+            }
+            case "RUNNING" -> report.setState(
+                    org.pangrova.protocol.v2.TaskState.TASK_STATE_RUNNING);
+            default -> throw new IllegalArgumentException("Unexpected state: " + state);
+        }
+        return report.setCoverage(coverage).build().toByteArray();
     }
 
     private static QueryManager buildQueryManager(QueryStateJournal journal) {
@@ -113,14 +164,14 @@ class TaskStatusReceiverJournalTest {
                         (req, worker) -> null,
                         scheduler, workerManager, tracker,
                         null, null, null, null),
-                org.pangrova.coordinator.query.execution.CacheContextBundle.none(),
-                null, null, null, 0, null, null, null, null, null, null, null, null);
+                null, null, 0, null, null, null, null, null, null, null, null, null);
         return new QueryDispatcher(qdDeps, null, null);
     }
 
     private static WorkerInfo workerInfo(String workerId) {
         return new WorkerInfo(workerId, "host-1", 8080, 8081, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0, 1024L * 1024 * 1024,
-                java.time.Instant.now(), 1.0, null, 1, List.of(), null, List.of());
+                java.time.Instant.now(), 1.0, null, 2, null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 }

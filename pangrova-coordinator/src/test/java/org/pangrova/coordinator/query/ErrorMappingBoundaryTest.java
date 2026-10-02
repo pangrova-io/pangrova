@@ -5,11 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.exception.ValidationException;
-import org.pangrova.coordinator.scheduler.CircuitBreakerOpenException;
+import org.pangrova.coordinator.scheduler.failure.CircuitBreakerOpenException;
 import org.pangrova.spi.transport.ResultTooLargeException;
 import org.pangrova.worker.exchange.ExchangeConnectionException;
-import org.pangrova.worker.exchange.ExchangeEndpoint;
-import org.pangrova.worker.exchange.ExchangeType;
+import org.pangrova.shuffle.exchange.ExchangeEndpoint;
 import org.pangrova.worker.jni.NativeRuntimeException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,8 +34,10 @@ class ErrorMappingBoundaryTest {
     @Test
     @DisplayName("ExchangeConnectionException carries EXCHANGE_CONNECTION_FAILED")
     void exchangeConnectionException() {
-        var source = new ExchangeEndpoint("task-1", "host-1", 9090, 0,
-                ExchangeType.HASH_PARTITION, 0L);
+        var source = new ExchangeEndpoint(
+                "task-1", 0, 0, 0, 1L, 0, (1L << 32) + 1L,
+                "host-1", 9090, "", new byte[] {1},
+                System.currentTimeMillis() + 60_000L, 0L, 0L);
         var cause = new java.io.IOException("connection refused");
         var ex = new ExchangeConnectionException(source, 3, cause);
         assertPangrovaException(ex, PangrovaErrorCode.EXCHANGE_CONNECTION_FAILED);

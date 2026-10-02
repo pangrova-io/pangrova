@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.index.ddl;
 
-import org.pangrova.coordinator.index.IndexConnectorSession;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.spi.connector.ConnectorSession;
@@ -12,6 +11,7 @@ import org.pangrova.spi.connector.index.NativeIndexEvaluator;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -28,9 +28,34 @@ import java.util.Optional;
 public final class ConnectorAccessorResolver {
 
     private final CatalogRegistry catalogRegistry;
+    private final ConnectorSession session;
 
     public ConnectorAccessorResolver(CatalogRegistry catalogRegistry) {
+        this(catalogRegistry, null);
+    }
+
+    private ConnectorAccessorResolver(CatalogRegistry catalogRegistry, ConnectorSession session) {
         this.catalogRegistry = catalogRegistry;
+        this.session = session;
+    }
+
+    /**
+     * Binds this process resource to an immutable, exactly resolved connector operation.
+     *
+     * @param session trusted authenticated connector session supplied by the query authority
+     * @return a resolver scoped to the supplied tenant, principal and catalog/schema
+     * @throws org.pangrova.spi.security.AccessDeniedException if the scope is incomplete
+     */
+    public ConnectorAccessorResolver forSession(ConnectorSession session) {
+        if (session == null || session.getUser() == null || session.getUser().isBlank()
+                || session.getProperties().getOrDefault("tenant_id", "").isBlank()
+                || session.getCatalog().isEmpty() || session.getSchema().isEmpty()) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Index connector access requires an authenticated tenant and resolved catalog/schema");
+        }
+        return new ConnectorAccessorResolver(catalogRegistry, new ScopedSession(
+                session.getUser(), session.getCatalog(), session.getSchema(),
+                Map.copyOf(session.getProperties())));
     }
 
     /**
@@ -112,7 +137,7 @@ public final class ConnectorAccessorResolver {
      * @return list of data file paths; empty if connector does not support listing
      */
     public List<String> listDataFiles(String catalogName, String schemaName, String tableName) {
-        ConnectorMetadata metadata = getMetadata(catalogName);
+        ConnectorMetadata metadata = getMetadata(catalogName, schemaName);
         Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().listDataFiles(catalogName, schemaName, tableName);
@@ -129,13 +154,7 @@ public final class ConnectorAccessorResolver {
     public void registerCommitListener(
             String catalogName,
             org.pangrova.spi.connector.index.CommitListener listener) {
-        ConnectorMetadata metadata = getMetadata(catalogName);
-        Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
-        if (support.isPresent()) {
-            support.get().registerCommitListener(listener);
-            return;
-        }
-        metadata.registerCommitListener(listener);
+        catalogRegistry.getCatalog(catalogName).registerCommitListener(listener);
     }
 
     /**
@@ -148,7 +167,7 @@ public final class ConnectorAccessorResolver {
      */
     public org.pangrova.spi.connector.index.SnapshotAwareMetadata resolveSnapshotAwareMetadata(
             String catalogName, String schemaName, String tableName) {
-        ConnectorMetadata metadata = getMetadata(catalogName);
+        ConnectorMetadata metadata = getMetadata(catalogName, schemaName);
         Optional<ConnectorIndexSupport> support = metadata.getIndexSupport();
         if (support.isPresent()) {
             return support.get().getSnapshotAwareMetadata(schemaName, tableName).orElse(null);
@@ -168,30 +187,20 @@ public final class ConnectorAccessorResolver {
     public List<org.pangrova.spi.index.statistics.DataFileStatistics> resolveFileStatistics(
             String catalogName, String schemaName, String tableName,
             List<String> dataFilePaths) {
-        ConnectorMetadata metadata = getMetadata(catalogName);
+        ConnectorMetadata metadata = getMetadata(catalogName, schemaName);
         return metadata.getFileStatistics(catalogName, schemaName, tableName, dataFilePaths);
     }
 
     /**
-     * Resolves the snapshot pin provider from the first catalog that supports it.
-     * Returns null if no catalog provides snapshot pinning.
+     * Resolves snapshot pinning only within the authorized catalog.
+     * Returns null if the authorized catalog does not provide snapshot pinning.
      *
      * @return the snapshot pin provider, or null
      */
     public org.pangrova.spi.connector.index.SnapshotPinProvider resolveSnapshotPinProvider() {
-        for (String catalogName : catalogRegistry.listCatalogNames()) {
-            ConnectorMetadata metadata = getMetadata(catalogName);
-            Optional<org.pangrova.spi.connector.index.ConnectorIndexSupport> support =
-                    metadata.getIndexSupport();
-            if (support.isPresent()) {
-                Optional<org.pangrova.spi.connector.index.SnapshotPinProvider> pin =
-                        support.get().getSnapshotPinProvider();
-                if (pin.isPresent()) {
-                    return pin.get();
-                }
-            }
-        }
-        return null;
+        requireScope();
+        return getMetadata(session.getCatalog().orElseThrow()).getIndexSupport()
+                .flatMap(ConnectorIndexSupport::getSnapshotPinProvider).orElse(null);
     }
 
     /**
@@ -251,12 +260,41 @@ public final class ConnectorAccessorResolver {
     }
 
     private ConnectorMetadata getMetadata(String catalogName) {
+        requireScope();
+        if (!session.getCatalog().orElseThrow().equals(catalogName)) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Index connector scope does not match the requested catalog");
+        }
         CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
         if (handle == null) {
             throw new IllegalArgumentException(
                     "Catalog '" + catalogName + "' is not registered");
         }
-        ConnectorSession session = new IndexConnectorSession(catalogName);
         return handle.getMetadata(session);
+    }
+
+    private ConnectorMetadata getMetadata(String catalogName, String schemaName) {
+        requireScope();
+        if (!session.getSchema().orElseThrow().equals(schemaName)) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Index connector scope does not match the requested schema");
+        }
+        return getMetadata(catalogName);
+    }
+
+    private void requireScope() {
+        if (session == null) {
+            throw new org.pangrova.spi.security.AccessDeniedException(
+                    "Index connector access requires a trusted authorization scope; "
+                            + "background maintenance must reauthorize before metadata lookup");
+        }
+    }
+
+    private record ScopedSession(String user, Optional<String> catalog, Optional<String> schema,
+                                 Map<String, String> properties) implements ConnectorSession {
+        @Override public String getUser() { return user; }
+        @Override public Optional<String> getCatalog() { return catalog; }
+        @Override public Optional<String> getSchema() { return schema; }
+        @Override public Map<String, String> getProperties() { return properties; }
     }
 }

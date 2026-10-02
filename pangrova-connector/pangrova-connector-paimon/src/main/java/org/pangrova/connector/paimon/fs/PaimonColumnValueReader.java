@@ -6,6 +6,10 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.DataSplit;
+import org.apache.paimon.table.source.Split;
+import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.fs.Path;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
@@ -44,12 +48,38 @@ public final class PaimonColumnValueReader implements ColumnValueReader {
 
         try {
             RecordReader<InternalRow> reader = readBuilder.newRead()
-                    .createReader(readBuilder.newScan().plan());
+                    .createReader(resolveFileSplit(readBuilder, dataFilePath));
 
             return new PaimonRowIterator(reader, columnNames.size(), projectedTypes);
         } catch (Exception e) {
             throw new IOException("Failed to read columns from " + dataFilePath, e);
         }
+    }
+
+    private static DataSplit resolveFileSplit(ReadBuilder builder, String dataFilePath)
+            throws IOException {
+        Path requested = new Path(dataFilePath);
+        for (Split split : builder.newScan().plan().splits()) {
+            if (!(split instanceof DataSplit dataSplit)) {
+                continue;
+            }
+            for (DataFileMeta file : dataSplit.dataFiles()) {
+                Path candidate = file.externalPath().map(Path::new).orElseGet(
+                        () -> new Path(dataSplit.bucketPath(), file.fileName()));
+                if (requested.equals(candidate)) {
+                    return DataSplit.builder()
+                            .withSnapshot(dataSplit.snapshotId())
+                            .withPartition(dataSplit.partition())
+                            .withBucket(dataSplit.bucket())
+                            .withBucketPath(dataSplit.bucketPath())
+                            .withTotalBuckets(dataSplit.totalBuckets())
+                            .withDataFiles(List.of(file))
+                            .rawConvertible(dataSplit.rawConvertible())
+                            .build();
+                }
+            }
+        }
+        throw new IOException("Data file is absent from the Paimon snapshot: " + dataFilePath);
     }
 
     private int[] resolveColumnIndices(RowType rowType, List<String> columnNames) {

@@ -17,6 +17,19 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(PANGROVA_PRODUCTION_BUILD "Build self-contained Linux production JNI" OFF)
+if(PANGROVA_PRODUCTION_BUILD)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "PANGROVA_PRODUCTION_BUILD currently requires Linux")
+  endif()
+  set(_PANGROVA_SYSTEM_LIBRARY_SUFFIXES "${CMAKE_FIND_LIBRARY_SUFFIXES}")
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(OPENSSL_USE_STATIC_LIBS TRUE)
+  set(CMAKE_SKIP_RPATH TRUE)
+endif()
+
 if(APPLE)
   add_compile_definitions(_DARWIN_C_SOURCE)
   if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
@@ -151,9 +164,27 @@ if(PANGROVA_ENABLE_OTEL)
   find_package(OpenSSL REQUIRED)
 endif()
 
+# FindJNI probes the JDK's shared JVM/AWT libraries to discover headers. They
+# are not link dependencies of Pangrova; only JNI_INCLUDE_DIRS is consumed.
+if(PANGROVA_PRODUCTION_BUILD)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES "${_PANGROVA_SYSTEM_LIBRARY_SUFFIXES}")
+endif()
 find_package(JNI REQUIRED)
+if(PANGROVA_PRODUCTION_BUILD)
+  set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+endif()
 find_package(Arrow REQUIRED)
 find_package(Parquet QUIET)
+if(PANGROVA_PRODUCTION_BUILD)
+  if(NOT TARGET Arrow::arrow_static OR NOT TARGET Parquet::parquet_static)
+    message(FATAL_ERROR "Linux production requires static Arrow and Parquet packages")
+  endif()
+  set(PANGROVA_ARROW_TARGET Arrow::arrow_static)
+  set(PANGROVA_PARQUET_TARGET Parquet::parquet_static)
+else()
+  set(PANGROVA_ARROW_TARGET Arrow::arrow_shared)
+  set(PANGROVA_PARQUET_TARGET Parquet::parquet_shared)
+endif()
 
 include(FindArrowFlight)
 include(FindLanceCFFI)
@@ -167,12 +198,6 @@ if(Parquet_FOUND)
 else()
   message(STATUS "Parquet NOT found — format readers compile without Parquet link")
   add_compile_definitions(PANGROVA_PARQUET_AVAILABLE=0)
-endif()
-
-if(LANCE_C_FFI_FOUND)
-  add_compile_definitions(PANGROVA_LANCE_AVAILABLE=1)
-else()
-  add_compile_definitions(PANGROVA_LANCE_AVAILABLE=0)
 endif()
 
 # ==============================================================================
@@ -237,11 +262,17 @@ if(PANGROVA_ENABLE_OTEL)
   set(WITH_EXAMPLES OFF CACHE BOOL "" FORCE)
   set(WITH_BENCHMARK OFF CACHE BOOL "" FORCE)
   set(OTELCPP_MAINTAINER_MODE OFF CACHE BOOL "" FORCE)
-  # Suppress Clang 17+ error for OpenTelemetry's template keyword usage.
-  # Must be set via CMAKE_CXX_FLAGS before FetchContent_MakeAvailable so ALL
-  # OTel subdirectory targets (including sdk/src/logs) inherit the flag.
+  # Suppress the Clang diagnostic only when this compiler implements it.
+  # Passing an unknown -Wno-* option emits one warning for every OTel source.
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag(
+    "-Wno-missing-template-arg-list-after-template-kw"
+    PANGROVA_HAS_MISSING_TEMPLATE_ARG_LIST_SUPPRESSION)
   set(_SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-missing-template-arg-list-after-template-kw")
+  if(PANGROVA_HAS_MISSING_TEMPLATE_ARG_LIST_SUPPRESSION)
+    set(CMAKE_CXX_FLAGS
+      "${CMAKE_CXX_FLAGS} -Wno-missing-template-arg-list-after-template-kw")
+  endif()
   FetchContent_MakeAvailable(opentelemetry-cpp)
   set(CMAKE_CXX_FLAGS "${_SAVED_CXX_FLAGS}")
   set(PANGROVA_HAS_OTEL TRUE)
@@ -269,8 +300,8 @@ FetchContent_Declare(
   GIT_TAG        v4.1.0
   GIT_SHALLOW    TRUE
 )
-set(SIMDJSON_JUST_LIBRARY ON CACHE BOOL "" FORCE)
-set(SIMDJSON_BUILD_STATIC_LIB ON CACHE BOOL "" FORCE)
+set(SIMDJSON_DEVELOPER_MODE OFF CACHE BOOL "" FORCE)
+set(SIMDJSON_BUILD_STATIC_LIB ${PANGROVA_PRODUCTION_BUILD} CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(simdjson)
 
 if(PANGROVA_BUILD_TESTS)
@@ -301,7 +332,8 @@ endif()
 # No separate STATIC target — eliminates double compilation.
 # C++ tests link directly against this SHARED library.
 # ==============================================================================
-file(GLOB_RECURSE PANGROVA_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+file(GLOB_RECURSE PANGROVA_SOURCES CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
 # Exclude Arrow Flight-dependent sources when Flight is not available.
 # These files #include <arrow/flight/server.h> or <arrow/flight/client.h> and
@@ -353,7 +385,7 @@ if(PANGROVA_SOURCES)
 
   # --- Core dependencies on OBJECT library ---
   target_link_libraries(pangrova_native_objects PUBLIC
-    Arrow::arrow_shared
+    ${PANGROVA_ARROW_TARGET}
     roaring
     roaring-headers-cpp
     simdjson
@@ -362,7 +394,7 @@ if(PANGROVA_SOURCES)
     target_link_libraries(pangrova_native_objects PUBLIC arrow_flight_imported)
   endif()
   if(Parquet_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC Parquet::parquet_shared)
+    target_link_libraries(pangrova_native_objects PUBLIC ${PANGROVA_PARQUET_TARGET})
   endif()
   if(TARGET pangrova_proto)
     target_link_libraries(pangrova_native_objects PUBLIC pangrova_proto)
@@ -379,9 +411,9 @@ if(PANGROVA_SOURCES)
   if(VELOX_FOUND)
     target_link_libraries(pangrova_native_objects PUBLIC velox_imported)
   endif()
-  if(LANCE_C_FFI_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC lance_c_ffi)
-  endif()
+  target_link_libraries(pangrova_native_objects PUBLIC lance_c_ffi)
+
+  include(PangrovaFunctionCatalog)
 
   # SHARED library: uses OBJECT library + adds visibility hidden + Velox force-load.
   add_library(pangrova_native SHARED)
@@ -391,6 +423,9 @@ if(PANGROVA_SOURCES)
   )
   # Link the OBJECT library — this pulls in both .o files and transitive deps.
   target_link_libraries(pangrova_native PUBLIC pangrova_native_objects)
+  if(PANGROVA_PRODUCTION_BUILD)
+    target_link_options(pangrova_native PRIVATE "-Wl,-z,defs")
+  endif()
 
   # --- Velox (the sole execution backend) ---
   if(VELOX_FOUND)
@@ -431,7 +466,26 @@ if(PANGROVA_SOURCES)
     # - gflags symbols (fLB::FLAGS_*) from libvelox.a are force-loaded into the
     #   dylib. They're hidden but internally resolvable — Velox code within the
     #   same dylib can reference them without external lookup.
-    target_compile_options(pangrova_native PRIVATE -fvisibility=hidden)
+    # Sources are compiled in the OBJECT target; setting the option only on the
+    # source-less SHARED target does not change their visibility.
+    target_compile_options(pangrova_native_objects PRIVATE -fvisibility=hidden)
+    set_target_properties(pangrova_native_objects PROPERTIES
+      VISIBILITY_INLINES_HIDDEN YES)
+
+    # Static Velox/Arrow dependencies are built with default visibility, so a
+    # compile flag alone cannot prevent their symbols from being re-exported.
+    # Restrict the final Mach-O export trie to JNI entry points.
+    set(_JNI_EXPORTED_SYMBOLS_LIST
+      "${CMAKE_CURRENT_SOURCE_DIR}/jni_exported_symbols_macos.list")
+    if(EXISTS "${_JNI_EXPORTED_SYMBOLS_LIST}")
+      target_link_options(pangrova_native PRIVATE
+        "-Wl,-exported_symbols_list,${_JNI_EXPORTED_SYMBOLS_LIST}")
+      message(STATUS
+        "JNI symbol isolation: exported-symbols-list ${_JNI_EXPORTED_SYMBOLS_LIST}")
+    else()
+      message(FATAL_ERROR
+        "JNI exported symbols list not found: ${_JNI_EXPORTED_SYMBOLS_LIST}")
+    endif()
 
     # Suppress linker warnings about "direct access to global weak symbol"
     # caused by visibility mismatch between our hidden .o and Velox's default .a.
@@ -469,7 +523,7 @@ if(PANGROVA_SOURCES)
     list(APPEND _RPATH_DIRS "${_flight_dir}")
   endif()
   # Arrow shared lib directory
-  get_target_property(_arrow_loc Arrow::arrow_shared IMPORTED_LOCATION)
+  get_target_property(_arrow_loc ${PANGROVA_ARROW_TARGET} IMPORTED_LOCATION)
   if(_arrow_loc)
     get_filename_component(_arrow_dir "${_arrow_loc}" DIRECTORY)
     list(APPEND _RPATH_DIRS "${_arrow_dir}")
@@ -524,7 +578,8 @@ if(PANGROVA_BUILD_TESTS)
   enable_testing()
   include(GoogleTest)
 
-  file(GLOB_RECURSE TEST_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp")
+  file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp")
 
   # Velox test utilities (VectorMaker) not in libvelox.a — compile directly.
   set(VELOX_TEST_UTILS "")
@@ -562,6 +617,28 @@ if(PANGROVA_BUILD_TESTS)
         target_link_options(pangrova_native_tests PRIVATE
           "-Wl,-force_load,${VELOX_MONO_LIB}")
         target_link_libraries(pangrova_native_tests PRIVATE "-lc++abi")
+
+        # Arrow Flight is a shared library that carries its own private gRPC and
+        # Abseil implementation.  The ASan test executable also contains an
+        # instrumented static Abseil through Velox/Protobuf.  Darwin coalesces
+        # weak C++ symbols across Mach-O images, so exporting the executable's
+        # Abseil templates makes uninstrumented Flight call into instrumented
+        # code with incompatible sanitizer annotations (reported as
+        # use-after-poison in absl::Cord).  Keep test-only static dependency
+        # symbols private; the executable has no plugin ABI and only main needs
+        # to be externally visible.
+        if(CMAKE_CXX_FLAGS MATCHES "-fsanitize=address")
+          set(_TEST_ASAN_EXPORTED_SYMBOLS_LIST
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_asan_exported_symbols_macos.list")
+          if(EXISTS "${_TEST_ASAN_EXPORTED_SYMBOLS_LIST}")
+            target_link_options(pangrova_native_tests PRIVATE
+              "-Wl,-exported_symbols_list,${_TEST_ASAN_EXPORTED_SYMBOLS_LIST}")
+          else()
+            message(FATAL_ERROR
+              "ASan test exported symbols list not found: "
+              "${_TEST_ASAN_EXPORTED_SYMBOLS_LIST}")
+          endif()
+        endif()
       else()
         target_link_options(pangrova_native_tests PRIVATE
           "-Wl,--whole-archive" "${VELOX_MONO_LIB}" "-Wl,--no-whole-archive"
@@ -607,7 +684,7 @@ message(STATUS "  NDEBUG:            ${_NDEBUG_STATUS}")
 message(STATUS "  protoc:            ${PROTOC_EXECUTABLE}")
 message(STATUS "  libprotobuf:       ${_PB_SOURCE}")
 message(STATUS "  Velox:             ${VELOX_HOME}")
-message(STATUS "  Lance C FFI:       ${LANCE_C_FFI_FOUND}")
+message(STATUS "  Lance C FFI:       ${LANCE_C_FFI_LIB}")
 message(STATUS "  OTel SDK:          ${PANGROVA_HAS_OTEL}")
 message(STATUS "  CMAKE_IGNORE_PATH: ${CMAKE_IGNORE_PATH}")
 message(STATUS "  Tests:             ${PANGROVA_BUILD_TESTS}")

@@ -1,6 +1,8 @@
 package org.pangrova.planner;
 
 import org.apache.calcite.rel.RelNode;
+import org.apache.calcite.rel.core.Values;
+import org.apache.calcite.util.TimestampString;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,5 +30,18 @@ class PangrovaPlannerTest {
     void planSelectArithmeticReturnsNonNullRelNode() {
         RelNode result = planner.plan("SELECT 1 + 2").plan();
         assertThat(result).isNotNull();
+    }
+
+    @Test
+    void timestampLiteralKeepsNanosecondsThroughParsingAndPlanning() {
+        RelNode result = planner.plan(
+                "SELECT TIMESTAMP '2025-01-01 00:00:00.123456789'").plan();
+
+        assertThat(result.getRowType().getFieldList().get(0).getType().getPrecision())
+                .isEqualTo(9);
+        assertThat(result).isInstanceOf(Values.class);
+        var literal = ((Values) result).getTuples().get(0).get(0);
+        assertThat(literal.getValueAs(TimestampString.class))
+                .isEqualTo(new TimestampString("2025-01-01 00:00:00.123456789"));
     }
 }

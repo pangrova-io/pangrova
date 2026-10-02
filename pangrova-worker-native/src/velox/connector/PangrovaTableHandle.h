@@ -13,11 +13,22 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include "velox/connectors/Connector.h"
 #include "velox/core/Expressions.h"
 
 namespace pangrova::velox {
+
+// Reserved Native-only column synthesized by the file reader. Plans may use it
+// for physical row locators, but connectors must never resolve it as a user
+// table column.
+inline constexpr std::string_view kPhysicalRowPositionColumnName =
+    "$pangrova$row_position";
+inline constexpr std::string_view kSourceObjectIdColumnName =
+    "$pangrova$source_object_id";
+inline constexpr std::string_view kMaterializedRetrievalScoreColumnName =
+    "$pangrova$retrieval_score";
 
 // Column handle wrapping a single column name for Velox connector API.
 class PangrovaColumnHandle : public facebook::velox::connector::ColumnHandle {
@@ -44,11 +55,15 @@ class PangrovaTableHandle
   PangrovaTableHandle(
       std::string connectorId,
       std::string tableName,
+      std::string planNodeId,
+      facebook::velox::RowTypePtr scanSchema,
       std::shared_ptr<const facebook::velox::core::ITypedExpr>
           remainingFilter = nullptr)
       : facebook::velox::connector::ConnectorTableHandle(
             std::move(connectorId)),
         tableName_(std::move(tableName)),
+        planNodeId_(std::move(planNodeId)),
+        scanSchema_(std::move(scanSchema)),
         remainingFilter_(std::move(remainingFilter)) {}
 
   const std::string& name() const override {
@@ -62,8 +77,15 @@ class PangrovaTableHandle
     return remainingFilter_;
   }
 
+  const std::string& planNodeId() const {
+    return planNodeId_;
+  }
+  const facebook::velox::RowTypePtr& scanSchema() const { return scanSchema_; }
+
  private:
   std::string tableName_;
+  std::string planNodeId_;
+  facebook::velox::RowTypePtr scanSchema_;
   std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter_;
 };
 

@@ -1,7 +1,7 @@
 LogicalProject(promo_revenue=[/(*(100.00:DECIMAL(5, 2), $0), $1)])
   LogicalProject($f0=[CASE(=($1, 0), null:DECIMAL(19, 4), $0)], $f1=[CASE(=($1, 0), null:DECIMAL(19, 4), $2)])
     LogicalAggregate(group=[{}], agg#0=[$SUM0($0)], agg#1=[COUNT()], agg#2=[$SUM0($1)])
-      LogicalProject($f0=[CASE(LIKE($5, 'PROMO%'), *($1, -(1, $2)), 0:DECIMAL(19, 4))], $f1=[*($1, -(1, $2))])
+      LogicalProject($f0=[CASE(LIKE($5, 'PROMO%'), *($1, -(1, $2)), 0.0000:DECIMAL(19, 4))], $f1=[*($1, -(1, $2))])
         LogicalJoin(condition=[=($0, $4)], joinType=[inner])
           LogicalProject(L_PARTKEY=[$1], L_EXTENDEDPRICE=[$5], L_DISCOUNT=[$6], L_SHIPDATE=[$10])
             LogicalFilter(condition=[SEARCH($10, Sarg[[1995-09-01..1995-10-01)])])

@@ -1,7 +1,8 @@
 package org.pangrova.worker.task.index;
 
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.spi.index.IndexEvalResult;
 import org.pangrova.spi.index.eval.IndexEvalDescriptor;
 import org.pangrova.spi.index.eval.IndexEvalHint;
@@ -17,7 +18,7 @@ import java.util.ServiceLoader;
 /**
  * Worker-side L2 index evaluation filter.
  *
- * <p>Examines {@link IndexEvalHintInfo} messages attached to splits by the
+ * <p>Examines typed v2 index-evaluation hints attached to splits by the
  * coordinator. For each hint, loads the index file and evaluates the predicate.
  * Splits where ALL data files are SKIP are removed before native execution.</p>
  *
@@ -67,11 +68,11 @@ public final class IndexEvalSplitFilter {
      * @param splits decoded SplitInfo messages from TaskRequest
      * @return filtered list (subset of input, never larger)
      */
-    public List<SplitInfo> filterSplits(List<SplitInfo> splits) {
+    public List<DataSplit> filterSplits(List<DataSplit> splits) {
         if (evaluator == null) {
             return splits;
         }
-        List<SplitInfo> result = new ArrayList<>(splits.size());
+        List<DataSplit> result = new ArrayList<>(splits.size());
         int skipped = evaluateAndFilter(splits, result);
         if (skipped > 0) {
             LOG.info("event=worker_l2_index_filter total={} skipped={} kept={}",
@@ -80,10 +81,11 @@ public final class IndexEvalSplitFilter {
         return result;
     }
 
-    private int evaluateAndFilter(List<SplitInfo> splits, List<SplitInfo> result) {
+    private int evaluateAndFilter(List<DataSplit> splits, List<DataSplit> result) {
         int skipped = 0;
-        for (SplitInfo split : splits) {
-            if (split.getIndexEvalHintsCount() == 0 || shouldKeepSplit(split)) {
+        for (DataSplit split : splits) {
+            if (DataSplitProtoCodec.fileDetail(split).getIndexEvalHintsCount() == 0
+                    || shouldKeepSplit(split)) {
                 result.add(split);
             } else {
                 skipped++;
@@ -92,9 +94,9 @@ public final class IndexEvalSplitFilter {
         return skipped;
     }
 
-    private boolean shouldKeepSplit(SplitInfo split) {
+    private boolean shouldKeepSplit(DataSplit split) {
         List<IndexEvalHint> hints = IndexEvalHintProtoCodec.extractHints(split);
-        String splitFilePath = split.getFilePath();
+        String splitFilePath = split.getOpaqueLocation();
         if (hints.size() > 1) {
             return evaluateMultiHintKeep(hints, splitFilePath);
         }

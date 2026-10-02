@@ -44,7 +44,7 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
  * SQL NULL or unrecognised expressions) are skipped rather than rejected, so
  * the whitelist never produces false negatives on absent/opaque values.</p>
  */
-final class FileColumnMimeValidator {
+public final class FileColumnMimeValidator {
 
     static final String ALLOWED_TYPES_PROPERTY = "pangrova.file.allowed_types";
     static final String FILE_COLUMN_PROPERTY_PREFIX = "pangrova.file.column.";
@@ -82,9 +82,9 @@ final class FileColumnMimeValidator {
      * @param valueRows the INSERT VALUES rows (each aligned with {@code columns})
      * @throws ValidationException if a FILE value's MIME is not in the whitelist
      */
-    static void validate(ConnectorTableMetadata tableMeta,
-                         List<String> columns,
-                         List<List<Expression>> valueRows) {
+    public static void validate(ConnectorTableMetadata tableMeta,
+                                List<String> columns,
+                                List<List<Expression>> valueRows) {
         if (tableMeta == null || columns == null || valueRows == null) {
             return;
         }

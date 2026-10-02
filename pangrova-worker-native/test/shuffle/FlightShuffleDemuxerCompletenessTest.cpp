@@ -56,7 +56,7 @@ TEST(FlightShuffleDemuxerCompletenessTest, CleanCloseIsCompleteNotTruncated) {
   for (int i = 1; i <= kStaged; ++i) {
     ASSERT_TRUE(queue.push(makeBatch(kPartition, i), std::chrono::seconds(1)));
   }
-  queue.close();  // clean producer completion
+  ASSERT_TRUE(queue.commit());  // clean producer completion
 
   PartitionDemuxer demuxer(&queue);
   demuxer.start();

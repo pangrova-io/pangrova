@@ -59,7 +59,7 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
 
         @BeforeAll
         static void createSource() {
-            if (!isDockerReady()) return;
+            isDockerReady();
             registerTestConnectors(List.of(
                     ConnectorTestConfig.icebergLocal(
                             ICE_CATALOG, SCHEMA, icebergWarehouse().toString())));
@@ -164,7 +164,7 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
 
         @BeforeAll
         static void createSource() {
-            if (!isDockerReady()) return;
+            isDockerReady();
             registerTestConnectors(List.of(
                     ConnectorTestConfig.icebergLocal(
                             ICE_CATALOG, SCHEMA, icebergWarehouse().toString())));
@@ -288,7 +288,7 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
 
         @BeforeAll
         static void createSource() {
-            if (!isDockerReady()) return;
+            isDockerReady();
             registerTestConnectors(List.of(
                     ConnectorTestConfig.icebergLocal(
                             ICE_CATALOG, SCHEMA, icebergWarehouse().toString())));
@@ -432,7 +432,7 @@ class MergeOnReadE2ETest extends SqlE2ETestBase {
 
         @BeforeAll
         static void createSource() {
-            if (!isDockerReady()) return;
+            isDockerReady();
             cdcAvailableFlag = true;
             registerTestConnectors(List.of(
                     ConnectorTestConfig.paimon(

@@ -1,5 +1,11 @@
 package org.pangrova.coordinator.scheduler;
 
+import org.pangrova.coordinator.scheduler.failure.CircuitBreakerOpenException;
+
+import org.pangrova.coordinator.scheduler.failure.TaskDispatchException;
+
+import org.pangrova.coordinator.scheduler.failure.ErrorCategory;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.io.IOException;
@@ -10,19 +16,23 @@ import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
+import java.util.function.LongSupplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.common.http.HttpClientFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.slf4j.Logger;
@@ -50,6 +60,11 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     static final long COMMIT_NOTIFY_MAX_BACKOFF_MS = 4_000;
 
     private static final String INTERNAL_AUTH_HEADER = "X-Internal-Auth";
+    private static final int HTTP_OK = 200;
+    private static final int HTTP_EPOCH_AHEAD = 425;
+    private static final int HTTP_SERVICE_UNAVAILABLE = 503;
+    private static final long EPOCH_CATCHUP_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(15);
+    private static final long EPOCH_CATCHUP_RETRY_MS = 250;
 
     private final HttpClient httpClient;
     private final org.pangrova.common.http.ManagedHttpClient managedClient;
@@ -57,17 +72,22 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     private final CircuitBreakerPolicy circuitBreakerPolicy;
     private final TracingProvider tracingProvider;
     private final String internalAuthSecret;
+    private final WorkerTaskControlClient taskControlClient;
     // F-COORD-HA-04: Epoch supplier for zombie fencing. When set, every dispatched
     // task request is stamped with the current coordinator epoch so workers can
     // reject stale-epoch submissions during split-brain windows.
-    private volatile java.util.function.LongSupplier epochSupplier;
+    private volatile LongSupplier controlEpochSupplier;
+    private volatile Function<String, ExecutionOwnerIdentity> executionOwnerResolver;
 
     public RemoteTaskDispatcher(CircuitBreakerPolicy circuitBreakerPolicy, TracingProvider tracingProvider) {
         this(circuitBreakerPolicy, tracingProvider, null);
     }
 
-    public RemoteTaskDispatcher(CircuitBreakerPolicy circuitBreakerPolicy, TracingProvider tracingProvider,
-                                String internalAuthSecret) {
+    /** Creates a dispatcher that owns its HTTP client and applies internal authentication. */
+    public RemoteTaskDispatcher(
+            CircuitBreakerPolicy circuitBreakerPolicy,
+            TracingProvider tracingProvider,
+            String internalAuthSecret) {
         org.pangrova.common.http.ManagedHttpClient managed = HttpClientFactory.createDefault();
         this.managedClient = managed;
         this.httpClient = managed.httpClient();
@@ -75,6 +95,8 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         this.circuitBreakerPolicy = checkNotNull(circuitBreakerPolicy, "circuitBreakerPolicy must not be null");
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
+        this.taskControlClient = new WorkerTaskControlClient(
+                httpClient, mapper, tracingProvider, internalAuthSecret);
     }
 
     public RemoteTaskDispatcher(HttpClient httpClient, CircuitBreakerPolicy circuitBreakerPolicy,
@@ -82,14 +104,20 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         this(httpClient, circuitBreakerPolicy, tracingProvider, null);
     }
 
-    public RemoteTaskDispatcher(HttpClient httpClient, CircuitBreakerPolicy circuitBreakerPolicy,
-                              TracingProvider tracingProvider, String internalAuthSecret) {
+    /** Creates a dispatcher around a caller-owned HTTP client. */
+    public RemoteTaskDispatcher(
+            HttpClient httpClient,
+            CircuitBreakerPolicy circuitBreakerPolicy,
+            TracingProvider tracingProvider,
+            String internalAuthSecret) {
         this.httpClient = checkNotNull(httpClient, "httpClient must not be null");
         this.managedClient = null; // externally provided — caller owns lifecycle
         this.mapper = JsonMapperFactory.shared();
         this.circuitBreakerPolicy = checkNotNull(circuitBreakerPolicy, "circuitBreakerPolicy must not be null");
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
+        this.taskControlClient = new WorkerTaskControlClient(
+                httpClient, mapper, tracingProvider, internalAuthSecret);
     }
 
     /**
@@ -113,18 +141,75 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
      * F-COORD-HA-04: Stamps the request with the current coordinator epoch for
      * zombie fencing. Workers can reject submissions from stale-epoch coordinators.
      */
-    private SubmitTaskRequest stampEpochIfNeeded(SubmitTaskRequest request) {
-        if (epochSupplier == null || request.coordinatorEpoch() != null) {
-            return request;
+    @Override
+    public SubmitTaskRequest bindControlIdentity(SubmitTaskRequest request) {
+        checkNotNull(request, "request must not be null");
+        var canonical = request.taskRequest();
+        var attempt = canonical.getAttempt();
+        if (!requiresControlBinding(canonical)) {
+            return SubmitTaskRequest.from(org.pangrova.protocol.NativeWriteBindings.bindAttempt(canonical));
         }
-        return new SubmitTaskRequest(
-                request.taskId(), request.queryId(), request.stageId(), request.partitionId(),
-                request.taskType(), request.planFragment(), request.splits(),
-                request.exchangeSources(), request.resourceLimit(),
-                request.sessionProperties(), request.outputConfig(), request.writeConfig(),
-                request.dynamicFilters(), request.shuffleConfig(), request.splitMode(),
-                request.tenantId(), request.principal(), request.vectorSearch(),
-                epochSupplier.getAsLong());
+        long controlEpoch = attempt.getControlEpoch() > 0
+                ? attempt.getControlEpoch()
+                : controlEpochSupplier != null ? controlEpochSupplier.getAsLong() : 0L;
+        ExecutionOwnerIdentity executionOwner = attempt.hasExecutionOwner()
+                ? ExecutionOwnerIdentity.from(attempt.getExecutionOwner())
+                : executionOwnerResolver != null
+                        ? executionOwnerResolver.apply(attempt.getQueryOrJobId()) : null;
+        if (controlEpoch <= 0 || executionOwner == null) {
+            throw new IllegalStateException(
+                    "Task dispatch requires a bound control epoch and execution owner");
+        }
+        var canonicalOwner = org.pangrova.protocol.v2.ExecutionOwnerIdentity
+                .newBuilder()
+                .setOwnerId(executionOwner.ownerId())
+                .setOwnerIncarnation(executionOwner.ownerIncarnation())
+                .setFencingToken(executionOwner.fencingToken())
+                .build();
+        var bound = canonical.toBuilder()
+                .setAttempt(attempt.toBuilder()
+                        .setControlEpoch(controlEpoch)
+                        .setExecutionOwner(canonicalOwner));
+        bindShuffleExecutionOwner(bound, canonical, canonicalOwner);
+        return SubmitTaskRequest.from(org.pangrova.protocol.NativeWriteBindings.bindAttempt(bound.build()));
+    }
+
+    private boolean requiresControlBinding(org.pangrova.protocol.v2.TaskRequest request) {
+        var attempt = request.getAttempt();
+        boolean taskNeedsBinding = (controlEpochSupplier != null
+                && attempt.getControlEpoch() <= 0)
+                || (executionOwnerResolver != null && !attempt.hasExecutionOwner());
+        return taskNeedsBinding || shuffleNeedsOwner(request);
+    }
+
+    private static boolean shuffleNeedsOwner(
+            org.pangrova.protocol.v2.TaskRequest request) {
+        return request.hasExecutionOptions()
+                && request.getExecutionOptions().hasShuffle()
+                && request.getExecutionOptions().getShuffle().hasExecutionBinding()
+                && !request.getExecutionOptions().getShuffle()
+                        .getExecutionBinding().hasExecutionOwner();
+    }
+
+    private static void bindShuffleExecutionOwner(
+            org.pangrova.protocol.v2.TaskRequest.Builder bound,
+            org.pangrova.protocol.v2.TaskRequest request,
+            org.pangrova.protocol.v2.ExecutionOwnerIdentity owner) {
+        if (!request.hasExecutionOptions()
+                || !request.getExecutionOptions().hasShuffle()
+                || !request.getExecutionOptions().getShuffle().hasExecutionBinding()) {
+            return;
+        }
+        var shuffle = request.getExecutionOptions().getShuffle();
+        var binding = shuffle.getExecutionBinding();
+        if (binding.getPlanEpoch() != request.getAttempt().getPlanEpoch()) {
+            throw new IllegalStateException(
+                    "Shuffle binding plan epoch does not match task attempt");
+        }
+        bound.setExecutionOptions(request.getExecutionOptions().toBuilder()
+                .setShuffle(shuffle.toBuilder()
+                        .setExecutionBinding(binding.toBuilder()
+                                .setExecutionOwner(owner))));
     }
 
     @Override
@@ -149,18 +234,76 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     }
 
     private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
-        SubmitTaskRequest stamped = stampEpochIfNeeded(request);
+        SubmitTaskRequest stamped = bindControlIdentity(request);
         byte[] body = serializeRequest(stamped);
-        HttpResponse<String> response = sendPost(worker, body);
-        return handleResponse(worker, response);
+        long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
+        while (true) {
+            if (System.nanoTime() >= deadline) {
+                throw epochCatchupExpired(worker);
+            }
+            verifyControlIdentityStillCurrent(stamped, worker);
+            HttpResponse<String> response = sendPost(worker, body, deadline);
+            if (response.statusCode() != HTTP_EPOCH_AHEAD) {
+                return handleResponse(worker, response, stamped);
+            }
+            if (System.nanoTime() >= deadline) {
+                throw epochCatchupExpired(worker);
+            }
+            try {
+                Thread.sleep(EPOCH_CATCHUP_RETRY_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED,
+                        "Epoch catch-up interrupted for worker " + worker.host(), e);
+            }
+        }
+    }
+
+    private void verifyControlIdentityStillCurrent(
+            SubmitTaskRequest stamped, WorkerInfo worker) {
+        var attempt = stamped.taskRequest().getAttempt();
+        LongSupplier epochSupplier = controlEpochSupplier;
+        if (epochSupplier != null && epochSupplier.getAsLong() != attempt.getControlEpoch()) {
+            throw new TaskDispatchException(ErrorCategory.CONTROL_FENCED, worker.host(),
+                    "Control epoch changed while dispatching task " + attempt.getTaskId());
+        }
+        Function<String, ExecutionOwnerIdentity> ownerResolver = executionOwnerResolver;
+        if (ownerResolver != null) {
+            ExecutionOwnerIdentity current = ownerResolver.apply(attempt.getQueryOrJobId());
+            ExecutionOwnerIdentity stampedOwner = attempt.hasExecutionOwner()
+                    ? ExecutionOwnerIdentity.from(attempt.getExecutionOwner()) : null;
+            if (!java.util.Objects.equals(current, stampedOwner)) {
+                throw new TaskDispatchException(ErrorCategory.CONTROL_FENCED, worker.host(),
+                        "Execution owner changed while dispatching task " + attempt.getTaskId());
+            }
+        }
+    }
+
+    private TaskDispatchException epochCatchupExpired(WorkerInfo worker) {
+        return new TaskDispatchException(ErrorCategory.CONTROL_FENCED, worker.host(),
+                "Worker did not observe the coordinator epoch before dispatch deadline");
+    }
+
+    private Duration remainingDispatchTime(long deadline, WorkerInfo worker) {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) {
+            throw epochCatchupExpired(worker);
+        }
+        return Duration.ofNanos(remaining);
     }
 
     /**
      * F-COORD-HA-04: Sets the epoch supplier for coordinator zombie fencing.
      * Called during HA bootstrap to inject the HA service's epoch accessor.
      */
-    public void setEpochSupplier(java.util.function.LongSupplier supplier) {
-        this.epochSupplier = supplier;
+    public void setControlEpochSupplier(LongSupplier supplier) {
+        this.controlEpochSupplier = checkNotNull(supplier, "supplier must not be null");
+    }
+
+    /** Installs the query/job execution-anchor resolver used at task admission. */
+    public void setExecutionOwnerResolver(
+            Function<String, ExecutionOwnerIdentity> resolver) {
+        this.executionOwnerResolver = checkNotNull(resolver, "resolver must not be null");
     }
 
     private byte[] serializeRequest(SubmitTaskRequest request) {
@@ -172,13 +315,14 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
     }
 
-    private HttpResponse<String> sendPost(WorkerInfo worker, byte[] body) {
+    private HttpResponse<String> sendPost(WorkerInfo worker, byte[] body, long deadline) {
         String url = "http://" + worker.host() + ":" + worker.httpPort() + "/v1/task";
         LOG.debug("event=task_dispatch url={}", url);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
+                .timeout(remainingDispatchTime(deadline, worker))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 
         injectTraceContext(builder);
@@ -190,8 +334,11 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
             Thread.currentThread().interrupt();
             throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED,
                     "Task dispatch interrupted for worker " + worker.host(), e);
+        } catch (HttpTimeoutException e) {
+            throw new TaskDispatchException(ErrorCategory.RPC_TIMEOUT, worker.host(),
+                    "Task dispatch timed out for worker " + worker.host(), e);
         } catch (IOException e) {
-            throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED,
+            throw new TaskDispatchException(ErrorCategory.NETWORK, worker.host(),
                     "Task dispatch failed for worker " + worker.host(), e);
         }
     }
@@ -206,10 +353,11 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
     }
 
-    private DispatchResult handleResponse(WorkerInfo worker, HttpResponse<String> response) {
+    private DispatchResult handleResponse(WorkerInfo worker, HttpResponse<String> response,
+                                          SubmitTaskRequest submitted) {
         int statusCode = response.statusCode();
-        if (statusCode != 200) {
-            PangrovaErrorCode errorCode = (statusCode == 503)
+        if (statusCode != HTTP_OK) {
+            PangrovaErrorCode errorCode = (statusCode == HTTP_SERVICE_UNAVAILABLE)
                     ? PangrovaErrorCode.COORDINATOR_DISPATCH_REJECTED
                     : PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED;
             throw new PangrovaException(errorCode,
@@ -221,8 +369,16 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
             throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_REJECTED,
                     "Worker rejected task: " + taskResponse.rejectReason());
         }
+        boolean resultTask = submitted.taskRequest().getExecutionOptions().getDirectResultOutput();
+        if (resultTask != (taskResponse.resultEndpoint() != null)) {
+            throw new PangrovaException(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
+                    "Worker result endpoint does not match the admitted result task scope");
+        }
 
-        return new DispatchResult(worker.host(), taskResponse.taskId(), taskResponse.resultEndpoint());
+        return new DispatchResult(
+                worker.host(), taskResponse.taskId(), taskResponse.resultEndpoint(),
+                worker.workerId())
+                .withShuffleEndpoint(taskResponse.shuffleEndpoint());
     }
 
     private SubmitTaskResponse deserializeResponse(String body) {
@@ -249,13 +405,12 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
 
         // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
-        SubmitTaskRequest stamped = stampEpochIfNeeded(request);
+        SubmitTaskRequest stamped = bindControlIdentity(request);
         byte[] body = serializeRequest(stamped);
-        HttpRequest httpRequest = buildAsyncRequest(worker, body);
+        long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
 
-        return httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> {
-                    DispatchResult result = handleResponse(worker, response);
+        return sendAsyncWithEpochCatchup(stamped, worker, body, deadline)
+                .thenApply(result -> {
                     circuitBreakerPolicy.recordSuccess(breakerKey);
                     return result;
                 })
@@ -266,13 +421,47 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                 });
     }
 
-    private HttpRequest buildAsyncRequest(WorkerInfo worker, byte[] body) {
+    private CompletableFuture<DispatchResult> sendAsyncWithEpochCatchup(
+            SubmitTaskRequest stamped, WorkerInfo worker, byte[] body, long deadline) {
+        if (System.nanoTime() >= deadline) {
+            return CompletableFuture.failedFuture(epochCatchupExpired(worker));
+        }
+        try {
+            verifyControlIdentityStillCurrent(stamped, worker);
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+        return httpClient.sendAsync(buildAsyncRequest(worker, body, deadline),
+                        HttpResponse.BodyHandlers.ofString())
+                .thenCompose(response -> {
+                    if (response.statusCode() != HTTP_EPOCH_AHEAD) {
+                        try {
+                            return CompletableFuture.completedFuture(handleResponse(worker, response, stamped));
+                        } catch (RuntimeException e) {
+                            return CompletableFuture.failedFuture(e);
+                        }
+                    }
+                    if (System.nanoTime() >= deadline) {
+                        return CompletableFuture.failedFuture(epochCatchupExpired(worker));
+                    }
+                    // HTTP 425 is emitted before admission. Retry the identical attempt only
+                    // after the Worker learns this epoch from its authenticated control channel.
+                    return CompletableFuture.supplyAsync(() -> Boolean.TRUE,
+                                    CompletableFuture.delayedExecutor(
+                                            EPOCH_CATCHUP_RETRY_MS, TimeUnit.MILLISECONDS))
+                            .thenCompose(ignored -> sendAsyncWithEpochCatchup(
+                                    stamped, worker, body, deadline));
+                });
+    }
+
+    private HttpRequest buildAsyncRequest(WorkerInfo worker, byte[] body, long deadline) {
         String url = "http://" + worker.host() + ":" + worker.httpPort() + "/v1/task";
         LOG.debug("event=async_task_dispatch url={}", url);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
+                .timeout(remainingDispatchTime(deadline, worker))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 
         injectTraceContext(builder);
@@ -295,13 +484,14 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
      * F-RESIL-02: NETWORK and RPC_TIMEOUT errors record failure (worker is down).
      * F-RESIL-05: WORKER_BUSY (503 backpressure) records success to settle the permit
      * (worker is alive but temporarily overloaded).
+     * CONTROL_FENCED also settles the permit without blaming the Worker.
      * WORKER_FATAL records failure (unknown/fatal error).
      */
     private void settleCircuitBreaker(String breakerTarget, TaskDispatchException classified) {
         switch (classified.getCategory()) {
             case NETWORK, RPC_TIMEOUT, WORKER_FATAL ->
                     circuitBreakerPolicy.recordFailure(breakerTarget, classified);
-            case WORKER_BUSY ->
+            case WORKER_BUSY, CONTROL_FENCED ->
                     circuitBreakerPolicy.recordSuccess(breakerTarget);
             default -> throw new IllegalStateException(
                     "Unhandled ErrorCategory: " + classified.getCategory());
@@ -317,7 +507,8 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
      *   <li>{@link ConnectException} / general {@link IOException} → {@link ErrorCategory#NETWORK}</li>
      *   <li>{@link HttpTimeoutException} / {@link HttpConnectTimeoutException} /
      *       {@link TimeoutException} → {@link ErrorCategory#RPC_TIMEOUT}</li>
-     *   <li>{@link PangrovaException} with {@code COORDINATOR_DISPATCH_REJECTED} → {@link ErrorCategory#WORKER_BUSY}</li>
+     *   <li>{@link PangrovaException} with {@code COORDINATOR_DISPATCH_REJECTED}
+     *       maps to {@link ErrorCategory#WORKER_BUSY}</li>
      *   <li>All other exceptions → {@link ErrorCategory#WORKER_FATAL}</li>
      * </ul>
      */
@@ -327,13 +518,12 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
             cause = ex;
         }
 
-        ErrorCategory category = classifyException(cause);
-        LOG.debug("event=dispatch_exception_classified workerHost={} category={} exceptionType={}",
-                workerHost, category, cause.getClass().getSimpleName());
-
         if (cause instanceof TaskDispatchException existing) {
             return existing;
         }
+        ErrorCategory category = classifyException(cause);
+        LOG.debug("event=dispatch_exception_classified workerHost={} category={} exceptionType={}",
+                workerHost, category, cause.getClass().getSimpleName());
         return new TaskDispatchException(category, workerHost,
                 "Task dispatch failed for worker " + workerHost + " [" + category + "]", cause);
     }
@@ -361,48 +551,13 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     @Override
     public void injectDynamicFilter(String taskId, String planNodeId,
                                     byte[] filterProto, String workerId) {
-        String[] parts = workerId.split(":");
-        String host = parts[0];
-        int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 8080;
-        String url = "http://" + host + ":" + port + "/v1/task/" + taskId + "/dynamic-filter";
-        LOG.debug("event=dynamic_filter_inject url={} taskId={} planNodeId={}", url, taskId, planNodeId);
-
-        try {
-            byte[] body = mapper.writeValueAsBytes(
-                    new org.pangrova.protocol.rest.task.InjectDynamicFilterRequest(planNodeId, filterProto));
-            HttpRequest.Builder builder = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(body));
-            injectTraceContext(builder);
-            injectInternalAuth(builder);
-            HttpResponse<String> response = httpClient.send(builder.build(),
-                    HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                LOG.warn("event=dynamic_filter_inject_failed taskId={} workerId={} statusCode={}",
-                        taskId, workerId, response.statusCode());
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("event=dynamic_filter_inject_interrupted taskId={} workerId={}", taskId, workerId);
-        } catch (IOException e) {
-            LOG.warn("event=dynamic_filter_inject_io_error taskId={} workerId={} error={}",
-                    taskId, workerId, e.getMessage());
-        }
+        taskControlClient.injectDynamicFilter(
+                taskId, planNodeId, filterProto, workerId);
     }
 
     @Override
     public SchedulerCancelResult cancelTask(String taskId, String workerHost, int httpPort) {
-        String url = "http://" + workerHost + ":" + httpPort + "/v1/task/" + taskId;
-        LOG.debug("event=task_cancel url={}", url);
-
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .DELETE();
-        injectTraceContext(builder);
-        injectInternalAuth(builder);
-
-        return sendCancelRequest(builder.build(), taskId);
+        return taskControlClient.cancelTask(taskId, workerHost, httpPort);
     }
     @Override
     public void notifyUpstreamCommit(String workerHost, int httpPort,
@@ -421,147 +576,8 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     public void notifyUpstreamCommit(String workerHost, int httpPort,
                                      String queryId, int upstreamStageId,
                                      Runnable stageFailureCallback) {
-        String url = "http://" + workerHost + ":" + httpPort + "/v1/task/upstream-commit";
-        LOG.debug("event=upstream_commit_notify url={} queryId={} upstreamStageId={}",
-                url, queryId, upstreamStageId);
-
-        Exception lastException = retryCommitNotify(
-                url, queryId, upstreamStageId, workerHost, stageFailureCallback);
-        if (lastException != null) {
-            LOG.error("event=upstream_commit_notify_exhausted queryId={} upstreamStageId={} "
-                    + "workerHost={} attempts={} lastError={}",
-                    queryId, upstreamStageId, workerHost, COMMIT_NOTIFY_MAX_ATTEMPTS,
-                    lastException.getMessage());
-            invokeFailureCallback(stageFailureCallback, queryId, upstreamStageId, workerHost);
-        }
-    }
-
-    private Exception retryCommitNotify(String url, String queryId, int upstreamStageId,
-                                        String workerHost, Runnable stageFailureCallback) {
-        BackoffStrategy backoff = BackoffStrategy.retry(
-                COMMIT_NOTIFY_INITIAL_BACKOFF_MS, COMMIT_NOTIFY_MAX_BACKOFF_MS);
-        Exception lastException = null;
-        for (int attempt = 1; attempt <= COMMIT_NOTIFY_MAX_ATTEMPTS; attempt++) {
-            lastException = attemptCommitNotify(url, queryId, upstreamStageId, workerHost,
-                    stageFailureCallback, attempt);
-            if (lastException == null) {
-                return null;
-            }
-            if (Thread.currentThread().isInterrupted()) {
-                invokeFailureCallback(stageFailureCallback, queryId, upstreamStageId, workerHost);
-                return null;
-            }
-            if (attempt < COMMIT_NOTIFY_MAX_ATTEMPTS) {
-                sleepForRetry(backoff.next(), queryId, upstreamStageId);
-            }
-        }
-        return lastException;
-    }
-
-    /** Returns null on success, or the exception on failure. */
-    private Exception attemptCommitNotify(String url, String queryId, int upstreamStageId,
-                                          String workerHost, Runnable stageFailureCallback, int attempt) {
-        try {
-            HttpRequest request = buildCommitRequest(url, queryId, upstreamStageId);
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 200) {
-                return null;
-            }
-            return logAndReturnCommitFailure(queryId, upstreamStageId, workerHost,
-                    response.statusCode(), attempt);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("event=upstream_commit_notify_interrupted queryId={} upstreamStageId={}",
-                    queryId, upstreamStageId);
-            invokeFailureCallback(stageFailureCallback, queryId, upstreamStageId, workerHost);
-            return e;
-        } catch (IOException e) {
-            return logCommitIoError(queryId, upstreamStageId, workerHost, e, attempt);
-        }
-    }
-
-    private Exception logAndReturnCommitFailure(String queryId, int upstreamStageId,
-                                                String workerHost, int statusCode, int attempt) {
-        LOG.warn("event=upstream_commit_notify_failed queryId={} upstreamStageId={} "
-                + "workerHost={} statusCode={} attempt={} maxAttempts={}",
-                queryId, upstreamStageId, workerHost, statusCode,
-                attempt, COMMIT_NOTIFY_MAX_ATTEMPTS);
-        return new IOException("Worker returned HTTP " + statusCode);
-    }
-
-    private Exception logCommitIoError(String queryId, int upstreamStageId,
-                                       String workerHost, IOException e, int attempt) {
-        LOG.warn("event=upstream_commit_notify_io_error queryId={} upstreamStageId={} "
-                + "workerHost={} error={} attempt={} maxAttempts={}",
-                queryId, upstreamStageId, workerHost, e.getMessage(),
-                attempt, COMMIT_NOTIFY_MAX_ATTEMPTS);
-        return e;
-    }
-
-    private void invokeFailureCallback(Runnable callback, String queryId,
-                                       int upstreamStageId, String workerHost) {
-        if (callback != null) {
-            try {
-                callback.run();
-            } catch (Exception e) {
-                LOG.warn("event=commit_notify_failure_callback_error queryId={} "
-                        + "upstreamStageId={} workerHost={} error={}",
-                        queryId, upstreamStageId, workerHost, e.getMessage());
-            }
-        }
-    }
-
-    private static void sleepForRetry(long delayMs, String queryId, int upstreamStageId) {
-        try {
-            Thread.sleep(delayMs);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.debug("event=commit_notify_retry_sleep_interrupted queryId={} upstreamStageId={}",
-                    queryId, upstreamStageId);
-        }
-    }
-
-    private HttpRequest buildCommitRequest(String url, String queryId,
-                                           int upstreamStageId) throws IOException {
-        var notification = new org.pangrova.protocol.rest.task.UpstreamCommitNotification(
-                queryId, upstreamStageId);
-        byte[] body = mapper.writeValueAsBytes(notification);
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
-        injectTraceContext(builder);
-        injectInternalAuth(builder);
-        return builder.build();
-    }
-
-
-
-
-    private SchedulerCancelResult sendCancelRequest(HttpRequest request, String taskId) {
-        try {
-            HttpResponse<String> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.ofString());
-            return mapCancelResponse(response, taskId);
-        } catch (IOException e) {
-            LOG.warn("event=task_cancel_io_error taskId={} error={}", taskId, e.getMessage());
-            return SchedulerCancelResult.failed("IO error: " + e.getMessage(), true);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("event=task_cancel_interrupted taskId={}", taskId);
-            return SchedulerCancelResult.failed("Interrupted", false);
-        }
-    }
-
-    private SchedulerCancelResult mapCancelResponse(HttpResponse<String> response, String taskId) {
-        if (response.statusCode() == 200) {
-            return SchedulerCancelResult.cancelled();
-        }
-        if (response.statusCode() == 404) {
-            return SchedulerCancelResult.notFound(taskId);
-        }
-        LOG.warn("event=task_cancel_failed taskId={} statusCode={}", taskId, response.statusCode());
-        return SchedulerCancelResult.failed(
-                "Worker returned HTTP " + response.statusCode(), true);
+        taskControlClient.notifyUpstreamCommit(
+                workerHost, httpPort, queryId, upstreamStageId,
+                stageFailureCallback);
     }
 }

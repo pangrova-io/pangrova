@@ -13,6 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Function;
+import org.pangrova.spi.connector.ConnectorSession;
 
 /**
  * End-to-end SQL compilation: SQL text → Substrait Plan bytes.
@@ -30,6 +33,9 @@ public class SqlCompiler {
     private final SubstraitConverter converter;
     private final SubstraitPlanSerializer serializer;
     private final SubstraitPlanValidator validator;
+    private final Function<ConnectorSession, PangrovaPlanner> sessionPlanner;
+    private final org.pangrova.planner.cache.QueryResultCache queryResultCache;
+    private final CompilerSessionScope sessionScope;
 
     public SqlCompiler() {
         this(new PangrovaPlanner(), new SubstraitConverter(),
@@ -54,22 +60,93 @@ public class SqlCompiler {
     public SqlCompiler(PangrovaPlanner planner, SubstraitConverter converter,
                        SubstraitPlanSerializer serializer,
                        SubstraitPlanValidator validator) {
+        this(planner, converter, serializer, validator, null, planner.getQueryResultCache(), null);
+    }
+
+    private SqlCompiler(PangrovaPlanner planner, SubstraitConverter converter,
+                        SubstraitPlanSerializer serializer, SubstraitPlanValidator validator,
+                        Function<ConnectorSession, PangrovaPlanner> sessionPlanner,
+                        org.pangrova.planner.cache.QueryResultCache queryResultCache,
+                        CompilerSessionScope sessionScope) {
         this.planner = planner;
         this.converter = converter;
         this.serializer = serializer;
         this.validator = validator;
+        this.sessionPlanner = sessionPlanner;
+        this.queryResultCache = queryResultCache;
+        this.sessionScope = sessionScope;
+    }
+
+    /** Installs the metadata boundary without depending on its implementation. */
+    public SqlCompiler withSessionPlanner(Function<ConnectorSession, PangrovaPlanner> factory) {
+        return new SqlCompiler(planner, converter, serializer, validator,
+                Objects.requireNonNull(factory, "sessionPlanner"), queryResultCache, null);
+    }
+
+    /** Process-level invalidation service, independent of query metadata binding. */
+    public SqlCompiler withQueryResultCache(org.pangrova.planner.cache.QueryResultCache cache) {
+        return new SqlCompiler(planner, converter, serializer, validator, sessionPlanner, cache, sessionScope);
+    }
+
+    public org.pangrova.planner.cache.QueryResultCache queryResultCache() {
+        return queryResultCache;
+    }
+
+    /** Captures a fresh query-local schema/planner and retains it through serialization retries. */
+    public SqlCompiler forSession(ConnectorSession session) {
+        if (sessionPlanner == null) {
+            if (sessionScope != null && !sessionScope.equals(CompilerSessionScope.of(session))) {
+                throw new IllegalArgumentException("A query compiler cannot be rebound to another session");
+            }
+            return this;
+        }
+        CompilerSessionScope scope = CompilerSessionScope.of(session);
+        return new SqlCompiler(Objects.requireNonNull(sessionPlanner.apply(scope), "query planner"),
+                converter, serializer, validator, null, queryResultCache, scope);
+    }
+
+    /** AQE uses the same query planner that produced and serialized its fragments. */
+    public SubPlanReoptimizer subPlanReoptimizer() {
+        PangrovaPlanner queryPlanner = planningPlanner();
+        return new SubPlanReoptimizer() {
+            @Override public PlanFragment reoptimize(PlanFragment fragment) {
+                return fragment.reoptimize(queryPlanner);
+            }
+
+            @Override public PlanFragment reoptimize(PlanFragment fragment,
+                    org.pangrova.planner.adaptive.JoinStrategy hint) {
+                return fragment.reoptimize(queryPlanner, hint);
+            }
+        };
+    }
+
+    private PangrovaPlanner planningPlanner() {
+        if (sessionPlanner != null) {
+            throw new IllegalStateException("Metadata-aware SQL compilation requires forSession binding");
+        }
+        return planner;
     }
 
     /** Returns the underlying planner for advanced feature access. */
     public PangrovaPlanner planner() {
-        return planner;
+        return planningPlanner();
     }
 
     /**
      * Compile SQL text into a PlanResult (RelNode + metadata).
      */
     public PlanResult compileToResult(String sql) {
-        return planner.plan(sql);
+        return planningPlanner().plan(sql);
+    }
+
+    /** Validated query input for the authority/policy phase, before relational optimization. */
+    public PlanResult compileForPolicyApplication(String sql) {
+        return planningPlanner().planForPolicyApplication(sql);
+    }
+
+    /** Continues the same query-local compilation after its policies have been applied. */
+    public PlannedQuery optimizeProtectedQuery(PlannedQuery query) {
+        return planningPlanner().optimizeProtectedQuery(query);
     }
 
     /**
@@ -77,14 +154,14 @@ public class SqlCompiler {
      * suitable for use by coordinator code without any Calcite imports.
      */
     public PlannedQuery compileToPlannedQuery(String sql) {
-        return planner.plan(sql).toPlannedQuery();
+        return planningPlanner().plan(sql).toPlannedQuery();
     }
 
     /**
      * Compile SQL text into a Calcite RelNode without Substrait conversion.
      */
     public RelNode compileToRelNode(String sql) {
-        return planner.plan(sql).plan();
+        return planningPlanner().plan(sql).plan();
     }
 
     /**
@@ -92,23 +169,14 @@ public class SqlCompiler {
      * Bypasses the AST → SQL string → re-parse round-trip.
      */
     public RelNode compileStatementToRelNode(org.pangrova.parser.ast.Statement stmt) {
-        return planner.planFromAst(stmt).plan();
+        return planningPlanner().planFromAst(stmt).plan();
     }
 
     /**
      * Compile a pre-parsed AST Statement into a {@link PlannedQuery}.
      */
     public PlannedQuery compileStatementToPlannedQuery(org.pangrova.parser.ast.Statement stmt) {
-        return planner.planFromAst(stmt).toPlannedQuery();
-    }
-
-    /**
-     * Converts an AST Statement to a SQL string via Calcite SqlNode serialization.
-     * Used to provide originalSql for the REDUCE_EXPRESSIONS retry path when
-     * the caller only has a pre-parsed AST (e.g. DML dispatch via executeDmlStatement).
-     */
-    public String statementToSql(org.pangrova.parser.ast.Statement stmt) {
-        return planner.statementToSql(stmt);
+        return planningPlanner().planFromAst(stmt).toPlannedQuery();
     }
 
     /**
@@ -120,55 +188,40 @@ public class SqlCompiler {
     }
 
     /**
-     * Convert a Calcite RelNode to Substrait and serialize to Protobuf bytes.
-     */
-    public byte[] convertAndSerialize(RelNode relNode, List<String> preOptColumnNames) {
-        ConversionResult result = converter.convertWithResult(relNode, preOptColumnNames);
-        return serializer.serialize(result.plan(), result.crossJoinDetails());
-    }
-
-    /**
      * Convert, validate against native engine capabilities, and serialize.
      */
     public byte[] convertValidateAndSerialize(RelNode relNode, List<String> preOptColumnNames) {
+        return convertValidateAndSerializeFragment(relNode, preOptColumnNames).planBytes();
+    }
+
+    /** Converts and validates a fragment while preserving typed relation intents. */
+    public SerializedPlanFragment convertValidateAndSerializeFragment(
+            RelNode relNode, List<String> preOptColumnNames) {
         return doConvertValidateAndSerialize(relNode, preOptColumnNames);
     }
 
-    /**
-     * Convert, validate, and serialize with safe-plan retry support.
-     * Called from QueryDispatcher which passes the original SQL for retry.
-     */
-    public byte[] convertValidateAndSerializeWithRetry(RelNode relNode,
-                                                        List<String> preOptColumnNames,
-                                                        String originalSql) {
-        try {
-            return doConvertValidateAndSerialize(relNode, preOptColumnNames);
-        } catch (Exception e) {
-            if (isReduceExpressionsBug(e) && originalSql != null) {
-                LOG.warn("event=substrait_conversion_invalid_ref action=retry_safe_plan");
-                PlanResult safeResult = planner.planSafe(originalSql);
-                return doConvertValidateAndSerialize(safeResult.plan(),
-                        safeResult.preOptimizationColumnNames());
-            }
-            throw e;
-        }
-    }
-
-    private byte[] doConvertValidateAndSerialize(RelNode relNode, List<String> preOptColumnNames) {
+    private SerializedPlanFragment doConvertValidateAndSerialize(
+            RelNode relNode, List<String> preOptColumnNames) {
         ConversionResult convResult = converter.convertWithResult(relNode, preOptColumnNames);
         PlanValidationResult result = validator.validate(convResult.plan());
-        switch (result.status()) {
-            case JAVA_ONLY -> throw new PlannerException(
-                    PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
-                    "Plan contains unsupported operators: " + result.unsupportedNodes());
-            case PARTIAL_NATIVE -> LOG.info(
-                    "event=partial_native_plan action=proceed_with_fallback unsupported={}",
-                    result.unsupportedNodes());
-            case FULLY_NATIVE -> { /* no-op */ }
-            default -> throw new IllegalStateException(
-                    "Unhandled native support status: " + result.status());
+        // Only converter-produced governed AI intents are deferred to exact
+        // Worker/model binding. All other unsupported nodes fail before dispatch.
+        var deferredFunctions = convResult.aiInvocationHints().stream()
+                .map(AiInvocationPlanHint::functionName)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        var unsupported = result.unsupportedNodes().stream()
+                .filter(node -> node.kind()
+                        != org.pangrova.planner.validation.UnsupportedNode.Kind.FUNCTION
+                        || !deferredFunctions.contains(node.nodeType().toLowerCase(java.util.Locale.ROOT)))
+                .toList();
+        if (!unsupported.isEmpty()) {
+            throw new PlannerException(PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
+                    "Plan contains unsupported operators: " + unsupported);
         }
-        return serializer.serialize(convResult.plan(), convResult.crossJoinDetails());
+        return new SerializedPlanFragment(
+                serializer.serialize(convResult.plan()),
+                convResult.retrievalTopKHints(),
+                convResult.aiInvocationHints());
     }
 
     /**
@@ -187,13 +240,13 @@ public class SqlCompiler {
     public byte[] compile(String sql, String queryId) {
         PlanResult result = compileToResult(sql);
         try {
-            return convertAndSerialize(result.plan(), result.preOptimizationColumnNames());
+            return convertValidateAndSerialize(result.plan(), result.preOptimizationColumnNames());
         } catch (Exception e) {
             if (isReduceExpressionsBug(e)) {
                 LOG.warn("event=substrait_conversion_failed_invalid_ref action=retry_safe sql_length={} queryId={}",
                         sql.length(), queryId);
-                PlanResult safeResult = planner.planSafe(sql);
-                return convertAndSerialize(safeResult.plan(), safeResult.preOptimizationColumnNames());
+                PlanResult safeResult = planningPlanner().planSafe(sql);
+                return convertValidateAndSerialize(safeResult.plan(), safeResult.preOptimizationColumnNames());
             }
             throw e;
         }

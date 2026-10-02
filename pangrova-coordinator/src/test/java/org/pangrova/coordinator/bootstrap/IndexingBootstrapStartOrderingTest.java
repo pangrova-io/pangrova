@@ -100,11 +100,12 @@ class IndexingBootstrapStartOrderingTest {
 
     /** DistributedLease that grants nothing — sufficient for bootstrap wiring. */
     static final class NoOpLease implements DistributedLease {
-        @Override public boolean tryAcquire(String k, String h, long e, Duration d) { return false; }
-        @Override public boolean tryRenew(String k, String h, Duration d) { return false; }
-        @Override public boolean release(String k, String h) { return true; }
+        @Override public Optional<LeaseEntry> tryAcquire(String k, String h, Duration d) {
+            return Optional.empty();
+        }
+        @Override public boolean tryRenew(String k, String h, long e, Duration d) { return false; }
+        @Override public boolean release(String k, String h, long e) { return true; }
         @Override public Optional<LeaseEntry> currentHolder(String k) { return Optional.empty(); }
-        @Override public int expireStale() { return 0; }
     }
 
     /** MetadataStore with no catalogs — CatalogRegistry has nothing to load. */
@@ -132,12 +133,18 @@ class IndexingBootstrapStartOrderingTest {
     static final class NoOpIndexMetadataStore implements IndexMetadataStore {
         @Override public void registerIndex(IndexDescriptor d) {}
         @Override public void updateIndexState(String id, String s, Instant t) {}
+        @Override public boolean beginIndexGeneration(String id, int next, String snapshot,
+                Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
+        @Override public org.pangrova.metadata.index.model.IndexGenerationManifest publishIndexGeneration(
+                org.pangrova.metadata.index.model.IndexPublicationRequest request) { throw new AssertionError(); }
+        @Override public Optional<org.pangrova.metadata.index.model.IndexGenerationManifest>
+                findActiveIndexGeneration(String id) { return Optional.empty(); }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
-        @Override public List<IndexDescriptor> findIndexesByTable(String c, String s, String t) {
+        @Override public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) {
             return List.of();
         }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(
-                String c, String s, String t, List<String> cols, boolean b) { return List.of(); }
+                String tenantId, String c, String s, String t, List<String> cols, boolean b) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) {}
         @Override public void registerIndexFile(IndexFileMapping m) {}
@@ -153,11 +160,11 @@ class IndexingBootstrapStartOrderingTest {
         @Override public List<IndexFileMapping> listStaleFileMappings(long ms) { return List.of(); }
         @Override public void updateLastVerifiedAt(String id, String path, long ts) {}
         @Override public List<IndexDescriptor> findIndexesByColumn(
-                String c, String s, String t, String col) { return List.of(); }
+                String tenantId, String c, String s, String t, String col) { return List.of(); }
         @Override public void renameColumnInIndexes(
-                String c, String s, String t, String o, String n) {}
-        @Override public void dropAllIndexesForTable(String c, String s, String t, Instant ts) {}
-        @Override public void renameTable(String c, String s, String o, String n) {}
+                String tenantId, String c, String s, String t, String o, String n) {}
+        @Override public void dropAllIndexesForTable(String tenantId, String c, String s, String t, Instant ts) {}
+        @Override public void renameTable(String tenantId, String c, String s, String o, String n) {}
         @Override public List<IndexDescriptor> findIndexesByState(IndexState state) {
             return List.of();
         }

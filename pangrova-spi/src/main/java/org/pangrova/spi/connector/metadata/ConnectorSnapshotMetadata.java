@@ -3,9 +3,11 @@ package org.pangrova.spi.connector.metadata;
 import org.pangrova.spi.annotation.Experimental;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 
 /**
  * Snapshot-related metadata operations for a connector.
@@ -16,6 +18,27 @@ import org.pangrova.spi.connector.ConnectorSession;
  */
 @Experimental
 public interface ConnectorSnapshotMetadata {
+
+    /**
+     * Lists named references from catalog metadata for control-plane maintenance.
+     * This is not a system-table row scan. Connectors without this capability
+     * must fail explicitly so maintenance cannot silently skip supported tables.
+     */
+    default List<SnapshotReference> listSnapshotReferences(
+            ConnectorSession session, ConnectorTableHandle table) {
+        throw new UnsupportedOperationException("listSnapshotReferences not supported");
+    }
+
+    /**
+     * Removes a non-main branch only if it still points to the observed snapshot.
+     * A conflict or unknown commit state must not trigger an automatic replay;
+     * maintenance must re-evaluate fresh catalog metadata on a later cycle.
+     */
+    default ConditionalBranchDropResult dropBranchIfSnapshotMatches(
+            ConnectorSession session, ConnectorTableHandle table,
+            String branchName, long expectedSnapshotId) {
+        throw new UnsupportedOperationException("dropBranchIfSnapshotMatches not supported");
+    }
 
     /**
      * Resolves the commit timestamp of a specific snapshot by its ID.

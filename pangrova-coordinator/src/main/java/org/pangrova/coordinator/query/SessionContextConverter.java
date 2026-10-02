@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.spi.connector.ConnectorSession;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
@@ -26,10 +27,35 @@ public final class SessionContextConverter {
      * Extracts user principal from UserIdentity; catalog/schema from session properties.
      */
     public static ConnectorSession toConnectorSession(CoordinatorSessionContext ctx) {
+        return toConnectorSession(ctx, extractProperty(ctx, "catalog"),
+                extractProperty(ctx, "schema"), false);
+    }
+
+    /**
+     * Binds a connector operation to its resolved table rather than the session's
+     * default catalog/schema. A qualified table may target a different catalog,
+     * or the session may have no default catalog at all.
+     */
+    public static ConnectorSession toConnectorSession(
+            CoordinatorSessionContext ctx, String catalog, String schema) {
+        return toConnectorSession(ctx, Optional.of(catalog), Optional.of(schema), true);
+    }
+
+    private static ConnectorSession toConnectorSession(
+            CoordinatorSessionContext ctx, Optional<String> catalog, Optional<String> schema,
+            boolean bindResolvedTable) {
         String user = extractUser(ctx);
-        Optional<String> catalog = extractProperty(ctx, "catalog");
-        Optional<String> schema = extractProperty(ctx, "schema");
-        Map<String, String> props = ctx.sessionProperties();
+        Map<String, String> props = new HashMap<>(ctx.sessionProperties());
+        props.put("user", user);
+        if (bindResolvedTable) {
+            props.put("catalog", catalog.orElseThrow());
+            props.put("schema", schema.orElseThrow());
+        }
+        props.remove("tenant_id");
+        props.remove("pangrova.tenant_id");
+        if (ctx.tenantId() != null && !ctx.tenantId().isBlank()) {
+            props.put("tenant_id", ctx.tenantId());
+        }
         return new ConnectorSessionAdapter(user, catalog, schema, props);
     }
 

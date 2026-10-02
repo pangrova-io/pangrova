@@ -162,10 +162,11 @@ and scheduling latency at production scale.
    Worker; when split file paths are available it prefers the cache summary reported via Worker
    heartbeats, then falls back to `CacheAffinityAssigner` consistent hashing, and finally to plain
    load-based scheduling.
-4. **Constant folding.** Constant expressions (`SELECT 1`, `SHOW TABLES`) are folded by the Planner
-   into `LogicalValues`, serialized to Arrow IPC, buffered in `CoordinatorResultBuffer`, and served
-   via the Coordinator's own Flight server — transparent to the client, using the same
-   `resultEndpoint` mechanism as distributed queries.
+4. **Uniform data plane.** Constant expressions, metadata rows, retrieval
+   candidates, Top-K/RRF/linear fusion, reranking and cached rowsets use a
+   Worker result endpoint as well. The Coordinator may validate terminal
+   metadata and publish the signed endpoint, but it does not buffer or relay
+   Arrow pages.
 
 **Data flow.**
 ```text
@@ -183,10 +184,10 @@ reschedules to another Worker, and the client reconnects to the new endpoint. Th
 than option B because Workers have full fault-tolerance machinery (spill, memory arbitration, task
 retry).
 
-**Latency impact.** Simple queries incur one Worker-scheduling hop; constant/metadata queries are
-served directly from the Coordinator Flight server with minimal overhead. Complex queries are
-dominated by native execution and exchange cost, so Output Worker selection is not the deciding
-factor.
+**Latency impact.** Simple and metadata queries incur one Worker-scheduling hop.
+This is the deliberate cost of a uniform, spillable and horizontally scalable
+data plane; complex queries are dominated by Native execution and exchange
+cost.
 
 **Detailed design:** see [Query Execution §3.3](./query-execution.md).
 
@@ -222,8 +223,13 @@ serialization (e.g. the `HeartbeatRequest` payload carried over HTTP/REST), and 
 serialization definitions in `pangrova-protocol`. The control plane is HTTP/REST + JSON and the data
 plane is Arrow Flight (gRPC). This rule reduces confusion about protocol boundaries.
 
-> **Protocol versioning.** For the protocol version compatibility matrix (v1/v2/v3) and upgrade
-> paths, see [Day-2 Operations §1](../operations/day-2.md).
+> **Execution protocol.** The cluster admits only the canonical
+> `pangrova.protocol.v2` descriptor/capability epoch. Java and Native compare the
+> complete descriptor hash and fail closed before task admission on a mismatch.
+> Mixed execution epochs, per-task negotiation and v1 fallbacks are not
+> supported; upgrades drain or fence old Workers before the new epoch is
+> admitted. Operational sequencing is described in
+> [Day-2 Operations §1](../operations/day-2.md).
 
 ---
 
@@ -356,7 +362,6 @@ Coordinator REST API:
 Worker REST API:
 - `POST /v1/task` — SubmitTask
 - `DELETE /v1/task/{taskId}` — CancelTask
-- `POST /v1/task/{taskId}/exchange-sources` — UpdateExchangeSources
 - `POST /v1/task/{taskId}/dynamic-filter` — InjectDynamicFilter
 - `POST /v1/task/upstream-commit` — NotifyUpstreamCommit
 - `GET /v1/health` — HealthCheck
@@ -364,6 +369,10 @@ Worker REST API:
 Output Worker selection does not expose a Worker-side slot reservation API. The Coordinator
 dispatches the Output Task through the normal Worker task endpoint and selects candidates via
 `DefaultWorkerSelector`. See [Query Execution §3.3.8](./query-execution.md) for details.
+
+Exchange inputs are immutable, fenced bindings in `TaskRequest`. Producer retries
+create new task attempts; the control plane never replaces row-bearing sources on
+a running task.
 
 CDC API (Coordinator, mounted under `StreamingResource`):
 - `POST /v1/streaming/cdc/register` — RegisterCdcStream: registers a CDC stream via the

@@ -76,12 +76,12 @@ public final class PlanSplitSourceExtractor {
 
     private static void collectTableScans(RelNode node, List<TableScanRef> refs) {
         if (node instanceof Filter filter && filter.getInput() instanceof TableScan scan) {
-            List<String> qn = scan.getTable().getQualifiedName();
+            List<String> qn = PlanTable.require(scan).getQualifiedName();
             refs.add(TableScanRef.fromQualifiedName(qn, scan, filter.getCondition()));
             return;
         }
         if (node instanceof TableScan scan) {
-            List<String> qn = scan.getTable().getQualifiedName();
+            List<String> qn = PlanTable.require(scan).getQualifiedName();
             refs.add(TableScanRef.fromQualifiedName(qn, scan, null));
         }
         for (RelNode input : node.getInputs()) {

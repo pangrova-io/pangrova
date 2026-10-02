@@ -385,8 +385,20 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.spi.coordination.DistributedLease distributedLease) {
+        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
+                baseIndexPath, distributedLease, null);
+    }
+
+    void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
+                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.spi.observability.MetricsProvider metricsProvider,
+                       org.pangrova.spi.security.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.spi.coordination.DistributedLease distributedLease,
+                       org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore) {
         try {
-            indexingBootstrap = new IndexingBootstrap(baseIndexPath, distributedLease);
+            indexingBootstrap = new IndexingBootstrap(
+                    baseIndexPath, distributedLease, artifactBuildStore);
             indexingBootstrap.start(metadataStore, catalogRegistry, metricsProvider, accessControl);
             LOG.info("Phase: indexing — initialized");
         } catch (Exception e) {
@@ -414,6 +426,7 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
         if (invalidationCleanupScheduler != null) {
             invalidationCleanupScheduler.shutdownNow();
         }
+        closeModule(invalidationPoller, "metadata_invalidation");
         closeOperations();
         closeTenant();
         closeResilience();

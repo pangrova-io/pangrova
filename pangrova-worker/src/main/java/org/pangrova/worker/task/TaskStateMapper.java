@@ -1,6 +1,6 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.protocol.v1.TaskState;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.spi.execution.TaskStatus;
 
 /**
@@ -15,7 +15,7 @@ final class TaskStateMapper {
 
     /**
      * Maps Worker TaskState to SPI TaskStatus.TaskState.
-     * Aligned 1:1 with Protobuf TaskState in both Java and Native proto.
+     * Mapped from the canonical Protobuf TaskState generated for both runtimes.
      */
     public static TaskStatus.TaskState toSpiState(TaskManager.TaskState state) {
         return switch (state) {
@@ -23,6 +23,7 @@ final class TaskStateMapper {
             case INITIALIZING -> TaskStatus.TaskState.PENDING;
             case RUNNING -> TaskStatus.TaskState.RUNNING;
             case FINISHING -> TaskStatus.TaskState.FLUSHING;
+            case CANCELLING -> TaskStatus.TaskState.RUNNING;
             case FINISHED -> TaskStatus.TaskState.FINISHED;
             case FAILED -> TaskStatus.TaskState.FAILED;
             case CANCELLED -> TaskStatus.TaskState.CANCELLED;
@@ -39,6 +40,7 @@ final class TaskStateMapper {
             case INITIALIZING -> TaskState.TASK_STATE_PENDING;
             case RUNNING -> TaskState.TASK_STATE_RUNNING;
             case FINISHING -> TaskState.TASK_STATE_FLUSHING;
+            case CANCELLING -> TaskState.TASK_STATE_RUNNING;
             case FINISHED -> TaskState.TASK_STATE_FINISHED;
             case FAILED -> TaskState.TASK_STATE_FAILED;
             case CANCELLED -> TaskState.TASK_STATE_CANCELLED;

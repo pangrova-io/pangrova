@@ -10,26 +10,23 @@ import org.pangrova.spi.index.IndexType;
  * <p>Implementations reside in domain-specific sub-packages:
  * <ul>
  *   <li>{@code data} — BTree, BloomFilter, Hash (general-purpose)</li>
- *   <li>{@code data.text} — Inverted, NGramBloom, Gin, Prefix (text search)</li>
+ *   <li>{@code data.text} — NGramBloom, Gin, Prefix (text pruning)</li>
  *   <li>{@code data.spatial} — RTree, Sparse, BoundingBox (spatial/range)</li>
  *   <li>{@code data.bitmap} — Bitmap (low-cardinality)</li>
- *   <li>{@code data.vector} — Vector (ANN search)</li>
  * </ul>
  *
  * <p>All implementations are immutable and thread-safe. Mutable fields
  * ({@code byte[]}, {@code List}, {@code Map}) are defensively copied on
  * construction.</p>
  *
- * <p><strong>Known implementations (11):</strong>
+ * <p><strong>Known implementations (9):</strong>
  * {@link BTreeIndexData}, {@link BloomFilterIndexData}, {@link HashIndexData},
- * {@link org.pangrova.spi.index.data.text.InvertedIndexData InvertedIndexData},
  * {@link org.pangrova.spi.index.data.text.NGramBloomIndexData NGramBloomIndexData},
  * {@link org.pangrova.spi.index.data.text.GinIndexData GinIndexData},
  * {@link org.pangrova.spi.index.data.text.PrefixIndexData PrefixIndexData},
  * {@link org.pangrova.spi.index.data.bitmap.BitmapIndexData BitmapIndexData},
  * {@link org.pangrova.spi.index.data.spatial.RTreeIndexData RTreeIndexData},
- * {@link org.pangrova.spi.index.data.spatial.SparseIndexData SparseIndexData},
- * {@link org.pangrova.spi.index.data.vector.VectorIndexData VectorIndexData}.</p>
+ * {@link org.pangrova.spi.index.data.spatial.SparseIndexData SparseIndexData}.</p>
  */
 @Experimental
 public interface IndexData {

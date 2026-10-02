@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.coordinator.ai.vector.VectorShardRouter;
+import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.coordination.HeartbeatSnapshot;
 import org.pangrova.spi.coordination.WorkerRegistry;
@@ -43,7 +43,6 @@ public class WorkerManager {
     private final ConcurrentHashMap<String, WorkerInfo> workers = new ConcurrentHashMap<>();
     private final List<TopologyListener> topologyListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile LongCounter listenerFailureCounter;
-    private volatile VectorShardRouter vectorShardRouter;
     private volatile ClusterTenantUsageAggregator tenantUsageAggregator;
 
     /**
@@ -55,33 +54,27 @@ public class WorkerManager {
             int runningTaskCount,
             long availableMemoryBytes,
             org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary,
-            List<VectorShardInfo> vectorShards,
             Map<String, org.pangrova.spi.resource.tenant.TenantUsageSnapshot> tenantUsage) {
 
         public HeartbeatData {
             tenantUsage = tenantUsage == null ? Map.of() : Map.copyOf(tenantUsage);
         }
 
-        /** Convenience constructor for workers without cache or shard reporting. */
+        /** Convenience constructor for workers without cache reporting. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
                              int runningTaskCount, long availableMemoryBytes) {
-            this(pressure, cpuUtilization, runningTaskCount, availableMemoryBytes, null, null, Map.of());
+            this(pressure, cpuUtilization, runningTaskCount,
+                    availableMemoryBytes, null, Map.of());
         }
 
-        /** Convenience constructor for workers without shard reporting. */
+        /** Convenience constructor including the cache catalog summary. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
                              int runningTaskCount, long availableMemoryBytes,
                              org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary) {
-            this(pressure, cpuUtilization, runningTaskCount, availableMemoryBytes, cacheSummary, null, Map.of());
+            this(pressure, cpuUtilization, runningTaskCount,
+                    availableMemoryBytes, cacheSummary, Map.of());
         }
 
-        /** Convenience constructor including per-tenant usage (P1-5) but no shard reporting. */
-        public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
-                             int runningTaskCount, long availableMemoryBytes,
-                             org.pangrova.spi.coordination.CacheCatalogSummary cacheSummary,
-                             Map<String, org.pangrova.spi.resource.tenant.TenantUsageSnapshot> tenantUsage) {
-            this(pressure, cpuUtilization, runningTaskCount, availableMemoryBytes, cacheSummary, null, tenantUsage);
-        }
     }
 
     /**
@@ -133,21 +126,6 @@ public class WorkerManager {
             aggregator.updateWorkerUsage(workerId, data.tenantUsage());
         }
 
-        // P0-3: Register vector shards reported via heartbeat.
-        if (data.vectorShards() != null && !data.vectorShards().isEmpty()
-                && vectorShardRouter != null) {
-            List<VectorShardRouter.ShardPlacement> placements = data.vectorShards().stream()
-                    .map(s -> new VectorShardRouter.ShardPlacement(
-                            workerId, s.tableName(), s.vectorColumn(),
-                            s.shardId(), s.rowCount(), s.generation()))
-                    .toList();
-            vectorShardRouter.registerShards(placements);
-        }
-    }
-
-    /** Sets the vector shard router for shard registration on heartbeat. */
-    public void setVectorShardRouter(VectorShardRouter router) {
-        this.vectorShardRouter = router;
     }
 
     /**
@@ -327,9 +305,6 @@ public class WorkerManager {
         // F-CHAIN-CACHE-02: refresh cacheSummary on every heartbeat.
         org.pangrova.spi.coordination.CacheCatalogSummary newSummary =
                 data.cacheSummary() != null ? data.cacheSummary() : existing.cacheSummary();
-        // Refresh vector shards from heartbeat (P0-3: shard registration channel).
-        List<VectorShardInfo> shards =
-                data.vectorShards() != null ? data.vectorShards() : existing.vectorShards();
         return new WorkerInfo(
                 existing.workerId(), existing.host(),
                 existing.httpPort(), existing.transportPort(),
@@ -338,8 +313,9 @@ public class WorkerManager {
                 data.cpuUtilization(), data.runningTaskCount(),
                 data.availableMemoryBytes(), Instant.now(),
                 existing.performanceScore(), existing.resourcePoolId(),
-                existing.protocolVersion(), existing.capabilities(),
-                existing.rackId(), existing.dataLocality(), newSummary, shards);
+                existing.protocolVersion(),
+                existing.rackId(), existing.dataLocality(), newSummary,
+                existing.capabilityInventory());
     }
 
     /**
@@ -409,7 +385,6 @@ public class WorkerManager {
                 info.httpPort(),
                 info.transportPort(),
                 info.protocolVersion(),
-                info.capabilities(),
                 info.rackId(),
                 info.dataLocality(),
                 info.memoryPressure().name(),
@@ -419,7 +394,8 @@ public class WorkerManager {
                 info.lastHeartbeat().toEpochMilli(),
                 info.lastHeartbeat().toEpochMilli(),
                 info.resultServerPort(),
-                info.cacheSummary());
+                info.cacheSummary(),
+                CapabilityInventoryCodec.encode(info.capabilityInventory()));
     }
 
     private static HeartbeatSnapshot toHeartbeatSnapshot(HeartbeatData data) {
@@ -447,11 +423,10 @@ public class WorkerManager {
                 0.0,
                 null,
                 snapshot.protocolVersion(),
-                snapshot.capabilities(),
                 snapshot.rackId(),
                 snapshot.dataLocality(),
                 snapshot.cacheSummary(),
-                null);
+                CapabilityInventoryCodec.decode(snapshot.capabilityInventory()));
     }
 
     private HealthState classifyHealth(long elapsedMs) {

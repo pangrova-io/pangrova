@@ -1,7 +1,5 @@
 package org.pangrova.security.authz;
 
-import org.pangrova.security.event.SecurityPolicyChangeEvent;
-import org.pangrova.security.event.SecurityPolicyEventPublisher;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
 import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.spi.security.AccessControl;
@@ -13,131 +11,63 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Objects;
 
 /**
- * Dynamic, DB-backed RBAC access control for F-SEC-04.
- *
- * <p>Closes the gap left by the legacy {@link RbacAccessControl}, which was config-only,
- * conflated IdP groups with roles, and could not be updated without restart:
- * <ul>
- *   <li>Grants are resolved from a {@link GrantStore} (typically
- *       {@link org.pangrova.security.store.PersistentGrantStore}) so all coordinators read the
- *       same source of truth.</li>
- *   <li>Identity → role resolution goes through {@link RoleStore} — direct user→role bindings
- *       and group→role mappings — so an IdP group is never silently treated as a role. When
- *       no {@code RoleStore} is supplied this control falls back to the legacy "group ≡ role"
- *       behaviour for backward compatibility with the static path.</li>
- *   <li>{@link SecurityPolicyChangeEvent.GrantChanged} and
- *       {@link SecurityPolicyChangeEvent.RoleCatalogChanged} events trigger immediate cache
- *       invalidation; {@link RbacRefresher} provides a periodic poll for cross-coordinator
- *       eventual consistency within a bounded interval.</li>
- *   <li>Privilege matching uses {@link Privilege#implies(Privilege)} so {@link Privilege#ALL}
- *       and {@link Privilege#OWNER} grants satisfy any specific check.</li>
- * </ul>
- *
- * <p>Delegates row filtering to {@link RowLevelSecurityFilter} and column masking to
- * {@link ColumnMaskingProcessor}.
+ * Current authorization from the authoritative role catalog and privilege store.
+ * Every check reads current grants; storage failures never reuse an earlier permission.
+ * Identity groups remain distinct from explicitly resolved Pangrova roles.
  */
-public class DynamicRbacAccessControl implements AccessControl {
+public final class DynamicRbacAccessControl implements AccessControl {
 
     private static final Logger LOG = LoggerFactory.getLogger(DynamicRbacAccessControl.class);
 
     private final GrantStore grantStore;
     private final RoleStore roleStore;
-    private final AtomicReference<List<PrivilegeGrant>> grantCache;
     private final RowLevelSecurityFilter rlsFilter;
     private final ColumnMaskingProcessor maskProcessor;
 
-    /** Convenience constructor: grant store only, group ≡ role fallback. */
-    public DynamicRbacAccessControl(GrantStore grantStore,
+    /** Creates the sole RBAC path with a mandatory role authority. */
+    public DynamicRbacAccessControl(GrantStore grantStore, RoleStore roleStore,
                                     RowLevelSecurityFilter rlsFilter,
-                                    ColumnMaskingProcessor maskProcessor,
-                                    SecurityPolicyEventPublisher eventPublisher) {
-        this(grantStore, null, rlsFilter, maskProcessor, eventPublisher);
+                                    ColumnMaskingProcessor maskProcessor) {
+        this.grantStore = Objects.requireNonNull(grantStore, "grantStore");
+        this.roleStore = Objects.requireNonNull(roleStore, "roleStore");
+        this.rlsFilter = Objects.requireNonNull(rlsFilter, "rlsFilter");
+        this.maskProcessor = Objects.requireNonNull(maskProcessor, "maskProcessor");
     }
 
-    /**
-     * Full DB-backed constructor with role catalog. Group and role are kept distinct.
-     *
-     * @param grantStore     authoritative source of privilege grants
-     * @param roleStore      role catalog (may be {@code null} → group ≡ role fallback)
-     * @param rlsFilter      row-level security filter
-     * @param maskProcessor  column masking processor
-     * @param eventPublisher policy event bus (may be {@code null} → no event-driven invalidation)
-     */
-    public DynamicRbacAccessControl(GrantStore grantStore,
-                                    RoleStore roleStore,
-                                    RowLevelSecurityFilter rlsFilter,
-                                    ColumnMaskingProcessor maskProcessor,
-                                    SecurityPolicyEventPublisher eventPublisher) {
-        if (grantStore == null) {
-            throw new IllegalArgumentException("grantStore must not be null");
-        }
-        this.grantStore = grantStore;
-        this.roleStore = roleStore;
-        // Best-effort initial load — a transient store failure must not prevent the access
-        // control from coming up; the periodic refresher will pick up the snapshot later.
-        List<PrivilegeGrant> initial;
-        try {
-            initial = List.copyOf(grantStore.listGrants());
-        } catch (RuntimeException e) {
-            LOG.warn("event=rbac_initial_load_failed using_empty_cache error={}", e.getMessage(), e);
-            initial = List.of();
-        }
-        this.grantCache = new AtomicReference<>(initial);
-        this.rlsFilter = rlsFilter;
-        this.maskProcessor = maskProcessor;
-        if (eventPublisher != null) {
-            eventPublisher.subscribe(this::onPolicyEvent);
-        }
-    }
-
-    /**
-     * Re-loads the grant cache from the underlying store. Called by the event subscriber on
-     * {@code GrantChanged} / {@code RoleCatalogChanged} and by {@link RbacRefresher}.
-     * Safe to invoke from multiple threads — uses a single atomic reference swap.
-     */
-    public void refreshGrants() {
-        try {
-            List<PrivilegeGrant> snapshot = List.copyOf(grantStore.listGrants());
-            grantCache.set(snapshot);
-            LOG.debug("event=rbac_grants_refreshed count={}", snapshot.size());
-        } catch (RuntimeException e) {
-            LOG.warn("event=rbac_grants_refresh_failed error={}", e.getMessage(), e);
-        }
-    }
-
-    private void onPolicyEvent(SecurityPolicyChangeEvent event) {
-        // Refresh on any policy event. Cache invalidation is cheap (single AtomicReference
-        // swap after one SELECT) and over-refreshing is strictly safer than missing a change.
-        refreshGrants();
-    }
-
-    /**
-     * Resolves the effective set of role names for the given identity.
-     *
-     * <ul>
-     *     <li>If a {@link RoleStore} is configured: union of {@code roleStore.rolesForUser(principal)}
-     *         and {@code roleStore.rolesForGroup(g)} for each group in {@code user.groups()} —
-     *         group and role are kept distinct.</li>
-     *     <li>Otherwise: legacy fallback — {@code user.groups()} is treated as the role set.</li>
-     * </ul>
-     */
+    /** Resolves current direct assignments and explicitly mapped identity groups. */
     public Set<String> effectiveRoles(UserIdentity user) {
-        if (roleStore == null) {
-            return user.groups();
+        if (user == null || user.principal() == null || user.principal().isBlank()) {
+            throw new AuthorizationDeniedException("Authenticated principal is required");
         }
         Set<String> roles = new HashSet<>(roleStore.rolesForUser(user.principal()));
         for (String group : user.groups()) {
             roles.addAll(roleStore.rolesForGroup(group));
         }
+        roles.removeIf(role -> roleStore.findRole(role).isEmpty());
         return Set.copyOf(roles);
     }
 
     @Override
     public void checkCanAccessCatalog(UserIdentity user, String catalog) {
         requireAnyGrant(user, catalog, null, null, Privilege.SELECT);
+    }
+
+    @Override
+    public void checkCanCreateCatalog(UserIdentity user, String catalog) {
+        requireCatalogGrant(user, catalog, Privilege.CREATE_CATALOG);
+    }
+
+    @Override
+    public void checkCanDropCatalog(UserIdentity user, String catalog) {
+        requireCatalogGrant(user, catalog, Privilege.DROP_CATALOG);
+    }
+
+    @Override
+    public void checkCanAlterCatalog(UserIdentity user, String catalog) {
+        requireCatalogGrant(user, catalog, Privilege.ALTER_CATALOG);
     }
 
     @Override
@@ -158,6 +88,11 @@ public class DynamicRbacAccessControl implements AccessControl {
     @Override
     public void checkCanDeleteFromTable(UserIdentity user, String catalog, String schema, String table) {
         requireTableGrant(user, catalog, schema, table, Privilege.DELETE);
+    }
+
+    @Override
+    public void checkCanUpdateTable(UserIdentity user, String catalog, String schema, String table) {
+        requireTableGrant(user, catalog, schema, table, Privilege.UPDATE);
     }
 
     @Override
@@ -229,18 +164,18 @@ public class DynamicRbacAccessControl implements AccessControl {
 
     @Override
     public Optional<String> getRowFilter(UserIdentity user, String catalog, String schema, String table) {
-        return rlsFilter.getFilter(user, catalog, schema, table);
+        return rlsFilter.getFilter(user, effectiveRoles(user), catalog, schema, table);
     }
 
     @Override
     public Optional<String> getColumnMask(UserIdentity user, String catalog, String schema,
                                           String table, String column) {
-        return maskProcessor.getMask(user, catalog, schema, table, column);
+        return maskProcessor.getMask(user, effectiveRoles(user), catalog, schema, table, column);
     }
 
     private List<PrivilegeGrant> resolveGrants(UserIdentity user) {
         Set<String> roles = effectiveRoles(user);
-        return grantCache.get().stream()
+        return grantStore.listGrants().stream()
                 .filter(g -> roles.contains(g.roleName()))
                 .toList();
     }
@@ -284,6 +219,16 @@ public class DynamicRbacAccessControl implements AccessControl {
         if (!granted) {
             throw new AuthorizationDeniedException(
                     "User '%s' lacks %s on %s.%s".formatted(user.principal(), privilege, catalog, schema));
+        }
+    }
+
+    private void requireCatalogGrant(UserIdentity user, String catalog, Privilege privilege) {
+        boolean granted = resolveGrants(user).stream().anyMatch(grant ->
+                "CATALOG".equalsIgnoreCase(grant.objectType())
+                        && grant.privilege().implies(privilege) && grant.coversTable(catalog, null, null));
+        if (!granted) {
+            throw new AuthorizationDeniedException(
+                    "User '%s' lacks %s on catalog '%s'".formatted(user.principal(), privilege, catalog));
         }
     }
 

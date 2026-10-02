@@ -24,11 +24,14 @@ import java.util.Map;
  * <table>
  *   <caption>Shuffle observability surface</caption>
  *   <tr><th>Name</th><th>Instrument</th><th>Unit</th><th>Attributes</th></tr>
- *   <tr><td>{@code pangrova.shuffle.bytes.sent}</td><td>Counter</td><td>{@code By}</td><td>{@code stage.id}</td></tr>
- *   <tr><td>{@code pangrova.shuffle.bytes.received}</td><td>Counter</td><td>{@code By}</td><td>{@code stage.id}</td></tr>
+ * <tr><td>{@code pangrova.shuffle.bytes.sent}</td><td>Counter</td><td>{@code By}</td><td>{@code
+ * stage.id}</td></tr>
+ * <tr><td>{@code pangrova.shuffle.bytes.received}</td><td>Counter</td><td>{@code By}</td><td>{@code
+ * stage.id}</td></tr>
  * <tr><td>{@code pangrova.shuffle.partitions.served}</td><td>Counter</td><td>{@code {partition}}</td><td>{@code
  * stage.id}</td></tr>
- *   <tr><td>{@code pangrova.shuffle.send.duration}</td><td>Histogram</td><td>{@code s}</td><td>{@code stage.id}</td></tr>
+ * <tr><td>{@code pangrova.shuffle.send.duration}</td><td>Histogram</td><td>{@code s}</td><td>{@code
+ * stage.id}</td></tr>
  * <tr><td>{@code pangrova.shuffle.partition.size.bytes}</td><td>Histogram</td><td>{@code By}</td><td>{@code
  * stage.id}</td></tr>
  * <tr><td>{@code pangrova.shuffle.requests}</td><td>Counter</td><td>{@code {request}}</td><td>{@code

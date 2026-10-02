@@ -67,7 +67,8 @@ class RuntimeFilterStageHandlerTest {
 
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-dpp");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-dpp", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-dpp",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         Optional<RuntimeFilter> registeredFilter = registry.getFilter("q-dpp:1");
@@ -102,7 +103,8 @@ class RuntimeFilterStageHandlerTest {
 
         Stage stage2 = dag.findStage(2);
         CoordinatorSessionContext session = createSession("q-no-dpp");
-        StageLifecycleEvent event = new StageLifecycleEvent(stage2, dag, "q-no-dpp", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(stage2, dag, "q-no-dpp",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         assertThat(registry.getFilter("q-no-dpp:1")).isEmpty();
@@ -130,7 +132,8 @@ class RuntimeFilterStageHandlerTest {
 
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-empty");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-empty", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-empty",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         assertThat(registry.getFilter("q-empty:1")).isEmpty();
@@ -169,7 +172,8 @@ class RuntimeFilterStageHandlerTest {
 
         Stage buildStage = dag.findStage(0);
         CoordinatorSessionContext session = createSession("q-bloom");
-        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-bloom", session);
+        StageLifecycleEvent event = new StageLifecycleEvent(buildStage, dag, "q-bloom",
+                new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session));
         handler.onFinished(event);
 
         Optional<RuntimeFilter> filter = registry.getFilter("q-bloom:1");

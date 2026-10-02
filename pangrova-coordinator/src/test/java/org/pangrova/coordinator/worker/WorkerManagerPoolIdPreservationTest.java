@@ -26,7 +26,8 @@ class WorkerManagerPoolIdPreservationTest {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, "gpu-pool",
-                1, List.of("QUERY"), null, List.of());
+                2, null, List.of(), null,
+                TestWorkerInfoBuilder.canonicalInventory());
         manager.registerWorker(registered);
 
         manager.onHeartbeat("w-pool", new WorkerManager.HeartbeatData(
@@ -45,7 +46,8 @@ class WorkerManagerPoolIdPreservationTest {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, null,
-                1, List.of("QUERY"), null, List.of());
+                2, null, List.of(), null,
+                TestWorkerInfoBuilder.canonicalInventory());
         manager.registerWorker(registered);
 
         manager.onHeartbeat("w-no-pool", new WorkerManager.HeartbeatData(

@@ -9,13 +9,14 @@ import org.pangrova.metadata.store.EmbeddedDataSource;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.coordination.WorkerSnapshot;
 import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.testing.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.e2e.fixture.RegistryTestSchemaHelper;
+import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
-import org.pangrova.testing.e2e.SharedTestContainers;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
@@ -52,13 +53,10 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        org.junit.jupiter.api.Assumptions.assumeTrue(
-                SharedTestContainers.AVAILABLE && SharedTestContainers.POSTGRES.isRunning(),
-                "Docker/PostgreSQL is not available — skipping container-based tests");
-        var pg = SharedTestContainers.POSTGRES;
+        var pg = RegistryTestSchemaHelper.requirePostgres();
         dataSource = new EmbeddedDataSource(
                 pg.getJdbcUrl(), pg.getUsername(), pg.getPassword());
-        RegistryTestSchemaHelper.createWorkerRegistryTable(dataSource);
+        MetadataSchemaInitializer.createSchema(dataSource);
         RegistryTestSchemaHelper.truncateAll(dataSource, "worker_registry");
         registry = new JdbcWorkerRegistry(dataSource);
     }
@@ -296,15 +294,16 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
         try (Connection conn = ds.getConnection();
              PreparedStatement ps = conn.prepareStatement(
                      "INSERT INTO worker_registry (worker_id, host, http_port, transport_port, "
-                     + "protocol_version, capabilities, data_locality, memory_pressure, "
+                     + "protocol_version, capability_inventory_proto, data_locality, memory_pressure, "
                      + "last_heartbeat_ms, registered_at_ms) "
-                     + "VALUES (?, ?, ?, ?, 1, '[]', '[]', 'NONE', ?, ?)")) {
+                     + "VALUES (?, ?, ?, ?, 2, ?, '[]', 'NONE', ?, ?)")) {
             ps.setString(1, workerId);
             ps.setString(2, host);
             ps.setInt(3, httpPort);
             ps.setInt(4, transportPort);
-            ps.setLong(5, heartbeatMs);
+            ps.setString(5, CanonicalWorkerInventory.encodedEmpty());
             ps.setLong(6, heartbeatMs);
+            ps.setLong(7, heartbeatMs);
             ps.executeUpdate();
         }
     }
@@ -327,6 +326,6 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.0, 0, 4L * 1024 * 1024 * 1024,
                 Instant.now(), 0.0, null,
-                1, List.of(), null, List.of());
+                2, null, List.of(), null, CanonicalWorkerInventory.empty());
     }
 }

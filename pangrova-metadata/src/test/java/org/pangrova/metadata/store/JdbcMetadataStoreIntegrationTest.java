@@ -3,30 +3,27 @@ package org.pangrova.metadata.store;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.CatalogState;
 import org.pangrova.metadata.catalog.CatalogType;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 
 import javax.sql.DataSource;
-import java.io.PrintWriter;
 import java.sql.Connection;
-import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.Types;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.logging.Logger;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Integration test for JdbcMetadataStore using H2 in-memory database.
+ * PostgreSQL integration test for {@link JdbcMetadataStore}.
  * Validates: R17.2, AC17
- *
- * <p>Uses H2 with PostgreSQL compatibility mode to support ON CONFLICT upsert syntax.
- * No Docker dependency — runs entirely in-process.
  */
 class JdbcMetadataStoreIntegrationTest {
 
@@ -35,17 +32,8 @@ class JdbcMetadataStoreIntegrationTest {
 
     @BeforeAll
     static void initSchema() throws SQLException {
-        dataSource = createH2DataSource();
-        createH2Schema(dataSource);
+        dataSource = SharedPostgresContainer.migratedDataSource("metadata_store");
         store = new JdbcMetadataStore(dataSource);
-    }
-
-    @AfterAll
-    static void shutdown() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("SHUTDOWN");
-        }
     }
 
     @Test
@@ -96,13 +84,131 @@ class JdbcMetadataStoreIntegrationTest {
 
         CatalogDescriptor updated = new CatalogDescriptor(
                 "upsert_test", CatalogType.INTERNAL, "iceberg",
-                CatalogState.ACTIVE, Map.of("key", "val"), "updated", Set.of());
+                CatalogState.ACTIVE, Map.of("key", "val"), "updated", Set.of(),
+                original.incarnationId(), original.revision() + 1);
         store.saveCatalogDescriptor(updated);
 
         Optional<CatalogDescriptor> result = store.getCatalogDescriptor("upsert_test");
         assertThat(result).isPresent();
         assertThat(result.get().state()).isEqualTo(CatalogState.ACTIVE);
         assertThat(result.get().comment()).isEqualTo("updated");
+        assertThat(result.get().incarnationId()).isEqualTo(original.incarnationId());
+        assertThat(result.get().revision()).isEqualTo(2);
+        assertThat(store.findCatalogDescriptorRevision(
+                original.name(), original.incarnationId(), 1)).contains(original);
+        assertThat(store.findCatalogDescriptorRevision(
+                updated.name(), updated.incarnationId(), 2)).contains(updated);
+        assertThat(store.findCatalogDescriptorRevision(
+                updated.name(), updated.incarnationId(), 3)).isEmpty();
+        assertThat(store.findCatalogDescriptorRevision(
+                updated.name(), "another-incarnation", 1)).isEmpty();
+    }
+
+    @Test
+    void historicalRevisionSurvivesDropAndNewIncarnation() {
+        CatalogDescriptor old = new CatalogDescriptor(
+                "recreated_catalog", CatalogType.INTERNAL, "iceberg",
+                CatalogState.ACTIVE, Map.of("endpoint", "old"), "", Set.of("tenant-a"));
+        store.saveCatalogDescriptor(old);
+        store.deleteCatalogDescriptor(old.name());
+
+        CatalogDescriptor replacement = new CatalogDescriptor(
+                old.name(), CatalogType.INTERNAL, "iceberg",
+                CatalogState.ACTIVE, Map.of("endpoint", "new"), "", Set.of("tenant-b"));
+        store.saveCatalogDescriptor(replacement);
+
+        assertThat(store.findCatalogDescriptorRevision(
+                old.name(), old.incarnationId(), old.revision())).contains(old);
+        assertThat(store.findCatalogDescriptorRevision(
+                replacement.name(), replacement.incarnationId(), replacement.revision()))
+                .contains(replacement);
+        assertThat(store.findCatalogDescriptorRevision(old.name(), "", 1)).isEmpty();
+        assertThat(store.findCatalogDescriptorRevision(old.name(), old.incarnationId(), 0)).isEmpty();
+    }
+
+    @Test
+    void rejectedRevisionDoesNotAlterCurrentOrHistoricalSnapshot() throws SQLException {
+        CatalogDescriptor first = new CatalogDescriptor(
+                "fenced_history", CatalogType.INTERNAL, "iceberg",
+                CatalogState.ACTIVE, Map.of("endpoint", "one"), "", Set.of());
+        store.saveCatalogDescriptor(first);
+        CatalogDescriptor conflicting = new CatalogDescriptor(
+                first.name(), first.type(), first.provider(), first.state(),
+                Map.of("endpoint", "forged"), "", Set.of(), first.incarnationId(), 1);
+
+        assertThatThrownBy(() -> store.saveCatalogDescriptor(conflicting))
+                .isInstanceOf(org.pangrova.metadata.exception.MetastoreException.class)
+                .hasMessageContaining("revision fence");
+        assertThat(store.getCatalogDescriptor(first.name())).contains(first);
+        assertThat(store.findCatalogDescriptorRevision(
+                first.name(), first.incarnationId(), 1)).contains(first);
+
+        try (Connection conn = dataSource.getConnection();
+                var ps = conn.prepareStatement("UPDATE catalog_descriptor_revisions "
+                        + "SET provider='forged' WHERE name=? AND incarnation_id=? AND revision=1")) {
+            ps.setString(1, first.name());
+            ps.setString(2, first.incarnationId());
+            assertThatThrownBy(ps::executeUpdate)
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("immutable");
+        }
+    }
+
+    @Test
+    void currentAndHistoryBecomeVisibleTogetherAfterBlockedHistoryInsert() throws Exception {
+        DataSource isolated = SharedPostgresContainer.migratedDataSource("catalog_history_atomic");
+        var isolatedStore = new JdbcMetadataStore(isolated);
+        CatalogDescriptor first = new CatalogDescriptor(
+                "atomic_catalog", CatalogType.INTERNAL, "iceberg", CatalogState.ACTIVE,
+                Map.of("version", "one"), "", Set.of());
+        isolatedStore.saveCatalogDescriptor(first);
+        CatalogDescriptor second = new CatalogDescriptor(
+                first.name(), first.type(), first.provider(), first.state(),
+                Map.of("version", "two"), "", Set.of(), first.incarnationId(), 2);
+
+        var executor = Executors.newSingleThreadExecutor();
+        try (Connection blocker = isolated.getConnection()) {
+            blocker.setAutoCommit(false);
+            try (var lock = blocker.createStatement()) {
+                lock.execute("LOCK TABLE catalog_descriptor_revisions IN SHARE MODE");
+            }
+            var writer = executor.submit(() -> isolatedStore.saveCatalogDescriptor(second));
+            try {
+                assertThat(waitForHistoryInsertLock(isolated)).isTrue();
+                assertThat(isolatedStore.getCatalogDescriptor(first.name())).contains(first);
+                assertThat(isolatedStore.findCatalogDescriptorRevision(
+                        first.name(), first.incarnationId(), 1)).contains(first);
+                assertThat(isolatedStore.findCatalogDescriptorRevision(
+                        first.name(), first.incarnationId(), 2)).isEmpty();
+            } finally {
+                blocker.commit();
+            }
+            writer.get(10, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        assertThat(isolatedStore.getCatalogDescriptor(first.name())).contains(second);
+        assertThat(isolatedStore.findCatalogDescriptorRevision(
+                first.name(), first.incarnationId(), 2)).contains(second);
+    }
+
+    private static boolean waitForHistoryInsertLock(DataSource dataSource) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        try (Connection reader = dataSource.getConnection();
+                var ps = reader.prepareStatement("SELECT count(*) FROM pg_locks "
+                        + "WHERE relation='catalog_descriptor_revisions'::regclass AND NOT granted")) {
+            while (System.nanoTime() < deadline) {
+                try (var rows = ps.executeQuery()) {
+                    rows.next();
+                    if (rows.getLong(1) > 0) {
+                        return true;
+                    }
+                }
+                Thread.yield();
+            }
+        }
+        return false;
     }
 
     // --- Helpers ---
@@ -111,115 +217,22 @@ class JdbcMetadataStoreIntegrationTest {
             String name, CatalogType type, String provider,
             CatalogState state, String propertiesJson,
             String comment, String allowedTenantsJson) throws SQLException {
-        String sql = "MERGE INTO catalog_definitions (name, type, provider, state, "
-                + "properties, comment, allowed_tenants) KEY (name) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO catalog_definitions (name, type, provider, state, "
+                + "properties, comment, allowed_tenants) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT (name) DO UPDATE SET type=EXCLUDED.type, "
+                + "provider=EXCLUDED.provider, state=EXCLUDED.state, "
+                + "properties=EXCLUDED.properties, comment=EXCLUDED.comment, "
+                + "allowed_tenants=EXCLUDED.allowed_tenants";
         try (Connection conn = dataSource.getConnection();
              var ps = conn.prepareStatement(sql)) {
             ps.setString(1, name);
             ps.setString(2, type.name());
             ps.setString(3, provider);
             ps.setString(4, state.name());
-            ps.setString(5, propertiesJson);
+            ps.setObject(5, propertiesJson, Types.OTHER);
             ps.setString(6, comment);
-            ps.setString(7, allowedTenantsJson);
+            ps.setObject(7, allowedTenantsJson, Types.OTHER);
             ps.executeUpdate();
         }
-    }
-
-    private static DataSource createH2DataSource() {
-        return new EmbeddedDataSource(
-                "jdbc:h2:mem:pangrova_meta;MODE=PostgreSQL;DB_CLOSE_DELAY=-1",
-                "sa", "");
-    }
-
-    private static void createH2Schema(DataSource ds) throws SQLException {
-        String ddl = """
-                CREATE TABLE catalog_definitions (
-                    name VARCHAR(255) PRIMARY KEY,
-                    type VARCHAR(50) NOT NULL,
-                    provider VARCHAR(50) NOT NULL,
-                    state VARCHAR(20) NOT NULL DEFAULT 'CREATING',
-                    properties TEXT NOT NULL,
-                    comment TEXT,
-                    allowed_tenants TEXT,
-                    created_by VARCHAR(255),
-                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE schema_metadata (
-                    catalog_name VARCHAR(255) NOT NULL,
-                    schema_name VARCHAR(255) NOT NULL,
-                    properties TEXT,
-                    synced_at TIMESTAMP NOT NULL,
-                    PRIMARY KEY (catalog_name, schema_name),
-                    FOREIGN KEY (catalog_name) REFERENCES catalog_definitions(name) ON DELETE CASCADE
-                );
-                CREATE TABLE table_metadata (
-                    catalog_name VARCHAR(255) NOT NULL,
-                    schema_name VARCHAR(255) NOT NULL,
-                    table_name VARCHAR(255) NOT NULL,
-                    columns TEXT NOT NULL,
-                    partition_spec TEXT,
-                    sort_order TEXT,
-                    properties TEXT,
-                    table_created_at TIMESTAMP,
-                    table_updated_at TIMESTAMP,
-                    synced_at TIMESTAMP NOT NULL,
-                    PRIMARY KEY (catalog_name, schema_name, table_name),
-                    FOREIGN KEY (catalog_name, schema_name)
-                        REFERENCES schema_metadata(catalog_name, schema_name) ON DELETE CASCADE
-                );
-                CREATE TABLE sync_history (
-                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    catalog_name VARCHAR(255) NOT NULL,
-                    sync_type VARCHAR(20) NOT NULL,
-                    sync_time TIMESTAMP NOT NULL,
-                    changes_applied INT NOT NULL DEFAULT 0,
-                    errors INT NOT NULL DEFAULT 0,
-                    error_messages TEXT,
-                    duration_ms BIGINT NOT NULL
-                );
-                CREATE INDEX idx_catalog_time ON sync_history (catalog_name, sync_time);
-                """;
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute(ddl);
-        }
-    }
-
-    /**
-     * Minimal DataSource backed by DriverManager.
-     * Avoids external driver-specific DataSource dependency.
-     */
-    private static final class EmbeddedDataSource implements DataSource {
-
-        private final String url;
-        private final String user;
-        private final String password;
-
-        EmbeddedDataSource(String url, String user, String password) {
-            this.url = url;
-            this.user = user;
-            this.password = password;
-        }
-
-        @Override
-        public Connection getConnection() throws SQLException {
-            return DriverManager.getConnection(url, user, password);
-        }
-
-        @Override
-        public Connection getConnection(String u, String p) throws SQLException {
-            return DriverManager.getConnection(url, u, p);
-        }
-
-        @Override public PrintWriter getLogWriter() { return null; }
-        @Override public void setLogWriter(PrintWriter out) { }
-        @Override public void setLoginTimeout(int seconds) { }
-        @Override public int getLoginTimeout() { return 0; }
-        @Override public Logger getParentLogger() { return Logger.getLogger("EmbeddedDataSource"); }
-        @Override public <T> T unwrap(Class<T> iface) { throw new UnsupportedOperationException(); }
-        @Override public boolean isWrapperFor(Class<?> iface) { return false; }
     }
 }

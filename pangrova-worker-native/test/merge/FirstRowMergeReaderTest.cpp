@@ -168,7 +168,7 @@ TEST_F(FirstRowMergeReaderTest, KeepsFirstOccurrencePerKey) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -205,7 +205,7 @@ TEST_F(FirstRowMergeReaderTest, AllSameKeyKeepsLowestSequence) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b2}));
 
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -222,7 +222,7 @@ TEST_F(FirstRowMergeReaderTest, AllSameKeyKeepsLowestSequence) {
 
 TEST_F(FirstRowMergeReaderTest, EmptyReaders) {
   auto type = makeSchema();
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   merger.initialize(std::move(readers));
   EXPECT_FALSE(merger.hasNext());
@@ -246,7 +246,7 @@ TEST_F(FirstRowMergeReaderTest, OutputIsSortedByPrimaryKey) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -278,7 +278,7 @@ TEST_F(FirstRowMergeReaderTest, StatsTracking) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
   drainAll(merger);
 
@@ -306,7 +306,7 @@ TEST_F(FirstRowMergeReaderTest, CompositeKeyFirstRow) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  FirstRowMergeReader merger({0, 1}, 2, type);
+  FirstRowMergeReader merger({0, 1}, 2, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -331,7 +331,7 @@ TEST_F(FirstRowMergeReaderTest, SingleReaderPassthrough) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b0}));
 
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -363,7 +363,7 @@ TEST_F(FirstRowMergeReaderTest, MultipleBatchesPerReader) {
   readers.push_back(std::make_unique<TestRowReaderWrapper>(
       std::vector<RowVectorPtr>{b1}));
 
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   merger.initialize(std::move(readers));
 
   auto result = drainAll(merger);
@@ -391,7 +391,7 @@ TEST_F(FirstRowMergeReaderTest, MultipleBatchesPerReader) {
 
 TEST_F(FirstRowMergeReaderTest, CloseIsIdempotent) {
   auto type = makeSchema();
-  FirstRowMergeReader merger({0}, 1, type);
+  FirstRowMergeReader merger({0}, 1, type, MergeDeletePolicy{});
   std::vector<std::unique_ptr<RowReaderWrapper>> readers;
   merger.initialize(std::move(readers));
 
@@ -407,7 +407,7 @@ TEST_F(FirstRowMergeReaderTest, CloseIsIdempotent) {
 TEST_F(FirstRowMergeReaderTest, RejectsEmptyKeyIndices) {
   auto type = makeSchema();
   EXPECT_THROW(
-      FirstRowMergeReader({}, 1, type),
+      FirstRowMergeReader({}, 1, type, MergeDeletePolicy{}),
       std::invalid_argument);
 }
 

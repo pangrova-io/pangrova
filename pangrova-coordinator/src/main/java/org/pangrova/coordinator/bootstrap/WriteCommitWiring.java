@@ -9,9 +9,8 @@ import org.pangrova.coordinator.query.task.WriteCommitFencer;
 import org.pangrova.coordinator.query.task.WriteCommitReconciler;
 import org.pangrova.coordinator.query.task.WriteCommitRecoveryService;
 import org.pangrova.metadata.catalog.CatalogRegistry;
+import org.pangrova.metadata.catalog.ConnectorCatalogHandle;
 import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
-import org.pangrova.spi.connector.ConnectorSession;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.coordination.WriteCommitJournal;
 
 /**
@@ -35,81 +34,58 @@ final class WriteCommitWiring {
                 : InMemoryWriteCommitJournal.INSTANCE;
     }
 
-    /**
-     * A-COMMIT-01: on startup/promotion, consumes any durable PENDING write-commit intents a
-     * crashed predecessor left behind before this coordinator accepts new writes. The reconciler
-     * AUTO-FINISHES recoverable intents (rehydrate the connector handle from the structured
-     * durable identity + re-drive the idempotent catalog commit); only genuinely unrecoverable
-     * or ambiguous intents are quarantined (raised as CRITICAL alarms).
-     *
-     * <p>A no-op without a metadata datasource, because the in-memory journal never carries
-     * intents from a previous process.</p>
-     */
-    static void recoverPendingIntents(DataSource metadataDataSource,
-                                      WriteCommitJournal journal,
-                                      CatalogRegistry catalog) {
-        if (metadataDataSource == null) {
-            return;
-        }
+    static WriteCommitRecoveryService createRecoveryService(
+            WriteCommitJournal journal, CatalogRegistry catalog) {
         WriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(
-                (catalogName, session) -> resolveMetadata(catalog, catalogName, session));
-        new WriteCommitRecoveryService(journal, reconciler).recover();
+                catalogName -> resolveCatalog(catalog, catalogName));
+        return new WriteCommitRecoveryService(journal, reconciler);
     }
 
     /**
-     * Resolves connector metadata for recovery, or {@code null} when the catalog is unknown or
+     * Resolves the exact connector catalog for recovery, or {@code null} when unknown or
      * unavailable — the reconciler then quarantines that intent rather than guessing.
      */
-    private static ConnectorMetadata resolveMetadata(CatalogRegistry catalog, String catalogName,
-                                                     ConnectorSession session) {
+    private static ConnectorCatalogHandle resolveCatalog(
+            CatalogRegistry catalog, String catalogName) {
         if (catalog == null) {
             return null;
         }
         try {
             var catalogHandle = catalog.getCatalog(catalogName);
-            return catalogHandle == null ? null : catalogHandle.getMetadata(session);
+            return catalogHandle instanceof ConnectorCatalogHandle connector ? connector : null;
         } catch (RuntimeException e) {
             return null;
         }
     }
 
     /**
-     * A-FENCE-01: builds the leadership fence for the catalog-commit path. Returns {@code null}
-     * when there is no HA service, which leaves the commit path unfenced for single-node
-     * deployments.
+     * Builds the durable per-execution fence for the catalog-commit path.
      */
     static WriteCommitFencer createFencer(HighAvailabilityCoordinationService coordinationService) {
-        return coordinationService == null ? null : new LeaderTermFencer(coordinationService);
+        return coordinationService == null ? null : new ExecutionAnchorFencer(coordinationService);
     }
 
     /**
-     * Fences on live HA leadership state. While HA has not started (local node id still null) the
-     * node is treated as leader, so single-node writes are never fenced; once demoted,
-     * {@link #isActiveLeader()} flips false and the commit is left PENDING for the new leader's
-     * reconciler.
+     * Fences on the live durable execution anchor. The singleton control term is
+     * intentionally not consulted here.
      */
-    private static final class LeaderTermFencer implements WriteCommitFencer {
+    private static final class ExecutionAnchorFencer implements WriteCommitFencer {
 
         private final HighAvailabilityCoordinationService hac;
 
-        LeaderTermFencer(HighAvailabilityCoordinationService hac) {
+        ExecutionAnchorFencer(HighAvailabilityCoordinationService hac) {
             this.hac = hac;
         }
 
         @Override
-        public long currentTerm() {
-            return hac.getCurrentEpoch();
+        public org.pangrova.spi.coordination.ExecutionAnchor currentAnchor(
+                String executionId) {
+            return hac.requireExecutionAnchor(executionId);
         }
 
         @Override
-        public String coordinatorId() {
-            return hac.getLocalNodeId();
-        }
-
-        @Override
-        public boolean isActiveLeader() {
-            String id = hac.getLocalNodeId();
-            return id == null || hac.isLeader(id);
+        public boolean isCurrent(String executionId, long fencingToken) {
+            return hac.validateDurableExecutionToken(executionId, fencingToken);
         }
     }
 }

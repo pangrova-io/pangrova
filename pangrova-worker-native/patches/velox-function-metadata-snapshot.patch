@@ -1,0 +1,221 @@
+diff --git a/velox/expression/SimpleFunctionRegistry.h b/velox/expression/SimpleFunctionRegistry.h
+--- a/velox/expression/SimpleFunctionRegistry.h
++++ b/velox/expression/SimpleFunctionRegistry.h
+@@ -46,6 +46,10 @@ struct FunctionEntry {
+     return *metadata_;
+   }
+ 
++  std::shared_ptr<const Metadata> metadataSnapshot() const {
++    return metadata_;
++  }
++
+   std::unique_ptr<Function> createFunction() const {
+     return factory_();
+   }
+@@ -118,6 +122,11 @@ class SimpleFunctionRegistry {
+   std::vector<std::pair<VectorFunctionMetadata, const FunctionSignature*>>
+   getFunctionSignaturesAndMetadata(const std::string& name) const;
+ 
++  /// Owns immutable metadata for each actual implementation beyond the lock.
++  /// Does not expose factories or change runtime resolver selection.
++  std::vector<std::shared_ptr<const Metadata>> getFunctionMetadataSnapshot(
++      const std::string& name) const;
++
+   class ResolvedSimpleFunction {
+    public:
+     ResolvedSimpleFunction(
+diff --git a/velox/expression/SimpleFunctionRegistry.cpp b/velox/expression/SimpleFunctionRegistry.cpp
+--- a/velox/expression/SimpleFunctionRegistry.cpp
++++ b/velox/expression/SimpleFunctionRegistry.cpp
+@@ -144,6 +144,22 @@ SimpleFunctionRegistry::getFunctionSignaturesAndMetadata(
+   return result;
+ }
+ 
++std::vector<std::shared_ptr<const Metadata>>
++SimpleFunctionRegistry::getFunctionMetadataSnapshot(
++    const std::string& name) const {
++  std::vector<std::shared_ptr<const Metadata>> result;
++  registeredFunctions_.withRLock([&](const auto& map) {
++    if (const auto* signatures = getSignatureMap(name, map)) {
++      for (const auto& entry : *signatures) {
++        for (const auto& implementation : entry.second) {
++          result.push_back(implementation->metadataSnapshot());
++        }
++      }
++    }
++  });
++  return result;
++}
++
+ namespace {
+ 
+ // Same as Type::kindEquals, but matches UNKNOWN in 'physicalType' to any type.
+diff --git a/velox/vector/BaseVector.h b/velox/vector/BaseVector.h
+--- a/velox/vector/BaseVector.h
++++ b/velox/vector/BaseVector.h
+@@ -181,6 +181,9 @@ class BaseVector {
+     return pool_;
+   }
+ 
++  /// Reports whether the creating pool is owned for this vector's lifetime.
++  bool ownsMemoryPool() const;
++
+   virtual bool isNullAt(vector_size_t idx) const {
+     VELOX_DCHECK_GE(idx, 0, "Index must not be negative");
+     VELOX_DCHECK_LT(idx, length_, "Index is too large");
+@@ -1023,6 +1026,10 @@ class BaseVector {
+     return nulls_ ? nulls_->capacity() : 0;
+   }
+ 
++  // Vectors and independently sliced children can outlive their creating Task.
++  // Declare the pool owner first so all vector buffers are destroyed before it.
++  // Raw BufferPtr extraction is not a lifetime transfer API.
++  std::shared_ptr<memory::MemoryPool> poolOwner_;
+   TypePtr type_;
+   const TypeKind typeKind_;
+   // Whether `type_` is a type that provides custom comparison operations.
+diff --git a/velox/vector/BaseVector.cpp b/velox/vector/BaseVector.cpp
+--- a/velox/vector/BaseVector.cpp
++++ b/velox/vector/BaseVector.cpp
+@@ -152,6 +152,10 @@ std::vector<Variant> BaseVector::toVariants() const {
+   return result;
+ }
+ 
++bool BaseVector::ownsMemoryPool() const {
++  return pool_ == nullptr || poolOwner_.get() == pool_;
++}
++
+ BaseVector::BaseVector(
+     velox::memory::MemoryPool* pool,
+     std::shared_ptr<const Type> type,
+@@ -162,7 +166,8 @@ BaseVector::BaseVector(
+     std::optional<vector_size_t> nullCount,
+     std::optional<ByteCount> representedByteCount,
+     std::optional<ByteCount> storageByteCount)
+-    : type_(std::move(type)),
++    : poolOwner_(pool ? pool->shared_from_this() : nullptr),
++      type_(std::move(type)),
+       typeKind_(type_ ? type_->kind() : TypeKind::INVALID),
+       typeUsesCustomComparison_(
+           type_ ? type_->providesCustomComparison() : false),
+diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
+--- a/velox/vector/arrow/Bridge.cpp
++++ b/velox/vector/arrow/Bridge.cpp
+@@ -42,7 +42,13 @@ void clearNullableFlag(int64_t& flags) {
+ // carried by ArrowArray.private_data
+ class VeloxToArrowBridgeHolder {
+  public:
+-  VeloxToArrowBridgeHolder() = default;
++  VeloxToArrowBridgeHolder(memory::MemoryPool* source, memory::MemoryPool* output)
++      : sourcePool_(source ? source->shared_from_this() : nullptr),
++        outputPool_(output ? output->shared_from_this() : nullptr) {}
++
++  void holdVector(const VectorPtr& vector) {
++    vectorOwner_ = vector;
++  }
+ 
+   // Call to this method may require a call to `getArrowBuffers()` in order to
+   // re-acquire the underlying buffer
+@@ -102,6 +108,14 @@ class VeloxToArrowBridgeHolder {
+   }
+ 
+  private:
++  // Constant scalar exports may reference inline vector storage, not a buffer.
++  VectorPtr vectorOwner_;
++  // Export keeps buffers, not vectors. Pin both actual pools before the buffer
++  // owners: source buffers can be zero-copy while export allocates others.
++  // Each recursively exported child owns its own source pool independently.
++  std::shared_ptr<memory::MemoryPool> sourcePool_;
++  std::shared_ptr<memory::MemoryPool> outputPool_;
++
+   // Holds the count of total buffers
+   size_t numBuffers_ = kMaxBuffers;
+ 
+@@ -1227,7 +1241,7 @@ void exportConstant(
+ 
+   // Create the run ends child.
+   auto* runEnds = holder.allocateChild(0);
+-  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>();
++  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
+ 
+   runEnds->buffers = runEndsHolder->getArrowBuffers();
+   runEnds->length = 1;
+@@ -1253,7 +1267,7 @@ void exportToArrowImpl(
+     const ArrowOptions& options,
+     ArrowArray& out,
+     memory::MemoryPool* pool) {
+-  auto holder = std::make_unique<VeloxToArrowBridgeHolder>();
++  auto holder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
+   out.buffers = holder->getArrowBuffers();
+   out.length = rows.count();
+   out.offset = 0;
+@@ -1482,6 +1496,8 @@ void exportToArrow(
+     const ArrowOptions& options) {
+   exportToArrowImpl(
+       *vector, Selection(vector->size()), options, arrowArray, pool);
++  static_cast<VeloxToArrowBridgeHolder*>(arrowArray.private_data)
++      ->holdVector(vector);
+ }
+ 
+ void exportToArrow(
+@@ -2383,27 +2399,30 @@ VectorPtr importFromArrowImpl(
+   // release callbacks when use count reaches zero. These ArrowSchema object and
+   // ArrowArray object will be co-owned by both the BufferVieweReleaser of the
+   // nulls buffer and values buffer.
+-  std::shared_ptr<ArrowSchema> schemaReleaser(
+-      new ArrowSchema(arrowSchema), [](ArrowSchema* toDelete) {
+-        if (toDelete != nullptr) {
+-          if (toDelete->release != nullptr) {
+-            toDelete->release(toDelete);
+-          }
+-          delete toDelete;
+-        }
+-      });
+-  std::shared_ptr<ArrowArray> arrayReleaser(
+-      new ArrowArray(arrowArray), [](ArrowArray* toDelete) {
+-        if (toDelete != nullptr) {
+-          if (toDelete->release != nullptr) {
+-            toDelete->release(toDelete);
+-          }
+-          delete toDelete;
+-        }
+-      });
++  struct ArrowImportOwner {
++    ArrowSchema schema;
++    ArrowArray array;
++    ArrowImportOwner(const ArrowSchema& inputSchema, const ArrowArray& inputArray)
++        : schema(inputSchema), array(inputArray) {}
++    ~ArrowImportOwner() {
++      if (array.release) {
++        array.release(&array);
++      }
++      if (schema.release) {
++        schema.release(&schema);
++      }
++    }
++  };
++  // Allocate the co-owner before moving callbacks. Allocation failure leaves
++  // both caller slots owned; conversion failure releases the moved slots once.
++  auto owner = std::make_shared<ArrowImportOwner>(arrowSchema, arrowArray);
++  arrowSchema.release = nullptr;
++  arrowArray.release = nullptr;
++  std::shared_ptr<ArrowSchema> schemaReleaser(owner, &owner->schema);
++  std::shared_ptr<ArrowArray> arrayReleaser(owner, &owner->array);
+   VectorPtr imported = importFromArrowImpl(
+-      arrowSchema,
+-      arrowArray,
++      owner->schema,
++      owner->array,
+       pool,
+       /*isViewer=*/false,
+       [&schemaReleaser, &arrayReleaser](const void* buffer, size_t length) {
+@@ -2411,9 +2430,6 @@ VectorPtr importFromArrowImpl(
+             buffer, length, schemaReleaser, arrayReleaser);
+       });
+ 
+-  arrowSchema.release = nullptr;
+-  arrowArray.release = nullptr;
+-
+   return imported;
+ }
+ 

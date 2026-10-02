@@ -31,10 +31,9 @@ import org.slf4j.LoggerFactory;
  * JDBC-backed {@link ColumnTagStore} that durably persists column governance
  * tags to the {@code column_tags} table, so tags survive coordinator restarts.
  *
- * <p>Portable SQL (works on H2 and PostgreSQL): each mutation reads the prior
- * value and applies an INSERT or UPDATE inside a short transaction, avoiding
- * dialect-specific upsert syntax. Concurrency relies on database row locking;
- * no in-process mutable state.</p>
+ * <p>Each mutation runs in a short PostgreSQL transaction protected by a per-tag advisory lock.
+ * This also serializes concurrent creation of a previously absent tag, for which a row lock does
+ * not yet exist. No in-process mutable state or coordinator affinity is required.</p>
  */
 @ThreadSafe
 public final class JdbcColumnTagStore implements ColumnTagStore {
@@ -59,6 +58,8 @@ public final class JdbcColumnTagStore implements ColumnTagStore {
             "DELETE FROM column_tags WHERE store_key = ? AND tag_key = ?";
     private static final String SELECT_ALL =
             "SELECT tag_key, tag_value FROM column_tags WHERE store_key = ?";
+    private static final String LOCK_TAG =
+            "SELECT pg_advisory_xact_lock(hashtextextended(?, 0))";
 
     private final DataSource dataSource;
 
@@ -82,6 +83,7 @@ public final class JdbcColumnTagStore implements ColumnTagStore {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
+                lockTag(conn, storeKey, tagKey);
                 String previous = selectOne(conn, storeKey, tagKey);
                 if (previous == null) {
                     execUpdate(conn, INSERT_ONE, storeKey, tagKey, value);
@@ -104,6 +106,7 @@ public final class JdbcColumnTagStore implements ColumnTagStore {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
             try {
+                lockTag(conn, storeKey, tagKey);
                 String previous = selectOne(conn, storeKey, tagKey);
                 if (previous != null) {
                     execUpdate(conn, DELETE_ONE, storeKey, tagKey);
@@ -144,6 +147,14 @@ public final class JdbcColumnTagStore implements ColumnTagStore {
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getString(1) : null;
             }
+        }
+    }
+
+    private static void lockTag(Connection connection, String storeKey, String tagKey)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(LOCK_TAG)) {
+            statement.setString(1, storeKey + '\u001f' + tagKey);
+            statement.executeQuery().close();
         }
     }
 

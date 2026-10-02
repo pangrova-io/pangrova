@@ -104,7 +104,6 @@ const std::unordered_map<std::string, std::string>& substraitToVeloxFunctionMap(
       {"min", "min"},
       {"max", "max"},
       {"avg", "avg"},
-      {"sum0", "sum"},
       {"count_star", "count"},
       // Substrait "collect" → Velox "array_agg"
       {"collect", "array_agg"},
@@ -145,7 +144,16 @@ VeloxPlanConverter::convert(
     const std::vector<uint8_t>& plan_bytes,
     const std::vector<split::SplitConfig>& splits,
     bool is_result_task,
-    const std::string& result_serde_name) {
+    const std::string& result_serde_name,
+    const std::unordered_map<
+        std::string, pangrova::protocol::v2::OperatorBinding>&
+        operator_bindings,
+    std::shared_ptr<ArtifactBuildTaskContext> artifact_build_context,
+    const std::unordered_map<
+        std::string, std::vector<split::SplitConfig>>&
+        retrieval_split_overrides,
+    int32_t shuffle_partition_count) {
+  single_match_join_requirements_.clear();
   if (plan_bytes.empty()) {
     return nullptr;
   }
@@ -172,9 +180,18 @@ VeloxPlanConverter::convert(
   owner_set_ = true;
 
   next_node_id_ = 0;
+  shuffle_partition_count_ = shuffle_partition_count;
+  shuffle_output_spec_.reset();
+  relation_output_types_.clear();
+  logical_node_types_.clear();
+  result_column_labels_.clear();
   function_map_.clear();
   scan_node_output_types_.clear();
-  values_pool_holders_.clear();
+  retrieval_split_overrides_ = retrieval_split_overrides;
+  scan_node_split_overrides_.clear();
+  operator_bindings_ = operator_bindings;
+  consumed_operator_bindings_.clear();
+  artifact_build_context_ = std::move(artifact_build_context);
 
   // Build function_reference → function_name map from plan extensions.
   for (int i = 0; i < substrait_plan.extensions_size(); ++i) {
@@ -192,68 +209,18 @@ VeloxPlanConverter::convert(
   const auto& plan_rel = substrait_plan.relations(0);
   if (plan_rel.has_root()) {
     auto node = convertRel(plan_rel.root().input(), splits);
-    // Apply Substrait Root.names as final output column aliases.
-    // Calcite stores SQL aliases (e.g. "order1", "order2") in Root.names.
-    // Without this rename, Arrow output uses internal Velox column names
-    // (e.g. "o_orderkey", "o_orderkey_right") which may not match SQL
-    // aliases, causing incorrect column mapping in the Java layer.
-    const auto& root = plan_rel.root();
-    if (root.names_size() > 0 && node) {
-      auto output_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
-          node->outputType());
-      // Substrait Root.names may include nested struct field names (flat list).
-      // Only apply rename when names_size matches top-level column count exactly.
-      // When they differ, the names list includes nested fields and cannot be
-      // used as a simple column rename.
-      if (output_type &&
-          static_cast<int>(output_type->size()) == root.names_size()) {
-        // Check if any name differs — skip ProjectNode if names already match.
-        bool needs_rename = false;
-        for (int i = 0; i < root.names_size(); ++i) {
-          if (output_type->nameOf(i) != root.names(i)) {
-            needs_rename = true;
-            break;
-          }
-        }
-        if (needs_rename) {
-          std::vector<std::string> alias_names;
-          std::vector<std::shared_ptr<const facebook::velox::core::ITypedExpr>>
-              projections;
-          alias_names.reserve(root.names_size());
-          projections.reserve(root.names_size());
-          // Deduplicate Root.names to avoid producing a RowType with
-          // duplicate column names (Velox rejects those).
-          std::unordered_set<std::string> seen_names;
-          for (int i = 0; i < root.names_size(); ++i) {
-            std::string name = root.names(i);
-            if (seen_names.count(name) > 0) {
-              std::string deduped = name + "_right";
-              int suffix = 2;
-              while (seen_names.count(deduped) > 0) {
-                deduped = name + "_right" + std::to_string(suffix++);
-              }
-              name = deduped;
-            }
-            seen_names.insert(name);
-            alias_names.push_back(name);
-            projections.push_back(
-                std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(
-                    output_type->childAt(i), output_type->nameOf(i)));
-          }
-          node = std::make_shared<facebook::velox::core::ProjectNode>(
-              nextNodeId(),
-              std::move(alias_names),
-              std::move(projections),
-              node);
-        }
-      }
+    if ((shuffle_partition_count_ > 0) != shuffle_output_spec_.has_value()) {
+      throw std::runtime_error(
+          "Shuffle task and producer ExchangeRel must be bound together");
     }
+    bindResultColumnLabels(plan_rel.root(), node->outputType());
     // For result tasks, wrap the plan root with PartitionedOutputNode so that
     // Velox serializes output via PrestoVectorSerde inside the operator pipeline
     // and routes it through OutputBufferManager for native result serving.
     // Skip wrapping if the root is already a PartitionedOutputNode (e.g., from
     // an ExchangeRel that was converted to a partitioned output).
     node = wrapResultTaskOutput(node, is_result_task, result_serde_name);
+    validateAllOperatorBindingsConsumed();
     LOG(INFO) << "event=plan_conversion_complete"
               << " is_result_task=" << is_result_task
               << " output_type=" << (node ? node->outputType()->toString() : "null")
@@ -262,7 +229,12 @@ VeloxPlanConverter::convert(
   }
   if (plan_rel.has_rel()) {
     auto node = convertRel(plan_rel.rel(), splits);
+    if ((shuffle_partition_count_ > 0) != shuffle_output_spec_.has_value()) {
+      throw std::runtime_error(
+          "Shuffle task and producer ExchangeRel must be bound together");
+    }
     node = wrapResultTaskOutput(node, is_result_task, result_serde_name);
+    validateAllOperatorBindingsConsumed();
     LOG(INFO) << "event=plan_conversion_complete_rel"
               << " is_result_task=" << is_result_task
               << " output_type=" << (node ? node->outputType()->toString() : "null")
@@ -270,6 +242,48 @@ VeloxPlanConverter::convert(
     return node;
   }
   return nullptr;
+}
+
+const pangrova::protocol::v2::OperatorBinding&
+VeloxPlanConverter::requireOperatorBinding(
+    const std::string& plan_node_id,
+    const pangrova::protocol::v2::CapabilityRef& capability) {
+  auto found = operator_bindings_.find(plan_node_id);
+  if (found == operator_bindings_.end()) {
+    throw std::runtime_error(
+        "VeloxPlanConverter: missing OperatorBinding for plan node " +
+        plan_node_id);
+  }
+  const auto& bound = found->second.capability();
+  if (bound.capability_id() != capability.capability_id() ||
+      bound.semantic_version() != capability.semantic_version() ||
+      bound.signature_sha256() != capability.signature_sha256() ||
+      (!capability.implementation_build_id().empty() &&
+       bound.implementation_build_id() != capability.implementation_build_id())) {
+    throw std::runtime_error(
+        "VeloxPlanConverter: OperatorBinding capability differs from plan node " +
+        plan_node_id);
+  }
+  if (!consumed_operator_bindings_.emplace(plan_node_id).second) {
+    throw std::runtime_error(
+        "VeloxPlanConverter: OperatorBinding is referenced more than once: " +
+        plan_node_id);
+  }
+  return found->second;
+}
+
+void VeloxPlanConverter::validateAllOperatorBindingsConsumed() const {
+  if (consumed_operator_bindings_.size() == operator_bindings_.size()) {
+    return;
+  }
+  for (const auto& [plan_node_id, binding] : operator_bindings_) {
+    (void)binding;
+    if (!consumed_operator_bindings_.contains(plan_node_id)) {
+      throw std::runtime_error(
+          "VeloxPlanConverter: unused OperatorBinding for plan node " +
+          plan_node_id);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +347,7 @@ VeloxPlanConverter::wrapResultTaskOutput(
 // ---------------------------------------------------------------------------
 
 std::shared_ptr<const facebook::velox::core::PlanNode>
-VeloxPlanConverter::convertRel(
+VeloxPlanConverter::convertDirectRel(
     const substrait::Rel& rel,
     const std::vector<split::SplitConfig>& splits) {
   switch (rel.rel_type_case()) {
@@ -351,6 +365,8 @@ VeloxPlanConverter::convertRel(
       return convertMergeJoinRel(rel.merge_join(), splits);
     case substrait::Rel::kJoin:
       return convertJoinRel(rel.join(), splits);
+    case substrait::Rel::kNestedLoopJoin:
+      return convertNestedLoopJoinRel(rel.nested_loop_join(), splits);
     case substrait::Rel::kExchange:
       return convertExchangeRel(rel.exchange(), splits);
     case substrait::Rel::kSort:
@@ -363,6 +379,8 @@ VeloxPlanConverter::convertRel(
       return convertSetRel(rel.set(), splits);
     case substrait::Rel::kCross:
       return convertCrossRel(rel.cross(), splits);
+    case substrait::Rel::kExtensionLeaf:
+      return convertExtensionLeafRel(rel.extension_leaf());
     case substrait::Rel::kExtensionSingle:
       return convertExtensionSingleRel(rel.extension_single(), splits);
     case substrait::Rel::kExtensionMulti:

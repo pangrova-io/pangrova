@@ -19,10 +19,11 @@ class InMemoryWorkerRegistryTest {
 
     private WorkerSnapshot worker(String id, long lastHeartbeatMs) {
         return new WorkerSnapshot(
-                id, "host-" + id, 8080, 9090, 1,
-                List.of("SCAN"), null, List.of(),
+                id, "host-" + id, 8080, 9090, 2,
+                null, List.of(),
                 "NONE", 0.1, 0, 1024L,
-                lastHeartbeatMs, lastHeartbeatMs - 10_000);
+                lastHeartbeatMs, lastHeartbeatMs - 10_000,
+                0, null, "dGVzdA==");
     }
 
     @Test
@@ -50,10 +51,10 @@ class InMemoryWorkerRegistryTest {
     void heartbeatUpdatesDynamicFields() {
         long now = System.currentTimeMillis();
         WorkerSnapshot w = new WorkerSnapshot(
-                "w1", "host-a", 8080, 9090, 1,
-                List.of("SCAN", "JOIN"), "rack-1", List.of("/data/1"),
+                "w1", "host-a", 8080, 9090, 2,
+                "rack-1", List.of("/data/1"),
                 "NONE", 0.1, 0, 2048L,
-                now - 5000, now - 60_000);
+                now - 5000, now - 60_000, 0, null, "dGVzdA==");
         registry.register(w);
 
         HeartbeatSnapshot hb = new HeartbeatSnapshot("HIGH", 0.95, 5, 512L);
@@ -71,8 +72,8 @@ class InMemoryWorkerRegistryTest {
         assertThat(updated.host()).isEqualTo("host-a");
         assertThat(updated.httpPort()).isEqualTo(8080);
         assertThat(updated.transportPort()).isEqualTo(9090);
-        assertThat(updated.protocolVersion()).isEqualTo(1);
-        assertThat(updated.capabilities()).containsExactly("SCAN", "JOIN");
+        assertThat(updated.protocolVersion()).isEqualTo(2);
+        assertThat(updated.capabilityInventory()).isEqualTo("dGVzdA==");
         assertThat(updated.rackId()).isEqualTo("rack-1");
         assertThat(updated.dataLocality()).containsExactly("/data/1");
         assertThat(updated.registeredAtMs()).isEqualTo(now - 60_000);

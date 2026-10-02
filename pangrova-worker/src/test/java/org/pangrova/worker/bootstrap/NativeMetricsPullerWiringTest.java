@@ -58,7 +58,11 @@ class NativeMetricsPullerWiringTest {
                 r -> new Thread(r, "test-native-metrics"));
         try {
             executor.scheduleAtFixedRate(publisher::pullAndPublish, 0, 50, TimeUnit.MILLISECONDS);
-            Thread.sleep(200);
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(2))
+                    .untilAsserted(() -> {
+                        assertThat(pullCount.get()).isGreaterThanOrEqualTo(2);
+                        assertThat(publisher.getMemoryUsedBytes()).isEqualTo(512L);
+                    });
             assertThat(pullCount.get()).isGreaterThanOrEqualTo(2);
             assertThat(publisher.getMemoryUsedBytes()).isEqualTo(512L);
         } finally {
@@ -93,7 +97,7 @@ class NativeMetricsPullerWiringTest {
     }
 
     @Test
-    void workerBootstrapStartsAndStopsWithoutNative() {
+    void workerBootstrapStartsAndStopsWithPackagedNative() {
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "wiring-test-worker", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,
@@ -101,8 +105,8 @@ class NativeMetricsPullerWiringTest {
                 WorkerBootstrapConfig.DEFAULT_RESULT_RETENTION_SECONDS,
                 false, new WorkerBootstrapConfig.RegistrationRetryConfig(1, 1, 1), null, null,
                 null, null,
-                null);
-        WorkerBootstrap bootstrap = new WorkerBootstrap(config);
+                null, null, null);
+        WorkerBootstrap bootstrap = TestWorkerBootstrap.create(config);
 
         try {
             bootstrap.start();

@@ -40,6 +40,7 @@ public final class PangrovaCoordinatorMain {
             PangrovaConfiguration pangrovaConfig = loadPangrovaConfiguration(args);
             coordinatorValidator().validate(pangrovaConfig);
             CoordinatorBootstrapConfig config = buildBootstrapConfig(pangrovaConfig);
+            validateProductionInternalAuth(config);
             logSecurityPosture(pangrovaConfig);
             CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
             Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdown, "coordinator-shutdown"));
@@ -48,6 +49,14 @@ public final class PangrovaCoordinatorMain {
         } catch (Exception e) {
             LOG.error("event=coordinator_startup_failed error={}", e.getMessage(), e);
             System.exit(1);
+        }
+    }
+
+    static void validateProductionInternalAuth(CoordinatorBootstrapConfig config) {
+        String secret = config.internalAuthSecret();
+        if (secret == null || secret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
+            throw new IllegalStateException(
+                    "Production Coordinator requires an internal auth secret of at least 32 bytes");
         }
     }
 
@@ -122,13 +131,61 @@ public final class PangrovaCoordinatorMain {
                 CoordinatorBootstrapConfig.QueryConfig.DEFAULT_TASK_TIMEOUT_SECONDS);
         return new CoordinatorBootstrapConfig(
                 core, buildFeatureFlags(config), queryConfig,
-                CoordinatorBootstrapConfig.TransportConfig.defaults(),
+                loadTransportConfig(config),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                loadMetadataJdbcConfig(config), loadSecurityConfig(config),
+                loadMetadataJdbcConfig(config), SecurityConfigurationLoader.load(config),
                 loadObservabilityConfig(config));
     }
 
+    private static CoordinatorBootstrapConfig.TransportConfig loadTransportConfig(
+            PangrovaConfiguration config) {
+        var defaults = CoordinatorBootstrapConfig.TransportConfig.defaults();
+        boolean enabled = config.getBoolean(CoordinatorOptions.TRANSPORT_TLS_ENABLED);
+        String certificate = config.getString(
+                CoordinatorOptions.TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH);
+        String privateKey = config.getString(
+                CoordinatorOptions.TRANSPORT_TLS_PRIVATE_KEY_PATH);
+        String rootCa = config.getString(CoordinatorOptions.TRANSPORT_TLS_ROOT_CA_PATH);
+        String serverIdentity = config.getString(
+                CoordinatorOptions.SHUFFLE_TLS_SERVER_IDENTITY);
+        boolean materialConfigured = !certificate.isBlank()
+                || !privateKey.isBlank() || !rootCa.isBlank()
+                || !serverIdentity.isBlank();
+        if (!enabled) {
+            if (materialConfigured) {
+                throw new PangrovaException(
+                        PangrovaErrorCode.CONFIG_INVALID_VALUE,
+                        "coordinator transport TLS material requires tls.enabled=true");
+            }
+            return defaults;
+        }
+        if (certificate.isBlank() || privateKey.isBlank()
+                || rootCa.isBlank() || serverIdentity.isBlank()) {
+            throw new PangrovaException(
+                    PangrovaErrorCode.CONFIG_MISSING_KEY,
+                    "enabled coordinator transport TLS requires certificate, private key, "
+                            + "root CA and shuffle server identity");
+        }
+        var tls = new org.pangrova.coordinator.transport.ShuffleTlsConfig(
+                Path.of(certificate), Path.of(privateKey), Path.of(rootCa),
+                serverIdentity);
+        return new CoordinatorBootstrapConfig.TransportConfig(
+                defaults.port(), defaults.allocatorLimitBytes(),
+                defaults.advertisedHost(), tls);
+    }
+
     private static CoordinatorBootstrapConfig.FeatureFlags buildFeatureFlags(PangrovaConfiguration config) {
+        if (config.getBoolean(CoordinatorOptions.TENANT_ENABLED)
+                && !config.getBoolean(CoordinatorOptions.SECURITY_ENABLED)) {
+            throw new PangrovaException(PangrovaErrorCode.CONFIG_INVALID_VALUE,
+                    "tenant.enabled=true requires security.enabled=true and authenticated tenant membership");
+        }
+        if (config.getBoolean(CoordinatorOptions.TENANT_ENABLED)
+                && "NOOP".equalsIgnoreCase(
+                        config.getString(CoordinatorOptions.SECURITY_AUTH_TYPE))) {
+            throw new PangrovaException(PangrovaErrorCode.CONFIG_INVALID_VALUE,
+                    "tenant.enabled=true cannot use the NOOP authenticator");
+        }
         return new CoordinatorBootstrapConfig.FeatureFlags(
                 config.getBoolean(CoordinatorOptions.OBSERVABILITY_ENABLED),
                 config.getBoolean(CoordinatorOptions.SECURITY_ENABLED),
@@ -149,29 +206,6 @@ public final class PangrovaCoordinatorMain {
         return new CoordinatorBootstrapConfig.MetadataJdbcConfig(jdbcUrl, "", "");
     }
 
-    private static CoordinatorBootstrapConfig.SecurityConfig loadSecurityConfig(
-            PangrovaConfiguration config) {
-        if (!config.getBoolean(CoordinatorOptions.SECURITY_ENABLED)) {
-            return null;
-        }
-        String authType = config.getString(CoordinatorOptions.SECURITY_AUTH_TYPE);
-        if (authType == null || authType.isBlank()) {
-            throw new PangrovaException(PangrovaErrorCode.CONFIG_MISSING_KEY,
-                    "security.auth.type must be configured when security.enabled=true (supported: OAUTH2, LDAP)");
-        }
-        return switch (authType.toUpperCase()) {
-            case "OAUTH2" -> new CoordinatorBootstrapConfig.SecurityConfig(
-                    CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2, List.of(), null);
-            case "LDAP" -> new CoordinatorBootstrapConfig.SecurityConfig(
-                    CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.LDAP, List.of(), null);
-            case "NOOP" -> {
-                LOG.warn("event=security_noop_explicit message=\"NOOP authenticator accepts all requests\"");
-                yield CoordinatorBootstrapConfig.SecurityConfig.noop();
-            }
-            default -> throw new PangrovaException(PangrovaErrorCode.CONFIG_INVALID_VALUE,
-                    "Unknown security.auth.type: " + authType + " (supported: OAUTH2, LDAP)");
-        };
-    }
 
     private static CoordinatorBootstrapConfig.ObservabilityBootstrapConfig loadObservabilityConfig(
             PangrovaConfiguration config) {

@@ -126,8 +126,7 @@ class AsyncDispatchPropertyTest {
             assertThat(e.getCause()).isInstanceOf(java.util.concurrent.TimeoutException.class);
             return;
         }
-        // Should not reach here
-        assertThat(true).as("Expected timeout exception").isFalse();
+        throw new AssertionError("Expected timeout exception");
     }
 
     /**
@@ -236,7 +235,7 @@ class AsyncDispatchPropertyTest {
     }
 
     private Stage createStage(int stageId, String queryId) {
-        List<org.pangrova.protocol.rest.task.ExchangeSourceDescriptor> empty =
+        List<org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor> empty =
                 java.util.Collections.emptyList();
         StageNode node = new StageNode(stageId, new org.pangrova.planner.PlanFragment(LogicalValues.createOneRow(CLUSTER), -1L, -1L), 1, "COMPUTE", empty);
         return Stage.create(node, queryId);

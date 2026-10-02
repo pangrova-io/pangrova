@@ -85,7 +85,7 @@ class SpiImplementationPropertyTest {
                     null),
             new SpiContract("AccessControl",
                     "org.pangrova.spi.security.AccessControl",
-                    Set.of("RbacAccessControl"),
+                    Set.of("DynamicRbacAccessControl"),
                     null),
             new SpiContract("CircuitBreakerPolicy",
                     "org.pangrova.common.resilience.CircuitBreakerPolicy",

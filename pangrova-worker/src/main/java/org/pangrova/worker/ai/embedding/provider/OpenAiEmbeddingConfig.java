@@ -8,7 +8,7 @@ package org.pangrova.worker.ai.embedding.provider;
  *
  * @param endpoint           absolute URL of the embeddings endpoint
  * @param modelName          model identifier sent in the request body
- * @param apiKey             bearer token for the Authorization header
+ * @param apiKey             bearer token, or an empty string for an explicitly anonymous endpoint
  * @param dimension          expected output vector dimensionality
  * @param maxBatchSize       maximum number of inputs per HTTP request
  * @param maxRequestsPerSecond rate limit enforced between requests

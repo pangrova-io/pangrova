@@ -17,9 +17,8 @@ import java.util.Objects;
  *
  * <h2>Query hash</h2>
  * A whitespace-collapsed lowercase SHA-256 of the SQL text. Two queries that
- * differ only in formatting share the same query hash. The same normalization
- * rule used by {@link org.pangrova.planner.cache.PlanCacheKey} so the two
- * subsystems remain consistent.
+ * differ only in formatting share the same query hash. These fingerprints
+ * identify diagnostic plan baselines, not authorization credentials.
  *
  * <h2>Plan hash</h2>
  * SHA-256 of the structural digest produced by {@link RelWriterImpl} at the

@@ -16,7 +16,7 @@
 
 #include "jni/command/StatusSerializer.h"
 
-#include "pangrova/native/protocol/v1/task.pb.h"
+#include "pangrova/protocol/v2/result.pb.h"
 
 #if __has_include("velox/exec/TaskStats.h")
 #include "velox/exec/TaskStats.h"
@@ -116,7 +116,7 @@ TEST_F(GroupIdNodeStatsTest, GroupIdNodeStatsPropagateToProto) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   // Verify task-level metrics.
@@ -178,7 +178,7 @@ TEST_F(GroupIdNodeStatsTest, GroupIdNodeInMultiPipelineTask) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   // All 4 operators across 2 pipelines should be captured.
@@ -223,7 +223,7 @@ TEST_F(GroupIdNodeStatsTest, GroupIdNodeStatsContributeToAggregates) {
 
   auto bytes = serializeNativeTaskStats(taskStats);
 
-  pangrova::native::protocol::v1::TaskStats proto;
+  pangrova::protocol::v2::NativeTaskStats proto;
   ASSERT_TRUE(proto.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
 
   // Task-level aggregates should include GroupIdNode's contribution.

@@ -36,7 +36,7 @@ class FirstRowMergeReader final : public MergeReader {
   FirstRowMergeReader(
       std::vector<facebook::velox::column_index_t> primary_key_indices,
       facebook::velox::column_index_t sequence_column_index,
-      facebook::velox::RowTypePtr output_type);
+      facebook::velox::RowTypePtr output_type, MergeDeletePolicy delete_policy);
 
   ~FirstRowMergeReader() override { close(); }
 
@@ -64,6 +64,7 @@ class FirstRowMergeReader final : public MergeReader {
   std::vector<facebook::velox::column_index_t> key_indices_;
   facebook::velox::column_index_t sequence_index_;
   facebook::velox::RowTypePtr output_type_;
+  MergeDeletePolicy delete_policy_;
 
   std::vector<ReaderState> readers_;
   using FirstRowHeap = std::priority_queue<

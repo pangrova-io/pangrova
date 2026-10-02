@@ -2,8 +2,6 @@ package org.pangrova.indexing.serde;
 
 import org.pangrova.spi.index.IndexType;
 
-import org.pangrova.indexing.serde.vector.VectorTypeSerializer;
-
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -20,12 +18,12 @@ public final class TypeSerializerRegistry {
     }
 
     /**
-     * Creates the default registry with all 10 built-in type serializers.
+     * Creates the default registry for JVM file-pruning indexes.
+     * Durable ANN artifacts are produced and consumed only by Native workers.
      */
     public static TypeSerializerRegistry createDefault() {
         return builder()
                 .register(IndexType.BTREE, new BTreeSerializer())
-                .register(IndexType.INVERTED, new InvertedSerializer())
                 .register(IndexType.BLOOM_FILTER, new BloomFilterSerializer())
                 .register(IndexType.PREFIX, new PrefixSerializer())
                 .register(IndexType.NGRAM_BLOOM_FILTER, new NGramBloomSerializer())
@@ -34,7 +32,6 @@ public final class TypeSerializerRegistry {
                 .register(IndexType.SPARSE, new SparseSerializer())
                 .register(IndexType.R_TREE, new RTreeSerializer())
                 .register(IndexType.GIN, new GinSerializer())
-                .register(IndexType.VECTOR, new VectorTypeSerializer())
                 .build();
     }
 

@@ -51,6 +51,19 @@ class TestDataSetupTest {
     }
 
     @Test
+    void seedConsumptionDoesNotDependOnMapIterationOrder() {
+        setup.loadTpcHData("cat", "sch", 1);
+        List<String> first = List.copyOf(executedSql);
+        assertThat(first.stream().filter(sql -> sql.startsWith("CREATE TABLE"))
+                .map(sql -> sql.split(" ")[5]).toList()).containsExactly(
+                        "cat.sch.customer", "cat.sch.lineitem", "cat.sch.nation", "cat.sch.orders",
+                        "cat.sch.part", "cat.sch.partsupp", "cat.sch.region", "cat.sch.supplier");
+        setUp();
+        setup.loadTpcHData("cat", "sch", 1);
+        assertThat(executedSql).containsExactlyElementsOf(first);
+    }
+
+    @Test
     void loadTpcHDataGeneratesInsertStatements() {
         setup.loadTpcHData("cat", "sch", 1);
 

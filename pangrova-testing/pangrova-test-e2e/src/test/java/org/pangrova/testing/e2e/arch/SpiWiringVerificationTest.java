@@ -33,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Verifies that all SPI implementation classes are reachable from public entry
  * points (QueryManager or WorkerBootstrap) via field references, method calls,
- * or constructor dependencies.
+ * constructor dependencies, or a production {@code ServiceLoader} site.
  *
  * <p>This prevents dead wiring accumulation: SPI implementations that are
  * compiled but never instantiated or referenced from any production path.</p>
@@ -127,15 +127,12 @@ class SpiWiringVerificationTest {
             "org.pangrova.connector.paimon.write.PaimonPageSinkProvider",
             // Coordinator — pending wiring
             "org.pangrova.coordinator.ai.branch.BranchConnectorSession",
-            "org.pangrova.coordinator.ai.embedding.AutoEmbeddingCommitListener",
-            "org.pangrova.coordinator.ai.training.TrainingConnectorSession",
             "org.pangrova.coordinator.bootstrap.DefaultAiModuleContext",
             "org.pangrova.coordinator.bootstrap.IndexingBootstrap",
             "org.pangrova.coordinator.bootstrap.ModuleIntegrationBootstrap",
             "org.pangrova.coordinator.clustering.ClusteringConnectorSession",
             "org.pangrova.coordinator.coordination.inmemory.InMemoryCoordinatorRegistry",
             "org.pangrova.coordinator.index.lifecycle.IndexCommitHandler",
-            "org.pangrova.coordinator.metadata.SystemConnectorSession",
             "org.pangrova.coordinator.query.CoordinatorQueryLifecycle",
             "org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager",
             "org.pangrova.coordinator.result.CoordinatorDataProducer",
@@ -149,16 +146,10 @@ class SpiWiringVerificationTest {
             "org.pangrova.indexing.engine.btree.BTreeStrategyProvider",
             "org.pangrova.indexing.engine.gin.GinStrategyProvider",
             "org.pangrova.indexing.engine.hash.HashStrategyProvider",
-            "org.pangrova.indexing.engine.inverted.InvertedStrategyProvider",
             "org.pangrova.indexing.engine.ngram.NGramBloomStrategyProvider",
             "org.pangrova.indexing.engine.prefix.PrefixStrategyProvider",
             "org.pangrova.indexing.engine.rtree.RTreeStrategyProvider",
             "org.pangrova.indexing.engine.sparse.SparseStrategyProvider",
-            "org.pangrova.indexing.engine.vector.CagraEngine",
-            "org.pangrova.indexing.engine.vector.ColbertEngine",
-            "org.pangrova.indexing.engine.vector.DefaultVectorIndexLoader",
-            "org.pangrova.indexing.engine.vector.DiskAnnEngine",
-            "org.pangrova.indexing.engine.vector.VectorStrategyProvider",
             "org.pangrova.indexing.eval.DefaultIndexFileEvaluator",
             "org.pangrova.indexing.eval.DefaultIndexFileEvaluatorFactory",
             "org.pangrova.indexing.fs.LocalFileSystemAccessor",
@@ -177,7 +168,6 @@ class SpiWiringVerificationTest {
             "org.pangrova.metadata.streaming.JdbcWatermarkStore",
             // Resilience — checkpoint removed per streaming positioning clarification
             // Security
-            "org.pangrova.security.authz.RbacAccessControl",
             "org.pangrova.security.mask.EmptyColumnMaskStore",
             // SPI data structures (used by connectors via dynamic loading)
             "org.pangrova.spi.connector.data.block.ArrayBlock",
@@ -197,10 +187,8 @@ class SpiWiringVerificationTest {
             "org.pangrova.spi.index.data.spatial.RTreeIndexData",
             "org.pangrova.spi.index.data.spatial.SparseIndexData",
             "org.pangrova.spi.index.data.text.GinIndexData",
-            "org.pangrova.spi.index.data.text.InvertedIndexData",
             "org.pangrova.spi.index.data.text.NGramBloomIndexData",
             "org.pangrova.spi.index.data.text.PrefixIndexData",
-            "org.pangrova.spi.index.data.vector.VectorIndexData",
             // Streaming — pending streaming P0 wiring
             "org.pangrova.streaming.cdc.CdcRegistrationHandler",
             "org.pangrova.streaming.cdc.InMemoryCdcRegistrationStore",
@@ -234,7 +222,6 @@ class SpiWiringVerificationTest {
             // Coordinator — in-memory default StorageProfileRegistry, wired in QueryExecutionBootstrap
             // (bootstrap wiring is not traversed by the arch reachability roots).
             "org.pangrova.coordinator.storage.InMemoryStorageProfileRegistry",
-            "org.pangrova.coordinator.streaming.ConnectorPageSinkStreamWriter",
             "org.pangrova.coordinator.streaming.KafkaStreamSourceReader",
             // Governance — pending lineage wiring
             "org.pangrova.governance.lineage.LineageQueryEventListener",
@@ -263,8 +250,6 @@ class SpiWiringVerificationTest {
             "org.pangrova.coordinator.scheduler.NoOpSchedulerControlLoop",
             // Coordinator — AI index lifecycle (wired via ServiceLoader)
             "org.pangrova.coordinator.ai.index.lifecycle.DefaultIndexAvailabilityPublisher",
-            // SPI — multimodal cost estimation (wired via ServiceLoader)
-            "org.pangrova.spi.ai.cost.DefaultMultimodalCostEstimator",
             // Worker AI — pending AI function wiring
             "org.pangrova.worker.ai.document.FixedSizeChunkStrategy",
             "org.pangrova.worker.ai.document.HtmlDocumentParser",
@@ -291,10 +276,8 @@ class SpiWiringVerificationTest {
             "org.pangrova.worker.ai.function.FileFromUrlFunction",
             "org.pangrova.worker.ai.function.table.AiTableFunctionFactory",
             "org.pangrova.worker.ai.function.table.DirectoryListingTableFunction",
-            "org.pangrova.worker.ai.function.table.VectorSearchTableFunction",
-            "org.pangrova.worker.ai.inference.ConfigurableInferenceProvider",
             "org.pangrova.worker.ai.inference.OpenAiCompatibleInferenceProvider",
-            "org.pangrova.worker.ai.vector.DiskAnnEngine"
+            "org.pangrova.worker.ai.provider.ConfiguredAiProviderRegistry"
     );
 
     private static JavaClasses importedClasses;
@@ -384,6 +367,9 @@ class SpiWiringVerificationTest {
             if (!visited.add(current)) {
                 continue;
             }
+
+            ServiceLoaderReachability.enqueueProviders(
+                    current, importedClasses, queue, visited);
 
             importedClasses.stream()
                     .filter(c -> c.getName().equals(current))

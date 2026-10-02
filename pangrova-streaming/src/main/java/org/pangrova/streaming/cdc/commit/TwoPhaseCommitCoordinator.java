@@ -21,11 +21,13 @@ import java.util.UUID;
 
 /**
  * JDBC-backed implementation of {@link CdcCommitCoordinator} that orchestrates
- * the two-phase commit protocol for CDC exactly-once semantics.
+ * the CDC commit state machine. Catalog publication and source-offset acknowledgement
+ * are not one atomic transaction; ambiguous publication remains in COMMITTING for
+ * explicit reconciliation rather than being reported as exactly-once.
  *
- * <p>Deduplication is based on the (source_id, partition, start_offset, end_offset)
- * tuple persisted in the {@code cdc_commit_state} table. Duplicate prepare calls
- * for the same tuple return the existing token without side effects.</p>
+ * <p>Deduplication is based on the source-scoped full-batch key persisted in
+ * {@code cdc_commit_state}. Duplicate live or committed prepares return the
+ * existing token; rolled-back prepares may be retried with a new token.</p>
  *
  * <p>Thread-safe: delegates all state mutations to {@link JdbcCdcCommitStateStore}
  * which acquires per-operation connections from the pool.</p>
@@ -103,11 +105,18 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
             throw new PangrovaException(PangrovaErrorCode.STREAMING_CDC_PARSE_ERROR,
                     "Cannot commit already rolled-back transaction id=" + token.id());
         }
-
-        stateStore.updateState(token.id(), CdcCommitState.COMMITTING);
+        if (state != CdcCommitState.COMMITTING) {
+            throw new IllegalStateException(
+                    "CDC commit cannot be acknowledged before publication starts; id="
+                            + token.id() + " state=" + state);
+        }
 
         try {
-            stateStore.updateState(token.id(), CdcCommitState.COMMITTED);
+            if (!stateStore.compareAndSetState(
+                    token.id(), CdcCommitState.COMMITTING, CdcCommitState.COMMITTED)) {
+                throw new IllegalStateException(
+                        "CDC commit state changed before completion; id=" + token.id());
+            }
             LOG.info("event=cdc_commit_success id={} source={} partition={} offset=[{},{}]",
                     token.id(), token.source(), token.range().partition(),
                     token.range().startOffset(), token.range().endOffset());
@@ -136,8 +145,17 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
             throw new PangrovaException(PangrovaErrorCode.STREAMING_CDC_PARSE_ERROR,
                     "Cannot rollback already committed transaction id=" + token.id());
         }
+        if (state == CdcCommitState.COMMITTING) {
+            throw new IllegalStateException(
+                    "Cannot rollback CDC transaction after catalog publication may have started; "
+                            + "reconciliation required for id=" + token.id());
+        }
 
-        stateStore.updateState(token.id(), CdcCommitState.ROLLING_BACK);
+        if (!stateStore.compareAndSetState(
+                token.id(), CdcCommitState.PREPARED, CdcCommitState.ROLLING_BACK)) {
+            throw new IllegalStateException(
+                    "CDC commit state changed before rollback; id=" + token.id());
+        }
         stateStore.updateState(token.id(), CdcCommitState.ROLLED_BACK);
         LOG.info("event=cdc_rollback_success id={} source={}", token.id(), token.source());
     }
@@ -145,12 +163,29 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
     @Override
     public void rollback(PrepareToken token, List<CommitParticipant> participants) {
         Objects.requireNonNull(token, "token must not be null");
-        // F-STREAM-2PC: abort participant side effects (delete prepared data files,
-        // revert offsets) BEFORE marking the commit record rolled back. This
-        // guarantees the CommitParticipant.abort() contract is honoured on every
-        // synchronous rollback path, not only inside executeAtomicCommit.
+        CdcCommitState state = stateStore.findStateById(token.id())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Cannot abort unknown CDC transaction; id=" + token.id()));
+        if (state == CdcCommitState.ROLLED_BACK) {
+            return;
+        }
+        if (state != CdcCommitState.PREPARED) {
+            throw new IllegalStateException(
+                    "Cannot abort CDC participants outside PREPARED state; id="
+                            + token.id() + " state=" + state);
+        }
+        // Claim rollback before touching staged files. A concurrent coordinator
+        // may otherwise claim COMMITTING after the state read and publish files
+        // while this caller is aborting them.
+        if (!stateStore.compareAndSetState(
+                token.id(), CdcCommitState.PREPARED, CdcCommitState.ROLLING_BACK)) {
+            throw new IllegalStateException(
+                    "CDC commit state changed before participant rollback; id=" + token.id());
+        }
+        // Only unpublished side effects may be aborted. An already-COMMITTING
+        // record could reference its files in an external catalog.
         abortAll(participants != null ? participants : List.of());
-        rollback(token);
+        stateStore.updateState(token.id(), CdcCommitState.ROLLED_BACK);
     }
 
     @Override
@@ -189,9 +224,10 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                     recovered.add(token);
                 }
                 case COMMITTING -> {
-                    LOG.info("event=cdc_recover_retry_commit id={}", token.id());
-                    commit(token);
-                    recovered.add(token);
+                    throw new IllegalStateException(
+                            "CDC catalog publication outcome is ambiguous; "
+                                    + "durable connector reconciliation is required for id="
+                                    + token.id());
                 }
                 case ROLLING_BACK -> {
                     LOG.info("event=cdc_recover_retry_rollback id={}", token.id());
@@ -226,11 +262,17 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                     source, range.partition(), range.startOffset(), range.endOffset());
             return false;
         }
+        if (currentState.isPresent() && currentState.get() == CdcCommitState.COMMITTING) {
+            throw new IllegalStateException(
+                    "CDC catalog publication outcome is ambiguous; "
+                            + "durable connector reconciliation is required for id="
+                            + token.id());
+        }
 
         // Phase 1: prepare all participants
         List<CommitParticipant> prepared = prepareParticipants(participants, source, range, token);
 
-        // Phase 2: commit all participants + mark committed
+        // Phase 2: claim publication, commit participants, then mark committed.
         return commitParticipants(prepared, source, range, token);
     }
 
@@ -248,7 +290,11 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                     source, prepared.size() < participants.size()
                             ? participants.get(prepared.size()).name() : "unknown",
                     e.getMessage(), e);
-            rollback(token, prepared);
+            abortAll(prepared);
+            if (stateStore.compareAndSetState(
+                    token.id(), CdcCommitState.PREPARED, CdcCommitState.ROLLING_BACK)) {
+                stateStore.updateState(token.id(), CdcCommitState.ROLLED_BACK);
+            }
             throw new RuntimeException("CDC atomic commit prepare failed for source=" + source
                     + " range=" + range, e);
         }
@@ -258,6 +304,12 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
     private boolean commitParticipants(List<CommitParticipant> prepared,
                                        SourceId source, OffsetRange range,
                                        PrepareToken token) {
+        if (!stateStore.compareAndSetState(
+                token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING)) {
+            abortAll(prepared);
+            throw new IllegalStateException(
+                    "CDC commit was claimed by another coordinator; id=" + token.id());
+        }
         try {
             for (CommitParticipant participant : prepared) {
                 participant.commit();
@@ -268,10 +320,11 @@ public final class TwoPhaseCommitCoordinator implements CdcCommitCoordinator {
                     prepared.size());
             return true;
         } catch (Exception e) {
-            LOG.error("event=cdc_atomic_commit_failed source={} error={}", source, e.getMessage(), e);
-            rollback(token, prepared);
-            throw new RuntimeException("CDC atomic commit failed for source=" + source
-                    + " range=" + range, e);
+            LOG.error("event=cdc_atomic_commit_ambiguous source={} id={} error={}",
+                    source, token.id(), e.getMessage(), e);
+            throw new IllegalStateException(
+                    "CDC commit outcome is ambiguous; durable connector reconciliation "
+                            + "required for source=" + source + " range=" + range, e);
         }
     }
 

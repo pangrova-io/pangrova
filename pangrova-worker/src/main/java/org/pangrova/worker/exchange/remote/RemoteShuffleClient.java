@@ -1,29 +1,24 @@
 package org.pangrova.worker.exchange.remote;
 
 import java.io.Closeable;
-import java.util.concurrent.CountDownLatch;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
-import org.pangrova.protocol.v1.shuffle.CleanupRequest;
-import org.pangrova.protocol.v1.shuffle.CleanupResponse;
-import org.pangrova.protocol.v1.shuffle.CommitPartitionRequest;
-import org.pangrova.protocol.v1.shuffle.CommitPartitionResponse;
-import org.pangrova.protocol.v1.shuffle.CompressionCodec;
-import org.pangrova.protocol.v1.shuffle.ReadBatchResponse;
-import org.pangrova.protocol.v1.shuffle.ReadPartitionRequest;
-import org.pangrova.protocol.v1.shuffle.RegisterShuffleRequest;
-import org.pangrova.protocol.v1.shuffle.RegisterShuffleResponse;
-import org.pangrova.protocol.v1.shuffle.ShuffleServiceGrpc;
-import org.pangrova.protocol.v1.shuffle.WriteBatchRequest;
-import org.pangrova.protocol.v1.shuffle.WriteBatchResponse;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.protobuf.ByteString;
+import org.pangrova.protocol.v2.ShuffleAccessCapability;
+import org.pangrova.protocol.v2.BatchChunk;
+import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptRequest;
+import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptResponse;
+import org.pangrova.protocol.v2.shuffle.CompressionCodec;
+import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
+import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
+import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
+import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
+import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
+import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
+import org.pangrova.shuffle.exchange.ExchangeChannelContext;
+import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
 
 import io.grpc.ManagedChannel;
-import io.grpc.stub.StreamObserver;
 
 /**
  * gRPC client wrapper for communicating with a remote shuffle server.
@@ -33,8 +28,6 @@ import io.grpc.stub.StreamObserver;
  * a single ManagedChannel to one remote shuffle server endpoint.</p>
  */
 public final class RemoteShuffleClient implements Closeable {
-
-    private static final Logger LOG = LoggerFactory.getLogger(RemoteShuffleClient.class);
 
     private final ManagedChannel channel;
     private final ShuffleServiceGrpc.ShuffleServiceBlockingStub blockingStub;
@@ -51,117 +44,233 @@ public final class RemoteShuffleClient implements Closeable {
         this.readTimeoutMs = readTimeoutMs;
     }
 
-    /**
-     * Registers a shuffle on the remote shuffle server.
-     */
-    public RegisterShuffleResponse registerShuffle(RegisterShuffleRequest request) {
-        return blockingStub.withDeadlineAfter(writeTimeoutMs, TimeUnit.MILLISECONDS)
-                .registerShuffle(request);
+    /** Opens one flow-controlled multiplexed stream for a producer and service endpoint. */
+    RemoteShuffleProducerStream openProducerStream(
+            String shuffleId,
+            ExchangeTaskAttempt taskAttempt,
+            CompressionCodec codec,
+            RenewableShuffleAccess access,
+            long taskDeadlineEpochMs) {
+        access.currentAtBoundary(taskDeadlineEpochMs);
+        long deadline = taskDeadlineEpochMs;
+        long remaining = deadline - System.currentTimeMillis();
+        if (remaining <= 0) {
+            throw new RemoteShuffleClientException(
+                    "Remote shuffle task deadline has expired");
+        }
+        return new RemoteShuffleProducerStream(
+                asyncStub.withDeadlineAfter(remaining, TimeUnit.MILLISECONDS),
+                shuffleId, taskAttempt, codec, access, deadline);
     }
 
-    /**
-     * Writes a single batch to the remote shuffle server.
-     */
-    public void writeBatch(String shuffleId, int partitionId, long sequence,
-                           byte[] batchData, int uncompressedSize, CompressionCodec codec) {
-        CountDownLatch done = new CountDownLatch(1);
-        AtomicReference<Throwable> error = new AtomicReference<>();
-
-        StreamObserver<WriteBatchRequest> writer = asyncStub.writeBatch(
-                completionObserver(done, error));
-
-        writer.onNext(buildWriteRequest(shuffleId, partitionId, sequence,
-                batchData, uncompressedSize, codec));
-        writer.onCompleted();
-
-        awaitWriteCompletion(done, error);
-    }
-
-    private static StreamObserver<WriteBatchResponse> completionObserver(
-            CountDownLatch done, AtomicReference<Throwable> error) {
-        return new StreamObserver<>() {
-            @Override public void onNext(WriteBatchResponse value) {}
-            @Override
-            public void onError(Throwable t) {
-                error.set(t);
-                done.countDown();
-            }
-            @Override public void onCompleted() { done.countDown(); }
-        };
-    }
-
-    private static WriteBatchRequest buildWriteRequest(String shuffleId, int partitionId,
-            long sequence, byte[] batchData, int uncompressedSize, CompressionCodec codec) {
+    static WriteBatchRequest buildWriteRequest(
+            String shuffleId,
+            ExchangeTaskAttempt taskAttempt,
+            WriteFrame frame,
+            CompressionCodec codec, ShuffleAccessCapability accessCapability) {
         return WriteBatchRequest.newBuilder()
                 .setShuffleId(shuffleId)
-                .setPartitionId(partitionId)
-                .setSequence(sequence)
-                .setArrowIpcData(ByteString.copyFrom(batchData))
-                .setUncompressedSize(uncompressedSize)
+                .setPartitionId(frame.partitionId())
+                .setStreamSequence(frame.streamSequence())
+                .setChunk(frame.chunk())
+                .setUncompressedSize(frame.uncompressedSize())
+                .setRowCount(frame.rowCount())
                 .setCodec(codec)
+                .setProducerAttempt(toProtocol(taskAttempt))
+                .setAccessCapability(accessCapability)
                 .build();
     }
 
-    private void awaitWriteCompletion(CountDownLatch done, AtomicReference<Throwable> error) {
-        try {
-            if (!done.await(writeTimeoutMs, TimeUnit.MILLISECONDS)) {
-                throw new RemoteShuffleClientException(
-                        "WriteBatch timed out after " + writeTimeoutMs + "ms");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RemoteShuffleClientException("WriteBatch interrupted", e);
-        }
-        if (error.get() != null) {
-            throw new RemoteShuffleClientException("WriteBatch failed", error.get());
-        }
-    }
+    record WriteFrame(
+            int partitionId,
+            long streamSequence,
+            BatchChunk chunk,
+            long uncompressedSize,
+            long rowCount) {}
 
     /**
-     * Commits a partition on the remote shuffle server.
+     * Atomically commits all non-empty partitions written by one producer attempt.
      */
-    public CommitPartitionResponse commitPartition(String shuffleId, int partitionId) {
-        return blockingStub.withDeadlineAfter(writeTimeoutMs, TimeUnit.MILLISECONDS)
-                .commitPartition(CommitPartitionRequest.newBuilder()
-                        .setShuffleId(shuffleId)
-                        .setPartitionId(partitionId)
-                        .build());
+    public CommitProducerAttemptResponse commitProducerAttempt(
+            String shuffleId,
+            ExchangeTaskAttempt taskAttempt,
+            List<PartitionCommitSummary> partitions,
+            ShuffleAccessCapability accessCapability,
+            long taskDeadlineEpochMs) {
+        requireValidCapability(accessCapability);
+        long timeout = remainingTimeout(
+                taskDeadlineEpochMs, writeTimeoutMs,
+                accessCapability.getExpiresAtEpochMs());
+        return blockingStub.withDeadlineAfter(timeout, TimeUnit.MILLISECONDS)
+                .commitProducerAttempt(buildCommitRequest(
+                        shuffleId, taskAttempt, partitions, accessCapability));
     }
 
     /**
-     * Reads the next batch from a partition (blocking mode — waits for commit).
-     * Returns an iterator over ReadBatchResponse.
-     */
-    public java.util.Iterator<ReadBatchResponse> readPartition(String shuffleId, int partitionId) {
-        return blockingStub.withDeadlineAfter(readTimeoutMs, TimeUnit.MILLISECONDS)
-                .readPartition(ReadPartitionRequest.newBuilder()
-                        .setShuffleId(shuffleId)
-                        .setPartitionId(partitionId)
-                        .build());
-    }
-
-    /**
-     * Reads the next batch from a partition (streaming mode — data before commit).
-     */
-    public java.util.Iterator<ReadBatchResponse> readPartitionStreaming(String shuffleId, int partitionId) {
-        return blockingStub.withDeadlineAfter(readTimeoutMs, TimeUnit.MILLISECONDS)
-                .readPartitionStreaming(ReadPartitionRequest.newBuilder()
-                        .setShuffleId(shuffleId)
-                        .setPartitionId(partitionId)
-                        .build());
-    }
-
-    /**
-     * Cleans up all shuffle data for a query on the remote shuffle server.
+     * Opens a demand-driven partition stream whose close cancels the gRPC call.
      *
-     * @param queryId the query whose shuffle data should be cleaned up
-     * @return the cleanup response with partition and byte counts
+     * @param shuffleId durable shuffle allocation identifier
+     * @param context exact consumer attempt and task deadline
+     * @param accessCapability operation-scoped read capability
+     * @param startSequence first complete batch sequence to read
+     * @return a bounded cancellable read stream
      */
-    public CleanupResponse cleanup(String queryId) {
-        return blockingStub.withDeadlineAfter(writeTimeoutMs, TimeUnit.MILLISECONDS)
-                .cleanup(CleanupRequest.newBuilder()
-                        .setQueryId(queryId)
-                        .build());
+    public RemoteShufflePartitionRead openPartitionRead(
+            String shuffleId,
+            ExchangeChannelContext context,
+            ShuffleAccessCapability accessCapability,
+            long startSequence) {
+        requireValidCapability(accessCapability);
+        long timeout = context.deadlineEpochMillis() - System.currentTimeMillis();
+        if (timeout <= 0) {
+            throw new RemoteShuffleClientException("Remote shuffle read deadline has expired");
+        }
+        return new RemoteShufflePartitionRead(
+                asyncStub.withDeadlineAfter(timeout, TimeUnit.MILLISECONDS),
+                buildReadRequest(shuffleId, context, accessCapability, startSequence));
+    }
+
+    /** Renews an operation-scoped data capability for one task attempt. */
+    ShuffleAccessCapability renewDataAccess(
+            String shuffleId,
+            ExchangeTaskAttempt attempt,
+            ShuffleAccessOperation operation,
+            ShuffleAccessCapability previous,
+            long taskDeadlineEpochMs) {
+        if (operation != ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ
+                && operation != ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE) {
+            throw new IllegalArgumentException("Worker may renew only READ or WRITE access");
+        }
+        requireValidCapability(previous);
+        long timeout = remainingTimeout(taskDeadlineEpochMs,
+                operation == ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ
+                        ? readTimeoutMs : writeTimeoutMs,
+                previous.getExpiresAtEpochMs());
+        RenewAccessRequest request = RenewAccessRequest.newBuilder()
+                .setOperation(operation).setShuffleId(shuffleId)
+                .setExecutionOwner(toProtocol(attempt).getExecutionOwner())
+                .setTaskAttempt(toProtocol(attempt))
+                .setPreviousCapability(previous).build();
+        ShuffleAccessCapability renewed = blockingStub
+                .withDeadlineAfter(timeout, TimeUnit.MILLISECONDS)
+                .renewAccess(request).getAccessCapability();
+        if (renewed.getToken().isEmpty()
+                || renewed.getExpiresAtEpochMs() <= previous.getExpiresAtEpochMs()
+                || renewed.getExpiresAtEpochMs() <= System.currentTimeMillis()) {
+            throw new RemoteShuffleClientException(
+                    "Shuffle renewal returned an invalid or non-advancing capability");
+        }
+        return renewed;
+    }
+
+    static CommitProducerAttemptRequest buildCommitRequest(
+            String shuffleId,
+            ExchangeTaskAttempt taskAttempt,
+            List<PartitionCommitSummary> partitions,
+            ShuffleAccessCapability accessCapability) {
+        return CommitProducerAttemptRequest.newBuilder()
+                .setShuffleId(shuffleId)
+                .setProducerAttempt(toProtocol(taskAttempt))
+                .addAllPartitions(partitions)
+                .setAccessCapability(accessCapability)
+                .build();
+    }
+
+    static ReadPartitionRequest buildReadRequest(
+            String shuffleId,
+            ExchangeChannelContext context,
+            ShuffleAccessCapability accessCapability) {
+        return buildReadRequest(shuffleId, context, accessCapability, 0);
+    }
+
+    static ReadPartitionRequest buildReadRequest(
+            String shuffleId,
+            ExchangeChannelContext context,
+            ShuffleAccessCapability accessCapability,
+            long startSequence) {
+        if (startSequence < 0) {
+            throw new IllegalArgumentException("shuffle read start sequence is negative");
+        }
+        return ReadPartitionRequest.newBuilder()
+                .setShuffleId(shuffleId)
+                .setPartitionId(context.exchangePartitionId())
+                .setStartSequence(startSequence)
+                .setConsumerAttempt(toProtocol(context))
+                .setDeadlineEpochMs(context.deadlineEpochMillis())
+                .setAccessCapability(accessCapability)
+                .build();
+    }
+
+    static org.pangrova.protocol.v2.TaskAttemptId toProtocol(
+            ExchangeChannelContext context) {
+        return toProtocol(context.taskAttempt());
+    }
+
+    static org.pangrova.protocol.v2.TaskAttemptId toProtocol(
+            ExchangeTaskAttempt taskAttempt) {
+        var owner = taskAttempt.executionOwner();
+        return org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                .setQueryOrJobId(taskAttempt.queryId())
+                .setStageId(taskAttempt.stageId())
+                .setPartitionId(taskAttempt.taskPartitionId())
+                .setPlanEpoch(taskAttempt.fence().planEpoch())
+                .setAttemptId(taskAttempt.fence().attemptId())
+                .setFencingToken(taskAttempt.fence().fencingToken())
+                .setTaskId(taskAttempt.taskId())
+                .setControlEpoch(taskAttempt.controlEpoch())
+                .setExecutionOwner(org.pangrova.protocol.v2.ExecutionOwnerIdentity
+                        .newBuilder()
+                        .setOwnerId(owner.ownerId())
+                        .setOwnerIncarnation(owner.ownerIncarnation())
+                        .setFencingToken(owner.fencingToken()))
+                .build();
+    }
+
+    private static long remainingTimeout(
+            ExchangeChannelContext context,
+            long configuredTimeoutMillis,
+            long capabilityExpiryMillis) {
+        return remainingTimeout(
+                context.deadlineEpochMillis(), configuredTimeoutMillis,
+                capabilityExpiryMillis);
+    }
+
+    private static long remainingTimeout(
+            long taskDeadlineEpochMs,
+            long configuredTimeoutMillis,
+            long capabilityExpiryMillis) {
+        long remaining = effectiveDeadline(
+                taskDeadlineEpochMs, configuredTimeoutMillis, capabilityExpiryMillis)
+                - System.currentTimeMillis();
+        if (remaining <= 0) {
+            throw new RemoteShuffleClientException(
+                    "Remote shuffle task deadline has expired");
+        }
+        return remaining;
+    }
+
+    private static long effectiveDeadline(
+            long taskDeadlineEpochMs,
+            long configuredTimeoutMillis,
+            long capabilityExpiryMillis) {
+        long configuredDeadline;
+        try {
+            configuredDeadline = Math.addExact(
+                    System.currentTimeMillis(), configuredTimeoutMillis);
+        } catch (ArithmeticException ignored) {
+            configuredDeadline = Long.MAX_VALUE;
+        }
+        return Math.min(
+                Math.min(taskDeadlineEpochMs, configuredDeadline),
+                capabilityExpiryMillis);
+    }
+
+    private static void requireValidCapability(ShuffleAccessCapability capability) {
+        if (capability == null || capability.getToken().isEmpty()
+                || capability.getExpiresAtEpochMs() <= System.currentTimeMillis()) {
+            throw new RemoteShuffleClientException(
+                    "External shuffle access capability is missing or expired");
+        }
     }
 
     @Override

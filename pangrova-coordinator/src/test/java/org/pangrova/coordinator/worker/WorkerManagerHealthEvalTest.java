@@ -88,6 +88,7 @@ class WorkerManagerHealthEvalTest {
         return new WorkerInfo(id, "localhost", 8080, 9090, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.5, 0, 1024 * 1024 * 1024L, heartbeat,
-                1.0, null, 1, List.of(), null, List.of());
+                1.0, null, 2, null, List.of(), null,
+                TestWorkerInfoBuilder.canonicalInventory());
     }
 }

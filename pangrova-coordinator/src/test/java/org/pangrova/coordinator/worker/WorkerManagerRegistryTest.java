@@ -41,15 +41,18 @@ class WorkerManagerRegistryTest {
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.1, 0, 1024L * 1024 * 1024,
                 Instant.now(), 0.0, null,
-                1, List.of("QUERY"), null, List.of());
+                2, null, List.of(), null,
+                TestWorkerInfoBuilder.canonicalInventory());
     }
 
     private static WorkerSnapshot workerSnapshot(String id, long lastHeartbeatMs) {
         return new WorkerSnapshot(
                 id, "host-" + id, 8080, 9090,
-                1, List.of("QUERY"), null, List.of(),
+                2, null, List.of(),
                 "NONE", 0.1, 0, 1024L * 1024 * 1024,
-                lastHeartbeatMs, lastHeartbeatMs);
+                lastHeartbeatMs, lastHeartbeatMs, 0, null,
+                org.pangrova.protocol.CapabilityInventoryCodec.encode(
+                        TestWorkerInfoBuilder.canonicalInventory()));
     }
 
     // --- test cases ---

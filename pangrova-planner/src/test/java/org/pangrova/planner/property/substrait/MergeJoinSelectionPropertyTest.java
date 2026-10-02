@@ -1,14 +1,13 @@
 package org.pangrova.planner.property.substrait;
 
 import com.google.common.collect.ImmutableList;
-import io.substrait.relation.ExtensionMulti;
-import io.substrait.relation.ImmutableExtensionMulti;
 import io.substrait.relation.Rel;
+import io.substrait.relation.Sort;
+import io.substrait.relation.physical.MergeJoin;
 import net.jqwik.api.*;
 import org.pangrova.planner.cost.join.PangrovaSortMergeJoin;
 import org.pangrova.planner.cost.join.SortMergeJoinConfig;
 import org.pangrova.planner.substrait.FunctionMapper;
-import org.pangrova.planner.substrait.MergeJoinRelDetail;
 import org.pangrova.planner.substrait.PlanNodeConverter;
 import org.pangrova.planner.substrait.TypeMapper;
 import org.apache.calcite.plan.RelOptCluster;
@@ -41,11 +40,11 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>For any equi-join where both inputs have a physical sort order matching
  * the join keys, the Java planner SHALL emit a MergeJoinRel (via
- * PangrovaSortMergeJoin → ExtensionMultiRel) instead of a plain HashJoinRel.</p>
+ * PangrovaSortMergeJoin → standard MergeJoinRel) instead of a HashJoinRel.</p>
  *
  * <p>This test generates random join plans with varying input sort orders and
- * verifies that PlanNodeConverter correctly emits ExtensionMultiRel with the
- * appropriate inputsPreSorted flag when processing PangrovaSortMergeJoin nodes.</p>
+ * verifies that PlanNodeConverter always makes the standard SortRel precondition
+ * explicit when processing PangrovaSortMergeJoin nodes.</p>
  */
 @Tag("Feature: native-velox-feature-completeness")
 @Tag("Property 6: Planner MergeJoin Selection")
@@ -56,8 +55,8 @@ class MergeJoinSelectionPropertyTest {
 
     /**
      * When PlanNodeConverter receives an PangrovaSortMergeJoin with both inputs
-     * sorted on join keys, it emits ExtensionMultiRel with inputsPreSorted=true.
-     * When either input is unsorted, inputsPreSorted=false.
+     * sorted on join keys, it preserves that standard SortRel. When either input
+     * is unsorted, it inserts the missing standard SortRel before MergeJoinRel.
      */
     @Property(tries = 100)
     void mergeJoinEmittedWithCorrectPreSortedFlag(
@@ -91,45 +90,38 @@ class MergeJoinSelectionPropertyTest {
                 new TypeMapper(), new FunctionMapper(), rexBuilder);
         Rel result = converter.visit(mergeJoin);
 
-        // Verify: result is ExtensionMulti (MergeJoinRel)
+        // Verify: result is the official physical MergeJoinRel.
         assertThat(result)
-                .as("PangrovaSortMergeJoin must produce ExtensionMulti Rel")
-                .isInstanceOf(ExtensionMulti.class);
+                .as("PangrovaSortMergeJoin must produce standard MergeJoinRel")
+                .isInstanceOf(MergeJoin.class);
 
-        ExtensionMulti extensionMulti = (ExtensionMulti) result;
+        MergeJoin standardJoin = (MergeJoin) result;
 
-        // Verify: detail is MergeJoinRelDetail
-        assertThat(extensionMulti.getDetail())
-                .as("ExtensionMulti detail must be MergeJoinRelDetail")
-                .isInstanceOf(MergeJoinRelDetail.class);
-
-        MergeJoinRelDetail detail = (MergeJoinRelDetail) extensionMulti.getDetail();
-
-        // Verify: inputsPreSorted flag matches whether both inputs are sorted on keys
-        boolean expectedPreSorted = config.leftSortedOnKeys() && config.rightSortedOnKeys();
-        assertThat(detail.inputsPreSorted())
-                .as("inputsPreSorted should be %s (left sorted=%s, right sorted=%s)",
-                        expectedPreSorted, config.leftSortedOnKeys(), config.rightSortedOnKeys())
-                .isEqualTo(expectedPreSorted);
+        assertThat(standardJoin.getLeft())
+                .as("MergeJoin left input must make sorting explicit")
+                .isInstanceOf(Sort.class);
+        assertThat(standardJoin.getRight())
+                .as("MergeJoin right input must make sorting explicit")
+                .isInstanceOf(Sort.class);
 
         // Verify: join type is correctly mapped
-        String expectedJoinType = mapExpectedJoinType(config.joinType());
-        assertThat(detail.joinType())
+        MergeJoin.JoinType expectedJoinType = mapExpectedJoinType(config.joinType());
+        assertThat(standardJoin.getJoinType())
                 .as("Join type must be correctly mapped")
                 .isEqualTo(expectedJoinType);
 
         // Verify: key indices are correct
-        assertThat(detail.leftKeys())
+        assertThat(standardJoin.getKeys().stream()
+                .map(key -> keyOffset(key.getLeft())).toList())
                 .as("Left join keys must match")
                 .isEqualTo(config.leftJoinKeyIndices());
-        assertThat(detail.rightKeys())
+        assertThat(standardJoin.getKeys().stream()
+                .map(key -> keyOffset(key.getRight())).toList())
                 .as("Right join keys must match")
                 .isEqualTo(config.rightJoinKeyIndices());
 
-        // Verify: two inputs in the ExtensionMulti
-        ImmutableExtensionMulti immutable = (ImmutableExtensionMulti) extensionMulti;
-        assertThat(immutable.getInputs())
-                .as("ExtensionMulti must have exactly 2 inputs")
+        assertThat(standardJoin.getInputs())
+                .as("MergeJoinRel must have exactly two inputs")
                 .hasSize(2);
     }
 
@@ -241,12 +233,17 @@ class MergeJoinSelectionPropertyTest {
         return condition;
     }
 
-    private static String mapExpectedJoinType(JoinRelType joinType) {
+    private static int keyOffset(io.substrait.expression.FieldReference reference) {
+        return ((io.substrait.expression.FieldReference.StructField)
+                reference.segments().get(0)).offset();
+    }
+
+    private static MergeJoin.JoinType mapExpectedJoinType(JoinRelType joinType) {
         return switch (joinType) {
-            case INNER -> "INNER";
-            case LEFT -> "LEFT";
-            case RIGHT -> "RIGHT";
-            case FULL -> "OUTER";
+            case INNER -> MergeJoin.JoinType.INNER;
+            case LEFT -> MergeJoin.JoinType.LEFT;
+            case RIGHT -> MergeJoin.JoinType.RIGHT;
+            case FULL -> MergeJoin.JoinType.OUTER;
             default -> throw new IllegalArgumentException("Unsupported: " + joinType);
         };
     }

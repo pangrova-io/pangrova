@@ -11,8 +11,12 @@ import org.apache.calcite.sql.fun.SqlLibraryOperators;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.ReturnTypes;
+import org.apache.calcite.sql.type.SqlReturnTypeInference;
+import org.apache.calcite.sql.type.SqlOperandTypeChecker;
 import org.apache.calcite.sql.type.SqlTypeFamily;
+import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.validate.SqlNameMatcher;
+import org.pangrova.planner.type.ModelBoundVectorRelDataType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,9 +53,11 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
         // to override the standard table's return-type/signature (e.g. CHAR_LENGTH
         // must return INTEGER for Velox, not BIGINT from SqlStdOperatorTable).
         List<SqlOperator> customMatches = new java.util.ArrayList<>();
-        for (SqlOperator op : customOperators) {
-            if (nameMatcher.matches(op.getName(), opName.getSimple())) {
-                customMatches.add(op);
+        if (opName.isSimple()) {
+            for (SqlOperator op : customOperators) {
+                if (nameMatcher.matches(op.getName(), opName.getSimple())) {
+                    customMatches.add(op);
+                }
             }
         }
         if (!customMatches.isEmpty()) {
@@ -73,6 +79,7 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
         addSpatialFunctions(ops);
         addArrayAndVectorFunctions(ops);
         addStringFunctions(ops);
+        ops.add(new RoundSqlFunction());
         addCatalogAndMaintenanceFunctions(ops);
         addDdlDmlFunctions(ops);
         addAiAndFileFunctions(ops);
@@ -107,6 +114,7 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
         // Variadic CONCAT function — SqlStdOperatorTable only has binary ||
         // (which rejects 3+ args). This allows CONCAT(a, b, c, ...) to validate.
         ops.add(concatFunction());
+        ops.add(new SubstringSqlFunction());
         // String length functions — register all aliases with INTEGER return type
         // to override Calcite's standard CHAR_LENGTH which returns BIGINT.
         // Velox's native 'length' function returns INTEGER.
@@ -153,25 +161,80 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
 
     /** Registers AI inference, AI multimodal and FILE helper functions. */
     private static void addAiAndFileFunctions(List<SqlOperator> ops) {
-        // AI inference functions — variadic to support optional model argument
-        ops.add(variadicFunction("AI_COMPLETE"));
-        ops.add(variadicFunction("AI_CLASSIFY"));
-        ops.add(variadicFunction("AI_SUMMARIZE"));
-        ops.add(variadicFunction("AI_FILTER"));
-        ops.add(variadicFunction("AI_EMBED"));
-        ops.add(variadicFunction("AI_EXTRACT"));
-        ops.add(variadicFunction("AI_GUARD"));
-        ops.add(variadicFunction("AI_PREDICT"));
-        ops.add(variadicFunction("AI_TRANSLATE"));
-        // AI Multimodal functions — accept FILE struct + optional model name,
-        // mirroring the implementations registered in AiFunctionFactory.
-        ops.add(variadicFunction("AI_DESCRIBE_IMAGE"));
-        ops.add(variadicFunction("AI_PARSE_DOCUMENT"));
-        ops.add(variadicFunction("AI_TRANSCRIBE"));
-        ops.add(variadicFunction("AI_OCR"));
-        // FILE helper constructors — return a FILE struct from a URL or raw bytes.
-        ops.add(variadicFunction("FILE_FROM_URL"));
-        ops.add(variadicFunction("FILE_FROM_BYTES"));
+        var text2 = characterSequence(2);
+        var text3 = characterSequence(3);
+        var file = OperandTypes.typeName(SqlTypeName.ROW);
+        var textFile = OperandTypes.sequence(
+                "(<CHARACTER>, <ROW>)", OperandTypes.CHARACTER, file);
+        ops.add(typedFunction(
+                "AI_COMPLETE",
+                ReturnTypes.VARCHAR_2000_NULLABLE,
+                OperandTypes.or(
+                        text2,
+                        text3,
+                        OperandTypes.sequence(
+                                "(<CHARACTER>, <CHARACTER>, <ROW>)",
+                                OperandTypes.CHARACTER, OperandTypes.CHARACTER, file))));
+        ops.add(typedFunction("AI_CLASSIFY", ReturnTypes.VARCHAR_2000_NULLABLE, text3));
+        ops.add(typedFunction("AI_SUMMARIZE", ReturnTypes.VARCHAR_2000_NULLABLE, text2));
+        ops.add(typedFunction("AI_FILTER", ReturnTypes.BOOLEAN_NULLABLE, text3));
+        ops.add(new NormalizedAiEmbeddingSqlFunction(vectorReturnType()));
+        ops.add(typedFunction("AI_EXTRACT", ReturnTypes.VARCHAR_2000_NULLABLE, text3));
+        ops.add(typedFunction("AI_GUARD", ReturnTypes.VARCHAR_2000_NULLABLE, text3));
+        ops.add(typedFunction("AI_PREDICT", ReturnTypes.VARCHAR_2000_NULLABLE, text2));
+        ops.add(typedFunction("AI_TRANSLATE", ReturnTypes.VARCHAR_2000_NULLABLE, text3));
+        ops.add(typedFunction("AI_DESCRIBE_IMAGE", ReturnTypes.VARCHAR_2000_NULLABLE, textFile));
+        ops.add(typedFunction("AI_PARSE_DOCUMENT", ReturnTypes.VARCHAR_2000_NULLABLE, textFile));
+        ops.add(typedFunction("AI_TRANSCRIBE", ReturnTypes.VARCHAR_2000_NULLABLE, textFile));
+        ops.add(typedFunction("AI_OCR", ReturnTypes.VARCHAR_2000_NULLABLE, textFile));
+        ops.add(typedFunction("MATCH", ReturnTypes.BOOLEAN_NULLABLE, text2));
+        ops.add(typedFunction("BM25_SCORE", ReturnTypes.DOUBLE_NULLABLE, text2));
+        ops.add(typedFunction("FILE_FROM_URL", fileReturnType(), OperandTypes.CHARACTER));
+        ops.add(typedFunction(
+                "FILE_FROM_BYTES",
+                fileReturnType(),
+                OperandTypes.sequence(
+                        "(<BINARY>, <CHARACTER>)", OperandTypes.BINARY, OperandTypes.CHARACTER)));
+    }
+
+    private static SqlReturnTypeInference vectorReturnType() {
+        return binding -> {
+            var factory = binding.getTypeFactory();
+            var real = factory.createSqlType(SqlTypeName.REAL);
+            return new ModelBoundVectorRelDataType(real, true);
+        };
+    }
+
+    private static SqlReturnTypeInference fileReturnType() {
+        return binding -> {
+            var factory = binding.getTypeFactory();
+            var varchar = factory.createSqlType(SqlTypeName.VARCHAR);
+            var bigint = factory.createSqlType(SqlTypeName.BIGINT);
+            var timestamp = factory.createSqlType(SqlTypeName.TIMESTAMP);
+            var row = factory.createStructType(
+                    List.of(varchar, varchar, bigint, varchar, timestamp),
+                    List.of("uri", "mime_type", "size", "checksum", "created_at"));
+            return factory.createTypeWithNullability(row, true);
+        };
+    }
+
+    private static SqlOperandTypeChecker characterSequence(int count) {
+        var checkers = new org.apache.calcite.sql.type.SqlSingleOperandTypeChecker[count];
+        java.util.Arrays.fill(checkers, OperandTypes.CHARACTER);
+        return OperandTypes.sequence("(<CHARACTER>...)", checkers);
+    }
+
+    private static SqlFunction typedFunction(
+            String name,
+            SqlReturnTypeInference returnTypeInference,
+            SqlOperandTypeChecker operandTypeChecker) {
+        return new SqlFunction(
+                name,
+                SqlKind.OTHER_FUNCTION,
+                returnTypeInference,
+                null,
+                operandTypeChecker,
+                SqlFunctionCategory.USER_DEFINED_FUNCTION);
     }
 
     /**
@@ -216,17 +279,10 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
     }
 
     /**
-     * Vector distance function: {@code (ANY, ANY) → DOUBLE NULLABLE}.
-     * Accepts two array arguments (vector column + query vector literal) and returns distance.
+     * Vector distance accepts numeric arrays and writes the REAL/DOUBLE signature's explicit casts.
      */
     private static SqlFunction vectorDistanceFunction(String name) {
-        return new SqlFunction(
-                name,
-                SqlKind.OTHER_FUNCTION,
-                ReturnTypes.DOUBLE_NULLABLE,
-                null,
-                OperandTypes.family(SqlTypeFamily.ANY, SqlTypeFamily.ANY),
-                SqlFunctionCategory.USER_DEFINED_FUNCTION);
+        return new VectorDistanceSqlFunction(name);
     }
 
     /**

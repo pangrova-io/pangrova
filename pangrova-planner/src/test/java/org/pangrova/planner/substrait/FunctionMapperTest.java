@@ -38,6 +38,8 @@ class FunctionMapperTest {
                 Arguments.of(SqlStdOperatorTable.DIVIDE, "arithmetic", "divide"),
                 // Comparison
                 Arguments.of(SqlStdOperatorTable.EQUALS, "comparison", "equal"),
+                Arguments.of(SqlStdOperatorTable.IS_NOT_DISTINCT_FROM,
+                        "comparison", "is_not_distinct_from"),
                 Arguments.of(SqlStdOperatorTable.NOT_EQUALS, "comparison", "not_equal"),
                 Arguments.of(SqlStdOperatorTable.LESS_THAN, "comparison", "lt"),
                 Arguments.of(SqlStdOperatorTable.GREATER_THAN, "comparison", "gt"),
@@ -72,6 +74,25 @@ class FunctionMapperTest {
                 .hasFieldOrPropertyWithValue("errorCode", PangrovaErrorCode.SUBSTRAIT_FUNCTION_MAPPING_FAILURE);
     }
 
+    @Test
+    void sumZeroWindowKeepsItsOwnEmptyFrameSemanticsInsteadOfAliasingSum() {
+        assertThat(mapper.mapWindowFunction("$SUM0"))
+                .isEqualTo(new FunctionReference("window", "sum0"));
+        assertThat(mapper.mapWindowFunction("sum0"))
+                .isEqualTo(new FunctionReference("window", "sum0"));
+        assertThat(mapper.mapWindowFunction("SUM"))
+                .isEqualTo(new FunctionReference("window", "sum"));
+    }
+
+    @Test
+    void cardinalityAndWindowContextsUseDeclaredNames() {
+        SqlFunction function = new SqlFunction("CARDINALITY", SqlKind.OTHER_FUNCTION,
+                ReturnTypes.BIGINT_NULLABLE, null, OperandTypes.ANY, SqlFunctionCategory.USER_DEFINED_FUNCTION);
+        assertThat(mapper.map(function)).isEqualTo(new FunctionReference("collection", "cardinality"));
+        assertThat(mapper.isWindowFunction("row_number")).isTrue();
+        assertThat(mapper.isWindowFunction("AI_EMBED")).isFalse();
+    }
+
     @ParameterizedTest
     @MethodSource("vectorDistanceFunctions")
     void mapVectorDistanceFunction(String functionName, String expectedNamespace, String expectedName) {
@@ -93,7 +114,7 @@ class FunctionMapperTest {
                 Arguments.of("L2_DISTANCE", "vector", "l2_distance"),
                 Arguments.of("COSINE_DISTANCE", "vector", "cosine_distance"),
                 Arguments.of("INNER_PRODUCT", "vector", "inner_product"),
-                Arguments.of("COSINE_SIMILARITY", "vector", "cosine_similarity")
+                Arguments.of("COSINE_SIMILARITY", "vector", "pangrova_cosine_similarity")
         );
     }
 
@@ -102,6 +123,42 @@ class FunctionMapperTest {
         FunctionReference ref = new FunctionReference("vector", "l2_distance");
         var variant = mapper.resolveScalarVariant(ref);
         assertThat(variant.name()).isEqualTo("l2_distance");
-        assertThat(variant.uri()).isEqualTo("/functions_vector.yaml");
+        assertThat(variant.urn()).isEqualTo("extension:org.pangrova:functions_vector");
+    }
+
+    @ParameterizedTest
+    @MethodSource("aiAndFileFunctions")
+    void mapsEveryAiAndFileFunction(String functionName, String namespace, String nativeName) {
+        SqlFunction function = new SqlFunction(
+                functionName,
+                SqlKind.OTHER_FUNCTION,
+                ReturnTypes.VARCHAR_2000_NULLABLE,
+                null,
+                OperandTypes.VARIADIC,
+                SqlFunctionCategory.USER_DEFINED_FUNCTION);
+
+        FunctionReference reference = mapper.map(function);
+
+        assertThat(reference.namespace()).isEqualTo(namespace);
+        assertThat(reference.name()).isEqualTo(nativeName);
+    }
+
+    static Stream<Arguments> aiAndFileFunctions() {
+        return Stream.of(
+                Arguments.of("AI_COMPLETE", "ai", "ai_complete"),
+                Arguments.of("AI_CLASSIFY", "ai", "ai_classify"),
+                Arguments.of("AI_SUMMARIZE", "ai", "ai_summarize"),
+                Arguments.of("AI_FILTER", "ai", "ai_filter"),
+                Arguments.of("AI_EMBED", "ai", "ai_embed"),
+                Arguments.of("AI_EXTRACT", "ai", "ai_extract"),
+                Arguments.of("AI_GUARD", "ai", "ai_guard"),
+                Arguments.of("AI_PREDICT", "ai", "ai_predict"),
+                Arguments.of("AI_TRANSLATE", "ai", "ai_translate"),
+                Arguments.of("AI_DESCRIBE_IMAGE", "ai", "ai_describe_image"),
+                Arguments.of("AI_PARSE_DOCUMENT", "ai", "ai_parse_document"),
+                Arguments.of("AI_TRANSCRIBE", "ai", "ai_transcribe"),
+                Arguments.of("AI_OCR", "ai", "ai_ocr"),
+                Arguments.of("FILE_FROM_URL", "file", "file_from_url"),
+                Arguments.of("FILE_FROM_BYTES", "file", "file_from_bytes"));
     }
 }

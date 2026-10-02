@@ -59,7 +59,7 @@ jobs:
         if: matrix.platform.docker-build
         run: |
           docker buildx build \
-            -f docker/Dockerfile.native-build \
+            -f deploy/docker/Dockerfile.native-build \
             --platform ${{ matrix.platform.docker-platform }} \
             --target output \
             --output type=local,dest=native-output \
@@ -84,6 +84,10 @@ jobs:
       - name: Setup native build environment (macOS)
         if: "!matrix.platform.docker-build"
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh
+
+      - name: Build required Lance C FFI (macOS)
+        if: "!matrix.platform.docker-build"
+        run: ./pangrova-worker-native/bin/build-lance-ffi.sh
 
       - name: CMake configure (macOS)
         if: "!matrix.platform.docker-build"
@@ -121,6 +125,10 @@ jobs:
         run: |
           mvn -B package -pl pangrova-native-bundle \
             -Dnative.platform.classifier=${{ matrix.platform.classifier }} \
+            -Dnative.resource.dir=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }} \
+            -Dnative.resource.os=${{ matrix.platform.os }} \
+            -Dnative.resource.arch=${{ matrix.platform.arch }} \
+            -Dnative.library.path=${{ github.workspace }}/pangrova-native-bundle/src/main/resources/META-INF/native/${{ matrix.platform.os }}/${{ matrix.platform.arch }}/libpangrova_native.${{ matrix.platform.lib-ext }} \
             -DskipTests
 
       - name: Upload classifier JAR

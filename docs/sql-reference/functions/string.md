@@ -42,6 +42,11 @@ SELECT UPPER(name) AS upper_name, LOWER(email) AS lower_email FROM users;
 SUBSTRING(str FROM start FOR length) → VARCHAR
 ```
 
+SQL validation explicitly casts supplied start/length operands to `BIGINT`,
+using the registered Native signature for both positions. This avoids a mixed
+`INTEGER`/`BIGINT` invocation; the canonical plan preserves those casts rather
+than guessing integer widths from literal values.
+
 Extracts a substring. `start` is 1-based.
 
 ```sql

@@ -1,9 +1,8 @@
 package org.pangrova.security.mask;
 
 import org.pangrova.spi.security.ColumnMaskRecord;
-import org.pangrova.spi.security.UserIdentity;
-
 import java.util.List;
+import java.util.Set;
 
 /**
  * Column masking policy that transforms column values based on user identity and role membership.
@@ -58,21 +57,21 @@ public record ColumnMask(
     /**
      * Returns true if the user is exempt from this mask (sees raw data).
      */
-    public boolean isExempt(UserIdentity user) {
+    public boolean isExempt(Set<String> effectiveRoles) {
         if (exemptRoles.isEmpty()) {
             return false;
         }
-        return user.groups().stream().anyMatch(exemptRoles::contains);
+        return effectiveRoles.stream().anyMatch(exemptRoles::contains);
     }
 
     /**
      * Returns true if this mask applies to the given user.
      * An empty applyToRoles list means the mask applies to everyone.
      */
-    public boolean appliesTo(UserIdentity user) {
+    public boolean appliesTo(Set<String> effectiveRoles) {
         if (applyToRoles.isEmpty()) {
             return true;
         }
-        return user.groups().stream().anyMatch(applyToRoles::contains);
+        return effectiveRoles.stream().anyMatch(applyToRoles::contains);
     }
 }

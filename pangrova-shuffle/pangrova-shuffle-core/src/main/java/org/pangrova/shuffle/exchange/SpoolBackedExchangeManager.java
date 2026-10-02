@@ -42,16 +42,18 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
     }
 
     @Override
-    public ExchangeSink createSink(String queryId, int partitionId) {
+    public ExchangeSink createSink(ExchangeChannelContext context) {
+        Objects.requireNonNull(context, "context");
         // For native execution, D2-egress handles the write path.
         // This sink exists for JVM-to-JVM fallback and test scenarios.
-        return new SpoolBackedExchangeSink(spoolStore, queryId, partitionId);
+        return new SpoolBackedExchangeSink(spoolStore, context);
     }
 
     @Override
-    public ExchangeSource createSource(String queryId, int partitionId, ExchangeReadMode readMode) {
+    public ExchangeSource createSource(ExchangeChannelContext context, ExchangeReadMode readMode) {
+        Objects.requireNonNull(context, "context");
         // Read all committed segments for this partition across all map tasks.
-        return new SpoolBackedExchangeSource(spoolStore, queryId, partitionId, defaultMapCount);
+        return new SpoolBackedExchangeSource(spoolStore, context, defaultMapCount);
     }
 
     @Override
@@ -71,42 +73,60 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
      */
     private static final class SpoolBackedExchangeSink implements ExchangeSink {
         private final SpoolStore store;
-        private final String queryId;
-        private final int partitionId;
+        private final ExchangeChannelContext context;
         private volatile boolean sealed;
-        private int mapId = 0;
+        private SpoolWriter writer;
 
-        SpoolBackedExchangeSink(SpoolStore store, String queryId, int partitionId) {
+        SpoolBackedExchangeSink(SpoolStore store, ExchangeChannelContext context) {
             this.store = store;
-            this.queryId = queryId;
-            this.partitionId = partitionId;
+            this.context = context;
         }
 
         @Override
-        public void addNativePage(NativePage page) {
+        public synchronized void addNativePage(NativePage page) {
             if (sealed) {
                 throw new IllegalStateException("Sink sealed");
             }
             byte[] data = page.serializedBatch();
-            try (SpoolWriter writer = store.open(queryId, 0, partitionId, mapId++, 0L)) {
-                writer.write(ByteBuffer.wrap(data));
-                writer.commit();
+            writer().write(ByteBuffer.wrap(data));
+        }
+
+        @Override
+        public synchronized void finish() {
+            if (sealed) {
+                return;
             }
-        }
-
-        @Override
-        public void finish() {
+            writer().commit();
             sealed = true;
         }
 
         @Override
-        public void abort() {
+        public synchronized void abort() {
+            closeWriter();
             sealed = true;
         }
 
         @Override
-        public void close() {
+        public synchronized void close() {
+            closeWriter();
             sealed = true;
+        }
+
+        private SpoolWriter writer() {
+            if (writer == null) {
+                writer = store.open(
+                        context.queryId(), context.stageId(),
+                        context.exchangePartitionId(), context.taskPartitionId(),
+                        context.attemptId());
+            }
+            return writer;
+        }
+
+        private void closeWriter() {
+            if (writer != null) {
+                writer.close();
+                writer = null;
+            }
         }
     }
 
@@ -116,16 +136,15 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
      */
     private static final class SpoolBackedExchangeSource implements ExchangeSource {
         private final SpoolStore store;
-        private final String queryId;
-        private final int partitionId;
+        private final ExchangeChannelContext context;
         private final int endMapIndex;
         private volatile SpoolReader reader;
         private boolean finished;
 
-        SpoolBackedExchangeSource(SpoolStore store, String queryId, int partitionId, int endMapIndex) {
+        SpoolBackedExchangeSource(
+                SpoolStore store, ExchangeChannelContext context, int endMapIndex) {
             this.store = store;
-            this.queryId = queryId;
-            this.partitionId = partitionId;
+            this.context = context;
             this.endMapIndex = endMapIndex;
         }
 
@@ -140,7 +159,9 @@ public final class SpoolBackedExchangeManager implements ExchangeChannelManager 
                     r = reader;
                     if (r == null) {
                         // Lazy init: read all map segments for this partition.
-                        r = store.read(queryId, 0, partitionId, 0, endMapIndex);
+                        r = store.read(
+                                context.queryId(), context.stageId(),
+                                context.exchangePartitionId(), 0, endMapIndex);
                         reader = r;
                     }
                 }

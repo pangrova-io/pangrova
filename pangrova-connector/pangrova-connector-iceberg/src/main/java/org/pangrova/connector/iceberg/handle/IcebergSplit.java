@@ -5,14 +5,14 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.protocol.v1.DeleteFileInfo;
-import org.pangrova.protocol.v1.DeleteFileType;
-import org.pangrova.protocol.v1.FileFormat;
-import org.pangrova.protocol.v1.IcebergReadMode;
-import org.pangrova.protocol.v1.IcebergSplitInfo;
-import org.pangrova.protocol.v1.SchemaEvolution;
-import org.pangrova.protocol.v1.SplitConstraintInfo;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DeleteFileDetail;
+import org.pangrova.protocol.v2.DeleteFileType;
+import org.pangrova.protocol.v2.FileFormat;
+import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.protocol.v2.IcebergReadMode;
+import org.pangrova.protocol.v2.IcebergSplitDetail;
+import org.pangrova.protocol.v2.SchemaEvolution;
 import org.pangrova.spi.connector.metadata.ConnectorSplit;
 import org.pangrova.spi.connector.metadata.SplitConstraint;
 import org.pangrova.spi.connector.metadata.table.ColumnMapping;
@@ -61,6 +61,10 @@ public record IcebergSplit(
         byte[] residualPredicate) implements ConnectorSplit {
 
     public IcebergSplit {
+        if (fileFormat != null && "LANCE".equalsIgnoreCase(fileFormat)) {
+            throw new IllegalArgumentException(
+                    "Iceberg does not expose Lance as a supported data-file format");
+        }
         tableName = tableName == null ? "" : tableName;
         partitionValues = partitionValues == null ? Map.of() : Map.copyOf(partitionValues);
         deleteFiles = deleteFiles == null ? List.of() : List.copyOf(deleteFiles);
@@ -200,7 +204,7 @@ public record IcebergSplit(
     }
 
     /**
-     * Builds a serialized SplitInfo proto for native engine dispatch.
+     * Builds a canonical v2 DataSplit with a typed FileSplitDetail extension.
      *
      * <p>Directly constructs the SplitInfo + IcebergSplitInfo proto messages,
      * including delete_files (with DV support), partition_values, and
@@ -208,24 +212,20 @@ public record IcebergSplit(
      */
     @Override
     public byte[] toSplitInfoProto() {
-        SplitInfo.Builder splitBuilder = SplitInfo.newBuilder()
-                .setConnectorId("iceberg")
-                .setFilePath(filePath)
+        FileSplitDetail.Builder detail = FileSplitDetail.newBuilder()
                 .setFileFormat(resolveFileFormat())
-                .setStartOffset(fileOffset)
-                .setLength(fileLength)
-                .setTableName(tableName)
-                .putAllPartitionValues(partitionValues)
-                .setIcebergInfo(buildIcebergSplitInfo());
+                .setIceberg(buildIcebergSplitDetail());
 
-        buildSchemaEvolution(splitBuilder);
-        buildSplitConstraint(splitBuilder);
+        buildSchemaEvolution(detail);
+        buildSplitConstraint(detail);
 
-        return splitBuilder.build().toByteArray();
+        return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
+                "iceberg", tableName, Long.toString(snapshotId), filePath, filePath,
+                fileOffset, fileLength, partitionValues, detail.build())).toByteArray();
     }
 
-    private IcebergSplitInfo buildIcebergSplitInfo() {
-        IcebergSplitInfo.Builder builder = IcebergSplitInfo.newBuilder()
+    private IcebergSplitDetail buildIcebergSplitDetail() {
+        IcebergSplitDetail.Builder builder = IcebergSplitDetail.newBuilder()
                 .setReadMode(resolveReadMode())
                 .setSnapshotId(snapshotId)
                 .setDataSequenceNumber(dataSequenceNumber)
@@ -235,15 +235,15 @@ public record IcebergSplit(
                 .setToSnapshotId(toSnapshotId);
 
         for (IcebergDeleteFile df : deleteFiles) {
-            builder.addDeleteFiles(buildDeleteFileInfo(df));
+            builder.addDeleteFiles(buildDeleteFileDetail(df));
         }
 
         return builder.build();
     }
 
-    private static DeleteFileInfo buildDeleteFileInfo(IcebergDeleteFile df) {
-        DeleteFileInfo.Builder builder = DeleteFileInfo.newBuilder()
-                .setFilePath(df.filePath())
+    private static DeleteFileDetail buildDeleteFileDetail(IcebergDeleteFile df) {
+        DeleteFileDetail.Builder builder = DeleteFileDetail.newBuilder()
+                .setOpaqueLocation(df.filePath())
                 .setDeleteType(resolveDeleteFileType(df.deleteType()))
                 .setRecordCount(df.recordCount())
                 .setDataSequenceNumber(df.dataSequenceNumber());
@@ -251,13 +251,13 @@ public record IcebergSplit(
         builder.addAllEqualityFields(df.equalityFields());
 
         if (!df.dvFilePath().isEmpty()) {
-            builder.setDvFilePath(df.dvFilePath());
+            builder.setDeletionVectorLocation(df.dvFilePath());
         }
 
         return builder.build();
     }
 
-    private void buildSchemaEvolution(SplitInfo.Builder splitBuilder) {
+    private void buildSchemaEvolution(FileSplitDetail.Builder splitBuilder) {
         if (columnMappings.isEmpty() && typePromotions.isEmpty()) {
             return;
         }
@@ -267,24 +267,20 @@ public record IcebergSplit(
         splitBuilder.setSchemaEvolution(evoBuilder.build());
     }
 
-    private void buildSplitConstraint(SplitInfo.Builder splitBuilder) {
-        if (partitionValues.isEmpty() && residualPredicate.length == 0) {
+    private void buildSplitConstraint(FileSplitDetail.Builder splitBuilder) {
+        if (residualPredicate.length == 0) {
             return;
         }
-        SplitConstraintInfo.Builder constraintBuilder = SplitConstraintInfo.newBuilder();
-        if (!partitionValues.isEmpty()) {
-            constraintBuilder.putAllPartitionValues(partitionValues);
-        }
-        if (residualPredicate.length > 0) {
-            constraintBuilder.setPredicate(ByteString.copyFrom(residualPredicate));
-        }
+        org.pangrova.protocol.v2.SplitConstraint.Builder constraintBuilder =
+                org.pangrova.protocol.v2.SplitConstraint.newBuilder()
+                .setPredicate(ByteString.copyFrom(residualPredicate));
         splitBuilder.setSplitConstraint(constraintBuilder.build());
     }
 
     private void addColumnMappingsTo(SchemaEvolution.Builder evoBuilder) {
         for (ColumnMapping cm : columnMappings) {
             evoBuilder.addColumnMappings(
-                    org.pangrova.protocol.v1.ColumnMapping.newBuilder()
+                    org.pangrova.protocol.v2.ColumnMapping.newBuilder()
                             .setSourceFieldId(cm.sourceFieldId())
                             .setTargetFieldId(cm.targetFieldId())
                             .setSourceName(cm.sourceName())
@@ -295,7 +291,7 @@ public record IcebergSplit(
 
     private void addTypePromotionsTo(SchemaEvolution.Builder evoBuilder) {
         for (TypePromotion tp : typePromotions) {
-            var builder = org.pangrova.protocol.v1.TypePromotion.newBuilder()
+            var builder = org.pangrova.protocol.v2.TypePromotion.newBuilder()
                     .setFieldId(tp.fieldId())
                     .setSourceType(tp.sourceType())
                     .setTargetType(tp.targetType());
@@ -312,19 +308,18 @@ public record IcebergSplit(
         }
         return switch (fileFormat.toUpperCase()) {
             case "ORC" -> FileFormat.FILE_FORMAT_ORC;
-            case "LANCE" -> FileFormat.FILE_FORMAT_LANCE;
             default -> FileFormat.FILE_FORMAT_PARQUET;
         };
     }
 
     private IcebergReadMode resolveReadMode() {
         if (readMode == null) {
-            return IcebergReadMode.ICEBERG_READ_SNAPSHOT;
+            return IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT;
         }
         return switch (readMode.toUpperCase()) {
-            case "INCREMENTAL" -> IcebergReadMode.ICEBERG_READ_INCREMENTAL;
-            case "TIME_TRAVEL" -> IcebergReadMode.ICEBERG_READ_TIME_TRAVEL;
-            default -> IcebergReadMode.ICEBERG_READ_SNAPSHOT;
+            case "INCREMENTAL" -> IcebergReadMode.ICEBERG_READ_MODE_INCREMENTAL;
+            case "TIME_TRAVEL" -> IcebergReadMode.ICEBERG_READ_MODE_TIME_TRAVEL;
+            default -> IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT;
         };
     }
 

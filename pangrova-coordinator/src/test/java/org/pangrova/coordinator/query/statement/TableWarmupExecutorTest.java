@@ -46,6 +46,7 @@ import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static org.pangrova.coordinator.query.statement.StatementTestSessions.context;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -68,6 +69,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class TableWarmupExecutorTest {
 
+    private static org.pangrova.coordinator.query.CoordinatorSessionContext statementSession() {
+        return context();
+    }
+
     private static final String CATALOG = "warm";
     private static final String SCHEMA = "default";
     private static final String TABLE = "orders";
@@ -87,7 +92,7 @@ class TableWarmupExecutorTest {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
 
         List<TypedRow> rows = exec.execute(CATALOG,
-                Map.of("arg0", SCHEMA, "arg1", TABLE));
+                Map.of("arg0", SCHEMA, "arg1", TABLE), statementSession());
 
         assertThat(rows).hasSize(1);
         TypedRow row = rows.get(0);
@@ -107,7 +112,7 @@ class TableWarmupExecutorTest {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
 
         List<TypedRow> rows = exec.execute(CATALOG,
-                Map.of("arg0", SCHEMA + "." + TABLE));
+                Map.of("arg0", SCHEMA + "." + TABLE), statementSession());
 
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).getLong("rows_touched")).isEqualTo(5L);
@@ -116,7 +121,7 @@ class TableWarmupExecutorTest {
     @Test
     void warmup_resultColumnsContractMatchesTypedRow() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        TypedRow row = exec.execute(CATALOG, Map.of("arg0", SCHEMA, "arg1", TABLE)).get(0);
+        TypedRow row = exec.execute(CATALOG, Map.of("arg0", SCHEMA, "arg1", TABLE), statementSession()).get(0);
         assertThat(TableWarmupExecutor.resultColumns())
                 .containsExactlyElementsOf(row.columnNames());
     }
@@ -127,7 +132,7 @@ class TableWarmupExecutorTest {
         store.setSplitsPerTable("default", "multi", 4); // 4 splits, each contributes rows
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        List<TypedRow> rows = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "multi"));
+        List<TypedRow> rows = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "multi"), statementSession());
 
         assertThat(rows.get(0).getLong("splits_processed")).isEqualTo(4L);
         assertThat(rows.get(0).getLong("rows_touched")).isEqualTo(4L * 7L);
@@ -144,7 +149,7 @@ class TableWarmupExecutorTest {
         store.setNativeBytesPerSplit("default", "native_t", 4096);
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        TypedRow row = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "native_t")).get(0);
+        TypedRow row = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "native_t"), statementSession()).get(0);
 
         assertThat(row.getLong("rows_touched")).isEqualTo(9L);
         // No size hint, but native page reported bytes — those are credited.
@@ -158,7 +163,7 @@ class TableWarmupExecutorTest {
         store.failPageSourceForSplitIndex("default", "flaky", 1); // 2nd split fails
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        TypedRow row = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "flaky")).get(0);
+        TypedRow row = exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "flaky"), statementSession()).get(0);
 
         assertThat(row.getLong("splits_processed")).isEqualTo(2L);
         assertThat(row.getLong("splits_failed")).isEqualTo(1L);
@@ -173,7 +178,7 @@ class TableWarmupExecutorTest {
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
         assertThatThrownBy(() ->
-                exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "doomed")))
+                exec.execute(CATALOG, Map.of("arg0", "default", "arg1", "doomed"), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("warmup_table");
     }
@@ -182,7 +187,7 @@ class TableWarmupExecutorTest {
     void warmup_unknownTable_throwsTableNotFound() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
         assertThatThrownBy(() -> exec.execute(CATALOG,
-                Map.of("arg0", SCHEMA, "arg1", "ghost")))
+                Map.of("arg0", SCHEMA, "arg1", "ghost"), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("table not found");
     }
@@ -190,7 +195,7 @@ class TableWarmupExecutorTest {
     @Test
     void warmup_missingArg0_throws() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        assertThatThrownBy(() -> exec.execute(CATALOG, Map.of()))
+        assertThatThrownBy(() -> exec.execute(CATALOG, Map.of(), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("warmup_table requires arguments");
     }
@@ -198,7 +203,7 @@ class TableWarmupExecutorTest {
     @Test
     void warmup_singleArgWithoutDot_throws() {
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
-        assertThatThrownBy(() -> exec.execute(CATALOG, Map.of("arg0", "no_dot")))
+        assertThatThrownBy(() -> exec.execute(CATALOG, Map.of("arg0", "no_dot"), statementSession()))
                 .isInstanceOf(PangrovaException.class)
                 .hasMessageContaining("'schema.table'");
     }
@@ -210,7 +215,7 @@ class TableWarmupExecutorTest {
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry, /* maxSplits = */ 5);
         TypedRow row = exec.execute(CATALOG,
-                Map.of("arg0", "default", "arg1", "huge")).get(0);
+                Map.of("arg0", "default", "arg1", "huge"), statementSession()).get(0);
 
         assertThat(row.getLong("splits_processed")).isEqualTo(5L);
     }
@@ -222,7 +227,7 @@ class TableWarmupExecutorTest {
 
         TableWarmupExecutor exec = new TableWarmupExecutor(registry);
         TypedRow row = exec.execute(CATALOG,
-                Map.of("arg0", "default", "arg1", "empty")).get(0);
+                Map.of("arg0", "default", "arg1", "empty"), statementSession()).get(0);
 
         assertThat(row.getLong("splits_processed")).isEqualTo(0L);
         assertThat(row.getLong("splits_failed")).isEqualTo(0L);

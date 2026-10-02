@@ -23,6 +23,13 @@ public record SubsumptionResult(
         List<RexNode> residualFilters,
         Set<String> rollupColumns) {
 
+    /** Freezes compensating operations before the matched view is rewritten. */
+    public SubsumptionResult {
+        projectedColumns = Set.copyOf(projectedColumns);
+        residualFilters = List.copyOf(residualFilters);
+        rollupColumns = Set.copyOf(rollupColumns);
+    }
+
     /**
      * Returns true if the MV can be scanned directly without any compensating operations.
      */

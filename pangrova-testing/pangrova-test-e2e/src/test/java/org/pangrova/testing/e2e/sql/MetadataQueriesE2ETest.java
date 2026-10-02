@@ -70,15 +70,10 @@ class MetadataQueriesE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (2, 'second')");
 
             String sql = "SHOW SNAPSHOTS FROM " + fqn();
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-                // At least one snapshot exists after data inserts
-                assertThat(rows.size()).isGreaterThanOrEqualTo(1);
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).isNotNull();
+            // At least one snapshot exists after data inserts
+            assertThat(rows.size()).isGreaterThanOrEqualTo(1);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -95,14 +90,9 @@ class MetadataQueriesE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (1, 'data')");
 
             String sql = "SHOW FILES FROM " + fqn();
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-                assertThat(rows).isNotEmpty();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).isNotNull();
+            assertThat(rows).isNotEmpty();
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -119,13 +109,8 @@ class MetadataQueriesE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES (1, 'data')");
 
             String sql = "SHOW MANIFESTS FROM " + fqn();
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).isNotNull();
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -145,13 +130,8 @@ class MetadataQueriesE2ETest extends PangrovaE2ETestBase {
                     + "(1, 'A', 10.0), (2, 'B', 20.0), (3, 'A', 30.0)");
 
             String sql = "SHOW PARTITIONS FROM " + fqn();
-            try {
-                List<TypedRow> rows = executeQuery(sql);
-                assertThat(rows).isNotNull();
-            } catch (AssertionError e) {
-                String error = executeExpectingError(sql);
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).isNotNull();
 
             executeDdl("DROP TABLE " + fqn());
         }

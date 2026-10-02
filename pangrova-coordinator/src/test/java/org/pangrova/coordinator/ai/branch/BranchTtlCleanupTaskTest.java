@@ -26,10 +26,11 @@ import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.spi.connector.Connector;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSourceProvider;
-import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.metadata.ConnectorSplitManager;
 import org.pangrova.spi.connector.metadata.ConnectorSystemTable;
+import org.pangrova.spi.connector.metadata.SnapshotReference;
+import org.pangrova.spi.connector.metadata.ConditionalBranchDropResult;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
@@ -170,6 +171,46 @@ class BranchTtlCleanupTaskTest {
     }
 
     @Test
+    void cleanup_unknownCommitStopsCurrentTableUntilFreshCycle() {
+        addTwoExpiredBranches();
+        metadata.forcedDropResult = ConditionalBranchDropResult.COMMIT_STATE_UNKNOWN;
+
+        BranchTtlCleanupTask.CleanupResult first = cleanupTask.runCleanup();
+
+        assertThat(first.branchesDropped()).isZero();
+        assertThat(metadata.dropAttempts).isEqualTo(1);
+        assertThat(metadata.droppedBranches).isEmpty();
+        assertThat(metadata.refs).hasSize(2);
+
+        metadata.forcedDropResult = null;
+        BranchTtlCleanupTask.CleanupResult nextCycle = cleanupTask.runCleanup();
+        assertThat(nextCycle.branchesDropped()).isEqualTo(2);
+        assertThat(metadata.dropAttempts).isEqualTo(3);
+    }
+
+    @Test
+    void cleanup_conflictDoesNotRetryStaleListingInSameCycle() {
+        addTwoExpiredBranches();
+        metadata.forcedDropResult = ConditionalBranchDropResult.RETRYABLE_CONFLICT;
+
+        BranchTtlCleanupTask.CleanupResult result = cleanupTask.runCleanup();
+
+        assertThat(result.branchesDropped()).isZero();
+        assertThat(metadata.dropAttempts).isEqualTo(1);
+        assertThat(metadata.droppedBranches).isEmpty();
+        assertThat(metadata.refs).hasSize(2);
+    }
+
+    private void addTwoExpiredBranches() {
+        metadata.addTable("default", "ttl_table", Map.of("branch.ttl", "7d"));
+        metadata.addBranch("default", "ttl_table", "expired_a", 100L);
+        metadata.addBranch("default", "ttl_table", "expired_b", 200L);
+        Instant old = Instant.now().minus(Duration.ofDays(10));
+        metadata.addSnapshotTimestamp(100L, old);
+        metadata.addSnapshotTimestamp(200L, old);
+    }
+
+    @Test
     void close_shutsDownScheduler() {
         cleanupTask.start();
         cleanupTask.close();
@@ -207,7 +248,7 @@ class BranchTtlCleanupTaskTest {
 
     /**
      * In-memory ConnectorMetadata that supports table listing, table properties,
-     * branch refs via system table, snapshot timestamp resolution, and branch drop.
+     * typed snapshot refs, timestamp resolution, and conditional branch drop.
      */
     private static final class InMemoryMetadata implements ConnectorMetadata {
 
@@ -215,6 +256,8 @@ class BranchTtlCleanupTaskTest {
         private final List<RefEntry> refs = new ArrayList<>();
         private final java.util.Map<Long, Instant> snapshotTimestamps = new java.util.HashMap<>();
         final CopyOnWriteArrayList<String> droppedBranches = new CopyOnWriteArrayList<>();
+        private ConditionalBranchDropResult forcedDropResult;
+        private int dropAttempts;
 
         void addTable(String schema, String table, Map<String, String> properties) {
             tables.add(new TableEntry(schema, table, properties));
@@ -278,31 +321,20 @@ class BranchTtlCleanupTaskTest {
         }
 
         @Override
+        public List<SnapshotReference> listSnapshotReferences(
+                ConnectorSession session, ConnectorTableHandle table) {
+            TestTableHandle h = (TestTableHandle) table;
+            return refs.stream()
+                    .filter(r -> r.schema.equals(h.schema()) && r.table.equals(h.table()))
+                    .map(r -> new SnapshotReference(r.name,
+                            SnapshotReference.Type.valueOf(r.type), r.snapshotId))
+                    .toList();
+        }
+
+        @Override
         public Optional<ConnectorSystemTable> getSystemTable(
                 ConnectorSession session, ConnectorTableHandle table, String systemTableName) {
-            if (!"refs".equals(systemTableName)) {
-                return Optional.empty();
-            }
-            TestTableHandle h = (TestTableHandle) table;
-            List<TypedRow> rows = refs.stream()
-                    .filter(r -> r.schema.equals(h.schema()) && r.table.equals(h.table()))
-                    .map(r -> TypedRow.builder()
-                            .putString("name", r.name)
-                            .putString("type", r.type)
-                            .putLong("snapshot_id", r.snapshotId)
-                            .build())
-                    .toList();
-            return Optional.of(new ConnectorSystemTable() {
-                @Override
-                public List<String> columns() {
-                    return List.of("name", "type", "snapshot_id");
-                }
-
-                @Override
-                public List<TypedRow> rows() {
-                    return rows;
-                }
-            });
+            throw new AssertionError("TTL cleanup must not scan system-table rows");
         }
 
         @Override
@@ -312,9 +344,25 @@ class BranchTtlCleanupTaskTest {
         }
 
         @Override
+        public ConditionalBranchDropResult dropBranchIfSnapshotMatches(
+                ConnectorSession session, ConnectorTableHandle table,
+                String branchName, long expectedSnapshotId) {
+            dropAttempts++;
+            if (forcedDropResult != null) {
+                return forcedDropResult;
+            }
+            boolean removed = refs.removeIf(r -> r.name.equals(branchName)
+                    && "BRANCH".equals(r.type) && r.snapshotId == expectedSnapshotId);
+            if (removed) {
+                droppedBranches.add(branchName);
+                return ConditionalBranchDropResult.DROPPED;
+            }
+            return ConditionalBranchDropResult.REF_CHANGED;
+        }
+
+        @Override
         public void dropBranch(ConnectorSession session, ConnectorTableHandle table, String branchName) {
-            droppedBranches.add(branchName);
-            refs.removeIf(r -> r.name.equals(branchName) && "BRANCH".equals(r.type));
+            throw new AssertionError("TTL cleanup must use conditional branch removal");
         }
 
         private record TableEntry(String schema, String table, Map<String, String> properties) {}

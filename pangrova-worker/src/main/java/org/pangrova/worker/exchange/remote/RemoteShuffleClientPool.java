@@ -18,6 +18,9 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.shuffle.ShuffleServerEndpoint;
+import org.pangrova.shuffle.ShuffleServiceAddress;
+import org.pangrova.worker.exchange.CanonicalBatchChunks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,12 +54,14 @@ public final class RemoteShuffleClientPool implements Closeable {
 
     static final long DEFAULT_IDLE_TIMEOUT_MINUTES = 5;
     static final int DEFAULT_MAX_POOL_SIZE = 100;
+    static final int MAX_INBOUND_MESSAGE_BYTES =
+            CanonicalBatchChunks.MAX_CHUNK_BYTES * 2;
 
     private final Cache<String, RemoteShuffleClient> clients;
     private final long writeTimeoutMs;
     private final long readTimeoutMs;
     private final boolean tlsEnabled;
-    private final ShuffleClientTlsConfig tlsConfig;
+    private final ChannelCredentials tlsCredentials;
 
     /**
      * Pool tuning options: eviction timing, capacity, and TLS configuration.
@@ -68,19 +73,29 @@ public final class RemoteShuffleClientPool implements Closeable {
      * @param tlsConfig   TLS trust/key store configuration (required when TLS is enabled)
      */
     public record PoolOptions(long idleTimeout, TimeUnit timeUnit, int maxPoolSize,
-                              boolean tlsEnabled, ShuffleClientTlsConfig tlsConfig) {}
+                              boolean tlsEnabled, ShuffleClientTlsConfig tlsConfig,
+                              PemTlsConfig pemTlsConfig) {}
+
+    /** PEM certificate material shared with the Native Worker transport policy. */
+    public record PemTlsConfig(Path certificateChain, Path privateKey, Path rootCa) {
+        public PemTlsConfig {
+            checkNotNull(certificateChain, "certificateChain must not be null");
+            checkNotNull(privateKey, "privateKey must not be null");
+            checkNotNull(rootCa, "rootCa must not be null");
+        }
+    }
 
     public RemoteShuffleClientPool(long writeTimeoutMs, long readTimeoutMs, int maxConnectionsPerServer) {
         this(writeTimeoutMs, readTimeoutMs, maxConnectionsPerServer,
                 new PoolOptions(DEFAULT_IDLE_TIMEOUT_MINUTES, TimeUnit.MINUTES,
-                        DEFAULT_MAX_POOL_SIZE, false, null));
+                        DEFAULT_MAX_POOL_SIZE, false, null, null));
     }
 
     public RemoteShuffleClientPool(long writeTimeoutMs, long readTimeoutMs,
                                    int maxConnectionsPerServer, boolean tlsEnabled) {
         this(writeTimeoutMs, readTimeoutMs, maxConnectionsPerServer,
                 new PoolOptions(DEFAULT_IDLE_TIMEOUT_MINUTES, TimeUnit.MINUTES,
-                        DEFAULT_MAX_POOL_SIZE, tlsEnabled, null));
+                        DEFAULT_MAX_POOL_SIZE, tlsEnabled, null, null));
     }
 
     public RemoteShuffleClientPool(long writeTimeoutMs, long readTimeoutMs,
@@ -88,7 +103,7 @@ public final class RemoteShuffleClientPool implements Closeable {
                                    long idleTimeout, TimeUnit timeUnit, int maxPoolSize,
                                    boolean tlsEnabled) {
         this(writeTimeoutMs, readTimeoutMs, maxConnectionsPerServer,
-                new PoolOptions(idleTimeout, timeUnit, maxPoolSize, tlsEnabled, null));
+                new PoolOptions(idleTimeout, timeUnit, maxPoolSize, tlsEnabled, null, null));
     }
 
     /** Creates a TLS-enabled pool using the provided trust/key store configuration. */
@@ -98,7 +113,17 @@ public final class RemoteShuffleClientPool implements Closeable {
         this(writeTimeoutMs, readTimeoutMs, maxConnectionsPerServer,
                 new PoolOptions(DEFAULT_IDLE_TIMEOUT_MINUTES, TimeUnit.MINUTES,
                         DEFAULT_MAX_POOL_SIZE, true,
-                        checkNotNull(tlsConfig, "tlsConfig must not be null")));
+                        checkNotNull(tlsConfig, "tlsConfig must not be null"), null));
+    }
+
+    /** Creates a mutual-TLS pool from the Worker's canonical PEM transport material. */
+    public RemoteShuffleClientPool(long writeTimeoutMs, long readTimeoutMs,
+                                   int maxConnectionsPerServer,
+                                   PemTlsConfig pemTlsConfig) {
+        this(writeTimeoutMs, readTimeoutMs, maxConnectionsPerServer,
+                new PoolOptions(DEFAULT_IDLE_TIMEOUT_MINUTES, TimeUnit.MINUTES,
+                        DEFAULT_MAX_POOL_SIZE, true, null,
+                        checkNotNull(pemTlsConfig, "pemTlsConfig must not be null")));
     }
 
     private RemoteShuffleClientPool(long writeTimeoutMs, long readTimeoutMs,
@@ -106,15 +131,15 @@ public final class RemoteShuffleClientPool implements Closeable {
         checkArgument(writeTimeoutMs > 0, "writeTimeoutMs must be positive");
         checkArgument(readTimeoutMs > 0, "readTimeoutMs must be positive");
         checkArgument(maxConnectionsPerServer > 0, "maxConnectionsPerServer must be positive");
-        if (options.tlsEnabled() && options.tlsConfig() == null) {
+        if (options.tlsEnabled()
+                && options.tlsConfig() == null && options.pemTlsConfig() == null) {
             throw new IllegalArgumentException(
-                    "ShuffleClientTlsConfig is required when TLS is enabled. "
-                            + "Configure trust store path for certificate validation.");
+                    "TLS key and trust material is required when TLS is enabled");
         }
         this.writeTimeoutMs = writeTimeoutMs;
         this.readTimeoutMs = readTimeoutMs;
         this.tlsEnabled = options.tlsEnabled();
-        this.tlsConfig = options.tlsConfig();
+        this.tlsCredentials = buildCredentials(options);
         this.clients = Caffeine.newBuilder()
                 .expireAfterAccess(options.idleTimeout(), options.timeUnit())
                 .maximumSize(options.maxPoolSize())
@@ -138,24 +163,40 @@ public final class RemoteShuffleClientPool implements Closeable {
      * Returns a {@link RemoteShuffleClient} for the given server endpoint.
      * Creates a new client if none exists. Accessing a client resets its idle timer.
      *
-     * @param host remote shuffle server host
-     * @param port remote shuffle server port
+     * @param endpoint remote shuffle server endpoint and expected TLS identity
      * @return a client connected to the specified endpoint
      */
-    public RemoteShuffleClient getOrCreateClient(String host, int port) {
-        checkNotNull(host, "host must not be null");
-        checkArgument(port > 0, "port must be positive");
-        String key = host + ":" + port;
+    public RemoteShuffleClient getOrCreateClient(ShuffleServerEndpoint endpoint) {
+        checkNotNull(endpoint, "endpoint must not be null");
+        return getOrCreateClient(endpoint.host(), endpoint.port(), endpoint.tlsIdentity());
+    }
+
+    /** Returns a client for the explicit producer-attempt commit address. */
+    public RemoteShuffleClient getOrCreateClient(ShuffleServiceAddress address) {
+        checkNotNull(address, "address must not be null");
+        return getOrCreateClient(address.host(), address.port(), address.tlsIdentity());
+    }
+
+    private RemoteShuffleClient getOrCreateClient(
+            String host, int port, String tlsIdentity) {
+        if (tlsEnabled != !tlsIdentity.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Shuffle endpoint TLS identity does not match client TLS policy");
+        }
+        String key = host + ":" + port + ":" + tlsIdentity;
         return clients.get(key, k -> {
             ManagedChannel channel;
             if (tlsEnabled) {
-                ChannelCredentials credentials = buildTlsCredentials(tlsConfig);
-                channel = Grpc.newChannelBuilder(host + ":" + port, credentials).build();
+                channel = Grpc.newChannelBuilder(host + ":" + port, tlsCredentials)
+                        .maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES)
+                        .overrideAuthority(tlsIdentity)
+                        .build();
                 LOG.info("event=remote_shuffle_client_created host={} port={} tls=true mtls={}",
-                        host, port, tlsConfig.mtlsEnabled());
+                        host, port, true);
             } else {
                 channel = ManagedChannelBuilder.forAddress(host, port)
                         .usePlaintext()
+                        .maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES)
                         .build();
                 LOG.info("event=remote_shuffle_client_created host={} port={} tls=false", host, port);
             }
@@ -198,6 +239,25 @@ public final class RemoteShuffleClientPool implements Closeable {
                             + "trustStore=" + config.trustStorePath()
                             + " keyStore=" + config.keyStorePath(), e);
         }
+    }
+
+    private static ChannelCredentials buildCredentials(PoolOptions options) {
+        if (!options.tlsEnabled()) {
+            return null;
+        }
+        if (options.pemTlsConfig() != null) {
+            PemTlsConfig pem = options.pemTlsConfig();
+            try {
+                return TlsChannelCredentials.newBuilder()
+                        .trustManager(pem.rootCa().toFile())
+                        .keyManager(pem.certificateChain().toFile(), pem.privateKey().toFile())
+                        .build();
+            } catch (java.io.IOException failure) {
+                throw new IllegalStateException(
+                        "Failed to load PEM shuffle TLS material", failure);
+            }
+        }
+        return buildTlsCredentials(options.tlsConfig());
     }
 
     private static KeyStore loadKeyStore(String path, String password) {

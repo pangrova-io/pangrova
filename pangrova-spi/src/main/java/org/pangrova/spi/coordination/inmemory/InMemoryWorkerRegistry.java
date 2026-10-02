@@ -35,7 +35,6 @@ public final class InMemoryWorkerRegistry implements WorkerRegistry {
                 existing.httpPort(),
                 existing.transportPort(),
                 existing.protocolVersion(),
-                existing.capabilities(),
                 existing.rackId(),
                 existing.dataLocality(),
                 snapshot.memoryPressure(),
@@ -45,7 +44,8 @@ public final class InMemoryWorkerRegistry implements WorkerRegistry {
                 System.currentTimeMillis(),
                 existing.registeredAtMs(),
                 existing.resultServerPort(),
-                snapshot.cacheSummary() != null ? snapshot.cacheSummary() : existing.cacheSummary()
+                snapshot.cacheSummary() != null ? snapshot.cacheSummary() : existing.cacheSummary(),
+                existing.capabilityInventory()
         ));
     }
 

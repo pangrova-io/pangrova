@@ -40,7 +40,7 @@ class SubqueryPropertyTest extends SqlE2ETestBase {
     @BeforeAll
     @BeforeContainer
     static void seedData() {
-        if (!isDockerReady()) return;
+        isDockerReady();
         registerTestConnectors(List.of(
                 ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
         var runner = new org.pangrova.testing.e2e.runner.SqlTestRunner(framework);
@@ -57,32 +57,29 @@ class SubqueryPropertyTest extends SqlE2ETestBase {
     @Property(tries = 1)
     @Tag("Property: IN equivalent to EXISTS")
     void inEquivalentToExists() {
-        try {
-            List<TypedRow> viaIn = sqlRunner.execute(
-                    "SELECT id FROM " + T1 + " WHERE id IN (SELECT ref_id FROM " + T2 + ")");
-            List<TypedRow> viaExists = sqlRunner.execute(
-                    "SELECT id FROM " + T1 + " t WHERE EXISTS "
-                    + "(SELECT 1 FROM " + T2 + " r WHERE r.ref_id = t.id)");
-            assertThat(viaIn).hasSameSizeAs(viaExists);
-        } catch (AssertionError | RuntimeException e) {
-            // Correlated EXISTS decorrelation may differ from IN — acceptable
-        }
+        List<TypedRow> viaIn = sqlRunner.execute(
+                "SELECT id FROM " + T1 + " WHERE id IN (SELECT ref_id FROM " + T2 + ")");
+        List<TypedRow> viaExists = sqlRunner.execute(
+                "SELECT id FROM " + T1 + " t WHERE EXISTS "
+                + "(SELECT 1 FROM " + T2 + " r WHERE r.ref_id = t.id)");
+        assertThat(viaIn).extracting(row -> ((Number) row.getRaw("id")).longValue())
+                .containsExactlyInAnyOrder(1L, 3L, 5L);
+        assertThat(viaExists).extracting(row -> ((Number) row.getRaw("id")).longValue())
+                .containsExactlyInAnyOrder(1L, 3L, 5L);
     }
 
     @Property(tries = 1)
     @Tag("Property: NOT IN excludes correct rows")
     void notInExcludesCorrectRows() {
-        try {
-            List<TypedRow> included = sqlRunner.execute(
-                    "SELECT id FROM " + T1 + " WHERE id IN (SELECT ref_id FROM " + T2 + ")");
-            List<TypedRow> excluded = sqlRunner.execute(
-                    "SELECT id FROM " + T1 + " WHERE id NOT IN (SELECT ref_id FROM " + T2 + ")");
-            List<TypedRow> total = sqlRunner.execute("SELECT COUNT(*) AS cnt FROM " + T1);
-            assertThat(included.size() + excluded.size())
-                    .isEqualTo(((Number) total.get(0).getRaw("cnt")).intValue());
-        } catch (AssertionError | RuntimeException e) {
-            // NOT IN subquery handling may not partition rows correctly — acceptable
-        }
+        List<TypedRow> included = sqlRunner.execute(
+                "SELECT id FROM " + T1 + " WHERE id IN (SELECT ref_id FROM " + T2 + ")");
+        List<TypedRow> excluded = sqlRunner.execute(
+                "SELECT id FROM " + T1 + " WHERE id NOT IN (SELECT ref_id FROM " + T2 + ")");
+        List<TypedRow> total = sqlRunner.execute("SELECT COUNT(*) AS cnt FROM " + T1);
+        assertThat(included.size() + excluded.size())
+                .isEqualTo(((Number) total.get(0).getRaw("cnt")).intValue());
+        assertThat(excluded).extracting(row -> ((Number) row.getRaw("id")).longValue())
+                .containsExactlyInAnyOrder(2L, 4L);
     }
 
     @Property(tries = 1)
@@ -90,6 +87,7 @@ class SubqueryPropertyTest extends SqlE2ETestBase {
     void scalarSubquerySingleValue() {
         List<TypedRow> rows = sqlRunner.execute(
                 "SELECT id, (SELECT COUNT(*) FROM " + T2 + ") AS ref_count FROM " + T1);
+        assertThat(rows).hasSize(5);
         long expectedCount = 3L;
         for (TypedRow row : rows) {
             assertThat(((Number) row.getRaw("ref_count")).longValue()).isEqualTo(expectedCount);
@@ -99,17 +97,13 @@ class SubqueryPropertyTest extends SqlE2ETestBase {
     @Property(tries = 1)
     @Tag("Property: UNION ALL row count additivity")
     void unionAllRowCountAdditivity() {
-        try {
-            List<TypedRow> t1Count = sqlRunner.execute("SELECT COUNT(*) AS cnt FROM " + T1);
-            List<TypedRow> t2Count = sqlRunner.execute("SELECT COUNT(*) AS cnt FROM " + T2);
-            List<TypedRow> unionAll = sqlRunner.execute(
-                    "SELECT id FROM " + T1 + " UNION ALL SELECT ref_id FROM " + T2);
+        List<TypedRow> t1Count = sqlRunner.execute("SELECT COUNT(*) AS cnt FROM " + T1);
+        List<TypedRow> t2Count = sqlRunner.execute("SELECT COUNT(*) AS cnt FROM " + T2);
+        List<TypedRow> unionAll = sqlRunner.execute(
+                "SELECT id FROM " + T1 + " UNION ALL SELECT ref_id FROM " + T2);
 
-            long expected = ((Number) t1Count.get(0).getRaw("cnt")).longValue()
-                    + ((Number) t2Count.get(0).getRaw("cnt")).longValue();
-            assertThat((long) unionAll.size()).isEqualTo(expected);
-        } catch (AssertionError | RuntimeException e) {
-            // UNION ALL cross-table may have issues with Iceberg connector — acceptable
-        }
+        long expected = ((Number) t1Count.get(0).getRaw("cnt")).longValue()
+                + ((Number) t2Count.get(0).getRaw("cnt")).longValue();
+        assertThat((long) unionAll.size()).isEqualTo(expected);
     }
 }

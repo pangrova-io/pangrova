@@ -19,6 +19,21 @@ import java.util.Optional;
 public interface EmbeddingModelRegistry {
 
     /**
+     * Authorizes CREATE before the Coordinator resolves any Worker deployment metadata.
+     *
+     * @param name model name requested by SQL
+     * @param user authenticated user performing the operation
+     * @throws EmbeddingRegistryAccessDeniedException if user lacks ADMIN privilege
+     */
+    void authorizeCreate(String name, UserIdentity user);
+
+    /**
+     * Authorizes ALTER and captures the exact catalog incarnation before any
+     * Worker deployment metadata is resolved.
+     */
+    EmbeddingModelAlterTarget prepareAlter(String name, UserIdentity user);
+
+    /**
      * Registers a new embedding model configuration.
      * Requires ADMIN privilege on the caller.
      *
@@ -35,27 +50,30 @@ public interface EmbeddingModelRegistry {
      * version at request start; new requests use the updated configuration.
      * Requires ADMIN privilege on the caller.
      *
-     * @param name            the model name to alter
-     * @param update          the fields to update (non-null fields override existing values)
-     * @param expectedVersion the version the caller expects (for optimistic concurrency)
+     * @param target          exact name/version/incarnation captured by {@link #prepareAlter}
+     * @param replacement     complete next revision, already bound to an exact Worker deployment
      * @param user            the authenticated user performing the operation
      * @return the updated descriptor with incremented version
      * @throws ModelNotFoundException if no model with the given name exists
      * @throws VersionConflictException if the current version does not match expectedVersion
      * @throws EmbeddingRegistryAccessDeniedException if user lacks ADMIN privilege
      */
-    EmbeddingModelDescriptor alter(String name, ModelUpdateRequest update, int expectedVersion, UserIdentity user);
+    EmbeddingModelDescriptor alter(
+            EmbeddingModelAlterTarget target,
+            EmbeddingModelDescriptor replacement,
+            UserIdentity user);
 
     /**
-     * Removes a model from the registry.
+     * Requests model removal. Currently rejects both modes without mutation until
+     * generated-column definitions have a durable dependency authority.
      * Requires ADMIN privilege on the caller.
      *
      * @param name    the model name to drop
-     * @param cascade if true, drops dependent column definitions (retains existing vector data);
-     *                if false and dependents exist, fails with MODEL_IN_USE (3005)
+     * @param cascade requested dependency behavior; currently both values fail closed because
+     *                connector table definitions and the registry lack one atomic authority
      * @param user    the authenticated user performing the operation
      * @throws ModelNotFoundException if no model with the given name exists
-     * @throws ModelInUseException if cascade is false and dependent columns reference this model
+     * @throws ModelDropUnavailableException until durable dependency coordination is available
      * @throws EmbeddingRegistryAccessDeniedException if user lacks ADMIN privilege
      */
     void drop(String name, boolean cascade, UserIdentity user);

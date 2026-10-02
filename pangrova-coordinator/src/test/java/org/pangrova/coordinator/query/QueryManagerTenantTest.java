@@ -13,6 +13,7 @@ import org.pangrova.testing.TestObservability;
 import org.pangrova.protocol.rest.query.SubmitQueryResponse;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.throttle.QueryThrottlingService;
 import org.pangrova.security.tenant.model.ResourceQuota;
 import org.pangrova.security.tenant.model.Tenant;
 import org.pangrova.security.tenant.model.TenantRole;
@@ -48,6 +49,7 @@ class QueryManagerTenantTest {
     private TenantResolver tenantResolver;
     private QuotaChecker quotaChecker;
     private QueryManager queryManager;
+    private QueryDispatcher orchestrator;
     private WorkerHttpServer workerHttpServer;
 
     @BeforeEach
@@ -62,7 +64,7 @@ class QueryManagerTenantTest {
                 workerTaskManager, TestExchangeTransport.INSTANCE);
         workerHttpServer.start();
 
-        QueryDispatcher orchestrator = buildOrchestrator(workerHttpServer.getPort());
+        orchestrator = buildOrchestrator(workerHttpServer.getPort());
 
         var dagEngine = orchestrator.dagEngine();
         workerTaskManager.setAutoFinishReporter(report ->
@@ -114,15 +116,14 @@ class QueryManagerTenantTest {
     }
 
     @Test
-    void submitQueryWithNullIdentitySkipsTenantResolution() {
+    void submitQueryWithNullIdentityIsDeniedWhenTenancyEnabled() {
         CoordinatorSessionContext session = new CoordinatorSessionContext(
                 UUID.randomUUID().toString(), Map.of(), null, null);
 
-        SubmitQueryResponse response = queryManager.submitQuery(
-                session.queryId(), "SELECT 1", session);
-
-        assertThat(response).isNotNull();
-        assertThat(response.state()).isEqualTo("RUNNING");
+        assertThatThrownBy(() -> queryManager.submitQuery(
+                session.queryId(), "SELECT 1", session))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("no user identity provided");
     }
 
     @Test
@@ -140,6 +141,28 @@ class QueryManagerTenantTest {
                 queryManager.submitQuery(session.queryId(), "SELECT 1", session))
                 .isInstanceOf(TenantQuotaExceededException.class)
                 .hasMessageContaining("t-limited");
+    }
+
+    @Test
+    void throttleUsesResolvedTenantInsteadOfSharedDefaultBucket() {
+        for (String tenantId : List.of("tenant-a", "tenant-b")) {
+            tenantStore.createTenant(createTenant(tenantId, 10));
+            tenantStore.addUserToTenant(tenantId, tenantId + "-user", TenantRole.MEMBER);
+        }
+        QueryManager throttled = new QueryManager(new QueryManagerContext(
+                orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker,
+                null, null, null, null,
+                new QueryThrottlingService(2, 0.001, 100.0),
+                org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
+                null));
+
+        for (String tenantId : List.of("tenant-a", "tenant-b")) {
+            CoordinatorSessionContext session = new CoordinatorSessionContext(
+                    UUID.randomUUID().toString(), Map.of(),
+                    createIdentity(tenantId + "-user"), null);
+            assertThat(throttled.submitQuery(session.queryId(), "SELECT 1", session))
+                    .isNotNull();
+        }
     }
 
     @Test
@@ -179,10 +202,17 @@ class QueryManagerTenantTest {
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         wm.registerWorker(TestWorkerInfoBuilder.active(
                 "test-w", "localhost", workerPort, 0));
+        RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
+                CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
+        dispatcher.setControlEpochSupplier(() -> 1L);
+        dispatcher.setExecutionOwnerResolver(ignored ->
+                new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
+                        "test-coordinator", "test-incarnation", 1L));
         return new QueryDispatcher(
+                org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies(
                 QueryDispatcherContext.withDefaults(
-                        compiler, null, null, null, new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING), scheduler,
-                        wm, new CoordinatorTaskTracker(), null, null, null, null, 0L),
+                        compiler, null, null, null, dispatcher, scheduler,
+                        wm, new CoordinatorTaskTracker(), null, null, null, 0L)),
                 null, null);
     }
 

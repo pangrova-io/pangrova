@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -30,6 +31,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session;
+import static org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies;
 
 /**
  * Tests AuditEventEmitter integration with QueryManager lifecycle.
@@ -47,21 +51,47 @@ class QueryManagerAuditTest {
     }
 
     @Test
-    void emitsQuerySubmittedAndCompletedOnConstantQuery() throws Exception {
+    void emitsSubmittedAndFailedWhenConstantQueryHasNoWorker() throws Exception {
         var captured = new CopyOnWriteArrayList<AuditEvent>();
         QueryManager qm = buildAuditQueryManager(captured);
-        CoordinatorSessionContext session = new CoordinatorSessionContext("q-audit-1", Map.of(), null, null);
+        CoordinatorSessionContext session = session("q-audit-1");
 
-        qm.submitQuery("q-audit-1", "SELECT 1 + 2", session);
+        assertThatThrownBy(() -> qm.submitQuery("q-audit-1", "SELECT 1 + 2", session))
+                .isInstanceOf(NoAvailableWorkerException.class);
         awaitEvents(captured, 2, 5);
 
-        assertThat(captured).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(captured).hasSize(2);
         assertThat(captured.get(0).eventType()).isEqualTo(AuditEventType.QUERY_SUBMITTED);
         assertThat(captured.get(0).queryId()).isEqualTo("q-audit-1");
         assertThat(captured.get(0).sql()).isEqualTo("SELECT 1 + 2");
-        assertThat(captured.get(1).eventType()).isEqualTo(AuditEventType.QUERY_COMPLETED);
+        assertThat(captured.get(1).eventType()).isEqualTo(AuditEventType.QUERY_FAILED);
         assertThat(captured.get(1).queryId()).isEqualTo("q-audit-1");
-        assertThat(captured.get(1).success()).isTrue();
+        assertThat(captured.get(1).success()).isFalse();
+        assertThat(captured.get(1).errorMessage()).contains("No available worker");
+        assertThat(captured.get(0).principal()).isEqualTo("fixture-subject");
+        assertThat(captured.get(1).principal()).isEqualTo("fixture-subject");
+        assertThat(captured.get(1).properties()).containsEntry("tenant_id", "fixture-tenant");
+        assertThat(qm.getQueryState("q-audit-1")).contains(QueryStateMachine.State.FAILED);
+    }
+
+    @Test
+    void emitsQueryCompletedWhenRunningQueryFinishes() throws Exception {
+        var captured = new CopyOnWriteArrayList<AuditEvent>();
+        QueryManager qm = buildAuditQueryManager(captured);
+        QueryStateMachine sm = new QueryStateMachine();
+        qm.registerStateMachine("q-audit-complete", sm);
+        sm.tryTransition(QueryStateMachine.State.PLANNING);
+        sm.tryTransition(QueryStateMachine.State.SCHEDULING);
+        sm.tryTransition(QueryStateMachine.State.RUNNING);
+
+        qm.onAllTasksFinished("q-audit-complete");
+        awaitEvents(captured, 1, 5);
+
+        assertThat(captured).hasSize(1);
+        assertThat(captured.get(0).eventType()).isEqualTo(AuditEventType.QUERY_COMPLETED);
+        assertThat(captured.get(0).success()).isTrue();
+        assertThat(qm.getQueryState("q-audit-complete"))
+                .contains(QueryStateMachine.State.FINISHED);
     }
 
     @Test
@@ -69,8 +99,7 @@ class QueryManagerAuditTest {
         var captured = new CopyOnWriteArrayList<AuditEvent>();
         QueryManager qm = buildAuditQueryManager(captured);
 
-        // Register a state machine at RUNNING directly (submitQuery with constant
-        // queries completes synchronously to FINISHED, blocking FAILED transition).
+        // This component fixture exercises task-failure audit delivery, not Native SQL execution.
         QueryStateMachine sm = new QueryStateMachine();
         qm.registerStateMachine("q-audit-2", sm);
         sm.tryTransition(QueryStateMachine.State.PLANNING);
@@ -92,10 +121,11 @@ class QueryManagerAuditTest {
     @Test
     void noAuditEmittedWhenEmitterIsNull() {
         QueryManager qm = buildQueryManagerWithoutAudit();
-        CoordinatorSessionContext session = new CoordinatorSessionContext("q-audit-3", Map.of(), null, null);
+        CoordinatorSessionContext session = session("q-audit-3");
 
-        // Should not throw even without audit emitter
-        qm.submitQuery("q-audit-3", "SELECT 1", session);
+        assertThatThrownBy(() -> qm.submitQuery("q-audit-3", "SELECT 1", session))
+                .isInstanceOf(NoAvailableWorkerException.class);
+        assertThat(qm.getQueryState("q-audit-3")).contains(QueryStateMachine.State.FAILED);
     }
 
     @Test
@@ -122,10 +152,14 @@ class QueryManagerAuditTest {
         QueryManager qm = buildAuditQueryManager(captured);
         CoordinatorSessionContext session = new CoordinatorSessionContext("q-audit-5", Map.of(), null, null);
 
-        qm.submitQuery("q-audit-5", "SELECT 1", session);
-        awaitEvents(captured, 1, 5);
+        assertThatThrownBy(() -> qm.submitQuery("q-audit-5", "SELECT 1", session))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class);
+        awaitEvents(captured, 2, 5);
 
         assertThat(captured.get(0).principal()).isEqualTo("anonymous");
+        assertThat(captured.get(1).principal()).isEqualTo("anonymous");
+        assertThat(captured.get(1).eventType()).isEqualTo(AuditEventType.QUERY_FAILED);
+        assertThat(captured.get(1).success()).isFalse();
     }
 
     private QueryManager buildAuditQueryManager(List<AuditEvent> captured) {
@@ -150,18 +184,16 @@ class QueryManagerAuditTest {
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         return new QueryDispatcher(
-                QueryDispatcherContext.withDefaults(
+                withPolicies(QueryDispatcherContext.withDefaults(
                         compiler, null, null, null, new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING), scheduler, wm,
-                        new CoordinatorTaskTracker(), null, null, null, null, 0L),
+                        new CoordinatorTaskTracker(), null, null, null, 0L)),
                 null, null);
     }
 
     private static void awaitEvents(List<AuditEvent> events, int expected, int timeoutSeconds)
             throws InterruptedException {
-        long deadline = System.currentTimeMillis() + TimeUnit.SECONDS.toMillis(timeoutSeconds);
-        while (events.size() < expected && System.currentTimeMillis() < deadline) {
-            Thread.sleep(50);
-        }
+        org.awaitility.Awaitility.await().atMost(timeoutSeconds, TimeUnit.SECONDS)
+                .untilAsserted(() -> assertThat(events).hasSizeGreaterThanOrEqualTo(expected));
     }
 
     /** Real AuditEventWriter that captures events for assertion. */

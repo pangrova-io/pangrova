@@ -15,12 +15,16 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * JDBC-backed audit store that persists QueryAuditRecords to the {@code query_audit_records}
@@ -32,8 +36,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>Failure resilience (F-OBS-02): flush failures re-queue records and track
  * consecutive failure count. After {@value #MAX_CONSECUTIVE_FAILURES} consecutive
- * failures, new events are silently dropped until a successful flush resets
- * the counter.</p>
+ * failures, new events are explicitly rejected until a successful flush resets
+ * the counter. Capacity covers queued and in-flight records, so failed batches
+ * retain their reserved capacity while producers continue.</p>
  *
  * <p>Async save (F-OBS-09): {@link #save(QueryAuditRecord)} never performs JDBC I/O
  * on the calling thread. Instead, it enqueues the record and schedules an async flush
@@ -67,6 +72,9 @@ public final class JdbcAuditStore implements QueryAuditService.AuditStore, AutoC
     private final DataSource dataSource;
     private final BlockingQueue<QueryAuditRecord> buffer;
     private final ScheduledExecutorService scheduler;
+    private final Semaphore capacity;
+    private final Object admissionLock = new Object();
+    private final AtomicReference<CompletableFuture<Void>> flushOwner = new AtomicReference<>();
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
 
@@ -80,6 +88,7 @@ public final class JdbcAuditStore implements QueryAuditService.AuditStore, AutoC
     public JdbcAuditStore(DataSource dataSource, int queueCapacity) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
         this.buffer = new LinkedBlockingQueue<>(queueCapacity);
+        this.capacity = new Semaphore(queueCapacity);
         ScheduledThreadPoolExecutor executor = new ScheduledThreadPoolExecutor(1, r -> {
             Thread t = new Thread(r, "jdbc-audit-flush");
             t.setDaemon(true);
@@ -94,19 +103,23 @@ public final class JdbcAuditStore implements QueryAuditService.AuditStore, AutoC
     @Override
     public void save(QueryAuditRecord record) {
         Objects.requireNonNull(record, "record must not be null");
-        if (closed.get()) {
-            throw new IllegalStateException("JdbcAuditStore is closed");
-        }
-        // Drop events when flusher is disabled due to consecutive failures
-        if (consecutiveFailures.get() >= MAX_CONSECUTIVE_FAILURES) {
-            LOG.warn("event=audit_event_dropped query_id={} reason=flusher_disabled", record.queryId());
-            return;
-        }
-        // offer() is non-blocking; returns false if queue is full (bounded queue overflow policy)
-        buffer.offer(record);
-        if (buffer.size() >= BATCH_SIZE) {
-            // Schedule async flush — never block the calling thread
-            scheduler.submit(this::flushBuffer);
+        synchronized (admissionLock) {
+            if (closed.get()) {
+                throw new IllegalStateException("JdbcAuditStore is closed");
+            }
+            if (consecutiveFailures.get() >= MAX_CONSECUTIVE_FAILURES) {
+                throw new RejectedExecutionException("Audit flusher disabled after consecutive failures");
+            }
+            if (!capacity.tryAcquire()) {
+                throw new RejectedExecutionException("Audit buffer capacity exhausted");
+            }
+            if (!buffer.offer(record)) {
+                capacity.release();
+                throw new IllegalStateException("Reserved audit buffer capacity was unavailable");
+            }
+            if (buffer.size() >= BATCH_SIZE) {
+                scheduler.submit(this::flushBuffer);
+            }
         }
     }
 
@@ -144,10 +157,26 @@ public final class JdbcAuditStore implements QueryAuditService.AuditStore, AutoC
 
     /**
      * Flushes pending records from the buffer to the database in batches.
-     * Thread-safe: multiple concurrent calls will each drain a portion of the buffer.
+     * Thread-safe: flushes are serialized without blocking save() on JDBC I/O.
      * On failure, records are re-queued for retry on the next flush cycle.
      */
     void flushBuffer() {
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        if (!flushOwner.compareAndSet(null, completion)) {
+            return;
+        }
+        try {
+            flushBatch();
+            completion.complete(null);
+        } catch (RuntimeException | Error e) {
+            completion.completeExceptionally(e);
+            throw e;
+        } finally {
+            flushOwner.compareAndSet(completion, null);
+        }
+    }
+
+    private void flushBatch() {
         List<QueryAuditRecord> batch = new ArrayList<>(BATCH_SIZE);
         buffer.drainTo(batch, BATCH_SIZE);
         if (batch.isEmpty()) {
@@ -155,6 +184,7 @@ public final class JdbcAuditStore implements QueryAuditService.AuditStore, AutoC
         }
         try {
             writeBatch(batch);
+            capacity.release(batch.size());
             consecutiveFailures.set(0);
         } catch (Exception e) {
             int failures = consecutiveFailures.incrementAndGet();
@@ -162,7 +192,9 @@ public final class JdbcAuditStore implements QueryAuditService.AuditStore, AutoC
                     failures, batch.size(), e.getMessage());
             // Re-queue records for retry on next flush cycle
             for (QueryAuditRecord record : batch) {
-                buffer.offer(record);
+                if (!buffer.offer(record)) {
+                    throw new IllegalStateException("Reserved retry capacity was unavailable", e);
+                }
             }
         }
     }
@@ -248,18 +280,34 @@ public final class JdbcAuditStore implements QueryAuditService.AuditStore, AutoC
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            scheduler.shutdown();
-            try {
-                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                    scheduler.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                scheduler.shutdownNow();
-                Thread.currentThread().interrupt();
+        synchronized (admissionLock) {
+            if (!closed.compareAndSet(false, true)) {
+                return;
             }
-            // Final flush of remaining records
-            flushBuffer();
+            scheduler.shutdown();
         }
+        try {
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                scheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            scheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        drainRemainingRecords();
+    }
+
+    private void drainRemainingRecords() {
+        do {
+            CompletableFuture<Void> inFlight = flushOwner.get();
+            if (inFlight != null) {
+                inFlight.join();
+                continue;
+            }
+            flushBuffer();
+            if (consecutiveFailures.get() > 0) {
+                throw new IllegalStateException("Audit store closed with unpersisted records");
+            }
+        } while (!buffer.isEmpty() || flushOwner.get() != null);
     }
 }

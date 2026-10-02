@@ -2,25 +2,27 @@ package org.pangrova.worker.task;
 
 import org.pangrova.worker.task.memory.MemoryRefs;
 
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import org.pangrova.protocol.rest.config.WriteConfig;
+import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.resource.ResourceManager;
 import org.pangrova.resource.memory.MemoryArbitrator;
 import org.pangrova.resource.spill.SpillManager;
 import org.pangrova.resource.thread.ThreadBudgetTracker;
-import org.pangrova.spi.execution.PlanFragment;
-import org.pangrova.spi.execution.PlanNodeId;
-import org.pangrova.spi.execution.QueryId;
 import org.pangrova.spi.execution.TaskDescriptor;
+import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 
 import org.pangrova.worker.execution.SimulatedTaskExecutor;
+import org.pangrova.worker.jni.write.NativeWriteExecutor;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,9 +36,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TaskStatusReportEnrichmentTest {
 
     private static final String WORKER_ID = "enrichment-test-worker";
+    private static final long CONTROL_EPOCH = 9;
+    private static final ExecutionOwnerIdentity EXECUTION_OWNER =
+            new ExecutionOwnerIdentity("coordinator-test", "process-test", 11);
 
     @Test
-    void finishedReportContainsNonNullStatsAndIncreasingSequence() throws InterruptedException {
+    void finishedReportContainsNonNullStatsAndIncreasingSequence() throws Exception {
         RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
         SimulatedTaskExecutor executor = new SimulatedTaskExecutor(3);
         TaskManager manager = buildTaskManager(executor, reporter);
@@ -62,6 +67,10 @@ class TaskStatusReportEnrichmentTest {
         assertThat(finished.stats()).isNotNull();
         assertThat(finished.stats().elapsedTimeMs()).isGreaterThanOrEqualTo(0);
         assertThat(finished.reportSequence()).isGreaterThan(running.reportSequence());
+        assertThat(finished.canonicalTaskReport()).isNotEmpty();
+        assertThat(org.pangrova.protocol.v2.TaskReport.parseFrom(
+                finished.canonicalTaskReport()).getState())
+                .isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
     }
 
     @Test
@@ -92,14 +101,12 @@ class TaskStatusReportEnrichmentTest {
     @Test
     void writeTaskReportContainsWriteResult() throws InterruptedException {
         RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(2);
-        TaskManager manager = buildTaskManager(executor, reporter);
-
         SubmitTaskRequest request = buildWriteRequest("q-write-1");
-        TaskDescriptor descriptor = toDescriptor(request);
-        String taskId = manager.submitTask(descriptor, request);
-
-        awaitTerminalState(manager, taskId);
+        TaskInfo info = new TaskInfo("worker-local-write-task", "q-write-1", request,
+                toDescriptor(request), Instant.now());
+        info.setExecutorHandle(1);
+        TaskStatusCollector collector = new TaskStatusCollector(reporter, WORKER_ID, null);
+        collector.reportStatus(info, "FINISHED", null);
 
         List<TaskStatusReport> reports = reporter.reports();
         TaskStatusReport finished = findReport(reports, "FINISHED");
@@ -110,6 +117,22 @@ class TaskStatusReportEnrichmentTest {
         // The native engine handles writes autonomously; totalRows reflects
         // what TaskInfo.outputBatches() reports at completion time.
         assertThat(finished.writeResult().totalRows()).isEqualTo(0);
+    }
+
+    @Test
+    void writeTaskWithoutConnectorRuntimeFailsClosed() throws InterruptedException {
+        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
+        TaskManager manager = buildTaskManager(new SimulatedTaskExecutor(2), reporter);
+        SubmitTaskRequest request = buildWriteRequest("q-write-unbound");
+        String taskId = manager.submitTask(toDescriptor(request), request);
+
+        awaitTerminalState(manager, taskId);
+
+        assertThat(manager.getTaskState(taskId)).contains(TaskManager.TaskState.FAILED);
+        assertThat(findReport(reporter.reports(), "FINISHED")).isNull();
+        assertThat(findReport(reporter.reports(), "FAILED")).isNotNull();
+        assertThat(findReport(reporter.reports(), "FAILED").canonicalTaskReport())
+                .isNotEmpty();
     }
 
     @Test
@@ -150,6 +173,33 @@ class TaskStatusReportEnrichmentTest {
         }
     }
 
+    @Test
+    void terminalWriteRetryRetainsNativeCommitFragment() {
+        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
+        SubmitTaskRequest request = buildWriteRequest("q-write-retry");
+        TaskInfo info = new TaskInfo("worker-local-task", "q-write-retry", request,
+                toDescriptor(request), Instant.now());
+        info.setExecutorHandle(1);
+        NativeWriteExecutor writer = new NativeWriteExecutor(
+                new org.pangrova.worker.jni.write.TestCatalogResourceResolver((taskId, ignored) -> {
+            throw new AssertionError("No connector sink should be opened");
+        }));
+        writer.publishCommitMetadataForTask("t-w-1", new byte[] {4, 5, 6});
+        TaskStatusCollector collector = new TaskStatusCollector(reporter, WORKER_ID, null);
+        collector.setWriteExecutor(writer);
+
+        collector.reportStatus(info, "RUNNING", null);
+        collector.reportStatus(info, "FINISHED", null);
+        collector.reportStatus(info, "FINISHED", null);
+
+        assertThat(reporter.reports().get(0).writeResult().commitMetadata()).isEmpty();
+        assertThat(reporter.reports().get(1).writeResult().commitMetadata())
+                .containsExactly(4, 5, 6);
+        assertThat(reporter.reports().get(2).writeResult().commitMetadata())
+                .containsExactly(4, 5, 6);
+        writer.close();
+    }
+
     // --- Helpers ---
 
     private TaskManager buildTaskManager(SimulatedTaskExecutor executor,
@@ -158,7 +208,7 @@ class TaskStatusReportEnrichmentTest {
         TaskManagerContext deps = new TaskManagerContext(
                 reporter, executor,
                 new MemoryRefs(rm),
-                TransportRefs.empty(),
+                new TransportRefs(null, null, null),
                 java.util.concurrent.Executors.newCachedThreadPool(r -> {
                     Thread t = new Thread(r, "test-completion-monitor");
                     t.setDaemon(true);
@@ -173,52 +223,41 @@ class TaskStatusReportEnrichmentTest {
     }
 
     private SubmitTaskRequest buildComputeRequest(String queryId) {
-        String plan = Base64.getEncoder().encodeToString(new byte[]{0x01, 0x02});
-        return SubmitTaskRequest.builder()
-                .taskId("t-1")
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment(plan)
-                .splits(List.of())
-                .exchangeSources(null)
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(null)
-                .build();
+        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                "t-1", queryId, 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                new byte[]{0x01, 0x02});
+        canonical.setAttempt(canonical.getAttempt().toBuilder()
+                .setControlEpoch(CONTROL_EPOCH)
+                .setExecutionOwner(org.pangrova.protocol.v2.ExecutionOwnerIdentity.newBuilder()
+                        .setOwnerId(EXECUTION_OWNER.ownerId())
+                        .setOwnerIncarnation(EXECUTION_OWNER.ownerIncarnation())
+                        .setFencingToken(EXECUTION_OWNER.fencingToken())));
+        return SubmitTaskRequest.from(canonical.build());
     }
 
     private SubmitTaskRequest buildWriteRequest(String queryId) {
-        String plan = Base64.getEncoder().encodeToString(new byte[]{0x01, 0x02});
-        WriteConfig wc = new WriteConfig("db.table", "INSERT", List.of(), "parquet", 128_000_000);
-        return SubmitTaskRequest.builder()
-                .taskId("t-w-1")
-                .queryId(queryId)
-                .stageId(0)
-                .partitionId(0)
-                .taskType("COMPUTE")
-                .planFragment(plan)
-                .splits(List.of())
-                .exchangeSources(null)
-                .resourceLimit(null)
-                .sessionProperties(Map.of())
-                .outputConfig(null)
-                .writeConfig(wc)
-                .build();
+        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                        "t-w-1", queryId, 0, 0,
+                        org.pangrova.protocol.v2.TaskKind.TASK_KIND_WRITE,
+                        new byte[]{0x01, 0x02})
+                .setExecutionOptions(org.pangrova.protocol.v2.TaskExecutionOptions.newBuilder()
+                        .setWrite(org.pangrova.protocol.v2.WriteTaskOptions.newBuilder()
+                                .setTargetTable("db.table").setWriteMode("INSERT")
+                                .setFileFormat(org.pangrova.protocol.v2.FileFormat
+                                        .FILE_FORMAT_PARQUET)
+                                .setTargetFileSize(128_000_000)));
+        canonical.setAttempt(canonical.getAttempt().toBuilder()
+                .setControlEpoch(CONTROL_EPOCH)
+                .setExecutionOwner(org.pangrova.protocol.v2.ExecutionOwnerIdentity.newBuilder()
+                        .setOwnerId(EXECUTION_OWNER.ownerId())
+                        .setOwnerIncarnation(EXECUTION_OWNER.ownerIncarnation())
+                        .setFencingToken(EXECUTION_OWNER.fencingToken())));
+        return SubmitTaskRequest.from(canonical.build());
     }
 
     private TaskDescriptor toDescriptor(SubmitTaskRequest request) {
-        PlanFragment fragment = new PlanFragment() {
-            @Override
-            public PlanNodeId getId() { return new PlanNodeId("test-node"); }
-            @Override
-            public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
-        };
-        return new TaskDescriptor(
-                new QueryId(request.queryId()), fragment, List.of(),
-                request.sessionProperties() != null ? request.sessionProperties() : Map.of());
+        return TaskRequestDtoConverter.toTaskDescriptor(request);
     }
 
     private TaskStatusReport findReport(List<TaskStatusReport> reports, String state) {

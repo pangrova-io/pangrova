@@ -29,7 +29,9 @@ class CommitNotificationTest {
         // Stage 0 (scan) → Stage 1 (join) via HASH (BLOCKING)
         // Stage 2 (broadcast) → Stage 1 (join) via BROADCAST (STREAMING)
         StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
-        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST);
+        StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST,
+                List.of(), "exchange-2-to-1", 1,
+                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
 
         StageNode s0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyFragment(), 1, "COMPUTE", List.of());

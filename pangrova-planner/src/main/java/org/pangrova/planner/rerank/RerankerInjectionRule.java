@@ -8,7 +8,6 @@ import org.pangrova.parser.ast.Query;
 import org.pangrova.parser.ast.SortItem;
 import org.pangrova.parser.ast.expression.BinaryExpression;
 import org.pangrova.parser.ast.expression.FunctionCall;
-import org.pangrova.parser.ast.expression.NotExpression;
 import org.pangrova.parser.ast.expression.RerankClause;
 import org.pangrova.parser.ast.expression.RerankClause.CascadeStrategy;
 import org.pangrova.parser.ast.expression.RerankClause.CrossEncoderStrategy;
@@ -84,7 +83,11 @@ public final class RerankerInjectionRule {
                     query, query.rerankBy().get(), tableName, topK));
         }
 
-        return detectImplicitHybrid(query, tableName, topK);
+        Optional<RerankerPlanNode> hybrid = detectImplicitHybrid(query, tableName, topK);
+        if (hybrid.isPresent()) {
+            return hybrid;
+        }
+        return detectFullTextRetrieval(query, tableName, topK);
     }
 
     private static RerankerPlanNode buildFromExplicitClause(
@@ -134,6 +137,32 @@ public final class RerankerInjectionRule {
     }
 
     /**
+     * Represents a bounded MATCH + BM25_SCORE query as a single-source retrieval plan.
+     * RRF over one source preserves BM25 ordering while reusing the same
+     * distributed retrieval envelope as hybrid search.
+     */
+    private static Optional<RerankerPlanNode> detectFullTextRetrieval(
+            Query query, String tableName, int topK) {
+        Optional<FullTextSource> scoreSource = extractScoreSource(query, tableName);
+        if (scoreSource.isEmpty()) {
+            return Optional.empty();
+        }
+        FullTextSource matchSource = extractPositiveMatchSource(query, tableName)
+                .orElseThrow(() -> new RerankerValidationException(
+                        "BM25_SCORE requires an equivalent positive MATCH predicate"));
+        if (!sameTextSearch(scoreSource.orElseThrow(), matchSource)) {
+            throw new RerankerValidationException(
+                    "BM25_SCORE and MATCH must use the same column and query text");
+        }
+        return Optional.of(new RerankerPlanNode(
+                new RerankerPlanNode.RrfStrategy(DEFAULT_RRF_K),
+                List.of(matchSource),
+                topK,
+                matchSource.scoringNode().queryText(),
+                List.of()));
+    }
+
+    /**
      * Collects all retrieval sources from the query: vector sources from ORDER BY,
      * multi-vector sources from ON columns, and FTS source from WHERE MATCH().
      */
@@ -156,8 +185,8 @@ public final class RerankerInjectionRule {
             }
         }
 
-        // FTS source from WHERE MATCH()
-        extractFullTextSource(query, tableName).ifPresent(sources::add);
+        // FTS source from a positive conjunctive MATCH predicate.
+        extractPositiveMatchSource(query, tableName).ifPresent(sources::add);
 
         return sources;
     }
@@ -188,13 +217,62 @@ public final class RerankerInjectionRule {
         return Optional.of(new VectorSource(column, new float[0], funcName.toLowerCase()));
     }
 
-    private static Optional<FullTextSource> extractFullTextSource(Query query, String tableName) {
-        if (query.where().isEmpty()) {
-            return Optional.empty();
+    private static Optional<FullTextSource> extractPositiveMatchSource(
+            Query query, String tableName) {
+        return query.where()
+                .flatMap(RerankerInjectionRule::findPositiveConjunctiveMatch)
+                .map(details -> fullTextSource(tableName, details));
+    }
+
+    private static Optional<MatchFunctionRewriter.MatchCallDetails> findPositiveConjunctiveMatch(
+            Expression expression) {
+        Optional<MatchFunctionRewriter.MatchCallDetails> direct =
+                MatchFunctionRewriter.extractMatchCall(expression);
+        if (direct.isPresent()) {
+            return direct;
         }
-        return MatchFunctionRewriter.extractMatchCall(query.where().get())
-                .map(details -> new FullTextSource(
-                        MatchFunctionRewriter.toScoringNode(tableName, details, List.of())));
+        if (expression instanceof BinaryExpression binary
+                && binary.operator() == BinaryExpression.Operator.AND) {
+            Optional<MatchFunctionRewriter.MatchCallDetails> left =
+                    findPositiveConjunctiveMatch(binary.left());
+            return left.isPresent() ? left : findPositiveConjunctiveMatch(binary.right());
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<FullTextSource> extractScoreSource(
+            Query query, String tableName) {
+        FullTextSource found = null;
+        for (SortItem item : query.orderBy()) {
+            Optional<MatchFunctionRewriter.MatchCallDetails> score =
+                    MatchFunctionRewriter.extractScoreCall(item.expression());
+            if (score.isEmpty()) {
+                continue;
+            }
+            if (item.direction().orElse(SortItem.SortDirection.ASC)
+                    != SortItem.SortDirection.DESC) {
+                throw new RerankerValidationException(
+                        "BM25_SCORE retrieval requires ORDER BY ... DESC");
+            }
+            FullTextSource candidate = fullTextSource(tableName, score.orElseThrow());
+            if (found != null && !sameTextSearch(found, candidate)) {
+                throw new RerankerValidationException(
+                        "A bounded BM25 query cannot order by multiple text searches");
+            }
+            found = candidate;
+        }
+        return Optional.ofNullable(found);
+    }
+
+    private static FullTextSource fullTextSource(
+            String tableName, MatchFunctionRewriter.MatchCallDetails details) {
+        return new FullTextSource(
+                MatchFunctionRewriter.toScoringNode(tableName, details, List.of()));
+    }
+
+    private static boolean sameTextSearch(FullTextSource left, FullTextSource right) {
+        return left.scoringNode().column().equals(right.scoringNode().column())
+                && left.scoringNode().queryText().equals(right.scoringNode().queryText());
     }
 
     private static boolean hasVectorDistanceOrderBy(Query query) {
@@ -204,21 +282,8 @@ public final class RerankerInjectionRule {
 
     private static boolean hasMatchFunction(Query query) {
         return query.where()
-                .map(RerankerInjectionRule::containsMatchFunction)
-                .orElse(false);
-    }
-
-    private static boolean containsMatchFunction(Expression expr) {
-        if (MatchFunctionRewriter.isMatchFunction(expr)) {
-            return true;
-        }
-        if (expr instanceof BinaryExpression bin) {
-            return containsMatchFunction(bin.left()) || containsMatchFunction(bin.right());
-        }
-        if (expr instanceof NotExpression not) {
-            return containsMatchFunction(not.expression());
-        }
-        return false;
+                .flatMap(RerankerInjectionRule::findPositiveConjunctiveMatch)
+                .isPresent();
     }
 
     private static boolean isDistanceFunction(Expression expr) {
@@ -248,11 +313,9 @@ public final class RerankerInjectionRule {
     }
 
     private static String extractQueryText(Query query) {
-        if (query.where().isEmpty()) {
-            return null;
-        }
-        return MatchFunctionRewriter.extractMatchCall(query.where().get())
-                .map(MatchFunctionRewriter.MatchCallDetails::queryText)
+        return extractPositiveMatchSource(query, "")
+                .or(() -> extractScoreSource(query, ""))
+                .map(source -> source.scoringNode().queryText())
                 .orElse(null);
     }
 

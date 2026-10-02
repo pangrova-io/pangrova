@@ -17,6 +17,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -75,7 +78,8 @@ class TwoPhaseCommitCoordinatorTest {
                 )""");
             stmt.execute("""
                 CREATE UNIQUE INDEX IF NOT EXISTS idx_cdc_commit_state_dedup
-                    ON cdc_commit_state (source_id, batch_key)""");
+                    ON cdc_commit_state (source_id, batch_key)
+                    WHERE state <> 'ROLLED_BACK'""");
         }
 
         stateStore = new JdbcCdcCommitStateStore(dataSource);
@@ -109,11 +113,21 @@ class TwoPhaseCommitCoordinatorTest {
         OffsetRange range = new OffsetRange(0, 0, 49);
 
         PrepareToken token = coordinator.prepare(source, range);
-        coordinator.commit(token);
+        claimAndCommit(token);
 
         // Verify state is COMMITTED
         CdcCommitState state = stateStore.findStateById(token.id()).orElseThrow();
         assertEquals(CdcCommitState.COMMITTED, state);
+    }
+
+    @Test
+    void commitCannotAcknowledgeUnpublishedPrepare() {
+        PrepareToken token = coordinator.prepare(
+                new SourceId("kafka-orders"), new OffsetRange(0, 0, 49));
+
+        assertThrows(IllegalStateException.class, () -> coordinator.commit(token));
+        assertEquals(CdcCommitState.PREPARED,
+                stateStore.findStateById(token.id()).orElseThrow());
     }
 
     @Test
@@ -134,7 +148,7 @@ class TwoPhaseCommitCoordinatorTest {
         OffsetRange range = new OffsetRange(0, 50, 99);
 
         PrepareToken token = coordinator.prepare(source, range);
-        coordinator.commit(token);
+        claimAndCommit(token);
         // Second commit should be a no-op
         assertDoesNotThrow(() -> coordinator.commit(token));
 
@@ -154,6 +168,22 @@ class TwoPhaseCommitCoordinatorTest {
 
         CdcCommitState state = stateStore.findStateById(token.id()).orElseThrow();
         assertEquals(CdcCommitState.ROLLED_BACK, state);
+    }
+
+    @Test
+    void rolledBackPrepareCanRetryTheSameSourceBatchKey() {
+        SourceId source = new SourceId("kafka-orders");
+        OffsetRange range = new OffsetRange(0, 300, 399);
+        PrepareToken first = coordinator.prepare(source, range, "stable-source-batch");
+        coordinator.rollback(first);
+
+        PrepareToken retry = coordinator.prepare(source, range, "stable-source-batch");
+
+        assertNotEquals(first.id(), retry.id());
+        assertEquals(CdcCommitState.ROLLED_BACK,
+                stateStore.findStateById(first.id()).orElseThrow());
+        assertEquals(CdcCommitState.PREPARED,
+                stateStore.findStateById(retry.id()).orElseThrow());
     }
 
     @Test
@@ -196,9 +226,48 @@ class TwoPhaseCommitCoordinatorTest {
         OffsetRange range = new OffsetRange(0, 500, 599);
 
         PrepareToken token = coordinator.prepare(source, range);
-        coordinator.commit(token);
+        claimAndCommit(token);
 
         assertThrows(PangrovaException.class, () -> coordinator.rollback(token));
+        AtomicBoolean aborted = new AtomicBoolean();
+        CommitParticipant published = new CommitParticipant() {
+            @Override public String name() { return "published"; }
+            @Override public void prepare() { }
+            @Override public void commit() { }
+            @Override public void abort() { aborted.set(true); }
+        };
+        assertThrows(IllegalStateException.class,
+                () -> coordinator.rollback(token, List.of(published)));
+        assertFalse(aborted.get(), "published files must not be discarded");
+    }
+
+    @Test
+    void participantRollbackClaimsStateBeforeAbortingStagedFiles() {
+        PrepareToken token = coordinator.prepare(
+                new SourceId("kafka-orders"), new OffsetRange(0, 600, 699));
+        AtomicBoolean aborted = new AtomicBoolean();
+        AtomicBoolean competingPublicationClaimed = new AtomicBoolean();
+        CommitParticipant staged = new CommitParticipant() {
+            @Override public String name() { return "staged"; }
+            @Override public void prepare() { }
+            @Override public void commit() { }
+            @Override public void abort() {
+                aborted.set(true);
+                // Interleave a second coordinator at the exact point where a
+                // catalog file would be deleted. It must not be able to publish.
+                competingPublicationClaimed.set(new JdbcCdcCommitStateStore(dataSource)
+                        .compareAndSetState(token.id(), CdcCommitState.PREPARED,
+                                CdcCommitState.COMMITTING));
+            }
+        };
+
+        coordinator.rollback(token, List.of(staged));
+
+        assertTrue(aborted.get());
+        assertFalse(competingPublicationClaimed.get(),
+                "publication cannot start while staged files are being aborted");
+        assertEquals(CdcCommitState.ROLLED_BACK,
+                stateStore.findStateById(token.id()).orElseThrow());
     }
 
     @Test
@@ -219,7 +288,7 @@ class TwoPhaseCommitCoordinatorTest {
     }
 
     @Test
-    void recoverRetriesCommittingTransactions() {
+    void recoverQuarantinesAmbiguousCommittingTransactions() {
         SourceId source = new SourceId("kafka-orders");
         OffsetRange range = new OffsetRange(0, 700, 799);
 
@@ -229,11 +298,9 @@ class TwoPhaseCommitCoordinatorTest {
         stateStore.insert(token, CdcCommitState.PREPARED);
         stateStore.updateState(token.id(), CdcCommitState.COMMITTING);
 
-        List<PrepareToken> recovered = coordinator.recover(source);
-
-        assertEquals(1, recovered.size());
+        assertThrows(IllegalStateException.class, () -> coordinator.recover(source));
         CdcCommitState state = stateStore.findStateById(token.id()).orElseThrow();
-        assertEquals(CdcCommitState.COMMITTED, state);
+        assertEquals(CdcCommitState.COMMITTING, state);
     }
 
     @Test
@@ -484,7 +551,7 @@ class TwoPhaseCommitCoordinatorTest {
     }
 
     @Test
-    void executeAtomicCommitAbortsAllOnCommitFailure() {
+    void executeAtomicCommitLeavesAmbiguousPublicationForReconciliation() {
         SourceId source = new SourceId("kafka-orders");
         OffsetRange range = new OffsetRange(0, 300, 399);
 
@@ -511,8 +578,50 @@ class TwoPhaseCommitCoordinatorTest {
         assertThrows(RuntimeException.class,
             () -> coordinator.executeAtomicCommit(source, range, participants));
 
-        assertTrue(firstAborted.get(), "first participant should be aborted on commit failure");
-        assertTrue(secondAborted.get(), "second participant should be aborted on commit failure");
+        assertFalse(firstAborted.get(), "published files must not be discarded after commit starts");
+        assertFalse(secondAborted.get(), "participant outcome is ambiguous after commit starts");
+        PrepareToken token = stateStore.findDuplicate(source, range).orElseThrow();
+        assertEquals(CdcCommitState.COMMITTING,
+                stateStore.findStateById(token.id()).orElseThrow());
+        assertThrows(IllegalStateException.class,
+                () -> coordinator.executeAtomicCommit(source, range, participants));
+        assertThrows(IllegalStateException.class, () -> coordinator.rollback(token));
+        assertThrows(IllegalStateException.class,
+                () -> coordinator.rollback(token, participants));
+        assertFalse(firstAborted.get());
+        assertFalse(secondAborted.get());
+    }
+
+    @Test
+    void compareAndSetClaimAllowsOnlyOneCoordinatorToStartPublication() throws Exception {
+        SourceId source = new SourceId("kafka-orders");
+        PrepareToken token = coordinator.prepare(source, new OffsetRange(0, 800, 899));
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var first = workers.submit(() -> claimAfterStart(token, ready, start));
+            var second = workers.submit(() -> claimAfterStart(token, ready, start));
+            assertTrue(ready.await(30, TimeUnit.SECONDS));
+            start.countDown();
+            boolean firstWon = first.get(30, TimeUnit.SECONDS);
+            boolean secondWon = second.get(30, TimeUnit.SECONDS);
+            assertNotEquals(firstWon, secondWon);
+        } finally {
+            start.countDown();
+            workers.shutdownNow();
+        }
+        assertEquals(CdcCommitState.COMMITTING,
+                stateStore.findStateById(token.id()).orElseThrow());
+    }
+
+    private boolean claimAfterStart(
+            PrepareToken token, CountDownLatch ready, CountDownLatch start)
+            throws InterruptedException {
+        ready.countDown();
+        start.await();
+        return new JdbcCdcCommitStateStore(dataSource).compareAndSetState(
+                token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING);
     }
 
     @Test
@@ -534,13 +643,13 @@ class TwoPhaseCommitCoordinatorTest {
 
         // Commit two ranges on partition 0
         PrepareToken token1 = coordinator.prepare(source, new OffsetRange(0, 0, 49));
-        coordinator.commit(token1);
+        claimAndCommit(token1);
         PrepareToken token2 = coordinator.prepare(source, new OffsetRange(0, 50, 99));
-        coordinator.commit(token2);
+        claimAndCommit(token2);
 
         // Commit one range on partition 1
         PrepareToken token3 = coordinator.prepare(source, new OffsetRange(1, 0, 24));
-        coordinator.commit(token3);
+        claimAndCommit(token3);
 
         Map<TopicPartitionOffset, Long> offsets = coordinator.findLastCommittedOffsets(source);
 
@@ -575,5 +684,11 @@ class TwoPhaseCommitCoordinatorTest {
 
         assertTrue(offsets.isEmpty(),
             "should not include PREPARED or ROLLED_BACK offsets");
+    }
+
+    private void claimAndCommit(PrepareToken token) {
+        assertTrue(stateStore.compareAndSetState(
+                token.id(), CdcCommitState.PREPARED, CdcCommitState.COMMITTING));
+        coordinator.commit(token);
     }
 }

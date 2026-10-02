@@ -1,5 +1,6 @@
 package org.pangrova.testing.e2e.write;
 
+import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
@@ -155,11 +156,113 @@ class WriteDmlTransactionE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + src + " VALUES (2, 'bob_updated', 250.0), (3, 'carol', 300.0)");
 
             executeDml("MERGE INTO " + fqn() + " t USING " + src + " s ON t.id = s.id "
-                    + "WHEN MATCHED THEN UPDATE SET name = s.name, amount = s.amount "
+                    + "WHEN MATCHED THEN UPDATE SET NAME = s.name, Amount = s.amount "
                     + "WHEN NOT MATCHED THEN INSERT (id, name, amount) VALUES (s.id, s.name, s.amount)");
 
             List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn() + " ORDER BY id");
             assertThat(rows).hasSize(3);
+            assertThat(rows).extracting(row -> List.of(
+                    row.getLong("id"), row.getString("name"), row.getDouble("amount")))
+                    .containsExactly(
+                            List.of(1L, "alice", 100.0),
+                            List.of(2L, "bob_updated", 250.0),
+                            List.of(3L, "carol", 300.0));
+        }
+
+        @Test
+        @DisplayName("MERGE handles nullable source prefix and reordered partial INSERT")
+        void mergeUsesMatchMarkerAndTargetColumnMapping() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, name VARCHAR, amount DOUBLE)");
+            executeDml("INSERT INTO " + fqn()
+                    + " VALUES (1, 'alice', 100.0), (2, 'bob', 200.0)");
+
+            String src = FQN_PREFIX + tableName + "_src";
+            executeDdl("CREATE TABLE " + src
+                    + " (note VARCHAR, id BIGINT, name VARCHAR)");
+            executeDml("INSERT INTO " + src
+                    + " VALUES (NULL, 2, 'bob_updated'), (NULL, 3, 'carol')");
+
+            executeDml("MERGE INTO " + fqn() + " t USING " + src + " s ON t.id = s.id "
+                    + "WHEN MATCHED THEN UPDATE SET name = s.name "
+                    + "WHEN NOT MATCHED THEN INSERT (name, id) VALUES (s.name, s.id)");
+
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn() + " ORDER BY id");
+            assertThat(rows).hasSize(3);
+            assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
+            assertThat(rows.get(0).getString("name")).isEqualTo("alice");
+            assertThat(rows.get(0).getDouble("amount")).isEqualTo(100.0);
+            assertThat(rows.get(1).getLong("id")).isEqualTo(2L);
+            assertThat(rows.get(1).getString("name")).isEqualTo("bob_updated");
+            assertThat(rows.get(1).getDouble("amount")).isEqualTo(200.0);
+            assertThat(rows.get(2).getLong("id")).isEqualTo(3L);
+            assertThat(rows.get(2).getString("name")).isEqualTo("carol");
+            assertThat(rows.get(2).getDouble("amount")).isNull();
+        }
+
+        @Test
+        @DisplayName("MERGE rejects two source matches without changing the target")
+        void mergeRejectsMultipleSourceMatchesAtomically() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, name VARCHAR)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1, 'original')");
+            String src = FQN_PREFIX + tableName + "_src";
+            executeDdl("CREATE TABLE " + src + " (id BIGINT, name VARCHAR)");
+            executeDml("INSERT INTO " + src
+                    + " VALUES (1, 'first'), (1, 'second')");
+
+            String error = executeExpectingError(
+                    "MERGE INTO " + fqn() + " t USING " + src + " s ON t.id = s.id "
+                    + "WHEN MATCHED THEN UPDATE SET name = s.name");
+
+            assertThat(error).contains("matched more than one source row");
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn());
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
+            assertThat(rows.get(0).getString("name")).isEqualTo("original");
+        }
+
+        @Test
+        @DisplayName("MERGE permits identical target rows with one source match")
+        void mergeDoesNotMistakeEqualTargetValuesForMultipleMatches() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, name VARCHAR)");
+            executeDml("INSERT INTO " + fqn()
+                    + " VALUES (1, 'original'), (1, 'original')");
+            String src = FQN_PREFIX + tableName + "_src";
+            executeDdl("CREATE TABLE " + src + " (id BIGINT, name VARCHAR)");
+            executeDml("INSERT INTO " + src + " VALUES (1, 'updated')");
+
+            executeDml("MERGE INTO " + fqn() + " t USING " + src + " s ON t.id = s.id "
+                    + "WHEN MATCHED THEN UPDATE SET name = s.name");
+
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn());
+            assertThat(rows).hasSize(2);
+            assertThat(rows).allSatisfy(row -> {
+                assertThat(row.getLong("id")).isEqualTo(1L);
+                assertThat(row.getString("name")).isEqualTo("updated");
+            });
+        }
+
+        @Test
+        @DisplayName("MERGE with DELETE and other actions fails without a commit")
+        void mergeMultipleMatchedActionsFailClosed() {
+            executeDdl("CREATE TABLE " + fqn() + " (id BIGINT, name VARCHAR)");
+            executeDml("INSERT INTO " + fqn() + " VALUES (1, 'keep'), (2, 'old')");
+            String src = FQN_PREFIX + tableName + "_src";
+            executeDdl("CREATE TABLE " + src + " (id BIGINT, name VARCHAR)");
+            executeDml("INSERT INTO " + src + " VALUES (2, 'delete'), (3, 'insert')");
+
+            String error = executeExpectingError(
+                    "MERGE INTO " + fqn() + " t USING " + src + " s ON t.id = s.id "
+                    + "WHEN MATCHED AND s.name = 'delete' THEN DELETE "
+                    + "WHEN MATCHED THEN UPDATE SET name = s.name "
+                    + "WHEN NOT MATCHED THEN INSERT (id, name) VALUES (s.id, s.name)");
+
+            assertThat(error).contains("one atomic native write");
+            List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn() + " ORDER BY id");
+            assertThat(rows).hasSize(2);
+            assertThat(rows.get(0).getLong("id")).isEqualTo(1L);
+            assertThat(rows.get(0).getString("name")).isEqualTo("keep");
+            assertThat(rows.get(1).getLong("id")).isEqualTo(2L);
+            assertThat(rows.get(1).getString("name")).isEqualTo("old");
         }
     }
 
@@ -186,11 +289,17 @@ class WriteDmlTransactionE2ETest extends PangrovaE2ETestBase {
             List<TypedRow> usRows = executeQuery(
                     "SELECT * FROM " + fqn() + " WHERE region = 'us'");
             assertThat(usRows).hasSize(1);
+            assertThat(usRows.get(0).get("id"))
+                    .isEqualTo(new ColumnValue.LongValue(10L));
+            assertThat(usRows.get(0).get("amount"))
+                    .isEqualTo(new ColumnValue.DoubleValue(1000.0));
 
             // 'eu' partition should be untouched
             List<TypedRow> euRows = executeQuery(
                     "SELECT * FROM " + fqn() + " WHERE region = 'eu'");
             assertThat(euRows).hasSize(1);
+            assertThat(euRows.get(0).get("id"))
+                    .isEqualTo(new ColumnValue.LongValue(2L));
         }
     }
 

@@ -5,7 +5,7 @@ LogicalProject(cd_gender=[$0], cd_marital_status=[$1], cd_education_status=[$2],
         LogicalCorrelate(correlation=[$cor0], joinType=[left], requiredColumns=[{0}])
           LogicalCorrelate(correlation=[$cor0], joinType=[left], requiredColumns=[{0}])
             LogicalCorrelate(correlation=[$cor0], joinType=[left], requiredColumns=[{0}])
-              LogicalFilter(condition=[SEARCH($25, Sarg['Dona Ana County':CHAR(16), 'Jefferson County', 'La Porte County':CHAR(16), 'Rush County':CHAR(16), 'Toole County':CHAR(16)]:CHAR(16))])
+              LogicalFilter(condition=[SEARCH($25, Sarg['Dona Ana County':VARCHAR, 'Jefferson County':VARCHAR, 'La Porte County':VARCHAR, 'Rush County':VARCHAR, 'Toole County':VARCHAR]:VARCHAR)])
                 LogicalJoin(condition=[=($2, $31)], joinType=[inner])
                   LogicalJoin(condition=[=($4, $18)], joinType=[inner])
                     LogicalTableScan(table=[[customer]])

@@ -1,6 +1,7 @@
 package org.pangrova.testing;
 
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
+import org.pangrova.shuffle.exchange.ExchangeInput;
+import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 
 import java.util.List;
@@ -16,17 +17,15 @@ public final class TestExchangeTransport implements ExchangeTransport {
     private TestExchangeTransport() {}
 
     @Override
-    public void startExchange(long executorHandle, List<ExchangeEndpoint> sources) {
+    public void bindInputs(
+            long executorHandle,
+            ExchangeTaskAttempt consumerAttempt,
+            List<ExchangeInput> inputs) {
         // no-op
     }
 
     @Override
-    public void addSources(long executorHandle, List<ExchangeEndpoint> newSources) {
-        // no-op
-    }
-
-    @Override
-    public void noMoreSources(long executorHandle) {
+    public void releaseInputs(long executorHandle) {
         // no-op
     }
 }

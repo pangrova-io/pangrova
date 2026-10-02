@@ -3,7 +3,6 @@ package org.pangrova.planner.substrait;
 import io.substrait.expression.Expression;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableExpression;
-import io.substrait.relation.ExtensionSingle;
 import io.substrait.relation.ImmutableJoin;
 import io.substrait.relation.ImmutableProject;
 import io.substrait.relation.Join;
@@ -18,7 +17,6 @@ import org.apache.calcite.rel.logical.LogicalCorrelate;
 import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.type.RelDataType;
-import org.apache.calcite.rel.type.RelDataTypeField;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexCorrelVariable;
 import org.apache.calcite.rex.RexFieldAccess;
@@ -45,13 +43,16 @@ final class CorrelateConverter {
     private final FunctionMapper functionMapper;
     private final ExpressionConverter rexConverter;
     private final Function<RelNode, Rel> relVisitor;
+    private final UnnestConverter unnestConverter;
 
     CorrelateConverter(TypeMapper typeMapper, FunctionMapper functionMapper,
-                       ExpressionConverter rexConverter, Function<RelNode, Rel> relVisitor) {
+                       ExpressionConverter rexConverter, Function<RelNode, Rel> relVisitor,
+                       UnnestConverter unnestConverter) {
         this.typeMapper = typeMapper;
         this.functionMapper = functionMapper;
         this.rexConverter = rexConverter;
         this.relVisitor = relVisitor;
+        this.unnestConverter = unnestConverter;
     }
 
     /**
@@ -76,12 +77,13 @@ final class CorrelateConverter {
         // rather than a NestedLoopJoin (which doesn't support correlation).
         RelNode rightNode = correlate.getRight();
         if (rightNode instanceof Uncollect uncollect) {
-            return buildUnnestExtension(correlate, uncollect);
+            return unnestConverter.convert(correlate, uncollect, null);
         }
-        // Strip LogicalProject wrapper if present (Calcite sometimes wraps Uncollect).
+        // Preserve the actual right projection; aliases, reordering and computed
+        // expressions are part of the lateral relation, not a disposable wrapper.
         if (rightNode instanceof LogicalProject proj
                 && proj.getInput() instanceof Uncollect uncollect) {
-            return buildUnnestExtension(correlate, uncollect);
+            return unnestConverter.convert(correlate, uncollect, proj);
         }
 
         // Try manual decorrelation for scalar subquery pattern:
@@ -176,6 +178,7 @@ final class CorrelateConverter {
         return ImmutableProject.builder()
                 .input(joinRel)
                 .expressions(projections)
+                .remap(Rel.Remap.offset(joinRel.getRecordType().fields().size(), projections.size()))
                 .build();
     }
 
@@ -346,38 +349,4 @@ final class CorrelateConverter {
                 .build();
     }
 
-    /**
-     * Builds an ExtensionSingle Rel encoding UNNEST (EXPLODE) semantics.
-     * The native engine interprets this as a native UnnestNode.
-     *
-     * <p>The detail encodes: unnest column indices (from the left input),
-     * output column names, and whether ordinality (POSEXPLODE) is requested.</p>
-     */
-    private Rel buildUnnestExtension(LogicalCorrelate correlate, Uncollect uncollect) {
-        Rel leftRel = relVisitor.apply(correlate.getLeft());
-        var requiredColumns = correlate.getRequiredColumns();
-
-        var unnestColumnIndices = requiredColumns.asList();
-
-        var unnestOutputNames = uncollect.getRowType().getFieldList().stream()
-                .map(RelDataTypeField::getName)
-                .toList();
-
-        boolean withOrdinality = uncollect.withOrdinality;
-
-        // Build output type: left input fields + unnest output fields.
-        var outputFields = correlate.getRowType().getFieldList();
-        var outputTypes = outputFields.stream()
-                .map(f -> typeMapper.map(f.getType()))
-                .toList();
-        var outputType = io.substrait.type.TypeCreator.NULLABLE.struct(outputTypes);
-
-        var detail = new UnnestRelDetail(
-                unnestColumnIndices, unnestOutputNames, withOrdinality, outputType);
-
-        LOG.debug("event=convert_unnest correlationId={} unnestColumns={} unnestNames={} ordinality={}",
-                correlate.getCorrelationId(), unnestColumnIndices, unnestOutputNames, withOrdinality);
-
-        return ExtensionSingle.from(detail, leftRel).build();
-    }
 }

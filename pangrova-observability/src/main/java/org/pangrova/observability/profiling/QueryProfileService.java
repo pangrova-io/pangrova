@@ -120,7 +120,12 @@ public final class QueryProfileService {
             List<OperatorNode> operatorTree,
             TimingBreakdown timing,
             MemoryUsage memory,
-            List<FlameGraphFrame> flameGraph) {}
+            List<FlameGraphFrame> flameGraph) {
+        public QueryProfile {
+            operatorTree = List.copyOf(operatorTree);
+            flameGraph = List.copyOf(flameGraph);
+        }
+    }
 
     /**
      * A node in the operator execution tree.
@@ -132,7 +137,11 @@ public final class QueryProfileService {
             long cpuTimeMs,
             long outputRows,
             long peakMemoryBytes,
-            List<OperatorNode> children) {}
+            List<OperatorNode> children) {
+        public OperatorNode {
+            children = List.copyOf(children);
+        }
+    }
 
     /**
      * Timing breakdown for the query execution.

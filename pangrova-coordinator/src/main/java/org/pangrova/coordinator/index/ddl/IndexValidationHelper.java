@@ -2,7 +2,6 @@ package org.pangrova.coordinator.index.ddl;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.index.IndexConnectorSession;
 import org.pangrova.coordinator.index.IndexTypeCompatibility;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
@@ -29,13 +28,13 @@ final class IndexValidationHelper {
 
     private IndexValidationHelper() {}
 
-    static void validateTableExists(QualifiedTableName ref, CatalogRegistry catalogRegistry) {
+    static void validateTableExists(
+            QualifiedTableName ref, CatalogRegistry catalogRegistry, ConnectorSession session) {
         CatalogHandle handle = catalogRegistry.getCatalog(ref.catalog());
         if (handle == null) {
             throw new PangrovaException(PangrovaErrorCode.METADATA_TABLE_NOT_FOUND,
                     "Catalog not found: " + ref.catalog());
         }
-        ConnectorSession session = new IndexConnectorSession(ref.catalog());
         ConnectorMetadata metadata = handle.getMetadata(session);
         ConnectorTableHandle tableHandle = metadata.getTableHandle(
                 session, new SchemaTableName(ref.schema(), ref.table()));
@@ -46,9 +45,8 @@ final class IndexValidationHelper {
     }
 
     static void validateColumns(QualifiedTableName ref, List<String> columns,
-                                IndexType indexType, CatalogRegistry catalogRegistry) {
+                                IndexType indexType, CatalogRegistry catalogRegistry, ConnectorSession session) {
         CatalogHandle handle = catalogRegistry.getCatalog(ref.catalog());
-        ConnectorSession session = new IndexConnectorSession(ref.catalog());
         ConnectorMetadata metadata = handle.getMetadata(session);
         ConnectorTableHandle tableHandle = metadata.getTableHandle(
                 session, new SchemaTableName(ref.schema(), ref.table()));
@@ -84,19 +82,14 @@ final class IndexValidationHelper {
     static void checkNativeCapabilityOverlap(
             String catalogName, List<String> columns, IndexType indexType,
             boolean force, ConnectorAccessorResolver accessorResolver) {
-        try {
-            List<NativeIndexCapability> capabilities =
-                    accessorResolver.resolveNativeCapabilities(catalogName);
-            for (NativeIndexCapability cap : capabilities) {
-                boolean overlaps = columns.stream().allMatch(cap::coversColumn)
-                        && nativeTypeOverlaps(cap.indexType(), indexType);
-                if (overlaps) {
-                    handleNativeOverlap(catalogName, columns, indexType, cap, force);
-                }
+        List<NativeIndexCapability> capabilities =
+                accessorResolver.resolveNativeCapabilities(catalogName);
+        for (NativeIndexCapability cap : capabilities) {
+            boolean overlaps = columns.stream().allMatch(cap::coversColumn)
+                    && nativeTypeOverlaps(cap.indexType(), indexType);
+            if (overlaps) {
+                handleNativeOverlap(catalogName, columns, indexType, cap, force);
             }
-        } catch (IllegalArgumentException e) {
-            LOG.debug("action=native_capability_check_skip catalog={} reason={}",
-                    catalogName, e.getMessage());
         }
     }
 

@@ -1,0 +1,24 @@
+package org.pangrova.metadata.index.model;
+
+/** Exact immutable index generation and optional source snapshot selected for a query. */
+public record IndexFileSelection(int generation, String sourceSnapshot) {
+
+    public IndexFileSelection {
+        if (generation < 0) {
+            throw new IllegalArgumentException("generation must be non-negative");
+        }
+        sourceSnapshot = sourceSnapshot == null ? "" : sourceSnapshot;
+    }
+
+    /** Returns whether the mapping belongs to this query-pinned selection. */
+    public boolean matches(IndexFileMapping mapping) {
+        return mapping.generation() == generation;
+    }
+
+    /** Returns whether an active manifest satisfies this query snapshot. */
+    public boolean matches(IndexGenerationManifest manifest) {
+        return manifest.generation() == generation
+                && (sourceSnapshot.isBlank()
+                        || sourceSnapshot.equals(manifest.sourceSnapshot()));
+    }
+}

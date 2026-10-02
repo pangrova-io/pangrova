@@ -2,23 +2,25 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergDeclarationProperties;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Locale;
+import java.util.Map;
 
 /**
  * Builds {@link IcebergOutputTableHandle}s for the distributed write path
  * (insert, overwrite, delete) and for crash-recovery reconstruction,
- * capturing the table's live metadata and base snapshot for conflict
- * detection at commit time.
+ * capturing the table metadata and the original base snapshot for conflict detection at commit
+ * time. Recovery must pass the persisted base snapshot rather than observing a new one.
  */
 final class IcebergOutputHandles {
 
@@ -38,6 +40,13 @@ final class IcebergOutputHandles {
                 icebergTable, IcebergOutputTableHandle.MODE_OVERWRITE);
     }
 
+    static ConnectorOutputTableHandle forOverwrite(
+            IcebergTableHandle handle, Table table, Map<String, String> staticPartitions) {
+        IcebergStaticOverwriteScope.filter(table.schema(), table.spec(), staticPartitions);
+        return build(handle.schemaName(), handle.tableName(), table,
+                IcebergOutputTableHandle.MODE_OVERWRITE, staticPartitions, null);
+    }
+
     /** Builds an output handle for a DELETE distributed write. */
     static ConnectorOutputTableHandle forDelete(IcebergTableHandle handle, Table icebergTable) {
         int formatVersion = IcebergFormatVersions.extract(icebergTable);
@@ -48,43 +57,61 @@ final class IcebergOutputHandles {
             LOG.info("event=begin_delete table={}.{} format_version={} deletion_mode=DELETION_VECTOR",
                     handle.schemaName(), handle.tableName(), formatVersion);
         }
-        return new IcebergOutputTableHandle(
-                handle.schemaName(), handle.tableName(), icebergTable.location(),
-                SchemaParser.toJson(icebergTable.schema()),
-                PartitionSpecParser.toJson(icebergTable.spec()),
-                formatVersion,
-                currentSnapshotId(icebergTable),
+        return build(handle.schemaName(), handle.tableName(), icebergTable,
                 IcebergOutputTableHandle.MODE_DELETE);
     }
 
     /**
      * A-COMMIT-01: rebuilds an output handle for crash recovery from the live table metadata,
      * mirroring {@code beginInsert/beginOverwrite/beginDelete} for the current table and the
-     * recorded {@code writeMode}. Throws {@code NoSuchTableException} if the table is gone (the
-     * recovering reconciler then aborts the intent).
+     * recorded {@code writeMode}. This legacy overload observes the current snapshot and is not
+     * suitable for crash recovery. Throws {@code NoSuchTableException} if the table is gone.
      */
     static ConnectorOutputTableHandle reconstruct(Catalog catalog,
                                                   SchemaTableName tableName, String writeMode) {
         TableIdentifier tableId = TableIdentifier.of(tableName.schema(), tableName.table());
         Table icebergTable = catalog.loadTable(tableId);
-        return new IcebergOutputTableHandle(
-                tableName.schema(), tableName.table(), icebergTable.location(),
-                SchemaParser.toJson(icebergTable.schema()),
-                PartitionSpecParser.toJson(icebergTable.spec()),
-                IcebergFormatVersions.extract(icebergTable),
-                currentSnapshotId(icebergTable),
-                normalizeReconstructMode(writeMode));
+        return reconstruct(icebergTable, tableName, writeMode, currentSnapshotId(icebergTable));
+    }
+
+    static ConnectorOutputTableHandle reconstruct(
+            Catalog catalog,
+            SchemaTableName tableName,
+            String writeMode,
+            long baseSnapshotId) {
+        TableIdentifier tableId = TableIdentifier.of(tableName.schema(), tableName.table());
+        Table icebergTable = catalog.loadTable(tableId);
+        return reconstruct(icebergTable, tableName, writeMode, baseSnapshotId);
+    }
+
+    private static ConnectorOutputTableHandle reconstruct(
+            Table icebergTable,
+            SchemaTableName tableName,
+            String writeMode,
+            long baseSnapshotId) {
+        return build(tableName.schema(), tableName.table(), icebergTable,
+                normalizeReconstructMode(writeMode), Map.of(), baseSnapshotId);
     }
 
     private static IcebergOutputTableHandle build(String schemaName, String tableName,
                                                   Table icebergTable, String writeMode) {
+        return build(schemaName, tableName, icebergTable, writeMode, Map.of(), null);
+    }
+
+    private static IcebergOutputTableHandle build(String schemaName, String tableName,
+            Table table, String writeMode, Map<String, String> staticPartitions, Long originalSnapshotId) {
+        if (!(table instanceof HasTableOperations sdkTable)) {
+            throw new IllegalStateException("Iceberg write allocation requires SDK TableOperations");
+        }
+        var metadata = sdkTable.operations().refresh();
+        IcebergStaticOverwriteScope.filter(metadata.schema(), metadata.spec(), staticPartitions);
+        long snapshotId = metadata.currentSnapshot() == null
+                ? IcebergOutputTableHandle.NO_SNAPSHOT : metadata.currentSnapshot().snapshotId();
         return new IcebergOutputTableHandle(
-                schemaName, tableName, icebergTable.location(),
-                SchemaParser.toJson(icebergTable.schema()),
-                PartitionSpecParser.toJson(icebergTable.spec()),
-                IcebergFormatVersions.extract(icebergTable),
-                currentSnapshotId(icebergTable),
-                writeMode);
+                schemaName, tableName, metadata.uuid(), metadata.location(),
+                SchemaParser.toJson(metadata.schema()), PartitionSpecParser.toJson(metadata.spec()),
+                metadata.formatVersion(), originalSnapshotId == null ? snapshotId : originalSnapshotId,
+                writeMode, staticPartitions, IcebergDeclarationProperties.capture(metadata.properties()));
     }
 
     private static long currentSnapshotId(Table icebergTable) {
@@ -93,14 +120,24 @@ final class IcebergOutputHandles {
                 : IcebergOutputTableHandle.NO_SNAPSHOT;
     }
 
+    static String tableUuid(Table icebergTable) {
+        java.util.UUID uuid = icebergTable.uuid();
+        if (uuid == null) {
+            throw new IllegalStateException("Iceberg table UUID is unavailable for a distributed write");
+        }
+        return uuid.toString();
+    }
+
     private static String normalizeReconstructMode(String writeMode) {
         if (writeMode == null) {
-            return IcebergOutputTableHandle.MODE_INSERT;
+            throw new IllegalArgumentException("Distributed write recovery mode is missing");
         }
-        return switch (writeMode.toUpperCase(Locale.ROOT)) {
+        return switch (writeMode) {
+            case IcebergOutputTableHandle.MODE_INSERT -> IcebergOutputTableHandle.MODE_INSERT;
             case IcebergOutputTableHandle.MODE_OVERWRITE -> IcebergOutputTableHandle.MODE_OVERWRITE;
             case IcebergOutputTableHandle.MODE_DELETE -> IcebergOutputTableHandle.MODE_DELETE;
-            default -> IcebergOutputTableHandle.MODE_INSERT;
+            default -> throw new IllegalArgumentException(
+                    "Unsupported distributed write recovery mode: " + writeMode);
         };
     }
 }

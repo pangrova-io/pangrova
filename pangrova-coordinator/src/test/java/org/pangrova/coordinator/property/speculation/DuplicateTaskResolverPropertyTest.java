@@ -24,6 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("Property 42: Duplicate task resolution correctness")
 class DuplicateTaskResolverPropertyTest {
 
+    private static final String QUERY_ID = "property-query";
+
     @Property(tries = 10)
     @Label("Exactly one winner per stage partition")
     void exactlyOneWinnerPerPartition(
@@ -35,7 +37,8 @@ class DuplicateTaskResolverPropertyTest {
         List<Boolean> results = new ArrayList<>();
 
         for (int i = 0; i < competitorCount; i++) {
-            results.add(resolver.onTaskComplete("task-" + i, stageId, partitionId));
+            results.add(resolver.onTaskComplete(
+                    QUERY_ID, "task-" + i, stageId, partitionId));
         }
 
         long winnerCount = results.stream().filter(Boolean::booleanValue).count();
@@ -51,10 +54,10 @@ class DuplicateTaskResolverPropertyTest {
             @ForAll @IntRange(min = 0, max = 15) int partitionId) {
 
         DuplicateTaskResolver resolver = new DuplicateTaskResolver();
-        resolver.onTaskComplete("first-task", stageId, partitionId);
-        resolver.onTaskComplete("second-task", stageId, partitionId);
+        resolver.onTaskComplete(QUERY_ID, "first-task", stageId, partitionId);
+        resolver.onTaskComplete(QUERY_ID, "second-task", stageId, partitionId);
 
-        Optional<String> winner = resolver.getWinner(stageId, partitionId);
+        Optional<String> winner = resolver.getWinner(QUERY_ID, stageId, partitionId);
         assertThat(winner).isPresent().hasValue("first-task");
     }
 
@@ -66,13 +69,13 @@ class DuplicateTaskResolverPropertyTest {
 
         DuplicateTaskResolver resolver = new DuplicateTaskResolver();
         for (int p = 0; p < partitionCount; p++) {
-            resolver.onTaskComplete("task-" + p, stageId, p);
+            resolver.onTaskComplete(QUERY_ID, "task-" + p, stageId, p);
         }
 
-        resolver.clear(stageId);
+        resolver.clearQuery(QUERY_ID);
 
         for (int p = 0; p < partitionCount; p++) {
-            assertThat(resolver.getWinner(stageId, p))
+            assertThat(resolver.getWinner(QUERY_ID, stageId, p))
                     .as("After clear, no winner should exist for partition %d", p)
                     .isEmpty();
         }
@@ -95,7 +98,8 @@ class DuplicateTaskResolverPropertyTest {
             new Thread(() -> {
                 try {
                     start.await();
-                    boolean won = resolver.onTaskComplete(taskId, stageId, partitionId);
+                    boolean won = resolver.onTaskComplete(
+                            QUERY_ID, taskId, stageId, partitionId);
                     results.put(taskId, won);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -120,11 +124,22 @@ class DuplicateTaskResolverPropertyTest {
             @ForAll("stageIds") String stageId) {
 
         DuplicateTaskResolver resolver = new DuplicateTaskResolver();
-        resolver.onTaskComplete("task-A", stageId, 0);
-        resolver.onTaskComplete("task-B", stageId, 1);
+        resolver.onTaskComplete(QUERY_ID, "task-A", stageId, 0);
+        resolver.onTaskComplete(QUERY_ID, "task-B", stageId, 1);
 
-        assertThat(resolver.getWinner(stageId, 0)).hasValue("task-A");
-        assertThat(resolver.getWinner(stageId, 1)).hasValue("task-B");
+        assertThat(resolver.getWinner(QUERY_ID, stageId, 0)).hasValue("task-A");
+        assertThat(resolver.getWinner(QUERY_ID, stageId, 1)).hasValue("task-B");
+    }
+
+    @Property(tries = 10)
+    @Label("Identical stage partitions in different queries elect independently")
+    void queryIdentityIsPartOfElectionKey(@ForAll("stageIds") String stageId) {
+        DuplicateTaskResolver resolver = new DuplicateTaskResolver();
+        assertThat(resolver.onTaskComplete("query-a", "task-a", stageId, 0)).isTrue();
+        assertThat(resolver.onTaskComplete("query-b", "task-b", stageId, 0)).isTrue();
+        resolver.clearQuery("query-a");
+        assertThat(resolver.getWinner("query-a", stageId, 0)).isEmpty();
+        assertThat(resolver.getWinner("query-b", stageId, 0)).hasValue("task-b");
     }
 
     @Provide

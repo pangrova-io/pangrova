@@ -14,15 +14,12 @@ import org.pangrova.metadata.streaming.StreamState;
 import org.junit.jupiter.api.Tag;
 
 import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.Statement;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @Tag("integration")
 class StreamStateStoreRoundTripPropertyTest {
@@ -31,15 +28,13 @@ class StreamStateStoreRoundTripPropertyTest {
 
     @BeforeProperty
     void setUp() throws Exception {
-        assumeTrue(SharedPostgresContainer.isAvailable());
-        DataSource dataSource = SharedPostgresContainer.dataSource();
-        initSchema(dataSource);
+        DataSource dataSource = SharedPostgresContainer.migratedDataSource("stream_round_trip");
         store = new JdbcStreamStateStore(dataSource);
     }
 
     @Property(tries = 10)
     void saveAndLoadPreservesAllFields(@ForAll("streamStates") StreamState original) {
-                store.delete(original.streamName());
+        store.delete(original.streamName());
         store.saveState(original);
 
         Optional<StreamState> loaded = store.loadState(original.streamName());
@@ -182,34 +177,4 @@ class StreamStateStoreRoundTripPropertyTest {
                 .ofMinSize(1).ofMaxSize(5);
     }
 
-    // ── Schema ──────────────────────────────────────────────────────
-
-    private static void initSchema(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS ingestion_stream_state");
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS ingestion_stream_state (
-                        stream_name       VARCHAR(255) NOT NULL PRIMARY KEY,
-                        tenant_id         VARCHAR(255) NOT NULL,
-                        lifecycle_state   VARCHAR(32)  NOT NULL,
-                        target_table      VARCHAR(512) NOT NULL,
-                        source_properties TEXT         NOT NULL,
-                        source_format     VARCHAR(64)  NOT NULL,
-                        stream_properties TEXT,
-                        creator_identity  VARCHAR(255),
-                        coordinator_id    VARCHAR(255),
-                        epoch             BIGINT       NOT NULL DEFAULT 0,
-                        schema_version    INT          NOT NULL DEFAULT 0,
-                        error_message     TEXT,
-                        records_consumed  BIGINT       NOT NULL DEFAULT 0,
-                        records_written   BIGINT       NOT NULL DEFAULT 0,
-                        records_dead_lettered BIGINT   NOT NULL DEFAULT 0,
-                        last_offset_commit_time TIMESTAMP,
-                        created_at        TIMESTAMP    NOT NULL,
-                        updated_at        TIMESTAMP    NOT NULL
-                    )
-                    """);
-        }
-    }
 }

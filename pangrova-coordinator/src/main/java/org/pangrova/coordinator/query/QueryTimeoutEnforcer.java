@@ -124,8 +124,7 @@ public class QueryTimeoutEnforcer {
             LOG.warn("event=query_timeout queryId={} timeout={} delegated=true", queryId, timeout);
             return;
         }
-        sm.setError(error);
-        sm.tryTransition(QueryStateMachine.State.FAILED);
+        sm.tryTransitionToFailed(error);
         LOG.warn("event=query_timeout queryId={} timeout={} delegated=false", queryId, timeout);
     }
 

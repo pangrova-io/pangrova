@@ -14,6 +14,7 @@
 #include "write/NativeWriteExecutor.h"
 
 #include <stdexcept>
+#include <limits>
 #include <utility>
 
 #include "jni/bridge/JniBridge.h"
@@ -95,11 +96,10 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
     : vm_(nullptr),
       writer_(nullptr),
       beginWriteId_(nullptr),
-      appendBatchId_(nullptr),
-      appendSerializedBatchId_(nullptr),
       appendDirectBatchId_(nullptr),
       commitWriteId_(nullptr),
       abortWriteId_(nullptr),
+      publishCommitMetadataForTaskId_(nullptr),
       descriptorClass_(nullptr),
       descriptorCtor_(nullptr),
       columnSchemaClass_(nullptr),
@@ -149,27 +149,11 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
           "NativeWriteExecutor: GetMethodID failed for beginWrite");
     }
 
-    appendBatchId_ = env->GetMethodID(
-        writerClass, "appendBatch", "(JJJ)V");
-    if (!appendBatchId_) {
-      throw std::runtime_error(
-          "NativeWriteExecutor: GetMethodID failed for appendBatch");
-    }
-
-    appendSerializedBatchId_ = env->GetMethodID(
-        writerClass, "appendSerializedBatch", "(J[BII)V");
-    if (!appendSerializedBatchId_) {
-      throw std::runtime_error(
-          "NativeWriteExecutor: GetMethodID failed for appendSerializedBatch");
-    }
-
-    // L4-3A: Cache appendDirectBatch method ID for zero-copy write path.
     appendDirectBatchId_ = env->GetMethodID(
         writerClass, "appendDirectBatch", "(JLjava/nio/ByteBuffer;II)V");
     if (!appendDirectBatchId_) {
-      // Non-fatal: fall back to appendSerializedBatch (byte[] copy path)
-      env->ExceptionClear();
-      appendDirectBatchId_ = nullptr;
+      throw std::runtime_error(
+          "NativeWriteExecutor: GetMethodID failed for appendDirectBatch");
     }
 
     commitWriteId_ = env->GetMethodID(
@@ -184,6 +168,13 @@ NativeWriteExecutor::NativeWriteExecutor(JNIEnv* env, jobject writerRef)
     if (!abortWriteId_) {
       throw std::runtime_error(
           "NativeWriteExecutor: GetMethodID failed for abortWrite");
+    }
+
+    publishCommitMetadataForTaskId_ = env->GetMethodID(
+        writerClass, "publishCommitMetadataForTask", "(Ljava/lang/String;[B)V");
+    if (!publishCommitMetadataForTaskId_) {
+      throw std::runtime_error(
+          "NativeWriteExecutor: GetMethodID failed for publishCommitMetadataForTask");
     }
 
     // Cache WriteDescriptor class and constructor.
@@ -475,38 +466,6 @@ int64_t NativeWriteExecutor::beginWrite(const WriteDescriptor& descriptor) {
   return static_cast<int64_t>(handle);
 }
 
-void NativeWriteExecutor::appendBatch(
-    int64_t handle, const void* arrowArray, const void* arrowSchema) {
-  auto guard = acquireEnv(vm_);
-  JNIEnv* env = guard.env();
-  if (!env) {
-    throw std::runtime_error("NativeWriteExecutor::appendBatch: no JNIEnv");
-  }
-
-  env->CallVoidMethod(
-      writer_, appendBatchId_,
-      static_cast<jlong>(handle),
-      reinterpret_cast<jlong>(arrowArray),
-      reinterpret_cast<jlong>(arrowSchema));
-  checkJniException(env, "appendBatch");
-}
-
-void NativeWriteExecutor::appendSerializedBatch(
-    int64_t handle, jbyteArray data, int32_t rowCount, int32_t colCount) {
-  auto guard = acquireEnv(vm_);
-  JNIEnv* env = guard.env();
-  if (!env) {
-    throw std::runtime_error(
-        "NativeWriteExecutor::appendSerializedBatch: no JNIEnv");
-  }
-
-  env->CallVoidMethod(
-      writer_, appendSerializedBatchId_,
-      static_cast<jlong>(handle), data,
-      static_cast<jint>(rowCount), static_cast<jint>(colCount));
-  checkJniException(env, "appendSerializedBatch");
-}
-
 void NativeWriteExecutor::appendBatchData(
     int64_t handle, const uint8_t* data, int64_t size,
     int32_t rowCount, int32_t colCount) {
@@ -517,36 +476,25 @@ void NativeWriteExecutor::appendBatchData(
         "NativeWriteExecutor::appendBatchData: no JNIEnv");
   }
 
-  // L4-3A: Prefer zero-copy DirectByteBuffer path when available.
-  // NewDirectByteBuffer wraps the native pointer without copying,
-  // eliminating the SetByteArrayRegion memcpy (~40% latency reduction
-  // for large batches >64KB).
-  if (appendDirectBatchId_ && size > 0) {
-    jobject directBuffer = env->NewDirectByteBuffer(
-        const_cast<uint8_t*>(data), static_cast<jlong>(size));
-    if (directBuffer) {
-      env->CallVoidMethod(
-          writer_, appendDirectBatchId_,
-          static_cast<jlong>(handle), directBuffer,
-          static_cast<jint>(rowCount), static_cast<jint>(colCount));
-      env->DeleteLocalRef(directBuffer);
-      checkJniException(env, "appendDirectBatch");
-      return;
-    }
-    // NewDirectByteBuffer can return null on allocation failure;
-    // fall through to byte-array copy path.
+  if (data == nullptr || size <= 0 ||
+      size > std::numeric_limits<int32_t>::max() ||
+      rowCount < 0 || colCount <= 0) {
+    throw std::invalid_argument(
+        "NativeWriteExecutor::appendBatchData: invalid batch bounds");
   }
-
-  // Fallback: byte-array copy path
-  jbyteArray jbytes = env->NewByteArray(static_cast<jint>(size));
-  env->SetByteArrayRegion(jbytes, 0, static_cast<jint>(size),
-                          reinterpret_cast<const jbyte*>(data));
+  jobject directBuffer = env->NewDirectByteBuffer(
+      const_cast<uint8_t*>(data), static_cast<jlong>(size));
+  checkJniException(env, "NewDirectByteBuffer");
+  if (!directBuffer) {
+    throw std::runtime_error(
+        "NativeWriteExecutor::appendBatchData: direct buffer allocation failed");
+  }
   env->CallVoidMethod(
-      writer_, appendSerializedBatchId_,
-      static_cast<jlong>(handle), jbytes,
+      writer_, appendDirectBatchId_,
+      static_cast<jlong>(handle), directBuffer,
       static_cast<jint>(rowCount), static_cast<jint>(colCount));
-  env->DeleteLocalRef(jbytes);
-  checkJniException(env, "appendBatchData");
+  env->DeleteLocalRef(directBuffer);
+  checkJniException(env, "appendDirectBatch");
 }
 
 WriteCommitResult NativeWriteExecutor::commitWrite(int64_t handle) {
@@ -563,6 +511,43 @@ WriteCommitResult NativeWriteExecutor::commitWrite(int64_t handle) {
   WriteCommitResult result = parseCommitResult(env, resultObj);
   env->DeleteLocalRef(resultObj);
   return result;
+}
+
+void NativeWriteExecutor::publishCommitMetadataForTask(
+    const std::string& taskId,
+    const std::vector<uint8_t>& metadata) {
+  if (taskId.empty() || metadata.empty() ||
+      metadata.size() > static_cast<size_t>(std::numeric_limits<jsize>::max())) {
+    throw std::invalid_argument(
+        "NativeWriteExecutor::publishCommitMetadataForTask: invalid task metadata");
+  }
+  auto guard = acquireEnv(vm_);
+  JNIEnv* env = guard.env();
+  if (!env) {
+    throw std::runtime_error(
+        "NativeWriteExecutor::publishCommitMetadataForTask: no JNIEnv");
+  }
+  jstring task = toJstring(env, taskId);
+  checkJniException(env, "publishCommitMetadataForTask.NewStringUTF");
+  if (!task) {
+    throw std::runtime_error(
+        "NativeWriteExecutor::publishCommitMetadataForTask: task string allocation failed");
+  }
+  jbyteArray bytes = env->NewByteArray(static_cast<jsize>(metadata.size()));
+  if (!bytes) {
+    env->DeleteLocalRef(task);
+    checkJniException(env, "publishCommitMetadataForTask.NewByteArray");
+    throw std::runtime_error(
+        "NativeWriteExecutor::publishCommitMetadataForTask: byte array allocation failed");
+  }
+  env->SetByteArrayRegion(
+      bytes, 0, static_cast<jsize>(metadata.size()),
+      reinterpret_cast<const jbyte*>(metadata.data()));
+  checkJniException(env, "publishCommitMetadataForTask.SetByteArrayRegion");
+  env->CallVoidMethod(writer_, publishCommitMetadataForTaskId_, task, bytes);
+  env->DeleteLocalRef(bytes);
+  env->DeleteLocalRef(task);
+  checkJniException(env, "publishCommitMetadataForTask");
 }
 
 void NativeWriteExecutor::abortWrite(int64_t handle) noexcept {

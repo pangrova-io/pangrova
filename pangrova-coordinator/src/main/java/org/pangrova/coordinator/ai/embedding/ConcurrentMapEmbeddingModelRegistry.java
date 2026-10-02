@@ -26,7 +26,7 @@ public final class ConcurrentMapEmbeddingModelRegistry implements EmbeddingModel
 
     private static final Logger LOG = LoggerFactory.getLogger(ConcurrentMapEmbeddingModelRegistry.class);
 
-    private final ConcurrentMap<String, EmbeddingModelDescriptor> models = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, RegisteredModel> models = new ConcurrentHashMap<>();
     private final Set<String> dependentModels = ConcurrentHashMap.newKeySet();
     private final String adminGroup;
     private final String usageGroup;
@@ -44,13 +44,29 @@ public final class ConcurrentMapEmbeddingModelRegistry implements EmbeddingModel
     }
 
     @Override
+    public void authorizeCreate(String name, UserIdentity user) {
+        requireAdmin(user, "CREATE", name);
+    }
+
+    @Override
+    public EmbeddingModelAlterTarget prepareAlter(String name, UserIdentity user) {
+        requireAdmin(user, "ALTER", name);
+        RegisteredModel model = models.get(name);
+        if (model == null) {
+            throw new ModelNotFoundException(name);
+        }
+        return model.alterTarget();
+    }
+
+    @Override
     public void create(EmbeddingModelDescriptor descriptor, UserIdentity user) {
-        requireAdmin(user, "CREATE", descriptor.name());
+        authorizeCreate(descriptor.name(), user);
         if (descriptor.version() != 0) {
             throw new IllegalArgumentException("New model version must be 0, got: " + descriptor.version());
         }
 
-        EmbeddingModelDescriptor existing = models.putIfAbsent(descriptor.name(), descriptor);
+        RegisteredModel existing = models.putIfAbsent(
+                descriptor.name(), RegisteredModel.create(descriptor));
         if (existing != null) {
             throw new ModelAlreadyExistsException(descriptor.name());
         }
@@ -59,58 +75,52 @@ public final class ConcurrentMapEmbeddingModelRegistry implements EmbeddingModel
     }
 
     @Override
-    public EmbeddingModelDescriptor alter(String name, ModelUpdateRequest update, int expectedVersion,
-                                          UserIdentity user) {
+    public EmbeddingModelDescriptor alter(
+            EmbeddingModelAlterTarget target,
+            EmbeddingModelDescriptor replacement, UserIdentity user) {
+        String name = target.descriptor().name();
         requireAdmin(user, "ALTER", name);
-        if (!update.hasUpdates()) {
-            throw new IllegalArgumentException("No fields to update in ALTER request");
-        }
 
-        EmbeddingModelDescriptor current = models.get(name);
+        RegisteredModel current = models.get(name);
         if (current == null) {
             throw new ModelNotFoundException(name);
         }
-        if (current.version() != expectedVersion) {
-            throw new VersionConflictException(name, expectedVersion, current.version());
+        EmbeddingModelRevision.requireValidReplacement(
+                name, current.descriptor(), replacement, target.descriptor().version());
+        if (!current.incarnationId().equals(target.incarnationId())) {
+            throw new VersionConflictException(
+                    name, target.descriptor().version(), current.descriptor().version());
         }
-
-        EmbeddingModelDescriptor updated = applyUpdate(current, update);
+        RegisteredModel updated = new RegisteredModel(replacement, current.incarnationId());
         boolean replaced = models.replace(name, current, updated);
         if (!replaced) {
-            EmbeddingModelDescriptor actual = models.get(name);
-            int actualVersion = actual != null ? actual.version() : -1;
-            throw new VersionConflictException(name, expectedVersion, actualVersion);
+            RegisteredModel actual = models.get(name);
+            int actualVersion = actual != null ? actual.descriptor().version() : -1;
+            throw new VersionConflictException(
+                    name, target.descriptor().version(), actualVersion);
         }
 
         LOG.info("Embedding model altered: name={}, version={}->{}, user={}",
-                name, expectedVersion, updated.version(), user.principal());
-        return updated;
+                name, target.descriptor().version(), replacement.version(), user.principal());
+        return replacement;
     }
 
     @Override
     public void drop(String name, boolean cascade, UserIdentity user) {
         requireAdmin(user, "DROP", name);
 
-        EmbeddingModelDescriptor existing = models.get(name);
+        RegisteredModel existing = models.get(name);
         if (existing == null) {
             throw new ModelNotFoundException(name);
         }
 
-        if (!cascade && dependentModels.contains(name)) {
-            throw new ModelInUseException(name);
-        }
-
-        models.remove(name);
-        if (cascade) {
-            dependentModels.remove(name);
-        }
-        LOG.info("Embedding model dropped: name={}, cascade={}, user={}", name, cascade, user.principal());
+        throw new ModelDropUnavailableException(name);
     }
 
     @Override
     public Optional<EmbeddingModelDescriptor> find(String name, UserIdentity user) {
         requireUsage(user, "FIND", name);
-        return Optional.ofNullable(models.get(name));
+        return Optional.ofNullable(models.get(name)).map(RegisteredModel::descriptor);
     }
 
     @Override
@@ -118,15 +128,16 @@ public final class ConcurrentMapEmbeddingModelRegistry implements EmbeddingModel
         if (!hasUsagePrivilege(user)) {
             return List.of();
         }
-        return List.copyOf(models.values());
+        return models.values().stream().map(RegisteredModel::descriptor).toList();
     }
 
     @Override
     public void validateDimension(String modelName, int columnDimension) {
-        EmbeddingModelDescriptor descriptor = models.get(modelName);
-        if (descriptor == null) {
+        RegisteredModel model = models.get(modelName);
+        if (model == null) {
             throw new ModelNotFoundException(modelName);
         }
+        EmbeddingModelDescriptor descriptor = model.descriptor();
         if (descriptor.dimension() != columnDimension) {
             throw new DimensionMismatchException(modelName, descriptor.dimension(), columnDimension);
         }
@@ -148,18 +159,17 @@ public final class ConcurrentMapEmbeddingModelRegistry implements EmbeddingModel
         dependentModels.remove(modelName);
     }
 
-    private EmbeddingModelDescriptor applyUpdate(EmbeddingModelDescriptor current, ModelUpdateRequest update) {
-        return new EmbeddingModelDescriptor(
-                current.name(),
-                current.provider(),
-                update.endpoint().orElse(current.endpoint()),
-                current.dimension(),
-                update.apiKeySecret().orElse(current.apiKeySecret()),
-                update.maxBatchSize().orElse(current.maxBatchSize()),
-                update.maxRequestsPerSecond().orElse(current.maxRequestsPerSecond()),
-                update.queryPrefix().orElse(current.queryPrefix()),
-                update.documentPrefix().orElse(current.documentPrefix()),
-                current.version() + 1);
+    private record RegisteredModel(
+            EmbeddingModelDescriptor descriptor,
+            String incarnationId) {
+
+        private static RegisteredModel create(EmbeddingModelDescriptor descriptor) {
+            return new RegisteredModel(descriptor, java.util.UUID.randomUUID().toString());
+        }
+
+        private EmbeddingModelAlterTarget alterTarget() {
+            return new EmbeddingModelAlterTarget(descriptor, incarnationId);
+        }
     }
 
     private void requireAdmin(UserIdentity user, String operation, String modelName) {

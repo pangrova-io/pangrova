@@ -24,7 +24,7 @@ class RemoteTaskStatusReporterTracePropagationTest {
         RecordingTracingProvider recorder = new RecordingTracingProvider();
         // Port 0 means unreachable — report is best-effort, errors are logged
         RemoteTaskStatusReporter reporter = new RemoteTaskStatusReporter(
-                "http://localhost:0", recorder);
+                "http://localhost:0", recorder, null);
 
         reporter.report(dummyReport());
 
@@ -35,7 +35,7 @@ class RemoteTaskStatusReporterTracePropagationTest {
     void report_usesHttpRequestBuilderAsCarrier() {
         RecordingTracingProvider recorder = new RecordingTracingProvider();
         RemoteTaskStatusReporter reporter = new RemoteTaskStatusReporter(
-                "http://localhost:0", recorder);
+                "http://localhost:0", recorder, null);
 
         reporter.report(dummyReport());
 
@@ -45,7 +45,7 @@ class RemoteTaskStatusReporterTracePropagationTest {
     @Test
     void noOpTracingProvider_doesNotThrow() {
         RemoteTaskStatusReporter reporter = new RemoteTaskStatusReporter(
-                "http://localhost:0", TestObservability.TRACING);
+                "http://localhost:0", TestObservability.TRACING, null);
 
         // Should not throw — best-effort reporting with NoOp tracing
         reporter.report(dummyReport());
@@ -54,7 +54,8 @@ class RemoteTaskStatusReporterTracePropagationTest {
     private static TaskStatusReport dummyReport() {
         return new TaskStatusReport(
                 "task-1", "q-1", 0, 0, "COMPUTE", "w-1", "RUNNING",
-                null, null, null, 1, System.currentTimeMillis(), null, null);
+                null, null, null, 1, System.currentTimeMillis(), null, null,
+                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
     }
 
     /**

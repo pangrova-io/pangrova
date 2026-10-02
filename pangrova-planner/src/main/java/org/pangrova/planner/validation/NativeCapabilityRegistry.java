@@ -56,6 +56,7 @@ public final class NativeCapabilityRegistry {
                 "HashJoinRel",
                 "JoinRel",
                 "ExchangeRel",
+                "ExtensionLeafRel",
                 "SortRel",
                 "FetchRel",
                 "ConsistentPartitionWindowRel",
@@ -95,7 +96,7 @@ public final class NativeCapabilityRegistry {
                 // array
                 "array_contains", "array_contains_all",
                 // vector distance
-                "l2_distance", "cosine_distance", "inner_product", "cosine_similarity",
+                "l2_distance", "cosine_distance", "inner_product", "pangrova_cosine_similarity",
                 // aggregate
                 "sum", "sum0", "count", "min", "max", "avg",
                 "stddev_pop", "stddev_samp", "variance_pop", "variance_samp",

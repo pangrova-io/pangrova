@@ -85,7 +85,7 @@ class NativeResourceLifecycleTest extends SqlE2ETestBase {
     @Test
     @DisplayName("N10.2: Double release throws NativeRuntimeException instead of JVM crash")
     void doubleReleaseThrowsException() {
-        long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+        long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
         NativeRuntime.nativeReleaseExecutor(handle);
 
         assertThrows(NativeRuntimeException.class,
@@ -173,7 +173,7 @@ class NativeResourceLifecycleTest extends SqlE2ETestBase {
         insertLargeDataSet();
 
         assertTimeoutPreemptively(Duration.ofSeconds(30), () -> {
-            long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+            long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
             NativeRuntime.nativeCancelTask(handle);
             assertDoesNotThrow(() -> NativeRuntime.nativeReleaseExecutor(handle));
         }, "Cancel + release must complete within 30s timeout");
@@ -223,7 +223,7 @@ class NativeResourceLifecycleTest extends SqlE2ETestBase {
 
     private void executeSingleHandleLifecycle(CopyOnWriteArrayList<Throwable> errors) {
         try {
-            long handle = NativeRuntime.nativeCreateTaskExecutor(new byte[0]);
+            long handle = NativeRuntime.nativeCreateTaskExecutor(CanonicalNativeTask.valuesRequest());
             NativeRuntime.nativeReleaseExecutor(handle);
         } catch (Throwable t) {
             errors.add(t);

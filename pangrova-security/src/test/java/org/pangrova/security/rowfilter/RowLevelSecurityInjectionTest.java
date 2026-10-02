@@ -45,7 +45,7 @@ class RowLevelSecurityInjectionTest {
         UserIdentity attacker = new UserIdentity(
                 maliciousPrincipal, Set.of("users"), Map.of(), Instant.now());
 
-        assertThatThrownBy(() -> filter.getFilter(attacker, CATALOG, SCHEMA, TABLE))
+        assertThatThrownBy(() -> filter.getFilter(attacker, java.util.Set.of(), CATALOG, SCHEMA, TABLE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsafe characters")
                 .hasMessageContaining("SQL injection");
@@ -64,7 +64,7 @@ class RowLevelSecurityInjectionTest {
         UserIdentity attacker = new UserIdentity(
                 "alice", Set.of("users"), Map.of("department", maliciousAttribute), Instant.now());
 
-        assertThatThrownBy(() -> filter.getFilter(attacker, CATALOG, SCHEMA, TABLE))
+        assertThatThrownBy(() -> filter.getFilter(attacker, java.util.Set.of(), CATALOG, SCHEMA, TABLE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsafe characters")
                 .hasMessageContaining("SQL injection");
@@ -82,7 +82,7 @@ class RowLevelSecurityInjectionTest {
         UserIdentity attacker = new UserIdentity(
                 "alice", Set.of(maliciousGroup), Map.of(), Instant.now());
 
-        assertThatThrownBy(() -> filter.getFilter(attacker, CATALOG, SCHEMA, TABLE))
+        assertThatThrownBy(() -> filter.getFilter(attacker, java.util.Set.of(), CATALOG, SCHEMA, TABLE))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsafe characters")
                 .hasMessageContaining("SQL injection");
@@ -96,7 +96,7 @@ class RowLevelSecurityInjectionTest {
         UserIdentity safeUser = new UserIdentity(
                 "alice.smith@company.com", Set.of("engineering"), Map.of(), Instant.now());
 
-        assertThat(filter.getFilter(safeUser, CATALOG, SCHEMA, TABLE))
+        assertThat(filter.getFilter(safeUser, java.util.Set.of(), CATALOG, SCHEMA, TABLE))
                 .isPresent()
                 .hasValueSatisfying(expr -> {
                     assertThat(expr).contains("'alice.smith@company.com'");
@@ -112,7 +112,7 @@ class RowLevelSecurityInjectionTest {
         UserIdentity safeUser = new UserIdentity(
                 "alice", Set.of("users"), Map.of("department", "engineering"), Instant.now());
 
-        assertThat(filter.getFilter(safeUser, CATALOG, SCHEMA, TABLE))
+        assertThat(filter.getFilter(safeUser, java.util.Set.of(), CATALOG, SCHEMA, TABLE))
                 .isPresent()
                 .hasValueSatisfying(expr -> {
                     assertThat(expr).contains("'engineering'");
@@ -128,7 +128,7 @@ class RowLevelSecurityInjectionTest {
         UserIdentity user = new UserIdentity(
                 "alice", Set.of("users"), Map.of(), Instant.now());
 
-        ParameterizedFilter paramFilter = filter.getParameterizedFilter(user, CATALOG, SCHEMA, TABLE)
+        ParameterizedFilter paramFilter = filter.getParameterizedFilter(user, java.util.Set.of(), CATALOG, SCHEMA, TABLE)
                 .orElseThrow();
 
         // Template contains placeholder, not the actual value

@@ -8,16 +8,18 @@ import org.apache.iceberg.types.Types;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.concurrent.TimeUnit;
+import java.math.BigDecimal;
 
 /**
  * Adapts a {@link GenericRecord} to Iceberg's internal type representation
  * for partition transform evaluation.
  *
  * <p>Iceberg's partition transforms (month, day, hour, etc.) expect internal
- * types: {@code Long} (epoch microseconds) for timestamps without zone,
+ * types: {@code Long} (epoch microseconds or nanoseconds) for timestamps,
  * {@code Integer} (epoch days) for dates. {@link GenericRecord} stores
  * user-facing types ({@code LocalDateTime}, {@code LocalDate}). This adapter
  * bridges the gap without requiring the {@code iceberg-data} module's
@@ -51,10 +53,16 @@ final class PartitionStructProjection implements StructLike {
         }
         Types.NestedField field = schema.columns().get(pos);
         Type.TypeID typeId = field.type().typeId();
-        if (typeId == Type.TypeID.TIMESTAMP && value instanceof LocalDateTime ldt) {
-            long epochMicros = TimeUnit.SECONDS.toMicros(ldt.toEpochSecond(ZoneOffset.UTC))
-                    + TimeUnit.NANOSECONDS.toMicros(ldt.getNano());
-            return javaClass.cast(epochMicros);
+        if (typeId == Type.TypeID.TIMESTAMP || typeId == Type.TypeID.TIMESTAMP_NANO) {
+            Instant instant = value instanceof LocalDateTime ldt ? ldt.toInstant(ZoneOffset.UTC)
+                    : value instanceof OffsetDateTime odt ? odt.toInstant() : null;
+            if (instant != null) {
+                int precision = typeId == Type.TypeID.TIMESTAMP_NANO ? 9 : 6;
+                long fraction = precision == 9 ? instant.getNano() : instant.getNano() / 1000;
+                long units = BigDecimal.valueOf(instant.getEpochSecond()).scaleByPowerOfTen(precision)
+                        .add(BigDecimal.valueOf(fraction)).longValueExact();
+                return javaClass.cast(units);
+            }
         }
         if (typeId == Type.TypeID.DATE && value instanceof LocalDate ld) {
             int epochDays = (int) ChronoUnit.DAYS.between(EPOCH_DATE, ld);

@@ -1,0 +1,288 @@
+syntax = "proto3";
+package pangrova.protocol.v2;
+
+option java_package = "org.pangrova.protocol.v2";
+option java_multiple_files = true;
+
+import "google/protobuf/any.proto";
+import "pangrova/protocol/v2/common.proto";
+import "pangrova/protocol/v2/connector.proto";
+import "pangrova/protocol/v2/execution_binding.proto";
+import "pangrova/protocol/v2/capability.proto";
+
+enum TaskKind {
+  TASK_KIND_UNSPECIFIED = 0;
+  TASK_KIND_READ = 1;
+  TASK_KIND_WRITE = 2;
+  TASK_KIND_SHUFFLE_READ = 3;
+  TASK_KIND_SHUFFLE_WRITE = 4;
+  TASK_KIND_BACKGROUND_BUILD = 5;
+  TASK_KIND_BACKGROUND_VALIDATE = 6;
+  TASK_KIND_BACKGROUND_EXPORT = 7;
+}
+
+message PartitionValue {
+  string column_name = 1;
+  TypedValue value = 2;
+}
+
+message DataSplit {
+  string split_id = 1;
+  string connector_id = 2;
+  // Stable logical source identity (for example catalog.schema.table). It is
+  // part of the generic execution contract and must never be inferred from a
+  // connector-specific Any payload.
+  string source_id = 3;
+  string source_snapshot = 4;
+  string data_object_id = 5;
+  string opaque_location = 6;
+  uint64 start_offset = 7;
+  uint64 length = 8;
+  repeated PartitionValue partition_values = 9;
+  google.protobuf.Any connector_detail = 10;
+  // Exact deployment for Native manifest partitions; credentials are never
+  // sent by the Coordinator and are resolved by the receiving Worker.
+  CatalogExecutionBinding catalog = 11;
+}
+
+message SecurityContext {
+  string tenant_id = 1;
+  string principal = 2;
+  repeated string active_roles = 3;
+  string policy_context_hash = 4;
+}
+
+// Native -> JVM callback authority copied once from an admitted immutable task.
+// This reuses the task's protocol, security, fencing and resource contract.
+message ExecutionCallbackContext {
+  ProtocolVersion protocol = 1;
+  SecurityContext security = 2;
+  TaskAttemptId attempt = 3;
+  StageResourceGrant resource_grant = 4;
+  uint64 deadline_epoch_ms = 5;
+  TraceContext trace_context = 6;
+}
+
+message TaskRequest {
+  ProtocolVersion protocol = 1;
+  TaskAttemptId attempt = 2;
+  TaskKind task_kind = 3;
+  SecurityContext security = 4;
+  bytes substrait_plan = 5;
+  Checksum substrait_plan_checksum = 6;
+  repeated DataSplit splits = 7;
+  repeated OperatorBinding operator_bindings = 8;
+  StageResourceGrant resource_grant = 9;
+  uint64 deadline_epoch_ms = 10;
+  TraceContext trace_context = 11;
+  string budget_reservation_id = 12;
+  TaskExecutionOptions execution_options = 13;
+  repeated ExchangeInputBinding exchange_inputs = 14;
+  repeated RuntimeFilterBinding initial_runtime_filters = 15;
+  // Exact logical identities of selected result columns. Indices refer to
+  // the final result row, not an intermediate operator's output.
+  repeated ResultColumnLogicalType result_column_types = 16;
+  // Worker -> JNI only. Network admission rejects any populated value.
+  repeated ObjectStoreExecutionBinding worker_local_storage_bindings = 17;
+  FunctionRequirements function_requirements = 18;
+}
+
+// Resolved Worker-local storage authority, scoped to one immutable deployment,
+// authenticated tenant and normalized warehouse. This is never a network task
+// payload or a catalog descriptor and must not be logged.
+message ObjectStoreExecutionBinding {
+  CatalogExecutionBinding catalog = 1;
+  string tenant_id = 2;
+  string warehouse_uri = 3;
+  S3ExecutionSettings s3 = 4;
+}
+
+message S3ExecutionSettings {
+  string endpoint = 1;
+  string region = 2;
+  bool path_style_access = 3;
+  bool tls_enabled = 4;
+  string access_key = 5;
+  string secret_key = 6;
+  string security_token = 7;
+}
+
+message ResultColumnLogicalType {
+  uint32 column_index = 1;
+  LogicalType logical_type = 2;
+}
+
+message WriteTaskOptions {
+  string target_table = 1;
+  string write_mode = 2;
+  repeated string partition_spec = 3;
+  FileFormat file_format = 4;
+  int64 target_file_size = 5;
+  // Physical output allocation owned by the connector. Native must not infer
+  // storage locations or version fences from target_table.
+  WriteOutputBinding output_binding = 6;
+}
+
+enum LanceWriteOperation {
+  LANCE_WRITE_OPERATION_UNSPECIFIED = 0;
+  LANCE_WRITE_OPERATION_CREATE = 1;
+  LANCE_WRITE_OPERATION_APPEND = 2;
+  LANCE_WRITE_OPERATION_OVERWRITE = 3;
+}
+
+message LanceWriteBinding {
+  string dataset_uri = 1;
+  LanceWriteOperation operation = 2;
+  uint64 expected_read_version = 3;
+  Checksum schema_fence_sha256 = 4;
+  // Durable connector write-intent identity used for commit idempotency and
+  // crash recovery. It is not a worker-generated transaction UUID.
+  string write_id = 5;
+  // Connector-allocated, dataset-relative, attempt-private prefix. Native may
+  // only create fixed transaction sidecar objects below this prefix.
+  string transaction_staging_prefix = 6;
+  // Durable write generation used to fence transaction sidecar publication.
+  string generation = 7;
+  CatalogExecutionBinding catalog = 8;
+  repeated string write_column_names = 9;
+  // Exact connector-owned handle retained for durable recovery and validation.
+  SerializedConnectorOutputHandle output_handle = 10;
+  // Stable allocation prefix, before the exact attempt hash is appended.
+  string allocation_staging_prefix = 11;
+}
+
+// Immutable identity of the exact catalog deployment authorized by the
+// Coordinator. Catalog properties and resolved secrets are deliberately not
+// carried in TaskRequest; Workers fetch the exact revision over the trusted
+// internal control channel and resolve secrets locally.
+message CatalogExecutionBinding {
+  string catalog_name = 1;
+  string connector_provider = 2;
+  string catalog_incarnation_id = 3;
+  uint64 catalog_revision = 4;
+  Checksum configuration_fingerprint = 5;
+}
+
+// Connector-owned, versioned serialization of the exact output handle
+// allocated by beginInsert/beginOverwrite/beginDelete on the Coordinator.
+message SerializedConnectorOutputHandle {
+  string type_url = 1;
+  uint32 codec_version = 2;
+  bytes payload = 3;
+  Checksum payload_checksum = 4;
+  // Exact schema captured by the connector output handle. Native synthetic
+  // projection names are resolved against this pinned list, never against
+  // mutable Worker-side table metadata.
+  repeated string write_column_names = 5;
+}
+
+message ConnectorWriteBinding {
+  CatalogExecutionBinding catalog = 1;
+  SerializedConnectorOutputHandle output_handle = 2;
+}
+
+message WriteOutputBinding {
+  oneof binding {
+    LanceWriteBinding lance = 1;
+    ConnectorWriteBinding connector = 2;
+    PhysicalFileWriteBinding physical = 3;
+  }
+}
+
+// Metadata authority for a Native physical-file sink. The connector publishes
+// its table snapshot; Native never creates a Dataset manifest or table commit.
+message PhysicalFileWriteBinding {
+  CatalogExecutionBinding catalog = 1;
+  SerializedConnectorOutputHandle output_handle = 2;
+  string write_id = 3;
+  string generation = 4;
+  sint64 base_snapshot_id = 5;
+  uint64 schema_id = 6;
+  FileFormat file_format = 7;
+  // Complete SDK-derived Arrow IPC physical schema (metadata, not row data).
+  bytes physical_schema = 8;
+  Checksum physical_schema_checksum = 9;
+  repeated PhysicalWriteColumn columns = 10;
+  PhysicalWritePolicy policy = 11;
+  // Connector/Snapshot-owned allocation template. Attempt binding produces
+  // exact immutable file allocations; arbitrary Native-generated paths are forbidden.
+  repeated PhysicalFileAllocation files = 12;
+  string allocation_prefix = 13;
+  string attempt_prefix = 14;
+}
+
+message PhysicalWriteColumn {
+  int32 field_id = 1;
+  string name = 2;
+  LogicalType logical_type = 3;
+  bool nullable = 4;
+}
+
+message PhysicalWritePolicy {
+  string write_mode = 1;
+  repeated int32 partition_field_ids = 2;
+  repeated int32 primary_key_field_ids = 3;
+  repeated int32 bucket_key_field_ids = 4;
+  int32 bucket_count = 5;
+  string bucket_function = 6;
+  string merge_engine = 7;
+  // Exact admitted table options. Unknown execution-affecting options must be
+  // rejected, never ignored or replaced by a less capable table mode.
+  map<string, string> options = 8;
+  Checksum declaration_checksum = 9;
+  // Exact connector-configured TOTAL encoder buffer hint; not a resource grant,
+  // allocator limit, or proof of process/task heap isolation.
+  uint64 writer_buffer_hint_bytes = 10;
+}
+
+message PhysicalFileAllocation {
+  string opaque_location = 1;
+  string file_name = 2;
+  repeated PartitionValue partition = 3;
+  int32 bucket_id = 4;
+  uint64 file_ordinal = 5;
+  sint64 restored_max_sequence = 6;
+  TaskAttemptId task_attempt = 7;
+  Checksum allocation_checksum = 8;
+  // SDK file-source identity and original immutable input file set.
+  string file_source = 9;
+  Checksum restored_file_set_checksum = 10;
+}
+
+enum ShufflePersistenceMode {
+  SHUFFLE_PERSISTENCE_MODE_UNSPECIFIED = 0;
+  SHUFFLE_PERSISTENCE_MODE_MEMORY_ONLY = 1;
+  SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_DISK = 2;
+  SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_REMOTE = 3;
+}
+
+message ShuffleTaskOptions {
+  BatchSerde serde = 1;
+  string compression_codec = 2;
+  uint32 batch_size = 3;
+  ShufflePersistenceMode persistence_mode = 4;
+  uint32 partition_count = 5;
+  repeated int32 partition_key_indices = 6;
+  ShuffleExecutionBinding execution_binding = 7;
+}
+
+// Coordinator-allocated external shuffle identity carried in the canonical
+// task contract. Workers use it only to open data-plane channels; they never
+// register or clean up a shuffle allocation.
+message ShuffleExecutionBinding {
+  string shuffle_id = 1;
+  repeated ShuffleServiceEndpoint endpoints = 2;
+  uint64 plan_epoch = 3;
+  ExecutionOwnerIdentity execution_owner = 4;
+  ShuffleAccessCapability write_capability = 5;
+  ShuffleServiceAddress commit_address = 6;
+}
+
+message TaskExecutionOptions {
+  map<string, string> session_properties = 1;
+  WriteTaskOptions write = 2;
+  ShuffleTaskOptions shuffle = 3;
+  // Direct result output is a Native data-plane sink. The JVM control plane
+  // may publish its signed endpoint but never relays or merges result pages.
+  bool direct_result_output = 4;
+}

@@ -58,12 +58,25 @@ class ShuffleProviderResolverTest {
     // ── G-HA-07: auto-selection tests ──
 
     @Test
-    void resolveWithDurableDefaultSelectsHighestDurabilityProvider() {
-        // When no explicit name is given, auto-selection picks the highest-durability
-        // provider. With object-store (DURABLE) registered, it wins over native (EPHEMERAL).
+    void resolveWithDurableDefaultDoesNotAdvertiseLocalDiskAsDurable() {
+        // The object-store provider has no configured durable backend. It must
+        // fail its probe instead of claiming that local disk survives node loss.
         ShuffleProvider provider = ShuffleProviderResolver.resolveWithDurableDefault(null, Map.of());
         assertThat(provider).isNotNull();
-        assertThat(provider.capabilities().durability()).isEqualTo(ShuffleDurability.DURABLE);
+        assertThat(provider.capabilities().durability()).isEqualTo(ShuffleDurability.LOCAL_SPILL);
+    }
+
+    @Test
+    void objectStoreProviderRequiresRealDurableBackend() {
+        assertThatThrownBy(() -> ShuffleProviderResolver.resolve(
+                ObjectStoreShuffleManagerFactory.NAME, Map.of()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("shuffle.object-store.backend");
+        assertThatThrownBy(() -> ShuffleProviderResolver.resolve(
+                ObjectStoreShuffleManagerFactory.NAME,
+                Map.of("shuffle.object-store.backend", "local-fs")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not guarantee DURABLE");
     }
 
     @Test
@@ -87,12 +100,12 @@ class ShuffleProviderResolverTest {
         Map<String, ShuffleManagerFactory> factories = new TreeMap<>();
         factories.put("native", stubFactory("native", ShuffleDurability.EPHEMERAL));
         factories.put("local-spill", stubFactory("local-spill", ShuffleDurability.LOCAL_SPILL));
-        factories.put("celeborn", stubFactory("celeborn", ShuffleDurability.DURABLE));
+        factories.put("object-store", stubFactory("object-store", ShuffleDurability.DURABLE));
 
         ShuffleManagerFactory best = ShuffleProviderResolver.selectHighestDurabilityFactory(
                 factories, Map.of());
 
-        assertThat(best.name()).isEqualTo("celeborn");
+        assertThat(best.name()).isEqualTo("object-store");
     }
 
     @Test

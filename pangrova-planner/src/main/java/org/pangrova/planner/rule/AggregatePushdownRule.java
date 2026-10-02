@@ -1,5 +1,7 @@
 package org.pangrova.planner.rule;
 
+import org.pangrova.planner.PlanTable;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -54,7 +56,7 @@ public final class AggregatePushdownRule extends RelOptRule {
             }
         }
 
-        return scan.getTable().unwrap(ConnectorPushdownTable.class) != null;
+        return PlanTable.require(scan).unwrap(ConnectorPushdownTable.class) != null;
     }
 
     @Override
@@ -62,7 +64,7 @@ public final class AggregatePushdownRule extends RelOptRule {
         LogicalAggregate agg = call.rel(0);
         LogicalTableScan scan = call.rel(1);
 
-        ConnectorPushdownTable pushdown = scan.getTable().unwrap(ConnectorPushdownTable.class);
+        ConnectorPushdownTable pushdown = PlanTable.require(scan).unwrap(ConnectorPushdownTable.class);
         if (pushdown == null) {
             return;
         }
@@ -83,7 +85,7 @@ public final class AggregatePushdownRule extends RelOptRule {
         }
 
         LOG.info("event=aggregate_pushdown_applied table={} functions={} guaranteed={}",
-                scan.getTable().getQualifiedName(), functions.size(), result.get().guaranteed());
+                PlanTable.require(scan).getQualifiedName(), functions.size(), result.get().guaranteed());
 
         RelNode rewritten;
         if (result.get().guaranteed()) {

@@ -1,0 +1,89 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.pangrova.transport;
+
+import org.apache.arrow.flight.FlightProducer;
+import org.apache.arrow.flight.FlightServer;
+import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.NoOpFlightProducer;
+import org.apache.arrow.flight.Ticket;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.protocol.rest.query.ResultProtocol;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class FlightResultFetcherDeadlineTest {
+
+    @Test
+    void liveFlightStreamCannotOutrunCallerQueryDeadline() throws Exception {
+        CountDownLatch streamStarted = new CountDownLatch(1);
+        CountDownLatch releaseProducer = new CountDownLatch(1);
+        try (RootAllocator allocator = new RootAllocator(32L * 1024 * 1024);
+             FlightServer server = FlightServer.builder(
+                     allocator, Location.forGrpcInsecure("127.0.0.1", 0),
+                     new NoOpFlightProducer() {
+                         @Override
+                         public void getStream(
+                                 FlightProducer.CallContext context,
+                                 Ticket ticket,
+                                 FlightProducer.ServerStreamListener listener) {
+                             IntVector vector = new IntVector("value", allocator);
+                             try (VectorSchemaRoot root = VectorSchemaRoot.of(vector)) {
+                                 vector.allocateNew();
+                                 root.setRowCount(0);
+                                 listener.start(root);
+                                 streamStarted.countDown();
+                                 if (releaseProducer.await(10, TimeUnit.SECONDS)
+                                         && !listener.isCancelled()) {
+                                     listener.completed();
+                                 }
+                             } catch (InterruptedException interrupted) {
+                                 Thread.currentThread().interrupt();
+                             }
+                         }
+                     }).build().start();
+             FlightResultFetcher fetcher = new FlightResultFetcher()) {
+            var executor = Executors.newSingleThreadExecutor();
+            try {
+                var result = executor.submit(() -> {
+                    try {
+                        fetcher.fetch(new ResultEndpoint(
+                                "127.0.0.1", server.getPort(), "deadline",
+                                ResultProtocol.GRPC.value()),
+                                System.currentTimeMillis() + 3_000);
+                        return (Throwable) null;
+                    } catch (Throwable failure) {
+                        return failure;
+                    }
+                });
+                assertThat(streamStarted.await(2, TimeUnit.SECONDS)).isTrue();
+                Throwable failure = result.get(5, TimeUnit.SECONDS);
+                assertThat(failure).isInstanceOf(TransportConnectionException.class);
+                assertThat(((TransportConnectionException) failure).transportErrorCode())
+                        .isEqualTo("TRANSPORT_QUERY_DEADLINE_EXCEEDED");
+            } finally {
+                releaseProducer.countDown();
+                executor.shutdownNow();
+            }
+        }
+    }
+}

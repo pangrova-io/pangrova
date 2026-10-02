@@ -1,6 +1,6 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.protocol.v1.TaskState;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.spi.execution.TaskStatus;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -54,6 +54,12 @@ class TaskStateMapperTest {
     }
 
     @Test
+    void toSpiState_cancellingRemainsNonTerminal() {
+        assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.CANCELLING))
+                .isEqualTo(TaskStatus.TaskState.RUNNING);
+    }
+
+    @Test
     void toSpiState_finishedMapsToFinished() {
         assertThat(TaskStateMapper.toSpiState(TaskManager.TaskState.FINISHED))
                 .isEqualTo(TaskStatus.TaskState.FINISHED);
@@ -93,6 +99,12 @@ class TaskStateMapperTest {
     void toProtoState_finishingMapsToFlushing() {
         assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.FINISHING))
                 .isEqualTo(TaskState.TASK_STATE_FLUSHING);
+    }
+
+    @Test
+    void toProtoState_cancellingRemainsNonTerminal() {
+        assertThat(TaskStateMapper.toProtoState(TaskManager.TaskState.CANCELLING))
+                .isEqualTo(TaskState.TASK_STATE_RUNNING);
     }
 
     @Test

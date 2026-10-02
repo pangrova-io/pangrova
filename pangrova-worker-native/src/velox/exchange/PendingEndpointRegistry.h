@@ -1,57 +1,141 @@
-// PendingEndpointRegistry: Process-global registry for Flight endpoints
-// that have been announced via CONNECT_EXCHANGE_SOURCE but not yet consumed
-// by an PangrovaExchangeSource instance.
+// Task-scoped exchange binding registry.
 //
-// Flow: Java sends CONNECT_EXCHANGE_SOURCE → dispatcher stores endpoint here
-// → PangrovaExchangeSource checks on construction and activates Flight mode.
-//
-// Sharded by hash(source_id) for reduced lock contention.
+// Runtime commands bind plan ExchangeInput nodes to producer-issued Flight
+// tickets before a Velox task starts. The runner atomically consumes a sealed
+// binding and injects RemoteConnectorSplit objects. ExchangeSource instances
+// then resolve their process-local source IDs here; no executor handle or
+// credential is reconstructed on the consumer.
 #pragma once
 
-#include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
+
+#include "velox/exchange/ExternalShuffleIngress.h"
 
 namespace pangrova::velox {
 
 struct PendingEndpoint {
+  std::string source_task_id;
+  int32_t source_stage_id = 0;
+  int32_t source_partition_id = 0;
+  int32_t output_partition_id = 0;
+  uint64_t plan_epoch = 0;
+  uint32_t attempt_id = 0;
+  uint64_t fencing_token = 0;
   std::string host;
   int port = 0;
-  int64_t executor_handle = 0;
-  std::string query_id;
-  int stage_id = 0;
-  int partition_id = 0;
+  std::string tls_identity;
+  std::string signed_ticket;
+  uint64_t ticket_expires_at_epoch_ms = 0;
+  uint64_t expected_rows = 0;
+  uint64_t expected_bytes = 0;
+  std::shared_ptr<ExternalShuffleIngress> external_ingress;
+};
+
+struct PendingExchangeSource {
+  std::string runtime_source_id;
+  PendingEndpoint endpoint;
+};
+
+struct PendingExchangeInput {
+  std::string plan_node_id;
+  std::string exchange_id;
+  uint32_t expected_source_partitions = 0;
+  std::vector<PendingExchangeSource> sources;
 };
 
 class PendingEndpointRegistry {
  public:
   static PendingEndpointRegistry& instance();
 
-  // Store a pending endpoint for a source. Called from command dispatcher.
-  void put(const std::string& source_id, PendingEndpoint endpoint);
+  void registerSource(
+      int64_t executor_handle,
+      const std::string& plan_node_id,
+      const std::string& exchange_id,
+      PendingEndpoint endpoint);
 
-  // Take and remove a pending endpoint for a source. Returns nullopt if
-  // no endpoint is registered. Called from PangrovaExchangeSource constructor.
-  std::optional<PendingEndpoint> take(const std::string& source_id);
+  void registerExternalSource(
+      int64_t executor_handle,
+      const std::string& plan_node_id,
+      const std::string& exchange_id,
+      uint64_t deadline_epoch_ms,
+      size_t max_batch_bytes);
 
-  // Remove all endpoints (cleanup on shutdown).
+  void pushExternalBatch(
+      int64_t executor_handle,
+      const std::string& plan_node_id,
+      const std::string& exchange_id,
+      ExternalShuffleChunk chunk);
+
+  void finishExternalSource(
+      int64_t executor_handle,
+      const std::string& plan_node_id,
+      const std::string& exchange_id,
+      int64_t last_sequence,
+      const std::string& failure);
+
+  void sealInput(
+      int64_t executor_handle,
+      const std::string& plan_node_id,
+      const std::string& exchange_id,
+      uint32_t expected_source_partitions);
+
+  std::optional<PendingExchangeInput> takeSealedInput(
+      int64_t executor_handle,
+      const std::string& plan_node_id);
+
+  std::optional<PendingEndpoint> takeEndpoint(
+      const std::string& runtime_source_id);
+
+  void discardExecutor(int64_t executor_handle);
   void clear();
 
  private:
   PendingEndpointRegistry() = default;
 
-  static constexpr size_t kNumShards = 16;
-
-  struct Shard {
-    mutable std::mutex mutex;
-    std::unordered_map<std::string, PendingEndpoint> store;
+  struct SourceState {
+    std::string runtime_source_id;
+    PendingEndpoint endpoint;
   };
 
-  Shard& shardFor(const std::string& source_id);
+  struct InputState {
+    std::string exchange_id;
+    bool sealed = false;
+    uint32_t expected_source_partitions = 0;
+    std::unordered_map<std::string, SourceState> sources;
+  };
 
-  std::array<Shard, kNumShards> shards_;
+  struct ExecutorState {
+    std::unordered_map<std::string, InputState> inputs;
+  };
+
+  struct ExternalState {
+    std::string exchange_id;
+    std::shared_ptr<ExternalShuffleIngress> ingress;
+  };
+
+  static std::string sourceKey(const PendingEndpoint& endpoint);
+  std::string nextRuntimeSourceId(int64_t executor_handle);
+
+  std::mutex mutex_;
+  std::unordered_map<int64_t, ExecutorState> executors_;
+  std::unordered_map<std::string, PendingEndpoint> endpoints_;
+  std::unordered_map<std::string, int64_t> endpoint_owners_;
+  std::unordered_map<
+      int64_t,
+      std::unordered_map<std::string, ExternalState>> external_ingresses_;
+  std::atomic<uint64_t> next_source_id_{1};
+
+  std::shared_ptr<ExternalShuffleIngress> findExternalIngressLocked(
+      int64_t executor_handle,
+      const std::string& plan_node_id,
+      const std::string& exchange_id);
 };
 
 }  // namespace pangrova::velox

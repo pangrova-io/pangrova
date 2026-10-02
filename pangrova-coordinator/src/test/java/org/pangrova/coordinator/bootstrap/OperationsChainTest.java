@@ -41,10 +41,10 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p><b>Property 36: Operations chain from main() to runtime management</b></p>
  */
-class OperationsChainTest {
+class OperationsChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private static final String TAG =
-            "Feature: e2e-pipeline-integration - Property 36: Operations chain from main() to runtime management";
+            "operations-control-plane-component";
 
     private CoordinatorBootstrap coordinatorBootstrap;
 
@@ -71,7 +71,8 @@ class OperationsChainTest {
     /**
      * P36a: For any coordinatorId, CoordinatorBootstrap starts with HA service active.
      * haService.tryBecomeLeader() is called during startHA(), so isLeader() returns true.
-     * Verified by submitting a query — proves HA did not block query acceptance.
+     * Verified by submitting a query: it reaches worker admission, where it
+     * fails closed because this fixture starts no Worker.
      */
     @Property(tries = 5)
     @Tag(TAG)
@@ -82,7 +83,8 @@ class OperationsChainTest {
         int port = coordinatorBootstrap.getHttpPort();
 
         java.net.http.HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(200);
+        assertThat(resp.statusCode()).isEqualTo(503);
+        assertThat(resp.body()).contains("No available worker for task dispatch");
     }
 
     // DynamicConfigService tests removed (R1.4: idle five-layer chain deleted)
@@ -182,8 +184,7 @@ class OperationsChainTest {
         shutdownCoordinator();
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 coordinatorId, 0);
-        coordinatorBootstrap = new CoordinatorBootstrap(config);
-        coordinatorBootstrap.start();
+        coordinatorBootstrap = startAuthorizedCoordinator(config);
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
         assertThat(coordinatorBootstrap.getHttpPort()).isGreaterThan(0);
     }
@@ -201,13 +202,14 @@ class OperationsChainTest {
 
     // -- HTTP helpers --
 
-    private static java.net.http.HttpResponse<String> submitQuery(int port, String sql)
+    private java.net.http.HttpResponse<String> submitQuery(int port, String sql)
             throws Exception {
         String body = new com.fasterxml.jackson.databind.ObjectMapper()
                 .writeValueAsString(Map.of("query", sql));
         java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
                 .uri(java.net.URI.create("http://localhost:" + port + "/v1/query/submit"))
                 .header("Content-Type", "application/json")
+                .header("Authorization", authorizationHeader())
                 .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body))
                 .build();
         return java.net.http.HttpClient.newHttpClient()

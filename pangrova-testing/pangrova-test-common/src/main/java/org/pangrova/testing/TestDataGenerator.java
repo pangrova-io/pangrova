@@ -28,7 +28,11 @@ public final class TestDataGenerator {
     public record ColumnDef(String name, ColumnType type) {}
 
     /** Schema definition as an ordered list of column definitions. */
-    public record TableSchema(List<ColumnDef> columns) {}
+    public record TableSchema(List<ColumnDef> columns) {
+        public TableSchema {
+            columns = List.copyOf(columns);
+        }
+    }
 
     /**
      * Column-specific upper bounds (exclusive) for LONG type generation.

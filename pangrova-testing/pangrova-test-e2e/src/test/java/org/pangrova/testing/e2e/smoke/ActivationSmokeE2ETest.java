@@ -41,13 +41,16 @@ class ActivationSmokeE2ETest extends PangrovaE2ETestBase {
     @DisplayName("Scenario 2: Smoke query assertion")
     void smokeQueryAssertion() {
         // Basic SELECT 1 must work
-        assertQueryReturnsRows("SELECT 1", 1);
+        assertScalarEquals("SELECT CAST(1 AS BIGINT)", 1L);
 
         // DDL + DML + SELECT cycle
         String tbl = CATALOG + "." + SCHEMA + ".smoke_" + System.nanoTime();
         executeDdl("CREATE TABLE " + tbl + " (id BIGINT)");
-        executeDml("INSERT INTO " + tbl + " VALUES (42)");
-        assertQueryReturnsRows("SELECT * FROM " + tbl, 1);
-        executeDdl("DROP TABLE " + tbl);
+        try {
+            executeDml("INSERT INTO " + tbl + " VALUES (42)");
+            assertScalarEquals("SELECT id FROM " + tbl, 42L);
+        } finally {
+            executeDdl("DROP TABLE " + tbl);
+        }
     }
 }

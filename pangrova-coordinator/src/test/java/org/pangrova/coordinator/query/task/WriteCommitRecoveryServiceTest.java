@@ -2,12 +2,15 @@ package org.pangrova.coordinator.query.task;
 
 import org.pangrova.coordinator.coordination.inmemory.InMemoryWriteCommitJournal;
 import org.pangrova.spi.coordination.WriteCommitEntry;
+import org.pangrova.spi.coordination.WriteCommitFingerprint;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies {@link WriteCommitRecoveryService} — the production consumer of pending
@@ -17,9 +20,38 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WriteCommitRecoveryServiceTest {
 
     private static WriteCommitEntry pending(String queryId) {
-        return new WriteCommitEntry(queryId, "iceberg", "analytics.events",
-                WriteCommitEntry.State.PENDING, System.currentTimeMillis(),
-                List.of(new byte[]{1, 2, 3}), "OVERWRITE", queryId, "coord-A", 1L);
+        var fragments = List.of(new byte[]{1, 2, 3});
+        String fingerprint = WriteCommitFingerprint.compute(
+                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
+                        queryId,
+                        "tenant-a",
+                        "iceberg",
+                        "analytics.events",
+                        "OVERWRITE",
+                        19L,
+                        new byte[]{42},
+                        "alice",
+                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
+                fragments);
+        return new WriteCommitEntry(
+                queryId,
+                "iceberg",
+                "analytics.events",
+                WriteCommitEntry.State.PENDING,
+                System.currentTimeMillis(),
+                fragments,
+                "OVERWRITE",
+                fingerprint,
+                "tenant-a",
+                "alice",
+                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                19L,
+                new byte[]{42},
+                fingerprint,
+                "coord-A",
+                "process-A",
+                1L,
+                null);
     }
 
     @Test
@@ -27,8 +59,8 @@ class WriteCommitRecoveryServiceTest {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
 
-        var report = new WriteCommitRecoveryService(journal,
-                e -> WriteCommitReconciler.RecoveryOutcome.COMMITTED).recover();
+        var report = recover(new WriteCommitRecoveryService(journal,
+                e -> WriteCommitReconciler.RecoveryOutcome.COMMITTED), "q1");
 
         assertThat(report.pending()).isEqualTo(1);
         assertThat(report.committed()).isEqualTo(1);
@@ -36,15 +68,18 @@ class WriteCommitRecoveryServiceTest {
     }
 
     @Test
-    void abortedOutcomePurgesEntry() {
+    void abortedOutcomeRetainsTerminalBarrier() {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
 
-        var report = new WriteCommitRecoveryService(journal,
-                e -> WriteCommitReconciler.RecoveryOutcome.ABORTED).recover();
+        var report = recover(new WriteCommitRecoveryService(journal,
+                e -> WriteCommitReconciler.RecoveryOutcome.ABORTED), "q1");
 
         assertThat(report.aborted()).isEqualTo(1);
-        assertThat(journal.getEntry("q1")).isEmpty();
+        assertThat(journal.getEntry("q1")).get()
+                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitEntry.State.ABORTED);
+        assertThatThrownBy(() -> journal.recordIntent(pending("q1")))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -52,8 +87,8 @@ class WriteCommitRecoveryServiceTest {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
 
-        var report = new WriteCommitRecoveryService(journal,
-                e -> WriteCommitReconciler.RecoveryOutcome.QUARANTINED).recover();
+        var report = recover(new WriteCommitRecoveryService(journal,
+                e -> WriteCommitReconciler.RecoveryOutcome.QUARANTINED), "q1");
 
         assertThat(report.quarantined()).isEqualTo(1);
         // Intent retained (still PENDING) for forensics / manual action.
@@ -67,9 +102,9 @@ class WriteCommitRecoveryServiceTest {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
 
-        var report = new WriteCommitRecoveryService(journal, e -> {
+        var report = recover(new WriteCommitRecoveryService(journal, e -> {
             throw new RuntimeException("catalog unreachable");
-        }).recover();
+        }), "q1");
 
         assertThat(report.quarantined()).isEqualTo(1);
         assertThat(journal.getEntry("q1")).isPresent();
@@ -82,10 +117,10 @@ class WriteCommitRecoveryServiceTest {
         journal.markCommitted("q1");   // already terminal
         var reconcileCount = new AtomicInteger();
 
-        var report = new WriteCommitRecoveryService(journal, e -> {
+        var report = recover(new WriteCommitRecoveryService(journal, e -> {
             reconcileCount.incrementAndGet();
             return WriteCommitReconciler.RecoveryOutcome.COMMITTED;
-        }).recover();
+        }), "q1");
 
         // COMMITTED entries are excluded from replayPendingEntries(), so the reconciler is
         // never invoked — re-running recovery cannot double-commit.
@@ -96,26 +131,70 @@ class WriteCommitRecoveryServiceTest {
     @Test
     void mixedOutcomesAreTalliedAndEmptyJournalIsNoOp() {
         var empty = new InMemoryWriteCommitJournal();
-        assertThat(new WriteCommitRecoveryService(empty,
-                e -> WriteCommitReconciler.RecoveryOutcome.COMMITTED).recover().pending()).isZero();
+        assertThat(recover(new WriteCommitRecoveryService(empty,
+                e -> WriteCommitReconciler.RecoveryOutcome.COMMITTED)).pending()).isZero();
 
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("commit-me"));
         journal.recordIntent(pending("abort-me"));
         journal.recordIntent(pending("hold-me"));
 
-        var report = new WriteCommitRecoveryService(journal, e -> switch (e.queryId()) {
+        var report = recover(new WriteCommitRecoveryService(journal, e -> switch (e.queryId()) {
             case "commit-me" -> WriteCommitReconciler.RecoveryOutcome.COMMITTED;
             case "abort-me" -> WriteCommitReconciler.RecoveryOutcome.ABORTED;
             default -> WriteCommitReconciler.RecoveryOutcome.QUARANTINED;
-        }).recover();
+        }), "commit-me", "abort-me", "hold-me");
 
         assertThat(report.pending()).isEqualTo(3);
         assertThat(report.committed()).isEqualTo(1);
         assertThat(report.aborted()).isEqualTo(1);
         assertThat(report.quarantined()).isEqualTo(1);
         assertThat(journal.isCommitted("commit-me")).isTrue();
-        assertThat(journal.getEntry("abort-me")).isEmpty();
+        assertThat(journal.getEntry("abort-me")).get()
+                .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitEntry.State.ABORTED);
         assertThat(journal.getEntry("hold-me")).isPresent();
+    }
+
+    @Test
+    void doesNotReplayAnUnclaimedExecution() {
+        var journal = new InMemoryWriteCommitJournal();
+        journal.recordIntent(pending("claimed"));
+        journal.recordIntent(pending("live-peer"));
+        var reconciled = new java.util.ArrayList<String>();
+
+        recover(new WriteCommitRecoveryService(journal, entry -> {
+            reconciled.add(entry.queryId());
+            return WriteCommitReconciler.RecoveryOutcome.COMMITTED;
+        }), "claimed");
+
+        assertThat(reconciled).containsExactly("claimed");
+        assertThat(journal.getEntry("live-peer")).isPresent();
+    }
+
+    @Test
+    void losingDurableFenceBeforeTerminalJournalMutationLeavesIntentPending() {
+        var journal = new InMemoryWriteCommitJournal();
+        journal.recordIntent(pending("q1"));
+        var fenceChecks = new AtomicInteger();
+
+        var service = new WriteCommitRecoveryService(journal,
+                entry -> WriteCommitReconciler.RecoveryOutcome.COMMITTED);
+
+        assertThatThrownBy(() -> service.recover(
+                Map.of("q1", 2L),
+                (ignored, token) -> fenceChecks.incrementAndGet() == 1))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Lost execution anchor");
+        assertThat(journal.getEntry("q1")).get()
+                .extracting(WriteCommitEntry::state)
+                .isEqualTo(WriteCommitEntry.State.PENDING);
+    }
+
+    private static WriteCommitRecoveryService.RecoveryReport recover(
+            WriteCommitRecoveryService service, String... executionIds) {
+        Map<String, Long> tokens = java.util.Arrays.stream(executionIds)
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        id -> id, ignored -> 2L));
+        return service.recover(tokens, (ignored, token) -> token == 2L);
     }
 }

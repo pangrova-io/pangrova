@@ -24,7 +24,7 @@ class MetadataSchemaBuilderTest {
         MetadataService emptyService = new StubMetadataService(List.of());
         MetadataSchemaBuilder adapter = new MetadataSchemaBuilder(emptyService);
 
-        CalciteSchema schema = adapter.buildRootSchema();
+        CalciteSchema schema = adapter.buildRootSchema(MetadataPlanningTestSessions.session());
 
         assertThat(schema).isNotNull();
         assertThat(schema.getSubSchemaMap()).isEmpty();
@@ -36,7 +36,7 @@ class MetadataSchemaBuilderTest {
         service.addSchemas("iceberg_catalog", List.of("default", "analytics"));
         MetadataSchemaBuilder adapter = new MetadataSchemaBuilder(service);
 
-        CalciteSchema schema = adapter.buildRootSchema();
+        CalciteSchema schema = adapter.buildRootSchema(MetadataPlanningTestSessions.session());
 
         assertThat(schema).isNotNull();
         // Catalog is registered as a sub-schema

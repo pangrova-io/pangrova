@@ -42,9 +42,9 @@ public final class QueryFlameGraphGenerator {
     private static void appendRect(StringBuilder svg, String label,
                                     int width, int y) {
         svg.append(String.format(
-                "  <rect x=\"0\" y=\"%d\" width=\"%d\" height=\"18\" />\n", y, width));
+                "  <rect x=\"0\" y=\"%d\" width=\"%d\" height=\"18\" />", y, width)).append('\n');
         svg.append(String.format(
-                "  <text x=\"2\" y=\"%d\">%s</text>\n", y + 14, label));
+                "  <text x=\"2\" y=\"%d\">%s</text>", y + 14, label)).append('\n');
     }
 
     /**

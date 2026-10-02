@@ -248,7 +248,7 @@ class RefreshCoordinatorTest {
     void lockAlreadyHeld_returnsNoOp() {
         DynamicTableState state = activeState("locked_dt");
         stateStore.saveState(state);
-        lockManager.tryAcquire("locked_dt", "other-coord", 1L, Duration.ofMinutes(10));
+        lockManager.tryAcquire("locked_dt", "other-coord", Duration.ofMinutes(10));
 
         RefreshCoordinator coordinator = buildCoordinator(
                 snapshotPipeline(incrementalChanges(), evaluationWithRows(5)),
@@ -619,13 +619,15 @@ class RefreshCoordinatorTest {
         }
 
         @Override
-        public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
-            return delegate.tryAcquire(leaseKey, holderId, epoch, duration);
+        public Optional<org.pangrova.spi.coordination.LeaseEntry> tryAcquire(
+                String leaseKey, String holderId, Duration duration) {
+            return delegate.tryAcquire(leaseKey, holderId, duration);
         }
 
         @Override
-        public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
-            boolean result = delegate.tryRenew(leaseKey, holderId, duration);
+        public boolean tryRenew(
+                String leaseKey, String holderId, long epoch, Duration duration) {
+            boolean result = delegate.tryRenew(leaseKey, holderId, epoch, duration);
             if (result) {
                 renewalCount.incrementAndGet();
                 renewalFired.countDown();
@@ -634,8 +636,8 @@ class RefreshCoordinatorTest {
         }
 
         @Override
-        public boolean release(String leaseKey, String holderId) {
-            return delegate.release(leaseKey, holderId);
+        public boolean release(String leaseKey, String holderId, long epoch) {
+            return delegate.release(leaseKey, holderId, epoch);
         }
 
         @Override
@@ -643,10 +645,6 @@ class RefreshCoordinatorTest {
             return delegate.currentHolder(leaseKey);
         }
 
-        @Override
-        public int expireStale() {
-            return delegate.expireStale();
-        }
     }
 
     /** Delegating lease where tryRenew always returns false. */
@@ -658,18 +656,20 @@ class RefreshCoordinatorTest {
         }
 
         @Override
-        public boolean tryAcquire(String leaseKey, String holderId, long epoch, Duration duration) {
-            return delegate.tryAcquire(leaseKey, holderId, epoch, duration);
+        public Optional<org.pangrova.spi.coordination.LeaseEntry> tryAcquire(
+                String leaseKey, String holderId, Duration duration) {
+            return delegate.tryAcquire(leaseKey, holderId, duration);
         }
 
         @Override
-        public boolean tryRenew(String leaseKey, String holderId, Duration duration) {
+        public boolean tryRenew(
+                String leaseKey, String holderId, long epoch, Duration duration) {
             return false;
         }
 
         @Override
-        public boolean release(String leaseKey, String holderId) {
-            return delegate.release(leaseKey, holderId);
+        public boolean release(String leaseKey, String holderId, long epoch) {
+            return delegate.release(leaseKey, holderId, epoch);
         }
 
         @Override
@@ -677,10 +677,6 @@ class RefreshCoordinatorTest {
             return delegate.currentHolder(leaseKey);
         }
 
-        @Override
-        public int expireStale() {
-            return delegate.expireStale();
-        }
     }
 
     /** Detector that waits for a latch before returning changes. */

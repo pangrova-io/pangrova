@@ -6,36 +6,32 @@ import java.util.Map;
 import org.pangrova.spi.streaming.TopicPartitionOffset;
 
 /**
- * Orchestrates the two-phase commit protocol for CDC exactly-once semantics.
+ * Orchestrates CDC commit-state transitions and source-batch deduplication.
  *
- * <p>The protocol ensures that offset commits and downstream table refreshes
- * (Iceberg/Paimon manifest commits) are atomic: either both succeed or both
- * are rolled back.</p>
+ * <p>The offset store and downstream Iceberg/Paimon catalogs do not share an
+ * atomic transaction. COMMITTING is an ambiguous state until the connector
+ * proves whether its catalog publication succeeded.</p>
  *
  * <h2>Protocol Flow</h2>
  * <ol>
- *   <li>{@link #prepare} — flush refresh writer to prepared state + persist offset
- *       in prepared table. Returns a {@link PrepareToken}.</li>
- *   <li>{@link #commit} — both sides acknowledged prepared → commit refresh manifest
- *       + commit offset. Idempotent.</li>
- *   <li>{@link #rollback} — any failure → delete prepared files + revert offset.
- *       Idempotent.</li>
+ *   <li>{@link #prepare} — persist a source-batch intent and return its token.</li>
+ *   <li>{@link #executeAtomicCommit} — prepare participants, then attempt ordered
+ *       publication; a failure after publication starts remains ambiguous.</li>
+ *   <li>{@link #rollback} — discard only work proven not to have entered publication.</li>
  * </ol>
  *
- * <h2>Atomic Commit with Participants</h2>
+ * <h2>Commit with Participants</h2>
  * <p>{@link #executeAtomicCommit} orchestrates a list of {@link CommitParticipant}s
- * through the full 2PC protocol: prepare all participants, then commit all (or abort
- * all on any failure). The offset range is persisted in the commit state store for
- * crash-recovery deduplication.</p>
+ * through prepare and ordered commit. The offset range is persisted for replay
+ * detection, but this does not make distinct external commit systems atomic.</p>
  *
  * <h2>Recovery</h2>
- * <p>On startup, {@link #recover} scans for in-flight transactions:
- * PREPARED past deadline → rollback; COMMITTING → retry commit (idempotent).</p>
+ * <p>On startup, {@link #recover} rolls back expired PREPARED records and fails
+ * closed on COMMITTING records until durable connector reconciliation exists.</p>
  *
  * <h2>Idempotency</h2>
- * <p>The (source_id, partition, offset) triple serves as the deduplication key.
- * Duplicate prepare calls for the same triple are detected and return the
- * existing token without side effects.</p>
+ * <p>The explicit full-batch deduplication key, scoped by source ID, identifies
+ * retries. The single-range overload is only suitable for one-partition batches.</p>
  */
 public interface CdcCommitCoordinator {
 
@@ -74,7 +70,7 @@ public interface CdcCommitCoordinator {
     }
 
     /**
-     * Phase 2: commit both offset and refresh atomically.
+     * Marks the state record committed after external participants have succeeded.
      *
      * <p>Idempotent: calling commit on an already-committed token is a no-op.</p>
      *
@@ -83,7 +79,7 @@ public interface CdcCommitCoordinator {
     void commit(PrepareToken token);
 
     /**
-     * Rollback a prepared or partially committed transaction.
+     * Rollback a transaction that has not entered external publication.
      *
      * <p>Idempotent: calling rollback on an already-rolled-back token is a no-op.</p>
      *
@@ -92,11 +88,8 @@ public interface CdcCommitCoordinator {
     void rollback(PrepareToken token);
 
     /**
-     * Rollback with explicit participants: aborts each participant's prepared side
-     * effects (delete prepared data files, revert offsets) BEFORE marking the commit
-     * record rolled back. Use this on every synchronous rollback path where
-     * participant handles are still available, so {@link CommitParticipant#abort()}
-     * is guaranteed to run (F-STREAM-2PC).
+     * Rollback with explicit participants: aborts prepared side effects before
+     * publication begins. COMMITTING must never be rolled back blindly.
      *
      * <p>{@link #recover} runs after a process restart where participant runtime
      * handles are gone, so it can only reclaim the commit record. Participants MUST
@@ -106,18 +99,7 @@ public interface CdcCommitCoordinator {
      * @param token        the prepare token to rollback
      * @param participants participants whose prepared work must be aborted (nullable)
      */
-    default void rollback(PrepareToken token, List<CommitParticipant> participants) {
-        if (participants != null) {
-            for (CommitParticipant participant : participants) {
-                try {
-                    participant.abort();
-                } catch (RuntimeException ignored) {
-                    // abort() contract: must not throw; each participant logs its own errors.
-                }
-            }
-        }
-        rollback(token);
-    }
+    void rollback(PrepareToken token, List<CommitParticipant> participants);
 
     /**
      * Recover in-flight transactions for the given source on startup.
@@ -131,7 +113,7 @@ public interface CdcCommitCoordinator {
     List<PrepareToken> recover(SourceId source);
 
     /**
-     * Executes a full two-phase commit with the given participants, using the
+     * Executes an ordered commit attempt with the given participants, using the
      * (source, range) tuple as the deduplication key for crash recovery.
      *
      * <p>Protocol:</p>
@@ -140,10 +122,10 @@ public interface CdcCommitCoordinator {
      *   <li>If the same (source, range) was already committed (crash-recovery replay),
      *       skip all participants and return immediately (dedup).</li>
      *   <li>Call {@link CommitParticipant#prepare()} on each participant in order.</li>
-     *   <li>If all prepare calls succeed, call {@link CommitParticipant#commit()} on each,
-     *       then mark the commit record as COMMITTED.</li>
-     *   <li>If any prepare or commit call fails, call {@link CommitParticipant#abort()} on
-     *       all previously prepared participants and roll back the commit record.</li>
+     *   <li>If all prepare calls succeed, claim COMMITTING with a database CAS,
+     *       call {@link CommitParticipant#commit()} on each, then mark COMMITTED.</li>
+     *   <li>On prepare failure, abort prepared participants and roll back. On
+     *       commit failure, retain COMMITTING for external reconciliation.</li>
      * </ol>
      *
      * @param source       the CDC source identifier

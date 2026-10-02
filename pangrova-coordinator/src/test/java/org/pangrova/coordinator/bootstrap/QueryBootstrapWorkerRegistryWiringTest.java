@@ -6,7 +6,6 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.resource.MemoryPressure;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import javax.sql.DataSource;
@@ -28,11 +27,8 @@ class QueryBootstrapWorkerRegistryWiringTest {
 
     @Test
     void startUsesJdbcWorkerRegistryWhenDataSourcePresent() throws Exception {
-        Assumptions.assumeTrue(SharedPostgresContainer.isAvailable(),
-                "Docker/PostgreSQL not available — skipping");
-        DataSource dataSource = SharedPostgresContainer.dataSource();
-        SharedPostgresContainer.createWorkerRegistryTable(dataSource);
-        SharedPostgresContainer.truncateTable(dataSource, "worker_registry");
+        DataSource dataSource = SharedPostgresContainer.migratedDataSource(
+                "worker_registry_wiring");
 
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("wiring-jdbc-1", 0);
         QueryBootstrap bootstrap = new QueryBootstrap(
@@ -82,11 +78,8 @@ class QueryBootstrapWorkerRegistryWiringTest {
 
     @Test
     void jdbcRegistrySurvivesWorkerManagerRecreation() throws Exception {
-        Assumptions.assumeTrue(SharedPostgresContainer.isAvailable(),
-                "Docker/PostgreSQL not available — skipping");
-        DataSource dataSource = SharedPostgresContainer.dataSource();
-        SharedPostgresContainer.createWorkerRegistryTable(dataSource);
-        SharedPostgresContainer.truncateTable(dataSource, "worker_registry");
+        DataSource dataSource = SharedPostgresContainer.migratedDataSource(
+                "worker_registry_recovery");
 
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("wiring-persist-1", 0);
 
@@ -116,8 +109,9 @@ class QueryBootstrapWorkerRegistryWiringTest {
                 id, host, httpPort, httpPort + 1000, 0,
                 HealthState.ACTIVE, MemoryPressure.NONE,
                 0.1, 0, 1024L * 1024 * 1024,
-                Instant.now(), 0.0, null, 1,
-                List.of(), null, List.of());
+                Instant.now(), 0.0, null, 2,
+                null, List.of(), null,
+                org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
     }
 
 }

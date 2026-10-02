@@ -13,6 +13,7 @@
  */
 package org.pangrova.client.jdbc;
 
+import org.pangrova.client.jdbc.value.VectorSqlArray;
 import org.pangrova.transport.ColumnDescriptor;
 import org.pangrova.transport.ResultBatch;
 
@@ -36,6 +37,7 @@ import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.List;
@@ -46,8 +48,9 @@ import java.util.Map;
  * Contains no Arrow imports — Arrow decoding is done in {@code pangrova-transport}
  * before this ResultSet is constructed.
  *
- * <p>The full batch is held in heap memory. For streaming large result sets
- * use {@link PaginatedResultSet} instead.</p>
+ * <p>The complete result is currently held in heap memory. A bounded-memory
+ * Flight-backed JDBC cursor is required before advertising large-result
+ * streaming support.</p>
  */
 public final class PangrovaResultSet implements ResultSet {
 
@@ -103,7 +106,8 @@ public final class PangrovaResultSet implements ResultSet {
     @Override
     public String getString(int columnIndex) throws SQLException {
         Object value = getObjectInternal(columnIndex);
-        return value == null ? null : value.toString();
+        return value == null ? null
+                : value instanceof float[] vector ? Arrays.toString(vector) : value.toString();
     }
 
     @Override
@@ -301,12 +305,16 @@ public final class PangrovaResultSet implements ResultSet {
     @Override public Ref getRef(int columnIndex) throws SQLException { throw unsupported(); }
     @Override public Blob getBlob(int columnIndex) throws SQLException { throw unsupported(); }
     @Override public Clob getClob(int columnIndex) throws SQLException { throw unsupported(); }
-    @Override public Array getArray(int columnIndex) throws SQLException { throw unsupported(); }
+    @Override public Array getArray(int columnIndex) throws SQLException {
+        return VectorSqlArray.fromValue(getObjectInternal(columnIndex));
+    }
     @Override public Object getObject(String columnLabel, Map<String, Class<?>> map) throws SQLException { throw unsupported(); }
     @Override public Ref getRef(String columnLabel) throws SQLException { throw unsupported(); }
     @Override public Blob getBlob(String columnLabel) throws SQLException { throw unsupported(); }
     @Override public Clob getClob(String columnLabel) throws SQLException { throw unsupported(); }
-    @Override public Array getArray(String columnLabel) throws SQLException { throw unsupported(); }
+    @Override public Array getArray(String columnLabel) throws SQLException {
+        return getArray(findColumn(columnLabel));
+    }
     @Override public Date getDate(int columnIndex, Calendar cal) throws SQLException { throw unsupported(); }
     @Override public Date getDate(String columnLabel, Calendar cal) throws SQLException { throw unsupported(); }
     @Override public Time getTime(int columnIndex, Calendar cal) throws SQLException { throw unsupported(); }

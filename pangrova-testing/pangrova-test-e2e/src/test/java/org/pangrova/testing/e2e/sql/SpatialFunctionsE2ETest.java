@@ -16,7 +16,6 @@ package org.pangrova.testing.e2e.sql;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
-import org.pangrova.testing.e2e.E2ETestFramework;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -78,17 +77,9 @@ class SpatialFunctionsE2ETest extends PangrovaE2ETestBase {
             String sql = "SELECT id FROM " + fqn()
                     + " WHERE ST_INTERSECTS(geom, ST_GEOMFROMTEXT("
                     + "'POLYGON((0 0, 6 0, 6 6, 0 6, 0 0))'))";
-            E2ETestFramework.QueryResult result = framework.executeQuery(sql);
-            if (result.success()) {
-                List<TypedRow> rows = result.rows();
-                // Points (0,0) and (5,5) should intersect with the polygon;
-                // accept any non-negative result (spatial correctness depends on Velox GEOS)
-                assertThat(rows.size()).isGreaterThanOrEqualTo(0);
-            } else {
-                String error = result.errorMessage();
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("No match found for function signature");
-            }
+            assertThat(executeQuery(sql))
+                    .extracting(row -> ((Number) row.getRaw("id")).longValue())
+                    .containsExactlyInAnyOrder(1L, 2L);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -113,17 +104,9 @@ class SpatialFunctionsE2ETest extends PangrovaE2ETestBase {
             String sql = "SELECT id FROM " + fqn()
                     + " WHERE ST_WITHIN(location, ST_GEOMFROMTEXT("
                     + "'POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))'))";
-            E2ETestFramework.QueryResult result = framework.executeQuery(sql);
-            if (result.success()) {
-                List<TypedRow> rows = result.rows();
-                // Points (1,1) and (3,3) should be within polygon;
-                // accept any non-negative result (spatial correctness depends on Velox GEOS)
-                assertThat(rows.size()).isGreaterThanOrEqualTo(0);
-            } else {
-                String error = result.errorMessage();
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("No match found for function signature");
-            }
+            assertThat(executeQuery(sql))
+                    .extracting(row -> ((Number) row.getRaw("id")).longValue())
+                    .containsExactlyInAnyOrder(1L, 2L);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -154,17 +137,10 @@ class SpatialFunctionsE2ETest extends PangrovaE2ETestBase {
 
             String sql = "SELECT id, name FROM " + fqn()
                     + " WHERE ST_CONTAINS(region, ST_GEOMFROMTEXT('POINT(5 5)'))";
-            E2ETestFramework.QueryResult result = framework.executeQuery(sql);
-            if (result.success()) {
-                List<TypedRow> rows = result.rows();
-                // Spatial correctness depends on Velox GEOS integration;
-                // verify query executes without planner errors
-                assertThat(rows.size()).isGreaterThanOrEqualTo(0);
-            } else {
-                String error = result.errorMessage();
-                assertThat(error).doesNotContainIgnoringCase("syntax error");
-                assertThat(error).doesNotContainIgnoringCase("No match found for function signature");
-            }
+            List<TypedRow> rows = executeQuery(sql);
+            assertThat(rows).hasSize(1);
+            assertThat(((Number) rows.get(0).getRaw("id")).longValue()).isEqualTo(1L);
+            assertThat(rows.get(0).getRaw("name")).isEqualTo("large");
 
             executeDdl("DROP TABLE " + fqn());
         }

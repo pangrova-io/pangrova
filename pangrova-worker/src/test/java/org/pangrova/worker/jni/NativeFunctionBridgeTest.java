@@ -2,8 +2,10 @@ package org.pangrova.worker.jni;
 
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.AggregateFunction;
+import org.pangrova.spi.function.BatchableScalarFunction;
 import org.pangrova.spi.function.FunctionMetadata;
 import org.pangrova.spi.function.ScalarFunction;
+import org.pangrova.worker.ai.context.AiExecutionContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -122,6 +124,94 @@ class NativeFunctionBridgeTest {
         bridge.registerScalar(constantScalar("no_args", "constant"));
         Object result = bridge.evaluateScalar("no_args", null);
         assertThat(result).isEqualTo("constant");
+    }
+
+    @Test
+    void batchCardinalityMismatchFailsClosed() {
+        bridge.registerScalar(new BatchableScalarFunction() {
+            @Override
+            public FunctionMetadata getMetadata() {
+                return new FunctionMetadata("bad_batch", "VARCHAR", List.of("VARCHAR"));
+            }
+
+            @Override
+            public ColumnValue invoke(List<ColumnValue> arguments) {
+                return arguments.get(0);
+            }
+
+            @Override
+            public List<ColumnValue> invokeBatch(List<List<ColumnValue>> argumentsBatch) {
+                return List.of(new ColumnValue.StringValue("too-few"));
+            }
+        });
+
+        assertThatThrownBy(() -> bridge.evaluateBatch(
+                "bad_batch", new Object[][]{{"a"}, {"b"}}, callbackAuthority()))
+                .isInstanceOf(NativeRuntimeException.class)
+                .hasMessageContaining("returned 1 results for 2 rows");
+    }
+
+    @Test
+    void overloadedRowSignatureIsWrappedAndNormalizedForNative() {
+        bridge.registerScalar(new ScalarFunction() {
+            @Override
+            public FunctionMetadata getMetadata() {
+                return new FunctionMetadata("file_echo", "ROW", List.of("ROW"));
+            }
+
+            @Override
+            public List<List<String>> getArgumentSignatures() {
+                return List.of(List.of("VARCHAR"), List.of("ROW"));
+            }
+
+            @Override
+            public ColumnValue invoke(List<ColumnValue> arguments) {
+                assertThat(arguments.get(0)).isInstanceOf(ColumnValue.RowValue.class);
+                return arguments.get(0);
+            }
+        });
+
+        Object result = bridge.evaluateScalar("file_echo", new Object[]{new Object[]{
+                "s3://bucket/a.png", "image/png", 10L, "sha256",
+                java.time.LocalDateTime.of(2026, 1, 2, 3, 4)}});
+
+        assertThat(result).isInstanceOf(Object[].class);
+        assertThat((Object[]) result).hasSize(5);
+        assertThat(((Object[]) result)[4]).isInstanceOf(Long.class);
+        assertThat(bridge.buildDescriptors()).hasSize(2);
+    }
+
+    @Test
+    void nativeBatchCallbackBindsAndClearsAiExecutionContext() {
+        bridge.registerScalar(new ScalarFunction() {
+            @Override
+            public FunctionMetadata getMetadata() {
+                return new FunctionMetadata("context_tenant", "VARCHAR", List.of());
+            }
+
+            @Override
+            public ColumnValue invoke(List<ColumnValue> arguments) {
+                return new ColumnValue.StringValue(
+                        AiExecutionContext.current().orElseThrow().tenantId());
+            }
+        });
+
+        Object[] result = bridge.evaluateBatch(
+                "context_tenant",
+                new Object[][]{{}},
+                callbackAuthority());
+
+        assertThat(result).containsExactly("tenant-a");
+        assertThat(AiExecutionContext.current()).isEmpty();
+    }
+
+    private static byte[] callbackAuthority() {
+        var request = org.pangrova.worker.ai.context.AiTestTaskAuthority.request(
+                new org.pangrova.worker.ai.context.AiTestTaskAuthority.Identity(
+                        "tenant-a", "alice", "query-a", "task-a", "trace-a", 4_102_444_800_000L),
+                org.pangrova.protocol.v2.StageResourceGrant.newBuilder().setGrantId("grant")
+                        .setCpuSlots(1).setNativeMemoryBytes(1048576).build());
+        return org.pangrova.protocol.CanonicalTaskRequests.callbackFor(request).toByteArray();
     }
 
     // ---- Aggregate registration ----

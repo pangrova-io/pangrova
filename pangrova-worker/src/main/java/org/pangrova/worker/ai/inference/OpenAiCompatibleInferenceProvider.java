@@ -16,16 +16,17 @@ package org.pangrova.worker.ai.inference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.spi.ai.inference.ContentPart;
+import org.pangrova.spi.ai.AiInvocationException;
+import org.pangrova.spi.ai.embedding.BlobReference;
 import org.pangrova.spi.ai.inference.GenerationParameters;
 import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.ai.inference.InferenceResult;
-import org.pangrova.spi.ai.inference.Modality;
+import org.pangrova.spi.ai.Modality;
 import org.pangrova.spi.ai.inference.MultimodalPrompt;
+import org.pangrova.worker.ai.context.AiProviderCallContext;
+import org.pangrova.worker.ai.context.AiHttpTransport;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -34,8 +35,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.Base64;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -43,6 +45,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 /**
  * Inference provider that calls any OpenAI-compatible /v1/chat/completions endpoint.
@@ -60,66 +63,63 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
     private static final int MAX_RETRIES = 3;
     private static final long INITIAL_BACKOFF_MS = 500;
     private static final int HTTP_OK = 200;
+    private static final int HTTP_UNAUTHORIZED = 401;
+    private static final int HTTP_FORBIDDEN = 403;
+    private static final int HTTP_REQUEST_TIMEOUT = 408;
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
-    private static final int HTTP_SERVICE_UNAVAILABLE = 503;
+    private static final int HTTP_SERVER_ERROR_MIN = 500;
+    private static final int HTTP_SERVER_ERROR_MAX = 599;
+    private static final int HTTP_GATEWAY_TIMEOUT = 504;
 
     private final String endpoint;
     private final String modelName;
     private final String apiKey;
     private final int maxBatchSize;
     private final Duration timeout;
+    private final OpenAiChatRequestEncoder requestEncoder;
     private final HttpClient httpClient;
     private final Semaphore rateLimiter;
     private final ScheduledExecutorService rateReplenisher;
     private final ExecutorService batchExecutor;
 
+    /** Creates a provider using the configured endpoint and admission limits. */
     public OpenAiCompatibleInferenceProvider(
-            String endpoint,
-            String modelName,
-            String apiKey,
-            int maxBatchSize,
-            double maxRequestsPerSecond,
-            int timeoutSeconds) {
-        this(endpoint, modelName, apiKey, maxBatchSize, maxRequestsPerSecond,
-                timeoutSeconds,
-                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
-    }
+            OpenAiInferenceConfig config,
+            Optional<Function<BlobReference, byte[]>> blobLoader) {
+        java.util.Objects.requireNonNull(config, "config must not be null");
+        requireText(config.endpoint(), "endpoint");
+        requireText(config.modelName(), "modelName");
+        if (config.apiKey() == null) {
+            throw new IllegalArgumentException("apiKey must not be null");
+        }
+        validatePositiveValues(
+                config.maxBatchSize(), config.maxRequestsPerSecond(),
+                config.maxConcurrency(), config.timeoutSeconds());
+        this.endpoint = config.endpoint();
+        this.modelName = config.modelName();
+        this.apiKey = config.apiKey();
+        this.maxBatchSize = config.maxBatchSize();
+        this.timeout = Duration.ofSeconds(config.timeoutSeconds());
+        this.requestEncoder = new OpenAiChatRequestEncoder(modelName, blobLoader);
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10)).build();
 
-    OpenAiCompatibleInferenceProvider(
-            String endpoint,
-            String modelName,
-            String apiKey,
-            int maxBatchSize,
-            double maxRequestsPerSecond,
-            int timeoutSeconds,
-            HttpClient httpClient) {
-        requireText(endpoint, "endpoint");
-        requireText(modelName, "modelName");
-        requireText(apiKey, "apiKey");
-        validatePositiveValues(maxBatchSize, maxRequestsPerSecond, timeoutSeconds);
-        this.endpoint = endpoint;
-        this.modelName = modelName;
-        this.apiKey = apiKey;
-        this.maxBatchSize = maxBatchSize;
-        this.timeout = Duration.ofSeconds(timeoutSeconds);
-        this.httpClient = httpClient;
-
-        int permits = Math.max(1, (int) maxRequestsPerSecond);
+        int permits = Math.max(1, (int) Math.ceil(config.maxRequestsPerSecond()));
         this.rateLimiter = new Semaphore(permits, true);
-        long intervalMs = 1000 / Math.max(1, (long) maxRequestsPerSecond);
+        long intervalNanos = Math.max(1L, (long) Math.ceil(1_000_000_000.0 / config.maxRequestsPerSecond()));
         this.rateReplenisher = ManagedExecutorFactory.newSingleThreadScheduledExecutor(
                 "ai-inference-rate-replenish");
         this.rateReplenisher.scheduleAtFixedRate(
                 () -> {
                     int drain = permits - rateLimiter.availablePermits();
                     if (drain > 0) {
-                        rateLimiter.release(Math.min(drain, permits));
+                        rateLimiter.release();
                     }
                 },
-                intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+                intervalNanos, intervalNanos, TimeUnit.NANOSECONDS);
         this.batchExecutor = ManagedExecutorFactory.newFixedThreadPool(
                 "ai-inference-batch",
-                Math.min(maxBatchSize, Runtime.getRuntime().availableProcessors()));
+                Math.min(config.maxBatchSize(), config.maxConcurrency()));
     }
 
     private static void requireText(String value, String name) {
@@ -128,13 +128,19 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         }
     }
 
-    private static void validatePositiveValues(int maxBatchSize, double maxRequestsPerSecond,
-                                               int timeoutSeconds) {
+    private static void validatePositiveValues(
+            int maxBatchSize,
+            double maxRequestsPerSecond,
+            int maxConcurrency,
+            int timeoutSeconds) {
         if (maxBatchSize <= 0) {
             throw new IllegalArgumentException("maxBatchSize must be positive");
         }
-        if (maxRequestsPerSecond <= 0) {
+        if (!Double.isFinite(maxRequestsPerSecond) || maxRequestsPerSecond <= 0) {
             throw new IllegalArgumentException("maxRequestsPerSecond must be positive");
+        }
+        if (maxConcurrency <= 0) {
+            throw new IllegalArgumentException("maxConcurrency must be positive");
         }
         if (timeoutSeconds <= 0) {
             throw new IllegalArgumentException("timeoutSeconds must be positive");
@@ -154,8 +160,10 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
 
     @Override
     public List<InferenceResult> completeBatch(List<String> prompts, GenerationParameters parameters) {
-        if (prompts == null || prompts.isEmpty()) {
-            throw new IllegalArgumentException("prompts must not be null or empty");
+        if (prompts == null || prompts.isEmpty()
+                || prompts.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new IllegalArgumentException(
+                    "prompts must not be null or empty and must contain only non-null values");
         }
         if (prompts.size() > maxBatchSize) {
             throw new IllegalArgumentException(
@@ -165,10 +173,28 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
             parameters = GenerationParameters.DEFAULTS;
         }
         GenerationParameters params = parameters;
-        List<CompletableFuture<InferenceResult>> futures = prompts.stream()
-                .map(p -> CompletableFuture.supplyAsync(
-                        () -> callWithRetry(p, params), batchExecutor))
+        String invocationKey = AiProviderCallContext.currentIdempotencyKey()
+                .orElse(null);
+        Instant invocationDeadline = AiProviderCallContext.currentDeadline()
+                .orElse(null);
+        AiProviderCallContext.AttemptAdmission attemptAdmission = AiProviderCallContext.currentAttemptAdmission()
+                .orElse(null);
+        List<CompletableFuture<InferenceResult>> futures =
+                java.util.stream.IntStream.range(0, prompts.size())
+                .mapToObj(index -> CompletableFuture.supplyAsync(
+                        () -> invocationKey == null
+                                ? callWithRetry(prompts.get(index), params)
+                                : AiProviderCallContext.callWithOrdinal(
+                                        invocationKey,
+                                        invocationDeadline,
+                                        index,
+                                        attemptAdmission,
+                                        () -> callWithRetry(
+                                                prompts.get(index), params)),
+                        batchExecutor))
                 .toList();
+        CompletableFuture.allOf(
+                futures.toArray(CompletableFuture[]::new)).join();
         return futures.stream().map(CompletableFuture::join).toList();
     }
 
@@ -190,13 +216,15 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         if (parameters == null) {
             parameters = GenerationParameters.DEFAULTS;
         }
-        String requestBody = buildMultimodalRequestJson(prompt, parameters);
+        String requestBody = requestEncoder.encodeMultimodal(prompt, parameters);
         return callWithRetryRaw(requestBody, parameters);
     }
 
     @Override
     public Set<Modality> supportedModalities() {
-        return Set.of(Modality.TEXT, Modality.IMAGE, Modality.DOCUMENT);
+        return requestEncoder.supportsImages()
+                ? Set.of(Modality.TEXT, Modality.IMAGE)
+                : Set.of(Modality.TEXT);
     }
 
     @Override
@@ -206,7 +234,7 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
     }
 
     private InferenceResult callWithRetry(String prompt, GenerationParameters parameters) {
-        String requestBody = buildRequestJson(prompt, parameters);
+        String requestBody = requestEncoder.encodeText(prompt, parameters);
         return callWithRetryRaw(requestBody, parameters);
     }
 
@@ -233,10 +261,16 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                throw new RuntimeException("Inference request interrupted", e);
+                throw new AiInvocationException(
+                        AiInvocationException.Category.TIMEOUT,
+                        false,
+                        "Inference request was interrupted",
+                        e);
             }
         }
-        throw new RuntimeException(
+        throw new AiInvocationException(
+                AiInvocationException.Category.PROVIDER_UNAVAILABLE,
+                true,
                 "Inference request failed after " + (MAX_RETRIES + 1) + " attempts",
                 lastException);
     }
@@ -247,135 +281,115 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         int statusCode = response.statusCode();
 
         if (statusCode == HTTP_OK) {
-            return parseResponseWithUsage(response.body());
+            return parseResponse(response.body());
         }
         if (isRetryable(statusCode) && attempt < MAX_RETRIES) {
             throw new RetryableStatusException(statusCode);
         }
-        throw new RuntimeException(
-                "Inference request failed with HTTP " + statusCode
-                        + ": " + response.body());
+        throw responseFailure(statusCode);
     }
 
     private HttpResponse<String> sendRequest(String requestBody) throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder request = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
-                .timeout(timeout)
+                .timeout(AiProviderCallContext.remainingTimeout(timeout))
                 .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
-                .build();
-        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody));
+        if (!apiKey.isBlank()) {
+            request.header("Authorization", "Bearer " + apiKey);
+        }
+        AiProviderCallContext.currentIdempotencyKey().ifPresent(
+                value -> request.header("Idempotency-Key", value));
+        return AiHttpTransport.send(httpClient, request.build());
     }
 
     private static boolean isRetryable(int statusCode) {
-        return statusCode == HTTP_TOO_MANY_REQUESTS || statusCode == HTTP_SERVICE_UNAVAILABLE;
+        return statusCode == HTTP_TOO_MANY_REQUESTS
+                || statusCode == HTTP_REQUEST_TIMEOUT
+                || statusCode >= HTTP_SERVER_ERROR_MIN
+                        && statusCode <= HTTP_SERVER_ERROR_MAX;
     }
 
     private void acquireRatePermit() {
         try {
-            if (!rateLimiter.tryAcquire(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
-                throw new RuntimeException("Rate limit timeout: unable to acquire permit");
+            long waitMillis = AiProviderCallContext.remainingTimeout(timeout).toMillis();
+            if (!rateLimiter.tryAcquire(Math.max(1L, waitMillis), TimeUnit.MILLISECONDS)) {
+                throw new AiInvocationException(
+                        AiInvocationException.Category.RATE_LIMIT,
+                        true,
+                        "Timed out waiting for inference provider admission");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted waiting for rate limit permit", e);
+            throw new AiInvocationException(
+                    AiInvocationException.Category.TIMEOUT,
+                    false,
+                    "Inference provider admission was interrupted",
+                    e);
         }
     }
 
-    private String buildRequestJson(String prompt, GenerationParameters parameters) {
-        ObjectNode root = MAPPER.createObjectNode();
-        root.put("model", modelName);
-        ArrayNode messages = root.putArray("messages");
-        messages.addObject().put("role", "user").put("content", prompt);
-
-        applyGenerationParameters(root, parameters);
-
-        try {
-            return MAPPER.writeValueAsString(root);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize inference request", e);
-        }
-    }
-
-    private String buildMultimodalRequestJson(MultimodalPrompt prompt, GenerationParameters parameters) {
-        ObjectNode root = MAPPER.createObjectNode();
-        root.put("model", modelName);
-        ArrayNode messages = root.putArray("messages");
-
-        ObjectNode userMsg = messages.addObject();
-        userMsg.put("role", "user");
-        ArrayNode contentArray = userMsg.putArray("content");
-
-        for (ContentPart part : prompt.parts()) {
-            if (part instanceof ContentPart.Text textPart) {
-                contentArray.addObject()
-                        .put("type", "text")
-                        .put("text", textPart.text());
-            } else if (part instanceof ContentPart.InlineImage imagePart) {
-                ObjectNode imageNode = contentArray.addObject();
-                imageNode.put("type", "image_url");
-                ObjectNode imageUrl = imageNode.putObject("image_url");
-                String base64Data = Base64.getEncoder().encodeToString(imagePart.data());
-                imageUrl.put("url", "data:" + imagePart.mimeType() + ";base64," + base64Data);
-            } else if (part instanceof ContentPart.FileRef filePart) {
-                // For file references, pass the URI as an image_url for Vision API
-                // The provider endpoint handles URI resolution (presigned URLs, etc.)
-                ObjectNode imageNode = contentArray.addObject();
-                imageNode.put("type", "image_url");
-                ObjectNode imageUrl = imageNode.putObject("image_url");
-                imageUrl.put("url", filePart.reference().uri());
-            }
-        }
-
-        applyGenerationParameters(root, parameters);
-
-        try {
-            return MAPPER.writeValueAsString(root);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("Failed to serialize multimodal inference request", e);
-        }
-    }
-
-    private void applyGenerationParameters(ObjectNode root, GenerationParameters parameters) {
-        parameters.temperature().ifPresent(t -> root.put("temperature", t));
-        parameters.maxTokens().ifPresent(m -> root.put("max_tokens", m));
-        parameters.responseFormat().ifPresent(fmt -> {
-            ObjectNode formatNode = MAPPER.createObjectNode();
-            formatNode.put("type", fmt);
-            root.set("response_format", formatNode);
-        });
-    }
-
-    private InferenceResult parseResponseWithUsage(String responseBody) {
+    private InferenceResult parseResponse(String responseBody) {
         try {
             JsonNode root = MAPPER.readTree(responseBody);
-            JsonNode choices = root.path("choices");
-            if (!choices.isArray() || choices.isEmpty()) {
-                throw new RuntimeException("Invalid response: missing 'choices' array");
+            if (root == null || !root.isObject()) {
+                throw invalidResponse("inference response must be a JSON object");
             }
-            JsonNode content = choices.get(0).path("message").path("content");
-            if (content.isMissingNode() || !content.isTextual()) {
-                throw new RuntimeException("Invalid response: missing 'content' field");
-            }
-            String text = content.asText();
-
-            JsonNode usage = root.path("usage");
-            if (!usage.isMissingNode()) {
-                long inputTokens = usage.path("prompt_tokens").asLong(0);
-                long outputTokens = usage.path("completion_tokens").asLong(0);
-                return InferenceResult.of(text, inputTokens, outputTokens);
-            }
-            return InferenceResult.of(text);
+            String text = requireResponseText(root);
+            return new InferenceResult(text, root.path("id").asText(""));
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Invalid response: failed to parse JSON", e);
+            throw invalidResponse("inference response is not valid JSON", e);
         }
+    }
+
+    private static String requireResponseText(JsonNode root) {
+        JsonNode choices = root.path("choices");
+        if (!choices.isArray() || choices.isEmpty()) {
+            throw invalidResponse("inference response is missing its choices array");
+        }
+        JsonNode content = choices.get(0).path("message").path("content");
+        if (content.isMissingNode() || !content.isTextual()) {
+            throw invalidResponse("inference response is missing its text content");
+        }
+        return content.asText();
+    }
+
+    private static AiInvocationException responseFailure(int statusCode) {
+        AiInvocationException.Category category = switch (statusCode) {
+            case HTTP_UNAUTHORIZED -> AiInvocationException.Category.AUTHENTICATION;
+            case HTTP_FORBIDDEN -> AiInvocationException.Category.AUTHORIZATION;
+            case HTTP_REQUEST_TIMEOUT, HTTP_GATEWAY_TIMEOUT ->
+                    AiInvocationException.Category.TIMEOUT;
+            case HTTP_TOO_MANY_REQUESTS -> AiInvocationException.Category.RATE_LIMIT;
+            default -> AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+        };
+        boolean retryable = isRetryable(statusCode);
+        return new AiInvocationException(
+                category, retryable,
+                "Inference provider returned HTTP " + statusCode);
+    }
+
+    private static AiInvocationException invalidResponse(String message) {
+        return invalidResponse(message, null);
+    }
+
+    private static AiInvocationException invalidResponse(
+            String message, Throwable cause) {
+        return new AiInvocationException(
+                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                false,
+                message,
+                cause);
     }
 
     private static void sleep(long millis) {
-        ThreadUtils.sleepQuietly(Math.max(1, millis));
+        ThreadUtils.sleepQuietly(AiProviderCallContext.remainingWaitMillis(
+                Math.max(1, millis)));
         if (Thread.currentThread().isInterrupted()) {
-            throw new RuntimeException("Interrupted during backoff");
+            throw new AiInvocationException(
+                    AiInvocationException.Category.TIMEOUT,
+                    false,
+                    "Inference retry was interrupted");
         }
     }
 

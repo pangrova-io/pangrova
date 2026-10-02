@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "observability/PangrovaLog.h"
+#include "split/PathUtils.h"
 
 namespace pangrova::delete_filter {
 
@@ -39,21 +40,24 @@ facebook::velox::dwio::common::FileFormat resolveDeleteFileFormat(
   return facebook::velox::dwio::common::FileFormat::PARQUET;
 }
 
+std::shared_ptr<facebook::velox::ReadFile> openDeleteFile(
+    const std::string& path) {
+  const auto normalized = split::normalizeToS3Uri(
+      split::stripFilePrefix(path));
+  auto file_system = facebook::velox::filesystems::getFileSystem(
+      normalized, nullptr);
+  if (!file_system) {
+    throw std::runtime_error(
+        "No registered filesystem for delete file: " + normalized);
+  }
+  return file_system->openFileForRead(normalized);
+}
+
 }  // namespace
 
 std::vector<int64_t> DeleteFileReader::readPositions(
     const std::string& deleteFilePath,
     const std::string& dataFilePath) {
-  // Pre-check file existence to avoid Velox VELOX_CHECK abort on missing file.
-  {
-    std::ifstream probe(deleteFilePath);
-    if (!probe.good()) {
-      throw std::runtime_error(
-          "Cannot open position delete file: path=" + deleteFilePath +
-          ", error=file not found");
-    }
-  }
-
   auto& pool = deleteReaderPool();
   auto format = resolveDeleteFileFormat(deleteFilePath);
 
@@ -67,8 +71,7 @@ std::vector<int64_t> DeleteFileReader::readPositions(
         facebook::velox::dwio::common::getReaderFactory(format)
             ->createReader(
                 std::make_unique<facebook::velox::dwio::common::BufferedInput>(
-                    std::make_shared<facebook::velox::LocalReadFile>(
-                        deleteFilePath),
+                    openDeleteFile(deleteFilePath),
                     pool),
                 readerOpts);
   } catch (const std::exception& e) {
@@ -141,15 +144,6 @@ std::unordered_set<std::string> DeleteFileReader::readEqualityKeys(
   }
 
   // Pre-check file existence to avoid Velox VELOX_CHECK abort on missing file.
-  {
-    std::ifstream probe(deleteFilePath);
-    if (!probe.good()) {
-      throw std::runtime_error(
-          "Cannot open equality delete file: path=" + deleteFilePath +
-          ", error=file not found");
-    }
-  }
-
   auto& pool = deleteReaderPool();
   auto format = resolveDeleteFileFormat(deleteFilePath);
 
@@ -162,8 +156,7 @@ std::unordered_set<std::string> DeleteFileReader::readEqualityKeys(
         facebook::velox::dwio::common::getReaderFactory(format)
             ->createReader(
                 std::make_unique<facebook::velox::dwio::common::BufferedInput>(
-                    std::make_shared<facebook::velox::LocalReadFile>(
-                        deleteFilePath),
+                    openDeleteFile(deleteFilePath),
                     pool),
                 readerOpts);
   } catch (const std::exception& e) {

@@ -8,7 +8,8 @@ import java.util.Optional;
  *
  * <p>Implementations query the catalog to determine which columns on a table
  * have {@code GENERATED ALWAYS AS (ai_embed(...))} definitions. Used by
- * {@link AutoEmbedRewriteRule} and {@link QueryTextEmbedRule} during planning.</p>
+ * {@link QueryTextEmbedRule} during retrieval planning. Mutation planning instead uses
+ * the canonical generated-column declaration retained by its compiled table.</p>
  *
  * <p>Thread safety: implementations must be safe for concurrent use.</p>
  */

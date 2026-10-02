@@ -41,6 +41,9 @@ class TaskLifecycle {
   // Set error message (thread-safe via mutex).
   void setError(const std::string& message);
 
+  // Retain cleanup diagnostics without rewriting an already published terminal state.
+  void appendError(const std::string& message);
+
   // Set error message with native stack trace (thread-safe via mutex).
   void setError(const std::string& message, const std::string& stack_trace);
 

@@ -23,7 +23,7 @@ AI_COMPLETE(model VARCHAR, prompt VARCHAR, file FILE) → VARCHAR       -- Multi
 AI_COMPLETE(model VARCHAR, prompt VARCHAR, json_mode VARCHAR) → VARCHAR -- JSON output
 ```
 
-**Description:** General-purpose text generation and completion. Sends a prompt to the specified model and returns the generated text. Supports multimodal input (text + file) and structured JSON output mode.
+**Description:** General-purpose text generation and completion. Sends a prompt to the exact configured model deployment and returns generated text. Multimodal input is admitted only when that model's exact provider dialect advertises the FILE modality.
 
 **Parameters:**
 
@@ -31,7 +31,7 @@ AI_COMPLETE(model VARCHAR, prompt VARCHAR, json_mode VARCHAR) → VARCHAR -- JSO
 |-----------|------|-------------|
 | `model` | VARCHAR | Model name (e.g., `'llama3'`, `'gpt-4o'`) |
 | `prompt` | VARCHAR | Text prompt for the model |
-| `file` | FILE (optional) | Multimodal file input (image/document) |
+| `file` | FILE (optional) | Governed FILE input supported by the exact model dialect; chat-completions accepts images only |
 | `json_mode` | VARCHAR (optional) | Set to `'true'` for JSON-structured output |
 
 **Example:**
@@ -41,7 +41,8 @@ AI_COMPLETE(model VARCHAR, prompt VARCHAR, json_mode VARCHAR) → VARCHAR -- JSO
 SELECT AI_COMPLETE('llama3', 'Explain quantum computing in one sentence') AS answer;
 
 -- Multimodal: describe an image
-SELECT AI_COMPLETE('gpt-4o', 'Describe this image', FILE_FROM_URL('s3://bucket/photo.jpg')) AS description;
+SELECT AI_COMPLETE('gpt-4o', 'Describe this image',
+       FILE_FROM_URL('https://media.example/photo.jpg')) AS description;
 
 -- JSON mode output
 SELECT AI_COMPLETE('llama3', 'List 3 colors as JSON array', 'true') AS json_result;
@@ -49,7 +50,7 @@ SELECT AI_COMPLETE('llama3', 'List 3 colors as JSON array', 'true') AS json_resu
 
 **Notes:**
 - Supports batch execution for multiple rows
-- When the third parameter is a FILE (ROW type), multimodal inference is used
+- When the third parameter is a FILE, its MIME must match the model's advertised modality; an unsupported dialect fails before provider I/O
 - When the third parameter is the string `'true'`, output is constrained to valid JSON
 
 **See Also:** [AI_SUMMARIZE](#ai_summarize), [AI_EXTRACT](#ai_extract)
@@ -323,11 +324,11 @@ WHERE locale = 'zh-CN';
 **Synopsis:**
 
 ```sql
-AI_EMBED(model VARCHAR, text VARCHAR) → VARCHAR
-AI_EMBED(model VARCHAR, file FILE) → VARCHAR
+AI_EMBED(model VARCHAR, text VARCHAR) → VECTOR(N)
+AI_EMBED(model VARCHAR, file FILE) → VECTOR(N) -- only for a binary-capable provider
 ```
 
-**Description:** Generates a vector embedding for the input text or file. Returns a JSON-formatted float array representing the embedding vector. Used for building vector search indexes and semantic similarity queries.
+**Description:** Generates a dimensioned vector embedding for the input. The output dimension is bound from the exact model capability and must match the destination VECTOR type.
 
 **Parameters:**
 
@@ -349,14 +350,16 @@ SELECT id, title, content,
        CAST(AI_EMBED('bge_m3', content) AS VECTOR(1024))
 FROM raw_articles;
 
--- Embed a file (image/document)
-SELECT AI_EMBED('clip_vit', FILE_FROM_URL('s3://bucket/image.jpg')) AS image_embedding;
+-- Binary embedding requires a provider that explicitly advertises IMAGE.
+SELECT AI_EMBED('clip_vit',
+       FILE_FROM_URL('https://media.example/image.jpg')) AS image_embedding;
 ```
 
 **Notes:**
-- Returns a JSON array of floats (cast to VECTOR for storage)
+- Returns a first-class `VECTOR(N)`; dimension mismatch is rejected before execution
 - For text input, uses `EmbeddingProvider.embedBatch()` for efficient batch processing
-- For FILE input, processes per-row via `EmbeddingProvider.embed(BlobReference)`
+- The built-in OpenAI-compatible `/v1/embeddings` dialect is text-only; it never base64-encodes media as ordinary text
+- FILE input requires a separately installed provider implementation that advertises the exact binary modality
 - The model must be registered via `CREATE EMBEDDING MODEL`
 
 **See Also:** [Vector Search](vector-search.md), [CREATE EMBEDDING MODEL](#create-embedding-model)
@@ -393,7 +396,8 @@ FROM product_photos;
 
 **Notes:**
 - The model must support IMAGE modality
-- Supported formats: JPEG, PNG, GIF, WebP, BMP, TIFF, SVG
+- The FILE MIME type must be enabled by the Worker allowlist and accepted by the selected provider dialect
+- The built-in OpenAI chat-completions dialect accepts governed `image/*` content and verifies the declared size and SHA-256 before transmission
 
 **See Also:** [AI_OCR](#ai_ocr), [FILE_FROM_URL](#file_from_url)
 
@@ -407,7 +411,10 @@ FROM product_photos;
 AI_PARSE_DOCUMENT(model VARCHAR, file FILE) → VARCHAR
 ```
 
-**Description:** Extracts and structures the content of a document file (PDF, DOCX, etc.) into text. Requires a model that supports the DOCUMENT or IMAGE modality.
+**Description:** Extracts and structures document content into text. The built-in
+implementation requires an `openai-responses` model with DOCUMENT modality and
+sends governed bytes as an `input_file` data URL; the chat-completions dialect is
+rejected.
 
 **Parameters:**
 
@@ -425,8 +432,9 @@ FROM contracts;
 ```
 
 **Notes:**
-- Supports PDF, DOCX, XLS/XLSX, TXT, CSV, XML
-- The model must support DOCUMENT or IMAGE modality
+- The built-in Responses dialect admits PDF, DOCX, PPTX, plain text, and Markdown;
+  the table/Worker MIME policy may narrow this set further
+- The model must advertise DOCUMENT; image-only chat models are not treated as document providers
 
 **See Also:** [AI_DESCRIBE_IMAGE](#ai_describe_image), [AI_OCR](#ai_ocr)
 
@@ -440,7 +448,10 @@ FROM contracts;
 AI_TRANSCRIBE(model VARCHAR, file FILE) → VARCHAR
 ```
 
-**Description:** Transcribes audio content to text. Requires a model that supports the AUDIO modality.
+**Description:** Transcribes audio content to text. The built-in implementation
+requires an `openai-transcription` model with exactly TEXT/AUDIO modalities and
+uploads one governed FILE as multipart `/v1/audio/transcriptions`; audio is never
+serialized as a chat image part.
 
 **Parameters:**
 
@@ -459,7 +470,7 @@ FROM recordings;
 
 **Notes:**
 - Supported audio formats: MP3, WAV, OGG, FLAC
-- The model must support AUDIO modality
+- The model must support AUDIO modality and configure `max-batch-size = 1`
 
 **See Also:** [AI_SUMMARIZE](#ai_summarize), [FILE_FROM_URL](#file_from_url)
 
@@ -470,31 +481,34 @@ FROM recordings;
 **Synopsis:**
 
 ```sql
-AI_OCR(file FILE) → VARCHAR
+AI_OCR(model VARCHAR, file FILE) → VARCHAR
 ```
 
-**Description:** Performs Optical Character Recognition on an image, extracting text content. Uses the system's default vision model (no model parameter required).
+**Description:** Performs Optical Character Recognition on an image, extracting text content. The selected model must support IMAGE input.
 
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `model` | VARCHAR | Vision-capable model name |
 | `file` | FILE | Image file containing text |
 
 **Example:**
 
 ```sql
 -- Extract text from scanned documents
-SELECT doc_id, AI_OCR(scan_image) AS extracted_text
+SELECT doc_id, AI_OCR('gpt-4o', scan_image) AS extracted_text
 FROM scanned_documents;
 
 -- OCR on a remote image
-SELECT AI_OCR(FILE_FROM_URL('s3://bucket/receipt.jpg')) AS receipt_text;
+SELECT AI_OCR(
+    'gpt-4o',
+    FILE_FROM_URL('https://media.example/receipt.jpg')) AS receipt_text;
 ```
 
 **Notes:**
-- Does NOT require a model parameter — uses the system default vision model
-- Optimized for text extraction from images
+- The model argument is mandatory; Pangrova does not silently select a default model
+- The FILE MIME type must be enabled by the Worker allowlist and accepted by the provider dialect
 
 **See Also:** [AI_DESCRIBE_IMAGE](#ai_describe_image), [AI_PARSE_DOCUMENT](#ai_parse_document)
 
@@ -508,7 +522,7 @@ The FILE type is a struct (ROW type) representing an external file reference usi
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `uri` | VARCHAR | Storage URI (s3://, oss://, gs://, http://, etc.) |
+| `uri` | VARCHAR | Opaque governed `pangrova-blob://v2/...` identity; physical storage URI is never exposed |
 | `mime_type` | VARCHAR | MIME content type |
 | `size` | BIGINT | File size in bytes |
 | `checksum` | VARCHAR | SHA-256 checksum |
@@ -522,28 +536,28 @@ The FILE type is a struct (ROW type) representing an external file reference usi
 FILE_FROM_URL(url VARCHAR) → FILE
 ```
 
-**Description:** Creates a FILE struct from a URL. The MIME type is automatically inferred from the URL file extension.
+**Description:** Imports an allowlisted HTTPS object into the governed durable FILE store, verifies its bounded content and returns an opaque immutable reference.
 
 **Parameters:**
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `url` | VARCHAR | File URL (s3://, oss://, gs://, http://, https://, etc.) |
+| `url` | VARCHAR | HTTPS URL whose exact host is present in the Worker allowlist |
 
 **Example:**
 
 ```sql
--- Create FILE from S3 URL
-SELECT FILE_FROM_URL('s3://my-bucket/images/photo.jpg') AS photo;
+-- Import an allowlisted HTTPS object
+SELECT FILE_FROM_URL('https://media.example/images/photo.jpg') AS photo;
 
 -- Insert with FILE reference
 INSERT INTO documents (id, attachment)
-VALUES (1, FILE_FROM_URL('s3://docs/contract.pdf'));
+VALUES (1, FILE_FROM_URL('https://media.example/docs/contract.pdf'));
 ```
 
 **Notes:**
-- Supported URL schemes: `s3`, `oss`, `gs`, `gcs`, `adls`, `abfs`, `abfss`, `hdfs`, `http`, `https`, `blob`
-- MIME type is inferred from file extension (e.g., `.jpg` → `image/jpeg`, `.pdf` → `application/pdf`)
+- Only HTTPS is accepted; private/link-local destinations, redirects, DNS rebinding, oversized bodies and disallowed MIME types fail closed
+- MIME, size and SHA-256 are verified before the FILE identity is returned
 
 **See Also:** [FILE_FROM_BYTES](#file_from_bytes), [AI_DESCRIBE_IMAGE](#ai_describe_image)
 
@@ -594,9 +608,10 @@ CREATE EMBEDDING MODEL model_name (
     provider = 'provider_type',
     endpoint = 'endpoint_url',
     dimension = dimension_value
+    [, authentication = 'bearer' | 'none']
     [, api_key_secret = 'secret_ref']
     [, max_batch_size = batch_size]
-    [, max_rps = rate_limit]
+    [, max_requests_per_second = rate_limit]
     [, query_prefix = 'prefix']
     [, document_prefix = 'prefix']
 );
@@ -609,11 +624,12 @@ CREATE EMBEDDING MODEL model_name (
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `provider` | VARCHAR | Yes | Provider type (e.g., `'openai-compatible'`) |
-| `endpoint` | VARCHAR | Yes | Inference endpoint URL |
+| `endpoint` | VARCHAR | Yes | HTTPS URL; anonymous HTTP is allowed only for a loopback endpoint |
 | `dimension` | INTEGER | Yes | Output vector dimensionality |
-| `api_key_secret` | VARCHAR | No | Opaque secret reference for authentication |
+| `authentication` | VARCHAR | No | `bearer` (default) or explicit `none` |
+| `api_key_secret` | VARCHAR | For bearer | Nonblank opaque secret reference; prohibited with `authentication = 'none'` |
 | `max_batch_size` | INTEGER | No | Maximum batch size for embedding requests |
-| `max_rps` | INTEGER | No | Rate limit (requests per second) |
+| `max_requests_per_second` | INTEGER | No | Rate limit (requests per second) |
 | `query_prefix` | VARCHAR | No | Prefix prepended to query text |
 | `document_prefix` | VARCHAR | No | Prefix prepended to document text |
 
@@ -622,9 +638,11 @@ CREATE EMBEDDING MODEL model_name (
 ```sql
 CREATE EMBEDDING MODEL bge_m3 (
     provider = 'openai-compatible',
-    endpoint = 'http://localhost:11434/api/embed',
-    dimension = '1024',
-    max_batch_size = '64'
+    endpoint = 'http://localhost:11434/v1/embeddings',
+    dimension = 1024,
+    authentication = 'none',
+    max_batch_size = '64',
+    max_requests_per_second = '100'
 );
 ```
 
@@ -632,34 +650,44 @@ CREATE EMBEDDING MODEL bge_m3 (
 - Requires ADMIN privilege
 - Model names must be unique across the catalog
 - Credentials are stored as opaque secret references (never plaintext)
+- Bearer-authenticated endpoints must use HTTPS; explicit unauthenticated HTTP is limited to literal loopback hosts.
 
 ---
 
 ### ALTER EMBEDDING MODEL
 
+**Availability:** Available through the Coordinator metadata statement path.
+Requires ADMIN privilege.
+
 **Synopsis:**
 
 ```sql
 ALTER EMBEDDING MODEL model_name SET (
+    expected_version = integer,
     property = value [, ...]
 );
 ```
 
-**Description:** Updates properties of an existing embedding model. Uses optimistic concurrency (version check).
+**Description:** Creates the next catalog revision using optimistic concurrency. The
+`expected_version` property is mandatory. Before persisting the revision, the Coordinator
+requires one active Worker deployment whose exact embedding contract matches the updated
+endpoint, secret reference, prefixes and serving limits. The catalog update atomically stores
+both the incremented revision and that deployment's version/signature fence. A stale version or
+missing/mismatched deployment fails without changing the current revision.
+
+Mutable properties are `endpoint`, `api_key_secret`, `max_batch_size`,
+`max_requests_per_second`, `query_prefix`, and `document_prefix`. Provider and vector dimension
+are immutable; replace the model under a new name to change either.
 
 **Example:**
 
 ```sql
 ALTER EMBEDDING MODEL bge_m3 SET (
+    expected_version = 0,
     endpoint = 'http://new-host:11434/api/embed',
     max_batch_size = '128'
 );
 ```
-
-**Notes:**
-- Requires ADMIN privilege
-- In-flight requests complete with the previous configuration
-- New requests use the updated configuration immediately
 
 ---
 
@@ -671,21 +699,22 @@ ALTER EMBEDDING MODEL bge_m3 SET (
 DROP EMBEDDING MODEL model_name [CASCADE];
 ```
 
-**Description:** Removes a registered embedding model from the catalog.
+**Description:** Currently rejected without changing the registry. Generated-column
+definitions live in connector table metadata, which cannot yet be updated atomically
+with the embedding-model registry.
 
 **Example:**
 
 ```sql
--- Drop model (fails if auto-embedding columns depend on it)
+-- Both forms currently fail closed with AI-0007
 DROP EMBEDDING MODEL bge_m3;
 
--- Force drop with dependent column definitions
 DROP EMBEDDING MODEL bge_m3 CASCADE;
 ```
 
 **Notes:**
-- Without CASCADE: fails if any auto-embedding columns reference this model
-- With CASCADE: drops dependent column definitions (existing vector data is retained)
+- Both forms fail with `AI-0007` and retain the model record until a durable
+  dependency authority and safe connector metadata mutation are implemented
 - Requires ADMIN privilege
 
 ---
@@ -711,7 +740,7 @@ SHOW EMBEDDING MODELS;
 
 ## Auto-Embedding (Generated Columns)
 
-Auto-embedding columns automatically compute vector embeddings when data is inserted or updated.
+Generated embedding values use the durable artifact materialization path.
 
 ### Syntax
 
@@ -729,23 +758,25 @@ CREATE TABLE table_name (
 
 | Mode | Behavior |
 |------|----------|
-| `SYNC` | Embedding is computed before the DML commits. Row is committed atomically with its vector. |
-| `ASYNC` | Row is committed with NULL embedding immediately. Background process computes and backfills vectors. |
+| `SYNC` | Rejected until generated NEW/action expressions pass the real Worker write and atomic SDK commit acceptance gates. |
+| `ASYNC` | Admitted Iceberg writes create snapshot-pinned durable artifact work; Native builds immutable vector/row-locator objects and publication is fenced and atomic. Paimon generated writes are currently rejected because the SDK lacks a verified atomic declaration-and-snapshot fence. |
+
+Insert using an explicit list of ordinary target columns. Generated targets cannot
+be assigned explicitly, even with a NULL placeholder. The Planner's shared SQL/AST
+mutation conversion prepares typed NEW/action `AI_EMBED` expressions before
+security policies, but this does not enable SYNC: its DDL and write-admission guards
+remain in place until the actual Worker write and atomic SDK commit are accepted.
+Ordered multi-source concatenation propagates NULL. The Native generated-value
+segment-v2 sink retains NULL validity and the exact physical row locator; the
+overlay restores SQL NULL, not a zero embedding. Java/Native use one format and
+capability version, rejecting old sidecars instead of guessing their semantics.
+The actual SQL/queue/provider/SELECT NULL acceptance test is still pending, so
+Native component tests alone do not establish end-to-end NULL support.
 
 **Example:**
 
 ```sql
--- Sync mode: embedding computed on insert
-CREATE TABLE articles (
-    id BIGINT,
-    title VARCHAR,
-    content VARCHAR,
-    embedding VECTOR(1024) GENERATED ALWAYS AS (
-        ai_embed('bge_m3', title, content)
-    ) EMBEDDING MODE SYNC
-);
-
--- Async mode: non-blocking insert
+-- Supported mode
 CREATE TABLE products (
     id BIGINT,
     description VARCHAR,
@@ -756,10 +787,26 @@ CREATE TABLE products (
 ```
 
 **Notes:**
-- Source columns are concatenated for text embedding
-- On UPDATE: re-embedding triggers only when source columns are modified
-- SYNC mode adds latency to DML operations proportional to embedding model response time
-- ASYNC mode uses a background drainer queue for eventual consistency
+- The expression and model bind to an exact `VECTOR(N)` output contract.
+- Work is keyed by source snapshot and fenced generation; the Coordinator does
+  not scan rows or calculate embeddings.
+- Visibility follows immutable artifact generation publication, not an
+  in-process background queue.
+- FULL reads use the current SDK declaration; time travel requires the exact
+  pinned declaration, including evidence of no generated columns. Paimon stores
+  declaration properties with its schema revisions. Iceberg uses immutable
+  snapshot-summary evidence or the verified snapshot-creation metadata chain.
+  If that history has expired or is unavailable, the historical read fails with
+  an explicit unsupported-operation error rather than using current properties
+  or silently reading a former generated column as ordinary data.
+- End-to-end generated-column query visibility is not yet accepted. The READ-level
+  query overlay and shared protected historical-schema verification are wired, but
+  the public SQL/provider-result regression has not yet run. Verified Iceberg
+  JDBC/Hadoop operations check the frozen declaration at the actual SDK commit
+  boundary; unsupported backends are rejected. Lance dataset reads now derive
+  physical positions from validated SDK fragment/row addresses, but final
+  Native/Java gates and public SQL visibility acceptance are pending. Dataset
+  manifest partitions are not interchangeable with physical-file byte ranges.
 
 **See Also:** [ALTER TABLE BACKFILL COLUMN](#alter-table-backfill-column), [Vector Search](vector-search.md)
 
@@ -767,7 +814,11 @@ CREATE TABLE products (
 
 ## Backfill Operations
 
-Backfill operations populate embedding vectors for existing rows that have NULL embeddings.
+**Availability:** Not wired in the current Coordinator. The parser recognizes
+the three statements below, but there are no production statement handlers for
+start, cancel, or status. They are reserved syntax and must not be treated as a
+durable backfill service. Existing generated-value work is triggered from the
+connector commit/materialization path described above.
 
 ### ALTER TABLE BACKFILL COLUMN
 
@@ -780,7 +831,7 @@ ALTER TABLE table_name BACKFILL COLUMN column_name
     [CONCURRENCY concurrency];
 ```
 
-**Description:** Starts a distributed embedding backfill operation for the specified column. Takes a snapshot at invocation time and processes only rows visible at that snapshot.
+**Description:** Reserved syntax; not executable in the current runtime.
 
 **Parameters:**
 
@@ -813,7 +864,7 @@ CONCURRENCY 8;
 CANCEL BACKFILL ON table_name COLUMN column_name;
 ```
 
-**Description:** Cancels an in-progress backfill operation. In-flight Worker tasks complete; no new partitions are dispatched. Already committed batches are retained.
+**Description:** Reserved syntax; not executable in the current runtime.
 
 **Example:**
 
@@ -831,7 +882,7 @@ CANCEL BACKFILL ON articles COLUMN embedding;
 SHOW BACKFILL STATUS ON table_name;
 ```
 
-**Description:** Displays the current status of backfill operations on the specified table.
+**Description:** Reserved syntax; not executable in the current runtime.
 
 **Example:**
 
@@ -840,7 +891,7 @@ SHOW BACKFILL STATUS ON articles;
 -- Returns: column_name, state, total_rows, processed_rows, failed_rows, start_time
 ```
 
-**Backfill States:**
+**Target state vocabulary (not a current result contract):**
 
 | State | Description |
 |-------|-------------|
@@ -858,39 +909,32 @@ SHOW BACKFILL STATUS ON articles;
 
 ### Inference Endpoint Configuration
 
-AI inference functions run through an OpenAI-compatible inference provider on
-the Workers. The default provider reads JVM system properties:
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| `pangrova.ai.inference.endpoint` | `http://localhost:11434/v1` | OpenAI-compatible endpoint URL |
-| `pangrova.ai.inference.api-key` | _(empty)_ | API key (sent as a Bearer token) |
-| `pangrova.ai.inference.model` | `llama3` | Model name |
-
-Built-in limits of the default provider: batch size 16, 10 requests per second,
-30-second request timeout.
+AI execution is disabled unless the Worker YAML declares an explicit authorization
+policy and an exact versioned model under `worker.ai.models`. There is no implicit
+localhost provider, default model, API-key literal, or JVM-system-property
+credential fallback. Each model pins its provider dialect, upstream model ID,
+version, endpoint, external secret reference, capabilities, modalities and hard
+resource limits. See [Worker Configuration](../../configuration/worker.md#workerai).
 
 ### Embedding Configuration
 
-Embedding models are registered per-model with
-[CREATE EMBEDDING MODEL](#create-embedding-model) (`provider`, `endpoint`,
-`dimension`, plus optional `api_key_secret`, `max_batch_size`, `max_rps`,
-`query_prefix`, and `document_prefix` properties) rather than through global
-cluster properties. Tables using `EMBEDDING MODE ASYNC` enforce backpressure at
-100,000 pending rows per table.
+The SQL [CREATE EMBEDDING MODEL](#create-embedding-model) statement records the
+catalog contract. Execution additionally requires an exact compatible Worker
+model descriptor and advertised capability. Built-in `openai-compatible`
+embedding is text-only; binary embedding requires a provider that explicitly
+implements that modality. The bound result is `VECTOR(N)` and a count, order,
+dimension, non-finite-value, or model-version mismatch fails the whole batch.
 
 ### FILE Storage Configuration
 
-FILE columns are marked automatically with the table property
-`pangrova.file.column.<name>=true`. Two table-level controls apply:
-
-| Property | Description |
-|----------|-------------|
-| `pangrova.file.column.<name>=true` | Marks a column as FILE (set automatically by DDL) |
-| `pangrova.file.allowed_types` | Comma-separated MIME types accepted on write |
-
-FILE URLs are restricted to the schemes `s3`, `oss`, `gs`, `gcs`, `adls`,
-`abfs`, `abfss`, `hdfs`, `http`, `https`, and `blob`.
+`FILE_FROM_BYTES` and `FILE_FROM_URL` publish through the governed Worker FILE
+runtime. Production Workers must explicitly configure the shared S3-compatible
+backend, local staging directory, external capability-key secret reference,
+encryption policy, byte limits and MIME allowlist. `FILE_FROM_URL` accepts HTTPS
+only and also requires an exact host allowlist; internal storage URLs are never
+returned or accepted as SQL values. SQL sees only checksum-bound opaque
+`pangrova-blob://v2/...` references. See
+[Worker Configuration](../../configuration/worker.md#workeraifile).
 
 ---
 

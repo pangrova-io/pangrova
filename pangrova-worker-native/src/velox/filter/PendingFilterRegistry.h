@@ -2,8 +2,8 @@
 // dynamic filters. Bridges the gap between VeloxTaskRunner (which receives
 // filters from Java via JNI) and PangrovaVeloxDataSource (which applies them).
 //
-// Lifecycle: VeloxTaskRunner registers filters via push(); DataSource
-// drains them via drain() on each next() call. Registry entries are
+// Lifecycle: VeloxTaskRunner registers filters via push(); the matching
+// DataSource drains them via drain() on each next() call. Registry entries are
 // cleaned up when the task completes via remove().
 //
 // Placement: velox/filter/ — Dynamic filter infrastructure.
@@ -35,14 +35,16 @@ class PendingFilterRegistry {
  public:
   static PendingFilterRegistry& instance();
 
-  // Push a filter for a given task. Called by VeloxTaskRunner.
+  // Push a filter for one scan node in a task. Called by VeloxTaskRunner.
   void push(const std::string& task_id,
+            const std::string& plan_node_id,
             facebook::velox::column_index_t column_index,
             std::shared_ptr<facebook::velox::common::Filter> filter);
 
-  // Drain all pending filters for a task. Called by PangrovaVeloxDataSource.
-  // Returns and removes all accumulated filters for the task.
-  std::vector<PendingFilterEntry> drain(const std::string& task_id);
+  // Drain all pending filters for one scan node. Filters for sibling scans in
+  // the same task remain queued and cannot be consumed by the wrong source.
+  std::vector<PendingFilterEntry> drain(
+      const std::string& task_id, const std::string& plan_node_id);
 
   // Remove all entries for a task. Called on task completion/cancellation.
   void remove(const std::string& task_id);
@@ -57,7 +59,9 @@ class PendingFilterRegistry {
 
   struct Shard {
     mutable std::mutex mutex;
-    std::unordered_map<std::string, std::vector<PendingFilterEntry>> store;
+    using PlanNodeStore =
+        std::unordered_map<std::string, std::vector<PendingFilterEntry>>;
+    std::unordered_map<std::string, PlanNodeStore> store;
   };
 
   Shard& shardFor(const std::string& task_id);

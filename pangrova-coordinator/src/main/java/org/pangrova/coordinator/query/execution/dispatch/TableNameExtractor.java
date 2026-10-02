@@ -56,7 +56,8 @@ public final class TableNameExtractor {
      * or null if the statement does not target a named table.
      * Used by permission checks where catalog/schema/table must be separate.
      */
-    public static QualifiedTableName extractQualified(Statement stmt) {
+    public static QualifiedTableName extractQualified(
+            Statement stmt, org.pangrova.coordinator.query.CoordinatorSessionContext context) {
         if (stmt == null) {
             return null;
         }
@@ -65,7 +66,8 @@ public final class TableNameExtractor {
             return null;
         }
         Identifier id = extractor.apply(stmt);
-        return id != null ? QualifiedTableName.resolveOrNull(id.parts()) : null;
+        return id != null ? org.pangrova.coordinator.query.statement.TableResolver
+                .resolveTableRef(id.parts(), context) : null;
     }
 
     private static Map<Class<? extends Statement>, Function<Statement, Identifier>>

@@ -2,6 +2,8 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.SessionContextConverter;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
@@ -20,12 +22,41 @@ public final class TableResolver {
 
     private TableResolver() {}
 
-    public static QualifiedTableName resolveTableRef(List<String> parts) {
-        return QualifiedTableName.resolve(parts);
+    public static QualifiedTableName resolveTableRef(
+            List<String> parts, CoordinatorSessionContext context) {
+        return resolveTableRef(parts, defaultCatalog(context), defaultSchema(context));
     }
 
-    public static ConnectorSession buildSession(String catalog) {
-        return new StatementConnectorSession(catalog);
+    static QualifiedTableName resolveTableRef(
+            List<String> parts, String defaultCatalog, String defaultSchema) {
+        return switch (parts.size()) {
+            case 3 -> new QualifiedTableName(parts.get(0), parts.get(1), parts.get(2));
+            case 2 -> new QualifiedTableName(defaultCatalog, parts.get(0), parts.get(1));
+            case 1 -> new QualifiedTableName(defaultCatalog, defaultSchema, parts.get(0));
+            default -> throw new IllegalArgumentException("Invalid table name: " + parts);
+        };
+    }
+
+    public static QualifiedTableName resolveRenameTarget(List<String> parts, QualifiedTableName source) {
+        QualifiedTableName target = resolveTableRef(parts, source.catalog(), source.schema());
+        if (!target.catalog().equals(source.catalog())) {
+            throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "ALTER TABLE RENAME cannot move a table between catalogs");
+        }
+        return target;
+    }
+
+    public static String defaultCatalog(CoordinatorSessionContext context) {
+        return context.sessionProperties().getOrDefault("catalog", "default");
+    }
+
+    public static String defaultSchema(CoordinatorSessionContext context) {
+        return context.sessionProperties().getOrDefault("schema", "default");
+    }
+
+    public static ConnectorSession buildSession(
+            CoordinatorSessionContext context, String catalog, String schema) {
+        return SessionContextConverter.toConnectorSession(context, catalog, schema);
     }
 
     public static ConnectorTableHandle requireTableHandle(

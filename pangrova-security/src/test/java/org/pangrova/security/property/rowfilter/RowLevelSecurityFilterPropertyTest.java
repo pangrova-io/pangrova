@@ -43,7 +43,7 @@ class RowLevelSecurityFilterPropertyTest {
         RowLevelSecurityFilter filter = new RowLevelSecurityFilter(store);
 
         UserIdentity user = new UserIdentity(principal, Set.of("role1"), Map.of(), Instant.now());
-        Optional<String> result = filter.getFilter(user, "cat", "sch", "tbl");
+        Optional<String> result = filter.getFilter(user, java.util.Set.of("role1"), "cat", "sch", "tbl");
 
         assertThat(result).isPresent();
         String sql = result.get();
@@ -70,7 +70,7 @@ class RowLevelSecurityFilterPropertyTest {
 
         UserIdentity user = new UserIdentity("alice", Set.of("role1"),
                 Map.of("department", attrValue), Instant.now());
-        Optional<String> result = filter.getFilter(user, "cat", "sch", "tbl");
+        Optional<String> result = filter.getFilter(user, java.util.Set.of("role1"), "cat", "sch", "tbl");
 
         assertThat(result).isPresent();
         long quoteCount = result.get().chars().filter(c -> c == '\'').count();
@@ -93,7 +93,7 @@ class RowLevelSecurityFilterPropertyTest {
 
         UserIdentity user = new UserIdentity(principal, Set.of("role1"), Map.of(), Instant.now());
         Optional<ParameterizedFilter> paramFilter =
-                filter.getParameterizedFilter(user, "cat", "sch", "tbl");
+                filter.getParameterizedFilter(user, java.util.Set.of("role1"), "cat", "sch", "tbl");
 
         assertThat(paramFilter).isPresent();
         // The template must NOT contain the raw user value — only placeholders

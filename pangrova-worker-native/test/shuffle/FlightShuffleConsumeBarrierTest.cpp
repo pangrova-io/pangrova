@@ -23,10 +23,12 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <barrier>
 #include <thread>
 
 #include <folly/io/IOBuf.h>
 
+#include "executor/driver/TaskOutputRouter.h"
 #include "shuffle/FlightShuffleServer.h"
 #include "shuffle/SerializedShuffleQueue.h"
 
@@ -61,7 +63,7 @@ TEST(FlightShuffleConsumeBarrierTest, QuiesceCleanCloseKeepsDataFullyReadable) {
   for (int i = 1; i <= kStaged; ++i) {
     ASSERT_TRUE(queue.push(makeBatch(kPartition, i), std::chrono::seconds(1)));
   }
-  queue.close();  // clean producer completion
+  ASSERT_TRUE(queue.commit());  // clean producer completion
 
   PartitionDemuxer demuxer(&queue);
   demuxer.start();
@@ -82,6 +84,125 @@ TEST(FlightShuffleConsumeBarrierTest, QuiesceCleanCloseKeepsDataFullyReadable) {
   // Now fully consumed -> safe to release.
   EXPECT_TRUE(demuxer.isFullyConsumed());
   demuxer.stop();
+}
+
+TEST(FlightShuffleConsumeBarrierTest, OutputCleanupCannotStealCommittedShufflePages) {
+  executor::TaskOutputRouter router(
+      /*num_shuffle_partitions=*/1, /*output_queue_capacity=*/4,
+      /*shuffle_queue_capacity=*/4, /*shuffle_buffer_bytes=*/16 * 1024 * 1024,
+      std::chrono::milliseconds(10));
+  auto* queue = router.serializedShuffleQueue();
+  ASSERT_NE(queue, nullptr);
+  ASSERT_TRUE(queue->push(makeBatch(0, 11), std::chrono::seconds(1)));
+  ASSERT_TRUE(queue->push(makeBatch(0, 12), std::chrono::seconds(1)));
+
+  // JNI/Java quiesce Flight before executor release. The demuxer first moves
+  // every page into its retained partition buffer, then release may drain the
+  // now-empty source queue without stealing data from a late reader.
+  ASSERT_TRUE(queue->commit());
+  PartitionDemuxer demuxer(queue);
+  demuxer.setMaxPartitions(1);
+  demuxer.start();
+  ASSERT_TRUE(demuxer.quiesce(std::chrono::seconds(2)));
+  EXPECT_EQ(queue->size(), 0u);
+  router.drainOutputQueue();
+  for (int64_t expected : {11, 12}) {
+    ShuffleBatch out;
+    ASSERT_TRUE(demuxer.pop(0, out, std::chrono::seconds(1)));
+    EXPECT_EQ(out.row_count, expected);
+  }
+  EXPECT_TRUE(demuxer.isFullyConsumed());
+  demuxer.stop();
+}
+
+TEST(FlightShuffleConsumeBarrierTest, AbortedProducerCannotPublishCleanEof) {
+  constexpr int32_t kPartition = 0;
+  SerializedShuffleQueue queue(/*capacity=*/16);
+  ASSERT_TRUE(queue.push(makeBatch(kPartition, 1), std::chrono::seconds(1)));
+  queue.abort();
+
+  PartitionDemuxer demuxer(&queue);
+  demuxer.start();
+  EXPECT_FALSE(demuxer.quiesce(std::chrono::seconds(2)));
+  EXPECT_FALSE(demuxer.isComplete());
+  EXPECT_FALSE(demuxer.status().ok());
+  ShuffleBatch out;
+  EXPECT_FALSE(demuxer.pop(kPartition, out, std::chrono::milliseconds(100)));
+  demuxer.stop();
+}
+
+TEST(FlightShuffleConsumeBarrierTest, CleanEmptyProducerIsComplete) {
+  SerializedShuffleQueue queue(/*capacity=*/16);
+  ASSERT_TRUE(queue.commit());
+  PartitionDemuxer demuxer(&queue);
+  demuxer.start();
+  EXPECT_TRUE(demuxer.quiesce(std::chrono::seconds(2)));
+  EXPECT_TRUE(demuxer.isComplete());
+  EXPECT_TRUE(demuxer.status().ok());
+  demuxer.stop();
+}
+
+TEST(FlightShuffleConsumeBarrierTest, BareQueueCloseIsNotACommittedEof) {
+  SerializedShuffleQueue queue(/*capacity=*/2);
+  ASSERT_TRUE(queue.push(makeBatch(0, 1), std::chrono::seconds(1)));
+  queue.close();  // no producer outcome was committed
+  PartitionDemuxer demuxer(&queue);
+  demuxer.setMaxPartitions(1);
+  demuxer.start();
+  EXPECT_FALSE(demuxer.quiesce(std::chrono::seconds(2)));
+  EXPECT_FALSE(demuxer.status().ok());
+  EXPECT_FALSE(demuxer.isComplete());
+  demuxer.stop();
+}
+
+TEST(FlightShuffleConsumeBarrierTest, AbortAfterDataReadStillRejectsCompletion) {
+  constexpr int32_t kPartition = 0;
+  SerializedShuffleQueue queue(/*capacity=*/16);
+  PartitionDemuxer demuxer(&queue);
+  demuxer.start();
+  ASSERT_TRUE(queue.push(makeBatch(kPartition, 1), std::chrono::seconds(1)));
+  ShuffleBatch out;
+  ASSERT_TRUE(demuxer.pop(kPartition, out, std::chrono::seconds(1)));
+  EXPECT_EQ(out.row_count, 1);
+
+  queue.abort();
+  EXPECT_FALSE(demuxer.quiesce(std::chrono::seconds(2)));
+  EXPECT_FALSE(demuxer.isComplete());
+  EXPECT_FALSE(demuxer.status().ok());
+  demuxer.stop();
+}
+
+TEST(FlightShuffleConsumeBarrierTest, CommitAndAbortHaveOneTerminalWinner) {
+  for (int iteration = 0; iteration < 32; ++iteration) {
+    SerializedShuffleQueue queue(/*capacity=*/2);
+    ASSERT_TRUE(queue.push(makeBatch(0, iteration + 1), std::chrono::seconds(1)));
+    std::barrier start(3);
+    std::thread committer([&] {
+      start.arrive_and_wait();
+      queue.commit();
+    });
+    std::thread aborter([&] {
+      start.arrive_and_wait();
+      queue.abort();
+    });
+    start.arrive_and_wait();
+    committer.join();
+    aborter.join();
+
+    EXPECT_NE(queue.isCommitted(), queue.isAborted());
+    PartitionDemuxer demuxer(&queue);
+    demuxer.setMaxPartitions(1);
+    demuxer.start();
+    EXPECT_EQ(demuxer.quiesce(std::chrono::seconds(2)), queue.isCommitted());
+    if (queue.isCommitted()) {
+      ShuffleBatch out;
+      ASSERT_TRUE(demuxer.pop(0, out, std::chrono::seconds(1)));
+      EXPECT_EQ(out.row_count, iteration + 1);
+    } else {
+      EXPECT_FALSE(demuxer.status().ok());
+    }
+    demuxer.stop();
+  }
 }
 
 // Demuxer-level: a producer that never cleanly closes (cancel/abort) makes
@@ -128,9 +249,9 @@ TEST(FlightShuffleConsumeBarrierTest, ServerUnregisterLingersThenReapsAfterConsu
   for (int i = 1; i <= kStaged; ++i) {
     ASSERT_TRUE(queue.push(makeBatch(kPartition, i), std::chrono::seconds(1)));
   }
-  queue.close();  // clean producer completion
+  ASSERT_TRUE(queue.commit());  // clean producer completion
 
-  server.registerHandle(kHandle, &queue);
+  server.registerHandle(kHandle, &queue, "q-consume", 0, 1, 1, 0, 1);
   EXPECT_EQ(server.handleCount(), 1u);
   EXPECT_EQ(server.lingeringHandleCount(), 0u);
 
@@ -149,6 +270,9 @@ TEST(FlightShuffleConsumeBarrierTest, ServerUnregisterLingersThenReapsAfterConsu
         server.popForHandle(kHandle, kPartition, out, std::chrono::seconds(1)));
     EXPECT_EQ(out.row_count, expected);
   }
+  ShuffleBatch eof;
+  EXPECT_FALSE(server.popForHandle(
+      kHandle, kPartition, eof, std::chrono::milliseconds(10)));
 
   // Once fully consumed, a sweep (any (un)register call) reaps the lingering
   // demuxer. unregisterHandle on an already-lingering handle triggers the sweep.
@@ -156,6 +280,25 @@ TEST(FlightShuffleConsumeBarrierTest, ServerUnregisterLingersThenReapsAfterConsu
   EXPECT_TRUE(waitFor([&] { return server.lingeringHandleCount() == 0u; },
                       std::chrono::seconds(1)))
       << "fully consumed lingering demuxer must be reaped";
+}
+
+TEST(FlightShuffleConsumeBarrierTest, EmptyPartitionLingersUntilLateReaderGetsEof) {
+  constexpr int64_t kHandle = 4243;
+  FlightShuffleServer server(FlightShuffleServerConfig{});
+  SerializedShuffleQueue queue(/*capacity=*/16);
+  server.registerHandle(kHandle, &queue, "q-empty", 0, 1, 1, 0, 1);
+  ASSERT_TRUE(queue.commit());
+
+  server.unregisterHandle(kHandle);
+  EXPECT_EQ(server.handleCount(), 0u);
+  ASSERT_EQ(server.lingeringHandleCount(), 1u);
+  EXPECT_EQ(server.evictFullyConsumedLingering(), 0u);
+
+  ShuffleBatch eof;
+  EXPECT_FALSE(server.popForHandle(
+      kHandle, 0, eof, std::chrono::milliseconds(10)));
+  EXPECT_EQ(server.evictFullyConsumedLingering(), 1u);
+  EXPECT_EQ(server.lingeringHandleCount(), 0u);
 }
 
 // Server-level: an un-clean producer (queue never closed) must NOT linger — the
@@ -171,7 +314,7 @@ TEST(FlightShuffleConsumeBarrierTest, ServerUnregisterDropsUncleanProducer) {
   ASSERT_TRUE(queue.push(makeBatch(kPartition, 1), std::chrono::seconds(1)));
   // Never close the queue (cancel/abort).
 
-  server.registerHandle(kHandle, &queue);
+  server.registerHandle(kHandle, &queue, "q-abort", 0, 1, 1, 0, 1);
   EXPECT_EQ(server.handleCount(), 1u);
 
   // unregister cannot observe a clean close -> force-stops, drops (no linger),

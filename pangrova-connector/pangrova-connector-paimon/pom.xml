@@ -37,6 +37,12 @@
             <groupId>org.apache.paimon</groupId>
             <artifactId>paimon-format</artifactId>
         </dependency>
+        <!-- SDK metadata-to-physical-schema conversion; never Java row execution. -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-arrow</artifactId>
+            <version>${paimon.version}</version>
+        </dependency>
 
         <!-- Apache Hadoop (required by Paimon filesystem catalog) -->
         <dependency>
@@ -62,6 +68,12 @@
         </dependency>
 
         <!-- Test dependencies -->
+        <dependency>
+            <groupId>org.apache.paimon</groupId>
+            <artifactId>paimon-lance</artifactId>
+            <version>${paimon.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
             <artifactId>hadoop-mapreduce-client-core</artifactId>

@@ -9,6 +9,7 @@
 #if __has_include("velox/dwio/common/ReaderFactory.h") && \
     __has_include("velox/common/file/File.h")
 #include "velox/common/file/File.h"
+#include "velox/common/file/FileSystems.h"
 #include "velox/common/memory/Memory.h"
 #include "velox/dwio/common/Options.h"
 #include "velox/dwio/common/ReaderFactory.h"

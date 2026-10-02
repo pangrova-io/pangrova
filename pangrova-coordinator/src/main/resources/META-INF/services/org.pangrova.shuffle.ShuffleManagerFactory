@@ -1,4 +1,3 @@
 org.pangrova.coordinator.query.execution.dispatch.shuffle.NativeShuffleManagerFactory
 org.pangrova.coordinator.query.execution.dispatch.shuffle.LocalSpillShuffleManagerFactory
 org.pangrova.coordinator.query.execution.dispatch.shuffle.ObjectStoreShuffleManagerFactory
-org.pangrova.coordinator.query.execution.dispatch.shuffle.CelebornShuffleManagerFactory

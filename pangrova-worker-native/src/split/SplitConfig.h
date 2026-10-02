@@ -13,6 +13,7 @@ enum class FileFormatType : uint8_t {
   PARQUET = 0,
   ORC = 1,
   LANCE = 2,
+  METADATA_JSON = 3,
 };
 
 // Convert FileFormatType to string for logging/error messages.
@@ -21,6 +22,7 @@ inline const char* fileFormatName(FileFormatType fmt) {
     case FileFormatType::PARQUET: return "parquet";
     case FileFormatType::ORC: return "orc";
     case FileFormatType::LANCE: return "lance";
+    case FileFormatType::METADATA_JSON: return "metadata_json";
   }
   return "parquet";
 }
@@ -49,10 +51,41 @@ struct IcebergConfig {
   std::vector<DeleteFileConfig> delete_files;
 };
 
-// LSM level descriptor for Paimon splits.
+enum class SystemTableKind : uint8_t {
+  ICEBERG_SNAPSHOTS,
+  ICEBERG_HISTORY,
+};
+
+struct ColumnMappingConfig {
+  int source_id = 0;
+  int target_id = 0;
+  std::string source_name;
+  std::string target_name;
+  std::string default_value;
+};
+
+struct TypePromotionConfig {
+  int field_id = 0;
+  std::string source_type;
+  std::string target_type;
+  std::string column_name;
+};
+
+struct PhysicalFileConfig {
+  std::string file_path;
+  FileFormatType file_format = FileFormatType::PARQUET;
+  uint64_t file_size = 0;
+  std::string file_scan_detail;
+  uint64_t min_sequence_number = 0;
+  uint64_t max_sequence_number = 0;
+  std::vector<ColumnMappingConfig> column_mappings;
+  std::vector<TypePromotionConfig> type_promotions;
+};
+
+// Every LSM file keeps its own physical format, immutable size and row domain.
 struct LsmLevelConfig {
   int level = 0;
-  std::vector<std::string> file_paths;
+  std::vector<PhysicalFileConfig> files;
   int64_t total_record_count = 0;
 };
 
@@ -70,9 +103,10 @@ struct PaimonConfig {
   std::vector<LsmLevelConfig> lsm_levels;
   // MOW (Merge-On-Write) deletion vector fields.
   bool deletion_vectors_enabled = false;
-  std::string deletion_vector_file_path;
   // MOR merge control: false = COW / read-optimized (skip merge).
   bool needs_merge = false;
+  bool ignore_delete = false;
+  bool remove_record_on_delete = false;
   // Sequence column for ordering during merge.
   std::string sequence_column;
   // Aggregation merge engine: column name → aggregation function mapping.
@@ -81,34 +115,18 @@ struct PaimonConfig {
   std::unordered_map<std::string, std::string> partition_values;
 };
 
-// Column mapping for schema evolution.
-struct ColumnMappingConfig {
-  int source_id = 0;
-  int target_id = 0;
-  std::string source_name;
-  std::string target_name;
-  // Default value for missing columns (schema evolution).
-  // When non-empty, missing columns are filled with this value
-  // instead of null. Format: string representation of the value,
-  // parsed according to the target column type.
-  std::string default_value;
-};
-
-// Type promotion for schema evolution.
-struct TypePromotionConfig {
-  int field_id = 0;
-  std::string source_type;
-  std::string target_type;
-  // Column name for name-based matching (preferred over field_id index).
-  std::string column_name;
-};
-
 // Simplified split configuration mirroring proto SplitInfo.
 // Used until proto generation is available.
 struct SplitConfig {
   std::string split_id;
   std::string connector_id;  // "iceberg" or "paimon"
   std::string table_name;    // Logical table name for split routing in multi-table joins.
+  std::string source_snapshot;  // Immutable table snapshot pinned by the query.
+  std::string data_object_id;   // Stable object identity within source_snapshot.
+  // JNI-local catalog credentials and canonical FileSplitDetail read unit.
+  std::string storage_binding;
+  std::string file_scan_detail;
+  bool physical_lance_file = false;
   std::string file_path;
   FileFormatType file_format = FileFormatType::PARQUET;
   int64_t start_offset = 0;
@@ -117,10 +135,10 @@ struct SplitConfig {
   // Partition column values (shared by Iceberg; Paimon uses PaimonConfig.partition_values).
   std::unordered_map<std::string, std::string> partition_values;
 
-  // Legacy typed config — kept for backward compatibility with existing
-  // code that reads them directly. Factories should prefer these fields.
+  // Typed connector configuration consumed by reader factories.
   std::optional<IcebergConfig> iceberg;
   std::optional<PaimonConfig> paimon;
+  std::optional<SystemTableKind> system_table;
 
   // Schema evolution
   std::vector<ColumnMappingConfig> column_mappings;
@@ -131,6 +149,18 @@ struct SplitConfig {
   // top-level column name → list of required subfield paths (dot-separated).
   // Empty map means read all subfields (no pruning).
   std::unordered_map<std::string, std::vector<std::string>> required_subfields;
+
+  // Native retrieval may bind a source-object-scoped set of physical row
+  // positions. The separate enabled bit distinguishes an empty ANN result
+  // (scan no rows) from an ordinary exact scan (no filter).
+  bool row_position_filter_enabled = false;
+  std::vector<uint64_t> row_position_allowlist;
+  // Some retrieval capabilities (for example BM25) materialize their exact
+  // score while searching the immutable artifact. The scan injects this
+  // bounded source-object map into a reserved DOUBLE column; it is never
+  // serialized across the Coordinator control plane.
+  bool materialized_retrieval_score_enabled = false;
+  std::unordered_map<uint64_t, double> materialized_retrieval_scores;
 };
 
 }  // namespace pangrova::split

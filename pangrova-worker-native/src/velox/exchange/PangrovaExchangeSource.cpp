@@ -5,22 +5,80 @@
 // Design: §4.10.2
 #include "velox/exchange/PangrovaExchangeSource.h"
 
-#include <sstream>
-#include <thread>
+#include <algorithm>
+#include <fstream>
+#include <limits>
+#include <stdexcept>
 
 #include <arrow/array.h>
 #include <arrow/buffer.h>
+#include <folly/Executor.h>
+#include <folly/executors/IOThreadPoolExecutor.h>
+#include <folly/futures/Future.h>
 #include <folly/io/IOBuf.h>
 #include <glog/logging.h>
 
+#include "jni/RuntimeInitializer.h"
 #include "observability/PangrovaLog.h"
-#include "shuffle/ShuffleTicketKeys.h"
-#include "shuffle/TicketSigner.h"
 #include "velox/exchange/PendingEndpointRegistry.h"
 #include "velox/exec/ExchangeQueue.h"
 #include "velox/exec/SerializedPage.h"
 
 namespace pangrova::velox {
+
+namespace {
+
+struct FlightClientSecurity {
+  bool enabled = false;
+  std::string certificate_chain;
+  std::string private_key;
+  std::string root_ca;
+};
+
+std::mutex g_flight_client_security_mutex;
+std::shared_ptr<const FlightClientSecurity> g_flight_client_security =
+    std::make_shared<const FlightClientSecurity>();
+
+using ExchangeResponse = facebook::velox::exec::ExchangeSource::Response;
+
+struct FlightReadWaitState {
+  bool claim() {
+    std::lock_guard<std::mutex> lock(mutex);
+    if (completed) {
+      return false;
+    }
+    completed = true;
+    return true;
+  }
+
+  std::mutex mutex;
+  bool completed = false;
+  folly::Promise<ExchangeResponse> result;
+};
+
+std::string readRequiredPem(
+    const std::string& path, const std::string& description) {
+  std::ifstream input(path);
+  if (!input.good()) {
+    throw std::runtime_error(
+        "Failed to read Native transport " + description);
+  }
+  std::string pem(
+      (std::istreambuf_iterator<char>(input)),
+      std::istreambuf_iterator<char>());
+  if (pem.empty()) {
+    throw std::runtime_error(
+        "Native transport " + description + " is empty");
+  }
+  return pem;
+}
+
+std::shared_ptr<const FlightClientSecurity> flightClientSecuritySnapshot() {
+  std::lock_guard<std::mutex> lock(g_flight_client_security_mutex);
+  return g_flight_client_security;
+}
+
+}  // namespace
 
 // ---------------------------------------------------------------------------
 // detail:: implementations
@@ -50,15 +108,9 @@ StreamCompletion decideStreamCompletion(
   return StreamCompletion::kFailedTruncated;
 }
 
-bool flightShouldCancelOnIdle(
-    bool next_in_flight,
-    int64_t now_ms,
-    int64_t next_started_ms,
-    int64_t idle_budget_ms) {
-  if (!next_in_flight) return false;
-  if (next_started_ms < 0) return false;  // Not yet armed.
-  if (idle_budget_ms <= 0) return false;   // Disabled.
-  return (now_ms - next_started_ms) >= idle_budget_ms;
+bool flightTransportSecurityCompatible(
+    bool local_tls_enabled, std::string_view endpoint_tls_identity) {
+  return local_tls_enabled == !endpoint_tls_identity.empty();
 }
 
 }  // namespace detail
@@ -66,13 +118,9 @@ bool flightShouldCancelOnIdle(
 using facebook::velox::exec::SerializedPage;
 using ContinuePromise = facebook::velox::ContinuePromise;
 
-// P1-EXCH-3: Maximum number of pending batches before backpressure kicks in.
-static constexpr size_t kMaxPendingBatches = 64;
-
-// Lock ordering (P1-EXCH-2):
-//   data_mutex_ is acquired BEFORE any ExchangeQueue::mutex_ operation.
-//   queue_->enqueueLocked() is called while data_mutex_ is held.
-//   This ordering must be maintained to prevent deadlocks.
+// Concurrency rule (P1-EXCH-2): never hold data_mutex_ and
+// ExchangeQueue::mutex_ at the same time. Network state is snapshotted first;
+// queue mutation and promise fulfillment happen in separate critical sections.
 
 PangrovaExchangeSource::PangrovaExchangeSource(
     const std::string& remoteTaskId,
@@ -84,392 +132,724 @@ PangrovaExchangeSource::PangrovaExchangeSource(
   // Java sends CONNECT_EXCHANGE_SOURCE before the Velox ExchangeNode creates
   // this source, so the endpoint is already in the registry by the time
   // the factory constructs us.
-  auto pending = PendingEndpointRegistry::instance().take(remoteTaskId);
-  if (pending.has_value()) {
+  auto pending = PendingEndpointRegistry::instance().takeEndpoint(remoteTaskId);
+  if (!pending.has_value()) {
+    throw std::runtime_error(
+        "No task-scoped endpoint for exchange source " + remoteTaskId);
+  }
+  if (pending->external_ingress) {
+    external_ingress_ = std::move(pending->external_ingress);
+  } else {
     setFlightEndpoint(std::move(*pending));
   }
 }
 
 bool PangrovaExchangeSource::shouldRequestLocked() {
-  // We should request if there's no pending request and we're not done.
-  if (at_end_ || closed_ || request_pending_) {
+  if (atEnd_ || closed_.load()) {
     return false;
   }
-  request_pending_ = true;
-  return true;
+  return !requestPending_.exchange(true);
 }
 
 folly::SemiFuture<PangrovaExchangeSource::Response>
 PangrovaExchangeSource::request(
     uint32_t maxBytes,
     std::chrono::microseconds maxWait) {
-  // Dispatch between active Flight mode and passive Java push mode.
-  if (flight_configured_.load()) {
-    return fetchViaFlight(maxBytes, maxWait);
-  }
-  return waitForPushedData(maxBytes, maxWait);
-}
-
-// Passive mode: drain data pushed by Java via enqueueData().
-folly::SemiFuture<PangrovaExchangeSource::Response>
-PangrovaExchangeSource::waitForPushedData(
-    uint32_t maxBytes,
-    std::chrono::microseconds maxWait) {
-  std::vector<ContinuePromise> promises;
-  int64_t totalBytes = 0;
-  bool atEndAndDrained = false;
-  std::vector<int64_t> remainingBytes;
-
-  {
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    request_pending_ = false;
-
-    // Drain available data up to maxBytes.
-    while (!pending_entries_.empty()) {
-      int64_t pageSize = pending_entries_.front().size_bytes;
-      if (totalBytes > 0 && totalBytes + pageSize > maxBytes) {
-        break;  // Would exceed budget.
-      }
-      auto& entry = pending_entries_.front();
-      auto page = std::make_unique<SerializedPage>(
-          std::move(entry.data), /*onDestructionCb=*/nullptr,
-          std::optional<int64_t>(entry.num_rows));
-      pending_entries_.pop_front();
-      totalBytes += pageSize;
-
-      // Enqueue into the ExchangeQueue for Velox to consume.
-      queue_->enqueueLocked(std::move(page), promises);
+  if (!flight_configured_.load()) {
+    if (external_ingress_) {
+      return fetchViaExternal(maxBytes, maxWait);
     }
-
-    if (at_end_ && pending_entries_.empty()) {
-      // Signal end of data.
-      queue_->enqueueLocked(nullptr, promises);
-    }
-
-    atEndAndDrained = at_end_ && pending_entries_.empty();
-
-    // Collect remaining sizes — direct iteration on deque (no move needed).
-    for (const auto& entry : pending_entries_) {
-      remainingBytes.push_back(entry.size_bytes);
-    }
+    return folly::makeSemiFuture<Response>(
+        folly::make_exception_wrapper<std::runtime_error>(
+            "Native exchange source has no Flight endpoint"));
   }
-
-  // Fulfill any promises for waiting consumers.
-  for (auto& promise : promises) {
-    promise.setValue();
-  }
-
-  return folly::makeSemiFuture(Response{
-      totalBytes,
-      atEndAndDrained,
-      std::move(remainingBytes)});
+  return fetchViaFlight(maxBytes, maxWait);
 }
 
 folly::SemiFuture<PangrovaExchangeSource::Response>
 PangrovaExchangeSource::requestDataSizes(
     std::chrono::microseconds maxWait) {
-  std::vector<int64_t> sizes;
-  bool atEndAndDrained = false;
-  {
-    std::lock_guard<std::mutex> lock(data_mutex_);
-    // Direct iteration on deque — no move+re-push needed.
-    for (const auto& entry : pending_entries_) {
-      sizes.push_back(entry.size_bytes);
-    }
-    atEndAndDrained = at_end_ && pending_entries_.empty();
+  // Neither transport exposes the next serialized page size without taking
+  // it. Probe exactly one batch. Small batches may be delivered immediately as
+  // permitted by Velox; larger batches remain source-owned until request()
+  // admits their reported size against the ExchangeClient queue budget.
+  constexpr uint32_t kProbeBytes = 1024 * 1024;
+  if (external_ingress_) {
+    return fetchViaExternal(kProbeBytes, maxWait, true);
   }
-  return folly::makeSemiFuture(
-      Response{0, atEndAndDrained, std::move(sizes)});
+  if (flight_configured_.load()) {
+    return fetchViaFlight(kProbeBytes, maxWait, true);
+  }
+  clearRequestPending();
+  return folly::makeSemiFuture<Response>(
+      folly::make_exception_wrapper<std::runtime_error>(
+          "Native exchange source has no configured transport"));
 }
 
 void PangrovaExchangeSource::close() {
-  std::lock_guard<std::mutex> lock(data_mutex_);
-  closed_ = true;
-  // Clear pending data.
-  while (!pending_entries_.empty()) pending_entries_.pop_front();
-  // Flight reader and client are NOT reset here — they are destroyed
-  // when this ExchangeSource object is destroyed. This avoids a UAF
-  // race with fetchViaFlight() which may be calling flight_reader_->Next()
-  // outside the lock. The closed_ flag causes fetchViaFlight() to break
-  // out of its read loop on the next iteration.
-}
+  closed_.store(true);
 
-bool PangrovaExchangeSource::enqueueData(
-    std::unique_ptr<folly::IOBuf> data,
-    int64_t numRows) {
-  std::lock_guard<std::mutex> lock(data_mutex_);
-  if (closed_ || at_end_) return false;
-  // Backpressure — reject when queue exceeds capacity limit.
-  if (pending_entries_.size() >= kMaxPendingBatches) {
-    return false;
+  std::shared_ptr<arrow::StopSource> stopSource;
+  std::shared_ptr<arrow::flight::FlightStreamReader> reader;
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    stopSource = flight_stop_source_;
+    reader = flight_reader_;
+    flight_reader_.reset();
+    flight_client_.reset();
+    flight_prefetched_batch_.reset();
+    flight_prefetched_bytes_ = 0;
+    external_prefetched_batch_.reset();
   }
-  int64_t size = data ? static_cast<int64_t>(data->computeChainDataLength()) : 0;
-  pending_entries_.push_back(PendingEntry{std::move(data), numRows, size});
-  return true;
-}
-
-void PangrovaExchangeSource::noMoreData() {
-  std::lock_guard<std::mutex> lock(data_mutex_);
-  at_end_ = true;
+  // Both operations are thread-safe cancellation signals. They are issued
+  // outside data_mutex_ because the gRPC transport may synchronously wake the
+  // I/O thread, which then needs the same mutex to publish completion.
+  if (stopSource) {
+    stopSource->RequestStop(
+        arrow::Status::Cancelled("Native exchange source closed"));
+  }
+  if (external_ingress_) {
+    external_ingress_->cancel();
+  }
+  if (reader) {
+    reader->Cancel();
+  }
+  clearRequestPending();
 }
 
 void PangrovaExchangeSource::setFlightEndpoint(PendingEndpoint endpoint) {
-  // Create Arrow Flight client connection outside the lock to avoid
-  // holding data_mutex_ during network I/O.
-  auto location_result = arrow::flight::Location::ForGrpcTcp(endpoint.host, endpoint.port);
-  CHECK(location_result.ok())
-      << "Failed to create Flight location: " << location_result.status().ToString();
-
-  auto client_result = arrow::flight::FlightClient::Connect(*location_result);
-  CHECK(client_result.ok())
-      << "Failed to connect Flight client: " << client_result.status().ToString();
-
-  // L2-9: Build the ticket and initiate DoGet immediately (prefetch).
-  // This eliminates the 50-100ms latency of the first request() call by
-  // opening the DoGet stream eagerly. The upstream worker's data is ready
-  // by the time the endpoint is registered in PendingEndpointRegistry.
-  std::ostringstream oss;
-  oss << endpoint.executor_handle << "\n"
-      << endpoint.query_id << "\n"
-      << endpoint.stage_id << "\n"
-      << endpoint.partition_id;
-  std::string payload = oss.str();
-
-  auto& keys = pangrova::shuffle::ShuffleTicketKeys::instance();
-  std::string signed_ticket;
-  if (keys.enabled()) {
-    pangrova::shuffle::TicketSigner signer(keys.currentKey());
-    signed_ticket = signer.sign(payload);
-  } else {
-    signed_ticket = std::move(payload);
-  }
-  arrow::flight::Ticket ticket{std::move(signed_ticket)};
-
-  // Attempt DoGet with a single try (non-blocking best-effort prefetch).
-  // If it fails here, fetchViaFlight() will retry with full backoff logic.
-  arrow::flight::FlightCallOptions call_options;
-  call_options.timeout =
-      arrow::flight::TimeoutDuration{
-          static_cast<double>(kFlightCallTimeoutMs) / 1000.0};
-  auto reader_result = (*client_result)->DoGet(call_options, ticket);
-
-  std::unique_ptr<arrow::flight::FlightStreamReader> prefetched_reader;
-  if (reader_result.ok()) {
-    prefetched_reader = std::move(*reader_result);
-  } else {
-    PANGROVA_LOG(WARNING)
-        << "event=flight_prefetch_failed"
-        << " error=" << reader_result.status().ToString()
-        << " (will retry in fetchViaFlight)";
+  // Endpoint registration is control-plane metadata handling only. Network
+  // connection and DoGet are deferred to the dedicated Native I/O executor so
+  // task admission and Velox driver threads can never block on a remote peer.
+  auto security = flightClientSecuritySnapshot();
+  if (!detail::flightTransportSecurityCompatible(
+          security->enabled, endpoint.tls_identity)) {
+    throw std::runtime_error(
+        security->enabled
+            ? "Refusing plaintext Native exchange endpoint while transport TLS is enabled"
+            : "Refusing TLS Native exchange endpoint without local transport credentials");
   }
 
   {
     std::lock_guard<std::mutex> lock(data_mutex_);
+    if (flight_configured_.load()) {
+      throw std::logic_error("Native exchange endpoint is immutable");
+    }
     flight_host_ = endpoint.host;
     flight_port_ = endpoint.port;
-    flight_executor_handle_ = endpoint.executor_handle;
-    flight_query_id_ = endpoint.query_id;
-    flight_stage_id_ = endpoint.stage_id;
-    flight_partition_id_ = endpoint.partition_id;
-    flight_client_ = std::move(*client_result);
-    if (prefetched_reader) {
-      flight_reader_ = std::move(prefetched_reader);
-      flight_consecutive_failures_.store(0);
-    }
+    flight_ticket_ = std::move(endpoint.signed_ticket);
+    flight_source_task_id_ = std::move(endpoint.source_task_id);
+    flight_tls_identity_ = std::move(endpoint.tls_identity);
+    flight_partition_id_ = endpoint.output_partition_id;
   }
   flight_configured_.store(true);
 
-  PANGROVA_LOG(INFO) << "event=flight_endpoint_set host=" << endpoint.host
-                    << " port=" << endpoint.port
-                    << " executor_handle=" << endpoint.executor_handle
-                    << " query_id=" << endpoint.query_id
-                    << " stage_id=" << endpoint.stage_id
-                    << " partition_id=" << endpoint.partition_id
-                    << " prefetched=" << (flight_reader_ != nullptr);
+}
+
+void PangrovaExchangeSource::configureTransportSecurity(
+    bool enabled,
+    const std::string& certificate_chain_path,
+    const std::string& private_key_path,
+    const std::string& root_ca_path,
+    const std::string& local_tls_identity) {
+  const bool has_any_value = !certificate_chain_path.empty() ||
+      !private_key_path.empty() || !root_ca_path.empty() ||
+      !local_tls_identity.empty();
+  if (!enabled && has_any_value) {
+    throw std::invalid_argument(
+        "Transport TLS settings require enabled=true");
+  }
+
+  auto replacement = std::make_shared<FlightClientSecurity>();
+  replacement->enabled = enabled;
+  if (enabled) {
+    if (certificate_chain_path.empty() || private_key_path.empty() ||
+        root_ca_path.empty() || local_tls_identity.empty()) {
+      throw std::invalid_argument(
+          "Enabled transport TLS requires certificate, private key, root CA and identity");
+    }
+    replacement->certificate_chain = readRequiredPem(
+        certificate_chain_path, "certificate chain");
+    replacement->private_key = readRequiredPem(
+        private_key_path, "private key");
+    replacement->root_ca = readRequiredPem(root_ca_path, "root CA");
+  }
+  {
+    std::lock_guard<std::mutex> lock(g_flight_client_security_mutex);
+    g_flight_client_security = std::move(replacement);
+  }
 }
 
 folly::SemiFuture<PangrovaExchangeSource::Response>
 PangrovaExchangeSource::fetchViaFlight(
     uint32_t maxBytes,
-    std::chrono::microseconds maxWait) {
-  std::vector<ContinuePromise> promises;
-  int64_t totalBytes = 0;
-  bool atEnd = false;
+    std::chrono::microseconds maxWait,
+    bool dataSizesOnly) {
+  std::shared_ptr<folly::SharedPromise<Response>> promise;
+  std::shared_ptr<arrow::StopSource> stopSource;
+  std::shared_ptr<arrow::RecordBatch> prefetchedBatch;
+  int64_t prefetchedBytes = 0;
+  bool scheduleRead = false;
+  std::string terminalError;
+  bool exhausted = false;
+  bool closed = false;
 
   {
-    std::unique_lock<std::mutex> lock(data_mutex_);
-    request_pending_ = false;
-
-    if (flight_stream_exhausted_) {
-      // Already finished — signal end.
-      queue_->enqueueLocked(nullptr, promises);
-      for (auto& p : promises) { p.setValue(); }
-      return folly::makeSemiFuture(Response{0, true, {}});
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    closed = closed_.load();
+    terminalError = flight_terminal_error_;
+    exhausted = flight_stream_exhausted_;
+    if (!closed && terminalError.empty() && flight_prefetched_batch_) {
+      prefetchedBytes = flight_prefetched_bytes_;
+      if (!dataSizesOnly) {
+        prefetchedBatch = std::move(flight_prefetched_batch_);
+        flight_prefetched_bytes_ = 0;
+      }
+    } else if (!closed && terminalError.empty() && !exhausted) {
+      if (!flight_read_in_flight_) {
+        flight_read_in_flight_ = true;
+        flight_read_promise_ =
+            std::make_shared<folly::SharedPromise<Response>>();
+        flight_stop_source_ = std::make_shared<arrow::StopSource>();
+        scheduleRead = true;
+      }
+      promise = flight_read_promise_;
+      stopSource = flight_stop_source_;
     }
+  }
 
-    // Lazily open the DoGet stream on first fetch with retry logic.
-    if (!flight_reader_ && flight_client_) {
-      // Build multiplexed ticket: "handle\nquery_id\nstage_id\npartition_id"
-      std::ostringstream oss;
-      oss << flight_executor_handle_ << "\n"
-          << flight_query_id_ << "\n"
-          << flight_stage_id_ << "\n"
-          << flight_partition_id_;
-      std::string payload = oss.str();
+  if (closed) {
+    clearRequestPending();
+    return folly::makeSemiFuture(Response{0, false, {}});
+  }
+  if (!terminalError.empty()) {
+    clearRequestPending();
+    return folly::makeSemiFuture<Response>(
+        folly::make_exception_wrapper<std::runtime_error>(terminalError));
+  }
+  if (prefetchedBytes > 0 && dataSizesOnly) {
+    clearRequestPending();
+    return folly::makeSemiFuture(
+        Response{0, false, {prefetchedBytes}});
+  }
+  if (prefetchedBatch) {
+    try {
+      auto response = enqueueFlightBatch(std::move(prefetchedBatch), maxBytes);
+      clearRequestPending();
+      return folly::makeSemiFuture(std::move(response));
+    } catch (const std::exception& error) {
+      clearRequestPending();
+      return folly::makeSemiFuture<Response>(
+          folly::make_exception_wrapper<std::runtime_error>(error.what()));
+    }
+  }
+  if (exhausted) {
+    clearRequestPending();
+    return folly::makeSemiFuture(Response{0, true, {}});
+  }
 
-      // F-NATIVE-SHUF-04: Sign the ticket with HMAC if a shuffle key is configured.
-      // TicketSigner produces "payload|expiry|hmac" when enabled, or passes through
-      // the plaintext payload when no key is set (unsecured/legacy deployments).
-      auto& keys = pangrova::shuffle::ShuffleTicketKeys::instance();
-      std::string signed_ticket;
-      if (keys.enabled()) {
-        pangrova::shuffle::TicketSigner signer(keys.currentKey());
-        signed_ticket = signer.sign(payload);
+  if (scheduleRead) {
+    auto ioExecutor = pangrova::jni::globalIoExecutor();
+    if (!ioExecutor) {
+      finishFlightReadFailure(
+          promise, "Native exchange I/O executor is unavailable");
+    } else {
+      auto self = std::static_pointer_cast<PangrovaExchangeSource>(
+          shared_from_this());
+      try {
+        ioExecutor->add(
+            [self, maxBytes, dataSizesOnly, promise, stopSource]() mutable {
+              self->performFlightRead(
+                  maxBytes,
+                  dataSizesOnly,
+                  std::move(promise),
+                  std::move(stopSource));
+            });
+      } catch (const std::exception& e) {
+        finishFlightReadFailure(
+            promise,
+            std::string("Failed to schedule Native exchange read: ") +
+                e.what());
+      }
+    }
+  }
+
+  return waitForFlightRead(std::move(promise), maxWait);
+}
+
+folly::SemiFuture<PangrovaExchangeSource::Response>
+PangrovaExchangeSource::fetchViaExternal(
+    uint32_t maxBytes,
+    std::chrono::microseconds maxWait,
+    bool dataSizesOnly) {
+  std::shared_ptr<folly::SharedPromise<Response>> promise;
+  std::optional<std::string> prefetchedBatch;
+  int64_t prefetchedBytes = 0;
+  bool scheduleRead = false;
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    if (external_prefetched_batch_.has_value()) {
+      prefetchedBytes = static_cast<int64_t>(
+          external_prefetched_batch_->size());
+      if (!dataSizesOnly) {
+        prefetchedBatch = std::move(external_prefetched_batch_);
+        external_prefetched_batch_.reset();
+      }
+    } else if (!flight_read_in_flight_) {
+      flight_read_in_flight_ = true;
+      flight_read_promise_ = std::make_shared<folly::SharedPromise<Response>>();
+      scheduleRead = true;
+    }
+    promise = flight_read_promise_;
+  }
+  if (prefetchedBytes > 0 && dataSizesOnly) {
+    clearRequestPending();
+    return folly::makeSemiFuture(
+        Response{0, false, {prefetchedBytes}});
+  }
+  if (prefetchedBatch.has_value()) {
+    try {
+      auto response =
+          enqueueExternalBatch(std::move(*prefetchedBatch), maxBytes);
+      clearRequestPending();
+      return folly::makeSemiFuture(std::move(response));
+    } catch (const std::exception& error) {
+      clearRequestPending();
+      return folly::makeSemiFuture<Response>(
+          folly::make_exception_wrapper<std::runtime_error>(error.what()));
+    }
+  }
+  if (scheduleRead) {
+    auto ioExecutor = pangrova::jni::globalIoExecutor();
+    if (!ioExecutor) {
+      finishFlightReadFailure(
+          promise, "Native exchange I/O executor is unavailable");
+    } else {
+      auto self = std::static_pointer_cast<PangrovaExchangeSource>(
+          shared_from_this());
+      try {
+        ioExecutor->add([self, maxBytes, maxWait, dataSizesOnly, promise]() {
+          self->performExternalRead(
+              maxBytes, maxWait, dataSizesOnly, promise);
+        });
+      } catch (const std::exception& error) {
+        finishFlightReadFailure(promise, error.what());
+      }
+    }
+  }
+  return waitForFlightRead(std::move(promise), maxWait);
+}
+
+void PangrovaExchangeSource::performExternalRead(
+    uint32_t maxBytes,
+    std::chrono::microseconds maxWait,
+    bool dataSizesOnly,
+    std::shared_ptr<folly::SharedPromise<Response>> promise) {
+  try {
+    auto result = external_ingress_->take(maxWait);
+    if (result.kind == ExternalShuffleIngress::ResultKind::kPending) {
+      finishFlightReadSuccess(promise, Response{0, false, {}});
+      return;
+    }
+    if (result.kind == ExternalShuffleIngress::ResultKind::kCancelled) {
+      finishFlightReadSuccess(promise, Response{0, false, {}});
+      return;
+    }
+    if (result.kind == ExternalShuffleIngress::ResultKind::kFailed) {
+      finishFlightReadFailure(promise, std::move(result.error));
+      return;
+    }
+    std::vector<ContinuePromise> queuePromises;
+    if (result.kind == ExternalShuffleIngress::ResultKind::kFinished) {
+      {
+        std::lock_guard<std::mutex> queueLock(queue_->mutex());
+        if (!atEnd_) {
+          atEnd_ = true;
+          queue_->enqueueLocked(nullptr, queuePromises);
+        }
+      }
+      for (auto& queuePromise : queuePromises) {
+        queuePromise.setValue();
+      }
+      finishFlightReadSuccess(promise, Response{0, true, {}});
+      return;
+    }
+    const auto bytes = static_cast<int64_t>(result.data.size());
+    if (dataSizesOnly && bytes > static_cast<int64_t>(maxBytes)) {
+      bool closed = false;
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        closed = closed_.load();
+        if (!closed && external_prefetched_batch_.has_value()) {
+          throw std::logic_error(
+              "External exchange already owns a prefetched batch");
+        }
+        if (!closed) {
+          external_prefetched_batch_ = std::move(result.data);
+        }
+      }
+      if (closed) {
+        finishFlightReadSuccess(promise, Response{0, false, {}});
       } else {
-        signed_ticket = std::move(payload);
+        finishFlightReadSuccess(promise, Response{0, false, {bytes}});
       }
-      arrow::flight::Ticket ticket{std::move(signed_ticket)};
-
-      for (int attempt = 1; attempt <= kMaxFlightRetries; ++attempt) {
-        arrow::flight::FlightCallOptions call_options;
-        call_options.timeout =
-            arrow::flight::TimeoutDuration{
-                static_cast<double>(kFlightCallTimeoutMs) / 1000.0};
-        auto reader_result = flight_client_->DoGet(call_options, ticket);
-        if (reader_result.ok()) {
-          flight_reader_ = std::move(*reader_result);
-          flight_consecutive_failures_.store(0);
-          break;
-        }
-        int failures = flight_consecutive_failures_.fetch_add(1) + 1;
-        if (attempt < kMaxFlightRetries) {
-          int backoff_ms = kFlightRetryBaseMs * (1 << (attempt - 1));
-          PANGROVA_LOG(WARNING)
-              << "event=flight_doget_retry"
-              << " attempt=" << attempt
-              << " max_attempts=" << kMaxFlightRetries
-              << " backoff_ms=" << backoff_ms
-              << " consecutive_failures=" << failures
-              << " error=" << reader_result.status().ToString();
-          // Release lock during backoff to avoid blocking other threads.
-          // Using unique_lock::unlock()/lock() for RAII safety — the lock
-          // is always in a valid state when the scope exits, even if an
-          // exception were thrown during sleep (which cannot happen, but
-          // this pattern is safer for future maintenance).
-          lock.unlock();
-          std::this_thread::sleep_for(
-              std::chrono::milliseconds(backoff_ms));
-          lock.lock();
-        } else {
-          PANGROVA_LOG(ERROR)
-              << "event=flight_doget_exhausted"
-              << " attempts=" << kMaxFlightRetries
-              << " consecutive_failures=" << failures
-              << " error=" << reader_result.status().ToString();
-          // Signal permanent failure instead of falling back to passive mode.
-          // Passive mode has no data pusher when Flight was the configured
-          // transport, so falling back would cause an indefinite hang.
-          // Setting at_end_ and enqueueing nullptr tells Velox the exchange
-          // source has no more data, surfacing the error to the task.
-          at_end_ = true;
-          flight_stream_exhausted_ = true;
-          queue_->enqueueLocked(nullptr, promises);
-        }
-      }
+      return;
     }
+    finishFlightReadSuccess(
+        promise, enqueueExternalBatch(std::move(result.data), maxBytes));
+  } catch (const std::exception& error) {
+    finishFlightReadFailure(promise, error.what());
+  }
+}
 
-    if (!flight_reader_) {
-      // If at_end_ was set by retry exhaustion, fulfill promises and return
-      // immediately. Falling through to waitForPushedData would work but
-      // would skip fulfilling promises collected during enqueueLocked above.
-      if (at_end_) {
-        for (auto& p : promises) { p.setValue(); }
-        return folly::makeSemiFuture(Response{0, true, {}});
-      }
-      // Fallback to passive mode.
-      // Release lock and delegate.
-    }
+folly::SemiFuture<PangrovaExchangeSource::Response>
+PangrovaExchangeSource::waitForFlightRead(
+    std::shared_ptr<folly::SharedPromise<Response>> promise,
+    std::chrono::microseconds maxWait) {
+  auto self = std::static_pointer_cast<PangrovaExchangeSource>(
+      shared_from_this());
+  if (maxWait.count() <= 0) {
+    return promise->getSemiFuture().deferEnsure(
+        [self]() { self->clearRequestPending(); });
   }
 
-  // If we failed to get a reader, fall back to passive.
-  if (!flight_reader_) {
-    return waitForPushedData(maxBytes, maxWait);
+  auto ioExecutor = pangrova::jni::globalIoExecutor();
+  auto* ioPool = dynamic_cast<folly::IOThreadPoolExecutor*>(ioExecutor.get());
+  if (!ioPool) {
+    return folly::makeSemiFuture<Response>(
+               folly::make_exception_wrapper<std::runtime_error>(
+                   "Native exchange timeout scheduler is unavailable"))
+        .deferEnsure([self]() { self->clearRequestPending(); });
   }
 
-  // Read batches from the Flight stream up to maxBytes.
-  // Safety: close() sets closed_=true under data_mutex_ but no longer
-  // resets flight_reader_ — the reader is only destroyed in the
-  // destructor or when the stream is exhausted. This eliminates the
-  // UAF race between close() and Next().
-  while (totalBytes < static_cast<int64_t>(maxBytes)) {
+  auto state = std::make_shared<FlightReadWaitState>();
+  auto result = state->result.getSemiFuture();
+  std::move(promise->getSemiFuture())
+      .via(ioExecutor.get())
+      .thenTry([state](folly::Try<Response>&& response) {
+        if (state->claim()) {
+          state->result.setTry(std::move(response));
+        }
+      });
+
+  const auto roundedMillis = std::chrono::ceil<std::chrono::milliseconds>(
+      maxWait);
+  const auto timeoutMillis = static_cast<uint32_t>(std::min<int64_t>(
+      std::max<int64_t>(1, roundedMillis.count()),
+      std::numeric_limits<uint32_t>::max()));
+  auto* eventBase = ioPool->getEventBase();
+  try {
+    eventBase->runInEventBaseThread(
+        [eventBase, state, timeoutMillis]() {
+          eventBase->runAfterDelay(
+              [state]() {
+                if (state->claim()) {
+                  // End only this Velox long-poll. The blocking Flight Next()
+                  // remains in flight and a later request receives its result.
+                  state->result.setValue(Response{0, false, {}});
+                }
+              },
+              timeoutMillis);
+        });
+  } catch (const std::exception& error) {
+    if (state->claim()) {
+      state->result.setException(
+          folly::make_exception_wrapper<std::runtime_error>(error.what()));
+    }
+  }
+  return std::move(result).deferEnsure(
+      [self]() { self->clearRequestPending(); });
+}
+
+void PangrovaExchangeSource::performFlightRead(
+    uint32_t maxBytes,
+    bool dataSizesOnly,
+    std::shared_ptr<folly::SharedPromise<Response>> promise,
+    std::shared_ptr<arrow::StopSource> stopSource) {
+  try {
+    std::shared_ptr<arrow::flight::FlightClient> client;
+    std::shared_ptr<arrow::flight::FlightStreamReader> reader;
+    std::string host;
+    std::string tlsIdentity;
+    int port = 0;
+    std::string ticketValue;
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
-      if (closed_) {
-        break;
-      }
+      client = flight_client_;
+      reader = flight_reader_;
+      host = flight_host_;
+      tlsIdentity = flight_tls_identity_;
+      port = flight_port_;
+      ticketValue = flight_ticket_;
     }
-    auto chunk_result = flight_reader_->Next();
-    if (!chunk_result.ok()) {
-      PANGROVA_LOG(ERROR) << "event=flight_read_error error="
-                        << chunk_result.status().ToString();
-      break;
+    if (closed_.load()) {
+      finishFlightReadSuccess(promise, Response{0, false, {}});
+      return;
     }
 
-    auto& chunk = *chunk_result;
+    if (!client) {
+      auto security = flightClientSecuritySnapshot();
+      auto locationResult = security->enabled
+          ? arrow::flight::Location::ForGrpcTls(host, port)
+          : arrow::flight::Location::ForGrpcTcp(host, port);
+      if (!locationResult.ok()) {
+        throw std::runtime_error(
+            "Failed to create Flight location: " +
+            locationResult.status().ToString());
+      }
+      auto clientOptions = arrow::flight::FlightClientOptions::Defaults();
+      clientOptions.generic_options.emplace_back(
+          "grpc.keepalive_time_ms", kFlightKeepaliveTimeMs);
+      clientOptions.generic_options.emplace_back(
+          "grpc.keepalive_timeout_ms", kFlightKeepaliveTimeoutMs);
+      clientOptions.generic_options.emplace_back(
+          "grpc.keepalive_permit_without_calls", 1);
+      if (security->enabled) {
+        clientOptions.tls_root_certs = security->root_ca;
+        clientOptions.override_hostname = tlsIdentity;
+        clientOptions.cert_chain = security->certificate_chain;
+        clientOptions.private_key = security->private_key;
+      }
+      auto clientResult = arrow::flight::FlightClient::Connect(
+          *locationResult, clientOptions);
+      if (!clientResult.ok()) {
+        throw std::runtime_error(
+            "Failed to connect Flight client: " +
+            clientResult.status().ToString());
+      }
+      client = std::shared_ptr<arrow::flight::FlightClient>(
+          std::move(*clientResult));
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        flight_client_ = client;
+      }
+    }
+
+    if (!reader) {
+      arrow::flight::FlightCallOptions callOptions;
+      callOptions.stop_token = stopSource->token();
+      auto readerResult = client->DoGet(
+          callOptions, arrow::flight::Ticket{ticketValue});
+      if (!readerResult.ok()) {
+        throw std::runtime_error(
+            "Flight DoGet failed: " + readerResult.status().ToString());
+      }
+      reader = std::shared_ptr<arrow::flight::FlightStreamReader>(
+          std::move(*readerResult));
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        flight_reader_ = reader;
+      }
+      if (closed_.load()) {
+        reader->Cancel();
+      }
+    }
+
+    auto chunkResult = reader->Next();
+    if (!chunkResult.ok()) {
+      if (closed_.load()) {
+        finishFlightReadSuccess(promise, Response{0, false, {}});
+        return;
+      }
+      throw std::runtime_error(
+          "Flight exchange stream failed: " +
+          chunkResult.status().ToString());
+    }
+
+    auto& chunk = *chunkResult;
+    std::vector<ContinuePromise> queuePromises;
     if (!chunk.data) {
-      // End of stream.
-      atEnd = true;
-      std::lock_guard<std::mutex> lock(data_mutex_);
-      flight_stream_exhausted_ = true;
-      at_end_ = true;
-      queue_->enqueueLocked(nullptr, promises);
-      break;
-    }
-
-    // The Flight stream carries serialized PrestoVectorSerde bytes in a
-    // binary column. Extract the raw bytes and wrap in IOBuf for Velox.
-    // P0-PERF-1: Use IOBuf::wrapBuffer with a custom destructor that holds
-    // the Arrow RecordBatch alive, eliminating the per-page memcpy.
-    auto num_rows = chunk.data->num_rows();
-    auto batch_holder = chunk.data;  // shared_ptr keeps Arrow buffers alive
-    auto binary_array = std::static_pointer_cast<arrow::BinaryArray>(
-        batch_holder->column(0));
-
-    // Batch enqueue: acquire lock once for all pages in this RecordBatch
-    // instead of per-page lock acquisition.
-    {
-      std::lock_guard<std::mutex> lock(data_mutex_);
-      for (int64_t row = 0; row < num_rows; ++row) {
-        int32_t length = 0;
-        const uint8_t* value = binary_array->GetValue(row, &length);
-
-        // Zero-copy wrap: IOBuf references Arrow's buffer directly.
-        // The shared_ptr capture in freeFunction ensures the Arrow RecordBatch
-        // (and its underlying buffers) outlive the IOBuf.
-        auto iobuf = folly::IOBuf::takeOwnership(
-            const_cast<uint8_t*>(value), length,
-            [](void* /*buf*/, void* userData) {
-              delete static_cast<std::shared_ptr<arrow::RecordBatch>*>(userData);
-            },
-            new std::shared_ptr<arrow::RecordBatch>(batch_holder));
-        int64_t pageSize = static_cast<int64_t>(length);
-
-        auto page = std::make_unique<SerializedPage>(
-            std::move(iobuf), /*onDestructionCb=*/nullptr,
-            std::optional<int64_t>(std::nullopt));
-
-        queue_->enqueueLocked(std::move(page), promises);
-        totalBytes += pageSize;
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        flight_stream_exhausted_ = true;
+        flight_reader_.reset();
+        flight_client_.reset();
       }
+      reader.reset();
+      client.reset();
+      {
+        std::lock_guard<std::mutex> queueLock(queue_->mutex());
+        if (!atEnd_) {
+          atEnd_ = true;
+          queue_->enqueueLocked(nullptr, queuePromises);
+        }
+      }
+      for (auto& queuePromise : queuePromises) {
+        queuePromise.setValue();
+      }
+      finishFlightReadSuccess(promise, Response{0, true, {}});
+      return;
+    }
+
+    if (chunk.data->num_columns() != 1 ||
+        chunk.data->column(0)->type_id() != arrow::Type::BINARY) {
+      throw std::runtime_error(
+          "Flight shuffle batch must contain exactly one binary column");
+    }
+
+    int64_t totalBytes = 0;
+    auto batchHolder = chunk.data;
+    auto binaryArray = std::static_pointer_cast<arrow::BinaryArray>(
+        batchHolder->column(0));
+    for (int64_t row = 0; row < batchHolder->num_rows(); ++row) {
+      if (binaryArray->IsNull(row)) {
+        throw std::runtime_error("Flight shuffle batch contains a null page");
+      }
+      int32_t length = 0;
+      binaryArray->GetValue(row, &length);
+      totalBytes += static_cast<int64_t>(length);
+    }
+
+    if (dataSizesOnly && totalBytes > static_cast<int64_t>(maxBytes)) {
+      bool closed = false;
+      {
+        std::lock_guard<std::mutex> lock(data_mutex_);
+        closed = closed_.load();
+        if (!closed && flight_prefetched_batch_) {
+          throw std::logic_error(
+              "Flight exchange already owns a prefetched batch");
+        }
+        if (!closed) {
+          flight_prefetched_batch_ = std::move(batchHolder);
+          flight_prefetched_bytes_ = totalBytes;
+        }
+      }
+      if (closed) {
+        finishFlightReadSuccess(promise, Response{0, false, {}});
+      } else {
+        finishFlightReadSuccess(
+            promise, Response{0, false, {totalBytes}});
+      }
+      return;
+    }
+    finishFlightReadSuccess(
+        promise, enqueueFlightBatch(std::move(batchHolder), maxBytes));
+  } catch (const std::exception& e) {
+    PANGROVA_LOG(ERROR)
+        << "event=flight_exchange_read_failed error=" << e.what();
+    finishFlightReadFailure(promise, e.what());
+  }
+}
+
+PangrovaExchangeSource::Response PangrovaExchangeSource::enqueueFlightBatch(
+    std::shared_ptr<arrow::RecordBatch> batch,
+    uint32_t maxBytes) {
+  if (!batch || batch->num_columns() != 1 ||
+      batch->column(0)->type_id() != arrow::Type::BINARY) {
+    throw std::invalid_argument("Invalid prefetched Flight shuffle batch");
+  }
+  auto binaryArray = std::static_pointer_cast<arrow::BinaryArray>(
+      batch->column(0));
+  std::vector<std::unique_ptr<SerializedPage>> pages;
+  pages.reserve(static_cast<size_t>(batch->num_rows()));
+  int64_t totalBytes = 0;
+  for (int64_t row = 0; row < batch->num_rows(); ++row) {
+    if (binaryArray->IsNull(row)) {
+      throw std::runtime_error("Flight shuffle batch contains a null page");
+    }
+    int32_t length = 0;
+    const uint8_t* value = binaryArray->GetValue(row, &length);
+    totalBytes += static_cast<int64_t>(length);
+    auto data = folly::IOBuf::takeOwnership(
+        const_cast<uint8_t*>(value),
+        static_cast<size_t>(length),
+        [](void*, void* owner) {
+          delete static_cast<std::shared_ptr<arrow::RecordBatch>*>(owner);
+        },
+        new std::shared_ptr<arrow::RecordBatch>(batch));
+    pages.push_back(std::make_unique<SerializedPage>(
+        std::move(data), nullptr, std::optional<int64_t>(std::nullopt)));
+  }
+  if (totalBytes > static_cast<int64_t>(maxBytes)) {
+    PANGROVA_LOG(INFO) << "event=flight_batch_exceeds_request_budget"
+                       << " requested_bytes=" << maxBytes
+                       << " received_bytes=" << totalBytes;
+  }
+  std::vector<ContinuePromise> queuePromises;
+  {
+    std::lock_guard<std::mutex> queueLock(queue_->mutex());
+    for (auto& page : pages) {
+      queue_->enqueueLocked(std::move(page), queuePromises);
     }
   }
-
-  // Fulfill promises.
-  for (auto& promise : promises) {
-    promise.setValue();
+  for (auto& queuePromise : queuePromises) {
+    queuePromise.setValue();
   }
+  return Response{totalBytes, false, {}};
+}
 
-  return folly::makeSemiFuture(Response{totalBytes, atEnd, {}});
+PangrovaExchangeSource::Response PangrovaExchangeSource::enqueueExternalBatch(
+    std::string data,
+    uint32_t maxBytes) {
+  const auto bytes = static_cast<int64_t>(data.size());
+  auto buffer = folly::IOBuf::copyBuffer(data);
+  auto page = std::make_unique<SerializedPage>(
+      std::move(buffer), nullptr, std::optional<int64_t>(std::nullopt));
+  std::vector<ContinuePromise> queuePromises;
+  {
+    std::lock_guard<std::mutex> queueLock(queue_->mutex());
+    queue_->enqueueLocked(std::move(page), queuePromises);
+  }
+  for (auto& queuePromise : queuePromises) {
+    queuePromise.setValue();
+  }
+  if (bytes > static_cast<int64_t>(maxBytes)) {
+    PANGROVA_LOG(INFO) << "event=external_batch_exceeds_request_budget"
+                       << " requested_bytes=" << maxBytes
+                       << " received_bytes=" << bytes;
+  }
+  return Response{bytes, false, {}};
+}
+
+void PangrovaExchangeSource::finishFlightReadSuccess(
+    const std::shared_ptr<folly::SharedPromise<Response>>& promise,
+    Response response) {
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    if (flight_read_promise_ == promise) {
+      flight_read_in_flight_ = false;
+      flight_read_promise_.reset();
+      flight_stop_source_.reset();
+    }
+  }
+  if (!promise->isFulfilled()) {
+    promise->setValue(std::move(response));
+  }
+}
+
+void PangrovaExchangeSource::finishFlightReadFailure(
+    const std::shared_ptr<folly::SharedPromise<Response>>& promise,
+    std::string message) {
+  {
+    std::lock_guard<std::mutex> lock(data_mutex_);
+    if (closed_.load()) {
+      message.clear();
+    } else {
+      flight_terminal_error_ = message;
+    }
+    flight_reader_.reset();
+    flight_client_.reset();
+    if (flight_read_promise_ == promise) {
+      flight_read_in_flight_ = false;
+      flight_read_promise_.reset();
+      flight_stop_source_.reset();
+    }
+  }
+  if (promise->isFulfilled()) {
+    return;
+  }
+  if (message.empty()) {
+    promise->setValue(Response{0, false, {}});
+  } else {
+    promise->setException(
+        folly::make_exception_wrapper<std::runtime_error>(
+            std::move(message)));
+  }
+}
+
+void PangrovaExchangeSource::clearRequestPending() {
+  std::lock_guard<std::mutex> queueLock(queue_->mutex());
+  requestPending_ = false;
 }
 
 void PangrovaExchangeSource::registerExchangeSourceFactory() {

@@ -3,13 +3,15 @@ package org.pangrova.connector.paimon.write;
 import org.pangrova.common.concurrent.NotThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.protocol.batch.ColumnarBatch;
+import org.pangrova.protocol.batch.ColumnarPageSink;
 import org.pangrova.spi.connector.base.ConnectorException;
-import org.pangrova.spi.connector.data.ConnectorPageSink;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.connector.data.page.NativePage;
 import org.pangrova.spi.connector.data.page.NativePageConverter;
 import org.pangrova.spi.connector.data.page.Page;
 import org.pangrova.spi.connector.index.CommitEventType;
+import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
 import org.apache.paimon.table.sink.BatchTableCommit;
@@ -35,7 +37,7 @@ import java.util.List;
  * <p>Not thread-safe: instances are confined to a single writer thread.
  */
 @NotThreadSafe
-abstract class AbstractPaimonPageSink implements ConnectorPageSink {
+abstract class AbstractPaimonPageSink implements ColumnarPageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(AbstractPaimonPageSink.class);
 
@@ -66,6 +68,26 @@ abstract class AbstractPaimonPageSink implements ConnectorPageSink {
     public void appendPage(Page page) {
         for (TypedRow row : page.rows()) {
             writeRow(row);
+        }
+    }
+
+    /**
+     * Converts and writes each row synchronously without retaining the caller's batch.
+     *
+     * @param batch caller-owned batch, with missing target columns written as null
+     * @throws ConnectorException if value conversion or writing fails
+     */
+    @Override
+    public void appendColumnarBatch(ColumnarBatch batch) {
+        int[] ordinals = rowConverter.columnOrdinals(batch.columns());
+        int rowCount = batch.rowCount();
+        try {
+            for (int row = 0; row < rowCount; row++) {
+                writeConvertedRow(rowConverter.convertColumnarRow(batch, row, ordinals, writeRowKind()));
+            }
+        } catch (Exception e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Failed to write columnar batch to Paimon table: " + e.getMessage(), e);
         }
     }
 
@@ -101,18 +123,21 @@ abstract class AbstractPaimonPageSink implements ConnectorPageSink {
 
     private void writeRow(TypedRow row) {
         try {
-            if (dynamicBucket) {
-                tableWrite.write(rowConverter.convert(row, writeRowKind()), 0);
-            } else if (postponeBucket) {
-                // Postpone bucket (bucket=-2): let Paimon's internal
-                // PostponeBucketRowKeyExtractor assign bucket=-2
-                tableWrite.write(rowConverter.convert(row, writeRowKind()));
-            } else {
-                tableWrite.write(rowConverter.convert(row, writeRowKind()));
-            }
+            writeConvertedRow(rowConverter.convert(row, writeRowKind()));
         } catch (Exception e) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Failed to write row to Paimon table: " + e.getMessage(), e);
+        }
+    }
+
+    private void writeConvertedRow(GenericRow row) throws Exception {
+        if (dynamicBucket) {
+            tableWrite.write(row, 0);
+        } else if (postponeBucket) {
+            // Let Paimon's PostponeBucketRowKeyExtractor assign bucket=-2.
+            tableWrite.write(row);
+        } else {
+            tableWrite.write(row);
         }
     }
 

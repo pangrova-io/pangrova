@@ -6,7 +6,6 @@ import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.state.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.metadata.coordination.JdbcDistributedLease;
 import org.pangrova.metadata.coordination.JdbcQueryStateJournal;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.spi.coordination.DistributedLease;
@@ -14,8 +13,10 @@ import org.pangrova.spi.coordination.QueryStateEvent;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.spi.coordination.TaskStateEvent;
 import org.pangrova.testing.TestObservability;
+import org.pangrova.testing.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.e2e.fixture.TestLeaseNamespace;
 import org.pangrova.testing.e2e.setup.MetadataSchemaInitializer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,7 +66,7 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
 
     private DataSource journalDs;
     private JdbcQueryStateJournal journal;
-    private LeaseBackedLeaderElection leaderElection;
+    private FencedLeaderElectionTestDriver leaderElection;
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -84,8 +85,9 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
                 "JDBC", mysqlJdbcUrl(), 50, 20, 24);
         journal = new JdbcQueryStateJournal(journalDs, config);
 
-        DistributedLease lease = new JdbcDistributedLease(journalDs);
-        leaderElection = new LeaseBackedLeaderElection(lease);
+        DistributedLease lease = new TestLeaseNamespace().jdbc(journalDs);
+        leaderElection = new FencedLeaderElectionTestDriver(
+                new LeaseBackedLeaderElection(lease));
     }
 
     @AfterEach
@@ -298,7 +300,8 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
                     org.pangrova.resource.MemoryPressure.NONE,
                     0.0, 0, 4L * 1024 * 1024 * 1024,
                     Instant.now(), 0.0, null,
-                    1, List.of(), null, List.of()));
+                    2, null, List.of(), null,
+                    CanonicalWorkerInventory.empty()));
 
             QueryManager recoveredManager = new QueryManager(
                     QueryManagerContext.minimal(null, TestObservability.TRACING));
@@ -524,7 +527,6 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
              Statement stmt = conn.createStatement()) {
             stmt.execute("TRUNCATE TABLE query_state_journal");
             stmt.execute("TRUNCATE TABLE task_state_journal");
-            stmt.execute("DELETE FROM distributed_lease");
         }
     }
 

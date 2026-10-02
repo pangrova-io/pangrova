@@ -7,7 +7,8 @@ import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.security.authz.DefaultAccessControl;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.spi.security.AccessControl;
 import org.pangrova.security.mask.ColumnMask;
 import org.pangrova.security.mask.EnrichedColumnMaskStore;
@@ -28,6 +29,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
+import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedRoles;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -171,6 +174,27 @@ class ColumnMaskApplierTest {
         assertThat(result.explain()).isEqualTo(relNode.explain());
     }
 
+    @Test
+    void effectivePlanDigestChangesWhenColumnMaskDefinitionChanges() {
+        ColumnMask redacted = new ColumnMask(
+                7L, "mask_dept", "default", "default", "orders",
+                "department", "'***'", List.of("analysts"), List.of(), true);
+        ColumnMask hidden = new ColumnMask(
+                8L, "mask_dept", "default", "default", "orders",
+                "department", "'[hidden]'", List.of("analysts"), List.of(), true);
+        UserIdentity identity = testIdentity("user1", Set.of("analysts"));
+        var base = COMPILER.compileToPlannedQuery("SELECT * FROM orders");
+
+        String redactedDigest = base.applyColumnMasks(
+                new ColumnMaskApplier(buildAccessControlWithMasks(List.of(redacted))),
+                identity).effectivePlanDigest();
+        String hiddenDigest = base.applyColumnMasks(
+                new ColumnMaskApplier(buildAccessControlWithMasks(List.of(hidden))),
+                identity).effectivePlanDigest();
+
+        assertThat(redactedDigest).isNotEqualTo(hiddenDigest);
+    }
+
     /**
      * Finds a LogicalProject that was injected by the mask applier.
      * The mask project wraps a TableScan directly (its input is a TableScan).
@@ -233,8 +257,9 @@ class ColumnMaskApplierTest {
             }
             @Override public void saveMask(org.pangrova.spi.security.ColumnMaskRecord m) { }
         };
-        return new RbacAccessControl(
-                List.of(),
+        return new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("readers", "readers"), java.util.Map.entry("analysts", "analysts"), java.util.Map.entry("other_team", "other_team"), java.util.Map.entry("admins", "admins"))),
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
                 new ColumnMaskingProcessor(maskStore));
     }

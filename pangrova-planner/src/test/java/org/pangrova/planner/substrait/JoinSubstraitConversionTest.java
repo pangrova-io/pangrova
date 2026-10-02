@@ -2,8 +2,12 @@ package org.pangrova.planner.substrait;
 
 import com.google.common.collect.ImmutableList;
 import io.substrait.plan.Plan;
-import io.substrait.relation.ExtensionMulti;
 import io.substrait.relation.Rel;
+import io.substrait.relation.Sort;
+import io.substrait.relation.physical.BroadcastExchange;
+import io.substrait.relation.physical.HashJoin;
+import io.substrait.relation.physical.MergeJoin;
+import io.substrait.relation.physical.NestedLoopJoin;
 import org.pangrova.planner.cost.join.PangrovaBroadcastJoin;
 import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.cost.join.PangrovaNestedLoopJoin;
@@ -12,6 +16,8 @@ import org.pangrova.planner.cost.join.BroadcastJoinConfig;
 import org.pangrova.planner.cost.join.HashJoinConfig;
 import org.pangrova.planner.cost.join.NestedLoopJoinConfig;
 import org.pangrova.planner.cost.join.SortMergeJoinConfig;
+import org.pangrova.planner.cost.distribution.PangrovaDistribution;
+import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.apache.calcite.plan.ConventionTraitDef;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
@@ -40,7 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Verifies that all physical join operators (HashJoin, SortMergeJoin,
  * NestedLoopJoin, BroadcastJoin) convert to correct Substrait JoinRel
- * fields including join type, keys, and strategy metadata.
+ * fields including join type, keys, residual predicates, and distribution.
  */
 class JoinSubstraitConversionTest {
 
@@ -61,66 +67,86 @@ class JoinSubstraitConversionTest {
     }
 
     @ParameterizedTest
-    @EnumSource(JoinRelType.class)
+    @EnumSource(value = JoinRelType.class,
+            names = {"ASOF", "LEFT_ASOF", "LEFT_MARK"},
+            mode = EnumSource.Mode.EXCLUDE)
     void hashJoinConvertsAllJoinTypes(JoinRelType joinType) {
         PangrovaHashJoin hashJoin = buildHashJoin(joinType);
 
         Rel result = converter.visit(hashJoin);
 
-        assertThat(result).isInstanceOf(ExtensionMulti.class);
-        ExtensionMulti ext = (ExtensionMulti) result;
-        assertThat(ext.getDetail()).isInstanceOf(HashJoinRelDetail.class);
-        HashJoinRelDetail detail = (HashJoinRelDetail) ext.getDetail();
-        assertThat(detail.strategy()).isEqualTo("hash_join");
-        assertThat(detail.joinType()).isEqualTo(expectedJoinTypeString(joinType));
-        assertThat(detail.leftKeys()).containsExactly(0);
-        assertThat(detail.rightKeys()).containsExactly(0);
+        assertThat(result).isInstanceOf(HashJoin.class);
+        HashJoin join = (HashJoin) result;
+        assertThat(join.getJoinType()).isEqualTo(expectedHashJoinType(joinType));
+        assertThat(join.getKeys()).hasSize(1);
+        assertThat(keyOffset(join.getKeys().get(0).getLeft())).isZero();
+        assertThat(keyOffset(join.getKeys().get(0).getRight())).isZero();
     }
 
     @ParameterizedTest
-    @EnumSource(JoinRelType.class)
+    @EnumSource(value = JoinRelType.class,
+            names = {"ASOF", "LEFT_ASOF", "LEFT_MARK"},
+            mode = EnumSource.Mode.EXCLUDE)
     void broadcastJoinConvertsAllJoinTypes(JoinRelType joinType) {
         PangrovaBroadcastJoin broadcastJoin = buildBroadcastJoin(joinType);
 
         Rel result = converter.visit(broadcastJoin);
 
-        assertThat(result).isInstanceOf(ExtensionMulti.class);
-        ExtensionMulti ext = (ExtensionMulti) result;
-        assertThat(ext.getDetail()).isInstanceOf(HashJoinRelDetail.class);
-        HashJoinRelDetail detail = (HashJoinRelDetail) ext.getDetail();
-        assertThat(detail.strategy()).isEqualTo("broadcast_join");
-        assertThat(detail.joinType()).isEqualTo(expectedJoinTypeString(joinType));
+        assertThat(result).isInstanceOf(HashJoin.class);
+        HashJoin join = (HashJoin) result;
+        assertThat(join.getJoinType()).isEqualTo(expectedHashJoinType(joinType));
+        assertThat(join.getRight()).isInstanceOf(BroadcastExchange.class);
+        assertThat(((BroadcastExchange) join.getRight()).getPartitionCount())
+                .isEqualTo(PhysicalJoinConverter.UNBOUND_PARTITION_COUNT);
     }
 
     @ParameterizedTest
-    @EnumSource(JoinRelType.class)
+    @EnumSource(value = JoinRelType.class,
+            names = {"ASOF", "LEFT_ASOF", "LEFT_MARK"},
+            mode = EnumSource.Mode.EXCLUDE)
     void sortMergeJoinConvertsAllJoinTypes(JoinRelType joinType) {
         PangrovaSortMergeJoin mergeJoin = buildSortMergeJoin(joinType);
 
         Rel result = converter.visit(mergeJoin);
 
-        assertThat(result).isInstanceOf(ExtensionMulti.class);
-        ExtensionMulti ext = (ExtensionMulti) result;
-        assertThat(ext.getDetail()).isInstanceOf(MergeJoinRelDetail.class);
-        MergeJoinRelDetail detail = (MergeJoinRelDetail) ext.getDetail();
-        assertThat(detail.joinType()).isEqualTo(expectedJoinTypeString(joinType));
-        assertThat(detail.leftKeys()).containsExactly(0);
-        assertThat(detail.rightKeys()).containsExactly(0);
-        assertThat(detail.inputsPreSorted()).isFalse();
+        assertThat(result).isInstanceOf(MergeJoin.class);
+        MergeJoin join = (MergeJoin) result;
+        assertThat(join.getJoinType()).isEqualTo(expectedMergeJoinType(joinType));
+        assertThat(join.getKeys()).hasSize(1);
+        assertThat(join.getLeft()).isInstanceOf(Sort.class);
+        assertThat(join.getRight()).isInstanceOf(Sort.class);
+    }
+
+    @Test
+    void sortMergeJoinPreservesAsymmetricInputSchema() {
+        RelNode left = buildInput(1);
+        RelNode right = buildInput(3);
+        RexNode condition = buildEquiCondition(left, right, 0, 0);
+        PangrovaSortMergeJoin mergeJoin = new PangrovaSortMergeJoin(
+                new SortMergeJoinConfig(
+                        cluster, left.getTraitSet(), left, right,
+                        condition, Set.of(), JoinRelType.INNER));
+
+        MergeJoin result = (MergeJoin) converter.visit(mergeJoin);
+
+        assertThat(result.getLeft().getRecordType().fields()).hasSize(1);
+        assertThat(result.getRight().getRecordType().fields()).hasSize(3);
+        assertThat(result.getRecordType().fields()).hasSize(4);
     }
 
     @ParameterizedTest
-    @EnumSource(JoinRelType.class)
+    @EnumSource(value = JoinRelType.class,
+            names = {"ASOF", "LEFT_ASOF", "LEFT_MARK"},
+            mode = EnumSource.Mode.EXCLUDE)
     void nestedLoopJoinConvertsAllJoinTypes(JoinRelType joinType) {
         PangrovaNestedLoopJoin nestedLoopJoin = buildNestedLoopJoin(joinType);
 
         Rel result = converter.visit(nestedLoopJoin);
 
-        assertThat(result).isInstanceOf(ExtensionMulti.class);
-        ExtensionMulti ext = (ExtensionMulti) result;
-        assertThat(ext.getDetail()).isInstanceOf(NestedLoopJoinRelDetail.class);
-        NestedLoopJoinRelDetail detail = (NestedLoopJoinRelDetail) ext.getDetail();
-        assertThat(detail.joinType()).isEqualTo(expectedJoinTypeString(joinType));
+        assertThat(result).isInstanceOf(NestedLoopJoin.class);
+        NestedLoopJoin join = (NestedLoopJoin) result;
+        assertThat(join.getJoinType()).isEqualTo(expectedNestedLoopJoinType(joinType));
+        assertThat(join.getCondition()).isNotNull();
     }
 
     @Test
@@ -155,10 +181,9 @@ class JoinSubstraitConversionTest {
         Plan plan = substraitConverter.convert(hashJoin);
 
         Rel rootInput = plan.getRoots().get(0).getInput();
-        assertThat(rootInput).isInstanceOf(ExtensionMulti.class);
-        HashJoinRelDetail detail = (HashJoinRelDetail) ((ExtensionMulti) rootInput).getDetail();
-        assertThat(detail.joinType()).isEqualTo("SEMI");
-        assertThat(detail.strategy()).isEqualTo("hash_join");
+        assertThat(rootInput).isInstanceOf(HashJoin.class);
+        assertThat(((HashJoin) rootInput).getJoinType())
+                .isEqualTo(HashJoin.JoinType.LEFT_SEMI);
     }
 
     @Test
@@ -169,9 +194,9 @@ class JoinSubstraitConversionTest {
         Plan plan = substraitConverter.convert(hashJoin);
 
         Rel rootInput = plan.getRoots().get(0).getInput();
-        assertThat(rootInput).isInstanceOf(ExtensionMulti.class);
-        HashJoinRelDetail detail = (HashJoinRelDetail) ((ExtensionMulti) rootInput).getDetail();
-        assertThat(detail.joinType()).isEqualTo("ANTI");
+        assertThat(rootInput).isInstanceOf(HashJoin.class);
+        assertThat(((HashJoin) rootInput).getJoinType())
+                .isEqualTo(HashJoin.JoinType.LEFT_ANTI);
     }
 
     @Test
@@ -185,10 +210,12 @@ class JoinSubstraitConversionTest {
 
         Rel result = converter.visit(hashJoin);
 
-        ExtensionMulti ext = (ExtensionMulti) result;
-        HashJoinRelDetail detail = (HashJoinRelDetail) ext.getDetail();
-        assertThat(detail.leftKeys()).containsExactly(0, 1);
-        assertThat(detail.rightKeys()).containsExactly(0, 1);
+        HashJoin join = (HashJoin) result;
+        assertThat(join.getKeys()).hasSize(2);
+        assertThat(join.getKeys()).extracting(k -> keyOffset(k.getLeft()))
+                .containsExactly(0, 1);
+        assertThat(join.getKeys()).extracting(k -> keyOffset(k.getRight()))
+                .containsExactly(0, 1);
     }
 
     private PangrovaHashJoin buildHashJoin(JoinRelType joinType) {
@@ -204,6 +231,9 @@ class JoinSubstraitConversionTest {
         RelNode left = buildInput(3);
         RelNode right = buildInput(3);
         RexNode condition = buildEquiCondition(left, right, 0, 0);
+        right = new PangrovaExchange(cluster,
+                right.getTraitSet().replace(PangrovaDistribution.BROADCAST),
+                right, PangrovaDistribution.BROADCAST);
         return new PangrovaBroadcastJoin(new BroadcastJoinConfig(
                 cluster, left.getTraitSet(), left, right,
                 condition, Set.of(), joinType));
@@ -259,14 +289,29 @@ class JoinSubstraitConversionTest {
         return rexBuilder.makeCall(SqlStdOperatorTable.AND, cond1, cond2);
     }
 
-    private static String expectedJoinTypeString(JoinRelType joinType) {
+    private static int keyOffset(io.substrait.expression.FieldReference reference) {
+        return ((io.substrait.expression.FieldReference.StructField)
+                reference.segments().get(0)).offset();
+    }
+
+    private static HashJoin.JoinType expectedHashJoinType(JoinRelType joinType) {
         return switch (joinType) {
-            case INNER -> "INNER";
-            case LEFT -> "LEFT";
-            case RIGHT -> "RIGHT";
-            case FULL -> "OUTER";
-            case SEMI -> "SEMI";
-            case ANTI -> "ANTI";
+            case INNER -> HashJoin.JoinType.INNER;
+            case LEFT -> HashJoin.JoinType.LEFT;
+            case RIGHT -> HashJoin.JoinType.RIGHT;
+            case FULL -> HashJoin.JoinType.OUTER;
+            case SEMI -> HashJoin.JoinType.LEFT_SEMI;
+            case ANTI -> HashJoin.JoinType.LEFT_ANTI;
+            case ASOF, LEFT_ASOF, LEFT_MARK -> throw new IllegalArgumentException(
+                    "Unsupported test join type: " + joinType);
         };
+    }
+
+    private static MergeJoin.JoinType expectedMergeJoinType(JoinRelType joinType) {
+        return MergeJoin.JoinType.valueOf(expectedHashJoinType(joinType).name());
+    }
+
+    private static NestedLoopJoin.JoinType expectedNestedLoopJoinType(JoinRelType joinType) {
+        return NestedLoopJoin.JoinType.valueOf(expectedHashJoinType(joinType).name());
     }
 }

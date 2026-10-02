@@ -1,14 +1,10 @@
 package org.pangrova.metadata.cache;
 
 import org.pangrova.metadata.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.metadata.store.EmbeddedDataSource;
-import org.pangrova.testing.ContainerTestBase;
+import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -17,38 +13,29 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.Duration;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 /**
  * Integration test for {@link JdbcInvalidationPoller} using TestContainers PostgreSQL.
  *
- * <p>Validates the timestamp-based high watermark behavior that prevents
- * out-of-order misses. Each coordinator polls independently; cache invalidation
- * is inherently idempotent so no cross-coordinator coordination is needed.</p>
+ * <p>Validates commit-ordered ID polling against the production Flyway schema,
+ * including event timestamps older than any finite overlap window.</p>
  *
  * <p>Validates: Requirements D.6</p>
  */
-@Testcontainers
 @DisplayName("JdbcInvalidationPoller PostgreSQL Integration")
-class JdbcInvalidationPollerIntegrationTest extends ContainerTestBase {
-
-    @SuppressWarnings("resource")
-    @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("pangrova_test");
+class JdbcInvalidationPollerIntegrationTest {
 
     private DataSource dataSource;
 
     @BeforeEach
-    void setUp() {
-        assumeTrue(isDockerReady(), "Docker not available");
-        dataSource = new EmbeddedDataSource(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-        truncateTable();
+    void setUp() throws Exception {
+        dataSource = SharedPostgresContainer.migratedDataSource("invalidation_order");
     }
 
     @Test
@@ -79,11 +66,15 @@ class JdbcInvalidationPollerIntegrationTest extends ContainerTestBase {
         insertWithTimestamp("cat\u001Fsch\u001Ftbl_out_of_order", "TABLE",
                 Instant.now().minusSeconds(3));
 
-        // Second poll should pick up the new entry thanks to the overlap window
+        // A late event with a much older transaction timestamp must still be read.
+        insertWithTimestamp("cat\u001Fsch\u001Ftbl_old_transaction", "TABLE",
+                Instant.now().minusSeconds(3600));
         cache.tableInvalidations.clear();
         poller.poll();
-        assertThat(cache.tableInvalidations).hasSize(1);
+        assertThat(cache.tableInvalidations).hasSize(2);
         assertThat(cache.tableInvalidations.get(0).table()).isEqualTo("tbl_out_of_order");
+        assertThat(cache.tableInvalidations.get(1).table()).isEqualTo("tbl_old_transaction");
+        assertThat(poller.getLastProcessedId()).isEqualTo(5);
 
         poller.close();
     }
@@ -130,9 +121,6 @@ class JdbcInvalidationPollerIntegrationTest extends ContainerTestBase {
         Instant firstWatermark = poller.getLastProcessedTimestamp();
         assertThat(firstWatermark).isAfter(Instant.EPOCH);
 
-        // Small delay to ensure distinct timestamps
-        await().pollDelay(50, MILLISECONDS).until(() -> true);
-
         // Write and poll second batch
         poller.writeInvalidation("cat\u001Fsch\u001Ftbl2", InvalidationType.TABLE);
         poller.poll();
@@ -146,6 +134,76 @@ class JdbcInvalidationPollerIntegrationTest extends ContainerTestBase {
         assertThat(cache.tableInvalidations).isEmpty();
 
         poller.close();
+    }
+
+    @Test
+    void concurrentWriterCannotCommitPastAnUncommittedAllocatedId() throws Exception {
+        assertConcurrentAppendOrdering(false);
+    }
+
+    @Test
+    void rolledBackAllocationLeavesOnlyAHarmlessSequenceGap() throws Exception {
+        assertConcurrentAppendOrdering(true);
+    }
+
+    private void assertConcurrentAppendOrdering(boolean rollback) throws Exception {
+        var cache = new RecordingMetadataCache();
+        var executor = Executors.newSingleThreadExecutor();
+        try (var poller = new JdbcInvalidationPoller(dataSource, cache, 1);
+             var first = dataSource.getConnection()) {
+            poller.initSchema();
+            first.setAutoCommit(false);
+            int firstPid;
+            try (var statement = first.createStatement();
+                 var result = statement.executeQuery("SELECT pg_backend_pid()")) {
+                result.next();
+                firstPid = result.getInt(1);
+            }
+            try (var statement = first.createStatement()) {
+                statement.execute("INSERT INTO invalidation_log(cache_key, invalidation_type) "
+                        + "VALUES ('first', 'CATALOG')");
+            }
+            var second = executor.submit(() -> {
+                insertWithTimestamp("second", "CATALOG", Instant.now().minusSeconds(3600));
+                return true;
+            });
+            // Verify actual database blocking, not an assumed scheduling delay.
+            await().atMost(Duration.ofSeconds(10)).until(() -> hasBlockedWriter(firstPid));
+            assertThat(second.isDone()).isFalse();
+            poller.poll();
+            assertThat(cache.catalogInvalidations).isEmpty();
+            assertThat(poller.getLastProcessedId()).isZero();
+            if (rollback) {
+                first.rollback();
+            } else {
+                first.commit();
+            }
+            assertThat(second.get(10, TimeUnit.SECONDS)).isTrue();
+            poller.poll();
+            if (rollback) {
+                assertThat(cache.catalogInvalidations).containsExactly("second");
+            } else {
+                assertThat(cache.catalogInvalidations).containsExactly("first", "second");
+            }
+            assertThat(poller.getLastProcessedId()).isEqualTo(2);
+            poller.poll();
+            assertThat(cache.catalogInvalidations).hasSize(rollback ? 1 : 2);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private boolean hasBlockedWriter(int backendPid) throws Exception {
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ?=ANY(pg_blocking_pids(pid)))")) {
+            statement.setInt(1, backendPid);
+            try (var result = statement.executeQuery()) {
+                result.next();
+                return result.getBoolean(1);
+            }
+        }
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -164,12 +222,4 @@ class JdbcInvalidationPollerIntegrationTest extends ContainerTestBase {
         }
     }
 
-    private void truncateTable() {
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS invalidation_log");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to truncate invalidation_log", e);
-        }
-    }
 }

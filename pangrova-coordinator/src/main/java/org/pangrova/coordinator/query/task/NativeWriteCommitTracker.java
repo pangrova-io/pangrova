@@ -1,15 +1,21 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.query.task.write.WriteAllocationIntent;
+
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
+import org.pangrova.spi.coordination.WriteAuthorizationReceipt;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -34,7 +40,7 @@ public class NativeWriteCommitTracker {
     /** Default stale entry timeout: 30 minutes with no fragment updates. */
     private static final long DEFAULT_STALE_TIMEOUT_MS = 30L * 60 * 1000;
 
-    private final ConcurrentHashMap<String, WriteCommitState> queryWriteStates =
+    private final ConcurrentHashMap<String, ReservationEntry> reservations =
             new ConcurrentHashMap<>();
     private final long staleTimeoutMs;
 
@@ -46,6 +52,14 @@ public class NativeWriteCommitTracker {
         this.staleTimeoutMs = staleTimeoutMs > 0 ? staleTimeoutMs : DEFAULT_STALE_TIMEOUT_MS;
     }
 
+    /** Elects one allocator without performing SDK I/O under a map or monitor lock. */
+    public WriteReservation reserveWriteContext(String queryId) {
+        checkNotNull(queryId, "queryId must not be null");
+        var candidate = new ReservationEntry();
+        var existing = reservations.putIfAbsent(queryId, candidate);
+        return new WriteReservation(queryId, existing == null ? candidate : existing, existing == null);
+    }
+
     /**
      * Registers write context for a query before native DML tasks are dispatched.
      *
@@ -53,15 +67,35 @@ public class NativeWriteCommitTracker {
      * @param catalogName  the target catalog name
      * @param outputHandle the output table handle from beginInsert/beginDelete/beginOverwrite
      * @param session      the connector session for the write operation
+     * @param writeOutputBinding exact canonical binding dispatched to Workers
      */
     public void registerWriteContext(String queryId, String catalogName,
                                      ConnectorOutputTableHandle outputHandle,
-                                     ConnectorSession session) {
+                                     ConnectorSession session,
+                                     byte[] writeOutputBinding,
+                                     WriteAuthorizationReceipt authorizationReceipt,
+                                     WriteAllocationIntent allocationIntent) {
         checkNotNull(queryId, "queryId must not be null");
         checkNotNull(catalogName, "catalogName must not be null");
         checkNotNull(outputHandle, "outputHandle must not be null");
         checkNotNull(session, "session must not be null");
-        queryWriteStates.put(queryId, new WriteCommitState(catalogName, outputHandle, session));
+        checkNotNull(writeOutputBinding, "writeOutputBinding must not be null");
+        checkNotNull(authorizationReceipt, "authorizationReceipt must not be null");
+        checkNotNull(allocationIntent, "allocationIntent must not be null");
+        if (session.getUser() == null || session.getUser().isBlank()) {
+            throw new IllegalArgumentException("Write context requires its real authenticated principal");
+        }
+        if (writeOutputBinding.length == 0) {
+            throw new IllegalArgumentException("writeOutputBinding must not be empty");
+        }
+        var state = new WriteCommitState(catalogName, outputHandle, session, writeOutputBinding,
+                authorizationReceipt, allocationIntent);
+        var candidate = new ReservationEntry();
+        candidate.result.complete(state);
+        var existing = reservations.putIfAbsent(queryId, candidate);
+        if (existing != null && !existing.result.complete(state)) {
+            throw new IllegalStateException("Write context already registered or quarantined: " + queryId);
+        }
     }
 
     /**
@@ -78,7 +112,7 @@ public class NativeWriteCommitTracker {
             throw new IllegalArgumentException(
                     "commitMetadata must not be null or empty for queryId=" + queryId);
         }
-        WriteCommitState state = queryWriteStates.get(queryId);
+        WriteCommitState state = peekWriteState(queryId);
         if (state == null) {
             throw new IllegalStateException(
                     "No write context registered for queryId=" + queryId
@@ -92,7 +126,7 @@ public class NativeWriteCommitTracker {
      * Returns whether a write context is registered for the given query.
      */
     public boolean hasWriteContext(String queryId) {
-        return queryWriteStates.containsKey(queryId);
+        return peekWriteState(queryId) != null;
     }
 
     /**
@@ -103,7 +137,15 @@ public class NativeWriteCommitTracker {
      * @return the write commit state, or null if not registered
      */
     public WriteCommitState removeWriteState(String queryId) {
-        return queryWriteStates.remove(queryId);
+        var removed = new java.util.concurrent.atomic.AtomicReference<WriteCommitState>();
+        reservations.computeIfPresent(queryId, (id, entry) -> {
+            removed.set(completedState(entry));
+            if (entry.result.isDone() && !entry.cancelled) return null;
+            entry.cancelled = true;
+            entry.result.completeExceptionally(new IllegalStateException("Write allocation was cancelled: " + queryId));
+            return entry.allocationStarted ? entry : null;
+        });
+        return removed.get();
     }
 
     /**
@@ -121,14 +163,14 @@ public class NativeWriteCommitTracker {
      * @return the write commit state, or null if not registered
      */
     public WriteCommitState peekWriteState(String queryId) {
-        return queryWriteStates.get(queryId);
+        return completedState(reservations.get(queryId));
     }
 
     /**
      * Removes write state without returning it (cleanup on query failure/cancellation).
      */
     public void clearWriteState(String queryId) {
-        queryWriteStates.remove(queryId);
+        removeWriteState(queryId);
     }
 
     /**
@@ -142,7 +184,7 @@ public class NativeWriteCommitTracker {
     public int clearWriteStates(java.util.Collection<String> queryIds) {
         int removed = 0;
         for (String queryId : queryIds) {
-            if (queryWriteStates.remove(queryId) != null) {
+            if (removeWriteState(queryId) != null) {
                 removed++;
             }
         }
@@ -159,16 +201,112 @@ public class NativeWriteCommitTracker {
     public int evictStaleEntries() {
         long now = System.currentTimeMillis();
         int evicted = 0;
-        for (var entry : queryWriteStates.entrySet()) {
-            if (now - entry.getValue().lastUpdateTimeMs() > staleTimeoutMs) {
-                if (queryWriteStates.remove(entry.getKey(), entry.getValue())) {
-                    evicted++;
-                    LOG.warn("event=stale_write_state_evicted queryId={} ageMs={}",
-                            entry.getKey(), now - entry.getValue().lastUpdateTimeMs());
-                }
+        for (var entry : reservations.entrySet()) {
+            var state = completedState(entry.getValue());
+            long updated = state == null ? entry.getValue().createdAtMs : state.lastUpdateTimeMs();
+            if (!entry.getValue().cancelled && now - updated > staleTimeoutMs) {
+                if (removeWriteState(entry.getKey()) != null) evicted++;
             }
         }
         return evicted;
+    }
+
+    /** Retains exact known, never-dispatched allocations when no real generic abort exists. */
+    public Optional<ConnectorOutputTableHandle> unpublishedAllocation(String queryId) {
+        var entry = reservations.get(queryId);
+        return entry == null ? Optional.empty() : Optional.ofNullable(entry.unpublishedOutput);
+    }
+
+    private static WriteCommitState completedState(ReservationEntry entry) {
+        return entry == null || !entry.result.isDone() || entry.result.isCompletedExceptionally()
+                ? null : entry.result.getNow(null);
+    }
+
+    private static final class ReservationEntry {
+        final CompletableFuture<WriteCommitState> result = new CompletableFuture<>();
+        final long createdAtMs = System.currentTimeMillis();
+        volatile boolean allocationStarted;
+        volatile boolean cancelled;
+        volatile ConnectorOutputTableHandle unpublishedOutput;
+    }
+
+    /** One reservation generation; cancellation cannot let its old winner publish into a retry. */
+    public final class WriteReservation {
+        private final String queryId;
+        private final ReservationEntry entry;
+        private final boolean owner;
+
+        private WriteReservation(String queryId, ReservationEntry entry, boolean owner) {
+            this.queryId = queryId;
+            this.entry = entry;
+            this.owner = owner;
+        }
+
+        public boolean owner() { return owner; }
+
+        /** Waits outside every map/monitor lock for the actual winner result. */
+        public WriteCommitState awaitResult() {
+            try {
+                return entry.result.get();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted waiting for write allocation", interrupted);
+            } catch (ExecutionException failed) {
+                throw new IllegalStateException("Write allocation did not complete", failed.getCause());
+            }
+        }
+
+        /** Marks the exact point before SDK allocation so cancellation is not mistaken for compensation. */
+        public void beginAllocation() {
+            requireOwner();
+            reservations.compute(queryId, (id, current) -> {
+                requireActive(current);
+                entry.allocationStarted = true;
+                return current;
+            });
+        }
+
+        /** Publishes only already-produced in-memory metadata; callbacks must never do SDK or codec I/O. */
+        public void publish(Runnable registration) {
+            requireOwner();
+            reservations.compute(queryId, (id, current) -> {
+                requireActive(current);
+                registration.run();
+                if (completedState(entry) == null) {
+                    throw new IllegalStateException("Write registration did not publish");
+                }
+                return current;
+            });
+        }
+
+        /** Removes a failed allocation for retry, or quarantines a known handle instead of inventing an abort. */
+        public void fail(Throwable failure, ConnectorOutputTableHandle knownOutput) {
+            requireOwner();
+            reservations.computeIfPresent(queryId, (id, current) -> {
+                if (current != entry) return current;
+                entry.result.completeExceptionally(failure);
+                if (knownOutput != null || entry.cancelled) {
+                    entry.unpublishedOutput = knownOutput;
+                    entry.cancelled = true;
+                    return entry;
+                }
+                return null;
+            });
+            if (knownOutput != null) {
+                LOG.error("event=undispatched_allocation_quarantined queryId={} target={} mode={}",
+                        queryId, knownOutput.targetTable(), knownOutput.writeMode());
+            }
+        }
+
+        private void requireOwner() {
+            if (!owner) throw new IllegalStateException("Only the elected allocator can publish");
+        }
+
+        private void requireActive(ReservationEntry current) {
+            if (current != entry || entry.cancelled || entry.result.isDone()) {
+                throw new IllegalStateException("Write allocation reservation is no longer active: " + queryId);
+            }
+        }
     }
 
     /**
@@ -179,14 +317,22 @@ public class NativeWriteCommitTracker {
         private final String catalogName;
         private final ConnectorOutputTableHandle outputHandle;
         private final ConnectorSession session;
+        private final byte[] writeOutputBinding;
+        private final WriteAuthorizationReceipt authorizationReceipt;
+        private final WriteAllocationIntent allocationIntent;
         private final List<byte[]> fragments = new ArrayList<>();
         private volatile long lastUpdateTimeMs;
 
         WriteCommitState(String catalogName, ConnectorOutputTableHandle outputHandle,
-                         ConnectorSession session) {
+                         ConnectorSession session, byte[] writeOutputBinding,
+                         WriteAuthorizationReceipt authorizationReceipt,
+                         WriteAllocationIntent allocationIntent) {
             this.catalogName = catalogName;
             this.outputHandle = outputHandle;
             this.session = session;
+            this.writeOutputBinding = writeOutputBinding.clone();
+            this.authorizationReceipt = authorizationReceipt;
+            this.allocationIntent = allocationIntent;
             this.lastUpdateTimeMs = System.currentTimeMillis();
         }
 
@@ -211,6 +357,15 @@ public class NativeWriteCommitTracker {
         public ConnectorSession session() {
             return session;
         }
+
+        public byte[] writeOutputBinding() {
+            return writeOutputBinding.clone();
+        }
+
+        /** Returns the actual scope observed when this write was admitted, never reconstructed groups. */
+        public WriteAuthorizationReceipt authorizationReceipt() { return authorizationReceipt; }
+
+        public WriteAllocationIntent allocationIntent() { return allocationIntent; }
 
         /**
          * Returns an immutable copy of collected fragments.

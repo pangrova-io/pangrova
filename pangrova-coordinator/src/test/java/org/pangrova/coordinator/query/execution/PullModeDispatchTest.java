@@ -49,14 +49,14 @@ class PullModeDispatchTest {
     }
 
     @Test
-    void pullModeTaskRequestHasPullSplitModeAndNoSplits() {
-        var req = new org.pangrova.protocol.rest.task.SubmitTaskRequest(
-                "task-1", "q1", 0, 0, "COMPUTE", "cGxhbg==",
-                List.of(), List.of(), null, null, null, null,
-                List.of(), null, "PULL", null, null, null, null);
+    void pullModeTaskCarriesNoEmbeddedSplitsInCanonicalContract() {
+        var req = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+                "task-1", "q1", 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
-        assertEquals("PULL", req.splitMode());
-        assertTrue(req.splits().isEmpty(), "Pull mode tasks should have no embedded splits");
+        assertTrue(req.taskRequest().getSplitsList().isEmpty(),
+                "Pull mode tasks should have no embedded splits");
     }
 
     @Test

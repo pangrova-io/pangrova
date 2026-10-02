@@ -15,6 +15,8 @@ public interface TableAccessControl {
 
     void checkCanInsertIntoTable(UserIdentity user, String catalog, String schema, String table);
 
+    void checkCanUpdateTable(UserIdentity user, String catalog, String schema, String table);
+
     void checkCanDeleteFromTable(UserIdentity user, String catalog, String schema, String table);
 
     void checkCanCreateTable(UserIdentity user, String catalog, String schema, String table);

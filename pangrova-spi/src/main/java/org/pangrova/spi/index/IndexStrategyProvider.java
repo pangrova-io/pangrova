@@ -3,8 +3,6 @@ package org.pangrova.spi.index;
 import org.pangrova.spi.annotation.Experimental;
 import org.pangrova.spi.index.data.IndexData;
 import org.pangrova.spi.index.predicate.IndexPredicate;
-import org.pangrova.spi.index.vector.VectorSearchRequest;
-import org.pangrova.spi.index.vector.VectorSearchResult;
 
 import java.util.Iterator;
 import java.util.List;
@@ -78,26 +76,4 @@ public interface IndexStrategyProvider {
      */
     IndexEvalResult evaluate(IndexData indexData, IndexPredicate predicate);
 
-    /**
-     * Returns whether this provider supports vector search operations.
-     *
-     * @return {@code true} if {@link #vectorSearch} is implemented
-     */
-    default boolean supportsVectorSearch() {
-        return false;
-    }
-
-    /**
-     * Executes an approximate nearest neighbor search against the given index data.
-     *
-     * @param indexData    the vector index data for the target data file
-     * @param request      the ANN search request (query vector, topK, metric)
-     * @param searchParams algorithm-specific search parameters (e.g. efSearch, nprobe)
-     * @return scored rows sorted by distance ascending, size ≤ request.topK()
-     * @throws UnsupportedOperationException if this provider does not support vector search
-     */
-    default List<VectorSearchResult.ScoredRow> vectorSearch(
-            IndexData indexData, VectorSearchRequest request, Map<String, String> searchParams) {
-        throw new UnsupportedOperationException(supportedType() + " does not support vector search");
-    }
 }

@@ -23,7 +23,8 @@ public final class ShowIndexesTask implements MetadataTask<ShowIndexesStatement>
 
     @Override
     public StatementResult execute(ShowIndexesStatement statement, StatementExecutionContext context) {
-        List<TypedRow> rows = executor.executeShowIndexes(statement);
+        List<TypedRow> rows = executor.executeShowIndexes(
+                statement, context.session());
         return new StatementResult(rows, extractColumnNames(rows), null, StatementCategory.INDEX);
     }
 

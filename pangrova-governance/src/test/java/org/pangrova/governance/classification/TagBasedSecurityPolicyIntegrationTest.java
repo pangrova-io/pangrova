@@ -1,7 +1,8 @@
 package org.pangrova.governance.classification;
 
 import org.pangrova.spi.security.UserIdentity;
-import org.pangrova.security.authz.RbacAccessControl;
+import org.pangrova.security.authz.DynamicRbacAccessControl;
+import org.pangrova.security.authz.StaticGrantStore;
 import org.pangrova.security.mask.ColumnMask;
 import org.pangrova.security.mask.EnrichedColumnMaskStore;
 import org.pangrova.security.mask.ColumnMaskingProcessor;
@@ -17,11 +18,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.pangrova.governance.testinfra.GovernanceRoleFixtures.mappedRoles;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Verifies TagBasedSecurityPolicy writes masks via SPI ColumnMaskStore,
- * and RbacAccessControl reads them via ColumnMaskingProcessor — shared store wiring.
+ * and DynamicRbacAccessControl reads them via ColumnMaskingProcessor — shared store wiring.
  */
 class TagBasedSecurityPolicyIntegrationTest {
 
@@ -30,8 +33,11 @@ class TagBasedSecurityPolicyIntegrationTest {
         var sharedStore = new InMemoryColumnMaskStore();
         var policy = new TagBasedSecurityPolicy(sharedStore, new NoOpAuditConfigStore());
         var maskProcessor = new ColumnMaskingProcessor(sharedStore);
-        var accessControl = new RbacAccessControl(
-                List.of(), new RowLevelSecurityFilter(emptyRowPolicyStore()), maskProcessor);
+        var accessControl = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("analyst", "analyst"))),
+                new RowLevelSecurityFilter(emptyRowPolicyStore()),
+                maskProcessor);
 
         // Simulate PII tag applied to a column
         var event = new TagChangedEvent(
@@ -52,8 +58,11 @@ class TagBasedSecurityPolicyIntegrationTest {
         var sharedStore = new InMemoryColumnMaskStore();
         var policy = new TagBasedSecurityPolicy(sharedStore, new NoOpAuditConfigStore());
         var maskProcessor = new ColumnMaskingProcessor(sharedStore);
-        var accessControl = new RbacAccessControl(
-                List.of(), new RowLevelSecurityFilter(emptyRowPolicyStore()), maskProcessor);
+        var accessControl = new DynamicRbacAccessControl(
+                new StaticGrantStore(List.of()),
+                mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("analyst", "analyst"))),
+                new RowLevelSecurityFilter(emptyRowPolicyStore()),
+                maskProcessor);
 
         // Apply tag
         policy.onTagChanged(new TagChangedEvent(

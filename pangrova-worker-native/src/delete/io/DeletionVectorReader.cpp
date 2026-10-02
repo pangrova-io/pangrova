@@ -243,11 +243,11 @@ roaring::Roaring DeletionVectorReader::readIcebergDV(
   return roaring::Roaring::readSafe(blobData, blobLen);
 }
 
-roaring::Roaring DeletionVectorReader::readPaimonDV(
+roaring::Roaring DeletionVectorReader::readRawRoaringBitmap(
     const std::string& filePath) {
   auto fileContent = readFileBytes(filePath);
 
-  // Paimon DV format: raw serialized Roaring Bitmap bytes.
+  // A generic portable bitmap payload; not an SDK DeletionFile container.
   return roaring::Roaring::readSafe(
       fileContent.data(),
       fileContent.size());

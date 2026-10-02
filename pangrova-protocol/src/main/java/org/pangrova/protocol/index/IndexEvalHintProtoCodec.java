@@ -1,7 +1,9 @@
 package org.pangrova.protocol.index;
 
-import org.pangrova.protocol.v1.IndexEvalHintInfo;
-import org.pangrova.protocol.v1.SplitInfo;
+import org.pangrova.protocol.DataSplitProtoCodec;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.protocol.v2.IndexEvalHintDetail;
 import org.pangrova.spi.index.eval.IndexEvalHint;
 import org.pangrova.spi.index.eval.IndexEvaluatedSplit;
 import org.pangrova.spi.index.eval.SplitIndexEvalResult;
@@ -9,8 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Encodes {@link IndexEvalHint} objects into proto {@link IndexEvalHintInfo}
- * messages and injects them into serialized {@link SplitInfo} bytes.
+ * Encodes {@link IndexEvalHint} objects into typed v2 file split details.
  *
  * <p>Lives in pangrova-protocol because it bridges pangrova-spi types
  * (IndexEvalHint, IndexPredicate) with proto types (SplitInfo,
@@ -36,9 +37,10 @@ public final class IndexEvalHintProtoCodec {
             return delegateBytes;
         }
         try {
-            SplitInfo.Builder builder = SplitInfo.parseFrom(delegateBytes).toBuilder();
-            appendHints(builder, evalResult.evalHints());
-            return builder.build().toByteArray();
+            DataSplit split = DataSplit.parseFrom(delegateBytes);
+            FileSplitDetail.Builder detail = DataSplitProtoCodec.fileDetail(split).toBuilder();
+            appendHints(detail, evalResult.evalHints());
+            return DataSplitProtoCodec.withFileDetail(split, detail.build()).toByteArray();
         } catch (com.google.protobuf.InvalidProtocolBufferException e) {
             // Conservative: return original bytes if parsing fails
             return delegateBytes;
@@ -46,7 +48,7 @@ public final class IndexEvalHintProtoCodec {
     }
 
     private static void appendHints(
-            SplitInfo.Builder builder,
+            FileSplitDetail.Builder builder,
             Map<String, List<IndexEvalHint>> evalHints) {
         for (var entry : evalHints.entrySet()) {
             String dataFilePath = entry.getKey();
@@ -56,8 +58,8 @@ public final class IndexEvalHintProtoCodec {
         }
     }
 
-    private static IndexEvalHintInfo toProto(IndexEvalHint hint, String dataFilePath) {
-        return IndexEvalHintInfo.newBuilder()
+    private static IndexEvalHintDetail toProto(IndexEvalHint hint, String dataFilePath) {
+        return IndexEvalHintDetail.newBuilder()
                 .setIndexId(hint.indexId())
                 .setIndexType(hint.indexType().name())
                 .setIndexFilePath(hint.indexFilePath())
@@ -76,16 +78,17 @@ public final class IndexEvalHintProtoCodec {
      * @param splitInfo parsed SplitInfo proto message
      * @return list of reconstructed IndexEvalHint objects
      */
-    public static List<IndexEvalHint> extractHints(SplitInfo splitInfo) {
-        if (splitInfo.getIndexEvalHintsCount() == 0) {
+    public static List<IndexEvalHint> extractHints(DataSplit split) {
+        FileSplitDetail detail = DataSplitProtoCodec.fileDetail(split);
+        if (detail.getIndexEvalHintsCount() == 0) {
             return List.of();
         }
-        return splitInfo.getIndexEvalHintsList().stream()
+        return detail.getIndexEvalHintsList().stream()
                 .map(IndexEvalHintProtoCodec::fromProto)
                 .toList();
     }
 
-    private static IndexEvalHint fromProto(IndexEvalHintInfo proto) {
+    private static IndexEvalHint fromProto(IndexEvalHintDetail proto) {
         return new IndexEvalHint(
                 proto.getIndexId(),
                 org.pangrova.spi.index.IndexType.valueOf(proto.getIndexType()),

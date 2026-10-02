@@ -13,13 +13,16 @@
  */
 package org.pangrova.worker.ai.function;
 
+import org.pangrova.worker.ai.function.file.FileStructHelper;
+
 import org.pangrova.spi.ai.inference.GenerationParameters;
 import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.ai.inference.InferenceResult;
-import org.pangrova.spi.ai.inference.Modality;
+import org.pangrova.spi.ai.Modality;
 import org.pangrova.spi.ai.inference.MultimodalPrompt;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.FunctionMetadata;
+import org.pangrova.protocol.function.FunctionBindingDeclarations;
 import org.pangrova.spi.function.ScalarFunction;
 
 import java.util.List;
@@ -40,12 +43,8 @@ import java.util.function.Function;
  */
 public final class AiDescribeImageFunction implements ScalarFunction {
 
-    private static final FunctionMetadata METADATA = new FunctionMetadata(
-            "ai_describe_image",
-            "VARCHAR",
-            List.of("VARCHAR", "ROW"),
-            false,
-            "Generates a natural language description of an image FILE");
+    private static final FunctionMetadata METADATA =
+            FunctionBindingDeclarations.callbackMetadata("ai_describe_image");
 
     private static final String DEFAULT_PROMPT =
             "Describe this image in detail. Include the main subjects, colors, composition, and any text visible.";
@@ -57,7 +56,7 @@ public final class AiDescribeImageFunction implements ScalarFunction {
      *
      * @param providerLookup resolves model names to inference providers
      */
-    public AiDescribeImageFunction(Function<String, InferenceProvider> providerLookup) {
+    AiDescribeImageFunction(Function<String, InferenceProvider> providerLookup) {
         if (providerLookup == null) {
             throw new IllegalArgumentException("providerLookup required");
         }

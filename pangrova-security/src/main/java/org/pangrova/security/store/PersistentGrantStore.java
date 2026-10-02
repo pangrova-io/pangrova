@@ -139,7 +139,7 @@ public final class PersistentGrantStore extends PersistentStoreSupport implement
         }
     }
 
-    private List<PrivilegeGrant> collectGrants(ResultSet rs) throws SQLException {
+    static List<PrivilegeGrant> collectGrants(ResultSet rs) throws SQLException {
         List<PrivilegeGrant> grants = new ArrayList<>();
         while (rs.next()) {
             grants.add(new PrivilegeGrant(

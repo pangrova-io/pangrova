@@ -178,12 +178,9 @@ class DAGDispatchEngineCompleteWithLastResultTest {
     private static void invokeCompleteWithLastResult(
             ConcurrentHashMap<Integer, DispatchResult> results,
             StageDAG dag,
-            CompletableFuture<DispatchResult> completion) throws Exception {
-        Method method = DAGCompletionEvaluator.class.getDeclaredMethod(
-                "completeWithLastResult",
-                ConcurrentHashMap.class, StageDAG.class, CompletableFuture.class);
-        method.setAccessible(true);
-        method.invoke(null, results, dag, completion);
+            CompletableFuture<DispatchResult> completion) {
+        DAGCompletionEvaluator.completeWithLastResult(
+                results, dag, completion, List.of());
     }
 
     private static int invokeFindSinkStageId(StageDAG dag) throws Exception {

@@ -221,6 +221,13 @@ class RequestLimitFilterTest {
         }
 
         @Override
+        public boolean containsHeaderString(
+                String name, String value, java.util.function.Predicate<String> valuePredicate) {
+            return headers.getOrDefault(name, java.util.List.of()).stream()
+                    .anyMatch(valuePredicate);
+        }
+
+        @Override
         public int getLength() {
             return contentLength;
         }
@@ -290,6 +297,7 @@ class RequestLimitFilterTest {
         @Override public java.util.List<String> getMatchedURIs() { return java.util.List.of(); }
         @Override public java.util.List<String> getMatchedURIs(boolean decode) { return java.util.List.of(); }
         @Override public java.util.List<Object> getMatchedResources() { return java.util.List.of(); }
+        @Override public String getMatchedResourceTemplate() { return path; }
         @Override public URI resolve(URI uri) { return uri; }
         @Override public URI relativize(URI uri) { return uri; }
     }

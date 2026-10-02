@@ -201,6 +201,26 @@ TEST_F(TicketVerifierTest, DoubleRotationInvalidatesOriginalKey) {
   EXPECT_TRUE(result.status().IsInvalid());
 }
 
+TEST_F(TicketVerifierTest, ExplicitKeyWindowReplacesBothKeysAtomically) {
+  constexpr std::string_view newKey =
+      "replacement-current-key-32-bytes!!";
+  constexpr std::string_view previousKey =
+      "replacement-previous-key-32bytes!";
+  verifier_->setKeys(newKey, previousKey);
+  int64_t expiry = nowMillis() + 300'000;
+
+  auto currentResult = verifier_->verify(
+      buildTicket(kTestPayload, expiry, newKey));
+  auto previousResult = verifier_->verify(
+      buildTicket(kTestPayload, expiry, previousKey));
+  auto evictedResult = verifier_->verify(
+      buildTicket(kTestPayload, expiry, kTestKey));
+
+  EXPECT_TRUE(currentResult.ok());
+  EXPECT_TRUE(previousResult.ok());
+  EXPECT_FALSE(evictedResult.ok());
+}
+
 // --- Scenario 5: Invalid format ---
 
 TEST_F(TicketVerifierTest, EmptyStringReturnsError) {

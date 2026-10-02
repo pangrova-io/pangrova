@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 /**
  * TestContainers-based Pangrova cluster for true multi-process E2E testing.
@@ -32,7 +34,7 @@ import java.util.Objects;
  * <p>For in-JVM testing (faster, no Docker image required), use {@code SqlE2ETestBase} instead.
  * This class is intended for Tasks 19/23/24 where true multi-process isolation is required.
  */
-public class PangrovaClusterContainer implements AutoCloseable {
+public final class PangrovaClusterContainer implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaClusterContainer.class);
     private static final DockerImageName DEFAULT_IMAGE = DockerImageName.parse("pangrova/pangrova:latest");
@@ -48,6 +50,9 @@ public class PangrovaClusterContainer implements AutoCloseable {
     private GenericContainer<?> coordinator;
     private final List<GenericContainer<?>> workers = new ArrayList<>();
     private boolean started;
+    private boolean closed;
+    private Consumer<GenericContainer<?>> coordinatorConfiguration = ignored -> {};
+    private BiConsumer<Integer, GenericContainer<?>> workerConfiguration = (number, worker) -> {};
 
     /**
      * Create a cluster with the default image and specified number of workers.
@@ -77,6 +82,7 @@ public class PangrovaClusterContainer implements AutoCloseable {
      * Start the cluster: coordinator first, then all workers.
      */
     public void start() {
+        if (closed) throw new IllegalStateException("Cluster is closed");
         if (started) {
             return;
         }
@@ -95,8 +101,25 @@ public class PangrovaClusterContainer implements AutoCloseable {
                         .forStatusCode(200)
                         .withStartupTimeout(STARTUP_TIMEOUT))
                 .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix("coordinator"));
-        coordinator.start();
+        try {
+            coordinatorConfiguration.accept(coordinator);
+            coordinator.start();
+            startWorkers();
+            started = true;
+        } catch (RuntimeException | Error startupFailure) {
+            try {
+                close();
+            } catch (RuntimeException cleanupFailure) {
+                startupFailure.addSuppressed(cleanupFailure);
+            }
+            throw startupFailure;
+        }
 
+        LOG.info("PangrovaClusterContainer started: coordinator={}, workers={}",
+                getCoordinatorUrl(), workerCount);
+    }
+
+    private void startWorkers() {
         // Workers
         for (int i = 1; i <= workerCount; i++) {
             String workerId = "e2e-worker-" + i;
@@ -114,30 +137,66 @@ public class PangrovaClusterContainer implements AutoCloseable {
                             .forStatusCode(200)
                             .withStartupTimeout(STARTUP_TIMEOUT))
                     .withLogConsumer(new Slf4jLogConsumer(LOG).withPrefix(workerId));
-            worker.start();
             workers.add(worker);
+            workerConfiguration.accept(i, worker);
+            worker.start();
         }
+    }
 
-        started = true;
-        LOG.info("PangrovaClusterContainer started: coordinator={}, workers={}",
-                getCoordinatorUrl(), workerCount);
+    /** Configures real production Coordinator containers before startup. */
+    public PangrovaClusterContainer configureCoordinator(Consumer<GenericContainer<?>> configuration) {
+        requireConfigurable();
+        coordinatorConfiguration = Objects.requireNonNull(configuration, "configuration");
+        return this;
+    }
+
+    /** Configures real production Worker containers before startup; numbering starts at one. */
+    public PangrovaClusterContainer configureWorkers(BiConsumer<Integer, GenericContainer<?>> configuration) {
+        requireConfigurable();
+        workerConfiguration = Objects.requireNonNull(configuration, "configuration");
+        return this;
+    }
+
+    private void requireConfigurable() {
+        if (started || coordinator != null || closed) {
+            throw new IllegalStateException("Cluster configuration must precede startup");
+        }
     }
 
     /**
      * Stop all containers (workers first, then coordinator).
      */
     public void stop() {
-        if (!started) {
+        if (closed) {
             return;
         }
+        closed = true;
         LOG.info("Stopping PangrovaClusterContainer...");
-        for (GenericContainer<?> worker : workers) {
-            worker.stop();
+        RuntimeException failure = null;
+        for (int index = workers.size() - 1; index >= 0; index--) {
+            failure = closeContainer(workers.get(index), failure);
         }
         workers.clear();
-        coordinator.stop();
-        network.close();
+        failure = closeContainer(coordinator, failure);
+        try {
+            network.close();
+        } catch (RuntimeException cleanupFailure) {
+            if (failure == null) failure = cleanupFailure;
+            else failure.addSuppressed(cleanupFailure);
+        }
         started = false;
+        if (failure != null) throw failure;
+    }
+
+    private static RuntimeException closeContainer(GenericContainer<?> container, RuntimeException failure) {
+        if (container == null) return failure;
+        try {
+            container.stop();
+        } catch (RuntimeException cleanupFailure) {
+            if (failure == null) return cleanupFailure;
+            failure.addSuppressed(cleanupFailure);
+        }
+        return failure;
     }
 
     @Override
@@ -163,7 +222,8 @@ public class PangrovaClusterContainer implements AutoCloseable {
     }
 
     /**
-     * Returns the coordinator container.
+     * Returns the borrowed, live coordinator container owned by this cluster.
+     * Callers must not transfer ownership or close it independently of the cluster.
      */
     public GenericContainer<?> getCoordinator() {
         return coordinator;

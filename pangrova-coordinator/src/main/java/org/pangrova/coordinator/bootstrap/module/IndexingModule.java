@@ -25,7 +25,8 @@ public final class IndexingModule implements CoordinatorModule {
                     catalog,
                     indexing.getSplitFilter(),
                     indexing.getMetadataStore(),
-                    indexing.getAccessorResolver());
+                    indexing.getAccessorResolver(),
+                    indexing.getArtifactBuildStore());
             context.bind(IndexAwareSplitFetcher.class, fetcher);
             LOG.info("event=module_configured module=Indexing source=full_bootstrap");
             return;
