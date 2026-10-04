@@ -1,6 +1,7 @@
 // Tests for TaskExecutor::start() — Velox Task creation and execution.
 // Validates plan parsing, VALUES execution, callbacks, and state transitions.
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <arrow/api.h>
 #include <chrono>
@@ -11,6 +12,7 @@
 #include "cache/SemanticResultCache.h"
 #include "executor/driver/TaskExecutor.h"
 #include "velox/vector/ComplexVector.h"
+#include "velox/vector/DecodedVector.h"
 
 #include "../TestMemoryHelper.h"
 
@@ -34,6 +36,8 @@ static auto* g_init_memory = pangrova::test::testMemoryManager();
 
 TaskExecutorConfig makeConfig(const std::vector<uint8_t>& plan = {}) {
   TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "test-task-1";
   config.query_id = "test-query-1";
   config.substrait_plan = plan;
@@ -189,7 +193,8 @@ std::vector<uint8_t> buildValuesPlan() {
   root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();
   read->mutable_base_schema()->add_names("value");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   auto* vt = read->mutable_virtual_table();
   // Add one row with a single BIGINT value so ValuesNode produces 1 row.
   auto* row = vt->add_expressions();
@@ -205,7 +210,8 @@ std::vector<uint8_t> buildTableScanPlan() {
   auto* read = root->mutable_input()->mutable_read();
   read->mutable_named_table()->add_names("test_table");
   read->mutable_base_schema()->add_names("value");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   return serialize(plan);
 }
 
@@ -235,6 +241,27 @@ TEST(TaskExecutorStartTest, ValuesPlanProducesBatchAndFinishes) {
   exec.start();
   ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
   EXPECT_EQ(exec.state(), ExecutorState::FINISHED);
+}
+
+TEST(TaskExecutorStartTest, ValuesPlanMissingNullabilityFailsWithoutPublishingRows) {
+  substrait::Plan plan;
+  const auto canonical = buildValuesPlan();
+  ASSERT_TRUE(plan.ParseFromArray(canonical.data(), static_cast<int>(canonical.size())));
+  plan.mutable_relations(0)->mutable_root()->mutable_input()->mutable_read()
+      ->mutable_base_schema()->mutable_struct_()->mutable_types(0)->mutable_i64()
+      ->clear_nullability();
+  TaskExecutor exec(makeConfig(serialize(plan)));
+  exec.start();
+  ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
+  ASSERT_EQ(exec.state(), ExecutorState::FAILED);
+  EXPECT_NE(exec.errorMessage().find("Canonical value type requires explicit nullability"),
+            std::string::npos);
+  facebook::velox::RowVectorPtr rows;
+  EXPECT_EQ(exec.getNextBatch(rows), kError);
+  EXPECT_EQ(rows, nullptr);
+  EXPECT_TRUE(exec.outputQueue()->isClosed());
+  exec.release();
+  EXPECT_TRUE(exec.isExecutionReleased());
 }
 
 TEST(TaskExecutorStartTest, StatsExposeSemanticCacheUsageBeforeRelease) {
@@ -290,6 +317,9 @@ TEST(TaskExecutorStartTest, ValuesPlanBatchIsReadable) {
   ASSERT_NE(row_vector, nullptr);
   EXPECT_EQ(row_vector->size(), 1);
   EXPECT_EQ(row_vector->childrenSize(), 1);
+  facebook::velox::DecodedVector value(*row_vector->childAt(0));
+  ASSERT_FALSE(value.isNullAt(0));
+  EXPECT_EQ(value.valueAt<int64_t>(0), 42);
 }
 
 // --- Project → VALUES: walks to leaf and produces batch ---
@@ -345,6 +375,9 @@ TEST(TaskExecutorStartTest, ValuesBatchHasCorrectSchema) {
   ASSERT_NE(rowType, nullptr);
   EXPECT_EQ(rowType->size(), 1);
   EXPECT_TRUE(rowType->childAt(0)->isBigint());
+  facebook::velox::DecodedVector value(*row_vector->childAt(0));
+  ASSERT_FALSE(value.isNullAt(0));
+  EXPECT_EQ(value.valueAt<int64_t>(0), 42);
 }
 
 // --- After consuming batch, next call returns kEof ---

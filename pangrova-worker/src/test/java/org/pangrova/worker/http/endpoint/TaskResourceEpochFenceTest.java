@@ -42,13 +42,47 @@ class TaskResourceEpochFenceTest {
         assertRejected(future, "does not match");
     }
 
+    @Test
+    void exactSealWaitsForActualHandshakeRatherThanClaimingPermanentConflict() {
+        try (var manager = TaskManager.forHttpWiringOnly();
+                var resource = resource(manager)) {
+            manager.requireControlEpochHandshake();
+            try (Response response = seal(resource, 1L)) {
+                assertThat(response.getStatus()).isEqualTo(503);
+                assertThat(((org.pangrova.protocol.rest.error.ErrorDetail) response.getEntity()).errorCode())
+                        .isEqualTo("CONTROL_PLANE_NOT_READY");
+            }
+            assertThat(manager.resolveWorkerTaskId("task-epoch")).isNull();
+        }
+    }
+
+    @Test
+    void exactSealDistinguishesUnobservedFutureEpochWithoutSealingIt() {
+        try (var manager = TaskManager.forHttpWiringOnly();
+                var resource = resource(manager)) {
+            manager.requireControlEpochHandshake();
+            manager.observeControlEpoch(7);
+            try (Response response = seal(resource, 8L)) {
+                assertThat(response.getStatus()).isEqualTo(425);
+                assertThat(((org.pangrova.protocol.rest.error.ErrorDetail) response.getEntity()).errorCode())
+                        .isEqualTo("EPOCH_AHEAD");
+            }
+            assertThat(manager.resolveWorkerTaskId("task-epoch")).isNull();
+        }
+    }
+
+    private static Response seal(TaskResource resource, long epoch) {
+        var exact = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request(epoch).taskRequest());
+        return resource.cancelTask(exact.getAttempt().getTaskId(), exact.toByteArray());
+    }
+
     private static TaskResource resource(TaskManager manager) {
         return new TaskResource(manager, TestExchangeTransport.INSTANCE,
                 new ExchangeSourceRegistry(), "worker.test", 8816, null);
     }
 
     private static SubmitTaskRequest request(Long epoch) {
-        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+        var canonical = org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
                 "task-epoch", "query-epoch", 0, 0,
                 org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                 "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));

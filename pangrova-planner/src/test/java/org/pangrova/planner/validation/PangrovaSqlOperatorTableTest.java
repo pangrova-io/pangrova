@@ -122,7 +122,11 @@ class PangrovaSqlOperatorTableTest {
         assertThat(complete.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(2);
         assertThat(complete.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(3);
         assertThat(embed.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(2);
-        assertThat(embed.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
+        assertThat(embed.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(3);
+        assertThat(embed.getOperandTypeChecker().getOperandCountRange().isValidCount(2)).isTrue();
+        assertThat(embed.getOperandTypeChecker().getOperandCountRange().isValidCount(3)).isTrue();
+        assertThat(embed.getOperandTypeChecker().getOperandCountRange().isValidCount(1)).isFalse();
+        assertThat(embed.getOperandTypeChecker().getOperandCountRange().isValidCount(4)).isFalse();
         assertThat(classify.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(3);
         assertThat(fileFromBytes.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
     }

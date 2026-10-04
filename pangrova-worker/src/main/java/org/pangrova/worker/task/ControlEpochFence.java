@@ -54,6 +54,21 @@ final class ControlEpochFence {
         return epoch == UNARMED ? OptionalLong.empty() : OptionalLong.of(epoch);
     }
 
+    /** Cleanup of an already matched exact identity cannot admit work or restore its owner. */
+    void verifyExistingCleanup(Long targetEpoch) {
+        if (!required.get()) return;
+        long observed = controlEpoch.get();
+        if (observed == UNARMED) {
+            throw rejected(ControlEpochFenceException.Reason.CONTROL_PLANE_NOT_READY,
+                    "Worker has not completed a control-epoch handshake");
+        }
+        if (targetEpoch == null || targetEpoch <= 0) {
+            throw rejected(ControlEpochFenceException.Reason.INVALID_EPOCH,
+                    "Exact cleanup identity requires a positive control epoch");
+        }
+        if (targetEpoch > observed) throw mismatch(targetEpoch, observed);
+    }
+
     private static ControlEpochFenceException mismatch(long actual, long expected) {
         ControlEpochFenceException.Reason reason = actual > expected
                 ? ControlEpochFenceException.Reason.EPOCH_AHEAD

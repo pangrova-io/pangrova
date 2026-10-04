@@ -13,6 +13,46 @@ import static org.awaitility.Awaitility.await;
 
 class CoordinatorExecutionAuthorityIntegrationTest {
     @Test
+    void interruptedCloseRetainsRealBlockedRenewalAndRetriesOnlyAfterJdbcExit() throws Exception {
+        var dataSource = (org.postgresql.ds.PGSimpleDataSource)
+                SharedPostgresContainer.migratedDataSource("authority_actual_join");
+        String application = "authority_join_" + java.util.UUID.randomUUID();
+        dataSource.setApplicationName(application);
+        var backend = new JdbcExecutionAnchorStore(dataSource);
+        var authority = new CoordinatorExecutionAuthority(backend, "join-node", "join-process", Duration.ofSeconds(6));
+        var anchor = authority.acquire("locked-renewal").orElseThrow();
+        try (var lock = dataSource.getConnection()) {
+            lock.setAutoCommit(false);
+            try (var statement = lock.prepareStatement(
+                    "SELECT execution_id FROM execution_anchor WHERE execution_id=? FOR UPDATE")) {
+                statement.setString(1, anchor.executionId());
+                try (var result = statement.executeQuery()) { assertThat(result.next()).isTrue(); }
+            }
+            try {
+                await().atMost(Duration.ofSeconds(5)).until(() -> {
+                    try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                            "SELECT COUNT(*) FROM pg_stat_activity WHERE application_name=? "
+                                    + "AND wait_event_type='Lock' AND query LIKE 'UPDATE execution_anchor SET expires_at=%'")) {
+                        statement.setString(1, application);
+                        try (var result = statement.executeQuery()) { result.next(); return result.getInt(1) == 1; }
+                    }
+                });
+                Thread.currentThread().interrupt();
+                try {
+                    assertThatThrownBy(authority::close).isInstanceOf(IllegalStateException.class)
+                            .hasMessageContaining("Interrupted");
+                    assertThat(Thread.currentThread().isInterrupted()).isTrue();
+                } finally { Thread.interrupted(); }
+                assertThatThrownBy(() -> authority.acquire("late-new-job"))
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("closed");
+            } finally { lock.rollback(); }
+            authority.close();
+            authority.close();
+            assertThat(backend.current(anchor.executionId())).isEmpty();
+        } finally { authority.close(); }
+    }
+
+    @Test
     void maintenanceOnlyProcessRenewsTheRealBackendAndShutdownAllowsHigherTokenRecovery() throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource("maintenance_execution_authority");
         var backend = new JdbcExecutionAnchorStore(dataSource);

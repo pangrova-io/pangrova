@@ -4,7 +4,7 @@ import java.util.List;
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.coordinator.metadata.MetadataSchemaBuilder;
+import org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder;
 import org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryDeleteTestSupport.Fixture;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.model.QualifiedTableRef;
@@ -38,7 +38,7 @@ class PlanExecutionFactoryDeleteCompilationTest {
         SqlCompiler compiler = buildCompiler(fixture);
         fixture.onDispatch = statement -> {
             PlannedQuery write = compiler.compileStatementToPlannedQuery(statement);
-            var connectorSession = org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(
+            var connectorSession = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                     fixture.session, CATALOG, SCHEMA);
             var actual = fixture.metadata.getTableMetadata(connectorSession,
                     fixture.metadata.getTableHandle(connectorSession, PlanExecutionFactoryDeleteTestSupport.TABLE));

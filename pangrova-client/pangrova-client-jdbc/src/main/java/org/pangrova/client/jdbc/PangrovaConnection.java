@@ -35,6 +35,7 @@ public final class PangrovaConnection implements Connection {
     private final PangrovaRestClient restClient;
     private final String catalog;
     private boolean closed;
+    private boolean resourcesReleased;
     private boolean autoCommit = true;
     private boolean readOnly;
 
@@ -59,9 +60,13 @@ public final class PangrovaConnection implements Connection {
 
     @Override
     public void close() throws SQLException {
-        if (!closed) {
-            closed = true;
+        closed = true;
+        if (resourcesReleased) return;
+        try {
             restClient.close();
+            resourcesReleased = true;
+        } catch (RuntimeException failure) {
+            throw new SQLException("Connection resource release failed; close can be retried", failure);
         }
     }
 

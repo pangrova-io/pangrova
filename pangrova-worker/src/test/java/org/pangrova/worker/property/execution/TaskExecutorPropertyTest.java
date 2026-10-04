@@ -9,7 +9,7 @@ import net.jqwik.api.Tag;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.spi.execution.TaskExecutor;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.worker.jni.NativeBridgeException;
 import org.pangrova.worker.jni.NativeRuntime;

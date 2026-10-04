@@ -17,6 +17,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PangrovaWorkerMainTest {
 
     @Test
+    void loadsExactWorkerWideChannelLimitsAndRejectsInvalidAdmissionConfiguration() {
+        var config = PangrovaConfiguration.fromYaml(Map.of(
+                "worker.shuffle.client.max-owned-channels", "17",
+                "worker.shuffle.client.max-owned-channels-per-endpoint", "3"));
+        var limits = PangrovaWorkerMain.buildBootstrapConfig(config).resourceConfig().shuffleChannelLimits();
+        assertThat(limits.maxOwnedChannels()).isEqualTo(17);
+        assertThat(limits.maxOwnedChannelsPerEndpoint()).isEqualTo(3);
+        for (var invalid : new String[][]{{"0", "1"}, {"1", "0"}, {"1", "2"}}) {
+            var rejected = PangrovaConfiguration.fromYaml(Map.of(
+                    "worker.shuffle.client.max-owned-channels", invalid[0],
+                    "worker.shuffle.client.max-owned-channels-per-endpoint", invalid[1]));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> PangrovaWorkerMain.buildBootstrapConfig(rejected))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
     void parseConfigPath_returnsPathWhenPresent() {
         String[] args = {"--config", "/tmp/worker.yml", "--other", "value"};
         assertThat(PangrovaWorkerMain.parseConfigPath(args)).isEqualTo("/tmp/worker.yml");

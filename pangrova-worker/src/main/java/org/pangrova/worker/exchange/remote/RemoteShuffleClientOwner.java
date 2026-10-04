@@ -1,0 +1,76 @@
+package org.pangrova.worker.exchange.remote;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
+
+import org.pangrova.common.concurrent.GuardedBy;
+import org.pangrova.common.concurrent.ThreadSafe;
+
+/** Pool-owned actual channel; borrower counts are guarded by the pool admission monitor. */
+@ThreadSafe
+final class RemoteShuffleClientOwner {
+    volatile RemoteShuffleClient client;
+    final RemoteShuffleChannelAdmission.Reservation reservation;
+    @GuardedBy("RemoteShuffleClientPool.admission")
+    int borrowers;
+    @GuardedBy("RemoteShuffleClientPool.admission")
+    boolean retired;
+    volatile Throwable retirementFailure;
+    private final AtomicReference<CompletableFuture<Void>> drain = new AtomicReference<>();
+
+    RemoteShuffleClientOwner(RemoteShuffleChannelAdmission.Reservation reservation) {
+        this.reservation = reservation;
+    }
+
+    void closeChannel() {
+        var attempt = new CompletableFuture<Void>();
+        if (drain.compareAndSet(null, attempt)) {
+            try {
+                var channel = reservation.channel();
+                if (channel != null) RemoteShuffleClient.closeChannel(channel);
+                reservation.releaseTerminated();
+                retirementFailure = null;
+                attempt.complete(null);
+            } catch (RuntimeException | Error failure) {
+                retirementFailure = failure;
+                attempt.completeExceptionally(failure);
+                throw failure;
+            } finally {
+                drain.compareAndSet(attempt, null);
+            }
+        } else {
+            awaitConcurrentDrain();
+        }
+        if (!isTerminated()) {
+            throw new RemoteShuffleClientException("Remote shuffle channel has not terminated");
+        }
+        reservation.releaseTerminated();
+    }
+
+    private void awaitConcurrentDrain() {
+        var active = drain.get();
+        if (active == null) {
+            // A completed concurrent drain may have just cleared its handoff.
+            if (!isTerminated()) closeChannel();
+            return;
+        }
+        try {
+            active.get(10, TimeUnit.SECONDS);
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new RemoteShuffleClientException("Concurrent channel drain interrupted", failure);
+        } catch (ExecutionException failure) {
+            throw new RemoteShuffleClientException("Concurrent channel drain failed", failure.getCause());
+        } catch (TimeoutException failure) {
+            throw new RemoteShuffleClientException("Concurrent channel drain has not exited", failure);
+        }
+    }
+
+    private boolean isTerminated() {
+        var channel = reservation.channel();
+        return channel == null || channel.isTerminated();
+    }
+}

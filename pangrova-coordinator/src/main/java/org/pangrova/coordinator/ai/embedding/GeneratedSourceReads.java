@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.ai.embedding;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
 import org.pangrova.security.authz.AuthorizationDeniedException;
 import org.pangrova.security.authz.DeferredAuthorizationScope;

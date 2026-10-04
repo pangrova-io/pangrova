@@ -39,8 +39,8 @@ def read_export(source):
 
 def normalize_function(source, special_forms=()):
     exact_keys(source, ("name", "kind", "overloads", "resolutionPolicy"),
-               ("deterministic", "defaultNullBehavior", "aggregateWindow", "windowProcessMode", "distinctImplementation",
-                "simpleImplementations", "vectorOverloads"))
+               ("aggregateWindow", "windowProcessMode", "distinctImplementation",
+                "simpleImplementations", "vectorImplementations"))
     name, kind, overloads = source["name"], source["kind"], source["overloads"]
     if not isinstance(name, str) or not name or kind not in KINDS:
         raise ValueError("Registered function has malformed identity or kind")
@@ -51,10 +51,7 @@ def normalize_function(source, special_forms=()):
         raise ValueError("Registered function has no signatures or exceeds its bound")
     if not overloads and not (kind == "SCALAR" and name in special_forms):
         raise ValueError("A registration without signatures must have an actual special-form resolver")
-    flags = ("deterministic", "defaultNullBehavior")
-    if kind != "SCALAR" and set(flags) & source.keys():
-        raise ValueError("Scalar metadata was assigned to a non-scalar function")
-    implementation_fields = {"simpleImplementations", "vectorOverloads"}
+    implementation_fields = {"simpleImplementations", "vectorImplementations"}
     if kind == "SCALAR" and not implementation_fields <= source.keys():
         raise ValueError("Scalar inventory is missing actual implementation selection metadata")
     if kind != "SCALAR" and implementation_fields & source.keys():
@@ -71,7 +68,7 @@ def normalize_function(source, special_forms=()):
     elif {"aggregateWindow", "windowProcessMode", "distinctImplementation"} & source.keys():
         raise ValueError("Window metadata was assigned to a non-window function")
     result = {"name": name, "kind": kind, "resolutionPolicy": policy}
-    for flag in (*flags, "aggregateWindow"):
+    for flag in ("aggregateWindow",):
         if flag in source:
             result[flag] = exact_bool(source[flag])
     if "windowProcessMode" in source:
@@ -87,17 +84,17 @@ def normalize_function(source, special_forms=()):
         normalized = [json.loads(value) for value in sorted(identities)]
         simple, vector = normalize_scalar_implementations(source)
         implemented = {canonical_json(entry["signature"]) for entry in simple}
-        implemented.update(canonical_json(entry) for entry in vector)
+        implemented.update(canonical_json(entry["signature"]) for entry in vector)
         if implemented != identities:
             raise ValueError("Logical scalar inventory differs from the actual implementation signatures")
-        result.update(simpleImplementations=simple, vectorOverloads=vector)
+        result.update(simpleImplementations=simple, vectorImplementations=vector)
     result["overloads"] = normalized
     return result
 
 
 def normalize_catalog(source):
     exact_keys(source, ("schemaVersion", "functions", "specialForms"))
-    if type(source["schemaVersion"]) is not int or source["schemaVersion"] != 3:
+    if type(source["schemaVersion"]) is not int or source["schemaVersion"] != 4:
         raise ValueError("Unknown registered-export schema version")
     functions, special_forms = source["functions"], source["specialForms"]
     if not isinstance(functions, list) or len(functions) > MAX_FUNCTIONS:
@@ -124,7 +121,7 @@ def normalize_catalog(source):
         raise ValueError("Malformed special-form identity")
     if len(special_forms) != len(set(special_forms)):
         raise ValueError("Duplicate special-form identity")
-    result = {"schemaVersion": 3, "functions": sorted(normalized, key=lambda e: (e["kind"], e["name"])),
+    result = {"schemaVersion": 4, "functions": sorted(normalized, key=lambda e: (e["kind"], e["name"])),
               "specialForms": sorted(special_forms)}
     return result
 

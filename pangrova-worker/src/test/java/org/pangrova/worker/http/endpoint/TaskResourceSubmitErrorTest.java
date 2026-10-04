@@ -40,7 +40,7 @@ class TaskResourceSubmitErrorTest {
     @Test
     void submitTask_internalError_returnsStructuredSubmitTaskResponse() {
         var canonical =
-                org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+                org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
                         "task-1", "query-1", 0, 1,
                         org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                         "plan-fragment".getBytes(java.nio.charset.StandardCharsets.UTF_8))

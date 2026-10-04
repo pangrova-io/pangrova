@@ -9,7 +9,7 @@ import java.util.function.IntSupplier;
 final class ArtifactPollLifecycle {
     private final AtomicReference<CompletableFuture<Void>> owner = new AtomicReference<>();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final CompletableFuture<Void> closeCompletion = new CompletableFuture<>();
+    private final AtomicReference<CompletableFuture<Void>> closeOwner = new AtomicReference<>();
 
     int poll(IntSupplier reconciliation) {
         CompletableFuture<Void> completion = new CompletableFuture<>();
@@ -25,9 +25,14 @@ final class ArtifactPollLifecycle {
     }
 
     void close(Runnable cleanup) {
-        if (!closed.compareAndSet(false, true)) {
-            closeCompletion.join();
-            return;
+        closed.set(true);
+        var completion = new CompletableFuture<Void>();
+        while (!closeOwner.compareAndSet(null, completion)) {
+            var existing = closeOwner.get();
+            if (existing != null) {
+                existing.join();
+                return;
+            }
         }
         try {
             CompletableFuture<Void> inFlight = owner.get();
@@ -35,9 +40,10 @@ final class ArtifactPollLifecycle {
                 inFlight.join();
             }
             cleanup.run();
-            closeCompletion.complete(null);
+            completion.complete(null);
         } catch (RuntimeException | Error failure) {
-            closeCompletion.completeExceptionally(failure);
+            completion.completeExceptionally(failure);
+            closeOwner.compareAndSet(completion, null);
             throw failure;
         }
     }

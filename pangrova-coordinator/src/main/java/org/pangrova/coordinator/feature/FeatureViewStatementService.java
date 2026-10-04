@@ -22,8 +22,8 @@ import org.pangrova.coordinator.feature.FeatureViewDefinitionValidator.Validated
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.util.DigestUtils;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.SessionContextConverter;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.metadata.store.MetadataJsonMapper;
 import org.pangrova.metadata.feature.FeatureCatalogStore;

@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.util.UUID;
@@ -30,7 +33,7 @@ public class CoordinatorQueryLifecycle implements QueryLifecycle {
         checkNotNull(session, "session must not be null");
         checkNotNull(sql, "sql must not be null");
         String id = UUID.randomUUID().toString();
-        org.pangrova.coordinator.query.CoordinatorSessionContext coordinatorSession =
+        org.pangrova.coordinator.query.session.CoordinatorSessionContext coordinatorSession =
                 SessionContextConverter.fromSpiSessionContext(id, session);
         if (coordinatorSession.userIdentity() == null || coordinatorSession.tenantId() == null) {
             throw new IllegalArgumentException("Query submission requires an authenticated tenant and principal");

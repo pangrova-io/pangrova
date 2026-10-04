@@ -10,7 +10,7 @@ import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.pangrova.worker.bootstrap.WorkerComponentRefs;
-import org.pangrova.worker.jni.write.CatalogResourceResolver;
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
 import org.pangrova.worker.jni.write.NativeWriteExecutor;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -42,7 +42,7 @@ class NativeWriterRegistrationTest {
 
     private WorkerComponentRefs initializedRefs() {
         WorkerComponentRefs refs = new WorkerComponentRefs();
-        NativeRuntimeBootstrap.initialize(org.pangrova.worker.bootstrap.TestShuffleServiceConfig.config(
+        NativeRuntimeBootstrap.initialize(org.pangrova.testing.nativefixture.TestShuffleServiceConfig.config(
                 org.pangrova.worker.bootstrap.WorkerBootstrapConfig.withDefaults("writer-registration")), refs);
         nativeRefs = refs;
         return refs;

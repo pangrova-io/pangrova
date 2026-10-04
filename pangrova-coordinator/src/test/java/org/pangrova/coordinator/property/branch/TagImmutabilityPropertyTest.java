@@ -59,8 +59,8 @@ class TagImmutabilityPropertyTest {
     private static final String TABLE = "test_table";
     private static final UserIdentity TEST_USER = new UserIdentity(
             "admin", Set.of("ADMIN"), Map.of(), Instant.now());
-    private static final org.pangrova.coordinator.query.CoordinatorSessionContext TEST_SESSION =
-            new org.pangrova.coordinator.query.CoordinatorSessionContext(
+    private static final org.pangrova.coordinator.query.session.CoordinatorSessionContext TEST_SESSION =
+            new org.pangrova.coordinator.query.session.CoordinatorSessionContext(
                     "branch-query", Map.of("catalog", CATALOG, "schema", SCHEMA), TEST_USER, "tenant-a");
 
     @Provide

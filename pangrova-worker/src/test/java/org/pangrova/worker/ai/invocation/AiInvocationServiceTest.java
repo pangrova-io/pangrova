@@ -13,6 +13,8 @@
  */
 package org.pangrova.worker.ai.invocation;
 
+import org.pangrova.worker.ai.governance.AiInvocationObserver;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

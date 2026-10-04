@@ -13,10 +13,7 @@
 #include "velox/exec/Aggregate.h"
 #include "velox/exec/WindowFunction.h"
 #include "velox/expression/FunctionSignature.h"
-#include "velox/expression/SpecialFormRegistry.h"
-#include "velox/expression/SimpleFunctionRegistry.h"
-#include "velox/expression/VectorFunction.h"
-#include "velox/functions/FunctionRegistry.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 #include "velox/window/DistinctAggregateWindow.h"
 
 namespace pangrova::capability {
@@ -124,17 +121,6 @@ std::vector<const Signature*> pointers(const SignatureCollection& source) {
   return result;
 }
 
-void scalarMetadata(Object& target, const std::string& name) {
-  auto deterministic = facebook::velox::isDeterministic(name);
-  auto default_null = facebook::velox::isDefaultNullBehavior(name);
-  if (deterministic) {
-    boolean(target, "deterministic", *deterministic);
-  }
-  if (default_null) {
-    boolean(target, "defaultNullBehavior", *default_null);
-  }
-}
-
 Object physicalLayout(const facebook::velox::TypePtr& type) {
   Object result;
   // These are diagnostic execution layout tags, not logical SQL types. The
@@ -147,55 +133,68 @@ Object physicalLayout(const facebook::velox::TypePtr& type) {
   return result;
 }
 
-void scalarImplementations(Object& target, const std::string& name) {
+void scalarImplementations(Object& target,
+    const std::vector<facebook::velox::exec::FunctionRegistrySnapshot::ScalarEntry>& entries) {
   auto* simple = (*target.mutable_fields())["simpleImplementations"].mutable_list_value();
-  for (const auto& metadata : facebook::velox::exec::simpleFunctions().getFunctionMetadataSnapshot(name)) {
+  auto* vector = (*target.mutable_fields())["vectorImplementations"].mutable_list_value();
+  for (const auto& source : entries) {
+    if (!source.simple) continue;
+    const auto& metadata = source.simple->getMetadata();
     auto* entry = simple->add_values()->mutable_struct_value();
-    *(*entry->mutable_fields())["signature"].mutable_struct_value() = signature(*metadata->signature());
-    (*entry->mutable_fields())["priority"].set_number_value(metadata->priority());
-    boolean(*entry, "deterministic", metadata->isDeterministic());
-    boolean(*entry, "defaultNullBehavior", metadata->defaultNullBehavior());
-    *(*entry->mutable_fields())["outputPhysical"].mutable_struct_value() = physicalLayout(metadata->resultPhysicalType());
+    *(*entry->mutable_fields())["signature"].mutable_struct_value() = signature(*source.signature);
+    (*entry->mutable_fields())["priority"].set_number_value(metadata.priority());
+    boolean(*entry, "deterministic", metadata.isDeterministic());
+    boolean(*entry, "defaultNullBehavior", metadata.defaultNullBehavior());
+    *(*entry->mutable_fields())["outputPhysical"].mutable_struct_value() = physicalLayout(metadata.resultPhysicalType());
     auto* arguments = (*entry->mutable_fields())["argumentsPhysical"].mutable_list_value();
-    for (const auto& argument : metadata->argPhysicalTypes()) {
+    for (const auto& argument : metadata.argPhysicalTypes()) {
       *arguments->add_values()->mutable_struct_value() = physicalLayout(argument);
     }
   }
-  auto* vector = (*target.mutable_fields())["vectorOverloads"].mutable_list_value();
-  facebook::velox::exec::vectorFunctionFactories().withRLock([&](const auto& entries) {
-    const auto found = entries.find(name);
-    if (found == entries.end()) return;
-    for (const auto& entry : found->second.signatures) {
-      *vector->add_values()->mutable_struct_value() = signature(*entry);
-    }
-  });
+  for (const auto& source : entries) {
+    if (!source.vector) continue;
+    const auto& metadata = source.vector->metadata;
+    auto* entry = vector->add_values()->mutable_struct_value();
+    *(*entry->mutable_fields())["signature"].mutable_struct_value() = signature(*source.signature);
+    boolean(*entry, "deterministic", metadata.deterministic);
+    boolean(*entry, "defaultNullBehavior", metadata.defaultNullBehavior);
+    boolean(*entry, "supportsFlattening", metadata.supportsFlattening);
+    boolean(*entry, "companionFunction", metadata.companionFunction);
+  }
 }
 
 }  // namespace
 
-std::string exportRegisteredFunctions() {
+std::string exportRegisteredFunctions(
+    const std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot>& snapshot) {
+  if (!snapshot) throw std::invalid_argument("Actual registration export requires its owned snapshot");
   Object result;
-  (*result.mutable_fields())["schemaVersion"].set_number_value(3);
+  (*result.mutable_fields())["schemaVersion"].set_number_value(4);
   std::map<std::pair<std::string, std::string>, Object> functions;
-  for (const auto& [name, entries] : facebook::velox::getFunctionSignatures()) {
-    auto exported = function(name, "SCALAR", pointers(entries));
-    scalarMetadata(exported, name);
-    scalarImplementations(exported, name);
+  std::vector<std::string> names;
+  for (const auto& [name, entries] : snapshot->scalars()) {
+    std::vector<const Signature*> signatures;
+    for (const auto& entry : entries) {
+      if (entry.signature) signatures.push_back(entry.signature.get());
+      if (entry.special) names.push_back(name);
+    }
+    auto exported = function(name, "SCALAR", signatures);
+    scalarImplementations(exported, entries);
     functions.emplace(std::make_pair("SCALAR", name), std::move(exported));
   }
-  for (const auto& [name, entries] : facebook::velox::exec::getAggregateFunctionSignatures()) {
+  for (const auto& [name, entry] : snapshot->aggregates()) {
     functions.emplace(std::make_pair("AGGREGATE", name),
-                      function(name, "AGGREGATE", pointers(entries)));
+                      function(name, "AGGREGATE", pointers(entry->signatures)));
   }
-  for (const auto& [name, entry] : facebook::velox::exec::windowFunctions()) {
-    auto exported = function(name, "WINDOW", pointers(entry.signatures));
-    boolean(exported, "aggregateWindow", entry.metadata.isAggregate);
+  for (const auto& [name, entry] : snapshot->windows()) {
+    auto exported = function(name, "WINDOW", pointers(entry->signatures));
+    boolean(exported, "aggregateWindow", entry->metadata.isAggregate);
     text(exported, "windowProcessMode",
-         entry.metadata.processMode == facebook::velox::exec::WindowFunction::ProcessMode::kRows
+         entry->metadata.processMode == facebook::velox::exec::WindowFunction::ProcessMode::kRows
              ? "ROWS" : "PARTITION");
-    if (entry.metadata.isAggregate && facebook::velox::exec::getAggregateFunctionEntry(name)) {
+    if (entry->metadata.isAggregate && snapshot->aggregate(name)) {
       const auto distinct = pangrova::velox::distinctAggregateWindowName(name);
-      if (facebook::velox::exec::getWindowFunctionSignatures(distinct)) {
+      if (snapshot->window(distinct)) {
         // This is an actual registered execution dependency, not proof that
         // the SQL manifest or any distributed value oracle has passed.
         text(exported, "distinctImplementation", distinct);
@@ -208,7 +207,6 @@ std::string exportRegisteredFunctions() {
     (void)identity;
     *list->add_values()->mutable_struct_value() = entry;
   }
-  auto names = facebook::velox::exec::specialFormRegistry().getSpecialFormNames();
   std::sort(names.begin(), names.end());
   auto* special = (*result.mutable_fields())["specialForms"].mutable_list_value();
   for (const auto& name : names) {

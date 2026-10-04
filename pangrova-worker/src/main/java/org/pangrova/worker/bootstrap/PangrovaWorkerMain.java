@@ -226,7 +226,10 @@ public final class PangrovaWorkerMain {
                 config.getLong(WorkerOptions.SHUFFLE_SERVICE_TRANSIT_BYTES),
                 config.getLong(WorkerOptions.SHUFFLE_SERVICE_SPILL_BYTES),
                 config.getInt(WorkerOptions.SHUFFLE_SERVICE_SPILL_FILES),
-                config.getString(WorkerOptions.SHUFFLE_SERVICE_SPILL_DIRECTORY));
+                config.getString(WorkerOptions.SHUFFLE_SERVICE_SPILL_DIRECTORY),
+                new org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission.Limits(
+                        config.getInt(WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS),
+                        config.getInt(WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS_PER_ENDPOINT)));
     }
 
     private static WorkerBootstrapConfig.ObservabilityBootstrapConfig loadObservabilityConfig(

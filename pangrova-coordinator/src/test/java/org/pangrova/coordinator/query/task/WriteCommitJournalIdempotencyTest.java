@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
+
 import org.pangrova.coordinator.coordination.inmemory.InMemoryWriteCommitJournal;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;

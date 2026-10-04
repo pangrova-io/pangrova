@@ -1,4 +1,5 @@
 #include <arrow/io/file.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 #include <arrow/ipc/reader.h>
 #include <gtest/gtest.h>
 
@@ -134,7 +135,9 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableDiskAnnWorkPageAndReport) {
   auto sink =
       std::make_shared<ArtifactBuildNode>("artifact-build-1", config, values);
   auto query_context = facebook::velox::core::QueryCtx::create(
-      pangrova::jni::globalExecutor().get());
+      pangrova::jni::globalExecutor().get(),
+      facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+          facebook::velox::exec::FunctionRegistrySnapshot::capture()));
   auto task = facebook::velox::exec::Task::create(
       "artifact-build-execution-test",
       facebook::velox::core::PlanFragment{sink}, 0, std::move(query_context),
@@ -230,7 +233,9 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableHnswAndIvfPqWorkPages) {
           hnsw ? "artifact-build-hnsw" : "artifact-build-ivfpq", config,
           values);
       auto query_context = facebook::velox::core::QueryCtx::create(
-          pangrova::jni::globalExecutor().get());
+          pangrova::jni::globalExecutor().get(),
+          facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+              facebook::velox::exec::FunctionRegistrySnapshot::capture()));
       auto task = facebook::velox::exec::Task::create(
           hnsw ? "artifact-build-hnsw-test" : "artifact-build-ivfpq-test",
           facebook::velox::core::PlanFragment{sink}, 0,
@@ -320,7 +325,9 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableGeneratedValuesAndLocators) {
     auto sink = std::make_shared<ArtifactBuildNode>(
         "artifact-build-generated-values", config, values);
     auto query_context = facebook::velox::core::QueryCtx::create(
-        pangrova::jni::globalExecutor().get());
+        pangrova::jni::globalExecutor().get(),
+        facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+            facebook::velox::exec::FunctionRegistrySnapshot::capture()));
     auto task = facebook::velox::exec::Task::create(
         "artifact-build-generated-values-test",
         facebook::velox::core::PlanFragment{sink}, 0, std::move(query_context),
@@ -411,7 +418,9 @@ TEST_F(ArtifactBuildExecutionTest, StreamsImmutableTabularExportAndReport) {
   auto sink = std::make_shared<ArtifactBuildNode>(
       "artifact-build-tabular-export", config, values);
   auto query_context = facebook::velox::core::QueryCtx::create(
-      pangrova::jni::globalExecutor().get());
+      pangrova::jni::globalExecutor().get(),
+      facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+          facebook::velox::exec::FunctionRegistrySnapshot::capture()));
   auto task = facebook::velox::exec::Task::create(
       "artifact-build-tabular-export-test",
       facebook::velox::core::PlanFragment{sink}, 0, std::move(query_context),
@@ -495,7 +504,9 @@ TEST_F(ArtifactBuildExecutionTest, PublishesSchemaBearingZeroRowTabularExport) {
   auto sink = std::make_shared<ArtifactBuildNode>(
       "artifact-build-empty-tabular-export", config, values);
   auto query_context = facebook::velox::core::QueryCtx::create(
-      pangrova::jni::globalExecutor().get());
+      pangrova::jni::globalExecutor().get(),
+      facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+          facebook::velox::exec::FunctionRegistrySnapshot::capture()));
   auto task = facebook::velox::exec::Task::create(
       "artifact-build-empty-tabular-export-test",
       facebook::velox::core::PlanFragment{sink}, 0, std::move(query_context),
@@ -573,7 +584,9 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableBm25WorkPageAndReport) {
   auto sink = std::make_shared<ArtifactBuildNode>("artifact-build-bm25", config,
                                                   values);
   auto query_context = facebook::velox::core::QueryCtx::create(
-      pangrova::jni::globalExecutor().get());
+      pangrova::jni::globalExecutor().get(),
+      facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+          facebook::velox::exec::FunctionRegistrySnapshot::capture()));
   auto task = facebook::velox::exec::Task::create(
       "artifact-build-bm25-execution-test",
       facebook::velox::core::PlanFragment{sink}, 0, std::move(query_context),
@@ -678,7 +691,9 @@ TEST_F(ArtifactBuildExecutionTest, FinalizesGlobalBm25StatisticsInNative) {
   auto sink = std::make_shared<ArtifactBuildNode>("artifact-build-final",
                                                   config, values);
   auto query_context = facebook::velox::core::QueryCtx::create(
-      pangrova::jni::globalExecutor().get());
+      pangrova::jni::globalExecutor().get(),
+      facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+          facebook::velox::exec::FunctionRegistrySnapshot::capture()));
   auto task = facebook::velox::exec::Task::create(
       "artifact-build-final-execution-test",
       facebook::velox::core::PlanFragment{sink}, 0, std::move(query_context),

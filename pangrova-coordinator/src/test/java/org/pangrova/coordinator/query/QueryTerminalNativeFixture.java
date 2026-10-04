@@ -1,0 +1,189 @@
+package org.pangrova.coordinator.query;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import org.pangrova.common.resilience.CircuitBreakerPolicy;
+import org.pangrova.coordinator.query.execution.QueryDispatcher;
+import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
+import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
+import org.pangrova.coordinator.scheduler.TaskScheduler;
+import org.pangrova.coordinator.task.CoordinatorTaskTracker;
+import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
+import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
+import org.pangrova.coordinator.worker.WorkerManager;
+import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
+import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.throttle.QueryThrottlingService;
+import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.security.audit.AuditEvent;
+import org.pangrova.security.audit.AuditEventEmitter;
+import org.pangrova.security.audit.AuditEventType;
+import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.testing.TestObservability;
+import static org.assertj.core.api.Assertions.assertThat;
+
+/** Owns actual SQL/HTTP/JNI execution and one real frontend operation delaying physical cleanup. */
+final class QueryTerminalNativeFixture implements AutoCloseable {
+    final String queryId = "terminal-" + UUID.randomUUID();
+    final AtomicLong clock = new AtomicLong();
+    final QueryThrottlingService throttle = new QueryThrottlingService(1, 1000, 1000);
+    final List<AuditEvent> events = new CopyOnWriteArrayList<>();
+    final QueryTerminalJournalFixture store;
+    private final ExecutorService submissions = Executors.newSingleThreadExecutor();
+    private final AuditEventEmitter audit = new AuditEventEmitter(events::add);
+    private final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+    private SourceFreeNativeWorkerFixture worker;
+    private RemoteTaskDispatcher transport;
+    private org.pangrova.coordinator.task.QueryIssuanceOperation operation;
+    QueryManager manager;
+    ResultEndpoint endpoint;
+
+    QueryTerminalNativeFixture(Path directory) throws Exception {
+        store = new QueryTerminalJournalFixture();
+        try { initialize(directory); }
+        catch (Exception | Error failure) {
+            try { close(); } catch (Exception cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+    }
+
+    private void initialize(Path directory) throws Exception {
+        worker = new SourceFreeNativeWorkerFixture("terminal-worker", directory);
+        var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        workers.registerWorker(worker.workerInfo());
+        transport = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
+        transport.setControlEpochSupplier(() -> 1L);
+        transport.setExecutionOwnerResolver(ignored -> new ExecutionOwnerIdentity("terminal-coordinator",
+                "terminal-coordinator-incarnation", 1L));
+        var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, transport,
+                new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker, null, null, null, 30L);
+        var dispatcher = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
+        manager = new QueryManager(new QueryManagerContext(dispatcher, TestObservability.TRACING,
+                null, null, null, null, audit, null, null, throttle, store.journal(),
+                null, null, AsyncSubmitConfig.defaultEnabled(), submissions), clock::get);
+        worker.connect(dispatcher, tracker, workers, manager);
+        tracker.openQueryIssuance(queryId);
+        operation = tracker.enterQueryOperation(queryId);
+    }
+
+    void submit(String sql) {
+        endpoint = manager.submitQuery(queryId, sql, SourceFreeQueryFixture.session(queryId)).resultEndpoint();
+        assertThat(throttle.availableGlobalPermits()).isZero();
+    }
+
+    void submitNativeFailure(String sql) {
+        try { submit(sql); }
+        catch (RuntimeException failure) {
+            assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FAILED);
+            endpoint = manager.getStateMachine(queryId).getResultEndpoint().orElse(null);
+        }
+    }
+
+    void consume() { worker.consume(java.util.Objects.requireNonNull(endpoint)); }
+
+    void awaitLogicalTerminal(QueryStateMachine.State state) {
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(manager.getQueryState(queryId)).contains(state));
+    }
+
+    void releaseActualWorkerOwners() {
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            worker.taskManager().cleanupTerminalTasks(Duration.ofHours(1));
+            assertThat(worker.reports()).filteredOn(report -> report.queryId().equals(queryId)
+                    && report.canonicalTaskReport() != null).anySatisfy(report -> {
+                assertThat(report.queryId()).isEqualTo(queryId);
+                var canonical = canonical(report);
+                assertThat(canonical.getExecutionDrainState())
+                        .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+                assertThat(tracker.executionDrainReceipt(report.taskId())).isPresent();
+            });
+        });
+    }
+
+    void requireActualNativeFailure(String message) {
+        assertThat(worker.reports()).filteredOn(report -> report.queryId().equals(queryId)
+                && report.canonicalTaskReport() != null).anySatisfy(report -> {
+            var canonical = canonical(report);
+            assertThat(canonical.getState()).isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED);
+            assertThat(canonical.getExecutionDrainState())
+                    .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+            assertThat(canonical.getError().getMessage().toLowerCase(java.util.Locale.ROOT)).contains(message);
+        });
+    }
+
+    private static TaskReport canonical(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        try { return TaskReport.parseFrom(report.canonicalTaskReport()); }
+        catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new IllegalStateException("Actual Worker emitted malformed task evidence", failure);
+        }
+    }
+
+    void retryPhysicalCleanup() {
+        clock.addAndGet(TimeUnit.SECONDS.toNanos(31));
+        manager.retryPendingTerminalCompletions();
+    }
+
+    void exitFrontend() { operation.close(); }
+
+    long events(AuditEventType type) {
+        return events.stream().filter(event -> event.eventType() == type).count();
+    }
+
+    List<List<Object>> rows() { return worker.rows(endpoint); }
+
+    @Override
+    public void close() throws Exception {
+        Throwable failure = null;
+        try { drainOwners(); }
+        catch (Exception | Error cleanup) { failure = cleanup; }
+        failure = closeOwners(failure);
+        try { joinSubmissions(); }
+        catch (Exception | Error cleanup) { failure = combine(failure, cleanup); }
+        if (failure instanceof Error error) throw error;
+        if (failure instanceof Exception exception) throw exception;
+    }
+
+    private void drainOwners() throws Exception {
+        store.allowQueryInsert();
+        store.allowQueryDelete();
+        if (operation != null) operation.close();
+        if (manager != null) {
+            manager.getActiveQueryIds().forEach(manager::cancelQuery);
+            if (worker != null) worker.taskManager().releaseTerminalTaskExecutors();
+            retryPhysicalCleanup();
+            assertThat(manager.awaitAllQueries(30_000)).isTrue();
+        }
+    }
+
+    private Throwable closeOwners(Throwable failure) {
+        for (AutoCloseable owner : new AutoCloseable[]{worker, transport, audit::close, store}) {
+            if (owner == null) continue;
+            try { owner.close(); }
+            catch (Exception | Error cleanup) { failure = combine(failure, cleanup); }
+        }
+        return failure;
+    }
+
+    private void joinSubmissions() throws InterruptedException {
+        submissions.shutdownNow();
+        if (!submissions.awaitTermination(35, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Actual query submission executor did not exit");
+        }
+    }
+
+    private static Throwable combine(Throwable failure, Throwable cleanup) {
+        if (failure == null) return cleanup;
+        if (cleanup != failure) failure.addSuppressed(cleanup);
+        return failure;
+    }
+}

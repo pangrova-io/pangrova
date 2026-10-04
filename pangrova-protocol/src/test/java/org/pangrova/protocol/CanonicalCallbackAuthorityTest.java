@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+
 import com.google.protobuf.UnknownFieldSet;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ExecutionCallbackContext;

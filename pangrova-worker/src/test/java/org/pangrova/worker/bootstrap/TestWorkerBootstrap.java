@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
+
 import org.pangrova.worker.jni.write.TestCatalogResourceResolver;
 
 /** Native bootstrap lifecycle fixture; it must never accept actual catalog work. */

@@ -26,7 +26,7 @@ final class PaimonDeclaredMetadata {
         } else if (type instanceof LocalZonedTimestampType timestamp) {
             signature = precision("TIMESTAMP_TZ", timestamp.getPrecision());
         }
-        if (type instanceof ArrayType || type instanceof MapType) {
+        if ("ARRAY".equals(signature.base()) || "MAP".equals(signature.base())) {
             signature = new TypeSignature(signature.base(), children.stream()
                     .map(child -> TypeSignature.TypeParameter.ofType(child.signature())).toList());
         } else if (type instanceof RowType row) {

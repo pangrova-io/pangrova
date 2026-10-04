@@ -39,7 +39,7 @@ final class JdbcUrlParser {
         validateHostAndPort(uri, url);
 
         String catalog = parseCatalog(uri.getPath());
-        Map<String, String> properties = parseQueryParams(uri.getQuery());
+        Map<String, String> properties = parseQueryParams(uri.getRawQuery());
         return new JdbcConnectionParams(uri.getHost(), uri.getPort(), catalog, properties);
     }
 
@@ -78,8 +78,8 @@ final class JdbcUrlParser {
         for (String pair : query.split("&")) {
             int eq = pair.indexOf('=');
             if (eq > 0) {
-                String key = pair.substring(0, eq);
-                String value = eq < pair.length() - 1 ? pair.substring(eq + 1) : "";
+                String key = java.net.URLDecoder.decode(pair.substring(0, eq), java.nio.charset.StandardCharsets.UTF_8);
+                String value = java.net.URLDecoder.decode(pair.substring(eq + 1), java.nio.charset.StandardCharsets.UTF_8);
                 params.put(key, value);
             }
         }

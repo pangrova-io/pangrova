@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.metadata;
 
+import org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder;
+import org.pangrova.coordinator.metadata.read.PlanningReadBindings;
+
 import org.pangrova.metadata.cache.TieredMetadataCache;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.catalog.ConnectorHandleFactory;
@@ -97,6 +100,12 @@ public final class MetadataBootstrap {
      */
     public CalciteSchema buildCalciteSchema(org.pangrova.spi.connector.ConnectorSession session) {
         return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session);
+    }
+
+    /** Shares the selected source owner with the session planner's statistics provider. */
+    public CalciteSchema buildCalciteSchema(org.pangrova.spi.connector.ConnectorSession session,
+            PlanningReadBindings readBindings) {
+        return new MetadataSchemaBuilder(metadataService, catalogRegistry).buildRootSchema(session, readBindings);
     }
 
     public CatalogRegistry catalogRegistry() {

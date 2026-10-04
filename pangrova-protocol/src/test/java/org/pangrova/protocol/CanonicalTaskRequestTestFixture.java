@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+
 import com.google.protobuf.ByteString;
 
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;

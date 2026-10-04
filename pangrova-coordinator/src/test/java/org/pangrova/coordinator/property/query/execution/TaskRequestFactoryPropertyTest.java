@@ -13,7 +13,7 @@ import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;

@@ -45,19 +45,22 @@ final class QueryRuntimeWiring {
 
     QueryStateJournal createStateJournal() {
         if (dependencies.metadataDataSource() == null) {
-            return org.pangrova.coordinator.coordination.inmemory
-                    .InMemoryQueryStateJournal.INSTANCE;
+            return new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
         }
-        try {
-            var config = new StateJournalConfig("JDBC", null, 100, 50, 24);
-            return org.pangrova.coordinator.query.state.QueryStateJournalFactory.create(
-                    config, dependencies.metadataDataSource());
-        } catch (Exception failure) {
-            LOG.warn("event=jdbc_journal_init_failed error={} fallback=InMemory",
-                    failure.getMessage());
-            return org.pangrova.coordinator.coordination.inmemory
-                    .InMemoryQueryStateJournal.INSTANCE;
+        var config = new StateJournalConfig("JDBC", null, 100, 50, 24, StateJournalConfig.NONE.maxResidentEvents());
+        return org.pangrova.coordinator.query.state.QueryStateJournalFactory.create(
+                config, dependencies.metadataDataSource());
+    }
+
+    org.pangrova.coordinator.ai.embedding.EmbeddingModelRegistry createEmbeddingModelRegistry() {
+        if (!dependencies.config().embeddingEnabled()) return null;
+        if (dependencies.metadataDataSource() == null) {
+            throw new IllegalStateException("embedding model catalog requires the durable metadata DataSource");
         }
+        var registry = new org.pangrova.coordinator.ai.embedding.JdbcEmbeddingModelRegistry(
+                dependencies.metadataDataSource(), "admin", "users");
+        registry.initSchema();
+        return registry;
     }
 
     QueryManagerResult buildQueryManager(

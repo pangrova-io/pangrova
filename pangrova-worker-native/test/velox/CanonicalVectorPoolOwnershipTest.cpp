@@ -1,9 +1,21 @@
 // Actual Vector/Task/Arrow lifetime oracles; not public SQL or distributed E2E.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
+#include <arrow/c/abi.h>
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "CanonicalTaskExecution.h"
 #include "substrait/plan.pb.h"
 #include "velox/plan/VeloxPlanConverter.h"
+#include "velox/type/StringView.h"
+#include "velox/type/Type.h"
+#include "velox/type/Variant.h"
+#include "velox/vector/BaseVector.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/DecodedVector.h"
 #include "velox/vector/FlatVector.h"
@@ -12,6 +24,7 @@
 namespace pangrova::velox::test {
 namespace {
 using namespace facebook::velox;
+using VeloxMemoryPool = facebook::velox::memory::MemoryPool;
 
 struct ArrowExport {
   ArrowArray array{};
@@ -22,7 +35,7 @@ struct ArrowExport {
   }
 };
 
-core::PlanNodePtr booleanValues() {
+core::PlanNodePtr booleanValues(const FunctionRegistryOwner& registry) {
   substrait::Plan plan;
   auto* root = plan.add_relations()->mutable_root();
   root->add_names("predicate");
@@ -38,8 +51,8 @@ core::PlanNodePtr booleanValues() {
       literal->set_nullable(true);
     }
   }
-  const auto bytes = plan.SerializeAsString();
-  VeloxPlanConverter converter;
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+  VeloxPlanConverter converter(registry);
   return converter.convert({bytes.begin(), bytes.end()}, {});
 }
 
@@ -51,7 +64,7 @@ const core::ValuesNode* valuesNode(const core::PlanNodePtr& node) {
   return nullptr;
 }
 
-VectorPtr integers(memory::MemoryPool* pool) {
+VectorPtr integers(VeloxMemoryPool* pool) {
   auto vector = BaseVector::create<FlatVector<int64_t>>(BIGINT(), 2, pool);
   vector->set(0, 11);
   vector->set(1, 23);
@@ -60,12 +73,13 @@ VectorPtr integers(memory::MemoryPool* pool) {
 
 TEST(CanonicalVectorPoolOwnershipTest, ConverterTaskProjectionAndUnalignedBooleanSliceOwnThePool) {
   auto runtime = pangrova::test::testLeafPool("vector-owner-runtime");
-  auto node = booleanValues(); // The production converter is already destroyed.
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  auto node = booleanValues(registry); // The production converter is already destroyed.
   auto* values = valuesNode(node);
   ASSERT_NE(values, nullptr);
-  std::weak_ptr<memory::MemoryPool> weak = values->values().front()->pool()->shared_from_this();
+  std::weak_ptr<VeloxMemoryPool> weak = values->values().front()->pool()->shared_from_this();
   EXPECT_TRUE(values->values().front()->ownsMemoryPool());
-  auto output = executeCanonicalTask(node);
+  auto output = executeCanonicalTask(node, registry);
   ASSERT_EQ(output.batches.size(), 1);
   auto child = output.batches.front()->childAt(0);
   auto slice = child->slice(1, 8); // Both boolean values and nulls allocate shifted bitmaps.
@@ -85,7 +99,8 @@ TEST(CanonicalVectorPoolOwnershipTest, ConverterTaskProjectionAndUnalignedBoolea
 
 TEST(CanonicalVectorPoolOwnershipTest, ArrayElementsAndMapChildrenEscapeTheirParentTask) {
   auto pool = pangrova::test::testLeafPool("nested-vector-escape");
-  std::weak_ptr<memory::MemoryPool> weak = pool;
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  std::weak_ptr<VeloxMemoryPool> weak = pool;
   auto array = BaseVector::create<ArrayVector>(ARRAY(BIGINT()), 1, pool.get());
   array->setElements(integers(pool.get()));
   array->setOffsetAndSize(0, 0, 2);
@@ -95,7 +110,7 @@ TEST(CanonicalVectorPoolOwnershipTest, ArrayElementsAndMapChildrenEscapeTheirPar
   auto row = std::make_shared<RowVector>(pool.get(), ROW({"array", "map"}, {array->type(), map->type()}),
       nullptr, 1, std::vector<VectorPtr>{array, map});
   auto node = std::make_shared<core::ValuesNode>("nested-owner-values", std::vector<RowVectorPtr>{row});
-  auto output = executeCanonicalTask(node);
+  auto output = executeCanonicalTask(node, registry);
   ASSERT_EQ(output.batches.size(), 1);
   auto elements = std::dynamic_pointer_cast<ArrayVector>(output.batches.front()->childAt(0))->elements();
   auto keys = std::dynamic_pointer_cast<MapVector>(output.batches.front()->childAt(1))->mapKeys();
@@ -116,14 +131,15 @@ TEST(CanonicalVectorPoolOwnershipTest, ArrowExportOwnsDifferentSourceChildAndAll
   auto parent = pangrova::test::testLeafPool("arrow-parent-owner");
   auto child = pangrova::test::testLeafPool("arrow-child-owner");
   auto allocation = pangrova::test::testLeafPool("arrow-allocation-owner");
-  std::weak_ptr<memory::MemoryPool> parentWeak = parent, childWeak = child, allocationWeak = allocation;
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  std::weak_ptr<VeloxMemoryPool> parentWeak = parent, childWeak = child, allocationWeak = allocation;
   auto ints = integers(child.get());
   auto strings = BaseVector::create<FlatVector<StringView>>(VARCHAR(), 2, parent.get());
   strings->set(0, StringView("abc")); strings->set(1, StringView("def"));
   auto row = std::make_shared<RowVector>(parent.get(), ROW({"n", "s"}, {BIGINT(), VARCHAR()}),
       nullptr, 2, std::vector<VectorPtr>{ints, strings});
   auto node = std::make_shared<core::ValuesNode>("arrow-owner-values", std::vector<RowVectorPtr>{row});
-  auto output = executeCanonicalTask(node);
+  auto output = executeCanonicalTask(node, registry);
   ASSERT_EQ(output.batches.size(), 1);
   ArrowExport exported;
   exportToArrow(output.batches.front(), exported.array, allocation.get());
@@ -142,7 +158,7 @@ TEST(CanonicalVectorPoolOwnershipTest, ArrowExportOwnsDifferentSourceChildAndAll
 
 TEST(CanonicalVectorPoolOwnershipTest, ConstantArrowExportRetainsActualInlineValueStorage) {
   auto pool = pangrova::test::testLeafPool("constant-arrow-owner");
-  std::weak_ptr<memory::MemoryPool> weak = pool;
+  std::weak_ptr<VeloxMemoryPool> weak = pool;
   auto constant = BaseVector::createConstant(BIGINT(), variant(int64_t{42}), 3, pool.get());
   std::weak_ptr<BaseVector> vectorWeak = constant;
   ArrowExport exported;
@@ -158,8 +174,9 @@ TEST(CanonicalVectorPoolOwnershipTest, ConstantArrowExportRetainsActualInlineVal
 
 TEST(CanonicalVectorPoolOwnershipTest, ZeroColumnRowsHaveAnOwnerWithoutSyntheticBuffers) {
   auto pool = pangrova::test::testLeafPool("zero-column-owner");
-  std::weak_ptr<memory::MemoryPool> weak = pool;
-  auto row = std::make_shared<RowVector>(pool.get(), ROW({}, {}), nullptr, 4, std::vector<VectorPtr>{});
+  std::weak_ptr<VeloxMemoryPool> weak = pool;
+  auto row = std::make_shared<RowVector>(pool.get(),
+      ROW(std::vector<std::string>{}, std::vector<TypePtr>{}), nullptr, 4, std::vector<VectorPtr>{});
   auto slice = row->slice(1, 2);
   row.reset(); pool.reset();
   EXPECT_FALSE(weak.expired()); EXPECT_EQ(slice->size(), 2);

@@ -1,5 +1,8 @@
 package org.pangrova.client.rest;
 
+import org.pangrova.client.rest.auth.ClientAuthentication;
+import org.pangrova.transport.security.ResultTransportSecurity;
+
 import java.time.Duration;
 
 /**
@@ -11,11 +14,13 @@ import java.time.Duration;
  * @param connectTimeout  TCP connect timeout
  * @param requestTimeout  HTTP request timeout (covers full round-trip)
  * @param useTls          whether to use TLS for REST and transport connections
- * @param trustStorePath  path to JKS/PKCS12 trust store (null for system default)
+ * @param trustStorePath  REST HTTPS JKS/PKCS12 trust store (null for system default)
  * @param trustStorePassword password for the trust store (null if none)
- * @param bearerToken     bearer token for Authorization header (null if none)
+ * @param authentication typed authentication for the Authorization header (null if none)
  * @param retryPolicy     retry policy for transient failures (null uses RetryPolicy.DEFAULT)
  * @param connectionPoolConfig connection pool and failover configuration (null disables pooling/failover)
+ * @param httpExecutorThreads owned HTTP executor size, independent of endpoints (null uses pool/default executor)
+ * @param resultTransportSecurity result-channel PEM policy (null uses system trust); useTls also requires TLS
  */
 public record PangrovaRestClientConfig(
         String coordinatorHost,
@@ -25,9 +30,11 @@ public record PangrovaRestClientConfig(
         boolean useTls,
         String trustStorePath,
         String trustStorePassword,
-        String bearerToken,
+        ClientAuthentication authentication,
         RetryPolicy retryPolicy,
-        ConnectionPoolConfig connectionPoolConfig
+        ConnectionPoolConfig connectionPoolConfig,
+        Integer httpExecutorThreads,
+        ResultTransportSecurity resultTransportSecurity
 ) {
 
     public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
@@ -37,26 +44,26 @@ public record PangrovaRestClientConfig(
     /** Maximum valid TCP port. */
     public static final int MAX_PORT = 65535;
 
-    /** Backward-compatible constructor without TLS/auth/retry/pool fields. */
+    /** Configuration using default security, retry and pooling policies. */
     public PangrovaRestClientConfig(String coordinatorHost, int coordinatorPort,
                                    Duration connectTimeout, Duration requestTimeout) {
         this(coordinatorHost, coordinatorPort, connectTimeout, requestTimeout,
-                false, null, null, null, RetryPolicy.DEFAULT, null);
+                false, null, null, null, RetryPolicy.DEFAULT, null, null, ResultTransportSecurity.systemTrust(false));
     }
 
     /**
-     * Backward-compatible constructor without retry/pool fields;
+     * Configuration using default retry/pool and result-channel trust policies;
      * TLS settings are grouped in a {@link TlsSettings} record
      * (a null value disables TLS).
      */
     public PangrovaRestClientConfig(String coordinatorHost, int coordinatorPort,
                                    Duration connectTimeout, Duration requestTimeout,
-                                   TlsSettings tls, String bearerToken) {
+                                   TlsSettings tls, ClientAuthentication authentication) {
         this(coordinatorHost, coordinatorPort, connectTimeout, requestTimeout,
                 tls != null && tls.enabled(),
                 tls != null ? tls.storePath() : null,
                 tls != null ? tls.storePassword() : null,
-                bearerToken, RetryPolicy.DEFAULT, null);
+                authentication, RetryPolicy.DEFAULT, null, null, ResultTransportSecurity.systemTrust(tls != null && tls.enabled()));
     }
 
     public PangrovaRestClientConfig {
@@ -64,13 +71,32 @@ public record PangrovaRestClientConfig(
         requireValidPort(coordinatorPort);
         requirePositiveDuration(connectTimeout, "connectTimeout");
         requirePositiveDuration(requestTimeout, "requestTimeout");
+        if (httpExecutorThreads != null && httpExecutorThreads < 1) {
+            throw new IllegalArgumentException("httpExecutorThreads must be positive");
+        }
+        if (trustStorePath != null && (trustStorePath.isBlank() || !useTls)) {
+            throw new IllegalArgumentException("A non-blank trust store path requires HTTPS");
+        }
+        if (trustStorePassword != null && trustStorePath == null) {
+            throw new IllegalArgumentException("A trust store password requires its trust store path");
+        }
         if (retryPolicy == null) {
             retryPolicy = RetryPolicy.DEFAULT;
         }
+        resultTransportSecurity = resultTransportSecurity == null
+                ? ResultTransportSecurity.systemTrust(useTls) : resultTransportSecurity.requiringTls(useTls);
     }
 
     public String scheme() {
         return useTls ? "https" : "http";
+    }
+
+    @Override
+    public String toString() {
+        return "PangrovaRestClientConfig[coordinatorHost=" + coordinatorHost
+                + ", coordinatorPort=" + coordinatorPort + ", useTls=" + useTls
+                + ", authentication=" + authentication + ", trustStorePassword=<redacted>"
+                + ", resultTransportSecurity=" + resultTransportSecurity + "]";
     }
 
     private static void requireNonBlankHost(String host) {

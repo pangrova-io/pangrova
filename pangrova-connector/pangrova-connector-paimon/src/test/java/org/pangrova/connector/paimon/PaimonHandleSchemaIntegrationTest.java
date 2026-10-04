@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.io.ByteArrayInputStream;
 import java.nio.channels.Channels;
 import java.security.MessageDigest;
+import java.util.stream.Stream;
 
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
@@ -15,6 +16,9 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
@@ -81,6 +85,86 @@ class PaimonHandleSchemaIntegrationTest {
                 assertThatThrownBy(() -> catalog.getTable(Identifier.create("db", "invalid")))
                         .isInstanceOf(Catalog.TableNotExistException.class);
             }
+        }
+    }
+
+    /** Java metadata only: the SDK retains LIST storage; this does not prove Native VECTOR writes. */
+    @ParameterizedTest
+    @MethodSource("propertyVectorDeclarations")
+    void propertyVectorJavaSchemaRetainsDimensionAndSdkListWithoutClaimingNativeExecution(
+            boolean doubled, boolean nullable, boolean elementNullable) throws Exception {
+        var element = doubled ? new org.apache.paimon.types.DoubleType(elementNullable)
+                : new org.apache.paimon.types.FloatType(elementNullable);
+        var vectorStorage = new org.apache.paimon.types.ArrayType(nullable, element);
+        try (var catalog = catalog()) {
+            catalog.createDatabase("db", false);
+            var id = Identifier.create("db", "property_vector");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.BIGINT().notNull())
+                    .column("embedding", vectorStorage)
+                    .column("history", DataTypes.ARRAY(DataTypes.ARRAY(DataTypes.DECIMAL(21, 7).notNull())))
+                    .option("pangrova.vector.dimension.embedding", "7")
+                    .option("file.format", "lance").option("bucket", "1")
+                    .option("bucket-key", "id").build(), false);
+            var table = (FileStoreTable) catalog.getTable(id);
+            assertThat(table.schema().fields().get(1).type()).isEqualTo(vectorStorage);
+            var output = PaimonTableHandleFactory.outputFromTable("db", "property_vector", table);
+            var codec = new PaimonOutputHandleCodec();
+            var restored = (PaimonOutputTableHandle) codec.deserialize(codec.codecVersion(), codec.serialize(output));
+            assertThat(PaimonTableHandleFactory.parseRowType(restored)).isEqualTo(table.rowType());
+            assertThat(codec.serialize(restored)).isEqualTo(codec.serialize(output));
+            assertPropertyVectorSchema(table, doubled, nullable, elementNullable);
+        }
+    }
+
+    static Stream<Arguments> propertyVectorDeclarations() {
+        return Stream.of(false, true).flatMap(doubled -> Stream.of(false, true).flatMap(nullable ->
+                Stream.of(false, true).map(elementNullable -> Arguments.of(doubled, nullable, elementNullable))));
+    }
+
+    private static void assertPropertyVectorSchema(
+            FileStoreTable table, boolean doubled, boolean nullable, boolean elementNullable) throws Exception {
+        var physical = PaimonPhysicalSchemas.forAppend(table.schema());
+        var column = physical.columns().get(1);
+        assertThat(physical.schemaId()).isEqualTo(table.schema().id());
+        assertThat(column.fieldId()).isEqualTo(table.schema().fields().get(1).id());
+        assertThat(column.name()).isEqualTo("embedding");
+        assertThat(column.logicalType()).isEqualTo(new org.pangrova.spi.connector.data.type.VectorType(7,
+                doubled ? org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE
+                        : org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT).getTypeSignature());
+        assertThat(column.nullable()).isEqualTo(nullable);
+        assertThat(column.declaredType().children()).singleElement().satisfies(child -> {
+            assertThat(child.nullable()).isEqualTo(elementNullable);
+            assertThat(child.signature().base()).isEqualTo(doubled ? "DOUBLE" : "REAL");
+        });
+        assertThat(PhysicalWriteTypes.logicalType(column.declaredType())).isEqualTo(VectorLogicalType.create(7,
+                doubled ? VectorLogicalType.FLOAT64 : VectorLogicalType.FLOAT32, nullable, elementNullable));
+        var history = PhysicalWriteTypes.logicalType(physical.columns().get(2).declaredType())
+                .getSubstraitType().getList().getType().getList().getType().getDecimal();
+        assertThat(history.getPrecision()).isEqualTo(21);
+        assertThat(history.getScale()).isEqualTo(7);
+        assertThat(history.getNullability()).isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
+        assertPropertyVectorArrowList(table, physical, doubled);
+    }
+
+    private static void assertPropertyVectorArrowList(FileStoreTable table,
+            org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation.Schema physical,
+            boolean doubled) throws Exception {
+        var storage = (org.apache.paimon.types.ArrayType) table.schema().fields().get(1).type();
+        try (var channel = new ReadChannel(Channels.newChannel(new ByteArrayInputStream(physical.physicalSchema())))) {
+            var schema = MessageSerializer.deserializeSchema(channel);
+            assertThat(schema.getFields()).extracting(org.apache.arrow.vector.types.pojo.Field::getName)
+                    .containsExactly("id", "embedding", "history");
+            var field = schema.getFields().get(1);
+            assertThat(field.getType()).isEqualTo(ArrowType.List.INSTANCE);
+            assertThat(field.isNullable()).isEqualTo(storage.isNullable());
+            assertThat(field.getMetadata()).containsEntry("PARQUET:field_id",
+                    Integer.toString(table.schema().fields().get(1).id()));
+            assertThat(field.getChildren()).singleElement().satisfies(child -> {
+                assertThat(child.isNullable()).isEqualTo(storage.getElementType().isNullable());
+                assertThat(child.getType()).isEqualTo(new ArrowType.FloatingPoint(doubled
+                        ? org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE
+                        : org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE));
+            });
         }
     }
 

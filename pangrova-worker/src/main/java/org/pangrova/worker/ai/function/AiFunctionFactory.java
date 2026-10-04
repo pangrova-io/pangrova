@@ -18,10 +18,11 @@ import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.ai.rerank.RerankingProvider;
 import org.pangrova.spi.function.FunctionFactory;
 import org.pangrova.spi.function.ScalarFunction;
-import org.pangrova.worker.ai.invocation.AiInvocationAuthorizer;
-import org.pangrova.worker.ai.invocation.AiInvocationObserver;
+import org.pangrova.worker.ai.governance.AiInvocationAuthorizer;
+import org.pangrova.worker.ai.governance.AiInvocationObserver;
+import org.pangrova.worker.ai.governance.CompositeAiInvocationObserver;
 import org.pangrova.worker.ai.invocation.AiInvocationService;
-import org.pangrova.worker.ai.invocation.ConfigurableAiInvocationAuthorizer;
+import org.pangrova.worker.ai.governance.ConfigurableAiInvocationAuthorizer;
 import org.pangrova.worker.ai.provider.ConfiguredAiProviderRegistry;
 import org.pangrova.worker.ai.provider.EnvironmentSecretResolver;
 import org.pangrova.worker.ai.provider.GovernedEmbeddingProvider;
@@ -243,7 +244,7 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
             Function<String, InferenceProvider> inferenceLookup,
             Function<String, EmbeddingProvider> configuredEmbeddingLookup,
             Function<String, RerankingProvider> configuredRerankingLookup) {
-        AiInvocationAuthorizer authorizer = discoverAuthorizer(config);
+        AiInvocationAuthorizer authorizer = ConfigurableAiInvocationAuthorizer.discover(config);
         AiInvocationObserver observer = CompositeAiInvocationObserver.discover();
         AiInvocationService service = new AiInvocationService(
                 inferenceLookup,
@@ -264,25 +265,6 @@ public final class AiFunctionFactory implements FunctionFactory, AutoCloseable {
                                 modelName,
                                 configuredRerankingLookup.apply(modelName)),
                         service));
-    }
-
-    private static AiInvocationAuthorizer discoverAuthorizer(Map<String, String> config) {
-        List<AiInvocationAuthorizer> implementations = ServiceLoader
-                .load(AiInvocationAuthorizer.class)
-                .stream()
-                .map(ServiceLoader.Provider::get)
-                .toList();
-        if (implementations.size() > 1) {
-            throw new IllegalStateException(
-                    "Multiple AiInvocationAuthorizer implementations are installed: "
-                            + implementations.stream()
-                            .map(value -> value.getClass().getName())
-                            .toList());
-        }
-        if (implementations.isEmpty()) {
-            return ConfigurableAiInvocationAuthorizer.from(config);
-        }
-        return implementations.get(0);
     }
 
     private static <T> T requireExactModel(String requestedName, T provider) {

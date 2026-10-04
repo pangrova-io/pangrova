@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;

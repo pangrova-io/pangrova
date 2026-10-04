@@ -1,6 +1,6 @@
 // ShufflePartitionAccumulator: Coalesces small per-partition row sets across
 // multiple consumer callback invocations before serializing. Reduces
-// PrestoVectorSerde serialization overhead when partition count is high
+// Arrow IPC serialization overhead when partition count is high
 // (200+) and each callback batch yields only a few rows per partition.
 //
 // Thread-safe: consumer callbacks may be invoked from multiple Velox Driver
@@ -21,7 +21,7 @@
 namespace pangrova::shuffle {
 
 // Minimum rows per partition before flushing. Below this threshold,
-// rows are accumulated to amortize PrestoVectorSerde fixed overhead.
+// rows are accumulated to amortize Arrow IPC schema and stream overhead.
 inline constexpr int32_t kMinPartitionFlushRows = 128;
 
 class ShufflePartitionAccumulator {

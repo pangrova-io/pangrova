@@ -13,8 +13,11 @@
 // **Validates: Requirements 5.1**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -49,7 +52,8 @@ struct TableFunctionRelParam {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& col_name) {
   schema->add_names(col_name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 // Build a Substrait Plan containing an ExtensionMultiRel encoding a
@@ -96,7 +100,7 @@ std::vector<uint8_t> buildTableFunctionPlan(
   ext_multi->mutable_detail()->PackFrom(envelope);
 
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -158,7 +162,7 @@ std::vector<uint8_t> buildTableFunctionWithInputPlan(
   ext_multi->mutable_detail()->PackFrom(envelope);
 
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -190,7 +194,9 @@ TEST_P(TableFunctionRelConversionTest, StandaloneTableFunctionNodeCreated) {
       param.function_name, param.argument_count, param.output_schema_width);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr)
@@ -248,7 +254,9 @@ TEST_P(TableFunctionRelConversionTest, LateralJoinTableFunctionNodeCreated) {
       input_schema_width);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr)
@@ -319,14 +327,20 @@ TEST(TableFunctionOutputContractTest, RejectsMissingOrChangedInputPrefix) {
     ASSERT_TRUE(extension->detail().UnpackTo(&envelope));
     auto* schema = envelope.mutable_table_function()->mutable_output_schema();
     if (mutation == 0) schema->set_names(0, "wrong_input_label");
-    if (mutation == 1) schema->mutable_struct_()->mutable_types(0)->mutable_string();
+    if (mutation == 1) {
+      schema->mutable_struct_()->mutable_types(0)->Clear();
+      schema->mutable_struct_()->mutable_types(0)->mutable_string()
+          ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+    }
     if (mutation == 2) {
       schema->mutable_names()->DeleteSubrange(0, 2);
       schema->mutable_struct_()->mutable_types()->DeleteSubrange(0, 2);
     }
     extension->mutable_detail()->PackFrom(envelope);
-    const auto mutated = plan.SerializeAsString();
-    VeloxPlanConverter converter;
+    const auto mutated = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     try {
       converter.convert({mutated.begin(), mutated.end()}, {});
       FAIL() << "Invalid table-function prefix must fail before execution";
@@ -355,7 +369,9 @@ TEST_P(TableFunctionRelConversionTest, UnregisteredFunctionThrows) {
       unregistered_name, param.argument_count, param.output_schema_width);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   try {
     converter.convert(plan_bytes, {});
     FAIL() << "Expected std::runtime_error for unregistered function: "

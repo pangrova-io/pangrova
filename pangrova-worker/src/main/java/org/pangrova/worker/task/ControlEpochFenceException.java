@@ -2,6 +2,7 @@ package org.pangrova.worker.task;
 
 /** Typed rejection raised when a task carries an invalid cluster-control term. */
 public final class ControlEpochFenceException extends IllegalStateException {
+    private static final long serialVersionUID = 1L;
 
     public enum Reason {
         CONTROL_PLANE_NOT_READY,

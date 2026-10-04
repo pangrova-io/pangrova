@@ -22,11 +22,12 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.query.ResultProtocol;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,34 +36,20 @@ class FlightResultFetcherDeadlineTest {
 
     @Test
     void liveFlightStreamCannotOutrunCallerQueryDeadline() throws Exception {
-        CountDownLatch streamStarted = new CountDownLatch(1);
-        CountDownLatch releaseProducer = new CountDownLatch(1);
-        try (RootAllocator allocator = new RootAllocator(32L * 1024 * 1024);
-             FlightServer server = FlightServer.builder(
+        try (RootAllocator allocator = new RootAllocator(32L * 1024 * 1024)) {
+            var producer = new DeadlineProducer(allocator);
+            verifyDeadlineAndRecovery(allocator, producer);
+            assertThat(allocator.getAllocatedMemory()).isZero();
+            assertThat(allocator.getChildAllocators()).isEmpty();
+        }
+    }
+
+    private static void verifyDeadlineAndRecovery(RootAllocator allocator, DeadlineProducer producer) throws Exception {
+        try (FlightServer server = FlightServer.builder(
                      allocator, Location.forGrpcInsecure("127.0.0.1", 0),
-                     new NoOpFlightProducer() {
-                         @Override
-                         public void getStream(
-                                 FlightProducer.CallContext context,
-                                 Ticket ticket,
-                                 FlightProducer.ServerStreamListener listener) {
-                             IntVector vector = new IntVector("value", allocator);
-                             try (VectorSchemaRoot root = VectorSchemaRoot.of(vector)) {
-                                 vector.allocateNew();
-                                 root.setRowCount(0);
-                                 listener.start(root);
-                                 streamStarted.countDown();
-                                 if (releaseProducer.await(10, TimeUnit.SECONDS)
-                                         && !listener.isCancelled()) {
-                                     listener.completed();
-                                 }
-                             } catch (InterruptedException interrupted) {
-                                 Thread.currentThread().interrupt();
-                             }
-                         }
-                     }).build().start();
+                     producer).build().start();
              FlightResultFetcher fetcher = new FlightResultFetcher()) {
-            var executor = Executors.newSingleThreadExecutor();
+            var executor = ManagedExecutorFactory.newSingleThreadExecutor("actual-flight-deadline-consumer");
             try {
                 var result = executor.submit(() -> {
                     try {
@@ -75,14 +62,59 @@ class FlightResultFetcherDeadlineTest {
                         return failure;
                     }
                 });
-                assertThat(streamStarted.await(2, TimeUnit.SECONDS)).isTrue();
+                assertThat(producer.streamStarted.await(2, TimeUnit.SECONDS)).isTrue();
                 Throwable failure = result.get(5, TimeUnit.SECONDS);
                 assertThat(failure).isInstanceOf(TransportConnectionException.class);
                 assertThat(((TransportConnectionException) failure).transportErrorCode())
                         .isEqualTo("TRANSPORT_QUERY_DEADLINE_EXCEEDED");
             } finally {
-                releaseProducer.countDown();
-                executor.shutdownNow();
+                producer.releaseProducer.countDown();
+                executor.shutdown();
+                boolean producerExited = producer.producerExited.await(5, TimeUnit.SECONDS);
+                boolean consumerExited = executor.awaitTermination(5, TimeUnit.SECONDS);
+                assertThat(producerExited).isTrue();
+                assertThat(consumerExited).isTrue();
+            }
+            var recovered = ArrowBatchDecoder.decode(fetcher.fetch(new ResultEndpoint("127.0.0.1", server.getPort(),
+                    "recovery", ResultProtocol.GRPC.value()), System.currentTimeMillis() + 3_000));
+            assertThat(recovered.rows()).singleElement().satisfies(row -> assertThat(row).containsExactly(42));
+            fetcher.close();
+        }
+    }
+
+    private static final class DeadlineProducer extends NoOpFlightProducer {
+        private final RootAllocator allocator;
+        private final CountDownLatch streamStarted = new CountDownLatch(1);
+        private final CountDownLatch releaseProducer = new CountDownLatch(1);
+        private final CountDownLatch producerExited = new CountDownLatch(1);
+
+        private DeadlineProducer(RootAllocator allocator) { this.allocator = allocator; }
+
+        @Override
+        public void getStream(FlightProducer.CallContext context, Ticket ticket, FlightProducer.ServerStreamListener listener) {
+            boolean deadline = new String(ticket.getBytes(), StandardCharsets.UTF_8).equals("deadline");
+            try {
+                IntVector vector = new IntVector("value", allocator);
+                try (VectorSchemaRoot root = VectorSchemaRoot.of(vector)) {
+                    vector.allocateNew();
+                    if (!deadline) {
+                        vector.setSafe(0, 42);
+                        root.setRowCount(1);
+                        listener.start(root);
+                        listener.putNext();
+                        listener.completed();
+                        return;
+                    }
+                    root.setRowCount(0);
+                    listener.start(root);
+                    streamStarted.countDown();
+                    if (releaseProducer.await(10, TimeUnit.SECONDS) && !listener.isCancelled()) listener.completed();
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Actual deadline producer was interrupted", interrupted);
+            } finally {
+                if (deadline) producerExited.countDown();
             }
         }
     }

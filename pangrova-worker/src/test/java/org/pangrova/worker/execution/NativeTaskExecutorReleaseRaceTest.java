@@ -1,6 +1,6 @@
 package org.pangrova.worker.execution;
 
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.jni.NativeBridgeException;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.protocol.v2.TaskReport;
@@ -20,13 +20,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
-/** Exercises the production locking protocol against real packaged JNI handles. */
+/** Exercises actual operation admission and exit barriers against real packaged JNI handles. */
 @Tag("native-required")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class NativeTaskExecutorReleaseRaceTest {
 
     @Test
-    void releaseTaskRemovesHandleLockEntry() throws Exception {
+    void releaseTaskRemovesActualHandleOwner() throws Exception {
         try (var fixture = new ActualNativeTaskFixture()) {
             var request = fixture.valuesRequest(false);
             long handle = fixture.createStarted(request);
@@ -42,7 +42,7 @@ class NativeTaskExecutorReleaseRaceTest {
             assertThat(report.getUnknownFields().asMap()).isEmpty();
             assertThat(report.getNativeTaskStats().getUnknownFields().asMap()).isEmpty();
             assertNativeHandleGone(handle);
-            assertThatThrownBy(() -> fixture.executor().acquireHandleReadLock(handle))
+            assertThatThrownBy(() -> fixture.executor().acquireHandleLease(handle))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("not tracked");
         }
     }
@@ -127,12 +127,12 @@ class NativeTaskExecutorReleaseRaceTest {
     }
 
     @Test
-    void closeAcquiresPerHandleLocks() throws Exception {
+    void closeJoinsEnteredHandleOperations() throws Exception {
         try (var fixture = new ActualNativeTaskFixture()) {
             long first = fixture.createPending(fixture.valuesRequest(false));
             long second = fixture.createPending(fixture.valuesRequest(false));
             fixture.stopTransports();
-            var lock = fixture.executor().acquireHandleReadLock(first);
+            var operation = fixture.executor().acquireHandleLease(first);
             var completed = new CountDownLatch(1);
             var failure = new AtomicReference<Throwable>();
             Thread closer = new Thread(() -> {
@@ -146,16 +146,16 @@ class NativeTaskExecutorReleaseRaceTest {
             }, "close-with-real-handle");
             closer.start();
             try {
-                await().atMost(Duration.ofSeconds(5)).until(() -> lock.hasQueuedThread(closer));
+                await().atMost(Duration.ofSeconds(5)).until(() -> operation.blocks(closer));
                 assertThat(completed.getCount()).isEqualTo(1);
             } finally {
-                lock.readLock().unlock();
+                operation.close();
             }
             assertThat(completed.await(5, TimeUnit.SECONDS)).isTrue();
             assertThat(failure.get()).isNull();
             assertNativeHandleGone(first);
             assertNativeHandleGone(second);
-            assertThatThrownBy(() -> fixture.executor().acquireHandleReadLock(0L))
+            assertThatThrownBy(() -> fixture.executor().acquireHandleLease(0L))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("not tracked");
         }
     }

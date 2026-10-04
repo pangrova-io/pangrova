@@ -1,5 +1,7 @@
 package org.pangrova.worker.jni.write;
 
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
+
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;

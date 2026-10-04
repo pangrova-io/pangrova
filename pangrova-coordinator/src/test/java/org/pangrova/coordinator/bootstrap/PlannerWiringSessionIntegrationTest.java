@@ -1,11 +1,13 @@
 package org.pangrova.coordinator.bootstrap;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.SessionContextConverter;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.result.QueryCacheService;
@@ -140,9 +142,10 @@ class PlannerWiringSessionIntegrationTest {
             statement.execute("ALTER TABLE pangrova_lance_tables RENAME TO temporarily_unavailable_tables");
             try {
                 var collector = new org.pangrova.planner.stats.StatisticsCollector(
-                        new org.pangrova.coordinator.metadata.CatalogStatisticsProvider(
-                                metadata.catalogRegistry(), session));
-                assertThatThrownBy(() -> collector.getStatistics("scoped_lance.alpha_only.items"))
+                        new org.pangrova.coordinator.metadata.read.CatalogStatisticsProvider(
+                                new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
+                                        metadata.catalogRegistry(), session)));
+                assertThatThrownBy(() -> collector.getStatistics(new QualifiedTableName("scoped_lance", "alpha_only", "items")))
                         .isInstanceOf(org.pangrova.metadata.exception.MetadataResolutionException.class)
                         .hasRootCauseInstanceOf(java.sql.SQLException.class);
             } finally {

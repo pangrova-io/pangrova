@@ -8,6 +8,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies R10.5 and R10.6:
@@ -23,10 +24,13 @@ class PangrovaRestClientCloseTest {
         PangrovaRestClient client = PangrovaRestClient.builder()
                 .coordinatorHost("localhost")
                 .coordinatorPort(8080)
+                .connectionPoolConfig(ConnectionPoolConfig.singleEndpoint("localhost", 8080))
                 .build();
 
         // close should not throw
         client.close();
+        assertThatThrownBy(() -> client.ping(1)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("admission is closed");
         // Calling close again should be idempotent
         client.close();
     }
@@ -68,6 +72,7 @@ class PangrovaRestClientCloseTest {
         client.close();
         client.close();
         client.close();
-        // No exception = success
+        assertThatThrownBy(() -> client.ping(1)).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("admission is closed");
     }
 }

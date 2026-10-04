@@ -24,7 +24,7 @@ final class WorkerTaskControlClient {
             WorkerTaskControlClient.class);
     private static final String INTERNAL_AUTH_HEADER = "X-Internal-Auth";
     private static final int HTTP_OK = 200;
-    private static final int HTTP_NOT_FOUND = 404;
+    private static final int HTTP_ACCEPTED = 202;
     private static final int DEFAULT_WORKER_HTTP_PORT = 8080;
 
     private final HttpClient httpClient;
@@ -72,15 +72,20 @@ final class WorkerTaskControlClient {
         }
     }
 
-    SchedulerCancelResult cancelTask(String taskId, String workerHost, int httpPort) {
+    SchedulerCancelResult cancelTask(org.pangrova.protocol.rest.task.SubmitTaskRequest issued,
+            String workerHost, int httpPort) {
+        var seal = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(issued.taskRequest());
+        String taskId = seal.getAttempt().getTaskId();
         String url = "http://" + workerHost + ":" + httpPort + "/v1/task/" + taskId;
         LOG.debug("event=task_cancel url={}", url);
         HttpRequest request = decorate(HttpRequest.newBuilder())
-                .uri(URI.create(url)).DELETE().build();
+                .uri(URI.create(url)).header("Content-Type", "application/x-protobuf")
+                .header("Accept", "application/x-protobuf")
+                .method("DELETE", HttpRequest.BodyPublishers.ofByteArray(seal.toByteArray()))
+                .timeout(java.time.Duration.ofSeconds(30)).build();
         try {
-            HttpResponse<String> response = httpClient.send(
-                    request, HttpResponse.BodyHandlers.ofString());
-            return mapCancelResponse(response, taskId);
+            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            return mapCancelResponse(response, issued);
         } catch (IOException failure) {
             LOG.warn("event=task_cancel_io_error taskId={} error={}",
                     taskId, failure.getMessage());
@@ -209,13 +214,22 @@ final class WorkerTaskControlClient {
     }
 
     private static SchedulerCancelResult mapCancelResponse(
-            HttpResponse<String> response, String taskId) {
+            HttpResponse<byte[]> response, org.pangrova.protocol.rest.task.SubmitTaskRequest issued) {
+        String taskId = issued.taskRequest().getAttempt().getTaskId();
         if (response.statusCode() == HTTP_OK) {
-            return SchedulerCancelResult.cancelled();
+            String contentType = response.headers().firstValue("Content-Type").orElse("");
+            if (!contentType.split(";", 2)[0].equalsIgnoreCase("application/x-protobuf")) {
+                return SchedulerCancelResult.failed("Worker did not return a canonical drain receipt media type", false);
+            }
+            try {
+                var actual = new org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator()
+                        .validateExecutionDrainReceipt(response.body(), issued);
+                return SchedulerCancelResult.drained(actual);
+            } catch (IllegalArgumentException malformed) {
+                return SchedulerCancelResult.failed("Worker execution drain receipt rejected: " + malformed.getMessage(), false);
+            }
         }
-        if (response.statusCode() == HTTP_NOT_FOUND) {
-            return SchedulerCancelResult.notFound(taskId);
-        }
+        if (response.statusCode() == HTTP_ACCEPTED) return SchedulerCancelResult.pending();
         LOG.warn("event=task_cancel_failed taskId={} statusCode={}",
                 taskId, response.statusCode());
         return SchedulerCancelResult.failed(

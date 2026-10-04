@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryExecutionAnchorStore;
-import org.pangrova.coordinator.query.task.WriteCommitFencer;
+import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

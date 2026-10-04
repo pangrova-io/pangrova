@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -50,7 +51,9 @@ class ExternalShuffleIngress {
 
   void push(ExternalShuffleChunk chunk);
   void finish(int64_t last_sequence);
-  void fail(std::string message);
+  // Acceptance records task failure metadata before waking the consumer. The
+  // callback must only record memory-owned evidence, never close/cancel ingress.
+  void fail(std::string message, const std::function<void()>& on_accepted);
   void cancel();
   Result take(std::chrono::microseconds max_wait);
 

@@ -61,6 +61,11 @@ public final class DispatchCanceller {
         return cancelRetrier;
     }
 
+    /** Cancels through the retained exact request, not a raw task-id network command. */
+    public void cancelTask(String queryId, String taskId, String workerHost, int workerHttpPort) {
+        cancelRetrier.cancelWithRetry(queryId, taskId, workerHost, workerHttpPort);
+    }
+
     /**
      * Registers a dispatched task in the task tracker with scheduling state and deadline.
      */
@@ -75,20 +80,30 @@ public final class DispatchCanceller {
     /** Registers the immutable task identity before any bytes are sent to a Worker. */
     public void prepareTaskDispatch(
             org.pangrova.protocol.rest.task.SubmitTaskRequest request,
-            String workerId) {
+            org.pangrova.coordinator.worker.WorkerInfo worker) {
         var attempt = request.taskRequest().getAttempt();
         String taskId = attempt.getTaskId();
         String queryId = attempt.getQueryOrJobId();
         taskTracker.registerTask(queryId, taskId);
         try {
             taskTracker.registerTaskRequest(taskId, request);
+            taskTracker.bindDispatchTarget(request, worker);
             taskTracker.markScheduled(queryId, taskId);
-            taskTracker.assignWorker(taskId, workerId);
+            taskTracker.assignWorker(taskId, worker.workerId());
             taskTracker.setDeadline(taskId, java.time.Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
         } catch (RuntimeException failure) {
             taskTracker.unregisterUndispatchedTask(queryId, taskId);
             throw failure;
         }
+    }
+
+    public void enterTaskDispatch(org.pangrova.protocol.rest.task.SubmitTaskRequest request) {
+        taskTracker.enterTaskDispatch(request);
+    }
+
+    /** Journals the same frozen fact retained by the sole issued-attempt authority. */
+    public void journalScheduledTask(org.pangrova.spi.coordination.QueryStateJournal journal, String taskId) {
+        journal.appendTaskEvent(taskTracker.scheduledJournalEvent(taskId));
     }
 
     /** Rolls back a prepared task only when dispatch did not start. */

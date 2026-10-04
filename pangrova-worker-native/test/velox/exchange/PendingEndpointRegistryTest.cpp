@@ -160,7 +160,7 @@ TEST_F(PendingEndpointRegistryTest, ExternalIngressSurvivesSealAndBindingTake) {
   EXPECT_EQ(data.data, "batch-0");
 
   ASSERT_NO_THROW(registry.finishExternalSource(91, "exchange-input-external",
-                                                "external", 0, ""));
+                                                "external", 0, "", {}));
   auto finished = endpoint->external_ingress->take(std::chrono::seconds(1));
   EXPECT_EQ(finished.kind, ExternalShuffleIngress::ResultKind::kFinished);
 

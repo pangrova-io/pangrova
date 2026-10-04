@@ -5,14 +5,12 @@
 #include <algorithm>
 #include <cstring>
 #include <deque>
-#include <arrow/c/bridge.h>
 #include <folly/futures/Future.h>
 #include <folly/futures/Promise.h>
 #include <folly/io/IOBuf.h>
 #include <velox/exec/OutputBufferManager.h>
-#include <velox/vector/arrow/Bridge.h>
-#include <velox/vector/BaseVector.h>
 #include "columnar/CanonicalBatchStream.h"
+#include "columnar/CanonicalArrowValidation.h"
 #include "result/ResultReadAuthority.h"
 
 namespace pangrova::result {
@@ -38,9 +36,8 @@ arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> decodePage(
     const std::shared_ptr<memory::ColumnarMemoryPool>& pool) {
   ARROW_ASSIGN_OR_RAISE(auto batches, columnar::decodeBatchStream(std::move(buffer), pool));
   for (const auto& batch : batches) {
-    if (!schema || !batch->schema()->Equals(*schema, true)) {
-      return arrow::Status::TypeError("Result storage schema differs from its admitted output");
-    }
+    if (!schema) return arrow::Status::Invalid("Result wire schema is unavailable");
+    ARROW_RETURN_NOT_OK(columnar::validateCanonicalArrowBatch(*batch, *schema));
   }
   return batches;
 }
@@ -106,12 +103,15 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
 
   arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override {
     *out = nullptr;
-    const auto live = FlightResultServer::lookupTaskOutputInfo(taskId());
-    if (!live || grant_.expires_at_epoch_ms() <= static_cast<uint64_t>(nowMillis())) {
-      return arrow::Status::Cancelled("Result authority was revoked or expired");
+    if (!failure_.ok()) return failure_;
+    ARROW_RETURN_NOT_OK(validateLiveAuthority());
+    while (pending_.empty() && !finished_) {
+      const auto status = fetchPages();
+      if (!status.ok()) {
+        failure_ = status;
+        return failure_;
+      }
     }
-    ARROW_RETURN_NOT_OK(validateResultRead(grant_, live->authority));
-    while (pending_.empty() && !finished_) ARROW_RETURN_NOT_OK(fetchPages());
     if (!pending_.empty()) {
       *out = std::move(pending_.front());
       pending_.pop_front();
@@ -121,6 +121,14 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
 
  private:
   const std::string& taskId() const { return grant_.attempt().task_id(); }
+
+  arrow::Status validateLiveAuthority() const {
+    const auto live = FlightResultServer::lookupTaskOutputInfo(taskId());
+    if (!live || grant_.expires_at_epoch_ms() <= static_cast<uint64_t>(nowMillis())) {
+      return arrow::Status::Cancelled("Result authority was revoked or expired");
+    }
+    return validateResultRead(grant_, live->authority);
+  }
 
   arrow::Result<FetchedPages> fetch() {
     const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
@@ -147,23 +155,33 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
     if (fetched.sequence != sequence_ || fetched.pages.empty()) {
       return arrow::Status::SerializationError("Result sequence changed or EOF evidence is absent");
     }
+    std::deque<std::shared_ptr<arrow::RecordBatch>> staged;
+    int64_t nextSequence = sequence_;
+    bool nextFinished = false;
     for (size_t i = 0; i < fetched.pages.size(); ++i) {
       auto& page = fetched.pages[i];
       if (!page) {
         if (i + 1 != fetched.pages.size()) return arrow::Status::SerializationError("Result data follows EOF");
-        finished_ = true;
+        nextFinished = true;
         break;
       }
       ARROW_ASSIGN_OR_RAISE(auto buffer, ownPage(std::move(page), info_.pool));
       ARROW_ASSIGN_OR_RAISE(auto batches, decodePage(std::move(buffer), storage_, info_.pool));
       for (const auto& batch : batches) {
-        pending_.push_back(retainResultBatch(arrow::RecordBatch::Make(
+        staged.push_back(retainResultBatch(arrow::RecordBatch::Make(
             result_, batch->num_rows(), batch->columns()), info_.ownership));
       }
-      ++sequence_;
+      ++nextSequence;
     }
     const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
     if (!buffers) return arrow::Status::IOError("Result producer was revoked");
+    // Fetching and decoding can outlive the authority checked at ReadNext entry.
+    ARROW_RETURN_NOT_OK(validateLiveAuthority());
+    // No page, cursor, EOF or ACK is committed until the entire fetched group
+    // has passed wire-schema and required-value validation.
+    pending_.swap(staged);
+    sequence_ = nextSequence;
+    finished_ = nextFinished;
     buffers->acknowledge(taskId(), 0, sequence_);
     if (finished_) buffers->deleteResults(taskId(), 0);
     return arrow::Status::OK();
@@ -175,6 +193,7 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
   std::shared_ptr<arrow::Schema> storage_, result_;
   int64_t maximumBytes_, timeoutSeconds_, sequence_ = 0;
   bool finished_ = false;
+  arrow::Status failure_ = arrow::Status::OK();
   std::deque<std::shared_ptr<arrow::RecordBatch>> pending_;
 };
 }  // namespace
@@ -191,14 +210,13 @@ arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> parseArrowBatchF
 arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> resultBatchStreamReader(
     FlightResultServer::TaskOutputInfo info, protocol::v2::ResultReadGrant grant,
     int64_t maximumResponseBytes, int64_t timeoutSeconds) {
-  if (!info.pool || !info.output_type || !info.ownership || maximumResponseBytes <= 0 ||
+  if (!info.pool || !info.output_type || !info.wire_schema || !info.ownership || maximumResponseBytes <= 0 ||
+      maximumResponseBytes > columnar::kMaximumBatchStreamBytes ||
+      static_cast<size_t>(info.wire_schema->num_fields()) != info.output_type->size() ||
       info.column_labels.size() != info.output_type->size()) {
     return arrow::Status::Invalid("Result registration lacks its allocator, schema or exact ordinal labels");
   }
-  ArrowSchema exported{};
-  facebook::velox::exportToArrow(facebook::velox::BaseVector::create(
-      info.output_type, 0, info.pool->source().get()), exported);
-  ARROW_ASSIGN_OR_RAISE(auto storage, arrow::ImportSchema(&exported));
+  auto storage = info.wire_schema;
   ARROW_ASSIGN_OR_RAISE(auto typed, detail::withResultColumnTypes(storage, info.result_column_types));
   auto fields = typed->fields();
   for (size_t i = 0; i < fields.size(); ++i) {

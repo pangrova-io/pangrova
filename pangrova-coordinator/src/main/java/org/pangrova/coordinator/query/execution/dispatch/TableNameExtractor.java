@@ -57,7 +57,7 @@ public final class TableNameExtractor {
      * Used by permission checks where catalog/schema/table must be separate.
      */
     public static QualifiedTableName extractQualified(
-            Statement stmt, org.pangrova.coordinator.query.CoordinatorSessionContext context) {
+            Statement stmt, org.pangrova.coordinator.query.session.CoordinatorSessionContext context) {
         if (stmt == null) {
             return null;
         }

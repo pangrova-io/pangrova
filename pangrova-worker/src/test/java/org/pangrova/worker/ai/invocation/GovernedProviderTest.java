@@ -1,5 +1,7 @@
 package org.pangrova.worker.ai.invocation;
 
+import org.pangrova.worker.ai.governance.AiInvocationObserver;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.spi.ai.AiCapabilityDescriptor;
 import org.pangrova.spi.ai.AiInvocationException;

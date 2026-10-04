@@ -1,8 +1,13 @@
 // Native component value/type checks; this is not public SQL/JNI E2E.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "CanonicalTaskExecution.h"
 #include "substrait/plan.pb.h"
@@ -82,11 +87,13 @@ class CanonicalAggregateExecutionTest : public ::testing::Test {
   void SetUp() override { pangrova::test::testMemoryManager(); }
 
   Rows execute(const substrait::Plan& plan) {
-    const auto encoded = plan.SerializeAsString();
-    VeloxPlanConverter converter;
+    const auto encoded = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     const auto node = converter.convert({encoded.begin(), encoded.end()}, {});
     EXPECT_EQ(node->outputType()->size(), converter.resultColumnLabels().size());
-    const auto result = executeCanonicalTask(node);
+    const auto result = executeCanonicalTask(node, converter_registry);
     Rows rows;
     for (const auto& batch : result.batches) {
       for (vector_size_t row = 0; row < batch->size(); ++row) {

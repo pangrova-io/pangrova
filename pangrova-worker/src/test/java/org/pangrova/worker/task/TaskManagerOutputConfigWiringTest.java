@@ -1,165 +1,113 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.worker.task.memory.MemoryRefs;
-
-import java.util.List;
-import java.util.Map;
-
-import org.pangrova.protocol.rest.config.OutputConfig;
-import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.resource.ResourceManager;
-import org.pangrova.resource.memory.MemoryArbitrator;
-import org.pangrova.resource.spill.SpillManager;
-import org.pangrova.resource.thread.ThreadBudgetTracker;
-import org.pangrova.spi.execution.PlanFragment;
-import org.pangrova.spi.execution.PlanNodeId;
-import org.pangrova.spi.execution.QueryId;
-import org.pangrova.spi.execution.TaskDescriptor;
-import org.pangrova.worker.buffer.OutputBufferManager;
-import org.pangrova.worker.execution.SimulatedTaskExecutor;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.pangrova.protocol.v2.TaskExecutionOptions;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.TaskState;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import org.junit.jupiter.api.Test;
-
-/**
- * Verifies OutputConfig fields from SubmitTaskRequest are wired into
- * OutputBufferManager and ResultPuller (REQ-L1).
- */
+/** Actual canonical output admission, JNI execution, Flight values and buffer ownership. */
+@Tag("native-required")
+@ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskManagerOutputConfigWiringTest {
-
-    private static final String WORKER_ID = "test-worker-output-config";
-
     @Test
-    void taskWithCustomMaxBatchesCompletesSuccessfully() {
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(3);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        OutputConfig config = new OutputConfig("ticket-1", 0L, 25, 0L);
-        String taskId = manager.submitTask(
-                buildDescriptor("q1"),
-                buildRequestWithOutputConfig("q1", config));
-
-        awaitTerminalState(manager, taskId);
-        assertThat(manager.getTaskState(taskId))
-                .isPresent()
-                .hasValue(TaskManager.TaskState.FINISHED);
-    }
-
-    @Test
-    void taskWithNullOutputConfigUsesDefaults() {
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(2);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        String taskId = manager.submitTask(
-                buildDescriptor("q2"),
-                buildRequestWithOutputConfig("q2", null));
-
-        awaitTerminalState(manager, taskId);
-        assertThat(manager.getTaskState(taskId))
-                .isPresent()
-                .hasValue(TaskManager.TaskState.FINISHED);
-    }
-
-    @Test
-    void outputBufferManagerRespectsMaxBufferedBytes() {
-        OutputBufferManager buffer = new OutputBufferManager(10, 1024 * 1024);
-        assertThat(buffer.getMaxBatches()).isEqualTo(10);
-        assertThat(buffer.getMaxBufferedBytes()).isEqualTo(1024 * 1024);
-    }
-
-    @Test
-    void outputBufferManagerDefaultsMaxBufferedBytesToZero() {
-        OutputBufferManager buffer = new OutputBufferManager(50);
-        assertThat(buffer.getMaxBufferedBytes()).isZero();
-    }
-
-    @Test
-    void outputBufferManagerNoArgConstructorUsesDefaults() {
-        OutputBufferManager buffer = new OutputBufferManager();
-        assertThat(buffer.getMaxBatches()).isEqualTo(OutputBufferManager.DEFAULT_MAX_BATCHES);
-        assertThat(buffer.getMaxBufferedBytes()).isZero();
-    }
-
-    @Test
-    void taskWithZeroMaxBatchesFallsBackToDefault() {
-        SimulatedTaskExecutor executor = new SimulatedTaskExecutor(2);
-        RecordingTaskStatusReporter reporter = new RecordingTaskStatusReporter();
-        TaskManager manager = buildTaskManager(executor, reporter);
-
-        OutputConfig config = new OutputConfig("ticket-1", 0L, 0, 0L);
-        String taskId = manager.submitTask(
-                buildDescriptor("q3"),
-                buildRequestWithOutputConfig("q3", config));
-
-        awaitTerminalState(manager, taskId);
-        assertThat(manager.getTaskState(taskId))
-                .isPresent()
-                .hasValue(TaskManager.TaskState.FINISHED);
-    }
-
-    // --- helpers ---
-
-    private TaskManager buildTaskManager(SimulatedTaskExecutor executor,
-                                         RecordingTaskStatusReporter reporter) {
-        MemoryArbitrator arbitrator = new MemoryArbitrator(1L * 1024 * 1024 * 1024, 0);
-        ThreadBudgetTracker tpm = new ThreadBudgetTracker(8, 4, 2);
-        ResourceManager rm = new ResourceManager(arbitrator, tpm, new SpillManager());
-        TaskManagerContext deps = new TaskManagerContext(
-                reporter, executor,
-                new MemoryRefs(rm),
-                new TransportRefs(null, null, null),
-                java.util.concurrent.Executors.newCachedThreadPool(r -> {
-                    Thread t = new Thread(r, "test-completion-monitor");
-                    t.setDaemon(true);
-                    return t;
-                }));
-        return new TaskManager(deps, WORKER_ID, 0.0);
-    }
-
-    private TaskDescriptor buildDescriptor(String queryId) {
-        return new TaskDescriptor(
-                new QueryId(queryId),
-                new TestPlanFragment(),
-                List.of(), Map.of());
-    }
-
-    private SubmitTaskRequest buildRequestWithOutputConfig(String queryId, OutputConfig outputConfig) {
-        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
-                "task-1", queryId, 0, 0,
-                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
-                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (outputConfig != null) {
-            canonical.setExecutionOptions(org.pangrova.protocol.v2.TaskExecutionOptions
-                    .newBuilder().setDirectResultOutput(true));
-        }
-        return SubmitTaskRequest.from(canonical.build());
-    }
-
-    private void awaitTerminalState(TaskManager manager, String taskId) {
-        long deadline = System.currentTimeMillis() + 5000;
-        while (System.currentTimeMillis() < deadline) {
-            var state = manager.getTaskState(taskId);
-            if (state.isPresent() && isTerminal(state.get())) {
-                return;
-            }
-            try { Thread.sleep(50); } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
+    void taskWithCustomBufferGrantCompletesWithItsActualValues() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "output-custom-grant")) {
+            var request = request(true, 4L * 1024 * 1024, 3);
+            var info = tasks.submit(request);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
+            assertThat(tasks.consume(info).values()).containsExactly(0L, 1L, 2L);
+            assertThat(info.executorHandle()).isZero();
         }
     }
 
-    private boolean isTerminal(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.FINISHED
-                || state == TaskManager.TaskState.FAILED
-                || state == TaskManager.TaskState.CANCELLED;
+    @Test
+    void taskWithoutDirectResultOutputUsesTheActualComputeCompletionPath() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "output-no-result")) {
+            var request = request(false, 8L * 1024 * 1024, 2).toBuilder()
+                    .clearExecutionOptions().build();
+            var info = tasks.submit(request);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            assertThat(request.getExecutionOptions().getDirectResultOutput()).isFalse();
+            assertThat(info.executorHandle()).isZero();
+            assertThat(info.allocatedBufferMemory()).isZero();
+            var report = TaskReport.parseFrom(info.terminalTaskReport());
+            assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+            assertThat(report.hasNativeTaskStats()).isTrue();
+            assertThat(report.getNativeTaskStats().getOperatorStatsList())
+                    .anyMatch(operator -> operator.getOutputRows() == 2);
+        }
     }
 
-    private static final class TestPlanFragment implements PlanFragment {
-        @Override public PlanNodeId getId() { return new PlanNodeId("test-node"); }
-        @Override public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
+    @Test
+    void outputReservationRespectsTheExactCanonicalByteGrant() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "output-exact-budget")) {
+            var request = request(true, 1024L * 1024, 1);
+            var info = tasks.submit(request);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            assertThat(info.allocatedBufferMemory()).isEqualTo(1024L * 1024);
+            assertThat(runtime.arbitrator().snapshot())
+                    .containsEntry("buffer:" + info.taskId(), 1024L * 1024);
+            assertThat(tasks.consume(info).values()).containsExactly(0L);
+            assertThat(info.allocatedBufferMemory()).isZero();
+        }
+    }
+
+    @Test
+    void computeWithoutOutputGrantDoesNotInventADefaultReservation() {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "output-no-budget")) {
+            var request = request(false, 0, 1);
+            var info = tasks.submit(request);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            assertThat(info.allocatedBufferMemory()).isZero();
+            assertThat(info.executorHandle()).isZero();
+            assertThat(runtime.arbitrator().snapshot()).doesNotContainKey("buffer:" + info.taskId());
+        }
+    }
+
+    @Test
+    void fixtureDefaultGrantIsCarriedByTheAdmittedRequestNotAJavaBufferConstructor() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "output-default-request")) {
+            var request = runtime.valuesRequest(true);
+            var info = tasks.submit(request);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            assertThat(request.getResourceGrant().getShuffleBufferBytes()).isEqualTo(8L * 1024 * 1024);
+            assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
+            assertThat(tasks.consume(info).values()).containsExactly(42L);
+        }
+    }
+
+    @Test
+    void zeroDirectResultGrantFailsClosedBeforeNativeRegistration() {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "output-zero-budget")) {
+            long baseline = runtime.arbitrator().getUsedMemory();
+            assertThatThrownBy(() -> tasks.submit(request(true, 0, 1)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("positive serialized-buffer grant");
+            assertThat(tasks.manager().tasks).isEmpty();
+            assertThat(tasks.reports().reports()).isEmpty();
+            assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
+        }
+    }
+
+    private static TaskRequest request(boolean result, long bufferBytes, int rows) {
+        var request = ActualNativeTaskFixture.planTaskRequest(result, ActualNativeTaskPlans.values(1, rows)).toBuilder();
+        request.getResourceGrantBuilder().setShuffleBufferBytes(bufferBytes);
+        request.setExecutionOptions(TaskExecutionOptions.newBuilder().setDirectResultOutput(result));
+        return request.build();
     }
 }

@@ -44,6 +44,8 @@ public record IcebergTableHandle(
 
     /** No limit pushed down. */
     public static final long NO_LIMIT = 0L;
+    /** Connector-owned evidence for an immutable selected read, not a caller's time-travel hint. */
+    public static final String SOURCE_IDENTITY_PROPERTY = "pangrova.read.source_identity";
 
     /** Default read mode: full snapshot scan. */
     public static final String READ_MODE_FULL = "FULL";
@@ -82,7 +84,7 @@ public record IcebergTableHandle(
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.of(targetSnapshotId), schemaJson, partitionSpecJson,
-                formatVersion, properties,
+                formatVersion, selectorProperties(),
                 READ_MODE_TIME_TRAVEL, 0L, 0L, pushedLimit);
     }
 
@@ -95,7 +97,7 @@ public record IcebergTableHandle(
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.empty(), schemaJson, partitionSpecJson,
-                formatVersion, properties,
+                formatVersion, selectorProperties(),
                 READ_MODE_FULL, 0L, 0L, pushedLimit);
     }
 
@@ -110,8 +112,14 @@ public record IcebergTableHandle(
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.empty(), schemaJson, partitionSpecJson,
-                formatVersion, properties,
+                formatVersion, selectorProperties(),
                 READ_MODE_INCREMENTAL, startSnapshotId, endSnapshotId, pushedLimit);
+    }
+
+    private Map<String, String> selectorProperties() {
+        var selected = new java.util.LinkedHashMap<>(properties);
+        selected.remove(SOURCE_IDENTITY_PROPERTY);
+        return selected;
     }
 
     /**

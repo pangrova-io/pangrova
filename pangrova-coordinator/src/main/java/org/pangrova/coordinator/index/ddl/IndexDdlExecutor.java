@@ -4,7 +4,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.index.BuildMappingPersister;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.coordinator.index.IndexGenerationPublisher;
 import org.pangrova.indexing.storage.IndexCache;

@@ -3,16 +3,23 @@
 import argparse
 from pathlib import Path
 import re
+import sys
+
+if sys.version_info < (3, 10):
+    raise SystemExit("Function contract generation requires Python 3.10 or later")
 
 from registration_catalog import canonical_json
 
 from binding_declarations import read_declarations, structural_contract_digest
+from physical_type_bridge import render_bridge
+from binding_manifest import render_binding_manifest
 
 
 def render_header(declarations):
     lines = ["// Generated from the canonical SQL binding declaration. Do not edit.",
              "#pragma once", "#include <array>", "#include <cstdint>",
              "#include <cstddef>", "#include <span>", "#include <string_view>", "#include <stdexcept>",
+             '#include "pangrova/protocol/v2/capability.pb.h"',
              "namespace pangrova::capability::generated {",
              "struct StructuralContractIdentity {",
              "  const char* id;", "  const char* version;",
@@ -22,6 +29,7 @@ def render_header(declarations):
     lines.extend(render_governed_layouts(declarations))
     lines.extend(render_callback_signatures(declarations))
     lines.extend(render_function_options(declarations))
+    lines.extend(render_binding_manifest(declarations))
     identifiers = set()
     for entry in declarations["structuralContracts"]:
         name = re.sub(r"[^a-zA-Z0-9_]", "_", entry["id"])
@@ -34,6 +42,24 @@ def render_header(declarations):
                       f'  {canonical_json(entry["id"])}, {canonical_json(entry["version"])}, {{{encoded}}}', "};"])
     lines.append("}  // namespace pangrova::capability::generated")
     return "\n".join(lines) + "\n"
+
+
+def render_type_layout_naming(declarations):
+    prefix = declarations["physicalTypeBridge"]["anonymousComputedFieldPrefix"]
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", prefix):
+        raise ValueError("Malformed anonymous computed field prefix")
+    return "\n".join([
+        "// Generated from the canonical physical type declaration. Do not edit.",
+        "package org.pangrova.protocol.substrait.generated;", "",
+        "/** Names anonymous computed ROW fields; never synthesizes explicit input schema names. */",
+        "public final class GeneratedTypeLayoutNaming {",
+        f"    private static final String PREFIX = {canonical_json(prefix)};",
+        "    private GeneratedTypeLayoutNaming() {}", "",
+        "    /** Returns the declared anonymous field name for a nonnegative canonical ordinal. */",
+        "    public static String anonymousComputedField(int ordinal) {",
+        "        if (ordinal < 0) {",
+        '            throw new IllegalArgumentException("Anonymous field ordinal must be nonnegative");',
+        "        }", "        return PREFIX + ordinal;", "    }", "}", ""])
 
 
 def render_governed_layouts(declarations):
@@ -83,7 +109,7 @@ def render_callback_signatures(declarations):
     layouts = {layout["id"]: [argument["type"] for argument in layout["arguments"]]
                for layout in declarations["governedLayouts"]}
     lines = ["struct RuntimeCallbackSignature {", "  const char* name;", "  const char* returnType;",
-             "  std::span<const char* const> arguments;", "};"]
+             "  std::span<const char* const> arguments;", "  bool deterministic;", "};"]
     callbacks = []
     for binding in declarations["bindings"]:
         runtime = binding.get("runtimeSignature")
@@ -103,7 +129,7 @@ def render_callback_signatures(declarations):
         lines.append(f"inline constexpr std::array<RuntimeCallbackSignature, {len(signatures)}> {name}_signatures = {{{{")
         for ordinal in range(len(signatures)):
             lines.append("  {" + canonical_json(name) + ", " + canonical_json(runtime["returnType"])
-                         + f", {name}_arguments_{ordinal}" + "},")
+                         + f", {name}_arguments_{ordinal}, " + canonical_json(runtime["deterministic"]) + "},")
         lines.append("}};")
         callbacks.append(name)
     lines.append("inline std::span<const RuntimeCallbackSignature> runtimeCallbackSignatures(std::string_view name) {")
@@ -116,12 +142,23 @@ def render_callback_signatures(declarations):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--declaration", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--physical-output", type=Path)
+    parser.add_argument("--java-root", type=Path)
     args = parser.parse_args()
+    if args.output is None and args.physical_output is None and args.java_root is None:
+        parser.error("At least one generated output must be requested")
     declaration = read_declarations(args.declaration.read_text(encoding="utf-8"))
-    output = render_header(declaration)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(output, encoding="utf-8")
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(render_header(declaration), encoding="utf-8")
+    if args.physical_output is not None:
+        args.physical_output.parent.mkdir(parents=True, exist_ok=True)
+        args.physical_output.write_text(render_bridge(declaration["physicalTypeBridge"]), encoding="utf-8")
+    if args.java_root is not None:
+        output = args.java_root / "org/pangrova/protocol/substrait/generated/GeneratedTypeLayoutNaming.java"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(render_type_layout_naming(declaration), encoding="utf-8")
 
 
 if __name__ == "__main__":

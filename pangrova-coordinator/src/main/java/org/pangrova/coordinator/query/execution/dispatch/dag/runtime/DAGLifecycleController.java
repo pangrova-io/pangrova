@@ -268,8 +268,8 @@ public final class DAGLifecycleController {
             StageDispatchRecord record =
                     DAGCompletionEvaluator.findDispatchRecord(taskId, dispatched);
             if (record != null) {
-                dispatcher.cancelTask(
-                        taskId, record.result().workerHost(), record.workerHttpPort());
+                canceller.cancelTask(stage.stateMachine().getQueryId(), taskId,
+                        record.result().workerHost(), record.workerHttpPort());
             }
         }
     }

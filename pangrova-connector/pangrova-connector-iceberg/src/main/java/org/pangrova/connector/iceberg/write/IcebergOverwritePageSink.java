@@ -65,7 +65,7 @@ public final class IcebergOverwritePageSink extends AbstractIcebergPageSink {
 
     private byte[] collectUnpartitionedMetadata() {
         try {
-            unpartitionedWriter().close();
+            closeUnpartitionedWriterForCommit();
             DataFile dataFile = unpartitionedWriter().toDataFile();
             if (dataFile.recordCount() > 0) {
                 LOG.debug("event=overwrite_metadata_collected dataFile={}", dataFile.path());

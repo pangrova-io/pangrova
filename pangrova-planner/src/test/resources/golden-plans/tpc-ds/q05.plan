@@ -1,4 +1,4 @@
-LogicalProject(channel=[$0], id=[$1], sales=[CASE(=($3, 0), null:DECIMAL(19, 2), $2)], returns_amt=[CASE(=($3, 0), null:DECIMAL(19, 2), $4)], profit=[CASE(=($3, 0), null:DECIMAL(19, 2), $5)])
+LogicalProject(channel=[$0], id=[$1], sales=[CASE(=($3, 0), null:DECIMAL(38, 2), $2)], returns_amt=[CASE(=($3, 0), null:DECIMAL(38, 2), $4)], profit=[CASE(=($3, 0), null:DECIMAL(38, 2), $5)])
   LogicalSort(sort0=[$0], sort1=[$1], dir0=[ASC], dir1=[ASC], fetch=[100])
     LogicalAggregate(group=[{0, 1}], groups=[[{0, 1}, {0}, {}]], sales=[$SUM0($2)], agg#1=[COUNT()], returns_amt=[$SUM0($3)], profit=[$SUM0($4)])
       LogicalUnion(all=[true])

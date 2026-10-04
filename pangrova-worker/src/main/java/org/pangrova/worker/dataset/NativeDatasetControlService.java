@@ -2,7 +2,7 @@ package org.pangrova.worker.dataset;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;
 import org.pangrova.protocol.v2.FinalizeDistributedWriteRequest;
@@ -11,7 +11,7 @@ import org.pangrova.protocol.v2.RuntimeCommandResponse;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.worker.jni.NativeRuntime;
-import org.pangrova.worker.jni.write.WorkerCatalogRuntime;
+import org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime;
 import org.pangrova.worker.task.TaskManager;
 import java.io.IOException;
 import java.io.InputStream;

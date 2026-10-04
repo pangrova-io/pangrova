@@ -12,6 +12,7 @@ import java.util.OptionalLong;
 public record NativePhysicalFileReceipt(
         NativePhysicalFileAllocation allocation, Metrics metrics, byte[] objectSha256,
         List<ColumnStatistics> columns) {
+    private static final int MAX_COLUMN_STATISTICS = 4096;
 
     public NativePhysicalFileReceipt {
         Objects.requireNonNull(allocation, "allocation");
@@ -19,7 +20,7 @@ public record NativePhysicalFileReceipt(
         objectSha256 = NativePhysicalWriteAllocation.copyBytes(objectSha256, 32, "object SHA-256");
         if (objectSha256.length != 32) throw new IllegalArgumentException("Invalid object SHA-256");
         columns = List.copyOf(columns);
-        if (columns.size() > 4096) throw new IllegalArgumentException("Too many file statistics");
+        if (columns.size() > MAX_COLUMN_STATISTICS) throw new IllegalArgumentException("Too many file statistics");
     }
 
     @Override public byte[] objectSha256() { return objectSha256.clone(); }

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <cmath>
 #include <chrono>
@@ -79,7 +80,9 @@ class RetrievalMergeExecutionTest : public ::testing::Test {
     };
 
     auto query_context = facebook::velox::core::QueryCtx::create(
-        pangrova::jni::globalExecutor().get());
+        pangrova::jni::globalExecutor().get(),
+        facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+            facebook::velox::exec::FunctionRegistrySnapshot::capture()));
     auto task = facebook::velox::exec::Task::create(
         "retrieval-merge-execution-test",
         facebook::velox::core::PlanFragment{merge},

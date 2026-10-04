@@ -13,40 +13,33 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * {@link ClusterAdmissionController} that enforces tenant resource quotas at
- * the coordinator admission gate.
+ * Checks tenant status, concurrent-query limits and memory estimates before dispatch.
  *
- * <p>Resolves G-RES-01: previously, quotas were never loaded into any tracker
- * ({@code .setQuota()} had zero call sites) and {@code TaskMemoryRequestor}
- * did not enforce tenant-level limits. This controller loads quotas from
- * {@link TenantStore} and atomically tracks per-tenant admitted query counts
- * using CAS, eliminating the TOCTOU race in the earlier check-then-act
- * pattern.</p>
+ * <p>Limits come from {@link TenantStore}. Local counters use CAS; an explicitly
+ * supplied {@link ClusterConcurrencySlots} is the shared concurrency authority.
+ * A heartbeat-fed usage view is observational, not an atomic memory reservation.</p>
  *
  * <p>Concurrency model: per-tenant {@link AtomicInteger} counters in a
  * {@link ConcurrentHashMap}, incremented atomically on admit and decremented
  * on release. Memory-aware admission is supported when the
  * {@link AdmissionRequest} carries a CBO estimate.</p>
  *
- * <p>Benchmarked against StarRocks resource group (mem_limit + concurrency).</p>
+ * <p>This admission check does not install Worker runtime quotas or enforce
+ * CPU, scan or daily usage limits during execution.</p>
  */
 public final class TenantQuotaAdmissionController implements ClusterAdmissionController {
 
     private static final Logger LOG = LoggerFactory.getLogger(TenantQuotaAdmissionController.class);
 
     private final TenantStore tenantStore;
-    private final QuotaChecker quotaChecker;
-
-    /** Optional cluster-wide usage view fed by worker heartbeats (P1-5); null = local-only. */
+    /** Optional cluster-wide usage view fed by worker heartbeats; null = local-only. */
     private final GlobalTenantUsageView globalUsageView;
 
     /**
-     * A-ADMISSION-01: optional ATOMIC cluster-wide concurrency gate. When non-null it is the
-     * authoritative admission gate (no lagged-view TOCTOU oversell). Null = local counters only.
+     * Explicit shared concurrency gate; null uses only the local reservation counter.
      */
     private final ClusterConcurrencySlots clusterSlots;
 
@@ -56,41 +49,52 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
     /** Per-tenant queued query counts. */
     private final ConcurrentHashMap<String, AtomicInteger> queuedCounts = new ConcurrentHashMap<>();
 
-    /** Tracks which queries were queued (queryId → tenantId). Only queued queries are tracked here. */
-    private final ConcurrentMap<String, String> queuedQueries = new ConcurrentHashMap<>();
+    private final QueryAdmissionOwnership ownership = new QueryAdmissionOwnership();
 
-    public TenantQuotaAdmissionController(TenantStore tenantStore, QuotaChecker quotaChecker) {
-        this(tenantStore, quotaChecker, null, null);
+    /**
+     * Creates a process-local admission controller.
+     *
+     * @param tenantStore authority for tenant definitions and limits
+     */
+    public TenantQuotaAdmissionController(TenantStore tenantStore) {
+        this(tenantStore, null, null);
     }
 
     /**
      * Creates a controller that additionally enforces cluster-wide limits using a
      * heartbeat-fed {@link GlobalTenantUsageView}. When {@code globalUsageView} is
      * null the controller enforces only this coordinator's local counters
-     * (single-node semantics), preserving backward-compatible behavior.
+     * (single-node semantics).
+     *
+     * @param tenantStore authority for tenant definitions and limits
+     * @param globalUsageView observational usage view, or null for local counters only
      */
-    public TenantQuotaAdmissionController(TenantStore tenantStore, QuotaChecker quotaChecker,
-                                          GlobalTenantUsageView globalUsageView) {
-        this(tenantStore, quotaChecker, globalUsageView, null);
+    public TenantQuotaAdmissionController(TenantStore tenantStore, GlobalTenantUsageView globalUsageView) {
+        this(tenantStore, globalUsageView, null);
     }
 
     /**
-     * A-ADMISSION-01: creates a controller whose concurrency gate is an ATOMIC cluster-wide
-     * reservation ({@code clusterSlots}) shared by all coordinators, eliminating the oversell that
-     * the heartbeat-fed (lagged) view permits. When {@code clusterSlots} is null, falls back to the
-     * local counter (+ optional lagged view) path.
+     * Creates a controller with an explicitly supplied shared concurrency gate.
+     * Without a shared gate, concurrency reservation is local to this controller.
+     *
+     * @param tenantStore authority for tenant definitions and limits
+     * @param globalUsageView observational usage view, or null
+     * @param clusterSlots shared concurrency authority, or null for local reservation
      */
-    public TenantQuotaAdmissionController(TenantStore tenantStore, QuotaChecker quotaChecker,
-                                          GlobalTenantUsageView globalUsageView,
+    public TenantQuotaAdmissionController(TenantStore tenantStore, GlobalTenantUsageView globalUsageView,
                                           ClusterConcurrencySlots clusterSlots) {
         this.tenantStore = Objects.requireNonNull(tenantStore, "tenantStore must not be null");
-        this.quotaChecker = Objects.requireNonNull(quotaChecker, "quotaChecker must not be null");
         this.globalUsageView = globalUsageView;
         this.clusterSlots = clusterSlots;
     }
 
     @Override
     public AdmissionDecision admit(AdmissionRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        return ownership.admit(request, reservation -> admitNew(request, reservation));
+    }
+
+    private AdmissionDecision admitNew(AdmissionRequest request, QueryAdmissionOwnership.Reservation reservation) {
         String tenantId = request.tenantId();
 
         Tenant tenant = tenantStore.getTenant(tenantId).orElse(null);
@@ -101,20 +105,18 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
 
         ResourceQuota quota = tenant.quota();
         if (quota == null) {
-            incrementAdmitted(tenantId);
-            return AdmissionDecision.admit();
+            quota = new ResourceQuota(Long.MAX_VALUE, Integer.MAX_VALUE,
+                    0, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE);
         }
 
         AtomicInteger counter = admittedCounts.computeIfAbsent(tenantId, k -> new AtomicInteger(0));
         AtomicInteger queueCounter = queuedCounts.computeIfAbsent(tenantId, k -> new AtomicInteger(0));
 
-        // A-ADMISSION-01: with a distributed slot store, use an ATOMIC cluster-wide reservation as
-        // the authoritative concurrency gate — eliminating the multi-coordinator oversell that the
-        // heartbeat-fed (lagged) GlobalTenantUsageView allows via read-then-admit TOCTOU.
+        // A shared slot store supplies the concurrency reservation; a lagged usage view cannot.
         if (clusterSlots != null) {
-            return admitViaClusterSlots(request, quota, counter, queueCounter, tenantId);
+            return admitViaClusterSlots(request, quota, counter, queueCounter, tenantId, reservation);
         }
-        return admitViaLocalCounters(request, quota, counter, queueCounter, tenantId);
+        return admitViaLocalCounters(request, quota, counter, queueCounter, tenantId, reservation);
     }
 
     /**
@@ -123,16 +125,14 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
      * project cyclomatic-complexity budget, and to mirror {@link #admitViaClusterSlots}.
      */
     private AdmissionDecision admitViaLocalCounters(AdmissionRequest request, ResourceQuota quota,
-            AtomicInteger counter, AtomicInteger queueCounter, String tenantId) {
-        // P1-5 phase 2: cluster-wide concurrency backpressure. The heartbeat-fed
-        // global view reflects tenant queries active across ALL nodes; when the
-        // cluster is already at the concurrency limit, queue/reject even if this
-        // coordinator's local count is low, preventing multi-coordinator oversell.
+            AtomicInteger counter, AtomicInteger queueCounter, String tenantId,
+            QueryAdmissionOwnership.Reservation reservation) {
+        // Observed usage may reject known saturation, but cannot reserve across coordinators.
         GlobalTenantUsageView view = this.globalUsageView;
         if (view != null) {
             int clusterActive = view.aggregatedActiveQueries(tenantId);
             if (clusterActive >= quota.maxConcurrentQueries()) {
-                return queueOrReject(request, quota, queueCounter, tenantId, clusterActive);
+                return queueOrReject(request, quota, queueCounter, tenantId, clusterActive, reservation);
             }
         }
 
@@ -140,10 +140,11 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
         while (true) {
             int current = counter.get();
             if (current >= quota.maxConcurrentQueries()) {
-                return queueOrReject(request, quota, queueCounter, tenantId, current);
+                return queueOrReject(request, quota, queueCounter, tenantId, current, reservation);
             }
             if (counter.compareAndSet(current, current + 1)) {
-                return checkMemoryAndAdmit(request, quota, counter, tenantId, current);
+                reservation.retain(counter::decrementAndGet);
+                return checkMemoryAndAdmit(request, quota, tenantId, current, reservation);
             }
         }
     }
@@ -162,9 +163,14 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
 
     /** Handles admission when at concurrency limit: queue if possible, otherwise reject. */
     private AdmissionDecision queueOrReject(AdmissionRequest request, ResourceQuota quota,
-                                            AtomicInteger queueCounter, String tenantId, int current) {
-        int queued = queueCounter.get();
-        if (queued >= quota.maxQueuedQueries()) {
+                                            AtomicInteger queueCounter, String tenantId, int current,
+                                            QueryAdmissionOwnership.Reservation reservation) {
+        int queued;
+        do {
+            queued = queueCounter.get();
+            if (queued < quota.maxQueuedQueries()) {
+                continue;
+            }
             LOG.info("event=admission_rejected tenantId={} queryId={} "
                             + "concurrent={} max={} queued={} maxQueued={}",
                     tenantId, request.queryId(), current,
@@ -173,9 +179,8 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
                     "concurrent query limit reached (" + current + "/"
                         + quota.maxConcurrentQueries() + ") and queue full ("
                         + queued + "/" + quota.maxQueuedQueries() + ")");
-        }
-        queueCounter.incrementAndGet();
-        queuedQueries.put(request.queryId(), tenantId);
+        } while (!queueCounter.compareAndSet(queued, queued + 1));
+        reservation.retain(queueCounter::decrementAndGet);
         LOG.debug("event=admission_queued tenantId={} queryId={} concurrent={} queued={}",
                 tenantId, request.queryId(), current, queued + 1);
         return AdmissionDecision.queue(
@@ -185,33 +190,14 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
 
     /** Memory-aware check after successful CAS: validate against quota then admit. */
     private AdmissionDecision checkMemoryAndAdmit(AdmissionRequest request, ResourceQuota quota,
-                                                  AtomicInteger counter, String tenantId, int current) {
-        if (request.estimatedMemoryBytes().isPresent()) {
-            long estimated = request.estimatedMemoryBytes().getAsLong();
-            if (estimated > quota.maxMemoryBytes()) {
-                counter.decrementAndGet();
-                LOG.info("event=admission_rejected tenantId={} queryId={} "
-                                + "estimatedMemory={} maxMemory={}",
-                        tenantId, request.queryId(), estimated, quota.maxMemoryBytes());
-                return AdmissionDecision.reject(
-                    "estimated memory " + estimated + " exceeds tenant limit "
-                        + quota.maxMemoryBytes());
-            }
-            // P1-5 phase 2: reject if this query's estimate on top of the tenant's
-            // current cluster-wide memory (heartbeat-fed) would exceed the budget.
-            GlobalTenantUsageView view = this.globalUsageView;
-            if (view != null) {
-                long clusterUsed = view.aggregatedMemoryBytes(tenantId);
-                if (clusterUsed + estimated > quota.maxMemoryBytes()) {
-                    counter.decrementAndGet();
-                    LOG.info("event=admission_rejected tenantId={} queryId={} "
-                                    + "clusterMemory={} estimatedMemory={} maxMemory={}",
-                            tenantId, request.queryId(), clusterUsed, estimated, quota.maxMemoryBytes());
-                    return AdmissionDecision.reject(
-                            "cluster memory " + clusterUsed + " + estimate " + estimated
-                                    + " exceeds tenant limit " + quota.maxMemoryBytes());
-                }
-            }
+                                                  String tenantId, int current,
+                                                  QueryAdmissionOwnership.Reservation reservation) {
+        AdmissionDecision rejected = checkMemoryReject(request, quota, tenantId);
+        if (rejected != null) {
+            reservation.returnCapacity();
+            LOG.info("event=admission_rejected tenantId={} queryId={} reason={}",
+                    tenantId, request.queryId(), rejected.reason());
+            return rejected;
         }
         LOG.debug("event=admission_admitted tenantId={} queryId={} concurrent={}",
                 tenantId, request.queryId(), current + 1);
@@ -219,27 +205,33 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
     }
 
     /**
-     * A-ADMISSION-01: admission gated by an ATOMIC cluster-wide reservation. The reservation is the
-     * authoritative concurrency check; on memory rejection the reserved slot is released so it is not
-     * leaked. The local {@code counter} is still tracked for release bookkeeping and diagnostics.
+     * Reserves through the shared gate and balances memory rejection with its actual release.
+     * The local counter supplies release bookkeeping and diagnostics.
      */
     private AdmissionDecision admitViaClusterSlots(AdmissionRequest request, ResourceQuota quota,
-            AtomicInteger counter, AtomicInteger queueCounter, String tenantId) {
-        if (!clusterSlots.tryReserve(tenantId, quota.maxConcurrentQueries())) {
-            return queueOrReject(request, quota, queueCounter, tenantId, clusterSlots.active(tenantId));
+            AtomicInteger counter, AtomicInteger queueCounter, String tenantId,
+            QueryAdmissionOwnership.Reservation reservation) {
+        reservation.retain(() -> clusterSlots.release(tenantId, request.queryId()));
+        if (!clusterSlots.tryReserve(tenantId, request.queryId(), quota.maxConcurrentQueries())) {
+            reservation.returnCapacity();
+            return queueOrReject(request, quota, queueCounter, tenantId, clusterSlots.active(tenantId), reservation);
         }
         AdmissionDecision memoryReject = checkMemoryReject(request, quota, tenantId);
         if (memoryReject != null) {
-            clusterSlots.release(tenantId);
+            reservation.returnCapacity();
             return memoryReject;
         }
         counter.incrementAndGet();
+        reservation.retain(() -> {
+            clusterSlots.release(tenantId, request.queryId());
+            counter.decrementAndGet();
+        });
         LOG.debug("event=admission_admitted tenantId={} queryId={} clusterActive={}",
                 tenantId, request.queryId(), clusterSlots.active(tenantId));
         return AdmissionDecision.admit();
     }
 
-    /** A-ADMISSION-01: memory-only gate; returns a reject decision if over the memory quota, else null. */
+    /** Returns a memory rejection, or null when the available estimate fits. */
     private AdmissionDecision checkMemoryReject(AdmissionRequest request, ResourceQuota quota, String tenantId) {
         if (request.estimatedMemoryBytes().isEmpty()) {
             return null;
@@ -252,7 +244,10 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
         GlobalTenantUsageView view = this.globalUsageView;
         if (view != null) {
             long clusterUsed = view.aggregatedMemoryBytes(tenantId);
-            if (clusterUsed + estimated > quota.maxMemoryBytes()) {
+            if (clusterUsed < 0) {
+                return AdmissionDecision.reject("invalid negative cluster memory usage: " + clusterUsed);
+            }
+            if (clusterUsed > quota.maxMemoryBytes() || estimated > quota.maxMemoryBytes() - clusterUsed) {
                 return AdmissionDecision.reject(
                         "cluster memory " + clusterUsed + " + estimate " + estimated
                                 + " exceeds tenant limit " + quota.maxMemoryBytes());
@@ -263,35 +258,15 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
 
     @Override
     public void release(String queryId, String tenantId) {
-        // Determine whether this query was queued or admitted, and decrement the correct counter
-        boolean wasQueued = queuedQueries.remove(queryId) != null;
-        if (wasQueued) {
-            AtomicInteger queueCounter = queuedCounts.get(tenantId);
-            if (queueCounter != null) {
-                int prev = queueCounter.decrementAndGet();
-                if (prev < 0) {
-                    queueCounter.set(0);
-                }
-            }
-        } else {
-            // A-ADMISSION-01: release the atomic cluster-wide slot (if using the distributed gate).
-            if (clusterSlots != null) {
-                clusterSlots.release(tenantId);
-            }
-            AtomicInteger counter = admittedCounts.get(tenantId);
-            if (counter != null) {
-                int prev = counter.decrementAndGet();
-                if (prev < 0) {
-                    counter.set(0);
-                }
-            }
+        if (!ownership.release(queryId, tenantId) && clusterSlots != null) {
+            // A replacement process may return a persisted exact reservation after physical proof.
+            clusterSlots.release(tenantId, queryId);
         }
-        LOG.debug("event=admission_released tenantId={} queryId={} wasQueued={}", tenantId, queryId, wasQueued);
     }
 
     @Override
     public int admittedCount(String tenantId) {
-        // A-ADMISSION-01: the distributed slot store is the authoritative cluster-wide count.
+        // A shared slot store, when supplied, is the reservation-count authority.
         if (clusterSlots != null) {
             return clusterSlots.active(tenantId);
         }
@@ -307,7 +282,4 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
         return local;
     }
 
-    private void incrementAdmitted(String tenantId) {
-        admittedCounts.computeIfAbsent(tenantId, k -> new AtomicInteger(0)).incrementAndGet();
-    }
 }

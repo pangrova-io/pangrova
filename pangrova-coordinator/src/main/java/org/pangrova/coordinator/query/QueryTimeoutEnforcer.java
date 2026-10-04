@@ -54,7 +54,8 @@ public class QueryTimeoutEnforcer {
     public void start(Supplier<Map<String, QueryStateMachine>> queryProvider) {
         Objects.requireNonNull(queryProvider, "queryProvider must not be null");
         scheduledTask = scheduler.scheduleAtFixedRate(
-                () -> enforceTimeouts(queryProvider),
+                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(scheduler,
+                        () -> enforceTimeouts(queryProvider)),
                 checkInterval.toMillis(),
                 checkInterval.toMillis(),
                 TimeUnit.MILLISECONDS);
@@ -89,7 +90,7 @@ public class QueryTimeoutEnforcer {
      */
     public void stop() {
         cancelScheduledTask();
-        scheduler.shutdown();
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, 5000);
     }
 
     private void enforceTimeouts(Supplier<Map<String, QueryStateMachine>> queryProvider) {

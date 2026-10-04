@@ -1,6 +1,9 @@
 package org.pangrova.client.cli;
 
 import org.pangrova.client.rest.PangrovaRestClient;
+import org.pangrova.client.rest.auth.ClientAuthentication;
+import org.pangrova.client.rest.PangrovaRestClientConfig.TlsSettings;
+import org.pangrova.transport.security.ResultTransportSecurity;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -38,21 +41,30 @@ public final class PangrovaCli {
 
     /** Runs the interactive SQL shell with connection settings parsed from {@code args}. */
     public static void main(String[] args) throws IOException {
-        CliArgs parsed = parseArgs(args);
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
+            run(args, reader, System.out);
+        }
+    }
 
-        try (PangrovaRestClient client = PangrovaRestClient.builder()
+    /** Runs the same shell over caller-owned console streams, without replacing global process streams. */
+    public static void run(String[] args, BufferedReader reader, java.io.PrintStream out) {
+        CliArgs parsed = parseArgs(args);
+        var builder = PangrovaRestClient.builder()
                 .coordinatorHost(parsed.host)
                 .coordinatorPort(parsed.port)
-                .build();
-             BufferedReader reader = new BufferedReader(
-                     new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
+                .useTls(parsed.tls.enabled())
+                .trustStorePath(parsed.tls.storePath())
+                .trustStorePassword(parsed.tls.storePassword())
+                .resultTransportSecurity(parsed.resultTransportSecurity);
+        if (parsed.authentication != null) builder.authentication(parsed.authentication);
+        try (PangrovaRestClient client = builder.build()) {
 
             if (parsed.catalog != null) {
-                System.out.println("Catalog: " + parsed.catalog);
+                out.println("Catalog: " + parsed.catalog);
             }
 
             SqlShell repl = new SqlShell(
-                    QueryClient.wrap(client), reader, System.out, parsed.queryTimeout,
+                    QueryClient.wrap(client), reader, out, parsed.queryTimeout,
                     parsed.catalog);
             repl.run();
         }
@@ -71,7 +83,41 @@ public final class PangrovaCli {
         Duration queryTimeout = params.containsKey("--query-timeout")
                 ? parseTimeout(params.get("--query-timeout"))
                 : DEFAULT_QUERY_TIMEOUT;
-        return new CliArgs(host, port, catalog, queryTimeout);
+        return new CliArgs(host, port, catalog, queryTimeout, parseAuthentication(params), parseTls(params),
+                parseResultSecurity(params));
+    }
+
+    private static ResultTransportSecurity parseResultSecurity(java.util.Map<String, String> params) {
+        var allowed = java.util.Set.of("--result-tls-root-ca", "--result-tls-certificate-chain", "--result-tls-private-key");
+        for (String option : params.keySet()) {
+            if (option.startsWith("--result-tls-") && !allowed.contains(option)) {
+                throw new IllegalArgumentException("Unknown result transport security option: " + option);
+            }
+        }
+        return new ResultTransportSecurity(false, materialPath(params.get("--result-tls-root-ca")),
+                materialPath(params.get("--result-tls-certificate-chain")), materialPath(params.get("--result-tls-private-key")));
+    }
+
+    private static java.nio.file.Path materialPath(String value) {
+        return value == null ? null : java.nio.file.Path.of(value);
+    }
+
+    private static TlsSettings parseTls(java.util.Map<String, String> params) {
+        String enabled = params.getOrDefault("--ssl", "false");
+        if (!"true".equalsIgnoreCase(enabled) && !"false".equalsIgnoreCase(enabled)) {
+            throw new IllegalArgumentException("CLI --ssl must be true or false");
+        }
+        return new TlsSettings(Boolean.parseBoolean(enabled), params.get("--ssl-trust-store"),
+                params.get("--ssl-trust-store-password"));
+    }
+
+    private static ClientAuthentication parseAuthentication(java.util.Map<String, String> params) {
+        boolean basic = params.containsKey("--user") || params.containsKey("--password");
+        if (basic && params.containsKey("--token")) {
+            throw new IllegalArgumentException("Bearer token and Basic credentials are mutually exclusive");
+        }
+        if (basic) return ClientAuthentication.basic(params.get("--user"), params.get("--password"));
+        return params.containsKey("--token") ? ClientAuthentication.bearer(params.get("--token")) : null;
     }
 
     /**
@@ -137,8 +183,9 @@ public final class PangrovaCli {
 
     private static java.util.Map<String, String> extractParams(String[] args) {
         java.util.Map<String, String> params = new java.util.HashMap<>();
-        for (int i = 0; i < args.length - 1; i++) {
+        for (int i = 0; i < args.length; i++) {
             if (args[i].startsWith("--")) {
+                if (i + 1 >= args.length) throw new IllegalArgumentException("Missing value for CLI option " + args[i]);
                 params.put(args[i], args[i + 1]);
                 i++;
             }
@@ -167,12 +214,19 @@ public final class PangrovaCli {
         final int port;
         final String catalog; // nullable
         final Duration queryTimeout;
+        final ClientAuthentication authentication;
+        final TlsSettings tls;
+        final ResultTransportSecurity resultTransportSecurity;
 
-        CliArgs(String host, int port, String catalog, Duration queryTimeout) {
+        CliArgs(String host, int port, String catalog, Duration queryTimeout,
+                ClientAuthentication authentication, TlsSettings tls, ResultTransportSecurity resultTransportSecurity) {
             this.host = host;
             this.port = port;
             this.catalog = catalog;
             this.queryTimeout = queryTimeout;
+            this.authentication = authentication;
+            this.tls = tls;
+            this.resultTransportSecurity = resultTransportSecurity;
         }
     }
 }

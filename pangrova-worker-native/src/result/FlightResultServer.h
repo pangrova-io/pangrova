@@ -110,6 +110,9 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
  public:
   struct TaskOutputInfo {
     facebook::velox::RowTypePtr output_type;
+    // Derived once from the admitted canonical task schema, never from labels
+    // or the SDK's nullable physical-schema defaults.
+    std::shared_ptr<arrow::Schema> wire_schema;
     std::vector<ResultColumnVectorDimension> result_column_types;
     std::vector<std::string> column_labels;
     std::shared_ptr<memory::ColumnarMemoryPool> pool;

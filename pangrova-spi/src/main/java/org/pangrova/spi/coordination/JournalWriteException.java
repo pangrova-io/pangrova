@@ -5,8 +5,20 @@ package org.pangrova.spi.coordination;
  * Wraps the underlying SQL or I/O exception with context.
  */
 public final class JournalWriteException extends RuntimeException {
+    private static final long serialVersionUID = 1L;
+    private final AdmissionOutcome admissionOutcome;
 
-    public JournalWriteException(String message, Throwable cause) {
+    public JournalWriteException(String message, Throwable cause, AdmissionOutcome admissionOutcome) {
         super(message, cause);
+        this.admissionOutcome = java.util.Objects.requireNonNull(admissionOutcome, "admissionOutcome");
+    }
+
+    /** The actual transfer boundary; an absent replay row never proves rejection. */
+    public AdmissionOutcome admissionOutcome() { return admissionOutcome; }
+
+    /** Ownership of the attempted write, not query execution or a durable commit receipt. */
+    public enum AdmissionOutcome {
+        REJECTED_BEFORE_TRANSFER,
+        ACCEPTED_UNESTABLISHED
     }
 }

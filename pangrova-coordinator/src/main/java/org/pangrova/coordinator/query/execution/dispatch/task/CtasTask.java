@@ -52,7 +52,7 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
         // 1. Compile the inner SELECT to derive output schema
         String innerSql = new AstPrinter().print(statement.query());
         PlannedQuery plannedQuery = context.compiler().forSession(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(context.session()))
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(context.session()))
                 .compileToPlannedQuery(innerSql);
         List<String> columnNames = plannedQuery.queryOutputColumns();
         List<String> typeNames = plannedQuery.queryOutputColumnTypeNames();

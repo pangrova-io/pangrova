@@ -327,6 +327,9 @@ final class ExpressionConverter {
         args = argumentNormalizer.normalize(ref, call, args);
         args = aiInvocationBinder.bind(ref, call, opName, args);
         Type outputType = typeMapper.map(call.getType());
+        var rewrite = org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
+                .rewrite(ref.namespace(), ref.name());
+        if (rewrite.isPresent()) return DeclaredScalarProgram.lower(rewrite.orElseThrow(), args, outputType, functionMapper);
         return ImmutableExpression.ScalarFunctionInvocation.builder()
                 .declaration(variant)
                 .outputType(outputType)

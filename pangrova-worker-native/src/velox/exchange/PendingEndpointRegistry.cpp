@@ -168,7 +168,8 @@ void PendingEndpointRegistry::pushExternalBatch(int64_t executor_handle,
 void PendingEndpointRegistry::finishExternalSource(
     int64_t executor_handle, const std::string& plan_node_id,
     const std::string& exchange_id, int64_t last_sequence,
-    const std::string& failure) {
+    const std::string& failure,
+    const std::function<void()>& on_failure_accepted) {
   std::shared_ptr<ExternalShuffleIngress> ingress;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -178,7 +179,7 @@ void PendingEndpointRegistry::finishExternalSource(
   if (failure.empty()) {
     ingress->finish(last_sequence);
   } else {
-    ingress->fail(failure);
+    ingress->fail(failure, on_failure_accepted);
   }
 }
 

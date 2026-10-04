@@ -22,7 +22,7 @@ import org.pangrova.spi.ai.Modality;
 import org.pangrova.spi.ai.inference.MultimodalPrompt;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.FunctionMetadata;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.spi.function.ScalarFunction;
 
 import java.util.List;

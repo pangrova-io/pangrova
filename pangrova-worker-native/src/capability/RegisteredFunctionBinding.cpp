@@ -5,8 +5,7 @@
 
 #include "velox/exec/Aggregate.h"
 #include "velox/exec/WindowFunction.h"
-#include "velox/expression/SignatureBinder.h"
-#include "velox/functions/FunctionRegistry.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 namespace pangrova::capability {
 namespace {
@@ -53,48 +52,37 @@ core::CallTypedExprPtr call(const std::string& name, const TypePtr& output,
 }  // namespace
 
 facebook::velox::core::CallTypedExprPtr bindRegisteredScalar(
+    const facebook::velox::exec::FunctionRegistrySnapshot& registry,
     const std::string& name, const facebook::velox::TypePtr& output,
     FunctionArguments arguments) {
-  const auto resolved = facebook::velox::resolveFunctionOrCallableSpecialForm(name, argumentTypes(arguments));
-  requireOutput(name, output, resolved, "scalar");
+  // The target is consumed only by the selected special-form type programme
+  // (e.g. CAST), never used to choose a different ordinary overload.
+  const auto resolved = registry.bindScalar(name, argumentTypes(arguments), output);
+  requireOutput(name, output, resolved ? resolved->resultType : nullptr, "scalar");
+  if (resolved->implementation.signature) requireConstants(name, *resolved->implementation.signature, arguments);
   return call(name, output, std::move(arguments));
 }
 
 RegisteredAggregateBinding bindRegisteredRawAggregate(
+    const facebook::velox::exec::FunctionRegistrySnapshot& registry,
     const std::string& name, const facebook::velox::TypePtr& output,
     FunctionArguments arguments, bool intermediateOutput) {
-  const auto signatures = facebook::velox::exec::getAggregateFunctionSignatures(name);
-  if (!signatures) throw std::runtime_error("Aggregate function is not registered: " + name);
-  const auto types = argumentTypes(arguments);
-  // Preserve the running registry's first-match resolution order. In
-  // particular, do not search subsequent overloads for a desired output.
-  for (const auto& signature : *signatures) {
-    facebook::velox::exec::SignatureBinder binder(*signature, types);
-    if (!binder.tryBind()) continue;
-    requireConstants(name, *signature, arguments);
-    auto intermediate = binder.tryResolveType(signature->intermediateType());
-    const auto resolved = intermediateOutput ? intermediate : binder.tryResolveReturnType();
-    requireOutput(name, output, resolved, "aggregate");
-    if (!intermediate) throw std::runtime_error("Aggregate intermediate type cannot be resolved: " + name);
-    return {call(name, output, std::move(arguments)), std::move(intermediate)};
-  }
-  throw std::runtime_error("No exact registered aggregate signature: " + name);
+  const auto resolved = registry.bindAggregate(name, argumentTypes(arguments));
+  if (!resolved) throw std::runtime_error("No exact registered aggregate signature: " + name);
+  requireConstants(name, *resolved->signature, arguments);
+  requireOutput(name, output, intermediateOutput ? resolved->intermediateType : resolved->resultType, "aggregate");
+  return {call(name, output, std::move(arguments)), resolved->intermediateType};
 }
 
 facebook::velox::core::CallTypedExprPtr bindRegisteredWindow(
+    const facebook::velox::exec::FunctionRegistrySnapshot& registry,
     const std::string& name, const facebook::velox::TypePtr& output,
     FunctionArguments arguments) {
-  const auto signatures = facebook::velox::exec::getWindowFunctionSignatures(name);
-  if (!signatures) throw std::runtime_error("Window function is not registered: " + name);
-  const auto types = argumentTypes(arguments);
-  for (const auto& signature : *signatures) {
-    facebook::velox::exec::SignatureBinder binder(*signature, types);
-    if (!binder.tryBind()) continue;
-    requireConstants(name, *signature, arguments);
-    requireOutput(name, output, binder.tryResolveReturnType(), "window");
-    return call(name, output, std::move(arguments));
-  }
-  throw std::runtime_error("No exact registered window signature: " + name);
+  const auto resolved = registry.bindWindow(name, argumentTypes(arguments));
+  if (!resolved) throw std::runtime_error("No exact registered window signature: " + name);
+  requireConstants(name, *resolved->signature, arguments);
+  requireOutput(name, output, resolved->resultType, "window");
+  return call(name, output, std::move(arguments));
 }
 
 }  // namespace pangrova::capability

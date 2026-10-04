@@ -127,6 +127,27 @@ class FunctionMapperTest {
     }
 
     @ParameterizedTest
+    @MethodSource("loweredHelpers")
+    void loweredTrimAndExtractTargetsRetainTheirDeclaredExtensionIdentity(String namespace, String name, String urn) {
+        var variant = mapper.resolveScalarVariant(new FunctionReference(namespace, name));
+        assertThat(variant.name()).isEqualTo(name);
+        assertThat(variant.urn()).isEqualTo(urn);
+    }
+
+    static Stream<Arguments> loweredHelpers() {
+        return Stream.concat(Stream.of("ltrim", "rtrim")
+                        .map(name -> Arguments.of("string", name, "extension:io.substrait:functions_string")),
+                Stream.of("year", "month", "day", "hour", "minute", "second", "quarter", "day_of_week", "day_of_year", "week")
+                        .map(name -> Arguments.of("datetime", name, "extension:org.pangrova:functions_datetime")));
+    }
+
+    @Test
+    void unknownBindingCannotSynthesizeAnExecutableExtensionIdentity() {
+        assertThatThrownBy(() -> mapper.resolveScalarVariant(new FunctionReference("datetime", "invented")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unknown function binding");
+    }
+
+    @ParameterizedTest
     @MethodSource("aiAndFileFunctions")
     void mapsEveryAiAndFileFunction(String functionName, String namespace, String nativeName) {
         SqlFunction function = new SqlFunction(

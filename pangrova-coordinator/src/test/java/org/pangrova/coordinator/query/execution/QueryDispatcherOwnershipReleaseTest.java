@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;

@@ -56,7 +56,7 @@ public interface TaskDispatcher {
      * @param httpPort   the HTTP port of the worker
      * @return structured cancel result with status, error detail, and retryability
      */
-    default SchedulerCancelResult cancelTask(String taskId, String workerHost, int httpPort) {
+    default SchedulerCancelResult cancelTask(SubmitTaskRequest request, String workerHost, int httpPort) {
         return SchedulerCancelResult.failed("Cancel not supported by this dispatcher", false);
     }
     /**

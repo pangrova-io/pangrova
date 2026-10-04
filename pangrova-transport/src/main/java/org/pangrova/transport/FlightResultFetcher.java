@@ -26,6 +26,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.query.ResultProtocol;
+import org.pangrova.transport.security.ResultTransportSecurity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +46,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Arrow Flight result fetcher. All Arrow and Flight imports are confined to this class.
@@ -93,7 +93,7 @@ public final class FlightResultFetcher implements AutoCloseable {
      * Submitting the blocking gRPC read to a dedicated thread allows the
      * calling thread to enforce idle timeout via {@link Future#get(long, TimeUnit)}.
      */
-    private static final ExecutorService BATCH_READ_EXECUTOR =
+    private final ExecutorService batchReadExecutor =
             Executors.newCachedThreadPool(r -> {
                 Thread t = new Thread(r, "flight-batch-reader");
                 t.setDaemon(true);
@@ -101,15 +101,20 @@ public final class FlightResultFetcher implements AutoCloseable {
             });
 
     private final BufferAllocator allocator;
-    private final String trustStorePath;
-    private final ConcurrentHashMap<String, FlightClient> clientPool = new ConcurrentHashMap<>();
+    private final ResultTransportSecurity security;
+    private final ResultTransportLifecycle lifecycle = new ResultTransportLifecycle();
 
     public FlightResultFetcher() {
-        this(false, null);
+        this(ResultTransportSecurity.systemTrust(false));
     }
 
-    public FlightResultFetcher(boolean useTls, String trustStorePath) {
-        this(useTls, trustStorePath, DEFAULT_ALLOCATOR_LIMIT);
+    /**
+     * Creates a result fetcher with a policy independent of REST trust stores.
+     *
+     * @param security immutable result TLS policy and optional PEM material
+     */
+    public FlightResultFetcher(ResultTransportSecurity security) {
+        this(security, DEFAULT_ALLOCATOR_LIMIT);
     }
 
     /**
@@ -117,13 +122,16 @@ public final class FlightResultFetcher implements AutoCloseable {
      * hard cap on client-side result buffering (defaults to 512 MiB via the other
      * constructors); raise or lower it per deployment to bound client memory. A
      * non-positive value is rejected so the cap can never be silently disabled.
+     *
+     * @param security immutable result TLS policy and optional PEM material
+     * @param allocatorLimitBytes positive hard bound for result buffering
      */
-    public FlightResultFetcher(boolean useTls, String trustStorePath, long allocatorLimitBytes) {
+    public FlightResultFetcher(ResultTransportSecurity security, long allocatorLimitBytes) {
         if (allocatorLimitBytes <= 0) {
             throw new IllegalArgumentException("allocatorLimitBytes must be positive");
         }
+        this.security = java.util.Objects.requireNonNull(security, "security");
         this.allocator = new RootAllocator(allocatorLimitBytes);
-        this.trustStorePath = trustStorePath;
     }
 
     /** The Arrow allocator's hard upper bound in bytes (package-private for tests). */
@@ -143,31 +151,40 @@ public final class FlightResultFetcher implements AutoCloseable {
 
     /** Fetches the stream under an optional absolute caller deadline. */
     public byte[] fetch(ResultEndpoint endpoint, long deadlineEpochMs) {
+        try (var operation = lifecycle.enter()) {
+            return fetchOwned(endpoint, deadlineEpochMs);
+        }
+    }
+
+    private byte[] fetchOwned(ResultEndpoint endpoint, long deadlineEpochMs) {
         String poolKey = poolKey(endpoint);
-        FlightClient client = getOrCreateClient(poolKey, resolveLocation(endpoint));
-        try (FlightStream stream = openStream(client, endpoint, deadlineEpochMs)) {
-            return serializeStream(stream, endpoint, deadlineEpochMs);
-        } catch (TransportException e) {
-            if (isConnectionError(e)) {
-                evictClient(poolKey);
+        Location location = resolveLocation(endpoint);
+        try (var lease = lifecycle.client(poolKey, () -> buildClient(location))) {
+            try (var streamOwner = lifecycle.stream(openStream(lease.client(), endpoint, deadlineEpochMs), batchReadExecutor)) {
+                FlightStream stream = streamOwner.stream();
+                return serializeStream(stream, endpoint, deadlineEpochMs);
+            } catch (TransportException e) {
+                if (isConnectionError(e)) {
+                    lease.retire();
+                }
+                throw e;
+            } catch (ConnectException e) {
+                lease.retire();
+                throw connectionError("TRANSPORT_CONNECTION_FAILED",
+                        "Transport connection failed to " + detail(endpoint), e);
+            } catch (Exception e) {
+                TransportException classified = deadlineEpochMs != Long.MAX_VALUE
+                        && (System.currentTimeMillis() >= deadlineEpochMs
+                                || e instanceof FlightRuntimeException flightFailure
+                                        && flightFailure.status().code()
+                                        == FlightStatusCode.TIMED_OUT)
+                        ? queryDeadlineExceeded(endpoint, e)
+                        : classifyError(endpoint, e);
+                if (isConnectionError(classified)) {
+                    lease.retire();
+                }
+                throw classified;
             }
-            throw e;
-        } catch (ConnectException e) {
-            evictClient(poolKey);
-            throw connectionError("TRANSPORT_CONNECTION_FAILED",
-                    "Transport connection failed to " + detail(endpoint), e);
-        } catch (Exception e) {
-            TransportException classified = deadlineEpochMs != Long.MAX_VALUE
-                    && (System.currentTimeMillis() >= deadlineEpochMs
-                            || e instanceof FlightRuntimeException flightFailure
-                                    && flightFailure.status().code()
-                                    == FlightStatusCode.TIMED_OUT)
-                    ? queryDeadlineExceeded(endpoint, e)
-                    : classifyError(endpoint, e);
-            if (isConnectionError(classified)) {
-                evictClient(poolKey);
-            }
-            throw classified;
         }
     }
 
@@ -191,32 +208,41 @@ public final class FlightResultFetcher implements AutoCloseable {
      * @throws TransportServerException     on server-reported error
      */
     public void fetchStream(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer) {
-        String poolKey = poolKey(endpoint);
-        FlightClient client = getOrCreateClient(poolKey, resolveLocation(endpoint));
-        try (FlightStream stream = client.getStream(ticket(endpoint))) {
-            VectorSchemaRoot root = stream.getRoot();
-            while (awaitNextBatch(stream, endpoint)) {
-                batchConsumer.accept(serializeBatch(root));
-            }
-        } catch (TransportException e) {
-            if (isConnectionError(e)) {
-                evictClient(poolKey);
-            }
-            throw e;
-        } catch (ConnectException e) {
-            evictClient(poolKey);
-            throw connectionError("TRANSPORT_CONNECTION_FAILED",
-                    "Transport connection failed to " + detail(endpoint), e);
-        } catch (Exception e) {
-            TransportException classified = classifyError(endpoint, e);
-            if (isConnectionError(classified)) {
-                evictClient(poolKey);
-            }
-            throw classified;
+        try (var operation = lifecycle.enter()) {
+            fetchStreamOwned(endpoint, batchConsumer);
         }
     }
 
-    private static byte[] serializeStream(
+    private void fetchStreamOwned(ResultEndpoint endpoint, Consumer<byte[]> batchConsumer) {
+        String poolKey = poolKey(endpoint);
+        Location location = resolveLocation(endpoint);
+        try (var lease = lifecycle.client(poolKey, () -> buildClient(location))) {
+            try (var streamOwner = lifecycle.stream(lease.client().getStream(ticket(endpoint)), batchReadExecutor)) {
+                FlightStream stream = streamOwner.stream();
+                VectorSchemaRoot root = stream.getRoot();
+                while (awaitNextBatch(stream, endpoint)) {
+                    batchConsumer.accept(serializeBatch(root));
+                }
+            } catch (TransportException e) {
+                if (isConnectionError(e)) {
+                    lease.retire();
+                }
+                throw e;
+            } catch (ConnectException e) {
+                lease.retire();
+                throw connectionError("TRANSPORT_CONNECTION_FAILED",
+                        "Transport connection failed to " + detail(endpoint), e);
+            } catch (Exception e) {
+                TransportException classified = classifyError(endpoint, e);
+                if (isConnectionError(classified)) {
+                    lease.retire();
+                }
+                throw classified;
+            }
+        }
+    }
+
+    private byte[] serializeStream(
             FlightStream stream, ResultEndpoint endpoint, long deadlineEpochMs)
             throws Exception {
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
@@ -263,21 +289,22 @@ public final class FlightResultFetcher implements AutoCloseable {
      * @return true if a batch is available, false if stream exhausted
      * @throws TransportConnectionException if idle timeout exceeded
      */
-    private static boolean awaitNextBatch(FlightStream stream, ResultEndpoint endpoint) {
+    private boolean awaitNextBatch(FlightStream stream, ResultEndpoint endpoint) {
         return awaitNextBatch(stream, endpoint, Long.MAX_VALUE);
     }
 
-    private static boolean awaitNextBatch(
+    private boolean awaitNextBatch(
             FlightStream stream, ResultEndpoint endpoint, long deadlineEpochMs) {
         long waitNanos = readWaitNanos(deadlineEpochMs);
         if (waitNanos <= 0) {
             throw queryDeadlineExceeded(endpoint, null);
         }
-        Future<Boolean> future = BATCH_READ_EXECUTOR.submit(stream::next);
+        Future<Boolean> future = lifecycle.read(batchReadExecutor, stream);
         try {
             return future.get(waitNanos, TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
-            future.cancel(true); // interrupt the blocked gRPC read
+            stream.cancel("Result read deadline or idle timeout", e);
+            future.cancel(false); // RPC cancellation wakes the SDK; its real reader retains ownership until exit.
             if (deadlineEpochMs != Long.MAX_VALUE
                     && System.currentTimeMillis() >= deadlineEpochMs) {
                 throw queryDeadlineExceeded(endpoint, e);
@@ -376,73 +403,53 @@ public final class FlightResultFetcher implements AutoCloseable {
         return null;
     }
 
-    private FlightClient getOrCreateClient(String key, Location location) {
-        return clientPool.computeIfAbsent(key,
-                k -> buildClient(location));
-    }
-
     /**
      * Builds a FlightClient for the given location.
      *
-     * <p><b>Note on keepalive:</b> Arrow Flight Java 19's Builder does not expose
-     * the underlying ManagedChannelBuilder for keepalive configuration.
-     * For cross-network production deployments where network partition detection
-     * is needed, replace this with {@code FlightGrpcUtils.createFlightClient()}
-     * using a ManagedChannel built with {@code keepAliveTime(30s)} and
-     * {@code keepAliveTimeout(10s)}. For localhost and single-cluster deployments,
-     * the per-batch idle timeout ({@link #BATCH_IDLE_TIMEOUT_SECONDS}) provides
-     * sufficient stuck-detection coverage.</p>
+     * <p>The official SDK channel builder and client share one owned channel;
+     * termination is verified before releasing client allocation owners.</p>
      */
-    private FlightClient buildClient(Location location) {
-        return FlightClient.builder(allocator, location).build();
-    }
-
-    private void evictClient(String key) {
-        FlightClient evicted = clientPool.remove(key);
-        if (evicted != null) {
-            try {
-                evicted.close();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (Exception e) {
-                LOG.debug("event=evict_client_close_failed key={} error={}", key, e.getMessage());
-            }
-        }
+    private ResultTransportClientOwner buildClient(Location location) {
+        return ResultTransportClientProvider.open(allocator, location, security, lifecycle::registerClient);
     }
 
     private Location resolveLocation(ResultEndpoint endpoint) {
         ResultProtocol protocol = ResultProtocol.fromValue(endpoint.protocol());
+        if (security.requireTls() && !protocol.requiresTls()) {
+            throw connectionError("TRANSPORT_TLS_REQUIRED",
+                    "TLS is required but the result endpoint advertises plaintext transport", null);
+        }
         if (protocol.requiresTls()) {
-            if (trustStorePath != null) {
-                throw new UnsupportedOperationException(
-                        "Arrow Flight Java client does not support custom trust stores. "
-                        + "Configure via javax.net.ssl.trustStore system property. "
-                        + "trustStorePath=" + trustStorePath);
-            }
             return Location.forGrpcTls(endpoint.host(), endpoint.port());
         }
         return Location.forGrpcInsecure(endpoint.host(), endpoint.port());
     }
 
+    /** Seals admission and releases owners only after all actual streams and reader jobs exit; failures permit retry. */
     @Override
     public void close() {
-        for (var entry : clientPool.entrySet()) {
-            try {
-                entry.getValue().close();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (Exception e) {
-                LOG.debug("event=pool_client_close_failed key={} error={}",
-                        entry.getKey(), e.getMessage());
+        if (!lifecycle.beginClose()) return;
+        boolean completed = false;
+        try {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Interrupted before result cleanup");
+            lifecycle.closeStreams();
+            lifecycle.closeClients();
+            batchReadExecutor.shutdown();
+            if (!batchReadExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                throw connectionError("TRANSPORT_LIFECYCLE_FAILED", "Result read executor has not exited; retry close", null);
             }
+            allocator.close();
+            completed = true;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw connectionError("TRANSPORT_LIFECYCLE_FAILED", "Result close was interrupted; retry close", interrupted);
+        } finally {
+            lifecycle.endClose(completed);
         }
-        clientPool.clear();
-        allocator.close();
-        LOG.debug("FlightResultFetcher closed");
     }
 
-    private static String poolKey(ResultEndpoint endpoint) {
-        return endpoint.host() + ":" + endpoint.port();
+    static String poolKey(ResultEndpoint endpoint) {
+        return endpoint.protocol() + "://" + endpoint.host() + ":" + endpoint.port();
     }
 
     private static String detail(ResultEndpoint endpoint) {

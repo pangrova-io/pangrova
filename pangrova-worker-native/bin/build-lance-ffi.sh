@@ -116,7 +116,15 @@ build_target() {
     # warnings (or fails on older production workers).
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
   fi
-  cargo build --locked --release --target "${target}"
+  local build_log
+  build_log="$(mktemp "${TMPDIR:-/tmp}/pangrova-lance-build.XXXXXX")"
+  if ! cargo build --color never --locked --release --target "${target}" 2>&1 | tee "$build_log"; then
+    die "Lance compilation failed; diagnostics retained at ${build_log}"
+  fi
+  if grep -Eq '^warning(\[|:)' "$build_log"; then
+    die "Lance compilation emitted warnings; diagnostics retained at ${build_log}"
+  fi
+  rm -- "$build_log"
   local lib_path="target/${target}/release/liblance_c_ffi.a"
   if [ -f "${lib_path}" ]; then
     local size

@@ -2,6 +2,8 @@ package org.pangrova.worker.jni;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.Message;
+import org.pangrova.protocol.function.catalog.FunctionCatalogStartupContracts;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.EvictCacheRequest;
 import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
 import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
@@ -16,11 +18,7 @@ import org.pangrova.protocol.v2.UpdateResourceGrantRequest;
 /** Builds the canonical v2 JVM-to-Native control protocol. */
 public final class NativeCommandBuilder {
 
-    private static final ProtocolVersion PROTOCOL = ProtocolVersion.newBuilder()
-            .setMajor(2)
-            .setMinor(0)
-            .setRolloutEpoch("ai-native-r2")
-            .build();
+    private static final ProtocolVersion PROTOCOL = CanonicalTaskRequests.protocolVersion();
 
     private NativeCommandBuilder() {}
 
@@ -47,6 +45,12 @@ public final class NativeCommandBuilder {
     public static byte[] buildGetCapabilities() {
         return buildCommand(
                 RuntimeCommandType.RUNTIME_COMMAND_TYPE_GET_CAPABILITIES, null);
+    }
+
+    /** Freezes actual startup factories exactly once before any task is accepted. */
+    public static byte[] finalizeFunctionCatalog() {
+        return buildCommand(RuntimeCommandType.RUNTIME_COMMAND_TYPE_FINALIZE_FUNCTION_CATALOG,
+                FunctionCatalogStartupContracts.request());
     }
 
     /** Builds an artifact prefetch command from a validated request. */

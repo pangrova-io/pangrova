@@ -87,7 +87,9 @@ final class SubstraitRelationShapes {
                     && !reference.getDirectReference().getStructField().hasChild()) {
                 int index = reference.getDirectReference().getStructField().getField();
                 var fields = SubstraitSchemaFields.fields(input);
-                if (index < 0 || index >= fields.size()) throw new IllegalArgumentException("Expression field is out of bounds");
+                if (index < 0 || index >= fields.size()) {
+                    throw new IllegalArgumentException("Expression field is out of bounds");
+                }
                 return fields.get(index);
             }
         }
@@ -120,15 +122,21 @@ final class SubstraitRelationShapes {
         var exchange = relation.getExchange();
         exchange.getScatterByFields().getFieldsList().forEach(field -> SubstraitExpressionTypes.typeOf(
                 Expression.newBuilder().setSelection(field).build(), input));
-        if (exchange.hasSingleTarget()) SubstraitExpressionTypes.typeOf(exchange.getSingleTarget().getExpression(), input);
-        if (exchange.hasMultiTarget()) SubstraitExpressionTypes.typeOf(exchange.getMultiTarget().getExpression(), input);
+        if (exchange.hasSingleTarget()) {
+            SubstraitExpressionTypes.typeOf(exchange.getSingleTarget().getExpression(), input);
+        }
+        if (exchange.hasMultiTarget()) {
+            SubstraitExpressionTypes.typeOf(exchange.getMultiTarget().getExpression(), input);
+        }
         return input;
     }
 
     private static NamedStruct expand(Rel relation, NamedStruct input) {
         List<SubstraitSchemaFields.Field> fields = new ArrayList<>(SubstraitSchemaFields.fields(input));
         var expand = relation.getExpand();
-        if (expand.getFieldsCount() > fields.size()) throw new IllegalArgumentException("Expand exceeds its input arity");
+        if (expand.getFieldsCount() > fields.size()) {
+            throw new IllegalArgumentException("Expand exceeds its input arity");
+        }
         for (int i = 0; i < expand.getFieldsCount(); i++) {
             var field = expand.getFields(i);
             Type type = field.hasConsistentField() ? SubstraitExpressionTypes.typeOf(field.getConsistentField(), input)

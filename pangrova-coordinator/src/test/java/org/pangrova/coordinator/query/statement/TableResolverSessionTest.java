@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 
 import java.util.List;

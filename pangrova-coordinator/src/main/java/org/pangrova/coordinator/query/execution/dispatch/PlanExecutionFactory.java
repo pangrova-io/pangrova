@@ -5,7 +5,7 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.AstPrinter;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.InsertStatement;
@@ -131,7 +131,7 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
         org.pangrova.spi.connector.metadata.table.QualifiedTableName ref =
                 TableNameExtractor.extractQualified(statement, coordinatorSession);
         org.pangrova.spi.connector.ConnectorSession session =
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                         coordinatorSession, ref.catalog(), ref.schema());
         org.pangrova.spi.connector.metadata.ConnectorMetadata metadata =
                 catalogRegistry.getCatalog(ref.catalog()).getMetadata(session);
@@ -156,7 +156,7 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
             return;
         }
         org.pangrova.spi.connector.ConnectorSession connectorSession =
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                         session, ref.catalog(), ref.schema());
         org.pangrova.spi.connector.metadata.ConnectorMetadata metadata =
                 catalogRegistry.getCatalog(ref.catalog()).getMetadata(connectorSession);

@@ -8,7 +8,7 @@ import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.worker.CanonicalTaskRequestTestFixture;
+import org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture;
 import org.pangrova.worker.jni.NativeCommandBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;

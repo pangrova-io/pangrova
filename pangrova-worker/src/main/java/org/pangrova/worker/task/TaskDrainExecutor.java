@@ -157,14 +157,22 @@ final class TaskDrainExecutor {
 
     private int releaseTerminalExecutorsCount() {
         int released = 0;
+        Throwable failure = null;
         if (lifecycleManager != null) {
             for (var entry : tasks.entrySet()) {
                 if (isTerminal(entry.getValue().getState())) {
-                    lifecycleManager.releaseFinishedTaskExecutor(entry.getValue());
-                    released++;
+                    try {
+                        lifecycleManager.releaseFinishedTaskExecutor(entry.getValue());
+                        released++;
+                    } catch (RuntimeException | Error rejected) {
+                        if (failure == null) failure = rejected;
+                        else if (failure != rejected) failure.addSuppressed(rejected);
+                    }
                 }
             }
         }
+        if (failure instanceof Error fatal) throw fatal;
+        if (failure != null) throw (RuntimeException) failure;
         return released;
     }
 

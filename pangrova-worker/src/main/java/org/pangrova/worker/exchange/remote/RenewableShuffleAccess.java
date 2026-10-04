@@ -1,7 +1,6 @@
 package org.pangrova.worker.exchange.remote;
 
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.LongSupplier;
 
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
@@ -15,7 +14,6 @@ final class RenewableShuffleAccess {
     private final String shuffleId;
     private final ExchangeTaskAttempt attempt;
     private final ShuffleAccessOperation operation;
-    private final LongSupplier clock;
     private final AtomicReference<ShuffleAccessCapability> current;
 
     RenewableShuffleAccess(
@@ -24,27 +22,16 @@ final class RenewableShuffleAccess {
             ExchangeTaskAttempt attempt,
             ShuffleAccessOperation operation,
             ShuffleAccessCapability initial) {
-        this(client, shuffleId, attempt, operation, initial, System::currentTimeMillis);
-    }
-
-    RenewableShuffleAccess(
-            RemoteShuffleClient client,
-            String shuffleId,
-            ExchangeTaskAttempt attempt,
-            ShuffleAccessOperation operation,
-            ShuffleAccessCapability initial,
-            LongSupplier clock) {
         this.client = client;
         this.shuffleId = shuffleId;
         this.attempt = attempt;
         this.operation = operation;
-        this.clock = clock;
         this.current = new AtomicReference<>(initial);
     }
 
     ShuffleAccessCapability currentAtBoundary(long taskDeadlineEpochMs) {
         ShuffleAccessCapability previous = current.get();
-        long now = clock.getAsLong();
+        long now = System.currentTimeMillis();
         if (previous.getToken().isEmpty() || previous.getExpiresAtEpochMs() <= now) {
             throw new RemoteShuffleClientException(
                     "Shuffle capability expired before renewal boundary");

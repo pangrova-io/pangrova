@@ -6,7 +6,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -21,7 +20,7 @@ final class RetryableHttpExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(RetryableHttpExecutor.class);
 
-    private final HttpClient httpClient;
+    private final RestHttpClientOwner httpOwner;
     private final RetryPolicy retryPolicy;
     private final ConnectionPoolConfig connectionPoolConfig;
     private final List<String> endpoints;
@@ -29,10 +28,10 @@ final class RetryableHttpExecutor {
     private final String scheme;
     private final Duration requestTimeout;
 
-    RetryableHttpExecutor(HttpClient httpClient, RetryPolicy retryPolicy,
+    RetryableHttpExecutor(RestHttpClientOwner httpOwner, RetryPolicy retryPolicy,
                           ConnectionPoolConfig connectionPoolConfig, List<String> endpoints,
                           AtomicInteger endpointIndex, String scheme, Duration requestTimeout) {
-        this.httpClient = httpClient;
+        this.httpOwner = httpOwner;
         this.retryPolicy = retryPolicy;
         this.connectionPoolConfig = connectionPoolConfig;
         this.endpoints = endpoints;
@@ -92,8 +91,8 @@ final class RetryableHttpExecutor {
      * to {@link PangrovaConnectionException}.
      */
     HttpResponse<String> execute(HttpRequest request) {
-        try {
-            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        try (var operation = httpOwner.enter()) {
+            return httpOwner.client().send(request, HttpResponse.BodyHandlers.ofString());
         } catch (java.net.http.HttpConnectTimeoutException e) {
             throw new PangrovaConnectionException("CONNECTION_TIMEOUT",
                     "Connection timeout to " + request.uri().getHost() + ":" + request.uri().getPort(), e);

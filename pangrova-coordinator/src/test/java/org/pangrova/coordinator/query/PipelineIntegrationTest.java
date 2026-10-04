@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies;
@@ -369,7 +371,7 @@ class PipelineIntegrationTest {
                             .setCompletionState(org.pangrova.protocol.v2.CompletionState.COMPLETION_STATE_COMPLETE))
                     .build().toByteArray();
         } else if ("FAILED".equals(state)) {
-            canonical = org.pangrova.protocol.WorkerTerminalTaskReports.unsuccessful(request,
+            canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(request,
                     org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED, error);
         }
         return new TaskStatusReport(

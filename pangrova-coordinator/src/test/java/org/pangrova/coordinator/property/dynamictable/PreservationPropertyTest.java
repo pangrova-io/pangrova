@@ -29,7 +29,7 @@ import org.pangrova.coordinator.dynamictable.refresh.pipeline.RefreshResult;
 import org.pangrova.coordinator.dynamictable.schedule.RefreshScheduler;
 import org.pangrova.coordinator.dynamictable.schedule.RefreshSchedulerContext;
 import org.pangrova.coordinator.dynamictable.write.DynamicTableWriter;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.metadata.dynamictable.DynamicTableLifecycleState;
 import org.pangrova.metadata.dynamictable.DynamicTableState;
 import org.pangrova.metadata.dynamictable.InMemoryDynamicTableStateStore;

@@ -197,7 +197,7 @@ class StageDAGPipelineIntegrationTest {
         //           Stage 2 (Scan-Probe) → Stage 1 (Join) via HASH (BLOCKING)
         StageEdge broadcastEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.BROADCAST,
                 List.of(), "exchange-0-to-1", 1,
-                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
+                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
         StageEdge hashEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.HASH);
 
         StageNode n0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
@@ -248,7 +248,7 @@ class StageDAGPipelineIntegrationTest {
     void broadcastJoinBarrierModeWaitsForFinished() {
         StageEdge broadcastEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.BROADCAST,
                 List.of(), "exchange-0-to-1", 1,
-                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
+                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
         StageEdge hashEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.HASH);
 
         StageNode n0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
@@ -301,7 +301,7 @@ class StageDAGPipelineIntegrationTest {
     void broadcastJoinCommitNotificationOnlyForBlocking() {
         StageEdge broadcastEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.BROADCAST,
                 List.of(), "exchange-0-to-1", 1,
-                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
+                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
         StageEdge hashEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.HASH);
 
         StageNode n0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());

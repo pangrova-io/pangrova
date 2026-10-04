@@ -47,6 +47,13 @@ public final class CoordinatorOptions {
 
     // ---- Internal transport security ----
 
+    public static final ConfigOption<String> INTERNAL_AUTH_SECRET =
+            ConfigOptions.key("coordinator.internal-auth-secret")
+                    .stringType()
+                    .withDescription("Shared internal control-plane secret; "
+                            + "production requires at least 32 UTF-8 bytes")
+                    .build();
+
     public static final ConfigOption<Boolean> TRANSPORT_TLS_ENABLED =
             ConfigOptions.key("coordinator.transport.tls.enabled")
                     .booleanType()
@@ -160,6 +167,13 @@ public final class CoordinatorOptions {
 
     // ---- Query ----
 
+    public static final ConfigOption<Boolean> SPECULATION_ENABLED =
+            ConfigOptions.key("coordinator.speculation.enabled")
+                    .booleanType()
+                    .defaultValue(false)
+                    .withDescription("Enable speculative copies of straggling tasks with exact-attempt drain cleanup")
+                    .build();
+
     public static final ConfigOption<Duration> QUERY_TIMEOUT = ConfigOptions.key("coordinator.query.timeout")
             .durationType()
             .defaultValue(Duration.ofMinutes(5))
@@ -202,6 +216,18 @@ public final class CoordinatorOptions {
     public static final ConfigOption<String> METADATA_JDBC_URL = ConfigOptions.key("metadata.jdbc-url")
             .stringType()
             .withDescription("JDBC URL for the metadata catalog store")
+            .build();
+
+    public static final ConfigOption<String> METADATA_JDBC_USERNAME = ConfigOptions.key("metadata.jdbc-username")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Metadata database username, supplied separately from the JDBC URL")
+            .build();
+
+    public static final ConfigOption<String> METADATA_JDBC_PASSWORD = ConfigOptions.key("metadata.jdbc-password")
+            .stringType()
+            .defaultValue("")
+            .withDescription("Metadata database password, supplied separately from the JDBC URL")
             .build();
 
     public static final ConfigOption<Integer> METADATA_CACHE_L1_MAX_SIZE =

@@ -21,6 +21,7 @@
 #include <unordered_map>
 
 #include "executor/driver/TaskExecutor.h"
+#include "pangrova/protocol/v2/runtime.pb.h"
 
 namespace pangrova::jni {
 
@@ -31,6 +32,14 @@ class HandleRegistry {
   // Register an executor and return a unique handle.
   // The handle encodes the current generation for staleness detection.
   int64_t create(std::shared_ptr<pangrova::executor::TaskExecutor> executor);
+
+  // Reserve the same authoritative owner before construction starts. SDK/JNI
+  // resources are constructed outside the lock and attached without allocation.
+  int64_t reserveCreation(const protocol::v2::ExecutorCreationRecoveryRequest& identity);
+  void attachCreation(int64_t handle, std::shared_ptr<executor::TaskExecutor> executor);
+  void finishCreation(int64_t handle);
+  protocol::v2::ExecutorCreationRecoveryResult recoverCreation(
+      const protocol::v2::ExecutorCreationRecoveryRequest& identity);
 
   // Acquire a shared reference to the executor for the given handle.
   // Throws std::runtime_error if:
@@ -63,10 +72,19 @@ class HandleRegistry {
   struct Entry {
     std::shared_ptr<pangrova::executor::TaskExecutor> executor;
     uint64_t generation;
+    protocol::v2::ExecutorCreationRecoveryRequest identity;
+    bool constructing{false};
   };
+
+  int64_t reserveCreationLocked(const protocol::v2::ExecutorCreationRecoveryRequest& identity,
+                               bool constructing);
+  void purgeClosedCreationsLocked();
+  void eraseLocked(std::unordered_map<int64_t, Entry>::iterator entry);
 
   mutable std::shared_mutex mutex_;
   std::unordered_map<int64_t, Entry> handles_;
+  // Lookup only; ownership and its construction-exit fact live in handles_.
+  std::unordered_map<std::string, int64_t> creation_index_;
   std::atomic<int64_t> next_handle_{1};
   std::atomic<uint64_t> current_generation_{0};
 };

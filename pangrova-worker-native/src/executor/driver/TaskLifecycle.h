@@ -5,7 +5,10 @@
 
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <string>
+
+#include "pangrova/protocol/v2/result.pb.h"
 
 namespace pangrova::executor {
 
@@ -23,6 +26,11 @@ enum class ExecutorState {
 // @ThreadSafe — all public methods are safe for concurrent access.
 class TaskLifecycle {
  public:
+  struct Snapshot {
+    ExecutorState state;
+    std::optional<protocol::v2::ExecutionError> error;
+    std::string native_stack_trace;
+  };
   TaskLifecycle() = default;
 
   // Non-copyable, non-movable (contains atomic + mutex).
@@ -38,14 +46,13 @@ class TaskLifecycle {
   // Whether the current state is terminal (FINISHED/FAILED/CANCELLED).
   bool isTerminal() const;
 
-  // Set error message (thread-safe via mutex).
-  void setError(const std::string& message);
+  // Records an accepted, canonical failure before its producer wakes consumers.
+  // This is memory-only: no cancellation or ingress calls while holding the lock.
+  void recordExecutionError(const protocol::v2::ExecutionError& error);
+  Snapshot snapshot() const;
 
   // Retain cleanup diagnostics without rewriting an already published terminal state.
   void appendError(const std::string& message);
-
-  // Set error message with native stack trace (thread-safe via mutex).
-  void setError(const std::string& message, const std::string& stack_trace);
 
   // Retrieve error message (thread-safe via mutex).
   std::string errorMessage() const;
@@ -61,12 +68,13 @@ class TaskLifecycle {
   void notifyTaskFailed(const std::string& message);
 
  private:
+  bool transitionToLocked(ExecutorState new_state);
   bool isTerminal(ExecutorState s) const;
   bool isValidTransition(ExecutorState from, ExecutorState to) const;
 
   std::atomic<ExecutorState> state_{ExecutorState::PENDING};
   mutable std::mutex error_mutex_;
-  std::string error_message_;
+  std::optional<protocol::v2::ExecutionError> error_;
   std::string native_stack_trace_;
 };
 

@@ -13,7 +13,7 @@
  */
 package org.pangrova.coordinator.query.execution.security;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.SqlCompiler;
@@ -121,7 +121,7 @@ public class SecurityPolicyApplier {
     public PlannedQuery compileAndApplyPolicies(String sql, CoordinatorSessionContext session,
                                                 SqlCompiler compilerSnapshot) {
         SqlCompiler compiler = compilerSnapshot.forSession(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
         PlannedQuery query = compiler.compileForPolicyApplication(sql).toPlannedQuery();
         return compiler.optimizeProtectedQuery(applyPoliciesObserved(query, session).plan());
     }

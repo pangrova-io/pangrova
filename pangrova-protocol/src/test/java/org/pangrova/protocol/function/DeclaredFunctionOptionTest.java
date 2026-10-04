@@ -1,6 +1,8 @@
 package org.pangrova.protocol.function;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.function.declaration.DeclaredFunctionOption;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

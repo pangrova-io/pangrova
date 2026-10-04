@@ -3,7 +3,7 @@ package org.pangrova.coordinator.metadata;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.FinalizeDistributedWriteResult;

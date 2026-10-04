@@ -177,7 +177,7 @@ public final class StatementClassifier {
     }
 
     public static QualifiedTableName extractTableParts(
-            Statement stmt, org.pangrova.coordinator.query.CoordinatorSessionContext context) {
+            Statement stmt, org.pangrova.coordinator.query.session.CoordinatorSessionContext context) {
         Identifier name = extractTableName(stmt);
         if (name == null) return null;
         return TableResolver.resolveTableRef(name.parts(), context);

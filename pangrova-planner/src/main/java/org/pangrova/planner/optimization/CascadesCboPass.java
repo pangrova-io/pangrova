@@ -1,5 +1,7 @@
 package org.pangrova.planner.optimization;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import org.pangrova.planner.PlanTable;
 
 import java.util.ArrayList;
@@ -380,7 +382,7 @@ public final class CascadesCboPass implements OptimizationPass {
         if (filterColumns.isEmpty()) {
             return rows;
         }
-        String tableName = resolveTableNameFromScan(node);
+        QualifiedTableName tableName = resolveTableNameFromScan(node);
         if (tableName == null) {
             return rows;
         }
@@ -416,9 +418,10 @@ public final class CascadesCboPass implements OptimizationPass {
         return Set.of();
     }
 
-    private static String resolveTableNameFromScan(RelNode node) {
+    private static QualifiedTableName resolveTableNameFromScan(RelNode node) {
         if (node instanceof org.apache.calcite.rel.core.TableScan scan) {
-            return String.join(".", PlanTable.require(scan).getQualifiedName());
+            var parts = PlanTable.require(scan).getQualifiedName();
+            return parts.size() == 3 ? new QualifiedTableName(parts.get(0), parts.get(1), parts.get(2)) : null;
         }
         if (node.getInputs().size() == 1) {
             return resolveTableNameFromScan(node.getInput(0));

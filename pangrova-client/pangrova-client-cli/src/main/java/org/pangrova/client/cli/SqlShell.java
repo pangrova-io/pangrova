@@ -121,9 +121,7 @@ final class SqlShell {
                     ? Map.of("catalog", catalog) : Map.of();
             SubmitQueryResponse submitResp = client.submitQuery(sql, sessionProps);
             out.println("Query submitted: " + submitResp.queryId());
-
-            QueryStatusResponse status = pollUntilDone(submitResp.queryId());
-            handleQueryResult(submitResp, status);
+            consumeAndComplete(submitResp);
         } catch (QueryTimeoutException e) {
             out.println("Error [QUERY_TIMEOUT]: " + e.getMessage());
         } catch (PangrovaClientException e) {
@@ -134,32 +132,58 @@ final class SqlShell {
         }
     }
 
-    private void handleQueryResult(SubmitQueryResponse submitResp, QueryStatusResponse status) {
+    private void consumeAndComplete(SubmitQueryResponse submitResp) {
+        String queryId = submitResp.queryId();
+        long deadlineMs = Math.addExact(System.currentTimeMillis(), queryTimeout.toMillis());
+        boolean success = false;
+        try {
+            QueryStatusResponse ready = poll(queryId, deadlineMs, true);
+            byte[] resultBytes = null;
+            if (ready.resultEndpoint() != null && !isFailedOrCancelled(ready.state())) {
+                resultBytes = client.fetchResult(ready.resultEndpoint(), deadlineMs);
+                checkDeadline(queryId, deadlineMs);
+            }
+            QueryStatusResponse terminal = isTerminalState(ready.state())
+                    ? ready : poll(queryId, deadlineMs, false);
+            handleQueryResult(submitResp, terminal, resultBytes);
+            success = "FINISHED".equalsIgnoreCase(terminal.state());
+        } catch (PangrovaClientException failure) {
+            if ("TRANSPORT_QUERY_DEADLINE_EXCEEDED".equals(failure.errorCode())) {
+                var timeout = new QueryTimeoutException(queryId, queryTimeout);
+                timeout.initCause(failure);
+                throw timeout;
+            }
+            throw failure;
+        } finally {
+            if (!success) bestEffortCancel(queryId);
+        }
+    }
+
+    private void handleQueryResult(SubmitQueryResponse submitResp, QueryStatusResponse status, byte[] resultBytes) {
         if ("FAILED".equalsIgnoreCase(status.state())) {
             printError(status);
             return;
         }
+        if ("CANCELLED".equalsIgnoreCase(status.state())) {
+            out.println("Query cancelled");
+            return;
+        }
         List<String> columnNames = submitResp.columnNames();
-        if (columnNames == null || columnNames.isEmpty()) {
+        if (resultBytes == null && (columnNames == null || columnNames.isEmpty())) {
             out.println("OK (no result set)");
             return;
         }
-        displayResults(status, columnNames);
+        out.print(formatResults(resultBytes, columnNames));
     }
 
-    private QueryStatusResponse pollUntilDone(String queryId) {
-        long deadlineNanos = System.nanoTime() + queryTimeout.toNanos();
+    private QueryStatusResponse poll(String queryId, long deadlineMs, boolean allowReadable) {
         while (true) {
+            checkDeadline(queryId, deadlineMs);
             QueryStatusResponse status = client.getQueryStatus(queryId);
             String state = status.state();
-
-            if (isTerminalState(state)) {
+            if (isTerminalState(state) || allowReadable && status.resultEndpoint() != null
+                    && ("RUNNING".equalsIgnoreCase(state) || "FINISHING".equalsIgnoreCase(state))) {
                 return status;
-            }
-
-            if (System.nanoTime() >= deadlineNanos) {
-                bestEffortCancel(queryId);
-                throw new QueryTimeoutException(queryId, queryTimeout);
             }
 
             out.print(".");
@@ -167,11 +191,21 @@ final class SqlShell {
 
             ThreadUtils.sleepQuietly(POLL_INTERVAL_MS);
             if (Thread.currentThread().isInterrupted()) {
-                bestEffortCancel(queryId);
                 throw new PangrovaClientException("INTERRUPTED",
                         "Query " + queryId + " interrupted; cancel request sent to coordinator");
             }
         }
+    }
+
+    private void checkDeadline(String queryId, long deadlineMs) {
+        if (System.currentTimeMillis() >= deadlineMs) throw new QueryTimeoutException(queryId, queryTimeout);
+        if (Thread.currentThread().isInterrupted()) {
+            throw new PangrovaClientException("INTERRUPTED", "Query " + queryId + " interrupted");
+        }
+    }
+
+    private static boolean isFailedOrCancelled(String state) {
+        return "FAILED".equalsIgnoreCase(state) || "CANCELLED".equalsIgnoreCase(state);
     }
 
     private void bestEffortCancel(String queryId) {
@@ -182,24 +216,15 @@ final class SqlShell {
         }
     }
 
-    private void displayResults(QueryStatusResponse status, List<String> columnNames) {
-        if (status.resultEndpoint() == null) {
-            out.println("OK (no result endpoint)");
-            return;
+    static String formatResults(byte[] resultBytes, List<String> columnNames) {
+        if (resultBytes == null) {
+            throw new PangrovaClientException("RESULT_ENDPOINT_MISSING", "Query finished without its result endpoint");
         }
+        ResultBatchDecoder.DecodedResult decoded = ResultBatchDecoder.decode(resultBytes);
 
-        byte[] resultBytes = client.fetchResult(status.resultEndpoint());
-        ResultBatchDecoder.DecodedResult decoded;
-        try {
-            decoded = ResultBatchDecoder.decode(resultBytes);
-        } catch (ResultDecodeException e) {
-            out.println("Error decoding result: " + e.getMessage());
-            return;
-        }
-
-        List<String> headers = decoded.columnNames().isEmpty() ? columnNames : decoded.columnNames();
-        String table = TableFormatter.format(headers, decoded.rows());
-        out.print(table);
+        List<String> headers = decoded.columnNames().isEmpty()
+                ? columnNames == null ? List.of() : columnNames : decoded.columnNames();
+        return TableFormatter.format(headers, decoded.rows());
     }
 
     private void printError(QueryStatusResponse status) {

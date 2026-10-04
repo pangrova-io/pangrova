@@ -247,7 +247,7 @@ public final class PangrovaPlanner {
      *
      * <p>The resulting plan represents:
      * HashJoin(source=build, target=probe) → ConditionalProject
-     * (MATCHED UPDATE/DELETE, NOT MATCHED INSERT) → WriteOperator(target, OVERWRITE).
+     * (MATCHED UPDATE/DELETE, NOT MATCHED INSERT) → Native task-owned overwrite sink.
      *
      * <p>The actual Substrait conversion and worker dispatch is handled by the
      * caller (PlanExecutionFactory via NativeDmlCompileFunction).

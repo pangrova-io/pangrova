@@ -48,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class DdlExecutorAlterTableTest {
 
-    private static org.pangrova.coordinator.query.CoordinatorSessionContext statementSession() {
+    private static org.pangrova.coordinator.query.session.CoordinatorSessionContext statementSession() {
         return context();
     }
 

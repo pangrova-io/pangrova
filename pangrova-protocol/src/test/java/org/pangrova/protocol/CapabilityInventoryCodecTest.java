@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
+
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ArtifactFormatRef;
@@ -19,6 +21,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CapabilityInventoryCodecTest {
+
+    @Test
+    void encodedSizeLimitIsInclusiveAndIdenticalForAllProducerAndConsumerPaths() {
+        var exact = inventorySized(3 * 1024 * 1024);
+        String encoded = CapabilityInventoryCodec.encode(exact);
+        assertThat(encoded).hasSize(4 * 1024 * 1024);
+        assertThat(CapabilityInventoryCodec.decode(encoded)).isEqualTo(exact);
+
+        var oversized = inventorySized(3 * 1024 * 1024 + 1);
+        String oversizedEncoded = java.util.Base64.getEncoder().encodeToString(oversized.toByteArray());
+        assertThat(oversizedEncoded).hasSize(4 * 1024 * 1024 + 4);
+        assertThatThrownBy(() -> CapabilityInventoryCodec.validate(oversized))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maximum encoded size");
+        assertThatThrownBy(() -> CapabilityInventoryCodec.encode(oversized))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maximum encoded size");
+        assertThatThrownBy(() -> CapabilityInventoryCodec.decode(oversizedEncoded))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maximum encoded size");
+    }
+
+    private static CapabilityInventory inventorySized(int bytes) {
+        var base = baseInventory().clearSupportedRelationTypeUrls().build();
+        int length = bytes - base.getSerializedSize();
+        CapabilityInventory inventory = base;
+        for (int pass = 0; pass < 2; pass++) {
+            inventory = base.toBuilder().addSupportedRelationTypeUrls("x".repeat(length)).build();
+            length += bytes - inventory.getSerializedSize();
+        }
+        assertThat(inventory.getSerializedSize()).isEqualTo(bytes);
+        return inventory;
+    }
 
     @Test
     void losslesslyRoundTripsExactCapabilityAndArtifactIdentity() {
@@ -114,10 +146,9 @@ class CapabilityInventoryCodecTest {
     }
 
     private static CapabilityInventory.Builder baseInventory() {
-        return CapabilityInventory.newBuilder()
+        return CanonicalCapabilityInventoryTestFixture.inventory().toBuilder()
                 .setProtocol(protocol())
-                .setResultEnvelopeVersion(1)
-                .setNativeEngineVersion("native-test");
+                .clearCapabilities().clearModels();
     }
 
     private static ModelCapabilityContract modelContract(CapabilityRef capability) {

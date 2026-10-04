@@ -16,9 +16,10 @@
 #include "jni/registry/HandleRegistry.h"
 #include "artifact/ImmutableArtifactCache.h"
 #include "capability/BuiltinFunctionRegistration.h"
+#include "capability/FunctionCatalogPublication.h"
 #include "memory/PangrovaArbitrator.h"
 #include "memory/MemoryPressure.h"
-#include "result/ArrowBatchVectorSerde.h"
+#include "velox/serde/ArrowBatchVectorSerde.h"
 #include "text/bm25/TextSearchFunctions.h"
 #include "velox/connector/PangrovaVeloxConnector.h"
 #include "velox/exchange/PangrovaExchangeSource.h"
@@ -128,6 +129,17 @@ void registerDwrfReaderFactory();
 
 namespace pangrova::jni {
 
+struct NativeEngineLifecycle::FunctionRetirement final {
+  std::vector<std::shared_ptr<const capability::FunctionCatalogPublication>> publications;
+  std::vector<std::unique_ptr<pangrova::udf::NativeUdfRegistry>> registries;
+
+  void retire() {
+    // Both owners retain callback factories during exact SDK-entry removal.
+    // The enclosing lifecycle lock has already been released.
+    for (const auto& registry : registries) registry->retireOwnedRegistrations();
+  }
+};
+
 NativeEngineLifecycle& NativeEngineLifecycle::instance() {
   static NativeEngineLifecycle inst;
   return inst;
@@ -135,9 +147,10 @@ NativeEngineLifecycle& NativeEngineLifecycle::instance() {
 
 void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
                                        JNIEnv* env, jobject allocationListener) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  FunctionRetirement retirement;
+  std::unique_lock<std::mutex> lock(mutex_);
   if (initialized_.load(std::memory_order_relaxed)) {
-    shutdownInternal();
+    shutdownInternal(retirement);
   }
   try {
     initVeloxMemory(config, env, allocationListener);
@@ -146,10 +159,14 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
     // Runtime initialization is one atomic readiness transition. Tear down all
     // partially-created pools, caches, registrations and memory listeners so a
     // failed node can be repaired and retried without process restart.
-    shutdownInternal();
+    shutdownInternal(retirement);
+    lock.unlock();
+    retirement.retire();
     throw;
   }
   initialized_.store(true, std::memory_order_release);
+  lock.unlock();
+  retirement.retire();
 
   std::cerr << "level=INFO event=native_engine_lifecycle_initialized"
             << " memory_bytes=" << config.max_memory_bytes
@@ -159,18 +176,23 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config,
 }
 
 void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config) {
-  std::lock_guard<std::mutex> lock(mutex_);
+  FunctionRetirement retirement;
+  std::unique_lock<std::mutex> lock(mutex_);
   if (initialized_.load(std::memory_order_relaxed)) {
-    shutdownInternal();
+    shutdownInternal(retirement);
   }
   try {
     initVeloxMemoryTestMode(config);
     initCommon(config);
   } catch (...) {
-    shutdownInternal();
+    shutdownInternal(retirement);
+    lock.unlock();
+    retirement.retire();
     throw;
   }
   initialized_.store(true, std::memory_order_release);
+  lock.unlock();
+  retirement.retire();
 
   std::cerr << "level=INFO event=native_engine_lifecycle_initialized_test_mode"
             << " memory_bytes=" << config.max_memory_bytes
@@ -178,11 +200,23 @@ void NativeEngineLifecycle::initialize(const NativeRuntimeConfig& config) {
 }
 
 void NativeEngineLifecycle::shutdown() {
-  std::lock_guard<std::mutex> lock(mutex_);
+  FunctionRetirement retirement;
+  std::unique_lock<std::mutex> lock(mutex_);
   if (!initialized_.load(std::memory_order_relaxed)) {
     return;
   }
-  shutdownInternal();
+  shutdownInternal(retirement);
+  lock.unlock();
+  retirement.retire();
+}
+
+std::shared_ptr<capability::FunctionCatalogStartup>
+NativeEngineLifecycle::functionCatalogStartup() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!initialized_.load(std::memory_order_relaxed) || !function_catalog_startup_) {
+    throw std::logic_error("Function catalogue startup requires the initialized runtime incarnation");
+  }
+  return function_catalog_startup_;
 }
 
 bool NativeEngineLifecycle::isInitialized() const {
@@ -279,28 +313,17 @@ void NativeEngineLifecycle::registerVeloxFunctions() {
   if (!facebook::velox::isRegisteredVectorSerde()) {
     facebook::velox::serializer::presto::PrestoVectorSerde::registerVectorSerde();
   }
-  // Register the named serde "Presto" (capital P) used by PartitionedOutputNode
-  // and ExchangeNode for shuffle/result serialization. The name MUST match
-  // Velox's getVectorSerdeOptions() case-sensitive comparison in OperatorUtils.cpp.
-  if (!facebook::velox::isRegisteredNamedVectorSerde("Presto")) {
-    facebook::velox::serializer::presto::PrestoVectorSerde::registerNamedVectorSerde();
-  }
 #endif
 
-  // Register "ArrowBatch" named serde for Arrow IPC direct result serving.
-  // PartitionedOutputNode uses this when result_serde_mode is "arrow_batch",
-  // enabling FlightResultServer to stream pre-serialized Arrow IPC buffers
-  // directly without PrestoVectorSerde deserialize + re-export overhead.
-  // Unsupported types throw ArrowBatchUnsupportedTypeException, caught by
-  // PlanExecutionDriver to fall back to PrestoVectorSerde gracefully.
+  // The default SDK serde above is used for SDK-internal spill only. Every
+  // Pangrova result and Exchange selects this sole named wire serde; unsupported
+  // values fail before payload publication, without another execution path.
   if (!facebook::velox::isRegisteredNamedVectorSerde(
-          pangrova::result::ArrowBatchVectorSerde::kSerdeKind)) {
-    pangrova::result::ArrowBatchVectorSerde::registerNamedVectorSerde();
+          pangrova::velox::ArrowBatchVectorSerde::kSerdeKind)) {
+    pangrova::velox::ArrowBatchVectorSerde::registerNamedVectorSerde();
   }
 
-#if PANGROVA_HAS_FLIGHT
   pangrova::velox::PangrovaExchangeSource::registerExchangeSourceFactory();
-#endif
 
   // Register custom table function operators with Velox's execution framework.
   pangrova::velox::registerGenerateSeriesOperator();
@@ -459,6 +482,7 @@ void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
   registerVeloxFunctions();
 
   udf_registry_ = std::make_unique<pangrova::udf::NativeUdfRegistry>();
+  function_catalog_startup_ = std::make_shared<capability::FunctionCatalogStartup>();
 
   table_function_registry_ = std::make_unique<pangrova::velox::TableFunctionRegistry>();
   table_function_registry_->registerBuiltins();
@@ -494,7 +518,7 @@ void NativeEngineLifecycle::initCommon(const NativeRuntimeConfig& config) {
   registerVeloxConnector(config);
 }
 
-void NativeEngineLifecycle::shutdownInternal() {
+void NativeEngineLifecycle::shutdownInternal(FunctionRetirement& retirement) {
   HandleRegistry::instance().destroyAll();
 
   // Handle destruction closes exchange sources and cancels their Flight RPCs.
@@ -512,6 +536,12 @@ void NativeEngineLifecycle::shutdownInternal() {
     executor_->join();
     executor_.reset();
   }
+
+  if (function_catalog_startup_) {
+    retirement.publications.push_back(function_catalog_startup_->close());
+    function_catalog_startup_.reset();
+  }
+  if (udf_registry_) retirement.registries.push_back(std::move(udf_registry_));
 
   // Handles and executors no longer use Lance. Drop the process-wide Tokio
   // reference before static destruction; any independently open FFI handle
@@ -566,7 +596,6 @@ void NativeEngineLifecycle::shutdownInternal() {
   }
 
   block_listener_.reset();
-  udf_registry_.reset();
   table_function_registry_.reset();
 
   velox_connector_registered_ = false;

@@ -116,6 +116,39 @@ class ArtifactDispatchDeadlineIntegrationTest extends ContainerTestBase {
                 .isInstanceOf(AuthorizationDeniedException.class);
     }
 
+    @Test
+    void durableCancellationRetiresRetryResponsibilityWithoutRestoringRevokedPublication() throws Exception {
+        var lease = claim(Duration.ofMinutes(10).toMillis());
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("DELETE FROM security_grants WHERE privilege='SELECT'");
+        }
+        assertThat(builds.cancelJob(TENANT, lease.jobId(), "real authorization revoked", NOW.plusSeconds(1))).isTrue();
+        ArtifactLeaseRetry.retry(builds, lease, NOW.plusSeconds(20), "Native exit observed", NOW.plusSeconds(2));
+        assertThat(builds.findJob(TENANT, lease.jobId()).orElseThrow().state()).isEqualTo(ArtifactBuildJobState.CANCELLED);
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT state,lease_owner FROM artifact_build_pages WHERE tenant_id=? AND job_id=? AND page_id=?")) {
+            statement.setString(1, TENANT);
+            statement.setString(2, lease.jobId());
+            statement.setString(3, lease.pageId());
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString("state")).isEqualTo("CANCELLED");
+                assertThat(rows.getString("lease_owner")).isNull();
+            }
+        }
+    }
+
+    @Test
+    void liveRevokedJobCannotTurnAnExecutionExitIntoRequeuePermission() throws Exception {
+        var lease = claim(Duration.ofMinutes(10).toMillis());
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("DELETE FROM security_grants WHERE privilege='SELECT'");
+        }
+        assertThatThrownBy(() -> ArtifactLeaseRetry.retry(builds, lease, NOW.plusSeconds(20),
+                "Native exit observed", NOW.plusSeconds(2))).isInstanceOf(AuthorizationDeniedException.class);
+        assertThat(builds.findJob(TENANT, lease.jobId()).orElseThrow().state()).isEqualTo(ArtifactBuildJobState.RUNNING);
+    }
+
     private ArtifactBuildLease claim(long timeoutMillis) {
         var plan = VectorArtifactBuildPlanBuilder.build(List.of("lake", "raw", "items"), "embedding",
                 BuiltInCapabilityCatalog.hnswArtifactBuildPlanRef(), BuiltInCapabilityCatalog.hnswArtifactFormat());

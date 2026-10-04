@@ -24,7 +24,6 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.BoundExecutionPlan;
 import org.pangrova.spi.coordination.QueryStateJournal;
-import org.pangrova.spi.coordination.TaskStateEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +45,7 @@ final class LeafStageDispatcher {
     private final PublishedArtifactBindingResolver artifactBindingResolver;
     private final boolean remoteShuffle;
     private final StagePartitionDispatcher partitions;
+    private final DispatchCanceller canceller;
 
     LeafStageDispatcher(org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher,
                         org.pangrova.planner.runtimefilter.RuntimeFilterRegistry runtimeFilterRegistry,
@@ -62,6 +62,7 @@ final class LeafStageDispatcher {
         this.artifactBindingResolver = options.artifactBindingResolver();
         this.remoteShuffle = options.remoteShuffle();
         this.partitions = new StagePartitionDispatcher(dispatcher, canceller, options.taskAccessBinder());
+        this.canceller = canceller;
     }
 
     record LeafDispatchOptions(
@@ -80,7 +81,7 @@ final class LeafStageDispatcher {
             org.pangrova.protocol.rest.config.WriteConfig writeConfig,
             boolean distributedRetrieval,
             long planEpoch, DurableStageRuntime durable) {
-        org.pangrova.coordinator.query.CoordinatorSessionContext session() { return execution.requireLiveSession(); }
+        org.pangrova.coordinator.query.session.CoordinatorSessionContext session() { return execution.requireLiveSession(); }
     }
 
     private record PreparedDispatch(
@@ -336,10 +337,7 @@ final class LeafStageDispatcher {
             stage.addTaskId(r.taskId());
             taskStageRegistrar.register(execution.executionId(), r.taskId(), stage);
             if (stateJournal != null) {
-                stateJournal.appendTaskEvent(new TaskStateEvent(
-                        execution.executionId(), r.taskId(), pd.workerId(),
-                        "SCHEDULED", stage.stageId(), 0L,
-                        System.currentTimeMillis()));
+                canceller.journalScheduledTask(stateJournal, r.taskId());
             }
         }
     }
@@ -443,7 +441,7 @@ final class LeafStageDispatcher {
                             + ", downstreamParallelism=" + downstreamNode.parallelism());
         }
         return new org.pangrova.protocol.rest.config.ShuffleConfig(
-                null, null, 0,
+                downstreamEdge.batchSerde().name().substring("BATCH_SERDE_".length()), null, 0,
                 remoteShuffle ? "MEMORY_AND_REMOTE" : "MEMORY_ONLY",
                 numPartitions,
                 downstreamEdge.distributionKeys());

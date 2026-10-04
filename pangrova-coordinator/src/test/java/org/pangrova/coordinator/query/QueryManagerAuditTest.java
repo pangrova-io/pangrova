@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -169,7 +171,7 @@ class QueryManagerAuditTest {
         QueryManagerContext deps = new QueryManagerContext(
                 orchestrator, TestObservability.TRACING,
                 null, null, null, null, emitter, auditService, null, null,
-                org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE, null);
+                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(), null);
         return new QueryManager(deps);
     }
 

@@ -9,7 +9,7 @@ import org.apache.calcite.sql.type.SqlOperandTypeChecker;
 import org.apache.calcite.sql.type.SqlReturnTypeInference;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.type.SqlTypeUtil;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import static org.apache.calcite.util.Static.RESOURCE;
 

@@ -128,12 +128,17 @@ passed.
 ## Selecting Validation
 
 1. After the first edit, run the closest test, compile, syntax, or lint check.
-2. Run the owning module suite once the focused check passes.
+2. Run the owning module suite once the focused check passes. A Maven `test` or
+   `verify` already compiles; do not repeat compile/test-compile without a reason.
 3. Broaden to dependent modules when shared contracts changed.
 4. Run native, packaging, E2E, and smoke checks when the path crosses those
    boundaries.
 5. Repeat timing-sensitive tests after concurrency or flakiness fixes.
-6. Run repository gates relevant to the changed files.
+6. Run repository gates relevant to the changed files. Full production regression
+   remains required in CI and before release; run it locally for broad execution
+   changes or when focused checks cannot establish the affected boundaries.
+7. Tooling/docs edits under a native directory require their own checks; runtime
+   directory location alone does not mandate ASan or rebuilding unchanged JNI.
 
 ## Connectivity
 

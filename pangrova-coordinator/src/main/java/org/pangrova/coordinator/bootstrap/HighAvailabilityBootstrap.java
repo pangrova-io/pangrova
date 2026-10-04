@@ -66,6 +66,9 @@ final class HighAvailabilityBootstrap {
     private org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactExecutions;
     private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
     private final AtomicBoolean executionRecoveryRunning = new AtomicBoolean();
+    private volatile boolean querySchedulingStopped;
+    private volatile java.util.concurrent.ScheduledFuture<?> recoveryFuture;
+    private volatile java.util.concurrent.ScheduledFuture<?> taskTimeoutFuture;
     private java.util.function.Function<java.util.List<ExecutionAnchor>, java.util.Set<String>>
             claimedExecutionRecovery = ignored -> java.util.Set.of();
     private long workerLivenessGraceMs = DEFAULT_WORKER_LIVENESS_GRACE_MS;
@@ -130,6 +133,7 @@ final class HighAvailabilityBootstrap {
 
     void shutdown() {
         CoordinatorShutdownSequence.drainQueries(coordinator);
+        stopQueryScheduling();
         CoordinatorShutdownSequence.stopHealthScheduler(healthScheduler, schedulerExecutor);
         // BUG-D24 fix: close the HA service to release the leader lease,
         // persist orphaned queries, and unregister from the coordinator registry.
@@ -138,6 +142,14 @@ final class HighAvailabilityBootstrap {
         if (haService != null) {
             haService.close();
         }
+    }
+
+    /** Cancels future query-producing callbacks; the assembly still joins their actual executor before retirement. */
+    void stopQueryScheduling() {
+        querySchedulingStopped = true;
+        if (recoveryFuture != null) recoveryFuture.cancel(false);
+        if (taskTimeoutFuture != null) taskTimeoutFuture.cancel(false);
+        if (healthScheduler != null) healthScheduler.stop();
     }
 
     private void startHealthScheduler() {
@@ -192,8 +204,9 @@ final class HighAvailabilityBootstrap {
         });
         haService.start(config.coordinatorId());
         if (durableExecutionAnchors) {
-            schedulerExecutor.scheduleWithFixedDelay(
-                    this::recoverExecutionsIfControlLeader,
+            recoveryFuture = schedulerExecutor.scheduleWithFixedDelay(
+                    () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(
+                            schedulerExecutor, this::recoverExecutionsIfControlLeader),
                     config.workerHealthCheckIntervalMs(),
                     config.workerHealthCheckIntervalMs(),
                     TimeUnit.MILLISECONDS);
@@ -230,7 +243,7 @@ final class HighAvailabilityBootstrap {
      * reclaimer batch size and keeps the worker-liveness grace window.
      */
     private void recoverExpiredJournalState() {
-        if (!durableExecutionAnchors
+        if (querySchedulingStopped || !durableExecutionAnchors
                 || !executionRecoveryRunning.compareAndSet(false, true)) {
             return;
         }
@@ -328,8 +341,9 @@ final class HighAvailabilityBootstrap {
 
     private void startTaskTimeoutChecker() {
         long intervalMs = config.workerHealthCheckIntervalMs();
-        schedulerExecutor.scheduleAtFixedRate(
-                () -> CoordinatorShutdownSequence.checkTaskTimeouts(taskTracker, queryManager),
+        taskTimeoutFuture = schedulerExecutor.scheduleAtFixedRate(
+                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(schedulerExecutor,
+                        () -> CoordinatorShutdownSequence.checkTaskTimeouts(taskTracker, queryManager)),
                 intervalMs, intervalMs, TimeUnit.MILLISECONDS);
         LOG.info("Phase: TaskTimeoutChecker -- started (taskTimeout={}s)",
                 config.effectiveTaskTimeoutSeconds());

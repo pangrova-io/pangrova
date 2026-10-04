@@ -8,7 +8,7 @@ import java.time.Instant;
 
 import net.jqwik.api.Arbitraries;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import net.jqwik.api.Arbitrary;

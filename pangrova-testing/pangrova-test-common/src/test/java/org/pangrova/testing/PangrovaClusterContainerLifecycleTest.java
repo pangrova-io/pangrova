@@ -26,6 +26,8 @@ class PangrovaClusterContainerLifecycleTest {
             assertThat(cluster.getCoordinator()).isNull();
             cluster.configureCoordinator(container -> {
                 assertThat(cluster.getCoordinator()).isSameAs(container);
+                assertThat(container.getEnvMap()).containsEntry("PANGROVA_COORDINATOR_ID", "e2e-coordinator")
+                        .doesNotContainKey("COORDINATOR_ID");
                 container.withEnv("BORROWED_HANDLE_TEST", "configured");
                 throw original;
             });
@@ -33,6 +35,18 @@ class PangrovaClusterContainerLifecycleTest {
             assertThat(cluster.getCoordinator().getEnvMap()).containsEntry("BORROWED_HANDLE_TEST", "configured");
             assertThat(cluster.isStarted()).isFalse();
         }
+    }
+
+    @Test
+    void workerEnvironmentProvidesDistinctReachableProductionIdentity() {
+        var first = PangrovaClusterContainer.workerEnvironment(1);
+        var second = PangrovaClusterContainer.workerEnvironment(2);
+        assertThat(first).containsEntry("PANGROVA_WORKER_ID", "e2e-worker-1")
+                .containsEntry("PANGROVA_COORDINATOR_URL", "http://coordinator:8080")
+                .containsEntry("PANGROVA_ADVERTISED_HOST", "worker-1")
+                .doesNotContainKeys("WORKER_ID", "WORKER_COORDINATOR_URL");
+        assertThat(second).containsEntry("PANGROVA_WORKER_ID", "e2e-worker-2")
+                .containsEntry("PANGROVA_ADVERTISED_HOST", "worker-2");
     }
     @Test
     void configurationFailureClosesClusterAndPreservesOriginalFailure() {

@@ -201,7 +201,7 @@ public final class BuiltInCapabilityCatalog {
 
     /** Dynamic UNNEST output is declared by the typed relation, not a scalar signature. */
     public static CapabilityRef unnestPlanRef() {
-        return org.pangrova.protocol.function.FunctionBindingDeclarations
+        return org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
                 .structuralReference("pangrova.table.unnest");
     }
 

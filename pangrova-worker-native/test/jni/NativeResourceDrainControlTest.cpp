@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 #include <chrono>
 
 #include "executor/driver/TaskExecutor.h"
@@ -29,6 +30,8 @@ class NativeResourceDrainControlTest : public ::testing::Test {
     context_.mutable_security()->add_active_roles("reader");
     context_.mutable_security()->set_policy_context_hash("policy");
     executor::TaskExecutorConfig config;
+    config.function_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
     config.task_id = identity->task_id();
     config.query_id = identity->query_or_job_id();
     config.is_result_task = true;

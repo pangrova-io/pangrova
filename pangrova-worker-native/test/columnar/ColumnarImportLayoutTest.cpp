@@ -5,6 +5,10 @@
 #include <arrow/util/key_value_metadata.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <memory>
+#include <string>
+
 namespace pangrova::columnar {
 namespace {
 std::shared_ptr<arrow::Array> fixedVectors() {
@@ -118,7 +122,7 @@ TEST(ColumnarImportLayoutTest, MalformedFixedVectorRefusesBeforeConversionAndZer
   EXPECT_FALSE(normalizeImportLayout(*batch(invalid), pool, usage).ok());
   EXPECT_EQ(usage.allocatedOffsetBytes, 0);
   EXPECT_EQ(usage.copiedBytes, 0);
-  auto empty = arrow::RecordBatch::Make(arrow::schema({}), 3, {});
+  auto empty = arrow::RecordBatch::Make(arrow::schema({}), 3, arrow::ArrayVector{});
   auto converted = normalizeImportLayout(*empty, pool, usage).ValueOrDie();
   EXPECT_EQ(converted->num_columns(), 0);
   EXPECT_EQ(converted->num_rows(), 3);

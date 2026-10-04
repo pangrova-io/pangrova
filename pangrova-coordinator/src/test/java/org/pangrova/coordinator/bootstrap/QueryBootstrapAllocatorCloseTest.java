@@ -5,6 +5,10 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 
+import java.net.ConnectException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -18,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class QueryBootstrapAllocatorCloseTest {
 
     @Test
-    void shutdownClosesTransportAllocator() {
+    void shutdownClosesTransportAllocator() throws Exception {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("alloc-close-1", 0);
         QueryBootstrap bootstrap = new QueryBootstrap(
                 config, new NoOpTracingProvider(), null, null, null,
@@ -28,12 +32,23 @@ class QueryBootstrapAllocatorCloseTest {
 
         // Verify the transport server and allocator were created
         assertThat(bootstrap.coordinatorTransportServer()).isNotNull();
+        var server = bootstrap.coordinatorTransportServer();
+        assertThat(server.isRunning()).isTrue();
+        var address = new InetSocketAddress("127.0.0.1", server.getPort());
+        try (var connection = new Socket()) {
+            connection.connect(address, 1000);
+            assertThat(connection.isConnected()).isTrue();
+        }
 
         bootstrap.shutdown();
 
-        // After shutdown, attempting to allocate from the closed allocator should fail.
-        // We verify indirectly: the transport server is stopped (no exception during shutdown).
-        // The allocator close is confirmed by the structured log event.
+        assertThat(server.isRunning()).isFalse();
+        assertThatThrownBy(() -> {
+            try (var connection = new Socket()) {
+                connection.connect(address, 1000);
+            }
+        }).isInstanceOf(ConnectException.class);
+        // Listener shutdown is an actual transport boundary; allocator rejection is verified below.
     }
 
     @Test
@@ -46,6 +61,8 @@ class QueryBootstrapAllocatorCloseTest {
     void closeTransportAllocatorClosesAllocator() {
         BufferAllocator allocator = new RootAllocator(1024);
         CoordinatorShutdownSequence.closeTransportAllocator(allocator);
+        assertThat(allocator.getAllocatedMemory()).isZero();
+        assertThatThrownBy(() -> allocator.buffer(1)).isInstanceOf(IllegalStateException.class);
 
         // After close, newChildAllocator should throw IllegalStateException
         assertThatThrownBy(() -> allocator.newChildAllocator("child", 0, 64))

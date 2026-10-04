@@ -177,12 +177,29 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 
 This architecture avoids loading entire result sets into Coordinator memory.
 
+For the Java REST client, `useTls(true)` with `trustStorePath` loads the configured
+JKS/PKCS12 trust store into the HTTPS context. A store requires HTTPS; an orphan
+store password, missing file, or invalid password is rejected. A supplied shared
+`HttpClient` cannot be combined with a configured store because its immutable trust
+policy cannot be overwritten. Result transport uses independent PEM credentials.
+`httpExecutorThreads(n)` sets a positive owned HTTP executor size independent of
+failover endpoint count. Combining it with a supplied shared `HttpClient` is
+rejected instead of ignoring the executor configuration.
+Closing seals HTTP admission and refuses to retire an executor while a real request
+is active; retry after the request exits. JDK 17 exposes no HTTP socket close/drain
+API, so executor termination must not be presented as a physical network receipt.
+Query cancellation rejects HTTP authentication/authorization/server errors and
+malformed or conflicting replies. Logical outcomes require the exact requested
+`query_id`, boolean `cancelled` and outcome to match the service's 200/202/404
+contract. `CANCEL_ACCEPTED`, `ALREADY_TERMINAL` and `NOT_FOUND` are not physical
+execution or network-drain evidence; even a 404 from an unrelated proxy is rejected.
+
 ### Troubleshooting
 
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | `Connection refused` | Coordinator not running or wrong host/port | Verify with `curl http://host:port/v1/health` |
 | `SQLException: query field is required` | Empty query string | Ensure query is not null or blank |
-| `SSL handshake failed` | Wrong trust store or self-signed cert | Configure `sslTrustStore` and `sslTrustStorePassword` |
+| `SSL handshake failed` | Wrong trust roots, missing client certificate, or hostname mismatch | REST HTTPS uses `sslTrustStore`/`sslTrustStorePassword`; result transport uses independent PEM `ResultTransportSecurity` trust roots and a paired client certificate/key for mutual TLS |
 | Slow first query | JIT warmup on Coordinator | Expected; subsequent queries will be faster |
 | `Query not found` after submit | Query completed and result expired | Increase `worker.task.result-retention-seconds` |

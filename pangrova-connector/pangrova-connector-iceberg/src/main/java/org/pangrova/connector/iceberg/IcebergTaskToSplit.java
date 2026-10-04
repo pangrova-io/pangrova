@@ -169,8 +169,7 @@ final class IcebergTaskToSplit {
      * {@link ColumnMapping} is produced so the native reader can find the
      * physical column in older Parquet files by its historical name.</p>
      */
-    static List<ColumnMapping> computeColumnMappings(Table table) {
-        Schema currentSchema = table.schema();
+    static List<ColumnMapping> computeColumnMappings(Table table, Schema currentSchema) {
         Map<Integer, String> currentFieldNames = new HashMap<>();
         for (Types.NestedField field : currentSchema.columns()) {
             currentFieldNames.put(field.fieldId(), field.name());

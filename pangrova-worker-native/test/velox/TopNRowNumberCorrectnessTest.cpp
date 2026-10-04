@@ -15,19 +15,27 @@
 // **Validates: Requirements 7.2, 7.3**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "../TestMemoryHelper.h"
 #include "CanonicalOutputAssertions.h"
+#include "CanonicalTaskExecution.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
 #include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
 
 #include "velox/core/PlanNode.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox::test {
 namespace {
@@ -43,7 +51,7 @@ struct TopNRowNumberParam {
   int partition_key_count;  // 1 or 2
   int order_key_count;      // 1 or 2
   int32_t limit;            // 1, 5, or 50
-  int input_size;           // 10, 100, or 1000 (conceptual — affects schema naming)
+  int input_size;           // 10, 100, or 1000; actual Values oracle below.
 };
 
 // ===========================================================================
@@ -54,7 +62,7 @@ namespace {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
@@ -62,6 +70,14 @@ void setFieldRef(substrait::Expression* expr, int field_index) {
   ref->mutable_root_reference();
   ref->mutable_direct_reference()->mutable_struct_field()->set_field(
       field_index);
+}
+
+std::vector<int64_t> inputRow(int row, int partitionKeys, int orderKeys, int size) {
+  std::vector<int64_t> values;
+  for (int key = 0; key < partitionKeys; ++key) values.push_back(key == 0 ? row % 3 : (row / 3) % 2);
+  for (int key = 0; key < orderKeys; ++key) values.push_back(size - row + key);
+  values.push_back(row);
+  return values;
 }
 
 // Build a Substrait Plan containing:
@@ -73,7 +89,8 @@ void setFieldRef(substrait::Expression* expr, int field_index) {
 std::vector<uint8_t> buildTopNRowNumberPlan(
     int partition_key_count,
     int order_key_count,
-    int32_t limit) {
+    int64_t limit,
+    int inputSize = 0) {
   substrait::Plan plan;
 
   // Register functions:
@@ -117,6 +134,15 @@ std::vector<uint8_t> buildTopNRowNumberPlan(
     addI64Column(schema, "ok_" + std::to_string(i));
   }
   addI64Column(schema, "payload");
+  if (inputSize > 0) {
+    read_rel->clear_named_table();
+    for (int row = 0; row < inputSize; ++row) {
+      auto* record = read_rel->mutable_virtual_table()->add_expressions();
+      for (const auto value : inputRow(row, partition_key_count, order_key_count, inputSize)) {
+        record->add_fields()->mutable_literal()->set_i64(value);
+      }
+    }
+  }
 
   // Partition expressions: field references to partition key columns
   for (int i = 0; i < partition_key_count; ++i) {
@@ -137,7 +163,7 @@ std::vector<uint8_t> buildTopNRowNumberPlan(
   wf->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   wf->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf->set_function_reference(0);  // row_number
-  wf->mutable_output_type()->mutable_i64();
+  wf->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 
   // --- FilterRel condition: row_number_col <= limit ---
   // The row_number column is the last column in the window output.
@@ -146,7 +172,7 @@ std::vector<uint8_t> buildTopNRowNumberPlan(
 
   auto* cond = filter_rel->mutable_condition()->mutable_scalar_function();
   cond->set_function_reference(1);  // lte
-  cond->mutable_output_type()->mutable_bool_();
+  cond->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 
   // Left arg: field reference to row_number column
   setFieldRef(cond->add_arguments()->mutable_value(), rn_col_index);
@@ -155,7 +181,7 @@ std::vector<uint8_t> buildTopNRowNumberPlan(
   cond->add_arguments()->mutable_value()->mutable_literal()->set_i64(limit);
 
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -225,7 +251,9 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodePatternDetected) {
       param.partition_key_count, param.order_key_count, param.limit);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr)
       << "Plan conversion failed for " << param.name;
@@ -252,7 +280,9 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeHasCorrectLimit) {
       param.partition_key_count, param.order_key_count, param.limit);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
@@ -286,7 +316,9 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeHasCorrectPartitionKeys) {
       param.partition_key_count, param.order_key_count, param.limit);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
@@ -327,7 +359,9 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeHasCorrectSortingKeys) {
       param.partition_key_count, param.order_key_count, param.limit);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
@@ -382,7 +416,9 @@ TEST_P(TopNRowNumberCorrectnessTest, NoRowNumberOrFilterNodeInPlan) {
       param.partition_key_count, param.order_key_count, param.limit);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
@@ -418,7 +454,9 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeSourceIsTableScan) {
       param.partition_key_count, param.order_key_count, param.limit);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
@@ -440,6 +478,142 @@ TEST_P(TopNRowNumberCorrectnessTest, TopNRowNumberNodeSourceIsTableScan) {
   EXPECT_NE(scan, nullptr)
       << "TopNRowNumberNode source chain should contain a TableScan for "
       << param.name;
+}
+
+TEST_P(TopNRowNumberCorrectnessTest, ActualValuesKeepExactPartitionTopKAndOrdinals) {
+  const auto& param = GetParam();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  const auto plan = converter.convert(buildTopNRowNumberPlan(param.partition_key_count,
+      param.order_key_count, param.limit, param.input_size), {});
+  ASSERT_NE(findNode(plan, "TopNRowNumber"), nullptr);
+  EXPECT_EQ(countNodes(plan, "RowNumber"), 0);
+  EXPECT_EQ(countNodes(plan, "Filter"), 0);
+  EXPECT_EQ(countNodes(plan, "OrderBy"), 0);
+  const auto values = std::dynamic_pointer_cast<const core::ValuesNode>(findNode(plan, "Values"));
+  ASSERT_NE(values, nullptr);
+  ASSERT_EQ(values->values().size(), 1);
+  EXPECT_EQ(values->values().front()->size(), param.input_size);
+  const auto execution = executeCanonicalTask(plan, converter_registry);
+  std::vector<std::vector<int64_t>> actual, expected;
+  for (const auto& batch : execution.batches) {
+    for (vector_size_t row = 0; row < batch->size(); ++row) {
+      std::vector<int64_t> result;
+      for (const auto& child : batch->children()) {
+        DecodedVector decoded(*child);
+        ASSERT_FALSE(decoded.isNullAt(row));
+        result.push_back(decoded.valueAt<int64_t>(row));
+      }
+      actual.push_back(std::move(result));
+    }
+  }
+  std::map<std::vector<int64_t>, int64_t> counts;
+  for (int row = param.input_size - 1; row >= 0; --row) {
+    auto result = inputRow(row, param.partition_key_count, param.order_key_count, param.input_size);
+    const std::vector<int64_t> key(result.begin(), result.begin() + param.partition_key_count);
+    const auto number = ++counts[key];
+    if (number > param.limit) continue;
+    result.push_back(number);
+    expected.push_back(std::move(result));
+  }
+  std::sort(actual.begin(), actual.end());
+  std::sort(expected.begin(), expected.end());
+  EXPECT_EQ(actual, expected);
+  ASSERT_EQ(plan->outputType()->size(), param.partition_key_count + param.order_key_count + 2);
+  expectCanonicalOutputField(converter, plan->outputType(), plan->outputType()->size() - 1, "row_number");
+}
+
+TEST(TopNRowNumberNegativeTest, StrictMinimumIntegerDoesNotOverflowOrRewrite) {
+  pangrova::test::testMemoryManager();
+  auto bytes = buildTopNRowNumberPlan(1, 1, std::numeric_limits<int64_t>::min(), 10);
+  substrait::Plan proto;
+  ASSERT_TRUE(proto.ParseFromArray(bytes.data(), bytes.size()));
+  proto.mutable_extensions(1)->mutable_extension_function()->set_name("lt:i64_i64");
+  const auto serialized = pangrova::test::canonicalTestPlan(proto).SerializeAsString();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  const auto plan = converter.convert({serialized.begin(), serialized.end()}, {});
+  EXPECT_EQ(findNode(plan, "TopNRowNumber"), nullptr);
+  EXPECT_EQ(countNodes(plan, "Filter"), 1);
+  const auto execution = executeCanonicalTask(plan, converter_registry);
+  size_t rows = 0;
+  for (const auto& batch : execution.batches) rows += batch->size();
+  EXPECT_EQ(rows, 0);
+}
+
+TEST(TopNRowNumberNegativeTest, ComputedMarkerCannotBeAssumedToHaveTheOriginalOrdinal) {
+  pangrova::test::testMemoryManager();
+  const auto bytes = buildTopNRowNumberPlan(1, 1, 1, 10);
+  substrait::Plan proto;
+  ASSERT_TRUE(proto.ParseFromArray(bytes.data(), bytes.size()));
+  auto* filter = proto.mutable_relations(0)->mutable_root()->mutable_input()->mutable_filter();
+  const auto window = filter->input();
+  auto* project = filter->mutable_input()->mutable_project();
+  *project->mutable_input() = window;
+  auto* add = proto.add_extensions()->mutable_extension_function();
+  add->set_function_anchor(2);
+  add->set_name("add:i64_i64");
+  const auto& addDefinition = pangrova::test::canonical_plan_detail::definition(
+      pangrova::protocol::v2::FUNCTION_KIND_SCALAR, "add");
+  uint32_t urnAnchor = 0;
+  for (const auto& urn : proto.extension_urns()) urnAnchor = std::max(urnAnchor, urn.extension_urn_anchor() + 1);
+  auto* arithmeticUrn = proto.add_extension_urns();
+  arithmeticUrn->set_extension_urn_anchor(urnAnchor);
+  arithmeticUrn->set_urn(addDefinition.ref().urn());
+  add->set_extension_urn_reference(urnAnchor);
+  auto* call = project->add_expressions()->mutable_scalar_function();
+  call->set_function_reference(2);
+  call->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  setFieldRef(call->add_arguments()->mutable_value(), 3);
+  call->add_arguments()->mutable_value()->mutable_literal()->set_i64(10);
+  for (int ordinal : {0, 1, 2, 4}) project->mutable_common()->mutable_emit()->add_output_mapping(ordinal);
+  const auto serialized = pangrova::test::canonicalTestPlan(proto).SerializeAsString();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  const auto plan = converter.convert({serialized.begin(), serialized.end()}, {});
+  EXPECT_EQ(findNode(plan, "TopNRowNumber"), nullptr);
+  EXPECT_EQ(countNodes(plan, "Filter"), 1);
+  const auto execution = executeCanonicalTask(plan, converter_registry);
+  size_t rows = 0;
+  for (const auto& batch : execution.batches) rows += batch->size();
+  EXPECT_EQ(rows, 0);
+}
+
+TEST(TopNRowNumberNegativeTest, DuplicateProjectionKeepsBothDeclaredMarkersWithoutRewrite) {
+  pangrova::test::testMemoryManager();
+  const auto bytes = buildTopNRowNumberPlan(1, 1, 1, 10);
+  substrait::Plan proto;
+  ASSERT_TRUE(proto.ParseFromArray(bytes.data(), bytes.size()));
+  auto* root = proto.mutable_relations(0)->mutable_root();
+  root->add_names("marker_copy");
+  auto* filter = root->mutable_input()->mutable_filter();
+  const auto window = filter->input();
+  auto* project = filter->mutable_input()->mutable_project();
+  *project->mutable_input() = window;
+  for (int ordinal : {0, 1, 2, 3, 3}) project->mutable_common()->mutable_emit()->add_output_mapping(ordinal);
+  const auto serialized = pangrova::test::canonicalTestPlan(proto).SerializeAsString();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  const auto plan = converter.convert({serialized.begin(), serialized.end()}, {});
+  EXPECT_EQ(findNode(plan, "TopNRowNumber"), nullptr);
+  EXPECT_EQ(countNodes(plan, "Filter"), 1);
+  const auto execution = executeCanonicalTask(plan, converter_registry);
+  size_t rows = 0;
+  for (const auto& batch : execution.batches) {
+    ASSERT_EQ(batch->childrenSize(), 5);
+    DecodedVector number(*batch->childAt(3)), copy(*batch->childAt(4));
+    for (vector_size_t row = 0; row < batch->size(); ++row) {
+      EXPECT_EQ(number.valueAt<int64_t>(row), 1);
+      EXPECT_EQ(copy.valueAt<int64_t>(row), number.valueAt<int64_t>(row));
+    }
+    rows += batch->size();
+  }
+  EXPECT_EQ(rows, 3);
+  expectCanonicalOutputField(converter, plan->outputType(), 4, "marker_copy");
 }
 
 // ===========================================================================

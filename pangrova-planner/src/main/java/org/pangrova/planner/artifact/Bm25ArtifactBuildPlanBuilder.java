@@ -39,8 +39,10 @@ public final class Bm25ArtifactBuildPlanBuilder {
                 .addNames(PHYSICAL_ROW_POSITION_COLUMN)
                 .addNames(textColumn)
                 .setStruct(Type.Struct.newBuilder()
-                        .addTypes(Type.newBuilder().setI64(Type.I64.newBuilder()))
-                        .addTypes(Type.newBuilder().setString(Type.String.newBuilder())))
+                        .addTypes(Type.newBuilder().setI64(Type.I64.newBuilder()
+                                .setNullability(Type.Nullability.NULLABILITY_REQUIRED)))
+                        .addTypes(Type.newBuilder().setString(Type.String.newBuilder()
+                                .setNullability(Type.Nullability.NULLABILITY_NULLABLE))))
                 .build();
         ReadRel read = ReadRel.newBuilder()
                 .setNamedTable(ReadRel.NamedTable.newBuilder().addAllNames(names))

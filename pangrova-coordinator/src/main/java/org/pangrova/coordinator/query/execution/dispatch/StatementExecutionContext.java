@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.planner.SqlCompiler;

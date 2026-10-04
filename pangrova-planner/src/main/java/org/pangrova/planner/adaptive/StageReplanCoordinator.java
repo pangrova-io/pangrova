@@ -1,5 +1,7 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import java.util.Objects;
 
 import org.pangrova.planner.stats.CardinalityFeedbackStore;
@@ -91,7 +93,7 @@ public class StageReplanCoordinator {
      */
     public StageReplanDecision onShuffleStageCompleted(ShuffleStageStats stats,
                                                        JoinStrategy currentJoinStrategy,
-                                                       String tableName) {
+                                                       QualifiedTableName tableName) {
         Objects.requireNonNull(stats, "stats");
         Objects.requireNonNull(currentJoinStrategy, "currentJoinStrategy");
 
@@ -111,7 +113,7 @@ public class StageReplanCoordinator {
             statisticsCollector.recordRuntimeFeedback(
                     tableName, stats.estimatedRowCount(), stats.actualRowCount());
             if (feedbackStore != null) {
-                feedbackStore.record(tableName, stats.estimatedRowCount(), stats.actualRowCount());
+                feedbackStore.record(tableName.canonicalKey(), stats.estimatedRowCount(), stats.actualRowCount());
             }
         }
 

@@ -6,7 +6,6 @@ import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.InvalidProtocolBufferException;
-import io.substrait.proto.Expression;
 import io.substrait.proto.ExtensionSingleRel;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;

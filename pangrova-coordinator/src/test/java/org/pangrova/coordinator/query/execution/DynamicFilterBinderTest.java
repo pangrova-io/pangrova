@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.pangrova.common.bloom.SplitBlockBloomFilter;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.DynamicFilterBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.TaskRequestFactory;
 import org.pangrova.coordinator.query.stage.StageNode;

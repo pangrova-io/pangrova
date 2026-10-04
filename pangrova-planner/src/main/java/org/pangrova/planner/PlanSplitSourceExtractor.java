@@ -51,7 +51,7 @@ public final class PlanSplitSourceExtractor {
         if (refs.isEmpty()) {
             return List.of();
         }
-        Map<String, TableScanRef> unique = deduplicateTableRefs(refs);
+        Map<List<String>, TableScanRef> unique = deduplicateTableRefs(refs);
         List<SplitSourceDescriptor> descriptors = new ArrayList<>(unique.size());
         for (TableScanRef ref : unique.values()) {
             Constraint constraint = buildConstraint(ref);
@@ -60,7 +60,8 @@ public final class PlanSplitSourceExtractor {
                     .toList();
             descriptors.add(new SplitSourceDescriptor(
                     ref.catalogName(), ref.schemaName(), ref.tableName(),
-                    constraint, columns));
+                    constraint, columns, java.util.Optional.ofNullable(PlanTable.require(ref.scan())
+                            .unwrap(org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.class))));
         }
         return descriptors;
     }
@@ -89,10 +90,12 @@ public final class PlanSplitSourceExtractor {
         }
     }
 
-    private static Map<String, TableScanRef> deduplicateTableRefs(List<TableScanRef> refs) {
-        LinkedHashMap<String, TableScanRef> unique = new LinkedHashMap<>();
+    private static Map<List<String>, TableScanRef> deduplicateTableRefs(List<TableScanRef> refs) {
+        LinkedHashMap<List<String>, TableScanRef> unique = new LinkedHashMap<>();
         for (TableScanRef ref : refs) {
-            String key = ref.catalogName() + "." + ref.schemaName() + "." + ref.tableName();
+            var key = List.of(ref.catalogName(), ref.schemaName(), ref.tableName());
+            var previous = unique.get(key);
+            if (previous != null) requireSameReadSource(previous, ref);
             if (!unique.containsKey(key)) {
                 unique.put(key, ref);
             } else if (unique.get(key).filterCondition() != null) {
@@ -103,6 +106,16 @@ public final class PlanSplitSourceExtractor {
             }
         }
         return unique;
+    }
+
+    private static void requireSameReadSource(TableScanRef previous, TableScanRef current) {
+        var type = org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.class;
+        if (!java.util.Objects.equals(PlanTable.require(previous.scan()).unwrap(type),
+                PlanTable.require(current.scan()).unwrap(type))
+                || !previous.scan().getRowType().equals(current.scan().getRowType())) {
+            throw new PlannerException(org.pangrova.common.exception.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Conflicting read bindings for one source table: " + current.tableName());
+        }
     }
 
     private static Constraint buildConstraint(TableScanRef ref) {

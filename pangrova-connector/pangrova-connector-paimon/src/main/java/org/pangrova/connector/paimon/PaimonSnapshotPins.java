@@ -1,8 +1,5 @@
 package org.pangrova.connector.paimon;
 
-import org.pangrova.spi.connector.ConnectorSession;
-import org.apache.paimon.table.FileStoreTable;
-import org.apache.paimon.table.Table;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -63,18 +60,4 @@ final class PaimonSnapshotPins {
         });
     }
 
-    /** Pins the table's latest snapshot for the query carried by the session. */
-    void pinLatestForQuery(ConnectorSession session, Table table) {
-        if (!(table instanceof FileStoreTable fst)) {
-            return;
-        }
-        Long snapshotId = fst.snapshotManager().latestSnapshotId();
-        if (snapshotId == null) {
-            return;
-        }
-        String queryId = session.getProperties().get("queryId");
-        if (queryId != null) {
-            pin(queryId, snapshotId);
-        }
-    }
 }

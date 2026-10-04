@@ -303,12 +303,7 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
 
     @Override
     public Optional<ArtifactBuildJobKey> findExecutionJob(String executionId) {
-        Objects.requireNonNull(executionId, "executionId");
-        try (var connection = dataSource.getConnection()) {
-            return ArtifactExecutionFence.findRoute(connection, executionId);
-        } catch (SQLException failure) {
-            throw failure("resolve artifact execution association", failure);
-        }
+        return reader.findExecutionJob(executionId);
     }
 
     @Override
@@ -494,7 +489,8 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
         requireText(tenantId, "tenantId");
         requireText(artifactId, "artifactId");
         Objects.requireNonNull(now, "now must not be null");
-        return inTransaction("cancel artifact builds", connection -> cancelBuilds(connection, tenantId, artifactId, now));
+        return inTransaction("cancel artifact builds", connection ->
+                ArtifactBuildRevocation.cancelArtifact(connection, tenantId, artifactId, now));
     }
 
 }

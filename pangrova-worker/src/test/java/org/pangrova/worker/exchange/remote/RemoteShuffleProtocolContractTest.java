@@ -6,7 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.List;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.worker.exchange.CanonicalBatchChunks;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;

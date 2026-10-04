@@ -84,42 +84,55 @@ final class TaskResourceReleaser {
             release.join();
             return;
         }
-        long handle = info.executorHandle();
-        if (handle == 0) {
-            release.complete(null);
-            return;
-        }
         try {
-            if (deps == null || deps.taskExecutor() == null) {
-                throw new IllegalStateException("Task executor is unavailable during release");
+            if (TaskNativeCreationRecovery.seal(info, deps == null ? null : deps.taskExecutor())) {
+                release.complete(null);
+                return;
             }
-            if (deps.exchangeTransport() != null) {
-                deps.exchangeTransport().releaseInputs(handle);
-            }
-            byte[] receipt = deps.taskExecutor().releaseTask(handle).orElseThrow(() ->
-                    new IllegalStateException("Native task release returned no final report: " + info.taskId()));
-            var report = TaskCompletionMonitor.requireCanonicalTaskReport(info.request().taskRequest(), receipt);
-            if (report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
-                    && !report.hasNativeTaskStats()) {
-                throw new IllegalStateException("Finished Native task release returned no final statistics: " + info.taskId());
-            }
-            if (report.hasNativeTaskStats()
-                    && !report.getNativeTaskStats().getUnknownFields().asMap().isEmpty()) {
-                throw new IllegalStateException("Released Native task statistics contain unknown fields: " + info.taskId());
-            }
+            long handle = info.executorHandle();
+            if (handle == 0) throw new IllegalStateException("Actual Native owner has no release receipt");
+            byte[] receipt = releaseActualExecutor(info, handle);
+            var report = validateFinalReceipt(info, receipt);
             info.setReleasedTaskStats(report.hasNativeTaskStats()
                     ? report.getNativeTaskStats().toByteArray() : null);
             if (!info.compareAndSetExecutorHandle(handle, 0)) {
                 throw new IllegalStateException(
                         "Native executor handle changed during release: task=" + info.taskId());
             }
-            release.complete(receipt.clone());
+            release.complete(receipt);
             LOG.debug("event=executor_released taskId={} handle={}", info.taskId(), handle);
         } catch (RuntimeException | Error failure) {
             release.completeExceptionally(failure);
             LOG.error("event=executor_release_failed taskId={} handle={}",
-                    info.taskId(), handle, failure);
+                    info.taskId(), info.executorHandle(), failure);
             throw failure;
         }
+    }
+
+    private byte[] releaseActualExecutor(TaskInfo info, long handle) {
+        if (deps == null || deps.taskExecutor() == null) throw new IllegalStateException("Task executor is unavailable during release");
+        if (deps.exchangeTransport() != null) deps.exchangeTransport().releaseInputs(handle);
+        byte[] receipt = info.stagedExecutorReleaseReceipt();
+        if (receipt == null) {
+            receipt = deps.taskExecutor().releaseTask(handle).orElseThrow(() ->
+                    new IllegalStateException("Native task release returned no final report: " + info.taskId()));
+            info.stageExecutorReleaseReceipt(receipt);
+        }
+        return receipt;
+    }
+
+    private static org.pangrova.protocol.v2.TaskReport validateFinalReceipt(TaskInfo info, byte[] receipt) {
+        var report = TaskCompletionMonitor.requireCanonicalTaskReport(info.request().taskRequest(), receipt);
+        if (report.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
+                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
+            throw new IllegalStateException("Native release receipt has no actual executor drain evidence");
+        }
+        if (report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED && !report.hasNativeTaskStats()) {
+            throw new IllegalStateException("Finished Native task release returned no final statistics: " + info.taskId());
+        }
+        if (report.hasNativeTaskStats() && !report.getNativeTaskStats().getUnknownFields().asMap().isEmpty()) {
+            throw new IllegalStateException("Released Native task statistics contain unknown fields: " + info.taskId());
+        }
+        return report;
     }
 }

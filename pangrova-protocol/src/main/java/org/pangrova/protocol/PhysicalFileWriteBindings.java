@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+
 import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedOutputStream;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -89,7 +91,8 @@ public final class PhysicalFileWriteBindings {
                 var partition = DataSplit.parseFrom(file.partition());
                 if (!partition.equals(DataSplit.newBuilder()
                         .addAllPartitionValues(partition.getPartitionValuesList()).build())) {
-                    throw new IllegalArgumentException("Physical partition contains fields outside its canonical values");
+                    throw new IllegalArgumentException(
+                            "Physical partition contains fields outside its canonical values");
                 }
                 value.addAllPartition(partition.getPartitionValuesList());
             }
@@ -104,7 +107,8 @@ public final class PhysicalFileWriteBindings {
         var fields = allocation.schema().columns().stream()
                 .map(NativePhysicalWriteAllocation.Column::fieldId).collect(java.util.stream.Collectors.toSet());
         var policy = allocation.policy();
-        for (var keys : java.util.List.of(policy.partitionFields(), policy.primaryKeyFields(), policy.bucketKeyFields())) {
+        for (var keys : java.util.List.of(
+                policy.partitionFields(), policy.primaryKeyFields(), policy.bucketKeyFields())) {
             if (!fields.containsAll(keys) || keys.stream().distinct().count() != keys.size()) {
                 throw new IllegalArgumentException("Physical policy contains unknown or duplicate field identities");
             }

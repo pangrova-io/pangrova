@@ -18,7 +18,6 @@ import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 import org.pangrova.spi.execution.TaskExecutor;
-import org.pangrova.worker.exchange.remote.RemoteShuffleClient;
 import org.pangrova.worker.exchange.remote.RemoteShuffleClientException;
 import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
 import org.pangrova.worker.exchange.remote.RemoteShuffleExchangeSource;
@@ -31,7 +30,6 @@ import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -94,10 +92,18 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
         validateExternalAttempts(inputs, consumerAttempt);
         ExternalShuffleInputSession session = installSession(executorHandle, externalCount);
         try {
-            bindAll(executorHandle, consumerAttempt, inputs, session);
+            try {
+                bindAll(executorHandle, consumerAttempt, inputs, session);
+            } finally {
+                if (session != null) session.bindingFinished();
+            }
         } catch (RuntimeException failure) {
             if (session != null) {
-                releaseInputs(executorHandle);
+                try {
+                    releaseInputs(executorHandle);
+                } catch (RuntimeException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
             }
             throw failure;
         }
@@ -167,8 +173,8 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
         execute(handle, attempt,
                 RuntimeCommandType.RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE,
                 payload, "connect external shuffle " + external.shuffleId());
-        RemoteShuffleClient client = clientPool.getOrCreateClient(external.selectedEndpoint());
-        RemoteShuffleExchangeSource source = new RemoteShuffleExchangeSource(external, client);
+        RemoteShuffleExchangeSource source = new RemoteShuffleExchangeSource(
+                external, clientPool.borrow(external.selectedEndpoint()));
         session.addSource(source);
         return new PendingExternalInput(input, source);
     }
@@ -195,9 +201,15 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
             List<PendingExternalInput> pending,
             ExternalShuffleInputSession session) {
         for (PendingExternalInput input : pending) {
-            Future<?> future = readerExecutor.submit(
+            ExternalShuffleInputPump pump = new ExternalShuffleInputPump(
                     () -> pumpExternalInput(handle, attempt, input, session));
-            session.addFuture(future);
+            session.addPump(pump);
+            try {
+                readerExecutor.execute(pump);
+            } catch (RuntimeException schedulingFailure) {
+                pump.cancel();
+                throw schedulingFailure;
+            }
         }
     }
 
@@ -222,11 +234,6 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
             finishFailedInput(
                     handle, attempt, pending.input(),
                     pending.source().lastCompletedSequence(), failure, session);
-        } finally {
-            session.sourceFinished(pending.source());
-            if (session.isComplete()) {
-                sessions.remove(handle, session);
-            }
         }
     }
 
@@ -294,24 +301,36 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
 
     @Override
     public void releaseInputs(long executorHandle) {
-        ExternalShuffleInputSession session = sessions.remove(executorHandle);
+        ExternalShuffleInputSession session = sessions.get(executorHandle);
         if (session != null) {
             session.close();
+            sessions.remove(executorHandle, session);
             LOG.debug("event=native_exchange_inputs_released executorHandle={}", executorHandle);
         }
     }
 
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) {
-            return;
+        closed.set(true);
+        RuntimeException failure = null;
+        for (long handle : List.copyOf(sessions.keySet())) {
+            try {
+                releaseInputs(handle);
+            } catch (RuntimeException cleanupFailure) {
+                if (failure == null) failure = cleanupFailure;
+                else failure.addSuppressed(cleanupFailure);
+            }
         }
-        sessions.forEach((handle, session) -> session.close());
-        sessions.clear();
         if (readerExecutor != null) {
             readerExecutor.shutdownNow();
-            awaitReaderTermination();
+            try {
+                awaitReaderTermination();
+            } catch (RuntimeException shutdownFailure) {
+                if (failure == null) failure = shutdownFailure;
+                else failure.addSuppressed(shutdownFailure);
+            }
         }
+        if (failure != null) throw failure;
         if (clientPool != null) {
             clientPool.close();
         }
@@ -320,11 +339,11 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
     private void awaitReaderTermination() {
         try {
             if (!readerExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                LOG.warn("event=external_shuffle_reader_shutdown_timeout");
+                throw new IllegalStateException("External shuffle reader executor has not exited");
             }
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
-            LOG.warn("event=external_shuffle_reader_shutdown_interrupted");
+            throw new IllegalStateException("Interrupted while joining exchange reader executor", failure);
         }
     }
 
@@ -332,11 +351,16 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
         if (externalCount == 0) {
             return null;
         }
-        ExternalShuffleInputSession session = new ExternalShuffleInputSession(externalCount);
+        ExternalShuffleInputSession session = new ExternalShuffleInputSession();
         ExternalShuffleInputSession existing = sessions.putIfAbsent(handle, session);
         if (existing != null) {
             throw new IllegalStateException(
                     "Exchange inputs already bound for executorHandle=" + handle);
+        }
+        if (closed.get()) {
+            session.bindingFinished();
+            releaseInputs(handle);
+            throw new IllegalStateException("NativeExchangeTransport is closed");
         }
         return session;
     }

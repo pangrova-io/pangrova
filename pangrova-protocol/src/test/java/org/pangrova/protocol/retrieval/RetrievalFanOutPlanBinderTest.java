@@ -112,7 +112,7 @@ class RetrievalFanOutPlanBinderTest {
                         .addNames("catalog").addNames("schema").addNames("docs")))
                 .build();
         Expression match = call(1, Type.newBuilder().setBool(
-                        Type.Boolean.newBuilder()).build(),
+                        Type.Boolean.newBuilder().setNullability(Type.Nullability.NULLABILITY_NULLABLE)).build(),
                 field(1), stringLiteral("distributed"));
         Rel filter = Rel.newBuilder().setFilter(FilterRel.newBuilder()
                 .setInput(read).setCondition(match)).build();

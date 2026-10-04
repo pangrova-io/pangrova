@@ -2,7 +2,7 @@ package org.pangrova.testing.e2e.jni;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.CanonicalProtocolDescriptors;
+import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.CapabilityResponse;
 import org.pangrova.protocol.v2.ExecutionPlacement;

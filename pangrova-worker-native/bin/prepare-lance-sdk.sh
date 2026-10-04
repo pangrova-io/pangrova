@@ -17,7 +17,7 @@ trees=(
   4d37b8acef263e71a0bcbf2e376f7348c8874cdff64bf92a5cc880a19f54b421
   58b5cfa12fbf3b84c6deee0162df110cd95cbbf9aa149bebf0538d74c9d59749
   f545f27491068ce3d20107ccd894b6a467f7bd49f947bd8e21411ee52fc9d36c
-  7c7ced7068ba8d4c51e9c453d05ff0757e618f29dda4966e47abd2e617c7c68d
+  dbbd123c62934e6531e6ff1359ff402ecd07b13f6b020622d1623eae6a10522a
 )
 sources=(
   lance-io-0.20.0/src/object_writer.rs
@@ -37,6 +37,8 @@ sources=(
   lance-0.20.0/src/dataset/write/merge_insert.rs
   lance-0.20.0/src/dataset/fragment/write.rs
   lance-file-0.20.0/src/writer.rs
+  lance-0.20.0/src/datafusion/logical_plan.rs
+  lance-0.20.0/src/index/vector/ivf/v2.rs
 )
 before=(
   7c8a296cafe7ad6a13d6aca5d3bc230aecc723c64329b9e0b6e0f56f3dd57a20
@@ -56,6 +58,8 @@ before=(
   e6b26dd13eb622d8ade372add1952b8413b326c0d745264bbb0defa3d756dc1a
   5024d0c90447741b701118fa3fbddcb7dfccca71750f98f32a934d8b67438092
   af1f96325077d8a201f3ffb6def8965db8f23a012e8bec06ff0d79c801d52608
+  a7e69cc8032586c7cb295f50cabd5ad0322978d3f917b61b70e1a07c3fb9a056
+  0a9ea2ae987adf10890c6ab202ca60dc4355f49d20116c9c7235411eef58e041
 )
 after=(
   4cd56afd12a57380b753ce829978f837d63e30961af2c14cf459b1e084efffc6
@@ -69,12 +73,14 @@ after=(
   dade4ca0eeca83079c5ec09c1061b9b54a59e4a88890813df64d1e083c5dd0f8
   8ebffa42a7d884a3b2b2f2479896f7c29e6afc6f471824666aeb26af2dfe265f
   d5c0a72b227e9bf21cd48cfcee6e438b4ed6f295ceeb3db23bb927e09f82c612
-  eed90b65b38e1281fd1853965c80b18cda77724b6813fb962707c2559f0dcb6a
+  13d23fdbf44648a97318c4da25c88ef615ffe3a433cc791283ccc5135ee00cb7
   701acd68ecdf37c7e0ae546499720e3f5df0bac041de300d14cd6811eb85b167
   6746fb627f9605cfda176289ae61f182ac72bf8cfc37c355aa6edb6b1bfa3fff
   4694896caab147347fcee1ac4c42c3465bafefc61f3510b776afca0e65be2b52
   99822feec4959a8f54502334ca30cf5078f5c7d3242be80dcf6845d9f8cec5ce
   1af8724e2a1a441f342e5620023eabf63e0b3c4068b69d0a26c05fcb973e27df
+  fd80fae3276db604fd77b36eb7522e6efd23c4e5e4972e6983e585c3293a23ce
+  17aa4cd381dbbd1170abe5c95d2645820390fec94b64a863e56c0d6d461ae1e5
 )
 
 die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -123,10 +129,11 @@ verify_upgrade_base() {
   local source_dir="$1" index
   local prior_trees=(
     4d37b8acef263e71a0bcbf2e376f7348c8874cdff64bf92a5cc880a19f54b421
-    1cebdb2727a2ee344bcff1b97281a2819a3f90ff14aba340d2024112a273b519
+    58b5cfa12fbf3b84c6deee0162df110cd95cbbf9aa149bebf0538d74c9d59749
     f545f27491068ce3d20107ccd894b6a467f7bd49f947bd8e21411ee52fc9d36c
+    7c7ced7068ba8d4c51e9c453d05ff0757e618f29dda4966e47abd2e617c7c68d
   )
-  [[ "$(find "$source_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" == 6 ]] ||
+  [[ "$(find "$source_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ')" == 8 ]] ||
     die "SDK upgrade base has additional or missing entries"
   for index in "${!prior_trees[@]}"; do
     [[ "$(tree_digest "$source_dir/${crates[$index]}-$version")" == "${prior_trees[$index]}" &&
@@ -147,12 +154,12 @@ case "$action" in
   prepare|upgrade)
     if [[ -e "$destination" ]]; then
       [[ -d "$destination" ]] || die "SDK destination already exists and is not a directory"
-      if [[ "$action" == prepare || -d "$destination/lance-$version" ]]; then
+      if [[ "$action" == prepare ]]; then
         verify_source "$destination"
         exit 0
       fi
       verify_upgrade_base "$destination"
-      backup="$destination.sdk3-fa6e521783fa1e35"
+      backup="$destination.sdk4-b0f2587f4bb1ae0e"
       [[ ! -e "$backup" ]] || die "Validated upgrade backup already exists; refusing overwrite"
     fi
     mkdir -p "$(dirname "$destination")"

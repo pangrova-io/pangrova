@@ -32,8 +32,9 @@ public final class StagePartitionDispatcher {
         if (remaining <= 0) {
             throw new IllegalStateException("Actual task deadline expired before HTTP dispatch");
         }
-        canceller.prepareTaskDispatch(bound, worker.workerId());
+        canceller.prepareTaskDispatch(bound, worker);
         try {
+            canceller.enterTaskDispatch(bound);
             var response = dispatcher.dispatchAsync(bound, worker)
                     .orTimeout(remaining, java.util.concurrent.TimeUnit.MILLISECONDS);
             var acknowledged = response.thenApply(result -> {
@@ -46,8 +47,10 @@ public final class StagePartitionDispatcher {
             });
             return new Issued(bound, acknowledged);
         } catch (RuntimeException failure) {
-            canceller.discardPreparedTask(bound);
-            throw failure;
+            // dispatchAsync may already have sent bytes before throwing. Keep
+            // the exact issued identity and surface the actual failure through
+            // the same acknowledgement lifecycle; cancellation must seal it.
+            return new Issued(bound, CompletableFuture.failedFuture(failure));
         }
     }
 

@@ -107,6 +107,47 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${exec-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>generate-canonical-type-layout-naming</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>${pangrova.function-contract.python}</executable>
+                            <sourceRoot>${project.build.directory}/generated-sources/function-contracts</sourceRoot>
+                            <arguments>
+                                <argument>-B</argument>
+                                <argument>${project.basedir}/tools/function-contracts/generate_structural_contracts.py</argument>
+                                <argument>--declaration</argument>
+                                <argument>${project.basedir}/src/main/resources/function-contracts/sql-bindings.json</argument>
+                                <argument>--java-root</argument>
+                                <argument>${project.build.directory}/generated-sources/function-contracts</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>generate-function-execution-selection</id>
+                        <phase>generate-sources</phase>
+                        <goals><goal>exec</goal></goals>
+                        <configuration>
+                            <executable>${pangrova.function-contract.python}</executable>
+                            <sourceRoot>${project.build.directory}/generated-sources/function-contracts</sourceRoot>
+                            <arguments>
+                                <argument>-B</argument>
+                                <argument>${project.basedir}/tools/function-contracts/generate_execution_selection.py</argument>
+                                <argument>--declaration</argument>
+                                <argument>${project.basedir}/src/main/resources/function-contracts/execution-selection.json</argument>
+                                <argument>--java-root</argument>
+                                <argument>${project.build.directory}/generated-sources/function-contracts</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <groupId>io.github.ascopes</groupId>
                 <artifactId>protobuf-maven-plugin</artifactId>
                 <configuration>

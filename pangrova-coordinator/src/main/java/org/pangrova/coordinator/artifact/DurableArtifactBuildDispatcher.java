@@ -212,10 +212,12 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
                 new IllegalStateException("owned artifact execution lost its exact durable job"));
         switch (job.state()) {
             case READY_TO_PUBLISH -> {
-                if (ownedJobs.remove(key, anchor)) executionOwnership.yield(anchor);
+                executionOwnership.yield(anchor);
+                ownedJobs.remove(key, anchor);
             }
             case PUBLISHED, FAILED, CANCELLED -> {
-                if (ownedJobs.remove(key, anchor)) executionOwnership.release(key);
+                executionOwnership.release(key);
+                ownedJobs.remove(key, anchor);
             }
             default -> graphs.resume(key, anchor);
         }
@@ -254,8 +256,15 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
             partitions.dispatch(prepared.request(), worker).acknowledgement().whenComplete(
                     (result, failure) -> onDispatchSettled(taskId, result, failure));
         } catch (RuntimeException failure) {
+            if (taskTracker.getTaskRequest(taskId) != null) {
+                attempt.retryReason = rootMessage(failure);
+                attempt.cancelling = true;
+                cancelActiveTask(taskId, attempt);
+                return;
+            }
+            // The sole partition boundary has not registered/sent any request.
+            // Only this locally prepared candidate may be discarded here.
             active.remove(taskId, attempt);
-            failPreparedTask(lease.executionAnchor().executionId(), taskId);
             throw failure;
         }
     }
@@ -298,10 +307,9 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         }
         String reason = failure != null ? rootMessage(failure)
                 : "Worker acknowledged a different task identity";
-        if (active.remove(taskId, attempt)) {
-            cancelActiveTask(taskId, attempt);
-            retryLease(attempt.lease, reason, clock.instant());
-        }
+        attempt.retryReason = reason;
+        attempt.cancelling = true;
+        cancelActiveTask(taskId, attempt);
     }
 
     private void reapAndRenew(Instant now) {
@@ -312,10 +320,18 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
 
     private void reconcileAttempt(
             String taskId, ActiveAttempt attempt, Instant now) {
-        TaskStateMachine.State state = findTaskState(taskId, attempt);
-        if (state == null || removeTerminalAttempt(taskId, attempt, state, now)) {
+        var receipt = taskTracker.executionDrainReceipt(taskId);
+        if (receipt.isPresent()) {
+            retireDrainedAttempt(taskId, attempt, receipt.orElseThrow(), now);
             return;
         }
+        if (attempt.cancelling) {
+            cancelActiveTask(taskId, attempt);
+            return;
+        }
+        TaskStateMachine.State state = findTaskState(taskId, attempt);
+        if (state == TaskStateMachine.State.FINISHED || state == TaskStateMachine.State.FAILED
+                || state == TaskStateMachine.State.ABANDONED) return;
         renewAttemptIfDue(taskId, attempt, now);
     }
 
@@ -324,30 +340,24 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         try {
             return taskTracker.getTaskState(attempt.lease.executionAnchor().executionId(), taskId);
         } catch (IllegalArgumentException gone) {
-            active.remove(taskId, attempt);
-            return null;
+            throw new IllegalStateException("Exact artifact attempt disappeared without a drain receipt: " + taskId, gone);
         }
     }
 
-    private boolean removeTerminalAttempt(
-            String taskId, ActiveAttempt attempt,
-            TaskStateMachine.State state, Instant now) {
-        if (state == TaskStateMachine.State.FINISHED) {
+    private void retireDrainedAttempt(String taskId, ActiveAttempt attempt,
+            org.pangrova.protocol.v2.TaskReport receipt, Instant now) {
+        if (receipt.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                && !attempt.cancelling) {
             // The shared DAG still needs the issued attempt until its late HTTP acknowledgement is processed.
-            if (attempt.acknowledged && active.remove(taskId, attempt)) {
-                cleanupTask(attempt.lease.executionAnchor().executionId(), taskId);
-            }
-            return true;
+            if (!attempt.acknowledged) return;
         }
-        if (state != TaskStateMachine.State.FAILED
-                && state != TaskStateMachine.State.ABANDONED) {
-            return false;
+        if (attempt.retryReason != null || receipt.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
+            retryLease(attempt.lease, attempt.retryReason == null
+                    ? "Native background task terminated: " + receipt.getState() : attempt.retryReason, now);
         }
-        if (active.remove(taskId, attempt)) {
-            retryLease(attempt.lease, "Native background task terminated: " + state, now);
-            cleanupTask(attempt.lease.executionAnchor().executionId(), taskId);
-        }
-        return true;
+        taskTracker.removeDeadline(taskId);
+        taskTracker.unregisterDrainedTask(receipt);
+        active.remove(taskId, attempt);
     }
 
     private void renewAttemptIfDue(
@@ -368,7 +378,8 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         }
         if (renewed) {
             attempt.expiresAt = now.plus(leaseDuration);
-        } else if (active.remove(taskId, attempt)) {
+        } else {
+            attempt.cancelling = true;
             cancelActiveTask(taskId, attempt);
         }
     }
@@ -383,7 +394,10 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
 
     private void cancelActiveTask(String taskId, ActiveAttempt attempt) {
         try {
-            var cancelled = taskDispatcher.cancelTask(taskId, attempt.worker.host(), attempt.worker.httpPort());
+            var issued = taskTracker.getTaskRequest(taskId);
+            if (issued == null) throw new IllegalStateException("Cannot seal an unissued artifact attempt: " + taskId);
+            var cancelled = taskDispatcher.cancelTask(issued, attempt.worker.host(), attempt.worker.httpPort());
+            if (cancelled.isSuccess()) taskTracker.recordExecutionDrain(issued, cancelled.executionDrainReceipt());
             if (cancelled.status() == org.pangrova.coordinator.scheduler.SchedulerCancelResult.Status.FAILED) {
                 LOG.warn("event=artifact_native_cancel_rejected taskId={} deadline={} reason={}",
                         taskId, attempt.lease.expiresAt(), cancelled.errorMessage());
@@ -391,37 +405,11 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         } catch (RuntimeException unavailable) {
             LOG.warn("event=artifact_native_cancel_failed taskId={} deadline={}",
                     taskId, attempt.lease.expiresAt(), unavailable);
-        } finally {
-            markTaskFailed(attempt.lease.executionAnchor().executionId(), taskId);
-            cleanupTask(attempt.lease.executionAnchor().executionId(), taskId);
         }
     }
 
     private void retryLease(ArtifactBuildLease lease, String reason, Instant now) {
-        try {
-            store.retryPage(lease, now.plus(retryBackoff), reason, now);
-        } catch (org.pangrova.metadata.artifact.jdbc.ArtifactExecutionFence.LostOwnerException staleOwner) {
-            LOG.warn("event=artifact_retry_rejected_owner_lost jobId={} pageId={}", lease.jobId(), lease.pageId());
-        }
-    }
-
-    private void markTaskFailed(String jobId, String taskId) {
-        try {
-            taskTracker.updateTaskState(jobId, taskId, "FAILED");
-            taskTracker.signalTaskTerminal(jobId, taskId);
-        } catch (RuntimeException ignored) {
-            LOG.debug("event=artifact_task_failure_tracking_skipped taskId={}", taskId);
-        }
-    }
-
-    private void failPreparedTask(String jobId, String taskId) {
-        markTaskFailed(jobId, taskId);
-        cleanupTask(jobId, taskId);
-    }
-
-    private void cleanupTask(String jobId, String taskId) {
-        taskTracker.removeDeadline(taskId);
-        taskTracker.unregisterSettledTask(jobId, taskId);
+        ArtifactLeaseRetry.retry(store, lease, now.plus(retryBackoff), reason, now);
     }
 
     private static Duration requirePositive(Duration value, String name) {
@@ -447,15 +435,43 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
     }
 
     private void cleanupOwnedWork() {
-        ownedJobs.keySet().forEach(graphs::cancel);
+        Throwable failure = null;
+        for (var key : ownedJobs.keySet()) {
+            try { graphs.cancel(key); }
+            catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+        }
         for (Map.Entry<String, ActiveAttempt> entry : active.entrySet()) {
             ActiveAttempt attempt = entry.getValue();
-            if (active.remove(entry.getKey(), attempt)) {
+            try {
+                attempt.cancelling = true;
                 cancelActiveTask(entry.getKey(), attempt);
+                var receipt = taskTracker.executionDrainReceipt(entry.getKey());
+                if (receipt.isPresent()) retireDrainedAttempt(entry.getKey(), attempt, receipt.orElseThrow(), clock.instant());
+            } catch (RuntimeException | Error cleanup) {
+                failure = appendFailure(failure, cleanup);
             }
         }
-        ownedJobs.forEach((job, anchor) -> executionOwnership.yield(anchor));
-        ownedJobs.clear();
+        if (!active.isEmpty()) failure = appendFailure(failure, new IllegalStateException(
+                "Artifact shutdown retains " + active.size() + " exact attempts awaiting execution drain receipts"));
+        rethrowCleanupFailure(failure);
+        for (var entry : ownedJobs.entrySet()) {
+            try {
+                executionOwnership.yield(entry.getValue());
+                ownedJobs.remove(entry.getKey(), entry.getValue());
+            } catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+        }
+        rethrowCleanupFailure(failure);
+    }
+
+    private static Throwable appendFailure(Throwable existing, Throwable added) {
+        if (existing == null) return added;
+        existing.addSuppressed(added);
+        return existing;
+    }
+
+    private static void rethrowCleanupFailure(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     private static final class ActiveAttempt {
@@ -463,6 +479,8 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         private final WorkerInfo worker;
         private volatile Instant expiresAt;
         private volatile boolean acknowledged;
+        private volatile boolean cancelling;
+        private volatile String retryReason;
 
         private ActiveAttempt(
                 ArtifactBuildLease lease, WorkerInfo worker, Instant expiresAt) {

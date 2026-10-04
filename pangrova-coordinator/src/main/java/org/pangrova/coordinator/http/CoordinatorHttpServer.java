@@ -164,6 +164,10 @@ public class CoordinatorHttpServer {
     }
 
     private static void registerFilters(ResourceConfig config, CoordinatorHttpServerContext deps) {
+        if (deps.workerManager() != null && (deps.authenticationManager() == null
+                || deps.internalAuthSecret() == null || deps.internalAuthSecret().isBlank())) {
+            throw new IllegalArgumentException("Worker control requires configured internal-service authentication");
+        }
         int maxRequestsPerMinute = Integer.parseInt(
                 System.getProperty("pangrova.http.max-requests-per-minute",
                         String.valueOf(RequestLimitConfig.DEFAULT_MAX_REQUESTS_PER_MINUTE)));

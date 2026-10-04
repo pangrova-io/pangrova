@@ -55,6 +55,10 @@ namespace pangrova::memory {
 class BlockAllocationListener;
 }  // namespace pangrova::memory
 
+namespace pangrova::capability {
+class FunctionCatalogStartup;
+}
+
 namespace pangrova::jni {
 
 // Forward declare NativeRuntimeConfig (defined in RuntimeInitializer.h).
@@ -88,9 +92,11 @@ class NativeEngineLifecycle {
   pangrova::velox::TableFunctionRegistry* tableFunctionRegistry();
   std::shared_ptr<folly::Executor> executor();
   std::shared_ptr<folly::Executor> ioExecutor();
+  std::shared_ptr<capability::FunctionCatalogStartup> functionCatalogStartup();
 
  private:
   NativeEngineLifecycle() = default;
+  struct FunctionRetirement;
 
   void initVeloxMemory(const NativeRuntimeConfig& config,
                        JNIEnv* env, jobject allocationListener);
@@ -100,7 +106,7 @@ class NativeEngineLifecycle {
   void registerVeloxFileSystems(const NativeRuntimeConfig& config);
   void registerVeloxConnector(const NativeRuntimeConfig& config);
   void initAsyncDataCache(const NativeRuntimeConfig& config);
-  void shutdownInternal();
+  void shutdownInternal(FunctionRetirement& retirement);
 
   mutable std::mutex mutex_;
   std::atomic<bool> initialized_{false};
@@ -109,6 +115,7 @@ class NativeEngineLifecycle {
   std::unique_ptr<pangrova::memory::BlockAllocationListener> block_listener_;
   
   std::unique_ptr<pangrova::udf::NativeUdfRegistry> udf_registry_;
+  std::shared_ptr<capability::FunctionCatalogStartup> function_catalog_startup_;
   std::unique_ptr<pangrova::velox::TableFunctionRegistry> table_function_registry_;
   std::shared_ptr<folly::CPUThreadPoolExecutor> executor_;
   // Dedicated blocking-I/O pool. Flight, filesystem and other potentially

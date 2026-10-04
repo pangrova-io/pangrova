@@ -203,6 +203,6 @@ class NativeCacheMemoryBudgetTest {
                 defaults.pressureThresholdLow(), defaults.pressureThresholdMedium(),
                 defaults.pressureThresholdHigh(), defaults.pressureThresholdCritical(),
                 defaults.shuffleRetentionBytes(), defaults.shuffleTransitBytes(),
-                defaults.shuffleSpillBytes(), defaults.shuffleSpillFiles(), spillDir);
+                defaults.shuffleSpillBytes(), defaults.shuffleSpillFiles(), spillDir, defaults.shuffleChannelLimits());
     }
 }

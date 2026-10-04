@@ -24,18 +24,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.worker.ai.blob.GovernedBlobStore;
 import org.pangrova.worker.ai.blob.HttpsBlobImporter;
 import org.pangrova.worker.ai.blob.BlobTestStores;
-import org.pangrova.worker.ai.invocation.AiInvocationObserver;
 
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AiFunctionFactoryTest {
 
@@ -62,48 +58,6 @@ class AiFunctionFactoryTest {
                                 new HttpsBlobImporter.PoolSettings(
                                         8, 4, Duration.ofMinutes(1),
                                         Duration.ofSeconds(10)))));
-    }
-
-    @Test
-    void observerFanoutContinuesAfterOneObserverFails() {
-        AtomicInteger delivered = new AtomicInteger();
-        AiInvocationObserver failing = new AiInvocationObserver() {
-            @Override
-            public void onSuccess(
-                    org.pangrova.spi.ai.AiInvocationRequest request,
-                    org.pangrova.spi.ai.AiInvocationResult result) {
-                throw new IllegalStateException("first failure");
-            }
-
-            @Override
-            public void onFailure(
-                    org.pangrova.spi.ai.AiInvocationRequest request,
-                    org.pangrova.spi.ai.AiInvocationException failure) {
-                throw new IllegalStateException("first failure");
-            }
-        };
-        AiInvocationObserver succeeding = new AiInvocationObserver() {
-            @Override
-            public void onSuccess(
-                    org.pangrova.spi.ai.AiInvocationRequest request,
-                    org.pangrova.spi.ai.AiInvocationResult result) {
-                delivered.incrementAndGet();
-            }
-
-            @Override
-            public void onFailure(
-                    org.pangrova.spi.ai.AiInvocationRequest request,
-                    org.pangrova.spi.ai.AiInvocationException failure) {
-                delivered.incrementAndGet();
-            }
-        };
-
-        assertThatThrownBy(() -> CompositeAiInvocationObserver.notifyObservers(
-                List.of(failing, succeeding),
-                observer -> observer.onSuccess(null, null)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("first failure");
-        assertThat(delivered).hasValue(1);
     }
 
     @Test

@@ -51,6 +51,20 @@ class ClusterAdmissionControllerSpiTest {
                 .hasMessageContaining("queryId");
     }
 
+    @Test
+    void admissionRequestRejectsNegativeMemoryEstimate() {
+        assertThatThrownBy(() -> new AdmissionRequest("tenant", "group", "query", OptionalLong.of(-1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("estimatedMemoryBytes");
+    }
+
+    @Test
+    void admissionRequestAcceptsZeroAndMaximumRepresentableEstimate() {
+        assertThat(new AdmissionRequest("tenant", "group", "query", OptionalLong.of(0))
+                .estimatedMemoryBytes()).hasValue(0);
+        assertThat(new AdmissionRequest("tenant", "group", "query", OptionalLong.of(Long.MAX_VALUE))
+                .estimatedMemoryBytes()).hasValue(Long.MAX_VALUE);
+    }
+
     // --- AdmissionDecision ---
 
     @Test

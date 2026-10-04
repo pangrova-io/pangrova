@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch;
 
 import org.pangrova.coordinator.query.statement.StatementClassifier;
 import org.pangrova.coordinator.query.statement.TableResolver;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.statement.AlterTableStatement;

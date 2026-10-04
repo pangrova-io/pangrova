@@ -135,6 +135,17 @@
          §3 PROTOCOL / DTO PATTERNS
          ================================================================ -->
 
+    <!-- ByteString.copyFrom owns immutable bytes. FunctionBindingDeclarationsTest proves the
+         canonical digest, defensive byte-array exports and read-only buffer contract. SpotBugs
+         4.8.3 MutableClasses treats ByteString.writeTo(...):void as a mutable write-prefix setter.
+         Match this exact method, field and immutable type only; mutable array exposure stays checked. -->
+    <Match>
+        <Class name="org.pangrova.protocol.function.declaration.FunctionBindingDeclarations"/>
+        <Method name="declarationSha256" params="" returns="com.google.protobuf.ByteString"/>
+        <Field name="declarationSha256" type="com.google.protobuf.ByteString"/>
+        <Bug pattern="MS_EXPOSE_REP"/>
+    </Match>
+
     <!--
         Immutable record/DTO types returned from factory methods:
         the caller receives the reference and owns it — no defensive copy needed.

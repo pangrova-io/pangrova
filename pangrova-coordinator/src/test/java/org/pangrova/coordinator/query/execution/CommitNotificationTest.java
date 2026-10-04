@@ -31,7 +31,7 @@ class CommitNotificationTest {
         StageEdge hashEdge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
         StageEdge broadcastEdge = new StageEdge(2, 1, org.pangrova.planner.ShuffleType.BROADCAST,
                 List.of(), "exchange-2-to-1", 1,
-                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
+                org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
 
         StageNode s0 = new StageNode(0, dummyFragment(), 1, "COMPUTE", List.of());
         StageNode s1 = new StageNode(1, dummyFragment(), 1, "COMPUTE", List.of());

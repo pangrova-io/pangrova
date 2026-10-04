@@ -15,6 +15,7 @@ package org.pangrova.client.rest;
 
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.transport.FlightResultFetcher;
+import org.pangrova.transport.security.ResultTransportSecurity;
 import org.pangrova.transport.TransportConnectionException;
 import org.pangrova.transport.TransportServerException;
 
@@ -32,8 +33,13 @@ public final class ResultStreamFetcher implements AutoCloseable {
         this.delegate = new FlightResultFetcher();
     }
 
-    public ResultStreamFetcher(boolean useTls, String trustStorePath) {
-        this.delegate = new FlightResultFetcher(useTls, trustStorePath);
+    /**
+     * Uses explicit result-channel policy, not a Java HTTP trust store.
+     *
+     * @param security immutable result policy and optional PEM material
+     */
+    public ResultStreamFetcher(ResultTransportSecurity security) {
+        this.delegate = new FlightResultFetcher(security);
     }
 
     /**

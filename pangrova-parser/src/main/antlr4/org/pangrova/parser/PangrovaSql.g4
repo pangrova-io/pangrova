@@ -5,7 +5,7 @@ grammar PangrovaSql;
 // ============================================================
 
 singleStatement
-    : statement EOF
+    : statement SEMICOLON? EOF
     ;
 
 statement
@@ -1304,6 +1304,7 @@ MAIN        : M A I N;
 USE         : U S E;
 UNSET       : U N S E T;
 SORTED      : S O R T E D;
+SORT        : S O R T;
 ZORDER      : Z O R D E R;
 
 // Window frame keywords
@@ -1348,6 +1349,7 @@ RPAREN      : ')';
 LBRACKET    : '[';
 RBRACKET    : ']';
 COMMA       : ',';
+SEMICOLON   : ';';
 DOT         : '.';
 DOLLAR      : '$';
 
@@ -1441,7 +1443,7 @@ nonReservedKeyword
     | STREAM | STREAMS | KAFKA | FORMAT
     | VARIANT | GEOMETRY | GEOGRAPHY | TIMESTAMP_NS
     | VIEWS | SNAPSHOTS | FILES | MANIFESTS | PARTITIONS
-    | BRANCH | TAG | SORTED | ZORDER
+    | BRANCH | TAG | SORTED | SORT | ZORDER
     | BRANCHES | TAGS | MAIN | USE | UNSET
     | CHANGES | MATCH
     | EMBEDDING | MODEL | MODELS

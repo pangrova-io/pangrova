@@ -18,7 +18,7 @@ import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.CleanupRequest;
@@ -474,7 +474,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         }
         Flyway.configure().dataSource(jdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas("shuffle").defaultSchema("shuffle")
-                .locations("classpath:db/migration")
+                .locations("classpath:org/pangrova/shuffle/migration")
                 .target(MigrationVersion.fromVersion("4")).load().migrate();
         String shuffleId = "upgrade-reservation";
         try (var connection = DriverManager.getConnection(

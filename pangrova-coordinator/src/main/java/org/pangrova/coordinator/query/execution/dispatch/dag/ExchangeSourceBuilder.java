@@ -78,7 +78,7 @@ final class ExchangeSourceBuilder {
      */
     static List<SplitFetcher.SplitWithPaths> fetchSplitsWithFilePaths(
             StageNode stage, StageDAG dag, CatalogRegistry catalogRegistry,
-            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         return fetchSplitsWithFilePaths(stage, dag, catalogRegistry, java.util.Map.of(), session);
     }
 
@@ -89,7 +89,7 @@ final class ExchangeSourceBuilder {
     static List<SplitFetcher.SplitWithPaths> fetchSplitsWithFilePaths(
             StageNode stage, StageDAG dag, CatalogRegistry catalogRegistry,
             java.util.Map<String, Long> snapshotOverrides,
-            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         List<Integer> upstreamIds = dag.edges().getOrDefault(stage.stageId(), List.of());
         if (!upstreamIds.isEmpty()) {
             return List.of();
@@ -110,7 +110,7 @@ final class ExchangeSourceBuilder {
             org.pangrova.coordinator.index.IndexAwareSplitFetcher fetcher,
             java.util.Map<String, Long> snapshotOverrides,
             String queryId,
-            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         List<Integer> upstreamIds = dag.edges().getOrDefault(stage.stageId(), List.of());
         if (!upstreamIds.isEmpty()) {
             return List.of();

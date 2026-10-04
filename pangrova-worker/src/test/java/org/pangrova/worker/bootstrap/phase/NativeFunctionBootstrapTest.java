@@ -281,7 +281,7 @@ class NativeFunctionBootstrapTest {
 
     private static List<String> governedSignature(String... publicArguments) {
         var signature = new java.util.ArrayList<>(List.of(publicArguments));
-        signature.addAll(org.pangrova.protocol.function.FunctionBindingDeclarations
+        signature.addAll(org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
                 .governedLayout("AI_MODEL").signature());
         return List.copyOf(signature);
     }

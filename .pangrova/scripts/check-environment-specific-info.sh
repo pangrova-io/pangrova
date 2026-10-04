@@ -74,7 +74,6 @@ trap 'rm -f "$RESULTS_FILE"' EXIT
 find "$REPO_ROOT" -type f \
     -not -path '*/.git/*' \
     -not -path '*/.pangrova/scripts/check-environment-specific-info.sh' \
-    -not -path '*/.qoder/repowiki/*' \
     -not -path '*/target/*' \
     -not -path '*/build/*' \
     -not -path '*/build-*/*' \

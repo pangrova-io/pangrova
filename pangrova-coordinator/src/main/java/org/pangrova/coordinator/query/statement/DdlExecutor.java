@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.statement.dml.DmlExpressionEvaluator;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.CatalogRegistry;

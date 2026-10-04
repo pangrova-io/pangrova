@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.SessionContextConverter;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.security.UserIdentity;

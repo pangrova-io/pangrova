@@ -34,6 +34,10 @@ coordinator:
   # HTTP REST API port (client-facing).
   # Expose this port in load balancers and firewalls.
   port: 8080
+  # Shared with every Worker; injected, never stored as a literal secret.
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
+  speculation:
+    enabled: false
 
   # Deployment role: QUERY (serve queries only), MAINTENANCE
   # (background tasks only), or COMBINED (both).
@@ -91,6 +95,8 @@ state-store:
 metadata:
   enabled: true
   jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST}:${PANGROVA_DB_PORT:-5432}/pangrova_meta"
+  jdbc-username: "${PANGROVA_DB_USERNAME}"
+  jdbc-password: "${PANGROVA_DB_PASSWORD}"
 
   # ── Metadata Cache ────────────────────────────────────────
   cache:

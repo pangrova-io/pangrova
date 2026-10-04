@@ -13,7 +13,7 @@ import org.pangrova.worker.buffer.ResultExpirationScheduler;
 import org.pangrova.worker.buffer.ShuffleBufferManager;
 import org.pangrova.worker.heartbeat.HeartbeatSender;
 import org.pangrova.worker.http.WorkerHttpServer;
-import org.pangrova.worker.jni.write.CatalogResourceResolver;
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
 import org.pangrova.worker.jni.write.NativeWriteExecutor;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.transport.TransportServer;
@@ -41,6 +41,7 @@ public final class WorkerComponentRefs {
     private NodeMemoryPool nodeMemoryPool;
     private org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease shuffleServiceMemoryLease;
     private TaskManager taskManager;
+    private WorkerTaskOwnership taskOwnership;
     private WorkerHttpServer httpServer;
     private HeartbeatSender heartbeatSender;
     private ScheduledExecutorService heartbeatExecutor;
@@ -83,6 +84,15 @@ public final class WorkerComponentRefs {
 
     public TaskManager taskManager() { return taskManager; }
     public void setTaskManager(TaskManager v) { this.taskManager = v; }
+
+    public WorkerTaskOwnership taskOwnership() { return taskOwnership; }
+
+    public void installTaskOwnership(WorkerTaskOwnership ownership) {
+        if (taskOwnership != null && !taskOwnership.isDrained()) {
+            throw new IllegalStateException("Previous task bootstrap owners have not drained");
+        }
+        taskOwnership = java.util.Objects.requireNonNull(ownership, "ownership");
+    }
 
     public WorkerHttpServer httpServer() { return httpServer; }
     public void setHttpServer(WorkerHttpServer v) { this.httpServer = v; }
@@ -140,7 +150,7 @@ public final class WorkerComponentRefs {
     }
 
     private org.pangrova.worker.jni.NativeFunctionBridge nativeFunctionBridge;
-    private java.util.List<AutoCloseable> nativeFunctionResources = java.util.List.of();
+    private final NativeFunctionResources nativeFunctionResources = new NativeFunctionResources();
 
     public org.pangrova.worker.jni.NativeFunctionBridge nativeFunctionBridge() {
         return nativeFunctionBridge;
@@ -148,10 +158,11 @@ public final class WorkerComponentRefs {
     public void setNativeFunctionBridge(org.pangrova.worker.jni.NativeFunctionBridge v) {
         this.nativeFunctionBridge = v;
     }
-    public java.util.List<AutoCloseable> nativeFunctionResources() { return nativeFunctionResources; }
-    public void setNativeFunctionResources(java.util.List<AutoCloseable> resources) {
-        nativeFunctionResources = resources == null ? java.util.List.of() : java.util.List.copyOf(resources);
-    }
+    public java.util.List<AutoCloseable> nativeFunctionResources() { return nativeFunctionResources.snapshot(); }
+    /** Retains a discovered factory before invoking any of its initialization methods. */
+    public void retainNativeFunctionResource(AutoCloseable resource) { nativeFunctionResources.retain(resource); }
+    /** Removes only successfully closed factories; failed owners remain retryable. */
+    public void closeNativeFunctionResources() { nativeFunctionResources.close(); }
 
     private ExchangeTransport exchangeTransport;
 

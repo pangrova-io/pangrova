@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 2,
+  "families": [
+    {
+      "family": "SPECIAL_FORM",
+      "selection": "FIRST_BOUND"
+    },
+    {
+      "family": "VECTOR",
+      "selection": "FIRST_BOUND"
+    },
+    {
+      "family": "SCALAR",
+      "selection": "MIN_PRIORITY_FIRST_BOUND"
+    }
+  ],
+  "coercion": "FORBIDDEN",
+  "matching": [
+    "SIGNATURE",
+    "ARGUMENT_PHYSICAL",
+    "RESULT_PHYSICAL"
+  ],
+  "constantValidation": "AFTER_SELECTION",
+  "factoryInvocation": "EXECUTION_ONLY",
+  "initializationFailure": "PRESERVE_SELECTED_IMPLEMENTATION",
+  "specialTypePrograms": {
+    "typeEquality": "NATIVE_OPERATOR_EQUAL",
+    "declaredResultCompatibility": "NATIVE_EQUIVALENT",
+    "factoryEvaluation": "FORBIDDEN",
+    "programs": [
+      {
+        "id": "BOOLEAN_SEQUENCE",
+        "minimumArity": 1,
+        "constraints": [
+          {
+            "selection": {
+              "start": "0",
+              "end": "argument_count",
+              "step": 1
+            },
+            "nativeKinds": [
+              "BOOLEAN",
+              "UNKNOWN"
+            ]
+          }
+        ],
+        "result": {
+          "nativeKind": "BOOLEAN"
+        }
+      },
+      {
+        "id": "EXACT_SEQUENCE",
+        "minimumArity": 1,
+        "constraints": [
+          {
+            "selection": {
+              "start": "1",
+              "end": "argument_count",
+              "step": 1
+            },
+            "equalToArgument": 0
+          }
+        ],
+        "result": {
+          "argument": 0
+        }
+      },
+      {
+        "id": "CONDITIONAL_PAIRS",
+        "minimumArity": 2,
+        "constraints": [
+          {
+            "selection": {
+              "start": "0",
+              "end": "(argument_count / 2) * 2",
+              "step": 2
+            },
+            "nativeKinds": [
+              "BOOLEAN"
+            ]
+          },
+          {
+            "selection": {
+              "start": "1",
+              "end": "(argument_count / 2) * 2",
+              "step": 2
+            },
+            "equalToArgument": 1
+          },
+          {
+            "selection": {
+              "start": "(argument_count / 2) * 2",
+              "end": "argument_count",
+              "step": 1
+            },
+            "equalToArgument": 1
+          }
+        ],
+        "result": {
+          "argument": 1
+        }
+      },
+      {
+        "id": "OPTIONAL_CONDITIONAL",
+        "minimumArity": 2,
+        "maximumArity": 3,
+        "constraints": [
+          {
+            "selection": {
+              "start": "0",
+              "end": "1",
+              "step": 1
+            },
+            "nativeKinds": [
+              "BOOLEAN"
+            ]
+          },
+          {
+            "selection": {
+              "start": "2",
+              "end": "argument_count",
+              "step": 1
+            },
+            "equalToArgument": 1
+          }
+        ],
+        "result": {
+          "argument": 1
+        }
+      },
+      {
+        "id": "EXACT_IDENTITY",
+        "minimumArity": 1,
+        "maximumArity": 1,
+        "constraints": [],
+        "result": {
+          "argument": 0
+        }
+      },
+      {
+        "id": "ROW_CHILDREN",
+        "minimumArity": 0,
+        "constraints": [],
+        "result": {
+          "nativeKind": "ROW",
+          "childSelection": {
+            "start": "0",
+            "end": "argument_count",
+            "step": 1
+          },
+          "childFieldNames": "EMPTY"
+        }
+      },
+      {
+        "id": "DECLARED_TARGET",
+        "minimumArity": 1,
+        "maximumArity": 1,
+        "constraints": [],
+        "result": {
+          "declaredTarget": true
+        }
+      },
+      {
+        "id": "DECLARED_TARGET_CHECKED",
+        "minimumArity": 1,
+        "maximumArity": 1,
+        "constraints": [
+          {
+            "selection": {
+              "start": "0",
+              "end": "1",
+              "step": 1
+            },
+            "forbiddenInputKinds": [
+              "TINYINT",
+              "SMALLINT",
+              "INTEGER",
+              "BIGINT"
+            ],
+            "targetKinds": [
+              "VARBINARY"
+            ]
+          }
+        ],
+        "result": {
+          "declaredTarget": true
+        }
+      }
+    ]
+  }
+}

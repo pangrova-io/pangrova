@@ -74,6 +74,7 @@ message(STATUS "Velox build dir:      ${VELOX_BUILD_DIR}")
 
 # --- Create velox_imported INTERFACE target ---
 add_library(velox_imported INTERFACE)
+include("${CMAKE_CURRENT_LIST_DIR}/PangrovaAbseil.cmake")
 
 # 1) Velox headers
 target_include_directories(velox_imported SYSTEM INTERFACE "${VELOX_INCLUDE_DIR}")
@@ -171,19 +172,14 @@ if(_DEPS_INSTALL)
     # Exclude libgflags*.a — glog links gflags dynamically on macOS.
     # Including static gflags causes dual-registration of global flags → fatal error.
     list(FILTER _DEPS_INSTALL_LIBS EXCLUDE REGEX "libgflags")
-    # Exclude libre2*.a — we use the single re2 copy at PANGROVA_DEPS_PREFIX/lib/libre2.a
-    # (copied from deps-install during setup). Including deps-install re2 would cause
-    # duplicate symbols with the one linked via PANGROVA_DEPS_PREFIX below.
+    # RE2's complete canonical package owns both headers and library. A different
+    # deps-install archive must not replace it or supply duplicate definitions.
     list(FILTER _DEPS_INSTALL_LIBS EXCLUDE REGEX "libre2")
+    pangrova_select_abseil_targets(_DEPS_INSTALL_LIBS ${_DEPS_INSTALL_LIBS})
     target_link_libraries(velox_imported INTERFACE ${_DEPS_INSTALL_LIBS})
-    # Link re2 from PANGROVA_DEPS_PREFIX — this is the single canonical copy with
-    # string_view overloads required by Velox regex functions.
-    if(PANGROVA_DEPS_PREFIX AND EXISTS "${PANGROVA_DEPS_PREFIX}/lib/libre2.a")
-      target_link_libraries(velox_imported INTERFACE "${PANGROVA_DEPS_PREFIX}/lib/libre2.a")
-      message(STATUS "re2 (from PANGROVA_DEPS_PREFIX): ${PANGROVA_DEPS_PREFIX}/lib/libre2.a")
-    else()
-      message(WARNING "libre2.a NOT found at ${PANGROVA_DEPS_PREFIX}/lib/ — re2 symbols will be UNRESOLVED")
-    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/PangrovaRe2.cmake")
+    target_link_libraries(velox_imported INTERFACE re2::re2)
+    message(STATUS "re2 (canonical package): ${_PANGROVA_RE2_DIR}")
     list(LENGTH _DEPS_INSTALL_LIBS _N_DI)
     message(STATUS "Velox deps-install libs: ${_N_DI} .a files (gflags, re2 excluded)")
   endif()
@@ -207,7 +203,6 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/_deps")
     "glog-src;src"
     "glog-build;."
     "gflags-build;include"
-    "re2-src;."
     "fmt-src;include"
   )
     string(REPLACE ";" ";" _parts "${_pair}")
@@ -274,6 +269,8 @@ if(VELOX_BUILD_DIR AND EXISTS "${VELOX_BUILD_DIR}/_deps")
     # Exclude c-ares libs — we use our own hermetic c-ares from PANGROVA_DEPS_PREFIX.
     # Including Velox's bundled c-ares causes duplicate symbol errors (ares_inet_pton).
     list(FILTER _VENDORED_LIBS EXCLUDE REGEX "c-ares-build")
+    list(FILTER _VENDORED_LIBS EXCLUDE REGEX "libre2\\.a$")
+    pangrova_select_abseil_targets(_VENDORED_LIBS ${_VENDORED_LIBS})
     target_link_libraries(velox_imported INTERFACE ${_VENDORED_LIBS})
 
     # Velox uses SYSTEM protobuf (hermetic v4.25.3 from PANGROVA_DEPS_PREFIX).
@@ -303,6 +300,8 @@ if(VELOX_INSTALL_PREFIX AND EXISTS "${VELOX_INSTALL_PREFIX}/lib")
   file(GLOB _INSTALL_PREFIX_LIBS "${VELOX_INSTALL_PREFIX}/lib/*.a")
   if(_INSTALL_PREFIX_LIBS)
     list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libvelox\\.a$")
+    list(FILTER _INSTALL_PREFIX_LIBS EXCLUDE REGEX "libre2\\.a$")
+    pangrova_select_abseil_targets(_INSTALL_PREFIX_LIBS ${_INSTALL_PREFIX_LIBS})
     if(_INSTALL_PREFIX_LIBS)
       target_link_libraries(velox_imported INTERFACE ${_INSTALL_PREFIX_LIBS})
       list(LENGTH _INSTALL_PREFIX_LIBS _N_IP)

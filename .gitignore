@@ -1,6 +1,5 @@
 # AI tool local config
 .aone_copilot/
-.qoder/repowiki/
 # IDE
 .idea/
 *.iml

@@ -99,7 +99,8 @@ public final class SplitAssignmentManager {
         this.scheduler = ManagedExecutorFactory.newSingleThreadScheduledExecutor(
                 "split-lease-reclaim");
         this.reclaimTask = scheduler.scheduleAtFixedRate(
-                this::reclaimExpiredLeases, interval, interval, TimeUnit.MILLISECONDS);
+                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(scheduler, this::reclaimExpiredLeases),
+                interval, interval, TimeUnit.MILLISECONDS);
         LOG.info("event=lease_reclamation_started intervalMs={}", interval);
     }
 
@@ -109,7 +110,7 @@ public final class SplitAssignmentManager {
             reclaimTask.cancel(false);
         }
         if (scheduler != null) {
-            scheduler.shutdown();
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, 5000);
             LOG.info("event=lease_reclamation_stopped");
         }
     }

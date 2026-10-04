@@ -1,6 +1,7 @@
 package org.pangrova.connector.paimon.type;
 
 import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.PangrovaTypeMapping;
 import org.pangrova.spi.connector.data.type.VectorType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.apache.paimon.types.ArrayType;
@@ -136,6 +137,7 @@ public final class PaimonTypeMapper {
      * Converts a Paimon type to a parameterized Pangrova {@link org.pangrova.spi.connector.data.type.Type},
      * using table properties to detect vector columns. A {@code array(float/double)} column
      * with a matching dimension property is mapped to {@link VectorType}.
+     * A marked VARCHAR variant uses the same canonical variant storage type as the SDK visitor.
      *
      * @param paimonType      the Paimon type
      * @param columnName      the column name (for vector metadata lookup)
@@ -144,6 +146,9 @@ public final class PaimonTypeMapper {
      */
     public static org.pangrova.spi.connector.data.type.Type toParameterizedType(
             DataType paimonType, String columnName, Map<String, String> tableProperties) {
+        if (isVariantColumn(paimonType, columnName, tableProperties)) {
+            return PangrovaTypeMapping.toType(PangrovaType.VARIANT);
+        }
         if (isVectorColumn(paimonType, columnName, tableProperties)) {
             return parseVectorFromMetadata(paimonType, columnName, tableProperties);
         }
@@ -252,14 +257,15 @@ public final class PaimonTypeMapper {
     private static ConnectorTableMetadata.Column toColumn(DataField field) {
         PangrovaType type = toPangrovaType(field.type());
         return new ConnectorTableMetadata.Column(
-                field.name(), type, OptionalInt.of(field.id()));
+                field.name(), type, OptionalInt.of(field.id()), toParameterizedType(field.type()));
     }
 
     private static ConnectorTableMetadata.Column toColumn(DataField field,
                                                            Map<String, String> tableProperties) {
         PangrovaType type = toPangrovaType(field.type(), field.name(), tableProperties);
         return new ConnectorTableMetadata.Column(
-                field.name(), type, OptionalInt.of(field.id()));
+                field.name(), type, OptionalInt.of(field.id()),
+                toParameterizedType(field.type(), field.name(), tableProperties));
     }
 
     private static IllegalArgumentException unsupported(String domain, String typeName) {

@@ -51,7 +51,7 @@ class FteStageHandlerTest {
 
         StageLifecycleEvent event = new StageLifecycleEvent(stage, dag, "q-fte-1",
                 new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.CoordinatorSessionContext("q-fte-1", Map.of(), null, "tenant-test")));
+                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext("q-fte-1", Map.of(), null, "tenant-test")));
         handler.onFailed(event);
 
         assertThat(stage.stateMachine().getState())
@@ -69,7 +69,7 @@ class FteStageHandlerTest {
 
         StageLifecycleEvent event = new StageLifecycleEvent(stage, dag, "q-fte-2",
                 new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.CoordinatorSessionContext("q-fte-2", Map.of(), null, "tenant-test")));
+                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext("q-fte-2", Map.of(), null, "tenant-test")));
         handler.onFailed(event);
 
         assertThat(stage.stateMachine().getState())
@@ -86,7 +86,7 @@ class FteStageHandlerTest {
 
         StageLifecycleEvent event = new StageLifecycleEvent(stage, dag, "q-fte-3",
                 new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.CoordinatorSessionContext("q-fte-3", Map.of(), null, "tenant-test")));
+                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext("q-fte-3", Map.of(), null, "tenant-test")));
         handler.onFailed(event);
 
         // EPHEMERAL + TASK_RETRY = fail query (no task retry possible)
@@ -104,7 +104,7 @@ class FteStageHandlerTest {
 
         StageLifecycleEvent event = new StageLifecycleEvent(stage, dag, "q-fte-4",
                 new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.CoordinatorSessionContext("q-fte-4", Map.of(), null, "tenant-test")));
+                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext("q-fte-4", Map.of(), null, "tenant-test")));
         handler.onFailed(event);
 
         // STAGE_RETRY with durable shuffle: tries task retry first, succeeds
@@ -121,7 +121,7 @@ class FteStageHandlerTest {
 
         StageLifecycleEvent event = new StageLifecycleEvent(stage, dag, "q-fte-5",
                 new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.CoordinatorSessionContext("q-fte-5", Map.of(), null, "tenant-test")));
+                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext("q-fte-5", Map.of(), null, "tenant-test")));
 
         // Should not throw or modify state
         handler.onScheduling(event);

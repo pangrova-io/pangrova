@@ -9,6 +9,7 @@
 #include "shuffle/ShuffleEgressExecutor.h"
 
 #include <stdexcept>
+#include <folly/ScopeGuard.h>
 
 #include "jni/bridge/JniBridge.h"
 #include "jni/bridge/JniExceptionScope.h"
@@ -74,34 +75,47 @@ ShuffleEgressExecutor::ShuffleEgressExecutor(JNIEnv* env, jobject egressRef)
         "ShuffleEgressExecutor: env and egressRef must not be null");
   }
 
-  env->GetJavaVM(&vm_);
-  egress_ = env->NewGlobalRef(egressRef);
-
-  jclass egressClass = env->GetObjectClass(egress_);
-  if (!egressClass) {
-    env->DeleteGlobalRef(egress_);
+  if (env->GetJavaVM(&vm_) != JNI_OK || !vm_) {
+    throw std::runtime_error("ShuffleEgressExecutor: failed to acquire JavaVM");
+  }
+  jclass egressClass = env->GetObjectClass(egressRef);
+  auto localOwner = folly::makeGuard([&] {
+    if (egressClass) env->DeleteLocalRef(egressClass);
+  });
+  if (!egressClass || env->ExceptionCheck()) {
     throw std::runtime_error(
         "ShuffleEgressExecutor: failed to get class of egress object");
+  }
+  jobject retained = env->NewGlobalRef(egressRef);
+  auto globalOwner = folly::makeGuard([&] {
+    if (retained) env->DeleteGlobalRef(retained);
+  });
+  if (!retained || env->ExceptionCheck()) {
+    throw std::runtime_error("ShuffleEgressExecutor: failed to retain egress object");
   }
 
   onPartitionBatchId_ = env->GetMethodID(
       egressClass, "onPartitionBatch",
       "(Ljava/lang/String;Ljava/lang/String;IJLjava/nio/ByteBuffer;)V");
+  if (!onPartitionBatchId_ || env->ExceptionCheck()) {
+    throw std::runtime_error("ShuffleEgressExecutor: failed to resolve partition callback");
+  }
   onTaskCompletedId_ = env->GetMethodID(
       egressClass, "onTaskCompleted",
       "(Ljava/lang/String;Ljava/lang/String;)V");
+  if (!onTaskCompletedId_ || env->ExceptionCheck()) {
+    throw std::runtime_error("ShuffleEgressExecutor: failed to resolve completion callback");
+  }
   onTaskAbortedId_ = env->GetMethodID(
       egressClass, "onTaskAborted",
       "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
-  if (!onPartitionBatchId_ || !onTaskCompletedId_ || !onTaskAbortedId_) {
-    env->ExceptionClear();
-    env->DeleteGlobalRef(egress_);
-    env->DeleteLocalRef(egressClass);
+  if (!onTaskAbortedId_ || env->ExceptionCheck()) {
     throw std::runtime_error(
         "ShuffleEgressExecutor: failed to resolve external shuffle callbacks");
   }
 
-  env->DeleteLocalRef(egressClass);
+  egress_ = retained;
+  globalOwner.dismiss();
 }
 
 ShuffleEgressExecutor::~ShuffleEgressExecutor() {

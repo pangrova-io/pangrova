@@ -33,8 +33,6 @@ public final class QueryOwnershipTracker {
     private static final Logger LOG = LoggerFactory.getLogger(QueryOwnershipTracker.class);
 
     private final CoordinatorTaskTracker taskTracker;
-    private final WorkerManager workerManager;
-    private final CatalogRegistry catalogRegistry;
     private final SplitAssignmentManager splitAssignmentManager;
     private final TaskCancelRetrier cancelRetrier;
     private final AtomicReference<OwnershipSnapshot> ownershipSnapshot = new AtomicReference<>();
@@ -52,8 +50,7 @@ public final class QueryOwnershipTracker {
                                  SplitAssignmentManager splitAssignmentManager,
                                  TaskCancelRetrier cancelRetrier) {
         this.taskTracker = checkNotNull(taskTracker, "taskTracker must not be null");
-        this.workerManager = checkNotNull(workerManager, "workerManager must not be null");
-        this.catalogRegistry = catalogRegistry;
+        checkNotNull(workerManager, "workerManager must not be null");
         this.splitAssignmentManager = splitAssignmentManager;
         this.cancelRetrier = checkNotNull(cancelRetrier, "cancelRetrier must not be null");
     }
@@ -113,6 +110,9 @@ public final class QueryOwnershipTracker {
 
     /** Cleans up split assignment state, releases ownership, and notifies connectors. */
     public void cleanupQuery(String queryId) {
+        taskTracker.sealQueryIssuance(queryId);
+        taskTracker.requireQueryExecutionDrained(queryId);
+        notifyConnectorsCleanupQuery(queryId);
         JdbcShuffleCleanupIntentStore intents = shuffleCleanupIntents;
         if (intents != null) {
             // QueryStateMachine writes the durable intent before its terminal
@@ -135,30 +135,19 @@ public final class QueryOwnershipTracker {
         }
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
         if (snapshot != null) {
-            try {
-                snapshot.service().releaseQueryOwnership(queryId, snapshot.coordinatorId());
-            } catch (Exception e) {
-                LOG.debug("event=query_ownership_release_failed queryId={} coordinatorId={} error={}",
-                        queryId, snapshot.coordinatorId(), e.getMessage());
-            }
+            snapshot.service().releaseQueryOwnership(queryId, snapshot.coordinatorId());
         }
         if (splitAssignmentManager != null) {
             splitAssignmentManager.cleanup(queryId);
         }
-        notifyConnectorsCleanupQuery(queryId);
     }
 
     /** Cancels all dispatched tasks for a query. */
     public void cancelDispatchedTasks(String queryId) {
-        for (String taskId : taskTracker.getTaskIds(queryId)) {
-            String workerId = taskTracker.getWorkerForTask(taskId);
-            if (workerId == null) {
-                continue;
-            }
-            WorkerInfo worker = workerManager.getWorker(workerId);
-            if (worker == null) {
-                continue;
-            }
+        for (var issued : taskTracker.sealQueryIssuance(queryId)) {
+            if (issued.drainReceipt().isPresent()) continue;
+            WorkerInfo worker = checkNotNull(issued.worker(), "Issued task has no exact dispatch target");
+            String taskId = issued.request().taskRequest().getAttempt().getTaskId();
             cancelRetrier.cancelWithRetry(queryId, taskId, worker.host(), worker.httpPort());
         }
     }
@@ -172,17 +161,22 @@ public final class QueryOwnershipTracker {
     }
 
     private void notifyConnectorsCleanupQuery(String queryId) {
-        List<ConnectorMetadata> metadata = queryMetadata.remove(queryId);
+        List<ConnectorMetadata> metadata = queryMetadata.get(queryId);
         if (metadata == null) {
             return;
         }
+        Throwable failure = null;
         for (var connector : metadata) {
             try {
                 connector.cleanupQuery(queryId);
-            } catch (Exception e) {
-                LOG.warn("event=connector_cleanup_query_failed queryId={} error={}",
-                        queryId, e.getMessage());
+                metadata.remove(connector);
+            } catch (RuntimeException | Error rejected) {
+                if (failure == null) failure = rejected;
+                else if (failure != rejected) failure.addSuppressed(rejected);
             }
         }
+        if (metadata.isEmpty()) queryMetadata.remove(queryId, metadata);
+        if (failure instanceof Error error) throw error;
+        if (failure != null) throw (RuntimeException) failure;
     }
 }

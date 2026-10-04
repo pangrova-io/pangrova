@@ -54,7 +54,8 @@ public final class PangrovaCoordinatorMain {
 
     static void validateProductionInternalAuth(CoordinatorBootstrapConfig config) {
         String secret = config.internalAuthSecret();
-        if (secret == null || secret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
+        if (secret == null || secret.isBlank()
+                || secret.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
             throw new IllegalStateException(
                     "Production Coordinator requires an internal auth secret of at least 32 bytes");
         }
@@ -194,7 +195,9 @@ public final class PangrovaCoordinatorMain {
                 config.getBoolean(CoordinatorOptions.GOVERNANCE_ENABLED),
                 config.getBoolean(CoordinatorOptions.RESILIENCE_ENABLED),
                 config.getBoolean(CoordinatorOptions.TENANT_ENABLED),
-                config.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED));
+                config.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED),
+                config.getBoolean(CoordinatorOptions.SPECULATION_ENABLED),
+                false, false, false);
     }
 
     private static CoordinatorBootstrapConfig.MetadataJdbcConfig loadMetadataJdbcConfig(
@@ -203,7 +206,9 @@ public final class PangrovaCoordinatorMain {
         if (jdbcUrl == null || jdbcUrl.isBlank()) {
             return null;
         }
-        return new CoordinatorBootstrapConfig.MetadataJdbcConfig(jdbcUrl, "", "");
+        return new CoordinatorBootstrapConfig.MetadataJdbcConfig(jdbcUrl,
+                config.getString(CoordinatorOptions.METADATA_JDBC_USERNAME),
+                config.getString(CoordinatorOptions.METADATA_JDBC_PASSWORD));
     }
 
 

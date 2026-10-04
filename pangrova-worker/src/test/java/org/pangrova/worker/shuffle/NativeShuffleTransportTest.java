@@ -3,8 +3,8 @@ package org.pangrova.worker.shuffle;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.worker.bootstrap.phase.ActualNativeShuffleRequests;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 
 import java.time.Instant;
 

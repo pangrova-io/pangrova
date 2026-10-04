@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.TimeUnit;
+import java.time.Duration;
+
+import static org.awaitility.Awaitility.await;
 
 import org.pangrova.shuffle.ShuffleServerEndpoint;
 import org.junit.jupiter.api.AfterEach;
@@ -23,7 +26,7 @@ class RemoteShuffleClientPoolTest {
 
     @BeforeEach
     void setUp() {
-        pool = new RemoteShuffleClientPool(5000, 10000, 8);
+        pool = new RemoteShuffleClientPool(5000, 10000, RemoteShuffleClientPool.PoolOptions.defaults(), admission());
     }
 
     @AfterEach
@@ -33,32 +36,35 @@ class RemoteShuffleClientPoolTest {
 
     @Test
     void getOrCreateReturnsNonNullClient() {
-        RemoteShuffleClient client = pool.getOrCreateClient(endpoint("localhost", 9400));
-        assertNotNull(client);
-        assertEquals(1, pool.activeConnectionCount());
+        try (var lease = pool.borrow(endpoint("localhost", 9400))) {
+            assertNotNull(lease.client());
+            assertEquals(1, pool.activeConnectionCount());
+        }
     }
 
     @Test
     void sameEndpointReturnsSameClient() {
-        RemoteShuffleClient first = pool.getOrCreateClient(endpoint("localhost", 9400));
-        RemoteShuffleClient second = pool.getOrCreateClient(endpoint("localhost", 9400));
-        assertSame(first, second, "Same endpoint should return pooled client");
-        assertEquals(1, pool.activeConnectionCount());
+        try (var first = pool.borrow(endpoint("localhost", 9400));
+             var second = pool.borrow(endpoint("localhost", 9400))) {
+            assertSame(first.client(), second.client(), "Same endpoint should return pooled client");
+            assertEquals(1, pool.activeConnectionCount());
+        }
     }
 
     @Test
     void differentEndpointsReturnDifferentClients() {
-        RemoteShuffleClient a = pool.getOrCreateClient(endpoint("host-a", 9400));
-        RemoteShuffleClient b = pool.getOrCreateClient(endpoint("host-b", 9401));
-        assertNotNull(a);
-        assertNotNull(b);
-        assertEquals(2, pool.activeConnectionCount());
+        try (var a = pool.borrow(endpoint("host-a", 9400));
+             var b = pool.borrow(endpoint("host-b", 9401))) {
+            assertNotNull(a.client());
+            assertNotNull(b.client());
+            assertEquals(2, pool.activeConnectionCount());
+        }
     }
 
     @Test
     void closeDrainsAllEntries() {
-        pool.getOrCreateClient(endpoint("host-a", 9400));
-        pool.getOrCreateClient(endpoint("host-b", 9401));
+        pool.borrow(endpoint("host-a", 9400)).close();
+        pool.borrow(endpoint("host-b", 9401)).close();
         assertEquals(2, pool.activeConnectionCount());
 
         pool.close();
@@ -68,17 +74,17 @@ class RemoteShuffleClientPoolTest {
     @Test
     void validatesConstructorParameters() {
         assertThrows(IllegalArgumentException.class,
-                () -> new RemoteShuffleClientPool(0, 10000, 8));
+                () -> new RemoteShuffleClientPool(0, 10000, RemoteShuffleClientPool.PoolOptions.defaults(), admission()));
         assertThrows(IllegalArgumentException.class,
-                () -> new RemoteShuffleClientPool(5000, 0, 8));
+                () -> new RemoteShuffleClientPool(5000, 0, RemoteShuffleClientPool.PoolOptions.defaults(), admission()));
         assertThrows(IllegalArgumentException.class,
-                () -> new RemoteShuffleClientPool(5000, 10000, 0));
+                () -> new RemoteShuffleChannelAdmission.Limits(100, 0));
     }
 
     @Test
     void plaintextPoolRejectsTlsBoundEndpoint() {
         assertThrows(IllegalArgumentException.class,
-                () -> pool.getOrCreateClient(
+                () -> pool.borrow(
                         new ShuffleServerEndpoint(
                                 "localhost", 9400, 0, 1, "shuffle.example")));
     }
@@ -87,9 +93,10 @@ class RemoteShuffleClientPoolTest {
     void maxPoolSizeEvictsOldestEntries() {
         int maxPoolSize = 5;
         try (RemoteShuffleClientPool bounded = new RemoteShuffleClientPool(
-                5000, 10000, 8, 5, TimeUnit.MINUTES, maxPoolSize, false)) {
+                5000, 10000, new RemoteShuffleClientPool.PoolOptions(5, TimeUnit.MINUTES, maxPoolSize,
+                        false, null, null), admission())) {
             for (int i = 0; i < maxPoolSize + 3; i++) {
-                bounded.getOrCreateClient(endpoint("host-" + i, 9400));
+                bounded.borrow(endpoint("host-" + i, 9400)).close();
             }
             bounded.cleanUp();
             int size = bounded.activeConnectionCount();
@@ -101,52 +108,68 @@ class RemoteShuffleClientPoolTest {
     @Test
     void idleTimeoutEvictsExpiredEntries() throws Exception {
         try (RemoteShuffleClientPool shortLived = new RemoteShuffleClientPool(
-                5000, 10000, 8, 50, TimeUnit.MILLISECONDS, 100, false)) {
-            shortLived.getOrCreateClient(endpoint("localhost", 9400));
+                5000, 10000, new RemoteShuffleClientPool.PoolOptions(50, TimeUnit.MILLISECONDS, 100,
+                        false, null, null), admission())) {
+            shortLived.borrow(endpoint("localhost", 9400)).close();
             assertEquals(1, shortLived.activeConnectionCount());
 
-            Thread.sleep(200);
-            shortLived.cleanUp();
-
-            assertEquals(0, shortLived.activeConnectionCount(),
-                    "Idle client should be evicted after timeout");
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                shortLived.cleanUp();
+                assertEquals(0, shortLived.activeConnectionCount(), "Idle channel must actually terminate");
+            });
         }
     }
 
     @Test
     void accessResetsIdleTimer() throws Exception {
         try (RemoteShuffleClientPool shortLived = new RemoteShuffleClientPool(
-                5000, 10000, 8, 150, TimeUnit.MILLISECONDS, 100, false)) {
-            shortLived.getOrCreateClient(endpoint("localhost", 9400));
-
-            // Access before timeout to reset idle timer
-            Thread.sleep(80);
-            shortLived.getOrCreateClient(endpoint("localhost", 9400));
-
-            Thread.sleep(80);
-            shortLived.getOrCreateClient(endpoint("localhost", 9400));
-
-            shortLived.cleanUp();
-            assertEquals(1, shortLived.activeConnectionCount(),
-                    "Client should still be present after access resets idle timer");
-
-            // Now let it expire
-            Thread.sleep(200);
-            shortLived.cleanUp();
-            assertEquals(0, shortLived.activeConnectionCount(),
-                    "Client should be evicted after idle timeout");
+                5000, 10000, new RemoteShuffleClientPool.PoolOptions(150, TimeUnit.MILLISECONDS, 100,
+                        false, null, null), admission())) {
+            RemoteShuffleClient original;
+            try (var lease = shortLived.borrow(endpoint("localhost", 9400))) { original = lease.client(); }
+            await().pollInterval(Duration.ofMillis(30)).during(Duration.ofMillis(400))
+                    .atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                        try (var lease = shortLived.borrow(endpoint("localhost", 9400))) {
+                            assertSame(original, lease.client());
+                            assertEquals(1, shortLived.activeConnectionCount());
+                        }
+                    });
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                shortLived.cleanUp();
+                assertEquals(0, shortLived.activeConnectionCount());
+                assertTrue(original.isTerminated());
+            });
         }
     }
 
     @Test
     void defaultPoolUsesExpectedDefaults() {
-        try (RemoteShuffleClientPool defaultPool = new RemoteShuffleClientPool(5000, 10000, 8)) {
-            assertNotNull(defaultPool.getOrCreateClient(endpoint("localhost", 9400)));
+        try (RemoteShuffleClientPool defaultPool = new RemoteShuffleClientPool(
+                5000, 10000, RemoteShuffleClientPool.PoolOptions.defaults(), admission())) {
+            try (var lease = defaultPool.borrow(endpoint("localhost", 9400))) { assertNotNull(lease.client()); }
             assertEquals(1, defaultPool.activeConnectionCount());
         }
     }
 
+    @Test
+    void activeBorrowerPreventsShutdownUntilActualLeaseReturn() {
+        var lease = pool.borrow(endpoint("localhost", 9400));
+        var client = lease.client();
+        assertThrows(IllegalStateException.class, pool::close);
+        assertTrue(!client.isTerminated());
+        assertEquals(1, pool.activeConnectionCount());
+        assertThrows(IllegalStateException.class, () -> pool.borrow(endpoint("localhost", 9400)));
+        lease.close();
+        pool.close();
+        assertEquals(0, pool.activeConnectionCount());
+        assertTrue(client.isTerminated());
+    }
+
     private static ShuffleServerEndpoint endpoint(String host, int port) {
         return new ShuffleServerEndpoint(host, port, 0, 1, "");
+    }
+
+    private static RemoteShuffleChannelAdmission admission() {
+        return new RemoteShuffleChannelAdmission(new RemoteShuffleChannelAdmission.Limits(100, 8));
     }
 }

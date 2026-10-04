@@ -164,11 +164,14 @@ void ExternalShuffleIngress::finish(int64_t last_sequence) {
   not_full_.notify_all();
 }
 
-void ExternalShuffleIngress::fail(std::string message) {
+void ExternalShuffleIngress::fail(
+    std::string message, const std::function<void()>& on_accepted) {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (cancelled_ || finished_ || !failure_.empty() || message.empty()) {
+  if (cancelled_ || finished_ || !failure_.empty() || message.empty() ||
+      !on_accepted) {
     throw std::logic_error("invalid external shuffle failure transition");
   }
+  on_accepted();
   failure_ = std::move(message);
   batches_.clear();
   assembly_.reset();

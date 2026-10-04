@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.bootstrap;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -130,13 +132,13 @@ class PlannerChainTest extends org.pangrova.coordinator.testinfra.SignedOidcCoor
     @Test
     void statisticsCollectorAnalyzesAndRetrieves() {
         StatisticsCollector collector = new StatisticsCollector();
-        PlannerTableStatistics stats = collector.analyzeTable("orders", List.of("id", "amount"));
+        PlannerTableStatistics stats = collector.analyzeTable(new QualifiedTableName("test", "db", "orders"), List.of("id", "amount"));
 
-        assertThat(stats.tableName()).isEqualTo("orders");
+        assertThat(stats.tableName()).isEqualTo(new QualifiedTableName("test", "db", "orders"));
         assertThat(stats.columns()).hasSize(2);
         assertThat(stats.columns()).containsKeys("id", "amount");
 
-        Optional<PlannerTableStatistics> retrieved = collector.getStatistics("orders");
+        Optional<PlannerTableStatistics> retrieved = collector.getStatistics(new QualifiedTableName("test", "db", "orders"));
         assertThat(retrieved).isPresent();
         assertThat(retrieved.get().columns()).hasSize(2);
     }

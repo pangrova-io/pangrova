@@ -556,8 +556,8 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     }
 
     @Override
-    public SchedulerCancelResult cancelTask(String taskId, String workerHost, int httpPort) {
-        return taskControlClient.cancelTask(taskId, workerHost, httpPort);
+    public SchedulerCancelResult cancelTask(SubmitTaskRequest request, String workerHost, int httpPort) {
+        return taskControlClient.cancelTask(request, workerHost, httpPort);
     }
     @Override
     public void notifyUpstreamCommit(String workerHost, int httpPort,

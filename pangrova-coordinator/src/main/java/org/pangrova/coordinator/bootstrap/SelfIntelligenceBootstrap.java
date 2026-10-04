@@ -46,6 +46,9 @@ final class SelfIntelligenceBootstrap {
     private VectorIndexHealthAssessor vectorIndexHealthAssessor;
     private org.pangrova.coordinator.ai.index.lifecycle.IndexRecommendationEngine indexRecommendationEngine;
     private org.pangrova.coordinator.ai.index.lifecycle.IndexRebuildScheduler indexRebuildScheduler;
+    private java.util.concurrent.ScheduledFuture<?> layoutFuture;
+    private java.util.concurrent.ScheduledFuture<?> healthFuture;
+    private java.util.concurrent.ScheduledFuture<?> recommendationFuture;
 
     SelfIntelligenceBootstrap(
             CoordinatorBootstrapConfig config,
@@ -110,7 +113,7 @@ final class SelfIntelligenceBootstrap {
     }
 
     private void scheduleLayoutAdvisor() {
-        schedulerExecutor.scheduleWithFixedDelay(() -> {
+        layoutFuture = schedulerExecutor.scheduleWithFixedDelay(() -> {
             try {
                 runLayoutAdvisorCycle();
             } catch (Exception e) {
@@ -143,7 +146,7 @@ final class SelfIntelligenceBootstrap {
     }
 
     private void scheduleIndexLifecycle() {
-        schedulerExecutor.scheduleWithFixedDelay(() -> {
+        healthFuture = schedulerExecutor.scheduleWithFixedDelay(() -> {
             try {
                 runIndexHealthCheck();
             } catch (Exception e) {
@@ -151,13 +154,20 @@ final class SelfIntelligenceBootstrap {
             }
         }, 15, 30, TimeUnit.MINUTES);
 
-        schedulerExecutor.scheduleWithFixedDelay(() -> {
+        recommendationFuture = schedulerExecutor.scheduleWithFixedDelay(() -> {
             try {
                 runIndexRecommendation();
             } catch (Exception e) {
                 LOG.debug("event=index_recommendation_error", e);
             }
         }, 20, 60, TimeUnit.MINUTES);
+    }
+
+    /** Stops periodic admission; the shared scheduler must still join its entered callbacks. */
+    void stopScheduling() {
+        if (layoutFuture != null) layoutFuture.cancel(false);
+        if (healthFuture != null) healthFuture.cancel(false);
+        if (recommendationFuture != null) recommendationFuture.cancel(false);
     }
 
     private void runIndexHealthCheck() {

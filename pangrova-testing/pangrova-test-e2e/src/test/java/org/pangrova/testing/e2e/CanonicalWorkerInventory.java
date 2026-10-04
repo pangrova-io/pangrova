@@ -1,6 +1,6 @@
 package org.pangrova.testing.e2e;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 

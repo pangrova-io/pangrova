@@ -73,7 +73,7 @@ public final class PangrovaDatabaseMetaData implements DatabaseMetaData {
     }
     @Override
     public ResultSet getSchemas(String catalog, String schemaPattern) throws SQLException {
-        return MetadataResultSets.schemas(restClient, catalog);
+        return MetadataResultSets.schemas(restClient, catalog, schemaPattern);
     }
     @Override public boolean supportsSchemasInDataManipulation() { return true; }
     @Override public boolean supportsSchemasInProcedureCalls() { return false; }
@@ -87,7 +87,7 @@ public final class PangrovaDatabaseMetaData implements DatabaseMetaData {
     @Override
     public ResultSet getTables(String catalog, String schemaPattern, String tableNamePattern,
                                String[] types) throws SQLException {
-        return MetadataResultSets.tables(restClient, catalog, schemaPattern, tableNamePattern);
+        return MetadataResultSets.tables(restClient, catalog, schemaPattern, tableNamePattern, types);
     }
     @Override
     public ResultSet getTableTypes() throws SQLException {

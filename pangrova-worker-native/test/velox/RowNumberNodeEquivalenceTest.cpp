@@ -10,19 +10,29 @@
 //     (not WindowNode) when the pattern matches.
 //   - RowNumberNode output schema matches expected structure (input columns +
 //     row_number column appended).
-//   - Plan structure is correct: RowNumberNode wrapping a TableScan.
+//   - Plan structure preserves Project → RowNumber → LocalPartition →
+//     Project → TableScan, including ordinal-only output restoration.
 //   - WindowNode fallback is used when pattern does NOT match (multiple window
 //     functions or non-default frame).
 //
 // **Validates: Requirements 7.1, 7.3**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalOutputAssertions.h"
+#include "CanonicalTaskExecution.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
 #include "substrait/algebra.pb.h"
@@ -30,6 +40,7 @@
 #include "substrait/plan.pb.h"
 
 #include "velox/core/PlanNode.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox::test {
 namespace {
@@ -66,7 +77,8 @@ namespace {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
@@ -78,7 +90,7 @@ void setFieldRef(substrait::Expression* expr, int field_index) {
 
 std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -87,8 +99,9 @@ std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
 // The input is a ReadRel with partition_key_count key columns + 1 value column.
 std::vector<uint8_t> buildRowNumberPlan(
     int partition_key_count,
-    int /*input_size*/,
-    DataDistribution /*distribution*/) {
+    int input_size,
+    DataDistribution distribution,
+    bool actualValues = false) {
   substrait::Plan plan;
 
   // Register row_number function extension.
@@ -117,6 +130,16 @@ std::vector<uint8_t> buildRowNumberPlan(
     addI64Column(schema, "partition_key_" + std::to_string(i));
   }
   addI64Column(schema, "value");
+  if (actualValues) {
+    read->clear_named_table();
+    for (int row = 0; row < input_size; ++row) {
+      auto* record = read->mutable_virtual_table()->add_expressions();
+      const auto key = distribution == DataDistribution::kAllSamePartition ? 7 :
+          distribution == DataDistribution::kSkewed && row < input_size * 9 / 10 ? 0 : row % 5;
+      for (int i = 0; i < partition_key_count; ++i) record->add_fields()->mutable_literal()->set_i64(key + i);
+      record->add_fields()->mutable_literal()->set_i64(row);
+    }
+  }
 
   // Partition expressions: reference each partition key column.
   for (int i = 0; i < partition_key_count; ++i) {
@@ -130,7 +153,7 @@ std::vector<uint8_t> buildRowNumberPlan(
   wf->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   wf->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf->set_function_reference(0);
-  wf->mutable_output_type()->mutable_i64();
+  wf->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   // No arguments (row_number takes none).
   // No bounds set → isDefaultRowsFrame returns true.
 
@@ -180,13 +203,13 @@ std::vector<uint8_t> buildMultiWindowFunctionPlan(int partition_key_count) {
   wf1->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   wf1->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf1->set_function_reference(0);
-  wf1->mutable_output_type()->mutable_i64();
+  wf1->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 
   auto* wf2 = window_rel->add_window_functions();
   wf2->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   wf2->set_bounds_type(substrait::Expression_WindowFunction::BOUNDS_TYPE_ROWS);
   wf2->set_function_reference(1);
-  wf2->mutable_output_type()->mutable_i64();
+  wf2->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 
   return serializePlan(plan);
 }
@@ -232,8 +255,9 @@ class RowNumberNodeEquivalenceTest
 // Property 14.1: RowNumberNode Created Instead of WindowNode
 //
 // For any ConsistentPartitionWindowRel containing only a single row_number()
-// with no custom frame, the converter SHALL create a RowNumberNode (not a
-// WindowNode). This verifies the pattern detection works correctly across
+// with no custom frame, the converter SHALL contain a RowNumberNode (not a
+// WindowNode). Its exact final projection preserves every declared ordinal.
+// This verifies the pattern detection works correctly across
 // all partition key counts and data distributions.
 //
 // **Validates: Requirements 7.1, 7.3**
@@ -245,13 +269,19 @@ TEST_P(RowNumberNodeEquivalenceTest, RowNumberNodeCreatedInsteadOfWindowNode) {
       param.partition_key_count, param.input_size, param.distribution);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr)
       << "Plan conversion failed for " << param.name;
 
-  // Root node must be RowNumber (not Window).
-  EXPECT_EQ(plan->name(), "RowNumber")
+  const auto output = std::dynamic_pointer_cast<const core::ProjectNode>(plan);
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->sources().size(), 1);
+  const auto rowNumber = std::dynamic_pointer_cast<const core::RowNumberNode>(output->sources().front());
+  ASSERT_NE(rowNumber, nullptr);
+  EXPECT_EQ(rowNumber->name(), "RowNumber")
       << "Expected RowNumber node for " << param.name
       << " but got " << plan->name();
 
@@ -286,7 +316,9 @@ TEST_P(RowNumberNodeEquivalenceTest, OutputSchemaCorrect) {
       param.partition_key_count, param.input_size, param.distribution);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
@@ -318,8 +350,8 @@ TEST_P(RowNumberNodeEquivalenceTest, OutputSchemaCorrect) {
 // ===========================================================================
 // Property 14.3: Plan Structure Correctness
 //
-// The converted plan SHALL have the structure: RowNumber → TableScan.
-// No intermediate nodes should be inserted for the basic row_number pattern.
+// The converted plan SHALL preserve the exact typed preparation, partitioning
+// and output-restoration structure without unrelated intermediate nodes.
 //
 // **Validates: Requirements 7.1**
 // ===========================================================================
@@ -330,20 +362,32 @@ TEST_P(RowNumberNodeEquivalenceTest, PlanStructureCorrect) {
       param.partition_key_count, param.input_size, param.distribution);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
-  // Collect all node names in pre-order.
+  // Preparation keeps row identity, and the real LocalPartition routes every
+  // equal key to one row-number driver. The last projection is ordinal-only.
   std::vector<std::string> node_names;
   collectNodeNames(plan, node_names);
-
-  // Expected: RowNumber → TableScan
-  ASSERT_EQ(node_names.size(), 2u)
-      << "Expected 2 nodes (RowNumber + TableScan) for " << param.name
-      << " but got " << node_names.size();
-  EXPECT_EQ(node_names[0], "RowNumber");
-  EXPECT_EQ(node_names[1], "TableScan");
+  EXPECT_EQ(node_names, (std::vector<std::string>{"Project", "RowNumber", "LocalPartition", "Project", "TableScan"}));
+  const auto output = std::dynamic_pointer_cast<const core::ProjectNode>(plan);
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->sources().size(), 1);
+  expectOrdinalIdentityProjection(output);
+  const auto rowNumber = std::dynamic_pointer_cast<const core::RowNumberNode>(output->sources().front());
+  ASSERT_NE(rowNumber, nullptr);
+  ASSERT_EQ(rowNumber->sources().size(), 1);
+  const auto partition = std::dynamic_pointer_cast<const core::LocalPartitionNode>(rowNumber->sources().front());
+  ASSERT_NE(partition, nullptr);
+  ASSERT_EQ(partition->sources().size(), 1);
+  const auto prepared = std::dynamic_pointer_cast<const core::ProjectNode>(partition->sources().front());
+  ASSERT_NE(prepared, nullptr);
+  ASSERT_EQ(prepared->sources().size(), 1);
+  EXPECT_NE(std::dynamic_pointer_cast<const core::TableScanNode>(prepared->sources().front()), nullptr);
+  expectOrdinalIdentityProjection(prepared);
 }
 
 // ===========================================================================
@@ -363,22 +407,66 @@ TEST_P(RowNumberNodeEquivalenceTest, PartitionKeyCountMatchesInput) {
       param.partition_key_count, param.input_size, param.distribution);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr);
 
-  // Verify the plan root is a RowNumberNode.
-  ASSERT_EQ(plan->name(), "RowNumber")
-      << "Expected RowNumber node for " << param.name;
+  const auto output = std::dynamic_pointer_cast<const core::ProjectNode>(plan);
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->sources().size(), 1);
+  const auto rowNumber = std::dynamic_pointer_cast<const core::RowNumberNode>(output->sources().front());
+  ASSERT_NE(rowNumber, nullptr);
+  EXPECT_TRUE(rowNumber->generateRowNumber());
+  ASSERT_EQ(rowNumber->partitionKeys().size(), param.partition_key_count);
+  ASSERT_EQ(plan->outputType()->size(), param.partition_key_count + 2);
+  for (int key = 0; key < param.partition_key_count; ++key) {
+    EXPECT_EQ(rowNumber->partitionKeys().at(key)->name(), physicalFieldAlias(key));
+    expectCanonicalOutputField(converter, plan->outputType(), key, "partition_key_" + std::to_string(key));
+  }
+  expectCanonicalOutputField(converter, plan->outputType(), param.partition_key_count, "value");
+  expectCanonicalOutputField(converter, plan->outputType(), param.partition_key_count + 1, "row_number");
+}
 
-  // The RowNumberNode output type contains at minimum the input columns
-  // (partition keys + value). It may also include the row_number column
-  // depending on the Velox version behavior.
-  auto output_type = plan->outputType();
-  int min_expected_cols = param.partition_key_count + 1;
-  EXPECT_GE(static_cast<int>(output_type->size()), min_expected_cols)
-      << "RowNumberNode output should have at least " << min_expected_cols
-      << " columns (partition keys + value) for " << param.name;
+TEST_P(RowNumberNodeEquivalenceTest, ActualValuesPreserveEveryPayloadAndNumberEachPartition) {
+  const auto& param = GetParam();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  const auto plan = converter.convert(buildRowNumberPlan(param.partition_key_count,
+      param.input_size, param.distribution, true), {});
+  const auto execution = executeCanonicalTask(plan, converter_registry);
+  std::map<std::vector<int64_t>, std::vector<int64_t>> numbers;
+  std::set<int64_t> payloads;
+  for (const auto& batch : execution.batches) {
+    ASSERT_EQ(batch->childrenSize(), param.partition_key_count + 2);
+    for (vector_size_t row = 0; row < batch->size(); ++row) {
+      std::vector<int64_t> key;
+      for (int i = 0; i < param.partition_key_count; ++i) {
+        DecodedVector decoded(*batch->childAt(i));
+        ASSERT_FALSE(decoded.isNullAt(row));
+        key.push_back(decoded.valueAt<int64_t>(row));
+      }
+      DecodedVector payload(*batch->childAt(param.partition_key_count));
+      DecodedVector number(*batch->childAt(param.partition_key_count + 1));
+      ASSERT_FALSE(payload.isNullAt(row));
+      ASSERT_FALSE(number.isNullAt(row));
+      const auto value = payload.valueAt<int64_t>(row);
+      ASSERT_TRUE(payloads.insert(value).second);
+      ASSERT_GE(value, 0);
+      ASSERT_LT(value, param.input_size);
+      const auto expected = param.distribution == DataDistribution::kAllSamePartition ? 7 :
+          param.distribution == DataDistribution::kSkewed && value < param.input_size * 9 / 10 ? 0 : value % 5;
+      for (int i = 0; i < param.partition_key_count; ++i) EXPECT_EQ(key.at(i), expected + i);
+      numbers[key].push_back(number.valueAt<int64_t>(row));
+    }
+  }
+  EXPECT_EQ(payloads.size(), param.input_size);
+  for (auto& [key, values] : numbers) {
+    std::sort(values.begin(), values.end());
+    for (size_t i = 0; i < values.size(); ++i) EXPECT_EQ(values.at(i), i + 1);
+  }
 }
 
 // ===========================================================================
@@ -402,7 +490,9 @@ TEST_P(RowNumberNodeEquivalenceTest, WindowNodeFallbackForMultipleFunctions) {
   auto plan_bytes = buildMultiWindowFunctionPlan(param.partition_key_count);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(plan_bytes, {});
   ASSERT_NE(plan, nullptr)
       << "Plan conversion failed for multi-function fallback " << param.name;

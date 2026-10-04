@@ -74,7 +74,7 @@ public record AiExecutionContext(
 
     /** Same canonical projection used when registering the actual Worker task authority. */
     public static AiExecutionContext fromTaskRequest(org.pangrova.protocol.v2.TaskRequest request) {
-        return fromCanonicalCallback(org.pangrova.protocol.CanonicalTaskRequests.callbackFor(request).toByteArray());
+        return fromCanonicalCallback(org.pangrova.protocol.task.CanonicalTaskRequests.callbackFor(request).toByteArray());
     }
 
     /**

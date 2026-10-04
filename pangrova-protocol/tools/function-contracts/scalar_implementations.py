@@ -19,7 +19,7 @@ def normalize_physical_layout(source, depth=0, budget=None):
 
 
 def normalize_scalar_implementations(source):
-    simple, vector = source["simpleImplementations"], source["vectorOverloads"]
+    simple, vector = source["simpleImplementations"], source["vectorImplementations"]
     if not isinstance(simple, list) or not isinstance(vector, list) or len(simple) + len(vector) > MAX_TYPES:
         raise ValueError("Actual scalar implementations exceed their bound")
     normalized = []
@@ -39,4 +39,11 @@ def normalize_scalar_implementations(source):
                            "defaultNullBehavior": exact_bool(entry["defaultNullBehavior"])})
     # Preserve the actual traversal order, including equal-priority entries.
     # Sorting logical signatures is not the runtime's selection algorithm.
-    return normalized, [normalize_signature(entry, "SCALAR") for entry in vector]
+    return normalized, [normalize_vector_implementation(entry) for entry in vector]
+
+
+def normalize_vector_implementation(source):
+    fields = ("deterministic", "defaultNullBehavior", "supportsFlattening", "companionFunction")
+    exact_keys(source, ("signature", *fields))
+    return {"signature": normalize_signature(source["signature"], "SCALAR"),
+            **{field: exact_bool(source[field]) for field in fields}}

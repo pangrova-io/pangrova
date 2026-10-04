@@ -13,8 +13,8 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskPlans;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 
 import java.time.Duration;
@@ -44,7 +44,7 @@ class TaskMemoryPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-accounting")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            long nativeBaseline = runtime.memory().currentReservation();
+            long nodeBaseline = runtime.nodePool().getUsedBytes();
             var info = tasks.submit(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
             awaitActualTerminal(tasks, info);
             assertThat(info.allocatedMemory()).isZero();
@@ -55,7 +55,7 @@ class TaskMemoryPropagationTest {
                 assertThat(tasks.consume(info).values()).containsExactly(0L);
             }
             assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
-            assertThat(runtime.memory().currentReservation()).isEqualTo(nativeBaseline);
+            assertThat(runtime.nodePool().getUsedBytes()).isEqualTo(nodeBaseline);
             assertThat(info.executorHandle()).isZero();
         }
     }

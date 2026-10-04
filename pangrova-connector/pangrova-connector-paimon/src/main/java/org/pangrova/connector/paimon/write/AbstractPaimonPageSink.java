@@ -1,7 +1,6 @@
 package org.pangrova.connector.paimon.write;
 
 import org.pangrova.common.concurrent.NotThreadSafe;
-import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.protocol.batch.ColumnarBatch;
 import org.pangrova.protocol.batch.ColumnarPageSink;
@@ -51,6 +50,11 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
     private final boolean postponeBucket;
     private boolean finished;
     private boolean aborted;
+    private boolean stopped;
+    private boolean writeClosed;
+    private boolean commitClosed;
+    private boolean ioClosed;
+    private byte[] commitMetadata;
 
     protected AbstractPaimonPageSink(PaimonPageSinkContext context) {
         this.ioManager = new IOManagerImpl(context.tempDir());
@@ -79,6 +83,7 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
      */
     @Override
     public void appendColumnarBatch(ColumnarBatch batch) {
+        requireWriting();
         int[] ordinals = rowConverter.columnOrdinals(batch.columns());
         int rowCount = batch.rowCount();
         try {
@@ -98,11 +103,15 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
 
     @Override
     public byte[] finishWithMetadata() {
-        if (finished || aborted) {
+        if (aborted) {
             return new byte[0];
         }
+        if (finished) return commitMetadata.clone();
+        requireWriting();
+        stopped = true;
+        commitMetadata = collectCommitMetadata();
         finished = true;
-        return collectCommitMetadata();
+        return commitMetadata.clone();
     }
 
     @Override
@@ -110,18 +119,29 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
         if (finished || aborted) {
             return;
         }
+        stopped = true;
+        closeWrite();
         aborted = true;
-        ResourceCloser.closeQuietly(tableWrite);
     }
 
     @Override
     public void close() {
-        ResourceCloser.closeQuietly(tableWrite);
-        ResourceCloser.closeQuietly(tableCommit);
-        ResourceCloser.closeQuietly(ioManager);
+        stopped = true;
+        // The writer may still be joining compaction/IO. Its owner and spill
+        // manager must survive a failed close; never free them first.
+        closeWrite();
+        if (!commitClosed) {
+            closeResource(tableCommit, "commit");
+            commitClosed = true;
+        }
+        if (!ioClosed) {
+            closeResource(ioManager, "spill manager");
+            ioClosed = true;
+        }
     }
 
     private void writeRow(TypedRow row) {
+        requireWriting();
         try {
             writeConvertedRow(rowConverter.convert(row, writeRowKind()));
         } catch (Exception e) {
@@ -138,6 +158,26 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
             tableWrite.write(row);
         } else {
             tableWrite.write(row);
+        }
+    }
+
+    private void requireWriting() {
+        if (stopped) throw new IllegalStateException("Paimon write sink has stopped accepting rows");
+    }
+
+    private void closeWrite() {
+        if (!writeClosed) {
+            closeResource(tableWrite, "writer");
+            writeClosed = true;
+        }
+    }
+
+    private void closeResource(AutoCloseable resource, String name) {
+        try {
+            resource.close();
+        } catch (Exception failure) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Failed to close Paimon " + name + " for " + schemaName + "." + tableName, failure);
         }
     }
 

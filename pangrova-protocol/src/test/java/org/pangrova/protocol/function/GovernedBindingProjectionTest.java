@@ -3,6 +3,7 @@ package org.pangrova.protocol.function;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.ExecutionPolicy;
 import org.pangrova.protocol.v2.ExecutionReusePolicy;

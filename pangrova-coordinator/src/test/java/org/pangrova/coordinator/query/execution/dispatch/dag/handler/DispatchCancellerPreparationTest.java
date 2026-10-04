@@ -3,7 +3,6 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
-import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
@@ -19,15 +18,18 @@ class DispatchCancellerPreparationTest {
     private static final String WORKER_ID = "worker-1";
 
     private final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-    private final DispatchCanceller canceller = new DispatchCanceller(
-            (TaskDispatcher) (request, worker) -> {
-                throw new UnsupportedOperationException("not dispatched in this test");
-            }, tracker);
+    private final org.pangrova.coordinator.scheduler.RemoteTaskDispatcher remote =
+            new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
+                    org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(), org.pangrova.testing.TestObservability.TRACING);
+    private final DispatchCanceller canceller = new DispatchCanceller(remote, tracker);
+
+    @org.junit.jupiter.api.AfterEach void close() { remote.close(); }
 
     @Test
     void workerReportCanArriveBeforeSubmitResponse() {
         var request = request();
-        canceller.prepareTaskDispatch(request, WORKER_ID);
+        canceller.prepareTaskDispatch(request, org.pangrova.coordinator.worker.TestWorkerInfoBuilder
+                .active(WORKER_ID, "localhost", 8080, 8081));
 
         assertThat(tracker.getTaskState(QUERY_ID, TASK_ID))
                 .isEqualTo(TaskStateMachine.State.SCHEDULED);
@@ -47,7 +49,8 @@ class DispatchCancellerPreparationTest {
     @Test
     void preparationCanBeRolledBackBeforeAnyDispatchStarts() {
         var request = request();
-        canceller.prepareTaskDispatch(request, WORKER_ID);
+        canceller.prepareTaskDispatch(request, org.pangrova.coordinator.worker.TestWorkerInfoBuilder
+                .active(WORKER_ID, "localhost", 8080, 8081));
         canceller.discardPreparedTask(request);
 
         assertThat(tracker.getTaskAttempt(TASK_ID)).isNull();

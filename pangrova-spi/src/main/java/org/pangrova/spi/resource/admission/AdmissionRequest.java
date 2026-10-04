@@ -15,7 +15,7 @@ import java.util.OptionalLong;
  * @param tenantId        the authenticated tenant (never null or blank)
  * @param resourceGroupId the resource group this query is classified into (never null)
  * @param queryId         unique query identifier (never null or blank)
- * @param estimatedMemoryBytes CBO-estimated memory for the query (empty if unavailable)
+ * @param estimatedMemoryBytes nonnegative CBO-estimated memory (empty if unavailable)
  */
 @Experimental(reason = "G-RES-04: cluster admission control SPI")
 public record AdmissionRequest(
@@ -36,6 +36,9 @@ public record AdmissionRequest(
         }
         estimatedMemoryBytes = estimatedMemoryBytes == null
                 ? OptionalLong.empty() : estimatedMemoryBytes;
+        if (estimatedMemoryBytes.isPresent() && estimatedMemoryBytes.getAsLong() < 0) {
+            throw new IllegalArgumentException("estimatedMemoryBytes must not be negative");
+        }
     }
 
     /** Creates a request without a memory estimate. */

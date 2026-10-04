@@ -4,8 +4,12 @@
 #include "jni/registry/HandleRegistry.h"
 
 #include <iostream>
+#include <algorithm>
 #include <stdexcept>
 #include <vector>
+#include <chrono>
+
+#include "jni/command/TaskRequestParser.h"
 
 namespace pangrova::jni {
 
@@ -26,7 +30,7 @@ int64_t HandleRegistry::create(
     // race with destroyAll() which increments generation under exclusive lock.
     std::unique_lock<std::shared_mutex> lock(mutex_);
     uint64_t gen = current_generation_.load(std::memory_order_relaxed);
-    handles_[handle] = Entry{std::move(executor), gen};
+    handles_[handle] = Entry{std::move(executor), gen, {}, false};
   }
   return handle;
 }
@@ -47,6 +51,9 @@ std::shared_ptr<pangrova::executor::TaskExecutor> HandleRegistry::acquire(
         " is stale (generation " + std::to_string(it->second.generation) +
         " vs current " + std::to_string(gen) + ")");
   }
+  if (!it->second.executor || it->second.constructing) {
+    throw std::runtime_error("HandleRegistry::acquire: creation is not an available executor");
+  }
   return it->second.executor;
 }
 
@@ -65,7 +72,7 @@ void HandleRegistry::release(
         "HandleRegistry::release: handle " + std::to_string(handle) +
         " not found (double release or stale handle)");
   }
-  handles_.erase(it);
+  eraseLocked(it);
 }
 
 void HandleRegistry::destroyAll() {
@@ -75,6 +82,13 @@ void HandleRegistry::destroyAll() {
     for (const auto& entry : handles_) snapshot.push_back(entry);
   }
   for (const auto& [handle, entry] : snapshot) {
+    if (entry.constructing) throw std::runtime_error("Native creation has not exited during shutdown");
+    if (!entry.executor) {
+      std::unique_lock<std::shared_mutex> lock(mutex_);
+      auto current = handles_.find(handle);
+      if (current != handles_.end() && !current->second.constructing && !current->second.executor) eraseLocked(current);
+      continue;
+    }
     auto state = entry.executor->state();
     bool terminal =
         (state == pangrova::executor::ExecutorState::FINISHED ||
@@ -90,7 +104,7 @@ void HandleRegistry::destroyAll() {
     entry.executor->release();
     std::unique_lock<std::shared_mutex> lock(mutex_);
     auto current = handles_.find(handle);
-    if (current != handles_.end() && current->second.executor == entry.executor) handles_.erase(current);
+    if (current != handles_.end() && current->second.executor == entry.executor) eraseLocked(current);
   }
   std::unique_lock<std::shared_mutex> lock(mutex_);
   if (!handles_.empty()) throw std::runtime_error("Executors were registered during shutdown");
@@ -99,7 +113,15 @@ void HandleRegistry::destroyAll() {
 
 size_t HandleRegistry::size() const {
   std::shared_lock<std::shared_mutex> lock(mutex_);
-  return handles_.size();
+  return static_cast<size_t>(std::count_if(handles_.begin(), handles_.end(),
+      [](const auto& entry) { return static_cast<bool>(entry.second.executor); }));
+}
+
+void HandleRegistry::eraseLocked(std::unordered_map<int64_t, Entry>::iterator entry) {
+  if (entry->second.identity.has_admission_seal()) {
+    creation_index_.erase(entry->second.identity.admission_seal().attempt().SerializeAsString());
+  }
+  handles_.erase(entry);
 }
 
 uint64_t HandleRegistry::generation() const {

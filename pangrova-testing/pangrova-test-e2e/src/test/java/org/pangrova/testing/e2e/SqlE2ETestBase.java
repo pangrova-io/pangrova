@@ -193,7 +193,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static WorkerManager workerManager;
     protected static MetadataBootstrap metadataBootstrap;
     private static RemoteTaskStatusReporter statusReporter;
-    private static org.pangrova.coordinator.query.task.NativeWriteCommitTracker writeCommitTracker;
+    private static org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker;
 
     /** Default schema path for Calcite table resolution (e.g. ["iceberg_catalog", "default"]). */
     private static volatile List<String> defaultSchemaPath = List.of("");
@@ -238,14 +238,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // commit metadata draining (TaskStatusCollector relies on this to surface
     // commit metadata to the coordinator).
     private static volatile org.pangrova.worker.jni.write.NativeWriteExecutor sharedNativeWriteExecutor;
-    private static volatile org.pangrova.worker.jni.write.WorkerCatalogRuntime sharedWorkerCatalogRuntime;
+    private static volatile org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime sharedWorkerCatalogRuntime;
     private static volatile String workerCatalogCoordinatorUrl;
     private static volatile TaskExecutor sharedWorkerTaskExecutor;
     private static volatile int sharedWorkerHttpPort;
     private static volatile org.pangrova.coordinator.metadata.NativeDatasetControlClient sharedDatasetControlClient;
     private static volatile org.pangrova.spi.coordination.WriteCommitJournal sharedWriteCommitJournal;
     private static volatile TaskStatusReceiver sharedTaskStatusReceiver;
-    private static final org.pangrova.coordinator.query.task.WriteCommitFencer E2E_WRITE_COMMIT_FENCER =
+    private static final org.pangrova.coordinator.query.task.write.WriteCommitFencer E2E_WRITE_COMMIT_FENCER =
             new E2eWriteCommitFencer();
     // Additional resources that leak if not closed between test classes.
     private static volatile org.apache.arrow.memory.RootAllocator coordinatorArrowAllocator;
@@ -797,7 +797,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 new TaskStatusReceiverContext(queryManager, taskTracker, workerManager,
                         null, null, null,
-                        org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
+                        queryManager.getStateJournal(),
                         metadataBootstrap.catalogRegistry(), writeCommitTracker,
                         stageCallback, null, sharedWriteCommitJournal, artifactWorkReportSink()));
         receiver.setWriteCommitFencer(E2E_WRITE_COMMIT_FENCER);
@@ -827,8 +827,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 null,
                 null,
                 null,
-                org.pangrova.coordinator.coordination.inmemory
-                        .InMemoryQueryStateJournal.INSTANCE,
+                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(),
                 null,
                 null,
                 org.pangrova.coordinator.query.AsyncSubmitConfig.defaultEnabled(),
@@ -1678,7 +1677,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         System.err.println("[E2E-DEBUG] initCoordinatorServices: taskTracker created");
         metadataBootstrap = initializeMetadata();
         System.err.println("[E2E-DEBUG] initCoordinatorServices: metadata initialized");
-        writeCommitTracker = new org.pangrova.coordinator.query.task.NativeWriteCommitTracker();
+        writeCommitTracker = new org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker();
         QueryDispatcher dispatcher = buildQueryDispatcher();
         System.err.println("[E2E-DEBUG] initCoordinatorServices: dispatcher built");
         queryManager = new QueryManager(queryManagerContext(dispatcher));
@@ -1689,7 +1688,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 new TaskStatusReceiverContext(queryManager, taskTracker, workerManager,
                         null, null, null,
-                        org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
+                        queryManager.getStateJournal(),
                         metadataBootstrap.catalogRegistry(), writeCommitTracker, null, null, sharedWriteCommitJournal,
                         artifactWorkReportSink()));
         System.err.println("[E2E-DEBUG] initCoordinatorServices: receiver created");
@@ -2216,7 +2215,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             WorkerManager embeddingWorkers) {
         var catalog = metadataBootstrap.catalogRegistry();
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
-                org.pangrova.coordinator.metadata.MetadataSchemaBuilder::invalidateTableCaches);
+                org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
         sharedDdlExecutor = ddlExecutor;
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
@@ -2514,16 +2513,18 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 CalciteSchema.createRootSchema(false, false), schemaPath);
         return new SqlCompiler(template, new SubstraitConverter(), new SubstraitPlanSerializer())
                 .withSessionPlanner(session -> {
+                    var bindings = new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
+                            metadataBootstrap.catalogRegistry(), session);
                     var deps = new org.pangrova.planner.PlannerContext(
                             new org.pangrova.planner.stats.StatisticsCollector(
-                                    new org.pangrova.coordinator.metadata.CatalogStatisticsProvider(
-                                            metadataBootstrap.catalogRegistry(), session)),
+                                    new org.pangrova.coordinator.metadata.read.CatalogStatisticsProvider(
+                                            bindings)),
                             null, null,
                             org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig.DEFAULT,
                             null, sharedDtRewriter, null,
                             org.pangrova.planner.cost.CboConfig.DEFAULT,
                             org.pangrova.planner.cost.CostModelConfig.SSD_DEFAULT);
-                    return new PangrovaPlanner(metadataBootstrap.buildCalciteSchema(session), schemaPath, deps);
+                    return new PangrovaPlanner(metadataBootstrap.buildCalciteSchema(session, bindings), schemaPath, deps);
                 });
     }
 
@@ -2610,7 +2611,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         java.util.Objects.requireNonNull(metadataBootstrap, "E2E metadata must be initialized");
         String coordinatorUrl = "http://localhost:" + java.util.Objects.requireNonNull(
                 coordinatorHttpServer, "E2E Coordinator HTTP server").getPort();
-        var runtime = org.pangrova.worker.jni.write.WorkerCatalogRuntime.discover(
+        var runtime = org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime.discover(
                 coordinatorUrl, E2E_INTERNAL_AUTH_SECRET, Thread.currentThread().getContextClassLoader());
         var writer = new org.pangrova.worker.jni.write.NativeWriteExecutor(runtime);
         try {
@@ -2664,7 +2665,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         registerWorker(workerHttpServer.getPort(), sharedResultServerPort);
     }
 
-    private static final class E2eWriteCommitFencer implements org.pangrova.coordinator.query.task.WriteCommitFencer {
+    private static final class E2eWriteCommitFencer implements org.pangrova.coordinator.query.task.write.WriteCommitFencer {
         @Override
         public org.pangrova.spi.coordination.ExecutionAnchor currentAnchor(String executionId) {
             return requireE2ECoordination().requireExecutionAnchor(executionId);

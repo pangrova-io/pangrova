@@ -23,7 +23,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
 import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.security.SecurityPolicySignatureProvider;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
@@ -35,7 +35,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.handler.RuntimeFilt
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
-import org.pangrova.coordinator.query.task.NativeWriteCommitTracker;
+import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.query.task.write.WriteAllocationIntent;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -198,7 +198,7 @@ final class QuerySchedulingEngine {
                 throw new IllegalStateException(
                         "Distributed write catalog not found: " + catalog);
             }
-            var connectorSession = org.pangrova.coordinator.query.SessionContextConverter
+            var connectorSession = org.pangrova.coordinator.query.session.SessionContextConverter
                     .toConnectorSession(session, catalog, schema);
             var metadata = catalogHandle.getMetadata(connectorSession);
             var qualifiedName = new org.pangrova.spi.connector.metadata.table.QualifiedTableName(

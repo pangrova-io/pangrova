@@ -275,14 +275,27 @@ public final class RemoteShuffleClient implements Closeable {
 
     @Override
     public void close() {
+        closeChannel(channel);
+    }
+
+    static void closeChannel(ManagedChannel channel) {
         channel.shutdown();
         try {
             if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
                 channel.shutdownNow();
+                if (!channel.awaitTermination(5, TimeUnit.SECONDS)) {
+                    throw new RemoteShuffleClientException("Remote shuffle channel has not terminated");
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             channel.shutdownNow();
+            throw new RemoteShuffleClientException("Remote shuffle channel drain interrupted", e);
         }
+    }
+
+    /** Actual ManagedChannel termination, independent of cache entries or cleanup futures. */
+    public boolean isTerminated() {
+        return channel.isTerminated();
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.planner;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;
 import org.apache.calcite.jdbc.CalciteSchema;
@@ -29,23 +31,25 @@ class StatisticsPruningSafetyTest {
     void staleCostStatisticsCannotReplaceAProtectedSourceWithAnEmptyRelation(String predicate) throws Exception {
         var statistics = new StatisticsCollector();
         var column = new ColumnStatistics(1000, 0, 100L, 500L, 100, 8, Optional.empty(), 1);
-        statistics.putStatistics("orders", new PlannerTableStatistics(
-                "orders", Map.of("amount", column), Instant.EPOCH));
+        statistics.putStatistics(new QualifiedTableName("test", "db", "orders"), new PlannerTableStatistics(
+                new QualifiedTableName("test", "db", "orders"), Map.of("amount", column), Instant.EPOCH));
         var schema = CalciteSchema.createRootSchema(false);
-        schema.plus().add("orders", new AbstractTable() {
+        var database = schema.plus().add("test", new org.apache.calcite.schema.impl.AbstractSchema())
+                .add("db", new org.apache.calcite.schema.impl.AbstractSchema());
+        database.add("orders", new AbstractTable() {
             @Override
             public RelDataType getRowType(RelDataTypeFactory factory) {
                 return factory.builder().add("amount", SqlTypeName.BIGINT).nullable(true).build();
             }
         });
         var context = new PlannerContext(statistics, null, null, null, null, null, null, null, null);
-        var planner = new PangrovaPlanner(schema, List.of(""), context);
+        var planner = new PangrovaPlanner(schema, List.of("test", "db"), context);
         var compiler = new SqlCompiler(planner, new SubstraitConverter(), new SubstraitPlanSerializer());
         String sql = "SELECT amount FROM orders WHERE " + predicate;
         assertThat(planner.plan(sql).plan().explain()).doesNotContain("condition=[false]");
         var plan = Plan.parseFrom(compiler.compile(sql));
         assertThat(source(plan.getRelations(0).getRoot().getInput()).getRead()
-                .getNamedTable().getNamesList()).containsExactly("orders");
+                .getNamedTable().getNamesList()).containsExactly("test", "db", "orders");
     }
 
     private static Rel source(Rel relation) {

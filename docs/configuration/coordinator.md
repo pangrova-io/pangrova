@@ -22,6 +22,13 @@ in the `pangrova-config` module. The bundled defaults ship in
 | `coordinator.host` | string | `"0.0.0.0"` | Bind address for the coordinator HTTP server |
 | `coordinator.port` | int | `8080` | Listen port for the coordinator HTTP server |
 | `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve queries only), `MAINTENANCE` (background tasks only), or `COMBINED` (both) |
+| `coordinator.internal-auth-secret` | string | — | Shared internal control-plane secret, identical to `worker.internal-auth-secret`. The production process rejects absent, blank or fewer than 32 UTF-8 bytes, independently of client authentication. Inject through the YAML `${PANGROVA_INTERNAL_AUTH_SECRET}` placeholder. |
+
+## coordinator.speculation
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `coordinator.speculation.enabled` | bool | `false` | Enable the existing straggler detector and speculative task launcher. Copies use issued task authority, winner election and exact-attempt drain receipts; enabling this does not establish worker restart or publication-fencing guarantees. |
 
 ## coordinator.ha
 
@@ -79,8 +86,19 @@ development and tests.
 |-----|------|---------|-------------|
 | `metadata.enabled` | bool | `true` | Enable the metadata module |
 | `metadata.jdbc-url` | string | — | JDBC URL for the metadata catalog store |
+| `metadata.jdbc-username` | string | `""` | Database username supplied separately from the JDBC URL |
+| `metadata.jdbc-password` | string | `""` | Database password supplied separately from the JDBC URL; use an environment placeholder |
 | `metadata.cache.l1-max-size` | int | `10000` | Maximum number of entries in the L1 (on-heap) metadata cache |
 | `metadata.cache.l1-ttl` | duration | `"60s"` | Time-to-live for L1 metadata cache entries |
+
+Keep credentials out of `metadata.jdbc-url`: supply `metadata.jdbc-username` and
+`metadata.jdbc-password` through the existing YAML environment placeholders.
+The production `etc/coordinator.yml` requires `PANGROVA_DB_USERNAME` and
+`PANGROVA_DB_PASSWORD`; missing variables reject configuration loading. Values
+are passed unchanged to the metadata connection pool. Configuration summaries
+redact the connection parameters. The bundled development defaults retain empty
+credentials for deployments that deliberately use the JDBC driver's default
+authentication mode.
 
 ---
 
@@ -168,6 +186,8 @@ state-store:
 metadata:
   enabled: true
   jdbc-url: "jdbc:postgresql://${PANGROVA_DB_HOST:-localhost}:5432/pangrova_meta"
+  jdbc-username: "${PANGROVA_DB_USERNAME}"
+  jdbc-password: "${PANGROVA_DB_PASSWORD}"
   cache:
     l1-max-size: 10000
     l1-ttl: "60s"

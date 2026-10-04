@@ -2,7 +2,6 @@ package org.pangrova.planner.substrait;
 
 import io.substrait.extension.ImmutableSimpleExtension;
 import io.substrait.extension.SimpleExtension;
-import io.substrait.extension.DefaultExtensionCatalog;
 import io.substrait.function.ImmutableParameterizedType;
 import io.substrait.function.TypeExpression;
 import org.pangrova.common.exception.PangrovaErrorCode;
@@ -10,8 +9,8 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlOperator;
 
 import java.util.Map;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
-import org.pangrova.protocol.function.DeclaredFunctionReference;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.DeclaredFunctionReference;
 import org.pangrova.protocol.v2.FunctionKind;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -110,7 +109,7 @@ public class FunctionMapper {
     private static SimpleExtension.ScalarFunctionVariant buildScalarVariant(FunctionReference ref) {
         return ImmutableSimpleExtension.ScalarFunctionVariant.builder()
                 .name(ref.name())
-                .urn(resolveUrn(ref.namespace()))
+                .urn(FunctionBindingDeclarations.canonicalUrn(FunctionKind.FUNCTION_KIND_SCALAR, ref.namespace(), ref.name()))
                 .returnType(PLACEHOLDER_RETURN_TYPE)
                 .build();
     }
@@ -122,7 +121,7 @@ public class FunctionMapper {
     private static SimpleExtension.AggregateFunctionVariant buildAggregateVariant(FunctionReference ref) {
         return ImmutableSimpleExtension.AggregateFunctionVariant.builder()
                 .name(ref.name())
-                .urn(resolveUrn(ref.namespace()))
+                .urn(FunctionBindingDeclarations.canonicalUrn(FunctionKind.FUNCTION_KIND_AGGREGATE, ref.namespace(), ref.name()))
                 .returnType(PLACEHOLDER_RETURN_TYPE)
                 .build();
     }
@@ -134,22 +133,10 @@ public class FunctionMapper {
     private static SimpleExtension.WindowFunctionVariant buildWindowVariant(FunctionReference ref) {
         return ImmutableSimpleExtension.WindowFunctionVariant.builder()
                 .name(ref.name())
-                .urn(resolveUrn(ref.namespace()))
+                .urn(FunctionBindingDeclarations.canonicalUrn(FunctionKind.FUNCTION_KIND_WINDOW, ref.namespace(), ref.name()))
                 .returnType(PLACEHOLDER_RETURN_TYPE)
                 .windowType(SimpleExtension.WindowType.PARTITION)
                 .build();
     }
 
-    private static String resolveUrn(String namespace) {
-        return switch (namespace) {
-            case "arithmetic" -> DefaultExtensionCatalog.FUNCTIONS_ARITHMETIC;
-            case "comparison" -> DefaultExtensionCatalog.FUNCTIONS_COMPARISON;
-            case "boolean" -> DefaultExtensionCatalog.FUNCTIONS_BOOLEAN;
-            case "aggregate" -> DefaultExtensionCatalog.FUNCTIONS_AGGREGATE_GENERIC;
-            case "set_membership" -> DefaultExtensionCatalog.FUNCTIONS_SET;
-            case "string" -> DefaultExtensionCatalog.FUNCTIONS_STRING;
-            case "array" -> DefaultExtensionCatalog.FUNCTIONS_LIST;
-            default -> "extension:org.pangrova:functions_" + namespace;
-        };
-    }
 }

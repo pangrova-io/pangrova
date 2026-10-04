@@ -3,7 +3,7 @@ package org.pangrova.coordinator.bootstrap;
 import java.time.Duration;
 import java.util.List;
 
-import org.pangrova.coordinator.metadata.CatalogStatisticsProvider;
+import org.pangrova.coordinator.metadata.read.CatalogStatisticsProvider;
 import org.pangrova.coordinator.metadata.MaterializedViewPersistenceListener;
 import org.pangrova.coordinator.metadata.MaterializedViewRecovery;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
@@ -63,9 +63,11 @@ final class PlannerWiring {
     private PangrovaPlanner buildMetadataAwarePlanner(RuntimeFilterRegistry reg,
             org.pangrova.spi.connector.ConnectorSession session, MaterializedViewRegistry mvRegistry,
             QueryResultCache cache) {
-        var rootSchema = metadataBootstrap.buildCalciteSchema(session);
+        var readBindings = new org.pangrova.coordinator.metadata.read.PlanningReadBindings(
+                metadataBootstrap.catalogRegistry(), session);
+        var rootSchema = metadataBootstrap.buildCalciteSchema(session, readBindings);
         var stats = new StatisticsCollector(
-                new CatalogStatisticsProvider(metadataBootstrap.catalogRegistry(), session));
+                new CatalogStatisticsProvider(readBindings));
         var mvRewriter = new MaterializedViewQueryRewriter(
                 mvRegistry, MV_FRESHNESS_WINDOW);
         var path = session.getCatalog().map(catalog -> session.getSchema()

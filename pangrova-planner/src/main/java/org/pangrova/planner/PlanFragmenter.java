@@ -26,8 +26,6 @@ import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
 import org.pangrova.planner.cost.distribution.WindowPartitioning;
 import org.pangrova.protocol.v2.BatchSerde;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -45,12 +43,11 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  */
 final class PlanFragmenter {
 
-    private static final Logger LOG = LoggerFactory.getLogger(PlanFragmenter.class);
     private static final int DEFAULT_PARALLELISM = 4;
     private static final int SINGLE_PARALLELISM = 1;
     private static final long DEFAULT_BYTES_PER_PARTITION = 256L * 1024 * 1024;
     private static final int DEFAULT_MAX_PARALLELISM = 128;
-    private static final BatchSerde EXCHANGE_SERDE = BatchSerde.BATCH_SERDE_NATIVE_ROW;
+    private static final BatchSerde EXCHANGE_SERDE = BatchSerde.BATCH_SERDE_ARROW_BATCH;
 
     private PlanFragmenter() {}
 
@@ -368,24 +365,8 @@ final class PlanFragmenter {
         }
 
         private int computeDynamicParallelism(RelNode node) {
-            try {
-                var metadata = node.getCluster().getMetadataQuery();
-                Double rowCount = metadata.getRowCount(node);
-                Double rowSize = metadata.getAverageRowSize(node);
-                if (isFinitePositive(rowCount) && isFinitePositive(rowSize)) {
-                    double estimatedBytes = rowCount * rowSize;
-                    long partitions = (long) Math.ceil(estimatedBytes / bytesPerPartition);
-                    return (int) Math.max(SINGLE_PARALLELISM,
-                            Math.min(maxParallelism, partitions));
-                }
-            } catch (RuntimeException e) {
-                LOG.warn("event=dynamic_parallelism_unavailable reason={}", e.getMessage());
-            }
-            return Math.min(DEFAULT_PARALLELISM, maxParallelism);
-        }
-
-        private static boolean isFinitePositive(Double value) {
-            return value != null && value > 0 && Double.isFinite(value);
+            return FragmentSourceParallelism.resolve(node, bytesPerPartition,
+                    maxParallelism, DEFAULT_PARALLELISM);
         }
 
         private int createStage(RelNode plan, int parallelism, String taskType) {

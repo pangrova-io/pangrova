@@ -31,6 +31,10 @@ struct ScalarUdfSpec {
   /// If false, registers via registerVectorFunction (stateless).
   bool stateful = false;
 
+  /// Whether identical arguments always produce identical results.
+  /// Non-deterministic callbacks must not participate in constant folding.
+  bool deterministic = true;
+
   /// Factory for stateless vector functions.
   std::function<std::unique_ptr<facebook::velox::exec::VectorFunction>(
       const std::string& name,
@@ -67,6 +71,10 @@ class NativeUdfRegistry {
   /// Error message includes UDF name and failure reason.
   void registerScalar(const ScalarUdfSpec& spec);
 
+  /// Validates an entire registration batch against the current lifecycle and
+  /// overload set without changing either registry or invoking any factory.
+  NativeUdfRegistry withScalars(const std::vector<ScalarUdfSpec>& specs) const;
+
   /// Register an aggregate UDF. Throws std::runtime_error on invalid spec.
   /// Error message includes UDF name and failure reason.
   void registerAggregate(const AggregateUdfSpec& spec);
@@ -77,6 +85,10 @@ class NativeUdfRegistry {
   /// via registerAggregateFunction().
   /// Throws std::runtime_error if any registration fails.
   void registerAllWithVelox();
+
+  /// After real callback/execution drain, retire only this runtime's actual
+  /// SDK entries. A later unrelated registration of the same name survives.
+  void retireOwnedRegistrations();
 
   /// Lookup a scalar UDF by name.
   std::optional<ScalarUdfSpec> findScalar(const std::string& name) const;
@@ -96,6 +108,8 @@ class NativeUdfRegistry {
   // P2-UDF-2: Guard against registration after finalization.
   // Set to true after registerAllWithVelox() completes.
   bool finalized_ = false;
+  std::shared_ptr<const facebook::velox::exec::FunctionRegistrationOwner> registration_owner_ =
+      std::make_shared<const facebook::velox::exec::FunctionRegistrationOwner>();
 };
 
 }  // namespace pangrova::udf

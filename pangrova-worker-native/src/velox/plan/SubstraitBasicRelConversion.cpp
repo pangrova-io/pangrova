@@ -1,8 +1,15 @@
 // Canonical basic relations: filters bind before masking/emit; Project appends.
 #include "velox/plan/VeloxPlanConverter.h"
 
+#include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <memory>
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "velox/connector/PangrovaTableHandle.h"
 #include "velox/connector/PangrovaVeloxConnector.h"
@@ -104,6 +111,8 @@ std::optional<int32_t> extractTopNLimit(
     return std::nullopt;
   }
 
+  // Check before subtraction: INT64_MIN < rn must not overflow signed i64.
+  if (*limit_val <= (is_less_than ? 1 : 0)) return std::nullopt;
   int64_t effective_limit = is_less_than
       ? (limit_val.value() - 1)
       : limit_val.value();
@@ -115,6 +124,66 @@ std::optional<int32_t> extractTopNLimit(
   }
 
   return static_cast<int32_t>(effective_limit);
+}
+
+struct ProjectedRowNumber {
+  std::shared_ptr<const core::RowNumberNode> node;
+  std::vector<std::shared_ptr<const core::ProjectNode>> projections;
+  std::string marker;
+};
+
+std::optional<ProjectedRowNumber> projectedRowNumber(core::PlanNodePtr input) {
+  ProjectedRowNumber result;
+  const auto outer = input->outputType();
+  std::vector<size_t> ordinals;
+  for (size_t i = 0; i < outer->size(); ++i) ordinals.push_back(i);
+  while (const auto project = std::dynamic_pointer_cast<const core::ProjectNode>(input)) {
+    if (project->sources().size() != 1) return std::nullopt;
+    const auto source = project->sources().front();
+    std::vector<size_t> mapping;
+    std::unordered_set<size_t> unique;
+    for (const auto& expression : project->projections()) {
+      const auto field = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(expression);
+      if (!field || !field->inputs().empty()) return std::nullopt;
+      const auto ordinal = source->outputType()->getChildIdxIfExists(field->name());
+      if (!ordinal || !unique.insert(*ordinal).second ||
+          !field->type()->equivalent(*source->outputType()->childAt(*ordinal))) return std::nullopt;
+      mapping.push_back(*ordinal);
+    }
+    for (auto& ordinal : ordinals) ordinal = mapping.at(ordinal);
+    result.projections.push_back(project);
+    input = source;
+  }
+  result.node = std::dynamic_pointer_cast<const core::RowNumberNode>(input);
+  if (!result.node || !result.node->generateRowNumber()) return std::nullopt;
+  const auto marker = result.node->outputType()->size() - 1;
+  for (size_t i = 0; i < ordinals.size(); ++i) {
+    if (ordinals[i] == marker) {
+      result.marker = outer->nameOf(i);
+      return result;
+    }
+  }
+  return std::nullopt;
+}
+
+// Remove only the window preparation's proven sort, never an arbitrary sort
+// below projections or a caller's unrelated ordering contract.
+core::PlanNodePtr topNInput(const core::RowNumberNode& rowNumber,
+    const std::vector<core::FieldAccessTypedExprPtr>& sorts,
+    const std::vector<core::SortOrder>& orders) {
+  const auto source = rowNumber.sources().front();
+  const auto sort = std::dynamic_pointer_cast<const core::OrderByNode>(source);
+  const auto& partitions = rowNumber.partitionKeys();
+  if (!sort || sort->sortingKeys().size() != partitions.size() + sorts.size()) return source;
+  for (size_t i = 0; i < sort->sortingKeys().size(); ++i) {
+    const auto partition = i < partitions.size();
+    const auto& key = partition ? partitions.at(i) : sorts.at(i - partitions.size());
+    const auto order = partition ? core::SortOrder(true, true) : orders.at(i - partitions.size());
+    if (sort->sortingKeys().at(i)->name() != key->name() ||
+        !sort->sortingKeys().at(i)->type()->equivalent(*key->type()) ||
+        sort->sortingOrders().at(i) != order) return source;
+  }
+  return sort->sources().front();
 }
 
 }  // namespace
@@ -177,20 +246,28 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertFilterRel(
   if (!condition || !condition->type()->isBoolean()) {
     throw std::runtime_error("FilterRel condition must have BOOLEAN type");
   }
-  // Arbitrary Project/gather traversal loses columns/order. Optimize only an
-  // actual direct RowNumberNode; all other valid cases remain Velox operators.
-  const auto rowNumber = std::dynamic_pointer_cast<const core::RowNumberNode>(input);
-  if (rowNumber && rowNumber->generateRowNumber()) {
-    const auto& rowNumberName = rowNumber->outputType()->names().back();
+  const auto projected = projectedRowNumber(input);
+  if (projected) {
+    const auto& rowNumber = projected->node;
     const auto sorting = row_number_sort_info_.find(rowNumber->id());
-    const auto limit = extractTopNLimit(condition, rowNumberName);
+    const auto limit = extractTopNLimit(condition, projected->marker);
     if (sorting != row_number_sort_info_.end() && limit &&
         !sorting->second.sorting_keys.empty()) {
-      return std::make_shared<core::TopNRowNumberNode>(
+      core::PlanNodePtr result = std::make_shared<core::TopNRowNumberNode>(
           nextNodeId(), core::TopNRowNumberNode::RankFunction::kRowNumber,
           rowNumber->partitionKeys(), sorting->second.sorting_keys,
-          sorting->second.sorting_orders, std::make_optional(rowNumberName),
-          *limit, rowNumber->sources().front());
+          sorting->second.sorting_orders,
+          std::make_optional(rowNumber->outputType()->names().back()), *limit,
+          topNInput(*rowNumber, sorting->second.sorting_keys, sorting->second.sorting_orders));
+      if (result->outputType()->names() != rowNumber->outputType()->names() ||
+          !result->outputType()->equivalent(*rowNumber->outputType())) {
+        throw std::runtime_error("Top-N rewrite changed the declared RowNumber schema");
+      }
+      for (auto it = projected->projections.rbegin(); it != projected->projections.rend(); ++it) {
+        result = std::make_shared<core::ProjectNode>(nextNodeId(),
+            (*it)->outputType()->names(), (*it)->projections(), result);
+      }
+      return result;
     }
   }
   return std::make_shared<core::FilterNode>(nextNodeId(), condition, input);

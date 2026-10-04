@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <chrono>
 #include <filesystem>
@@ -76,21 +78,19 @@ class ArtifactCacheGuard final {
 
 void addStringColumn(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_string();
+  schema->mutable_struct_()->add_types()->mutable_string()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 }
 
 void addVectorColumn(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()
-      ->add_types()
-      ->mutable_list()
-      ->mutable_type()
-      ->mutable_fp32();
+  auto* vector = schema->mutable_struct_()->add_types()->mutable_list();
+  vector->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  vector->mutable_type()->mutable_fp32()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 }
 
 void addFieldArgument(proto::CapabilityInvocation* invocation,
@@ -132,7 +132,7 @@ std::vector<uint8_t> overlayPlan() {
   *root->mutable_names() = output_schema->names();
   extension->mutable_detail()->PackFrom(envelope);
 
-  const auto bytes = plan.SerializeAsString();
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   return {bytes.begin(), bytes.end()};
 }
 
@@ -250,8 +250,10 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
     split::SplitConfig split;
     split.source_snapshot = "snapshot-9";
     split.data_object_id = "object-1";
-    VeloxPlanConverter converter;
-    auto converted = converter.convert(overlayPlan(), {split}, false, "Presto",
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
+    auto converted = converter.convert(overlayPlan(), {split}, false, "ArrowBatch",
                                        {{binding.plan_node_id(), binding}});
     auto overlay =
         std::dynamic_pointer_cast<const GeneratedValuesOverlayNode>(converted);
@@ -278,7 +280,9 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
     std::mutex output_mutex;
     std::vector<facebook::velox::RowVectorPtr> outputs;
     auto query_context = facebook::velox::core::QueryCtx::create(
-        pangrova::jni::globalExecutor().get());
+        pangrova::jni::globalExecutor().get(),
+        facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+            converter_registry));
     auto task = facebook::velox::exec::Task::create(
         "generated-values-overlay-execution-test",
         facebook::velox::core::PlanFragment{executable}, 0,
@@ -328,8 +332,10 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
   ArtifactCacheGuard cache(directory.path() / "cache");
   auto binding = overlayBinding(directory.path());
   binding.mutable_artifacts(0)->mutable_split_objects(1)->set_row_count(3);
-  VeloxPlanConverter row_count_converter;
-  EXPECT_THROW(row_count_converter.convert(overlayPlan(), {}, false, "Presto",
+  const auto row_count_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter row_count_converter(row_count_converter_registry);
+  EXPECT_THROW(row_count_converter.convert(overlayPlan(), {}, false, "ArrowBatch",
                                            {{binding.plan_node_id(), binding}}),
                std::runtime_error);
 
@@ -347,22 +353,26 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
   option->set_name("missing_value");
   option->mutable_value()->set_string_value("empty");
   extension->mutable_detail()->PackFrom(envelope);
-  auto option_bytes_string = plan.SerializeAsString();
+  auto option_bytes_string = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   std::vector<uint8_t> option_bytes(option_bytes_string.begin(),
                                     option_bytes_string.end());
   auto valid_binding = overlayBinding(directory.path());
-  VeloxPlanConverter option_converter;
+  const auto option_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter option_converter(option_converter_registry);
   EXPECT_THROW(
-      option_converter.convert(option_bytes, {}, false, "Presto",
+      option_converter.convert(option_bytes, {}, false, "ArrowBatch",
                                {{valid_binding.plan_node_id(), valid_binding}}),
       std::runtime_error);
 
   auto wrong_capability = valid_binding;
   wrong_capability.mutable_capability()->set_signature_sha256(
       std::string(32, '\0'));
-  VeloxPlanConverter capability_converter;
+  const auto capability_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter capability_converter(capability_converter_registry);
   EXPECT_THROW(capability_converter.convert(
-                   overlayPlan(), {}, false, "Presto",
+                   overlayPlan(), {}, false, "ArrowBatch",
                    {{wrong_capability.plan_node_id(), wrong_capability}}),
                std::runtime_error);
 }
@@ -372,8 +382,10 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
   TestDirectory directory;
   ArtifactCacheGuard cache(directory.path() / "cache");
   auto binding = overlayBinding(directory.path());
-  VeloxPlanConverter converter;
-  auto converted = converter.convert(overlayPlan(), {}, false, "Presto",
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  auto converted = converter.convert(overlayPlan(), {}, false, "ArrowBatch",
                                      {{binding.plan_node_id(), binding}});
   auto overlay =
       std::dynamic_pointer_cast<const GeneratedValuesOverlayNode>(converted);
@@ -396,7 +408,9 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
     auto executable = std::make_shared<GeneratedValuesOverlayNode>(
         task_id + "-overlay", overlay->config(), overlay->outputType(), values);
     auto query_context = facebook::velox::core::QueryCtx::create(
-        pangrova::jni::globalExecutor().get());
+        pangrova::jni::globalExecutor().get(),
+        facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+            converter_registry));
     auto task = facebook::velox::exec::Task::create(
         task_id, facebook::velox::core::PlanFragment{executable}, 0,
         std::move(query_context),

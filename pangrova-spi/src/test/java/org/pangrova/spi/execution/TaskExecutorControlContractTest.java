@@ -19,6 +19,20 @@ class TaskExecutorControlContractTest {
         assertThat(Arrays.stream(TaskExecutor.class.getDeclaredMethods()))
                 .allSatisfy(method -> assertThat(method.getReturnType())
                         .isIn(long.class, void.class, boolean.class, byte[].class,
-                                java.util.Optional.class, BatchResult.class));
+                                java.util.Optional.class));
+    }
+
+    @Test
+    void allEightControlsRequireActualImplementationAndExposeNoDataPull() {
+        var methods = TaskExecutor.class.getDeclaredMethods();
+        assertThat(methods).hasSize(8);
+        assertThat(Arrays.stream(methods).map(java.lang.reflect.Method::getName))
+                .containsExactlyInAnyOrder("createTask", "startTask", "releaseTask", "cancelTask",
+                        "executeCommand", "isFinished", "getTaskStatus", "getTaskStats")
+                .doesNotContain("getNextBatchResult", "getShuffleBatchResult");
+        assertThat(methods).allSatisfy(method -> {
+            assertThat(java.lang.reflect.Modifier.isAbstract(method.getModifiers())).isTrue();
+            assertThat(method.isDefault()).isFalse();
+        });
     }
 }

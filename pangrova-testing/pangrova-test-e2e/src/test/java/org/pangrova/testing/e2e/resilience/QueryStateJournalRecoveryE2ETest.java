@@ -59,8 +59,7 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
                 mysqlJdbcUrl(), mysqlUsername(), mysqlPassword());
         createJournalTables(journalDs);
         truncateJournalTables(journalDs);
-        StateJournalConfig config = new StateJournalConfig(
-                "JDBC", mysqlJdbcUrl(), 50, 20, 24);
+        StateJournalConfig config = new StateJournalConfig("JDBC", mysqlJdbcUrl(), 50, 20, 24, 50_000);
         journal = new JdbcQueryStateJournal(journalDs, config);
     }
 
@@ -85,14 +84,10 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String queryId = "recovery-q-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "PLANNING", now + 1));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "SCHEDULING", now + 2));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "RUNNING", now + 3));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "PLANNING"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, null, null, "SCHEDULING"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), queryId, null, null, "RUNNING"));
 
             List<QueryStateEvent> replayed = journal.replayActiveQueries();
 
@@ -107,10 +102,8 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String queryId = "recovery-fin-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "FINISHED", now + 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "FINISHED"));
 
             List<QueryStateEvent> replayed = journal.replayActiveQueries();
 
@@ -124,10 +117,8 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String queryId = "recovery-fail-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT 1/0", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "FAILED", now + 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT 1/0", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "FAILED"));
 
             List<QueryStateEvent> replayed = journal.replayActiveQueries();
 
@@ -151,14 +142,10 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String taskId = "task-1";
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT * FROM t", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "RUNNING", now + 1));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-1", "SCHEDULED", 0, 1, now + 2));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-1", "RUNNING", 0, 2, now + 3));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT * FROM t", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, taskId, "worker-1", "SCHEDULED", 0, 1));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), queryId, taskId, "worker-1", "RUNNING", 0, 2));
 
             List<TaskStateEvent> replayed = journal.replayActiveTasks();
 
@@ -174,12 +161,9 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String taskId = "task-fin-1";
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-1", "RUNNING", 0, 1, now + 1));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "FINISHED", now + 2));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, taskId, "worker-1", "RUNNING", 0, 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, null, null, "FINISHED"));
 
             List<TaskStateEvent> replayed = journal.replayActiveTasks();
 
@@ -204,15 +188,11 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String q2 = "recovery-full2-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q1, "SELECT * FROM t1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q1, null, null, "RUNNING", now + 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), q1, "SELECT * FROM t1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), q1, null, null, "RUNNING"));
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q2, "SELECT * FROM t2", "{}", "QUEUED", now + 2));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q2, null, null, "SCHEDULING", now + 3));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), q2, "SELECT * FROM t2", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), q2, null, null, "SCHEDULING"));
 
             QueryManager recoveredManager = new QueryManager(
                     QueryManagerContext.minimal(null, TestObservability.TRACING));
@@ -234,12 +214,9 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String taskId = "task-r1";
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "RUNNING", now + 1));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-1", "RUNNING", 0, 1, now + 2));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, taskId, "worker-1", "RUNNING", 0, 1));
 
             QueryManager recoveredManager = new QueryManager(
                     QueryManagerContext.minimal(null, TestObservability.TRACING));
@@ -262,15 +239,11 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String finished = "recovery-done-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    active, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    active, null, null, "RUNNING", now + 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), active, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), active, null, null, "RUNNING"));
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    finished, "SELECT 2", "{}", "QUEUED", now + 2));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    finished, null, null, "FINISHED", now + 3));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), finished, "SELECT 2", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), finished, null, null, "FINISHED"));
 
             QueryManager recoveredManager = new QueryManager(
                     QueryManagerContext.minimal(null, TestObservability.TRACING));
@@ -300,12 +273,9 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
             String queryId = "recovery-purge-" + System.nanoTime();
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "RUNNING", now + 1));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, "t1", "w1", "RUNNING", 0, 1, now + 2));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, "t1", "w1", "RUNNING", 0, 1));
 
             journal.purgeQuery(queryId);
 
@@ -353,40 +323,8 @@ class QueryStateJournalRecoveryE2ETest extends SqlE2ETestBase {
     // Schema setup helpers
     // -----------------------------------------------------------------------
 
-    private static void createJournalTables(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS query_state_journal (
-                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        query_id VARCHAR(64) NOT NULL,
-                        sql_text TEXT,
-                        session_json TEXT,
-                        state VARCHAR(32) NOT NULL,
-                        timestamp_ms BIGINT NOT NULL,
-                        coordinator_id VARCHAR(128),
-                        epoch BIGINT NOT NULL DEFAULT 0
-                    )""");
-            stmt.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_qsj_query_state
-                        ON query_state_journal (query_id, state)""");
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS task_state_journal (
-                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        query_id VARCHAR(64) NOT NULL,
-                        task_id VARCHAR(64) NOT NULL,
-                        worker_id VARCHAR(64),
-                        state VARCHAR(32) NOT NULL,
-                        stage_id INT NOT NULL,
-                        report_sequence BIGINT NOT NULL DEFAULT 0,
-                        timestamp_ms BIGINT NOT NULL,
-                        coordinator_id VARCHAR(128),
-                        epoch BIGINT NOT NULL DEFAULT 0
-                    )""");
-            stmt.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_tsj_task_query
-                        ON task_state_journal (query_id, task_id)""");
-        }
+    private static void createJournalTables(DataSource ds) {
+        org.pangrova.metadata.store.SchemaMigrationRunner.migrate(ds);
     }
 
     private static void truncateJournalTables(DataSource ds) throws Exception {

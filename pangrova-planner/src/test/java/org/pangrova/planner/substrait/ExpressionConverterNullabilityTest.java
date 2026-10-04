@@ -55,6 +55,35 @@ class ExpressionConverterNullabilityTest {
     }
 
     @Test
+    void nullSafeEqualityUsesCanonicalDeclaredIntermediateReference() {
+        RelDataType nullableInt = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.INTEGER), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.IS_NOT_DISTINCT_FROM,
+                rexBuilder.makeInputRef(nullableInt, 0), rexBuilder.makeInputRef(nullableInt, 1));
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(call);
+        assertThat(result.declaration().name()).isEqualTo("not");
+        assertThat(result.outputType().nullable()).isFalse();
+        var distinct = (Expression.ScalarFunctionInvocation) result.arguments().get(0);
+        assertThat(distinct.declaration().name()).isEqualTo("is_distinct_from");
+        assertThat(distinct.declaration().urn()).isEqualTo("extension:io.substrait:functions_comparison");
+        assertThat(distinct.outputType()).isEqualTo(result.outputType());
+        assertThat(distinct.arguments()).hasSize(2);
+    }
+
+    @Test
+    void isNotNullUsesTheSameDeclaredProgramAndPreservesInput() {
+        RelDataType nullableInt = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.INTEGER), true);
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(rexBuilder.makeCall(
+                SqlStdOperatorTable.IS_NOT_NULL, rexBuilder.makeInputRef(nullableInt, 0)));
+        assertThat(result.declaration().name()).isEqualTo("not");
+        var isNull = (Expression.ScalarFunctionInvocation) result.arguments().get(0);
+        assertThat(isNull.declaration().name()).isEqualTo("is_null");
+        assertThat(isNull.outputType().nullable()).isFalse();
+        assertThat(((Expression) isNull.arguments().get(0)).getType().nullable()).isTrue();
+    }
+
+    @Test
     void isNotNullProducesNonNullableOutput() {
         RelDataType nullableVarchar = typeFactory.createTypeWithNullability(
                 typeFactory.createSqlType(SqlTypeName.VARCHAR, 100), true);

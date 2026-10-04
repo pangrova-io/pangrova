@@ -17,6 +17,7 @@
 
 // Velox TaskStats for per-operator metrics.
 #if __has_include("velox/exec/TaskStats.h")
+#include "velox/exec/BlockingReason.h"
 #include "velox/exec/TaskStats.h"
 #define PANGROVA_HAS_VELOX_TASK_STATS 1
 #else
@@ -61,6 +62,7 @@ pangrova::protocol::v2::TaskState toProtoState(
 std::vector<uint8_t> serializeTaskStatus(
     executor::TaskExecutor& executor) {
   pangrova::protocol::v2::TaskReport status;
+  const auto lifecycle = executor.lifecycleSnapshot();
   auto* attempt = status.mutable_attempt();
   attempt->set_query_or_job_id(executor.queryId());
   attempt->set_stage_id(executor.stageId());
@@ -74,9 +76,13 @@ std::vector<uint8_t> serializeTaskStatus(
   owner->set_owner_id(executor.ownerId());
   owner->set_owner_incarnation(executor.ownerIncarnation());
   owner->set_fencing_token(executor.ownerFencingToken());
-  status.set_state(toProtoState(executor.state()));
+  status.set_state(toProtoState(lifecycle.state));
   status.set_report_origin(
       pangrova::protocol::v2::TASK_REPORT_ORIGIN_NATIVE);
+  if (executor.isExecutionReleased()) {
+    status.set_execution_drain_state(
+        pangrova::protocol::v2::EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+  }
   if (executor.hasFinalTaskStats()) {
     const auto final_stats = executor.collectTaskStats();
     if (!status.mutable_native_task_stats()->ParseFromArray(
@@ -89,7 +95,7 @@ std::vector<uint8_t> serializeTaskStatus(
   status.mutable_usage()->set_columnar_conversion_copied_bytes(
       executor.metricsCollector().snapshot().columnar_conversion_copied_bytes);
   auto* coverage = status.mutable_coverage();
-  const auto state = executor.state();
+  const auto state = lifecycle.state;
   const uint64_t expected = std::max<uint64_t>(1, executor.splits().size());
   const bool finished = state == executor::ExecutorState::FINISHED;
   const bool unsuccessful = state == executor::ExecutorState::FAILED ||
@@ -146,13 +152,8 @@ std::vector<uint8_t> serializeTaskStatus(
           artifact.artifact_created_at_epoch_ms());
     }
   }
-  if (!executor.errorMessage().empty()) {
-    auto* error = status.mutable_error();
-    error->set_error_class(pangrova::protocol::v2::ERROR_CLASS_INTERNAL);
-    error->set_code("NATIVE_TASK_FAILED");
-    error->set_message(executor.errorMessage());
-    error->set_retryable(false);
-    error->set_failed_component("native-executor");
+  if (unsuccessful && lifecycle.error.has_value()) {
+    *status.mutable_error() = *lifecycle.error;
   }
   if (auto artifact_report = executor.artifactWorkReport();
       artifact_report.has_value()) {
@@ -170,6 +171,11 @@ std::vector<uint8_t> serializeNativeTaskStats(
   pangrova::protocol::v2::NativeTaskStats proto;
 
 #if PANGROVA_HAS_VELOX_TASK_STATS
+  const auto consumer_blocked = task_stats.numBlockedDrivers.find(
+      facebook::velox::exec::BlockingReason::kWaitForConsumer);
+  if (consumer_blocked != task_stats.numBlockedDrivers.end()) {
+    proto.set_consumer_blocked_drivers(consumer_blocked->second);
+  }
   // Total wall time from Velox task lifecycle.
   int64_t totalWallMs = 0;
   if (task_stats.endTimeMs > 0 && task_stats.executionStartTimeMs > 0) {
@@ -184,6 +190,7 @@ std::vector<uint8_t> serializeNativeTaskStats(
   int64_t totalMemory = 0;
   int64_t peakMemory = 0;
   int64_t totalSpill = 0;
+  int64_t consumerWaitNanos = 0;
 
   for (const auto& pipelineStats : task_stats.pipelineStats) {
     for (const auto& opStats : pipelineStats.operatorStats) {
@@ -218,6 +225,10 @@ std::vector<uint8_t> serializeNativeTaskStats(
           static_cast<int64_t>(
               opStats.memoryStats.peakUserMemoryReservation));
       totalSpill += opStats.spilledBytes;
+      const auto consumerWait = opStats.runtimeStats.find("blockedWaitForConsumerWallNanos");
+      if (consumerWait != opStats.runtimeStats.end()) {
+        consumerWaitNanos += consumerWait->second.sum;
+      }
     }
   }
 
@@ -227,6 +238,7 @@ std::vector<uint8_t> serializeNativeTaskStats(
   proto.set_memory_bytes(totalMemory);
   proto.set_peak_memory_bytes(peakMemory);
   proto.set_spill_bytes(totalSpill);
+  proto.set_backpressure_wait_ms(consumerWaitNanos / 1'000'000);
 #else
   (void)task_stats;
 #endif

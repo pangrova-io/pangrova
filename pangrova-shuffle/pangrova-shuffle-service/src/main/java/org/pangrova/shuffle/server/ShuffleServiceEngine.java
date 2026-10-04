@@ -7,7 +7,7 @@ import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.ShuffleServiceAddress;
 import org.pangrova.protocol.v2.ShuffleServiceEndpoint;

@@ -8,6 +8,8 @@
 //
 // **Validates: Requirements 8.3**
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 #include <set>
 
 #include "velox/plan/VeloxPlanConverter.h"
@@ -25,7 +27,7 @@ namespace {
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
   auto* field = schema->mutable_struct_()->add_types();
-  field->mutable_i64();
+  field->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
@@ -93,10 +95,11 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
   agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   auto* arg = agg_func->add_arguments();
   setFieldRef(arg->mutable_value(), num_grouping_cols);
-  agg_func->mutable_output_type()->mutable_i64();
+  agg_func->mutable_output_type()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -153,7 +156,9 @@ TEST(GroupingSetsCubeRollupTest, CubeTwoColumns) {
   ASSERT_EQ(grouping_sets.size(), 4u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(2, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -201,7 +206,9 @@ TEST(GroupingSetsCubeRollupTest, CubeThreeColumns) {
   ASSERT_EQ(grouping_sets.size(), 8u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(3, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -227,7 +234,9 @@ TEST(GroupingSetsCubeRollupTest, RollupThreeColumns) {
   ASSERT_EQ(grouping_sets.size(), 4u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(3, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -256,7 +265,9 @@ TEST(GroupingSetsCubeRollupTest, RollupTwoColumns) {
   ASSERT_EQ(grouping_sets.size(), 3u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(2, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -276,7 +287,9 @@ TEST(GroupingSetsCubeRollupTest, EmptyGroupingSetGrandTotal) {
   std::vector<std::vector<int>> grouping_sets = {{0, 1}, {}};
 
   auto plan_bytes = buildMultiGroupingSetPlan(2, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -297,7 +310,9 @@ TEST(GroupingSetsCubeRollupTest, CubeSingleColumn) {
   ASSERT_EQ(grouping_sets.size(), 2u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(1, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -317,7 +332,9 @@ TEST(GroupingSetsCubeRollupTest, ArbitraryGroupingSets) {
   std::vector<std::vector<int>> grouping_sets = {{0, 2}, {1, 2}, {0}};
 
   auto plan_bytes = buildMultiGroupingSetPlan(3, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -344,7 +361,9 @@ TEST(GroupingSetsCubeRollupTest, CubeFourColumnsStress) {
   ASSERT_EQ(grouping_sets.size(), 16u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(4, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);
@@ -369,7 +388,9 @@ TEST(GroupingSetsCubeRollupTest, RollupFourColumns) {
   ASSERT_EQ(grouping_sets.size(), 5u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(4, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr);

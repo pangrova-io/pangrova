@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.coordination;
 
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.concurrent.ExecutorDrain;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.pangrova.spi.coordination.ExecutionAnchorStore;
 
@@ -9,9 +11,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.CompletableFuture;
+import javax.annotation.concurrent.GuardedBy;
 
 /** Process-scoped composition binding shared by query HA and maintenance-only publication. */
+@ThreadSafe
 public final class CoordinatorExecutionAuthority implements AutoCloseable {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(CoordinatorExecutionAuthority.class);
     private final ExecutionAnchorStore backend;
@@ -19,8 +23,10 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
     private final String incarnation;
     private final Duration leaseDuration;
     private final ScheduledExecutorService renewal;
-    private final AtomicBoolean closed = new AtomicBoolean();
     private final Object lifecycle = new Object();
+    private final ExecutionAuthorityOperations operations = new ExecutionAuthorityOperations();
+    @GuardedBy("lifecycle") private CompletableFuture<Void> closeExit;
+    @GuardedBy("lifecycle") private Thread closer;
 
     /** Binds a real backend to one actual Coordinator process, independent of its enabled roles. */
     public CoordinatorExecutionAuthority(ExecutionAnchorStore backend, String coordinatorId, String incarnation,
@@ -34,31 +40,41 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
         this.incarnation = incarnation;
         this.leaseDuration = leaseDuration;
         renewal = ManagedExecutorFactory.newSingleThreadScheduledExecutor("execution-authority-renewal");
-        renewal.scheduleWithFixedDelay(this::renewSafely, leaseDuration.toMillis() / 3,
-                leaseDuration.toMillis() / 3, TimeUnit.MILLISECONDS);
+        try {
+            renewal.scheduleWithFixedDelay(() -> ExecutorDrain.runOwned(renewal, this::renewSafely),
+                    leaseDuration.toMillis() / 3, leaseDuration.toMillis() / 3, TimeUnit.MILLISECONDS);
+        } catch (RuntimeException | Error failure) {
+            try { ExecutorDrain.shutdownAndAwait(renewal, 5000); }
+            catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            throw failure;
+        }
     }
 
     /** Acquires only through the authoritative backend CAS and backend clock. */
     public Optional<ExecutionAnchor> acquire(String executionId) {
-        synchronized (lifecycle) {
-            if (closed.get()) throw new IllegalStateException("Coordinator execution authority is closed");
+        var operation = operations.enter();
+        try {
             var current = backend.current(executionId).filter(anchor -> coordinatorId.equals(anchor.ownerId())
                     && incarnation.equals(anchor.ownerIncarnation()));
             if (current.isPresent()) return current;
             return backend.tryAcquire(executionId, coordinatorId, incarnation, leaseDuration);
-        }
+        } finally { operation.close(); }
     }
 
     /** Completes only an anchor actually issued to this process. */
     public boolean release(ExecutionAnchor anchor) {
         requireProcess(anchor);
-        return backend.release(anchor);
+        var operation = operations.enter();
+        try { return backend.release(anchor); }
+        finally { operation.close(); }
     }
 
     /** Makes only this exact process token eligible for recovery. */
     public boolean yield(ExecutionAnchor anchor) {
         requireProcess(anchor);
-        return backend.yield(anchor);
+        var operation = operations.enter();
+        try { return backend.yield(anchor); }
+        finally { operation.close(); }
     }
 
     /** Shared bootstrap backend used by the query HA registry. */
@@ -69,30 +85,46 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
     public String incarnation() { return incarnation; }
 
     private void requireProcess(ExecutionAnchor anchor) {
+        Objects.requireNonNull(anchor, "anchor");
         if (!coordinatorId.equals(anchor.ownerId()) || !incarnation.equals(anchor.ownerIncarnation())) {
             throw new IllegalArgumentException("anchor belongs to another Coordinator process");
         }
     }
 
     private void renewSafely() {
-        synchronized (lifecycle) {
-            if (closed.get()) return;
-            try {
-                backend.renewOwned(coordinatorId, incarnation, leaseDuration);
-            } catch (RuntimeException failure) {
-                LOG.error("event=execution_authority_renewal_failed coordinatorId={}", coordinatorId, failure);
-            }
-        }
+        ExecutionAuthorityOperations.Operation operation;
+        try { operation = operations.enter(); }
+        catch (IllegalStateException sealed) { return; }
+        try { backend.renewOwned(coordinatorId, incarnation, leaseDuration); }
+        catch (RuntimeException failure) {
+            LOG.error("event=execution_authority_renewal_failed coordinatorId={}", coordinatorId, failure);
+        } finally { operation.close(); }
     }
 
     /** Stops renewal and yields, rather than deletes, unfinished executions for exact-token recovery. */
     @Override
     public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        renewal.shutdownNow();
+        operations.seal();
+        CompletableFuture<Void> completion;
+        boolean claimed;
         synchronized (lifecycle) {
-            // An in-flight JDBC renewal must finish before the final yield; it cannot revive this process afterwards.
+            if (closer == Thread.currentThread()) throw new IllegalStateException("Authority close cannot join itself");
+            claimed = closer == null && (closeExit == null || closeExit.isCompletedExceptionally());
+            if (claimed) { closeExit = new CompletableFuture<>(); closer = Thread.currentThread(); }
+            completion = closeExit;
+        }
+        if (!claimed) { completion.join(); return; }
+        try {
+            // Actual scheduler and synchronous backend operations exit before the final exact-process yield.
+            ExecutorDrain.shutdownAndAwait(renewal, 5000);
+            operations.awaitExit(5000);
             backend.yieldOwned(coordinatorId, incarnation);
+            completion.complete(null);
+        } catch (RuntimeException | Error failure) {
+            completion.completeExceptionally(failure);
+            throw failure;
+        } finally {
+            synchronized (lifecycle) { closer = null; }
         }
     }
 }

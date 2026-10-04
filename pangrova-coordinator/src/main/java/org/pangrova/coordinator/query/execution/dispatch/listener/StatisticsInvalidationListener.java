@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.listener;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import org.pangrova.coordinator.query.execution.dispatch.StatementCategory;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionEvent;
 import org.pangrova.coordinator.query.execution.dispatch.StatementCompletionListener;
@@ -37,7 +39,7 @@ public final class StatisticsInvalidationListener implements StatementCompletion
         }
         if (isDataChangingCategory(category)) {
             // DML/maintenance changes data — invalidate only the affected table
-            String table = event.mutatedTable();
+            QualifiedTableName table = event.mutatedTableIdentity();
             if (table != null) {
                 statisticsCollector.invalidate(table);
             }

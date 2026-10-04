@@ -1,7 +1,7 @@
 package org.pangrova.worker.task;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.WorkerTerminalTaskReports;
+import org.pangrova.protocol.task.WorkerTerminalTaskReports;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
@@ -9,7 +9,7 @@ import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -88,5 +88,31 @@ class TaskTerminalEvidenceContractTest {
         var cancelled = base.setState(TaskState.TASK_STATE_CANCELLED).setError(error).build();
         assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, cancelled.toByteArray()))
                 .isEqualTo(cancelled);
+    }
+
+    @Test
+    void typedAdmissionPreservesClassificationAndActualNativeFirstFailureWins() throws Exception {
+        var request = ActualNativeTaskFixture.valuesTaskRequest(true);
+        var admission = ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_ADMISSION)
+                .setCode("SHUFFLE_MANAGED_CHANNEL_LIMIT").setMessage("Worker channel credit exhausted")
+                .setRetryable(true).setFailedComponent("remote-shuffle-channel-admission").build();
+        var rejected = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessfulWithError(
+                request, TaskState.TASK_STATE_FAILED, admission, null));
+        assertThat(rejected.getAttempt()).isEqualTo(request.getAttempt());
+        assertThat(rejected.getError()).isEqualTo(admission);
+        assertThat(rejected.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
+        assertThat(rejected.getCoverage().getCompletedWorkUnits()).isZero();
+        var first = TaskReport.newBuilder().setAttempt(request.getAttempt())
+                .setState(TaskState.TASK_STATE_FAILED).setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_DATA_CORRUPTION)
+                        .setCode("NATIVE_FIRST_FAILURE").setMessage("Native rejected corrupt input")
+                        .setFailedComponent("native-exchange")).build();
+        var retained = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessfulWithError(
+                request, TaskState.TASK_STATE_FAILED, admission, first.toByteArray()));
+        assertThat(retained.getError()).isEqualTo(first.getError());
+        var other = first.toBuilder().setAttempt(first.getAttempt().toBuilder().setTaskId("different-attempt"));
+        assertThat(TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessfulWithError(
+                request, TaskState.TASK_STATE_FAILED, admission, other.build().toByteArray())).getError())
+                .isEqualTo(admission);
     }
 }

@@ -32,7 +32,7 @@ public class SpeculativeTaskLauncher {
     private static final Logger LOG = LoggerFactory.getLogger(SpeculativeTaskLauncher.class);
 
     // original taskId -> speculative taskId
-    private final ConcurrentHashMap<String, String> speculativePairs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, SpeculativeAttemptPair> speculativePairs = new ConcurrentHashMap<>();
     // reverse: speculative taskId -> original taskId
     private final ConcurrentHashMap<String, String> reversePairs = new ConcurrentHashMap<>();
 
@@ -40,6 +40,12 @@ public class SpeculativeTaskLauncher {
     private volatile TaskDispatcher taskDispatcher;
     private volatile WorkerManager workerManager;
     private volatile CoordinatorTaskTracker taskTracker;
+    private volatile org.pangrova.coordinator.task.TaskCancelRetrier cancelRetrier;
+
+    /** Shares the already scheduled query cancellation owner, not an unpolled private retry loop. */
+    public void setCancelRetrier(org.pangrova.coordinator.task.TaskCancelRetrier retrier) {
+        cancelRetrier = java.util.Objects.requireNonNull(retrier);
+    }
 
     /**
      * Configures dispatch dependencies so speculative launches actually schedule
@@ -77,19 +83,35 @@ public class SpeculativeTaskLauncher {
         if (queryId == null || queryId.isBlank()) {
             throw new IllegalArgumentException("queryId is required for speculative dispatch");
         }
-        if (taskDispatcher == null || workerManager == null || taskTracker == null) {
+        if (taskDispatcher == null || workerManager == null || taskTracker == null || cancelRetrier == null) {
             throw new IllegalStateException("speculative dispatch dependencies are not configured");
         }
         String speculativeId = "spec-" + UUID.randomUUID();
+        var candidate = new SpeculativeAttemptPair(originalTaskId, speculativeId);
         synchronized (this) {
-            if (speculativePairs.putIfAbsent(originalTaskId, speculativeId) != null) {
+            if (speculativePairs.putIfAbsent(originalTaskId, candidate) != null) {
                 return null;
             }
-            reversePairs.put(speculativeId, originalTaskId);
+            try {
+                reversePairs.put(speculativeId, originalTaskId);
+            } catch (RuntimeException | Error failure) {
+                speculativePairs.remove(originalTaskId, candidate);
+                throw failure;
+            }
         }
 
-        if (!dispatchSpeculativeCopy(
-                queryId, originalTaskId, speculativeId, excludeWorkerId)) {
+        boolean dispatched;
+        try {
+            dispatched = dispatchSpeculativeCopy(queryId, originalTaskId, speculativeId, excludeWorkerId);
+        } catch (RuntimeException | Error failure) {
+            candidate.dispatching = false;
+            try { removePair(originalTaskId); }
+            catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            throw failure;
+        }
+        candidate.dispatching = false;
+        retirePairIfDrained(candidate);
+        if (!dispatched) {
             removePair(originalTaskId);
             return null;
         }
@@ -108,7 +130,7 @@ public class SpeculativeTaskLauncher {
      * Returns the speculative task ID for a given original task, if one exists.
      */
     public Optional<String> getSpeculativeTaskId(String originalTaskId) {
-        return Optional.ofNullable(speculativePairs.get(originalTaskId));
+        return Optional.ofNullable(speculativePairs.get(originalTaskId)).map(pair -> pair.copyId);
     }
 
     /**
@@ -121,10 +143,57 @@ public class SpeculativeTaskLauncher {
     /**
      * Removes tracking for a speculative pair (cleanup after resolution).
      */
-    public synchronized void removePair(String originalTaskId) {
-        String specId = speculativePairs.remove(originalTaskId);
-        if (specId != null) {
-            reversePairs.remove(specId);
+    public void removePair(String originalTaskId) {
+        var pair = speculativePairs.get(originalTaskId);
+        if (pair == null) return;
+        synchronized (pair) {
+            pair.cleanupRequested = true;
+        }
+        retirePairIfDrained(pair);
+    }
+
+    /** Called only with the task registry's authenticated, exact-issued drain receipt. */
+    public void executionDrained(org.pangrova.protocol.v2.TaskReport report) {
+        String taskId = report.getAttempt().getTaskId();
+        String originalId = reversePairs.getOrDefault(taskId, taskId);
+        var pair = speculativePairs.get(originalId);
+        if (pair == null) return;
+        var retained = taskTracker.executionDrainReceipt(taskId).orElseThrow(() ->
+                new IllegalStateException("Speculative drain notification lacks exact retained authority"));
+        if (!retained.getAttempt().equals(report.getAttempt())) throw new IllegalStateException("Speculative attempt changed");
+        if (taskId.equals(pair.copyId)) pair.copyDrained = true;
+        else if (taskId.equals(pair.originalId)) pair.originalDrained = true;
+        retirePairIfDrained(pair);
+    }
+
+    public boolean isAbortedCopy(String taskId) {
+        String originalId = reversePairs.get(taskId);
+        var pair = originalId == null ? null : speculativePairs.get(originalId);
+        return pair != null && pair.aborted;
+    }
+
+    /** Uses the shared scheduled retry owner; a 202/transport failure keeps the exact request live. */
+    public void cancelIssuedAttempt(String queryId, String taskId, WorkerInfo worker) {
+        java.util.Objects.requireNonNull(cancelRetrier, "Speculative cancellation owner is not wired")
+                .cancelWithRetry(queryId, taskId, worker.host(), worker.httpPort());
+    }
+
+    private void retirePairIfDrained(SpeculativeAttemptPair pair) {
+        if (!pair.readyToRetire() || !pair.retiring.compareAndSet(false, true)) return;
+        try {
+            // Only the copy identity is removed here. The original logical
+            // slot is still needed by the original winner/DAG lifecycle.
+            if (pair.copyIssued && taskTracker.getTaskRequest(pair.copyId) != null) {
+                var receipt = taskTracker.executionDrainReceipt(pair.copyId).orElseThrow(() ->
+                        new IllegalStateException("Speculative copy has no actual drain receipt"));
+                taskTracker.unregisterDrainedTask(receipt);
+            }
+            synchronized (this) {
+                speculativePairs.remove(pair.originalId, pair);
+                reversePairs.remove(pair.copyId, pair.originalId);
+            }
+        } finally {
+            pair.retiring.set(false);
         }
     }
 
@@ -153,43 +222,62 @@ public class SpeculativeTaskLauncher {
             return false;
         }
 
-        SubmitTaskRequest specRequest = cloneWithNewTaskId(originalRequest, speculativeId);
         try {
-            taskTracker.registerTask(queryId, speculativeId);
-            // Status fencing and Native report validation require the exact
-            // cloned canonical request, not only its coordinator task ID.
-            taskTracker.registerTaskRequest(speculativeId, specRequest);
-            taskTracker.markScheduled(queryId, speculativeId);
-
-            DispatchResult result = taskDispatcher.dispatch(specRequest, targetWorker);
-
-            taskTracker.assignWorker(speculativeId, targetWorker.workerId());
-            taskTracker.updateTaskState(queryId, speculativeId, "RUNNING");
-            taskTracker.recordTaskStart(speculativeId,
-                    String.valueOf(originalRequest.taskRequest().getAttempt().getStageId()));
-
-            LOG.info("event=speculative_dispatch_success originalTaskId={} speculativeId={}"
-                    + " targetWorker={} queryId={}",
-                    originalTaskId, speculativeId, targetWorker.workerId(), queryId);
+            var request = taskDispatcher.bindControlIdentity(cloneWithNewTaskId(originalRequest, speculativeId));
+            registerAndDispatchCopy(queryId, originalTaskId, request, targetWorker);
             return true;
-        } catch (Exception e) {
-            LOG.warn("event=speculative_dispatch_failed originalTaskId={} speculativeId={}"
-                    + " targetWorker={} error={}",
-                    originalTaskId, speculativeId, targetWorker.workerId(), e.getMessage(), e);
-            try {
-                taskDispatcher.cancelTask(
-                        speculativeId, targetWorker.host(), targetWorker.httpPort());
-            } catch (Exception cancelFailure) {
-                LOG.warn("event=speculative_cancel_after_dispatch_failure_failed"
-                        + " originalTaskId={} speculativeId={} targetWorker={} error={}",
-                        originalTaskId, speculativeId, targetWorker.workerId(),
-                        cancelFailure.getMessage(), cancelFailure);
-            }
-            // The original task remains authoritative. A speculative dispatch
-            // failure must not invoke the query-wide task failure callback.
-            taskTracker.retireSpeculativeLoser(queryId, speculativeId);
-            return false;
+        } catch (RuntimeException | Error e) {
+            return handleCopyFailure(queryId, originalTaskId, speculativeId, targetWorker, e);
         }
+    }
+
+    private boolean handleCopyFailure(String queryId, String originalId, String copyId, WorkerInfo worker, Throwable failure) {
+        LOG.warn("event=speculative_dispatch_failed originalTaskId={} speculativeId={} targetWorker={} error={}",
+                originalId, copyId, worker.workerId(), failure.getMessage(), failure);
+        var pair = speculativePairs.get(originalId);
+        pair.aborted = true;
+        try {
+            if (pair.copyIssued) {
+                java.util.Objects.requireNonNull(cancelRetrier, "Speculative cancellation owner is not wired")
+                        .cancelWithRetry(queryId, copyId, worker.host(), worker.httpPort());
+            } else {
+                // No dispatch call entered. Only the local registration exits;
+                // this is not evidence about a Native execution owner.
+                taskTracker.unregisterUndispatchedTask(queryId, copyId);
+            }
+        } catch (RuntimeException | Error cleanup) {
+            if (cleanup != failure) failure.addSuppressed(cleanup);
+            if (failure instanceof Error error) throw error;
+            throw (RuntimeException) failure;
+        }
+        // The original remains authoritative; do not fail the entire query.
+        if (failure instanceof Error error) throw error;
+        return false;
+    }
+
+    private void registerAndDispatchCopy(String queryId, String originalId, SubmitTaskRequest request, WorkerInfo worker) {
+        String copyId = request.taskRequest().getAttempt().getTaskId();
+        taskTracker.registerTask(queryId, copyId);
+        taskTracker.registerTaskRequest(copyId, request);
+        taskTracker.bindDispatchTarget(request, worker);
+        taskTracker.markScheduled(queryId, copyId);
+        taskTracker.assignWorker(copyId, worker.workerId());
+        taskTracker.setDeadline(copyId, java.time.Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
+        var pair = speculativePairs.get(originalId);
+        synchronized (pair) {
+            if (pair.cleanupRequested) throw new IllegalStateException("Speculative dispatch admission is sealed");
+            pair.copyIssued = true;
+        }
+        taskTracker.enterTaskDispatch(request);
+        DispatchResult result = taskDispatcher.dispatch(request, worker);
+        if (result == null || !copyId.equals(result.taskId())) {
+            throw new IllegalStateException("Worker acknowledgement changed the issued speculative identity");
+        }
+        taskTracker.assignWorker(copyId, worker.workerId());
+        taskTracker.updateTaskState(queryId, copyId, "RUNNING");
+        taskTracker.recordTaskStart(copyId, String.valueOf(request.taskRequest().getAttempt().getStageId()));
+        LOG.info("event=speculative_dispatch_success originalTaskId={} speculativeId={} targetWorker={} queryId={}",
+                originalId, copyId, worker.workerId(), queryId);
     }
 
     /**

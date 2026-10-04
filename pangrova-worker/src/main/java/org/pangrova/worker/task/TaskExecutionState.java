@@ -35,6 +35,10 @@ final class TaskExecutionState {
             new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> resourcesRelease =
             new AtomicReference<>();
+    // Store the actual JNI release return before parsing/statistics allocation.
+    // A failed post-release Java allocation must not lose the already-erased
+    // Native owner's only receipt or attempt an unknown-handle release again.
+    private volatile byte[] stagedExecutorReleaseReceipt;
     private final java.util.concurrent.atomic.AtomicBoolean cancellationReported =
             new java.util.concurrent.atomic.AtomicBoolean(false);
     private final AtomicLong reportSequence = new AtomicLong(0);
@@ -68,6 +72,7 @@ final class TaskExecutionState {
 
     // Per-task shuffle server port (set by TaskLifecycleManager.startShuffleViaSpi)
     private final AtomicLong shufflePort = new AtomicLong(0);
+    private volatile byte[] stagedCreationRecoveryReceipt;
     private final AtomicReference<ShuffleServerHandle> shuffleServerHandle =
             new AtomicReference<>();
 
@@ -111,6 +116,9 @@ final class TaskExecutionState {
 
     void setExecutorHandle(long handle) { executorHandle.set(handle); }
 
+    byte[] stagedCreationRecoveryReceipt() { return stagedCreationRecoveryReceipt; }
+    void stageCreationRecoveryReceipt(byte[] receipt) { stagedCreationRecoveryReceipt = receipt; }
+
     boolean compareAndSetExecutorHandle(long expected, long update) {
         return executorHandle.compareAndSet(expected, update);
     }
@@ -128,6 +136,13 @@ final class TaskExecutionState {
 
     CompletableFuture<Void> claimResourcesRelease(CompletableFuture<Void> candidate) {
         return claimRelease(resourcesRelease, candidate);
+    }
+
+    byte[] stagedExecutorReleaseReceipt() { return stagedExecutorReleaseReceipt; }
+    void stageExecutorReleaseReceipt(byte[] receipt) { stagedExecutorReleaseReceipt = receipt; }
+    boolean resourcesReleased() {
+        var release = resourcesRelease.get();
+        return release != null && release.isDone() && !release.isCompletedExceptionally();
     }
 
     private static <T> CompletableFuture<T> claimRelease(

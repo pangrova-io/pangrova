@@ -58,7 +58,7 @@ VeloxPlanConverter::checkedScalarCall(
     const std::string& name,
     const facebook::velox::TypePtr& output_type,
     std::vector<std::shared_ptr<const facebook::velox::core::ITypedExpr>> args) {
-  return pangrova::capability::bindRegisteredScalar(name, output_type, std::move(args));
+  return pangrova::capability::bindRegisteredScalar(*function_registry_, name, output_type, std::move(args));
 }
 
 void VeloxPlanConverter::appendGovernedAiArguments(
@@ -144,6 +144,7 @@ std::shared_ptr<const facebook::velox::core::ITypedExpr>
 VeloxPlanConverter::convertScalarFunction(
     const substrait::Expression_ScalarFunction& function,
     const facebook::velox::RowTypePtr& input_type) {
+  requireFunctionKind(function.function_reference(), protocol::v2::FUNCTION_KIND_SCALAR);
   const auto anchor = function_map_.find(function.function_reference());
   if (anchor == function_map_.end()) {
     throw std::runtime_error(
@@ -163,18 +164,6 @@ VeloxPlanConverter::convertScalarFunction(
   }
   if (isGovernedAiFunction(name)) {
     appendGovernedAiArguments(name, function, output_type, args);
-  }
-  if (name == "is_not_null") {
-    auto inner = checkedScalarCall("is_null", output_type, std::move(args));
-    return checkedScalarCall("not", output_type, {inner});
-  }
-  if (name == "is_not_distinct_from") {
-    if (args.size() != 2) {
-      throw std::runtime_error(
-          "VeloxPlanConverter: IS NOT DISTINCT FROM needs two arguments");
-    }
-    auto inner = checkedScalarCall("distinct_from", output_type, std::move(args));
-    return checkedScalarCall("not", output_type, {inner});
   }
   return checkedScalarCall(name, output_type, std::move(args));
 }

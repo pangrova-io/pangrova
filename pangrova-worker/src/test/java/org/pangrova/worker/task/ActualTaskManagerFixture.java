@@ -7,8 +7,8 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.resource.ResourceManager;
 import org.pangrova.resource.spill.SpillManager;
 import org.pangrova.resource.thread.ThreadBudgetTracker;
-import org.pangrova.worker.bootstrap.phase.ActualNativeResultReader;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeResultReader;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.task.memory.MemoryRefs;
 
 import java.time.Duration;

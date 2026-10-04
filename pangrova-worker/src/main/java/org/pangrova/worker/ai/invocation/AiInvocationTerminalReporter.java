@@ -13,6 +13,8 @@
  */
 package org.pangrova.worker.ai.invocation;
 
+import org.pangrova.worker.ai.governance.AiInvocationObserver;
+
 import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.ai.AiInvocationRequest;
 import org.pangrova.spi.ai.AiInvocationResult;

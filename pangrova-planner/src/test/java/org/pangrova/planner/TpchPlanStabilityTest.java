@@ -28,8 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * deterministic text format, and compares against golden files stored in
  * {@code src/test/resources/golden-plans/tpch/}.
  *
- * <p>When golden files do not yet exist, the test generates them (write mode).
- * Subsequent runs compare against the stored golden plan. Any plan change
+ * <p>Every selected query must have a reviewed golden file. Any plan change
  * requires explicit approval via the CI plan-stability-check gate.
  */
 @Tag("plan-stability")
@@ -67,12 +66,7 @@ class TpchPlanStabilityTest {
         String actualPlan = result.plan().explain();
         Path goldenFile = GOLDEN_DIR.resolve(queryFile.replace(".sql", ".plan"));
 
-        if (!Files.exists(goldenFile)) {
-            Files.createDirectories(goldenFile.getParent());
-            Files.writeString(goldenFile, actualPlan, StandardCharsets.UTF_8);
-            return;
-        }
-
+        assertThat(goldenFile).as("Reviewed golden plan for " + queryFile).isRegularFile();
         String expectedPlan = Files.readString(goldenFile, StandardCharsets.UTF_8);
         assertThat(actualPlan)
                 .as("Plan for TPC-H " + queryFile + " must match golden file. "

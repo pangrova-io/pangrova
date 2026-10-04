@@ -1,5 +1,7 @@
 package org.pangrova.planner.stats;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -20,9 +22,9 @@ class StatisticsCollectorTest {
 
     @Test
     void analyzeTableProducesValidStatistics() {
-        PlannerTableStatistics stats = collector.analyzeTable("db.orders", List.of("id", "amount"));
+        PlannerTableStatistics stats = collector.analyzeTable(new QualifiedTableName("test", "db", "orders"), List.of("id", "amount"));
 
-        assertThat(stats.tableName()).isEqualTo("db.orders");
+        assertThat(stats.tableName()).isEqualTo(new QualifiedTableName("test", "db", "orders"));
         assertThat(stats.columns()).containsKeys("id", "amount");
         stats.columns().values().forEach(col -> {
             assertThat(col.rowCount()).isPositive();
@@ -67,35 +69,35 @@ class StatisticsCollectorTest {
 
     @Test
     void stalenessDetectedWhenThresholdExceeded() {
-        collector.analyzeTable("db.t", List.of("a"));
+        collector.analyzeTable(new QualifiedTableName("test", "db", "t"), List.of("a"));
         Instant future = Instant.now().plus(Duration.ofHours(25));
 
-        assertThat(collector.checkStaleness("db.t", future, Duration.ofHours(24)))
+        assertThat(collector.checkStaleness(new QualifiedTableName("test", "db", "t"), future, Duration.ofHours(24)))
                 .isTrue();
     }
 
     @Test
     void stalenessNotDetectedWhenFresh() {
-        collector.analyzeTable("db.t", List.of("a"));
+        collector.analyzeTable(new QualifiedTableName("test", "db", "t"), List.of("a"));
         Instant soon = Instant.now().plus(Duration.ofMinutes(5));
 
-        assertThat(collector.checkStaleness("db.t", soon, Duration.ofHours(24)))
+        assertThat(collector.checkStaleness(new QualifiedTableName("test", "db", "t"), soon, Duration.ofHours(24)))
                 .isFalse();
     }
 
     @Test
     void stalenessReturnsTrueForUnknownTable() {
-        assertThat(collector.checkStaleness("unknown", Instant.now(), Duration.ofHours(1)))
+        assertThat(collector.checkStaleness(new QualifiedTableName("test", "db", "unknown"), Instant.now(), Duration.ofHours(1)))
                 .isTrue();
     }
 
     @Test
     void incrementalCollectionUpdatesStore() {
-        collector.analyzeTable("db.t", List.of("col1"));
-        PlannerTableStatistics updated = collector.collectIncremental("db.t", 500);
+        collector.analyzeTable(new QualifiedTableName("test", "db", "t"), List.of("col1"));
+        PlannerTableStatistics updated = collector.collectIncremental(new QualifiedTableName("test", "db", "t"), 500);
 
-        assertThat(updated.tableName()).isEqualTo("db.t");
-        assertThat(collector.getStatistics("db.t")).isPresent();
+        assertThat(updated.tableName()).isEqualTo(new QualifiedTableName("test", "db", "t"));
+        assertThat(collector.getStatistics(new QualifiedTableName("test", "db", "t"))).isPresent();
     }
 
     @Test

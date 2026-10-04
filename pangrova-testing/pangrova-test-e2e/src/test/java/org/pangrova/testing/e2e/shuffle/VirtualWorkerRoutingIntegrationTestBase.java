@@ -133,7 +133,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                 new TaskStatusReceiverContext(
                         routingQueryManager, routingTaskTracker, routingWorkerManager,
                         null, null, null,
-                        org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
+                        routingQueryManager.getStateJournal(),
                         null, null, stageCallback, null, null));
         coordinatorServer = new CoordinatorHttpServer(
                 0, receiver, routingQueryManager, null);
@@ -244,7 +244,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                 new TaskStatusReceiverContext(
                         routingQueryManager, routingTaskTracker, routingWorkerManager,
                         null, null, null,
-                        org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
+                        routingQueryManager.getStateJournal(),
                         null, null, stageCallback, null, null));
         int prevPort = coordinatorServer.getPort();
         try { coordinatorServer.stop(); } catch (Exception ignored) {}
@@ -279,7 +279,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             routingPipelineRefreshed = true;
         }
         String queryId = "e2e-multi-" + UUID.randomUUID();
-        var session = new org.pangrova.coordinator.query.CoordinatorSessionContext(
+        var session = new org.pangrova.coordinator.query.session.CoordinatorSessionContext(
                 queryId, Map.of(), null, null);
         var response = routingQueryManager.submitQuery(queryId, sql, session);
         ResultEndpoint endpoint = response.resultEndpoint();

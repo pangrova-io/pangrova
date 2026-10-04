@@ -39,7 +39,7 @@ class TaskResourceStructuredErrorTest {
     void submitTaskReturnsStructuredErrorOnConversionFailure() {
         TaskResource resource = buildResource();
 
-        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+        var canonical = org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
                         "task-1", "query-1", 0, 0,
                         org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                         "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8))

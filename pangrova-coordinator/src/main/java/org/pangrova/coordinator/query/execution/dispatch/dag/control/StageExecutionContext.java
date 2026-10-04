@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
 import org.pangrova.metadata.artifact.build.ArtifactExecutionOwner;
 import org.pangrova.metadata.artifact.jdbc.CurrentDeferredExecutionContext;

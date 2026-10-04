@@ -12,6 +12,7 @@ import java.util.Map;
 
 /** Converts complete connector type declarations into the sole cross-runtime logical contract. */
 public final class PhysicalWriteTypes {
+    private static final int MAX_DECIMAL_PRECISION = 38;
     private static final Map<String, String> PRIMITIVES = Map.ofEntries(
             Map.entry("BOOLEAN", "bool"), Map.entry("TINYINT", "i8"), Map.entry("SMALLINT", "i16"),
             Map.entry("INTEGER", "i32"), Map.entry("BIGINT", "i64"), Map.entry("REAL", "fp32"),
@@ -20,6 +21,13 @@ public final class PhysicalWriteTypes {
 
     private PhysicalWriteTypes() {}
 
+    /**
+     * Projects the exact ordered declaration into the canonical logical contract.
+     *
+     * @param declared complete connector declaration, including recursive nullability
+     * @return canonical type and its structural constraints
+     * @throws IllegalArgumentException if the declaration is unsupported, incomplete or inconsistent
+     */
     public static LogicalType logicalType(DeclaredType declared) {
         validate(declared, 0);
         if ("VECTOR".equals(declared.signature().base())) {
@@ -58,7 +66,9 @@ public final class PhysicalWriteTypes {
         var child = type.children().get(0).signature();
         var expected = element.typeSignature();
         if (!expected.equals(child) && !(expected.equals(new TypeSignature("FLOAT"))
-                && child.equals(new TypeSignature("REAL")))) throw malformed(signature);
+                && child.equals(new TypeSignature("REAL")))) {
+            throw malformed(signature);
+        }
         storageVector(type);
     }
 
@@ -72,12 +82,18 @@ public final class PhysicalWriteTypes {
         for (int index = 0; index < count; index++) {
             var parameter = signature.parameters().get(index);
             if (parameter.longValue() != null || parameter.typeSignature() == null
-                    || !parameter.typeSignature().equals(type.children().get(index).signature())) throw malformed(signature);
+                    || !parameter.typeSignature().equals(type.children().get(index).signature())) {
+                throw malformed(signature);
+            }
             if ("ROW".equals(base) ? parameter.fieldName() == null || parameter.fieldName().isBlank()
-                    : parameter.fieldName() != null) throw malformed(signature);
+                    : parameter.fieldName() != null) {
+                throw malformed(signature);
+            }
         }
         if ("ROW".equals(base) && signature.parameters().stream().map(TypeSignature.TypeParameter::fieldName)
-                .distinct().count() != count) throw malformed(signature);
+                .distinct().count() != count) {
+            throw malformed(signature);
+        }
     }
 
     private static void validateScalar(TypeSignature signature) {
@@ -94,7 +110,7 @@ public final class PhysicalWriteTypes {
         boolean valid = switch (signature.base()) {
             case "VARCHAR", "CHAR" -> first > 0;
             case "TIMESTAMP", "TIMESTAMP_TZ" -> first >= 0 && first <= 9;
-            case "DECIMAL" -> first > 0 && first <= 38 && parameter(signature, 1) >= 0
+            case "DECIMAL" -> first > 0 && first <= MAX_DECIMAL_PRECISION && parameter(signature, 1) >= 0
                     && parameter(signature, 1) <= first;
             default -> false;
         };

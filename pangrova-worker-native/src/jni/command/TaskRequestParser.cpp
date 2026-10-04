@@ -1491,16 +1491,22 @@ void parseShuffleOptions(
     const proto::ShuffleTaskOptions& shuffle,
     const proto::TaskAttemptId& attempt,
     executor::TaskExecutorConfig& config) {
-  if (shuffle.serde() == proto::BATCH_SERDE_UNSPECIFIED ||
+  if (shuffle.serde() != proto::BATCH_SERDE_ARROW_BATCH ||
       shuffle.partition_count() == 0 ||
       isBlank(shuffle.compression_codec()) || shuffle.batch_size() == 0 ||
-      shuffle.persistence_mode() ==
-          proto::SHUFFLE_PERSISTENCE_MODE_UNSPECIFIED) {
+      (shuffle.persistence_mode() != proto::SHUFFLE_PERSISTENCE_MODE_MEMORY_ONLY &&
+       shuffle.persistence_mode() != proto::SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_DISK &&
+       shuffle.persistence_mode() != proto::SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_REMOTE)) {
     throw std::runtime_error("TaskRequest shuffle options are incomplete");
   }
   if (shuffle.partition_count() > static_cast<uint32_t>(
-          std::numeric_limits<int32_t>::max())) {
-    throw std::runtime_error("shuffle partition_count exceeds int32 range");
+          std::numeric_limits<int32_t>::max()) ||
+      shuffle.batch_size() > static_cast<uint32_t>(std::numeric_limits<int32_t>::max())) {
+    throw std::runtime_error("shuffle partition_count or batch_size exceeds int32 range");
+  }
+  if (shuffle.compression_codec() != "none" && shuffle.compression_codec() != "lz4" &&
+      shuffle.compression_codec() != "zstd") {
+    throw std::runtime_error("shuffle compression_codec requires exactly none, lz4 or zstd");
   }
   const bool remote = shuffle.persistence_mode() ==
       proto::SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_REMOTE;
@@ -1508,12 +1514,11 @@ void parseShuffleOptions(
     throw std::runtime_error(
         "TaskRequest shuffle execution binding is incomplete or inconsistent");
   }
-  if (remote && shuffle.compression_codec() != "NONE") {
-    throw std::runtime_error(
-        "External shuffle currently requires compression codec NONE");
-  }
   config.num_shuffle_partitions =
       static_cast<int32_t>(shuffle.partition_count());
+  config.shuffle_batch_serde = shuffle.serde();
+  config.shuffle_compression_codec = shuffle.compression_codec();
+  config.shuffle_batch_size = static_cast<int32_t>(shuffle.batch_size());
   config.shuffle_persistence_mode = shuffle.persistence_mode();
   config.shuffle_partition_key_indices.assign(
       shuffle.partition_key_indices().begin(),
@@ -1548,20 +1553,7 @@ std::string serializeCallbackContext(const proto::TaskRequest& request) {
   return bytes;
 }
 
-executor::TaskExecutorConfig parseFromProto(
-    const std::vector<uint8_t>& data) {
-  proto::TaskRequest request;
-  if (!request.ParseFromArray(data.data(), static_cast<int>(data.size()))) {
-    throw std::runtime_error(
-        "Failed to parse canonical v2 TaskRequest, data_size=" +
-        std::to_string(data.size()));
-  }
-  if (!request.has_protocol() || !request.has_attempt()) {
-    throw std::runtime_error("TaskRequest requires protocol and attempt identity");
-  }
-  validateProtocol(request.protocol());
-  validatePlanChecksum(request);
-  validateCallbackAuthority(request);
+executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
   const auto& attempt = request.attempt();
   if (request.task_kind() == proto::TASK_KIND_UNSPECIFIED) {
     throw std::runtime_error("TaskRequest task_kind is unspecified");
@@ -1665,6 +1657,10 @@ executor::TaskExecutorConfig parseFromProto(
       parseShuffleOptions(options.shuffle(), attempt, config);
     }
     config.is_result_task = options.direct_result_output();
+    if (config.is_result_task && config.resource_limit.max_shuffle_buffer_bytes <= 0) {
+      throw std::runtime_error(
+          "Serialized output requires a positive serialized-buffer grant");
+    }
   }
   if (request.result_column_types_size() > 0 && !config.is_result_task) {
     throw std::runtime_error(
@@ -1695,10 +1691,49 @@ executor::TaskExecutorConfig parseFromProto(
 
 executor::TaskExecutorConfig parseTaskConfig(
     const std::vector<uint8_t>& data) {
+  return parseFromProto(parseTaskRequest(data));
+}
+
+protocol::v2::TaskRequest parseTaskRequest(const std::vector<uint8_t>& data) {
   if (data.empty()) {
     throw std::runtime_error("TaskRequest payload must not be empty");
   }
-  return parseFromProto(data);
+  proto::TaskRequest request;
+  if (data.size() > static_cast<size_t>(std::numeric_limits<int>::max()) ||
+      !request.ParseFromArray(data.data(), static_cast<int>(data.size()))) {
+    throw std::runtime_error("Failed to parse canonical v2 TaskRequest");
+  }
+  if (!request.has_protocol() || !request.has_attempt() ||
+      !request.GetReflection()->GetUnknownFields(request).empty()) {
+    throw std::runtime_error("TaskRequest requires known protocol and attempt identity");
+  }
+  validateProtocol(request.protocol());
+  validatePlanChecksum(request);
+  validateCallbackAuthority(request);
+  return request;
+}
+
+executor::TaskExecutorConfig taskConfigFromRequest(const proto::TaskRequest& request) {
+  return parseFromProto(request);
+}
+
+void validateCreationIdentity(const proto::ExecutorCreationRecoveryRequest& identity) {
+  const auto& seal = identity.admission_seal();
+  const auto& checksum = seal.canonical_request_checksum();
+  if (!identity.has_admission_seal() || !identity.has_security() ||
+      !seal.has_protocol() || !seal.has_attempt() || !seal.has_canonical_request_checksum() ||
+      !identity.GetReflection()->GetUnknownFields(identity).empty() ||
+      !seal.GetReflection()->GetUnknownFields(seal).empty() ||
+      !checksum.GetReflection()->GetUnknownFields(checksum).empty() ||
+      checksum.algorithm() != proto::Checksum::ALGORITHM_SHA256 || checksum.digest().size() != 32) {
+    throw std::runtime_error("Creation recovery requires exact canonical identity and SHA-256");
+  }
+  validateProtocol(seal.protocol());
+  proto::TaskRequest authority;
+  *authority.mutable_attempt() = seal.attempt();
+  *authority.mutable_security() = identity.security();
+  authority.set_deadline_epoch_ms(seal.deadline_epoch_ms());
+  validateCallbackAuthority(authority);
 }
 
 }  // namespace pangrova::jni

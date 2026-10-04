@@ -96,4 +96,50 @@ class TenantResourceTrackerTest {
         assertThat(tracker.tryAcquireQuery("t2")).isTrue();
         assertThat(tracker.tryAcquireQuery("t2")).isFalse();
     }
+
+    @Test
+    void limitedMemoryCannotWrapCounterAndBypassTheQuota() {
+        long limit = Long.MAX_VALUE - 16;
+        tracker.setQuota("t1", new TenantResourceQuota(limit, -1));
+        assertThat(tracker.tryAllocateMemory("t1", limit - 8)).isTrue();
+        assertThat(tracker.tryAllocateMemory("t1", 32)).isFalse();
+        assertThat(tracker.getMemoryUsage("t1")).isEqualTo(limit - 8);
+        assertThat(tracker.snapshotUsage().get("t1").memoryBytes()).isEqualTo(limit - 8);
+        tracker.releaseMemory("t1", limit - 8);
+        assertThat(tracker.getMemoryUsage("t1")).isZero();
+        assertThat(tracker.tryAllocateMemory("t1", limit)).isTrue();
+    }
+
+    @Test
+    void unlimitedMemoryStillRequiresRepresentableUsage() {
+        assertThat(tracker.tryAllocateMemory("t1", Long.MAX_VALUE)).isTrue();
+        assertThat(tracker.tryAllocateMemory("t1", 1)).isFalse();
+        assertThat(tracker.getMemoryUsage("t1")).isEqualTo(Long.MAX_VALUE);
+        tracker.releaseMemory("t1", Long.MAX_VALUE);
+        assertThat(tracker.getMemoryUsage("t1")).isZero();
+        assertThat(tracker.tryAllocateMemory("t1", 1)).isTrue();
+    }
+
+    @Test
+    void concurrentLargeAllocationsCannotOverchargeOrWrap() throws Exception {
+        long bytes = Long.MAX_VALUE / 4 + 1;
+        var barrier = new java.util.concurrent.CyclicBarrier(4);
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(4,
+                task -> new Thread(task, "tenant-memory-boundary-test"));
+        try {
+            var pending = java.util.stream.IntStream.range(0, 4).mapToObj(index -> executor.submit(() -> {
+                barrier.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                return tracker.tryAllocateMemory("t1", bytes);
+            })).toList();
+            int admitted = 0;
+            for (var task : pending) if (task.get(10, java.util.concurrent.TimeUnit.SECONDS)) admitted++;
+            assertThat(admitted).isEqualTo(3);
+            assertThat(tracker.getMemoryUsage("t1")).isEqualTo(bytes * 3);
+            for (int index = 0; index < admitted; index++) tracker.releaseMemory("t1", bytes);
+            assertThat(tracker.getMemoryUsage("t1")).isZero();
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
 }

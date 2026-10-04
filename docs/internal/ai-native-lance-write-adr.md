@@ -4,11 +4,13 @@
 
 ## 2026-10-02 当前源码与验收边界
 
-当前唯一 Lance C ABI 已为 **11**：physical writer 的 `drain` 保留真实
+当前源码唯一 Lance C ABI 已为 **12**：physical 与 Dataset writer 的 `drain` 保留真实
 handle/runtime，返回 joined、private-stage cleanup 和 staging publication
 证据；`destroy` 只接受已真实排空且清理完成的所有者。旧 ABI7 及以下是历史
-检查点，不是并存接口。主 Rust Release 构建及完整36项测试已通过，零过滤/跳过；
-Native、JNI、SQL和完整Step0–8尚未通过最新输入的验收。
+检查点，不是并存接口。ABI11主 Rust Release及完整36项测试曾通过，零过滤/跳过，
+不覆盖ABI12输入。ABI12首次Release实际构建4m24s，但有4个owned SDK编译警告，
+因此零warning门槛为FAIL。最新完整38项Rust、10项owned SDK、Native、JNI、SQL
+和完整Step0–8尚未通过当前输入的验收。
 
 Paimon 的物理文件分配、读取及 Native writer 已在同一 v2 `physical` binding
 接线，但目前明确受限于 unpartitioned、bucket=1、append 的声明。不能将这些

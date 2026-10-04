@@ -46,6 +46,7 @@ final class QueryCleanupScheduler {
                     // Terminal publication precedes QueryManager's journal/effect
                     // processing. Never evict in that small transition window.
                     && entry.getValue().terminalEffectsApplied()
+                    && entry.getValue().physicalCleanupApplied()
                     && !hasPendingCompletion.test(entry.getKey())
                     && entry.getValue().getCreatedAt().isBefore(cutoff);
             if (expired) {

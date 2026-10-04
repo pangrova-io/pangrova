@@ -7,8 +7,8 @@ import java.util.Map;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.SessionContextConverter;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.planner.PlannedQuery;
@@ -96,7 +96,7 @@ public final class SplitFetcher {
         if (registry == null || sources.isEmpty()) {
             return List.of();
         }
-        Map<String, SplitSourceDescriptor> unique = deduplicateSources(sources);
+        Map<List<String>, SplitSourceDescriptor> unique = deduplicateSources(sources);
         List<ConnectorSplit> allSplits = new ArrayList<>();
         for (SplitSourceDescriptor desc : unique.values()) {
             allSplits.addAll(fetchConnectorSplits(desc, registry, snapshotOverrides, queryOutputColumns, context));
@@ -184,19 +184,29 @@ public final class SplitFetcher {
         CatalogHandle catalog = registry.getCatalog(desc.catalogName());
         ConnectorSession session = SessionContextConverter.toConnectorSession(
                 context, desc.catalogName(), desc.schemaName());
-        ConnectorTableHandle tableHandle = resolveTableHandle(catalog, session, desc);
-        if (tableHandle == null) {
+        var metadata = catalog.getMetadata(session);
+        var binding = desc.readBinding().orElseGet(() -> metadata.bindRead(session,
+                applySnapshotOverride(resolveTableHandle(catalog, session, desc), desc, snapshotOverrides)));
+        Long override = snapshotOverrides.get(org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors.tableKey(
+                desc.catalogName(), desc.schemaName(), desc.tableName()));
+        if (override != null && (binding.snapshotId().isEmpty()
+                || binding.snapshotId().getAsLong() != override)) {
             throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
-                    "Table not found for split enumeration: " + desc.qualifiedName());
+                    "Selected planning snapshot differs from execution selector: " + desc.qualifiedName());
         }
-        tableHandle = applySnapshotOverride(tableHandle, desc, snapshotOverrides);
+        metadata.validateReadBinding(session, binding);
+        ConnectorTableHandle tableHandle = binding.handle();
 
         java.util.Set<String> tableColumnSet = new java.util.LinkedHashSet<>(desc.tableColumns());
         List<String> projectedColumns = queryOutputColumns.stream()
                 .filter(tableColumnSet::contains)
                 .toList();
         if (!projectedColumns.isEmpty()) {
-            catalog.getMetadata(session).validateColumnAccess(session, tableHandle, projectedColumns);
+            metadata.validateColumnAccess(session, tableHandle, projectedColumns);
+        }
+
+        if (binding.state() == org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
+            return List.of();
         }
 
         Constraint constraint = desc.constraint();
@@ -212,7 +222,8 @@ public final class SplitFetcher {
             return handle;
         }
         String fqn = desc.qualifiedName();
-        Long snapshotId = overrides.get(fqn.toLowerCase());
+        Long snapshotId = overrides.get(org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors.tableKey(
+                desc.catalogName(), desc.schemaName(), desc.tableName()));
         if (snapshotId == null) {
             return handle;
         }
@@ -220,11 +231,17 @@ public final class SplitFetcher {
         return handle.withTimeTravelSnapshot(snapshotId);
     }
 
-    private static Map<String, SplitSourceDescriptor> deduplicateSources(
+    private static Map<List<String>, SplitSourceDescriptor> deduplicateSources(
             List<SplitSourceDescriptor> sources) {
-        LinkedHashMap<String, SplitSourceDescriptor> unique = new LinkedHashMap<>();
+        LinkedHashMap<List<String>, SplitSourceDescriptor> unique = new LinkedHashMap<>();
         for (SplitSourceDescriptor desc : sources) {
-            String key = desc.qualifiedName();
+            var key = List.of(desc.catalogName(), desc.schemaName(), desc.tableName());
+            var existing = unique.get(key);
+            if (existing != null && (!existing.readBinding().equals(desc.readBinding())
+                    || !existing.tableColumns().equals(desc.tableColumns()))) {
+                throw new PangrovaException(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED,
+                        "Conflicting read bindings for one source table: " + desc.qualifiedName());
+            }
             if (!unique.containsKey(key)) {
                 unique.put(key, desc);
             } else if (unique.get(key).constraint() != Constraint.EMPTY) {
@@ -232,7 +249,7 @@ public final class SplitFetcher {
                 // that other branches need
                 unique.put(key, new SplitSourceDescriptor(
                         desc.catalogName(), desc.schemaName(), desc.tableName(),
-                        Constraint.EMPTY, desc.tableColumns()));
+                        Constraint.EMPTY, desc.tableColumns(), desc.readBinding()));
             }
         }
         return unique;

@@ -58,8 +58,11 @@ public final class ArtifactExecutionOwnership {
     /** Releases only this process's exact durable execution identity. */
     public void release(ArtifactBuildJobKey job) {
         if (processAuthority != null) {
-            var anchor = publicationAnchors.remove(job.executionId());
-            if (anchor != null) processAuthority.release(anchor);
+            var anchor = publicationAnchors.get(job.executionId());
+            if (anchor != null) {
+                processAuthority.release(anchor);
+                publicationAnchors.remove(job.executionId(), anchor);
+            }
             return;
         }
         coordination.releaseQueryOwnership(job.executionId(), coordinatorId);

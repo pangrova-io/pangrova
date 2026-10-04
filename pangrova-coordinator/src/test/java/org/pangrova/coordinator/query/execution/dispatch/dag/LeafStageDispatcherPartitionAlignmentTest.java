@@ -37,7 +37,7 @@ class LeafStageDispatcherPartitionAlignmentTest {
             StageEdge edge = new StageEdge(1, 0, distribution,
                     distribution == ShuffleType.HASH ? List.of(0) : List.of(),
                     "exchange-1-to-0", partitions,
-                    BatchSerde.BATCH_SERDE_NATIVE_ROW, true);
+                    BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
             StageDAG dag = StageDAG.fromNodes(
                     List.of(consumer, producer), Map.of(0, List.of(1)), List.of(edge));
 
@@ -45,6 +45,8 @@ class LeafStageDispatcherPartitionAlignmentTest {
             assertThat(config).as("%s producer must advertise Flight endpoint", distribution)
                     .isNotNull();
             assertThat(config.numPartitions()).isEqualTo(partitions);
+            assertThat(config.serdeFormat()).isEqualTo(edge.batchSerde().name().substring("BATCH_SERDE_".length()));
+            assertThat(config.compressionCodec()).isEqualTo("lz4");
             assertThat(config.partitionKeyIndices())
                     .containsExactlyElementsOf(edge.distributionKeys());
         }
@@ -56,7 +58,7 @@ class LeafStageDispatcherPartitionAlignmentTest {
         StageNode consumer = stageNode(0, 2);
         StageEdge edge = new StageEdge(1, 0, ShuffleType.BROADCAST,
                 List.of(), "exchange-1-to-0", 2,
-                BatchSerde.BATCH_SERDE_NATIVE_ROW, true);
+                BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
         StageDAG dag = StageDAG.fromNodes(
                 List.of(consumer, producer), Map.of(0, List.of(1)), List.of(edge));
 
@@ -73,10 +75,11 @@ class LeafStageDispatcherPartitionAlignmentTest {
             var producer = stageNode(1, 4);
             var consumer = stageNode(0, partitions);
             var edge = new StageEdge(1, 0, distribution, List.of(), "remote", partitions,
-                    BatchSerde.BATCH_SERDE_NATIVE_ROW, true);
+                    BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
             var graph = StageDAG.fromNodes(List.of(consumer, producer), Map.of(0, List.of(1)), List.of(edge));
             var config = LeafStageDispatcher.buildShuffleConfig(producer, graph, true);
             assertThat(config.persistenceMode()).isEqualTo("MEMORY_AND_REMOTE");
+            assertThat(config.serdeFormat()).isEqualTo("ARROW_BATCH");
             assertThat(config.numPartitions()).isEqualTo(partitions);
         }
     }
@@ -86,7 +89,7 @@ class LeafStageDispatcherPartitionAlignmentTest {
         var producer = stageNode(1, 8);
         var consumer = stageNode(0, 8);
         var edge = new StageEdge(1, 0, ShuffleType.HASH, List.of(0), "complete", 8,
-                BatchSerde.BATCH_SERDE_NATIVE_ROW, true);
+                BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
         var graph = StageDAG.fromNodes(List.of(consumer, producer), Map.of(0, List.of(1)), List.of(edge));
         assertThat(LeafStageDispatcher.taskCountForGraph(consumer, graph, false, 8, 4)).isEqualTo(8);
         assertThat(LeafStageDispatcher.taskCountForGraph(producer, graph, true, 2, 4)).isEqualTo(8);

@@ -66,6 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shuffle protocol remain available for a fully wired implementation.
 
 ### Fixed
+- Carry the Coordinator internal authentication secret and opt-in speculation
+  setting from YAML into the production bootstrap; reject blank internal secrets.
+  Use consumed environment names and distinct advertised hosts in multi-process
+  test clusters instead of silently defaulting Worker identity and connection settings.
 - Close the Coordinator-owned metadata invalidation poller before its JDBC pool,
   including startup-failure cleanup, instead of leaving its scheduler alive.
 - Preserve the submitting principal and resolved tenant on Coordinator query

@@ -17,6 +17,8 @@
 // **Validates: Requirements 6.1-6.6**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <memory>
 #include <string>
@@ -114,7 +116,8 @@ namespace {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
@@ -145,7 +148,7 @@ void addStandardJoinKey(
 
 std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -183,7 +186,7 @@ std::vector<uint8_t> buildFilterPlan() {
   // Condition: col_a > 10 (simplified as gt(col_a, literal(10)))
   auto* cond = filter->mutable_condition()->mutable_scalar_function();
   cond->set_function_reference(0);
-  cond->mutable_output_type()->mutable_bool_();
+  cond->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   setFieldRef(cond->add_arguments()->mutable_value(), 0);
   cond->add_arguments()->mutable_value()->mutable_literal()->set_i64(10);
 
@@ -243,7 +246,8 @@ std::vector<uint8_t> buildAggregationPlan() {
   agg_func->set_function_reference(1);
   setFieldRef(agg_func->add_arguments()->mutable_value(), 1);
   agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
-  agg_func->mutable_output_type()->mutable_i64();
+  agg_func->mutable_output_type()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
   return serializePlan(plan);
 }
@@ -282,6 +286,8 @@ void collectNodeNames(
 // Build VeloxTaskRunnerConfig from a KnobCombination.
 VeloxTaskRunnerConfig buildConfig(const KnobCombination& knobs) {
   VeloxTaskRunnerConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "test-qc-safety";
   config.query_id = "test-query";
   config.hash_probe_finish_early_on_empty_build = knobs.hash_probe_finish_early;
@@ -323,13 +329,17 @@ TEST_P(QueryConfigSafetyTest, PlanStructureIdenticalRegardlessOfKnobs) {
   ASSERT_FALSE(plan_bytes.empty());
 
   // Convert plan with baseline (all-off) config.
-  VeloxPlanConverter baseline_converter;
+  const auto baseline_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter baseline_converter(baseline_converter_registry);
   auto baseline_plan = baseline_converter.convert(plan_bytes, {});
   ASSERT_NE(baseline_plan, nullptr)
       << "Baseline plan conversion failed for " << param.name;
 
   // Convert plan with current knob combination.
-  VeloxPlanConverter test_converter;
+  const auto test_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter test_converter(test_converter_registry);
   auto test_plan = test_converter.convert(plan_bytes, {});
   ASSERT_NE(test_plan, nullptr)
       << "Test plan conversion failed for " << param.name;
@@ -406,12 +416,16 @@ TEST_P(QueryConfigSafetyTest, OutputSchemaIdenticalRegardlessOfKnobs) {
   ASSERT_FALSE(plan_bytes.empty());
 
   // Convert with all-on knobs.
-  VeloxPlanConverter on_converter;
+  const auto on_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter on_converter(on_converter_registry);
   auto on_plan = on_converter.convert(plan_bytes, {});
   ASSERT_NE(on_plan, nullptr);
 
   // Convert with all-off knobs.
-  VeloxPlanConverter off_converter;
+  const auto off_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter off_converter(off_converter_registry);
   auto off_plan = off_converter.convert(plan_bytes, {});
   ASSERT_NE(off_plan, nullptr);
 
@@ -441,6 +455,8 @@ TEST_P(QueryConfigSafetyTest, OutputSchemaIdenticalRegardlessOfKnobs) {
 
 TEST_P(QueryConfigSafetyTest, DefaultConfigHasAllKnobsEnabled) {
   VeloxTaskRunnerConfig default_config;
+  default_config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   EXPECT_TRUE(default_config.hash_probe_finish_early_on_empty_build);
   EXPECT_TRUE(default_config.hash_probe_string_dynamic_filter_pushdown);
   EXPECT_TRUE(default_config.adaptive_filter_reordering);
@@ -483,6 +499,8 @@ TEST_P(QueryConfigSafetyTest, DefaultConfigHasAllKnobsEnabled) {
 TEST_P(QueryConfigSafetyTest, L1SessionPropertyOverridesApplied) {
   // Build a config with all defaults.
   VeloxTaskRunnerConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "test-l1-override";
   config.query_id = "test-query";
 

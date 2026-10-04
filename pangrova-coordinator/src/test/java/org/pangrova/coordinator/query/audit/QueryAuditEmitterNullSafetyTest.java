@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.audit;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;

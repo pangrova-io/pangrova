@@ -9,7 +9,7 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
 import org.pangrova.coordinator.query.stage.Stage;

@@ -1,7 +1,6 @@
 package org.pangrova.worker.bootstrap;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
-import static org.pangrova.common.util.Preconditions.checkState;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CountDownLatch;
@@ -15,7 +14,6 @@ import org.pangrova.worker.bootstrap.phase.WorkerHttpBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerObservabilitySetup;
 import org.pangrova.worker.bootstrap.phase.WorkerResourceBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerTaskBootstrap;
-import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +28,8 @@ public final class WorkerBootstrap {
     private static final Logger LOG = LoggerFactory.getLogger(WorkerBootstrap.class);
 
     private final WorkerBootstrapConfig config;
-    private final AtomicBoolean started = new AtomicBoolean(false);
+    private final WorkerBootstrapLifecycle lifecycle = new WorkerBootstrapLifecycle();
+    private final AtomicBoolean started = lifecycle.readyFlag();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
     private final WorkerObservabilitySetup observability = new WorkerObservabilitySetup();
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
@@ -41,21 +40,26 @@ public final class WorkerBootstrap {
 
     /** Installs the production Worker-local connector plugin runtime. */
     public void installProductionCatalogRuntime() {
-        checkState(!started.get(), "Catalog runtime must be installed before start");
-        refs.setCatalogResourceResolver(
-                org.pangrova.worker.jni.write.WorkerCatalogRuntime.discover(
+        lifecycle.beginConfiguration();
+        try {
+            requireUninstalledCatalog();
+            refs.setCatalogResourceResolver(
+                org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime.discover(
                         config.coordinatorUrl(), config.internalAuthSecret(),
                         Thread.currentThread().getContextClassLoader()));
+        }
+        finally { lifecycle.configured(); }
     }
 
     /**
      * Executes the ordered startup sequence.
      */
     public void start() {
-        checkState(!started.get(), "WorkerBootstrap already started");
-        LOG.info("event=worker_bootstrap_start workerId={}", config.workerId());
+        lifecycle.beginStart();
         try {
+            LOG.info("event=worker_bootstrap_start workerId={}", config.workerId());
             startPhases();
+            lifecycle.started();
         } catch (RuntimeException | Error startupFailure) {
             rollbackStartup(startupFailure);
             throw startupFailure;
@@ -92,38 +96,18 @@ public final class WorkerBootstrap {
         WorkerHttpBootstrap.startHttp(config, refs, observability, started);
         WorkerHeartbeatBootstrap.startHeartbeat(config, refs);
         WorkerHeartbeatBootstrap.register(config, refs);
-        started.set(true);
         LOG.info("event=worker_bootstrap_completed workerId={}", config.workerId());
     }
 
     private void rollbackStartup(Throwable startupFailure) {
-        LOG.error("event=worker_bootstrap_rollback workerId={} error={}",
-                config.workerId(), startupFailure.getMessage(), startupFailure);
-        runRollback("heartbeat", startupFailure,
-                () -> WorkerHeartbeatBootstrap.stopHeartbeat(refs));
-        runRollback("http", startupFailure,
-                () -> WorkerHttpBootstrap.stopHttp(refs));
-        runRollback("cdc", startupFailure, this::stopCdc);
-        runRollback("tasks", startupFailure,
-                () -> WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager()));
-        runRollback("task_manager", startupFailure,
-                () -> closeTaskManager(refs));
-        runRollback("native_writer", startupFailure,
-                () -> closeNativeWriteExecutor(refs));
-        runRollback("native_functions", startupFailure,
-                () -> NativeFunctionBootstrap.close(refs));
-        runRollback("native_resources", startupFailure,
-                () -> WorkerResourceBootstrap.releaseResources(refs, observability));
-    }
-
-    private static void runRollback(
-            String resource, Throwable startupFailure, Runnable action) {
+        boolean success = false;
         try {
-            action.run();
+            new WorkerBootstrapCleanup(refs).close(config, observability, false);
+            success = true;
         } catch (RuntimeException | Error cleanupFailure) {
-            startupFailure.addSuppressed(cleanupFailure);
-            LOG.warn("event=worker_bootstrap_rollback_failed resource={} error={}",
-                    resource, cleanupFailure.getMessage(), cleanupFailure);
+            if (startupFailure != cleanupFailure) startupFailure.addSuppressed(cleanupFailure);
+        } finally {
+            completeCleanup(success);
         }
     }
 
@@ -131,27 +115,21 @@ public final class WorkerBootstrap {
      * Executes the ordered shutdown sequence (reverse of startup).
      */
     public void shutdown() {
-        if (!started.compareAndSet(true, false)) {
-            return;
-        }
+        if (!lifecycle.beginShutdown(refs)) return;
+        boolean success = false;
         try {
             LOG.info("event=worker_shutdown_start workerId={}", config.workerId());
-            WorkerHeartbeatBootstrap.deregister(refs, config.workerId());
-            WorkerHeartbeatBootstrap.stopHeartbeat(refs);
-            stopCdc();
-            WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager());
-            WorkerHttpBootstrap.stopHttp(refs);
-            closeTaskManager(refs);
-            closeNativeWriteExecutor(refs);
-            closeNativeFunctions(refs);
-            // Native shutdown is handled by WorkerShutdownSequence.releaseResources()
-            // via shutdownNative(). Calling it here would cause double-free of native
-            // thread pools and memory pools (P0-BUG-2).
-            WorkerResourceBootstrap.releaseResources(refs, observability);
+            new WorkerBootstrapCleanup(refs).close(config, observability, true);
+            success = true;
             LOG.info("event=worker_shutdown_completed workerId={}", config.workerId());
         } finally {
-            shutdownCompleted.countDown();
+            completeCleanup(success);
         }
+    }
+
+    private void completeCleanup(boolean success) {
+        lifecycle.cleaned(success);
+        if (success) shutdownCompleted.countDown();
     }
 
     /** Keeps the process entry point alive until owned resources finish shutdown. */
@@ -182,48 +160,6 @@ public final class WorkerBootstrap {
         }
     }
 
-    /**
-     * Closes the TaskManager to release its internal thread pools
-     * (completion monitor executor, task executor). Without this, those
-     * threads leak in long-running JVM processes.
-     */
-    private static void closeTaskManager(WorkerComponentRefs refs) {
-        TaskManager tm = refs.taskManager();
-        if (tm != null) {
-            try {
-                tm.close();
-                LOG.info("event=task_manager_closed");
-            } catch (Exception e) {
-                LOG.warn("event=task_manager_close_error error={}", e.getMessage(), e);
-            }
-        }
-    }
-
-    private static void closeNativeWriteExecutor(WorkerComponentRefs refs) {
-        var writer = refs.nativeWriteExecutor();
-        if (writer != null) {
-            writer.close();
-            LOG.info("event=native_write_executor_closed");
-        } else if (refs.catalogResourceResolver() instanceof AutoCloseable closeable) {
-            // Native registration may fail after the catalog runtime is installed.
-            // In that case the writer never acquired ownership of the resolver.
-            try {
-                closeable.close();
-            } catch (Exception failure) {
-                throw new IllegalStateException("Failed to close Worker catalog runtime", failure);
-            }
-        }
-    }
-
-    private static void closeNativeFunctions(WorkerComponentRefs refs) {
-        try {
-            NativeFunctionBootstrap.close(refs);
-            LOG.info("event=native_function_resources_closed");
-        } catch (RuntimeException failure) {
-            LOG.warn("event=native_function_resources_close_error error={}",
-                    failure.getMessage(), failure);
-        }
-    }
 
     /**
      * Converts the bootstrap {@link WorkerBootstrapConfig.CacheConfig} into the
@@ -257,19 +193,6 @@ public final class WorkerBootstrap {
         LOG.info("event=phase_started phase=CDC");
     }
 
-    private void stopCdc() {
-        AutoCloseable cdc = refs.cdcConsumer();
-        if (cdc == null) {
-            return;
-        }
-        try {
-            cdc.close();
-            LOG.info("event=cdc_consumer_stopped");
-        } catch (Exception e) {
-            LOG.warn("event=cdc_consumer_stop_error error={}", e.getMessage(), e);
-        }
-    }
-
     // -- Public accessors --
 
     public boolean isStarted() { return started.get(); }
@@ -291,7 +214,12 @@ public final class WorkerBootstrap {
      * Uses AutoCloseable to avoid coupling pangrova-worker to pangrova-streaming.
      */
     public void setCdcConsumer(AutoCloseable consumer) {
-        refs.setCdcConsumer(consumer);
+        lifecycle.beginConfiguration();
+        try {
+            if (refs.cdcConsumer() != null) throw new IllegalStateException("Worker CDC consumer already installed");
+            refs.setCdcConsumer(consumer);
+        }
+        finally { lifecycle.configured(); }
     }
 
     /**
@@ -301,7 +229,13 @@ public final class WorkerBootstrap {
      * that the native engine calls back into for write operations.
      */
     public void setCatalogResourceResolver(
-            org.pangrova.worker.jni.write.CatalogResourceResolver catalogResourceResolver) {
-        refs.setCatalogResourceResolver(catalogResourceResolver);
+            org.pangrova.worker.jni.write.catalog.CatalogResourceResolver catalogResourceResolver) {
+        lifecycle.beginConfiguration();
+        try { requireUninstalledCatalog(); refs.setCatalogResourceResolver(catalogResourceResolver); }
+        finally { lifecycle.configured(); }
+    }
+
+    private void requireUninstalledCatalog() {
+        if (refs.catalogResourceResolver() != null) throw new IllegalStateException("Worker catalog runtime already installed");
     }
 }

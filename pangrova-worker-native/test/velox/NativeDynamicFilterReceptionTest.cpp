@@ -14,13 +14,18 @@
 // **Validates: Requirements 1.1, 1.3, 1.4**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalOutputAssertions.h"
 #include "velox/connector/PangrovaVeloxConnector.h"
 #include "velox/filter/PendingFilterRegistry.h"
 #include "velox/plan/VeloxPlanConverter.h"
@@ -75,13 +80,13 @@ void addTypedColumn(
   schema->add_names(name);
   auto* field = schema->mutable_struct_()->add_types();
   if (type->isBigint()) {
-    field->mutable_i64();
+    field->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   } else if (type->isVarchar()) {
-    field->mutable_string();
+    field->mutable_string()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   } else if (type->isInteger()) {
-    field->mutable_i32();
+    field->mutable_i32()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   } else {
-    field->mutable_i64();
+    field->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   }
 }
 
@@ -132,10 +137,12 @@ std::vector<uint8_t> buildHashJoinPlan(
   substrait::Plan plan;
   auto* plan_rel = plan.add_relations();
   *plan_rel->mutable_root()->mutable_input() = rel;
-  plan_rel->mutable_root()->add_names("output");
+  for (const auto& name : {"probe_key", "payload", "build_key"}) {
+    plan_rel->mutable_root()->add_names(name);
+  }
 
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -188,6 +195,35 @@ std::shared_ptr<common::Filter> makeFilterForType(
 
 }  // namespace
 
+// Materializing a key may append only a duplicate of the declared key;
+// rebasing the build side changes names, never field ordinal or type.
+void expectExactKeyProjectionToScan(core::PlanNodePtr node, size_t scanWidth) {
+  const auto materialized = std::dynamic_pointer_cast<const core::ProjectNode>(node);
+  ASSERT_NE(materialized, nullptr);
+  ASSERT_EQ(materialized->projections().size(), scanWidth + 1);
+  size_t projects = 0;
+  while (const auto project = std::dynamic_pointer_cast<const core::ProjectNode>(node)) {
+    ASSERT_EQ(project->sources().size(), 1);
+    const auto& source = project->sources().front();
+    const auto& sourceType = source->outputType();
+    for (size_t ordinal = 0; ordinal < project->projections().size(); ++ordinal) {
+      const auto field = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
+          project->projections().at(ordinal));
+      ASSERT_NE(field, nullptr);
+      EXPECT_TRUE(field->inputs().empty());
+      const auto expectedOrdinal = ordinal < scanWidth ? ordinal : 0;
+      ASSERT_LT(expectedOrdinal, sourceType->size());
+      EXPECT_EQ(field->name(), sourceType->nameOf(expectedOrdinal));
+      EXPECT_TRUE(field->type()->equivalent(*sourceType->childAt(expectedOrdinal)));
+    }
+    node = source;
+    ASSERT_LE(++projects, 2);
+  }
+  const auto scan = std::dynamic_pointer_cast<const core::TableScanNode>(node);
+  ASSERT_NE(scan, nullptr);
+  EXPECT_EQ(scan->outputType()->size(), scanWidth);
+}
+
 // ===========================================================================
 // Property 1.1: Plan Conversion Creates Correct HashJoin + TableScan
 // Structure with Dynamic Filter Enablement
@@ -203,7 +239,9 @@ TEST_P(NativeDynamicFilterReceptionTest, PlanStructureForNativeDynamicFilter) {
   const auto& param = GetParam();
 
   auto plan_bytes = buildHashJoinPlan(param.key_type);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr)
@@ -215,13 +253,24 @@ TEST_P(NativeDynamicFilterReceptionTest, PlanStructureForNativeDynamicFilter) {
   ASSERT_EQ(result->sources().size(), 2)
       << "HashJoin must have 2 sources for " << param.name;
 
-  EXPECT_EQ(result->sources()[0]->name(), "TableScan")
-      << "Probe side must be TableScan for " << param.name;
-  EXPECT_EQ(result->sources()[1]->name(), "TableScan")
-      << "Build side must be TableScan for " << param.name;
+  const auto hash = std::dynamic_pointer_cast<const core::HashJoinNode>(result);
+  ASSERT_NE(hash, nullptr);
+  ASSERT_EQ(hash->leftKeys().size(), 1);
+  ASSERT_EQ(hash->rightKeys().size(), 1);
+  EXPECT_TRUE(hash->leftKeys().front()->type()->equivalent(*param.key_type));
+  EXPECT_TRUE(hash->rightKeys().front()->type()->equivalent(*param.key_type));
+  EXPECT_EQ(hash->leftKeys().front()->name(), physicalFieldAlias(3));
+  EXPECT_EQ(hash->rightKeys().front()->name(), physicalFieldAlias(4));
+  expectExactKeyProjectionToScan(result->sources()[0], 2);
+  expectExactKeyProjectionToScan(result->sources()[1], 1);
+  ASSERT_EQ(result->outputType()->size(), 3);
+  expectCanonicalOutputField(converter, result->outputType(), 0, "probe_key");
+  expectCanonicalOutputField(converter, result->outputType(), 1, "payload");
+  expectCanonicalOutputField(converter, result->outputType(), 2, "build_key");
 
   // Verify VeloxTaskRunnerConfig enables dynamic filter pushdown by default.
   VeloxTaskRunnerConfig config;
+  config.function_registry = converter_registry;
   EXPECT_TRUE(config.hash_probe_finish_early_on_empty_build);
   EXPECT_TRUE(config.hash_probe_string_dynamic_filter_pushdown);
 
@@ -386,6 +435,8 @@ TEST_P(NativeDynamicFilterReceptionTest, QueryConfigEnablesDynamicFilterPushdown
   const auto& param = GetParam();
 
   VeloxTaskRunnerConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "test-df-config-" + param.name;
   config.query_id = "test-query";
 
@@ -394,6 +445,8 @@ TEST_P(NativeDynamicFilterReceptionTest, QueryConfigEnablesDynamicFilterPushdown
 
   // Verify that disabling the config flag works.
   VeloxTaskRunnerConfig disabledConfig;
+  disabledConfig.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   disabledConfig.hash_probe_string_dynamic_filter_pushdown = false;
   EXPECT_FALSE(disabledConfig.hash_probe_string_dynamic_filter_pushdown);
 }

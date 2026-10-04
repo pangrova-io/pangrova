@@ -17,7 +17,7 @@ import org.pangrova.worker.ai.function.file.FileStructHelper;
 import org.pangrova.worker.ai.context.AiExecutionContext;
 import org.pangrova.worker.ai.embedding.EmbeddingResultValidator;
 
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import org.pangrova.spi.ai.embedding.EmbeddingBatchRequest;
 import org.pangrova.spi.ai.embedding.EmbeddingPurpose;

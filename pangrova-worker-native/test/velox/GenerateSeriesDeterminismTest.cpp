@@ -15,6 +15,7 @@
 // **Validates: Requirements 5.2**
 
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <cstdint>
 #include <memory>
@@ -140,7 +141,9 @@ std::vector<int64_t> executeGenerateSeries(
 
   // QueryCtx requires the global executor for parallel task scheduling.
   auto executor = pangrova::jni::globalExecutor();
-  auto queryCtx = core::QueryCtx::create(executor.get());
+  auto queryCtx = core::QueryCtx::create(executor.get(),
+      facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}},
+          facebook::velox::exec::FunctionRegistrySnapshot::capture()));
   auto task = exec::Task::create(
       "gen_series_determinism_test",
       core::PlanFragment{plan},

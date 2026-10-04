@@ -5,8 +5,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskPlans;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;

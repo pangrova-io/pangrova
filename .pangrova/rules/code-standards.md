@@ -14,7 +14,9 @@ Class, package, and proto names must not leak framework names into modules that 
 - **`Presto`**: banned everywhere. **`RSS`/`Rss`**: banned everywhere.
 
 ### P0 — Other naming rules
-- **C2**: No shared simple class name across modules. SPI keeps the name; collision side renames.
+- **C2**: Fully qualified class names must be unique across modules. Simple names
+  may repeat in distinct owner packages; use a capability qualifier when imports
+  would otherwise be ambiguous. Keep SPI and implementation roles clear.
 - **C9**: Proto/JSON field names must not contain banned framework names.
 - **C10**: Banned package segments: `jaxrs/`, `rss/`, `dpp/`, `aqe/`, `sop/`, `rls/`, `dt/`.
 
@@ -22,7 +24,10 @@ Class, package, and proto names must not leak framework names into modules that 
 - **C3 abbreviation ban**: `Rss`, `Dpp`, `Aqe`, `MV`/`Mv` (prefix), `Dt` (prefix/pkg), `HA`/`ha` (prefix/pkg), `Sop`, `Repl`, `rls` (pkg), `Ipc` (class/method/field — use `Batch`/`Page`/`Stream`). Allowed: `DAG`, `CTE`, `RBAC`, `CDC`, `SQL`, `HTTP`, `gRPC`, `IPC` (comments only), `JNI`, `UDF`, `TLS`, `JDBC`, `LDAP`, `OAuth2`, `DTO`, `SPI`, `API`, `REST`, `ACL`.
 - **C4**: No `Impl` suffix — use descriptive names.
 - **C5**: Implementation class must not reuse the SPI interface's simple name.
-- **C11**: No GoF pattern suffixes (`*Adapter`, `*Bridge`, `*Proxy`, `*Decorator`, `*Facade`, `*Mediator`, `*Visitor`, `*Observer`). `*Strategy` allowed when the class genuinely is one.
+- **C11**: Established pattern suffixes (`Adapter`, `Bridge`, `Proxy`, `Decorator`,
+  `Facade`, `Mediator`, `Visitor`, `Observer`, `Strategy`) are allowed when they
+  accurately describe the class's responsibility. Prefer a domain-specific name
+  when a pattern label adds no information.
 - **C12**: Functional interface names must not contain multiple verbs joined by `And`/`Or`/`Then`.
 - **C13**: Names must not expose internal delegation targets to callers (`PageSink*` in a class whose callers don't know about PageSink).
 - **C14**: `*Lookup` = key→single-value; `*Fetcher` = remote I/O; `*Resolver` = key→complex-result; `*Provider` = lazy/factory. Use the suffix matching actual behavior.
@@ -42,6 +47,10 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
 
 - Every code-bearing Maven leaf owns one or more explicit package roots. Roots
   owned by different leaves MUST NOT be equal or prefix-overlap.
+- Review package cohesion by capability, consumers, and dependency direction.
+  File count alone must not force package splits or maintain historical split
+  quotas. AST nodes, protocol types, and extension-point families may be numerous
+  while sharing one responsibility.
 - A multi-leaf product family root (for example `org.pangrova.worker`,
   `org.pangrova.shuffle`, `org.pangrova.connector`, or
   `org.pangrova.testing`) MUST NOT be claimed by more than one leaf. Sibling
@@ -128,10 +137,24 @@ ownership map is defined in `docs/architecture/long-term-modular-architecture.md
 
 ## Quality gates
 
-- Class ≤ 500 lines. Method ≤ 50 lines, ≤ 8 branches, ≤ 4 indent levels.
-- Constructor deps ≤ 6 (beyond that → `Dependencies` object). Method params ≤ 7 (beyond that → param object).
-- Interface methods ≤ 7 (consider splitting per ISP). Enum/constant class ≤ 30 values.
-- 3rd duplicate occurrence → extract.
+- Java source file ≤ 800 lines. Method/constructor ≤ 100 nonblank,
+  noncomment lines. Cyclomatic complexity ≤ 15, measured by Checkstyle's Java
+  parser. Do not maintain a second regex-based approximation of these metrics.
+- Keep nesting shallow. Checkstyle nesting limits are `NestedIfDepth=3`,
+  `NestedForDepth=3`, and `NestedTryDepth=2`. Review mixed control-flow nesting
+  and extract coherent operations when the combined structure obscures intent.
+- Method/constructor parameters ≤ 10. Review constructors with more than 6
+  dependencies for mixed responsibilities; introduce a parameter/dependency
+  object only when its members form a cohesive concept.
+- Review interfaces above 12 methods for unrelated consumer responsibilities.
+  Enums and constant sets have no arbitrary value-count limit; keep values in
+  their owning domain and group documentation by meaning.
+- Repeated domain logic should be shared when it has the same meaning and change
+  lifecycle. A third occurrence prompts review, not automatic extraction.
+- Size ceilings are backstops, not targets. Keep one clear responsibility per
+  class, explicit control flow, and meaningful method names. Extract coherent
+  operations; do not add forwarding-only classes, generic context bags, compressed
+  statements, or extra indirection just to satisfy a metric.
 - No spec/design process references in code comments: ban task IDs, design section refs, phase labels.
 
 ## Git & PR conventions

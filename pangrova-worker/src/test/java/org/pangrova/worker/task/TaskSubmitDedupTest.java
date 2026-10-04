@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.spi.execution.PlanFragment;
 import org.pangrova.spi.execution.PlanNodeId;
@@ -64,7 +64,7 @@ class TaskSubmitDedupTest {
 
     @Test
     void blankCoordinatorTaskIdRejectedByContract() {
-        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+        var canonical = org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
                         "valid-task", "q-dedup-4", 0, 0,
                         org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                         new byte[]{0x01});
@@ -77,7 +77,7 @@ class TaskSubmitDedupTest {
     }
 
     @Test
-    void dedupIndexClearedAfterCancel() {
+    void delayedSubmitCannotRecreateCancelledAttempt() {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
         SubmitTaskRequest request = buildRequest("coord-task-cancel", "q-dedup-5");
@@ -87,7 +87,9 @@ class TaskSubmitDedupTest {
         manager.cancelTask(firstId);
 
         String secondId = manager.submitTask(descriptor, request);
-        assertThat(secondId).isNotEqualTo(firstId);
+        assertThat(secondId).isEqualTo(firstId);
+        assertThat(manager.getTaskState(secondId)).contains(TaskManager.TaskState.CANCELLED);
+        assertThat(manager.tasks).hasSize(1);
     }
 
     @Test
@@ -107,7 +109,7 @@ class TaskSubmitDedupTest {
     }
 
     private static SubmitTaskRequest buildRequest(String taskId, String queryId) {
-        return org.pangrova.worker.CanonicalTaskRequestTestFixture.request(
+        return org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.request(
                 taskId, queryId, 0, 0,
                 org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                 new byte[]{0x01});

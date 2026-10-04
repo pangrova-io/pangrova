@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.spi.security.AccessDeniedException;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.ContainerTestBase;

@@ -41,9 +41,9 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
 
     private static final Logger LOG = LoggerFactory.getLogger(RemoteTaskStatusReporter.class);
 
-    static final int MAX_RETRY_ATTEMPTS = 5;
-    static final long INITIAL_BACKOFF_MS = 1_000L;
-    static final long MAX_BACKOFF_MS = 30_000L;
+    static final int MAX_RETRY_ATTEMPTS = org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ATTEMPTS_PER_ROUND;
+    static final long INITIAL_BACKOFF_MS = org.pangrova.protocol.task.TerminalReportDeliveryPolicy.INITIAL_BACKOFF.toMillis();
+    static final long MAX_BACKOFF_MS = org.pangrova.protocol.task.TerminalReportDeliveryPolicy.MAX_BACKOFF.toMillis();
     private static final String FINAL_STATE_FAILED = "FAILED";
     private static final String FINAL_STATE_FINISHED = "FINISHED";
     private static final String FINAL_STATE_CANCELLED = "CANCELLED";
@@ -145,6 +145,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
                 LOG.error("event=final_state_report_serialize_failed taskId={} queryId={} state={} "
                         + "reportSequence={}", report.taskId(), report.queryId(),
                         report.state(), report.reportSequence());
+                throw new IllegalStateException("Cannot serialize terminal task report: " + report.taskId());
             }
             return;
         }
@@ -196,6 +197,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
                 + "reportSequence={} maxAttempts={}",
                 report.taskId(), report.queryId(), report.state(),
                 report.reportSequence(), MAX_RETRY_ATTEMPTS);
+        throw new IllegalStateException("Terminal task report was not acknowledged: " + report.taskId());
     }
 
     private byte[] serializeReport(TaskStatusReport report) {
@@ -213,6 +215,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         String url = baseUrl + "/v1/task/status-report";
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(org.pangrova.protocol.task.TerminalReportDeliveryPolicy.REQUEST_TIMEOUT)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 
@@ -248,7 +251,14 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     private boolean handleResponseStatus(HttpResponse<String> response, TaskStatusReport report) {
         int statusCode = response.statusCode();
         if (statusCode == HTTP_OK) {
-            return true;
+            try {
+                var accepted = mapper.readValue(response.body(),
+                        org.pangrova.protocol.rest.task.TaskStatusReportResponse.class);
+                return report.taskId().equals(accepted.taskId()) && "CONTINUE".equals(accepted.command());
+            } catch (IOException malformed) {
+                LOG.warn("event=status_report_ack_malformed taskId={}", report.taskId(), malformed);
+                return false;
+            }
         }
         if (statusCode == HTTP_CONFLICT) {
             LOG.warn("event=status_report_rejected reason=worker_not_registered "

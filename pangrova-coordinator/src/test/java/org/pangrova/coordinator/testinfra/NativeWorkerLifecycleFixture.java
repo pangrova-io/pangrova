@@ -3,7 +3,7 @@ package org.pangrova.coordinator.testinfra;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.worker.bootstrap.WorkerBootstrap;
 import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
-import org.pangrova.worker.jni.write.CatalogResourceResolver;
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
 
 import java.nio.file.Path;
 
@@ -22,7 +22,7 @@ public final class NativeWorkerLifecycleFixture {
                 resource.pressureThresholdHigh(), resource.pressureThresholdCritical(),
                 resource.shuffleRetentionBytes(), resource.shuffleTransitBytes(),
                 resource.shuffleSpillBytes(), resource.shuffleSpillFiles(),
-                shuffleDirectory.toAbsolutePath().toString());
+                shuffleDirectory.toAbsolutePath().toString(), resource.shuffleChannelLimits());
         var worker = new WorkerBootstrap(new WorkerBootstrapConfig(
                 original.workerId(), original.httpPort(), original.transportPort(),
                 original.coordinatorUrl(), original.heartbeatIntervalMs(),

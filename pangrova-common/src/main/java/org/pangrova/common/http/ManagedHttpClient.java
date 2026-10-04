@@ -15,16 +15,26 @@ public record ManagedHttpClient(HttpClient httpClient, ExecutorService executor)
 
     private static final long SHUTDOWN_TIMEOUT_SECONDS = 5;
 
+    /**
+     * Stops admission and waits for the owned executor to actually terminate.
+     * A failed close retains this owner so its caller can retry after draining work.
+     *
+     * @throws IllegalStateException if work has not exited or the join is interrupted
+     */
     @Override
     public void close() {
         executor.shutdown();
         try {
             if (!executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
+                if (!executor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Managed HTTP executor has not exited");
+                }
             }
         } catch (InterruptedException e) {
             executor.shutdownNow();
             Thread.currentThread().interrupt();
+            throw new IllegalStateException("Managed HTTP executor drain interrupted", e);
         }
     }
 }

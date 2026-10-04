@@ -1,7 +1,16 @@
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
+#include <cstdint>
 #include <limits>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
+#include "CanonicalOutputAssertions.h"
+#include "CanonicalTaskExecution.h"
 #include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
 #include "velox/core/Expressions.h"
@@ -9,6 +18,7 @@
 #include "velox/plan/VeloxPlanConverter.h"
 #include "velox/type/Timestamp.h"
 #include "velox/vector/ComplexVector.h"
+#include "velox/vector/DecodedVector.h"
 #include "velox/vector/FlatVector.h"
 
 namespace pangrova::velox::test {
@@ -44,8 +54,10 @@ substrait::Rel timestampValues(
   auto* type = read->mutable_base_schema()->mutable_struct_()->add_types();
   if (with_timezone) {
     type->mutable_precision_timestamp_tz()->set_precision(value.precision);
+    type->mutable_precision_timestamp_tz()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   } else {
     type->mutable_precision_timestamp()->set_precision(value.precision);
+    type->mutable_precision_timestamp()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   }
   setTimestampLiteral(
       read->mutable_virtual_table()->add_expressions()
@@ -59,7 +71,7 @@ std::vector<uint8_t> serializeTimestampPlan(const substrait::Rel& rel) {
   auto* root = plan.add_relations()->mutable_root();
   root->add_names("event_time");
   *root->mutable_input() = rel;
-  const auto bytes = plan.SerializeAsString();
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   return {bytes.begin(), bytes.end()};
 }
 
@@ -70,7 +82,9 @@ TEST_P(SubstraitTimestampConversionTest, ValuesNormalizeSecondsAndNanos) {
   const auto& value = GetParam();
   for (bool with_timezone : {false, true}) {
     SCOPED_TRACE(with_timezone);
-    VeloxPlanConverter converter;
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     auto result = converter.convert(
         serializeTimestampPlan(timestampValues(value, with_timezone)), {});
     auto values = std::dynamic_pointer_cast<
@@ -85,6 +99,7 @@ TEST_P(SubstraitTimestampConversionTest, ValuesNormalizeSecondsAndNanos) {
 }
 
 TEST_P(SubstraitTimestampConversionTest, ProjectionUsesTheSameUnitContract) {
+  pangrova::test::testMemoryManager();
   const auto& value = GetParam();
   for (bool with_timezone : {false, true}) {
     SCOPED_TRACE(with_timezone);
@@ -94,19 +109,42 @@ TEST_P(SubstraitTimestampConversionTest, ProjectionUsesTheSameUnitContract) {
     setTimestampLiteral(project->add_expressions()->mutable_literal(),
                         value, with_timezone);
     project->mutable_common()->mutable_emit()->add_output_mapping(1);
-    VeloxPlanConverter converter;
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     auto result = converter.convert(serializeTimestampPlan(rel), {});
     auto projection = std::dynamic_pointer_cast<
         const facebook::velox::core::ProjectNode>(result);
     ASSERT_NE(projection, nullptr);
     ASSERT_EQ(projection->projections().size(), 1);
+    expectCanonicalOutputField(converter, projection->outputType(), 0, "event_time");
+    ASSERT_EQ(projection->sources().size(), 1);
+    auto appended = std::dynamic_pointer_cast<
+        const facebook::velox::core::ProjectNode>(projection->sources().front());
+    ASSERT_NE(appended, nullptr);
+    ASSERT_EQ(appended->projections().size(), 2);
+    auto emitted = std::dynamic_pointer_cast<
+        const facebook::velox::core::FieldAccessTypedExpr>(projection->projections().front());
+    ASSERT_NE(emitted, nullptr);
+    EXPECT_TRUE(emitted->inputs().empty());
+    EXPECT_EQ(emitted->name(), appended->outputType()->nameOf(1));
+    EXPECT_TRUE(emitted->type()->equivalent(*appended->outputType()->childAt(1)));
     auto constant = std::dynamic_pointer_cast<
         const facebook::velox::core::ConstantTypedExpr>(
-        projection->projections().front());
+        appended->projections().at(1));
     ASSERT_NE(constant, nullptr);
     const auto timestamp = constant->value().value<facebook::velox::Timestamp>();
     EXPECT_EQ(timestamp.getSeconds(), value.seconds);
     EXPECT_EQ(timestamp.getNanos(), value.nanos);
+    const auto execution = executeCanonicalTask(result, converter_registry);
+    ASSERT_EQ(execution.batches.size(), 1);
+    ASSERT_EQ(execution.batches.front()->size(), 1);
+    ASSERT_EQ(execution.batches.front()->childrenSize(), 1);
+    facebook::velox::DecodedVector decoded(*execution.batches.front()->childAt(0));
+    ASSERT_FALSE(decoded.isNullAt(0));
+    const auto actual = decoded.valueAt<facebook::velox::Timestamp>(0);
+    EXPECT_EQ(actual.getSeconds(), value.seconds);
+    EXPECT_EQ(actual.getNanos(), value.nanos);
   }
 }
 
@@ -132,7 +170,9 @@ INSTANTIATE_TEST_SUITE_P(
 TEST(SubstraitTimestampValidationTest, RejectsInvalidPrecision) {
   for (int32_t precision : {-1, 10, 13}) {
     for (bool with_timezone : {false, true}) {
-      VeloxPlanConverter converter;
+      const auto converter_registry =
+          facebook::velox::exec::FunctionRegistrySnapshot::capture();
+      VeloxPlanConverter converter(converter_registry);
       EXPECT_THROW(converter.convert(serializeTimestampPlan(
           timestampValues(TimestampCase{1, precision, 0, 0}, with_timezone)), {}),
           std::runtime_error);
@@ -144,7 +184,9 @@ TEST(SubstraitTimestampValidationTest, RejectsNonTimestampValues) {
   auto rel = timestampValues(TimestampCase{1, 6, 0, 1000}, false);
   rel.mutable_read()->mutable_virtual_table()->mutable_expressions(0)
       ->mutable_fields(0)->mutable_literal()->set_i64(1);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(converter.convert(serializeTimestampPlan(rel), {}),
                std::runtime_error);
 }
@@ -155,7 +197,9 @@ TEST(SubstraitTimestampValidationTest, PreservesNullValues) {
   auto* literal = rel.mutable_read()->mutable_virtual_table()
       ->mutable_expressions(0)->mutable_fields(0)->mutable_literal();
   *literal->mutable_null() = type;
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(serializeTimestampPlan(rel), {});
   auto values = std::dynamic_pointer_cast<
       const facebook::velox::core::ValuesNode>(result);
@@ -176,13 +220,16 @@ TEST(SubstraitTimePrecisionTest, ValuesRescaleToNativeTimeStorage) {
     substrait::Rel rel;
     auto* read = rel.mutable_read();
     read->mutable_base_schema()->add_names("event_time");
-    read->mutable_base_schema()->mutable_struct_()->add_types()
-        ->mutable_precision_time()->set_precision(value.precision);
+    auto* declared = read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_precision_time();
+    declared->set_precision(value.precision);
+    declared->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
     auto* literal = read->mutable_virtual_table()->add_expressions()
         ->add_fields()->mutable_literal()->mutable_precision_time();
     literal->set_precision(value.precision);
     literal->set_value(value.value);
-    VeloxPlanConverter converter;
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     auto result = converter.convert(serializeTimestampPlan(rel), {});
     auto values = std::dynamic_pointer_cast<
         const facebook::velox::core::ValuesNode>(result);
@@ -196,13 +243,16 @@ TEST(SubstraitTimePrecisionTest, RejectsPrecisionBeyondNativeStorage) {
   substrait::Rel rel;
   auto* read = rel.mutable_read();
   read->mutable_base_schema()->add_names("event_time");
-  read->mutable_base_schema()->mutable_struct_()->add_types()
-      ->mutable_precision_time()->set_precision(9);
+  auto* declared = read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_precision_time();
+  declared->set_precision(9);
+  declared->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   auto* literal = read->mutable_virtual_table()->add_expressions()
       ->add_fields()->mutable_literal()->mutable_precision_time();
   literal->set_precision(9);
   literal->set_value(1);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(converter.convert(serializeTimestampPlan(rel), {}),
                std::runtime_error);
 }

@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.spi.security.UserIdentity;
 
@@ -30,6 +32,39 @@ class QueryStateMachineAuditTest {
         assertThat(bob.getAuditPrincipal()).isEqualTo("bob");
         assertThat(alice.getTenantId()).isEqualTo("tenant-a");
         assertThat(bob.getTenantId()).isEqualTo("tenant-b");
+    }
+
+    @Test
+    void rejectedOwnershipStillPublishesFailureWithoutClaimingPhysicalCleanup() {
+        var state = new QueryStateMachine(true);
+        state.resolveOwnership(false);
+        var error = new org.pangrova.protocol.rest.error.ErrorDetail(
+                "QUERY_ADMISSION_FAILED", "QueryRejectedException", "Cluster admission denied");
+        assertThat(state.tryTransitionToFailed(error)).isTrue();
+        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FAILED);
+        assertThat(state.getError()).contains(error);
+        assertThat(state.physicalCleanupApplied()).isFalse();
+        assertThat(state.tryTransition(QueryStateMachine.State.FINISHED)).isFalse();
+    }
+
+    @Test
+    void logicalTerminalDoesNotCloseAnInstalledReservationOwner() throws Exception {
+        var pipe = java.nio.channels.Pipe.open();
+        try (var sink = pipe.sink(); var source = pipe.source()) {
+            var state = new QueryStateMachine();
+            state.retainAdmissionRelease(() -> {
+                try { sink.close(); }
+                catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+            });
+            assertThat(state.tryTransitionToFailed(new org.pangrova.protocol.rest.error.ErrorDetail(
+                    "QUERY_FAILED", "Failure", "Actual cleanup is pending"))).isTrue();
+            assertThat(sink.isOpen()).isTrue();
+            assertThat(source.isOpen()).isTrue();
+            state.releaseAdmission();
+            assertThat(sink.isOpen()).isFalse();
+            state.releaseAdmission();
+            assertThat(state.physicalCleanupApplied()).isFalse();
+        }
     }
 
     private static CoordinatorSessionContext session(String queryId, String principal) {

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.statement.StatementTestSessions;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.security.authz.AuthorizationDeniedException;

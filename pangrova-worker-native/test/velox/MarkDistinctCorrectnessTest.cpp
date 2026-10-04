@@ -1,8 +1,11 @@
 // Canonical proto -> production converter -> actual Task DISTINCT and FILTER.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <algorithm>
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 
@@ -141,8 +144,10 @@ class MarkDistinctCorrectnessTest : public ::testing::TestWithParam<MarkDistinct
     const auto& parameter = GetParam();
     const auto source = inputRows(parameter, distinctCount);
     ASSERT_EQ(source.size(), parameter.input_size);
-    const auto encoded = aggregatePlan(parameter, source, distinctCount, mode).SerializeAsString();
-    VeloxPlanConverter converter;
+    const auto encoded = pangrova::test::canonicalTestPlan(aggregatePlan(parameter, source, distinctCount, mode)).SerializeAsString();
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     const auto node = converter.convert({encoded.begin(), encoded.end()}, {});
     ASSERT_NE(node, nullptr);
     const auto arity = parameter.grouping_key_count + distinctCount;
@@ -170,12 +175,13 @@ class MarkDistinctCorrectnessTest : public ::testing::TestWithParam<MarkDistinct
       EXPECT_EQ(bool(measure.mask), mode != FilterMode::kNone);
       if (measure.mask) EXPECT_TRUE(measure.mask->type()->isBoolean());
     }
-    auto actual = execute(node);
+    auto actual = execute(node, converter_registry);
     EXPECT_EQ(actual, expectedRows(parameter, source, distinctCount, mode));
   }
 
-  Rows execute(const core::PlanNodePtr& node) {
-    const auto execution = executeCanonicalTask(node);
+  Rows execute(const core::PlanNodePtr& node,
+      const std::shared_ptr<const exec::FunctionRegistrySnapshot>& registry) {
+    const auto execution = executeCanonicalTask(node, registry);
     Rows result;
     for (const auto& batch : execution.batches) {
       for (vector_size_t row = 0; row < batch->size(); ++row) {

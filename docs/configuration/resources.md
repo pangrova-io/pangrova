@@ -23,6 +23,45 @@ this limit are rejected at submission.
 
 See [Coordinator](coordinator.md) for the full coordinator key reference.
 
+### Tenant Reservations
+
+Tenant concurrency limits come from the authenticated tenant's stored quota, not
+from a second resource-group configuration file. With the metadata datasource
+wired, the security bootstrap uses the shared PostgreSQL admission authority.
+Without that authority, local counters enforce only process-local concurrency.
+
+Each shared live reservation identifies both the query and its tenant. An exact
+repeated reservation consumes one slot; an unknown, duplicate, or wrong-tenant
+release cannot return another query's slot. Backend failures surface to the
+reservation owner and must be retried; unavailable usage is never reported as
+zero. Query identifiers must not be reused after their physical lifetime closes.
+Capacity may be returned only after the issuing query authority confirms that
+all entered execution has physically drained, not merely after a logical final
+state, an HTTP acknowledgement, or lease expiry.
+
+An existing anonymous nonzero counter has no query-owner evidence. Activation
+rejects that state rather than clearing or relabeling it. Reconciliation requires
+proof that its original executions have drained. An admission `QUEUE` verdict
+alone is not a durable queue or a guarantee that the query will be retried.
+
+Memory estimates checked against heartbeat usage are observational checks, not
+atomic cluster-wide memory reservations. They do not install Worker CPU, scan,
+or daily-usage enforcement. Independent-process failover, physical-drain wiring,
+and runtime quota enforcement require separate deployment acceptance tests.
+
+### Process-Local Query Throttle
+
+The coordinator also owns a process-local global concurrency semaphore plus
+tenant and user token-bucket rate limits. A slot is tied to the exact issued
+`ThrottlePermit` object. Duplicate returns, copied values, and permits issued by
+another service cannot increase its capacity. Rejection or an exception before
+the permit is published returns the acquired global slot. Token-bucket tokens
+are not refundable.
+
+Rates must be finite and positive; invalid updates leave both configured rates
+unchanged. This throttle is not a distributed reservation authority. Returning
+its slot still depends on the issuing query's physical-drain lifecycle.
+
 ## HTTP Rate Limiting
 
 The coordinator HTTP server applies a per-minute request rate limit through

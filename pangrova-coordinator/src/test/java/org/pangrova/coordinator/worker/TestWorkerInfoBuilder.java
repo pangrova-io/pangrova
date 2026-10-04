@@ -3,9 +3,9 @@ package org.pangrova.coordinator.worker;
 import java.time.Instant;
 import java.util.List;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.resource.MemoryPressure;
+import org.pangrova.testing.testkit.function.ActualNativeCatalogue;
 
 /**
  * Test factory for WorkerInfo instances using the canonical constructor.
@@ -120,12 +120,12 @@ public final class TestWorkerInfoBuilder {
                 null, List.of(), null, canonicalInventory());
     }
 
-    /** Returns an empty canonical v2 inventory for non-capability scheduling tests. */
+    /** Returns the complete unmodified actual catalogue for scheduling contract tests. */
     public static CapabilityInventory canonicalInventory() {
-        return CapabilityInventory.newBuilder()
-                .setProtocol(CanonicalTaskRequests.protocolVersion())
-                .setResultEnvelopeVersion(1)
-                .setNativeEngineVersion("test-native")
-                .build();
+        try {
+            return CapabilityInventory.parseFrom(ActualNativeCatalogue.bytes());
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new IllegalStateException("Actual Native catalogue exporter artifact is malformed", failure);
+        }
     }
 }

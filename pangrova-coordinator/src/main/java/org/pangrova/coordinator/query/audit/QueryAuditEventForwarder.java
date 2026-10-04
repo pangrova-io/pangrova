@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.audit;
 
 import java.util.List;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

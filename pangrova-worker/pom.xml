@@ -220,6 +220,28 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>native-runtime-fixtures</id>
+                        <phase>test-compile</phase>
+                        <goals><goal>test-jar</goal></goals>
+                        <configuration>
+                            <classifier>native-fixtures</classifier>
+                            <includes>
+                                <include>org/pangrova/testing/nativefixture/**</include>
+                            </includes>
+                            <archive>
+                                <manifestEntries>
+                                    <Automatic-Module-Name>org.pangrova.testing.nativefixture</Automatic-Module-Name>
+                                </manifestEntries>
+                            </archive>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!-- Copy native library from CMake build dir to classpath for tests.
                  Same path as production (classpath extraction via NativeLibraryLoader).
                  Skipped if the dylib doesn't exist (no native build). -->

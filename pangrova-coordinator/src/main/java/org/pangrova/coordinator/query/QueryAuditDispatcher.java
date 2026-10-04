@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
 import java.util.List;
 
 import org.pangrova.coordinator.query.audit.QueryAuditEmitter;

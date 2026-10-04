@@ -15,7 +15,8 @@ import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 
 import java.security.MessageDigest;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.LongSupplier;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Streams verified external-shuffle chunks without whole-batch JVM materialization. */
 @ThreadSafe
@@ -23,9 +24,12 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
 
     private final ExternalShuffleTransport binding;
     private final RemoteShuffleClient client;
+    private final RemoteShuffleClientLease clientLease;
     private final ExchangeChannelContext context;
     private final RenewableShuffleAccess access;
-    private RemoteShufflePartitionRead read;
+    private final Object readerOwnership = new Object();
+    private final Set<RemoteShufflePartitionRead> ownedReads = ConcurrentHashMap.newKeySet();
+    private volatile RemoteShufflePartitionRead read;
     private ShuffleAccessCapability activeCapability;
     private final StreamingBatchChunkValidator validator =
             new StreamingBatchChunkValidator();
@@ -35,16 +39,10 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
     /** Opens a bounded gRPC read using the binding's exact partition endpoint. */
     public RemoteShuffleExchangeSource(
             ExternalShuffleTransport binding,
-            RemoteShuffleClient client) {
-        this(binding, client, System::currentTimeMillis);
-    }
-
-    RemoteShuffleExchangeSource(
-            ExternalShuffleTransport binding,
-            RemoteShuffleClient client,
-            LongSupplier renewalClock) {
+            RemoteShuffleClientLease clientLease) {
         this.binding = checkNotNull(binding, "binding must not be null");
-        this.client = checkNotNull(client, "client must not be null");
+        this.clientLease = checkNotNull(clientLease, "clientLease must not be null");
+        this.client = clientLease.client();
         this.context = channelContext(binding);
         var readAccess = binding.readAccess();
         ShuffleAccessCapability initial = ShuffleAccessCapability.newBuilder()
@@ -53,15 +51,23 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
                 .build();
         this.access = new RenewableShuffleAccess(client, binding.shuffleId(),
                 context.taskAttempt(), ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ,
-                initial, renewalClock);
-        this.activeCapability = access.currentAtBoundary(context.deadlineEpochMillis());
-        this.read = client.openPartitionRead(
-                binding.shuffleId(), context, activeCapability, 0);
+                initial);
+        try {
+            this.activeCapability = access.currentAtBoundary(context.deadlineEpochMillis());
+            this.read = client.openPartitionRead(binding.shuffleId(), context, activeCapability, 0);
+            ownedReads.add(read);
+        } catch (RuntimeException | Error failure) {
+            try { clientLease.close(); } catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
     }
 
     /** Returns one verified chunk, or {@code null} after a verified terminal frame. */
     public synchronized BatchChunk nextVerifiedChunk() {
-        if (closed.get() || finished.get()) {
+        if (closed.get()) {
+            throw new RemoteShuffleClientException("External shuffle source was revoked");
+        }
+        if (finished.get()) {
             return null;
         }
         if (!validator.hasPartialBatch()) {
@@ -95,10 +101,21 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
         }
         RemoteShufflePartitionRead replacement = client.openPartitionRead(
                 binding.shuffleId(), context, next, validator.nextBatchSequence());
-        RemoteShufflePartitionRead previous = read;
-        read = replacement;
-        activeCapability = next;
+        final RemoteShufflePartitionRead previous;
+        synchronized (readerOwnership) {
+            ownedReads.add(replacement);
+            previous = read;
+            if (!closed.get()) {
+                read = replacement;
+                activeCapability = next;
+            }
+        }
+        if (closed.get()) {
+            replacement.revoke();
+            throw new RemoteShuffleClientException("External shuffle source was revoked");
+        }
         previous.close();
+        ownedReads.remove(previous);
     }
 
     private BatchChunk verifiedChunk(BatchChunk chunk, long rowCount) {
@@ -145,10 +162,36 @@ public final class RemoteShuffleExchangeSource implements AutoCloseable {
 
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            read.close();
-            finished.set(true);
+        revoke();
+        RuntimeException failure = null;
+        for (RemoteShufflePartitionRead owned : ownedReads) {
+            try {
+                owned.close();
+                ownedReads.remove(owned);
+            } catch (RuntimeException closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else failure.addSuppressed(closeFailure);
+            }
         }
+        if (failure != null) throw failure;
+        clientLease.close();
+    }
+
+    /** Stops new reads without treating cancellation as a verified terminal. */
+    public void revoke() {
+        synchronized (readerOwnership) {
+            closed.set(true);
+        }
+        RuntimeException failure = null;
+        for (RemoteShufflePartitionRead owned : ownedReads) {
+            try {
+                owned.revoke();
+            } catch (RuntimeException revokeFailure) {
+                if (failure == null) failure = revokeFailure;
+                else failure.addSuppressed(revokeFailure);
+            }
+        }
+        if (failure != null) throw failure;
     }
 
     private static ExchangeChannelContext channelContext(

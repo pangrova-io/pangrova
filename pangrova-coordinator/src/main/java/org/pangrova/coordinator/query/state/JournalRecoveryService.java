@@ -26,7 +26,8 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <p>Recovery order: queries first (registers state machines), then tasks
  * (registers task tracking and worker assignments). After replay, performs
  * worker liveness checks: tasks on dead or unknown workers cause the owning
- * query to be marked FAILED and purged from the journal.
+ * query to be marked FAILED. Journal rows and physical ownership remain until
+ * QueryManager validates exact execution exit and completes its cleanup gate.
  *
  * <p><strong>Owner-scoped recovery (Task 51, SI-6):</strong> When a
  * {@code previousLeaderId} is provided, recovery replays only journal rows
@@ -177,6 +178,8 @@ public final class JournalRecoveryService {
                 QueryStateMachine sm = new QueryStateMachine();
                 QueryStateMachine.State target = QueryStateMachine.State.valueOf(event.state());
                 advanceToState(sm, target);
+                // Logical events do not retain the original issued requests or Native exit receipts.
+                queryManager.markRecoveredIssuanceUnresolved(event.queryId());
                 queryManager.registerStateMachine(event.queryId(), sm);
                 count++;
                 LOG.debug("event=query_recovered queryId={} state={}",
@@ -224,7 +227,8 @@ public final class JournalRecoveryService {
     /**
      * Checks worker liveness for all recovered tasks. Groups tasks by query,
      * then for each query checks if any task's assigned worker is dead or unknown.
-     * If so, marks the query FAILED and purges it from the journal.
+     * If so, marks the query FAILED while retaining journal and unresolved
+     * physical ownership until the QueryManager cleanup gate has exact exit evidence.
      *
      * <p><strong>Grace window (Task 51, SI-6):</strong> When {@code workerLivenessGraceMs > 0},
      * workers whose health evaluates to UNKNOWN are given leniency: they may be
@@ -297,12 +301,9 @@ public final class JournalRecoveryService {
             } catch (Exception e) {
                 LOG.warn("event=recovery_query_fail_error queryId={} error={}", queryId, e.getMessage());
             }
-            try {
-                journal.purgeQuery(queryId);
-                LOG.warn("event=recovery_query_failed queryId={} reason=worker_dead_or_unreachable", queryId);
-            } catch (Exception e) {
-                LOG.warn("event=recovery_journal_purge_error queryId={} error={}", queryId, e.getMessage());
-            }
+            // A missing Worker is not an execution-drain receipt. The query
+            // physical-cleanup authority retains and eventually purges its journal.
+            LOG.warn("event=recovery_query_failed queryId={} reason=worker_dead_or_unreachable", queryId);
         }
 
         return failedQueries.size();

@@ -12,7 +12,7 @@ import org.pangrova.resource.memory.MemoryArbitrator;
 import org.pangrova.resource.memory.RootMemoryPool;
 import org.pangrova.resource.spill.SpillManager;
 import org.pangrova.resource.thread.ThreadBudgetTracker;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.http.endpoint.TaskResource;
 import org.pangrova.worker.task.memory.MemoryRefs;
 
@@ -94,17 +94,22 @@ class TaskManagerMemoryAllocationTest {
                                                           long nativeBytes, long bufferBytes) {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = admission(runtime, arbitratorBytes, nodeBytes)) {
-            assertThatThrownBy(() -> tasks.submit(request(nativeBytes, bufferBytes)))
+            var tracker = new org.pangrova.resource.tenant.TenantResourceTracker();
+            tasks.manager().setQuotaEnforcer(new TenantExecutionQuotaEnforcer(tracker));
+            var actualRequest = request(nativeBytes, bufferBytes);
+            String tenant = actualRequest.getSecurity().getTenantId();
+            assertThatThrownBy(() -> tasks.submit(actualRequest))
                     .isInstanceOf(PangrovaException.class)
                     .satisfies(error -> assertThat(((PangrovaException) error).getErrorCode())
                             .isEqualTo(PangrovaErrorCode.RESOURCE_MEMORY_EXCEEDED));
             assertUnregistered(tasks);
+            assertThat(tracker.getActiveQueryCount(tenant)).isZero();
         }
     }
 
     private static void assertUnregistered(ActualTaskManagerFixture tasks) {
         assertThat(tasks.manager().tasks).isEmpty();
-        assertThat(tasks.manager().coordinatorTaskIndex).isEmpty();
+        assertThat(tasks.manager().taskAdmissions.size()).isZero();
         assertThat(tasks.reports().reports()).isEmpty();
     }
 

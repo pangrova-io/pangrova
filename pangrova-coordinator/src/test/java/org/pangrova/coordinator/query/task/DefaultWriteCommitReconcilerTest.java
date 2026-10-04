@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.query.task.write.WriteCommitReconciler;
+
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.CatalogState;

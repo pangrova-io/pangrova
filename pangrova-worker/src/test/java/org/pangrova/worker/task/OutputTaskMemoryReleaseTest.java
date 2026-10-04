@@ -22,7 +22,7 @@ import org.pangrova.spi.execution.PlanNodeId;
 import org.pangrova.spi.execution.QueryId;
 import org.pangrova.spi.execution.TaskDescriptor;
 import org.pangrova.spi.execution.TaskResourceLimit;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.task.memory.MemoryRefs;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 
@@ -83,6 +83,52 @@ class OutputTaskMemoryReleaseTest {
         assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
         assertThat(receipt.hasNativeTaskStats()).isTrue();
         assertThat(receipt.getNativeTaskStats().toByteArray()).isEqualTo(info.terminalTaskStats());
+        var released = reports.reports().stream().filter(value -> "FINISHED".equals(value.state())).toList();
+        assertThat(released).hasSize(2);
+        assertThat(released.get(1).reportSequence()).isGreaterThan(released.get(0).reportSequence());
+        assertThat(TaskReport.parseFrom(released.get(1).canonicalTaskReport())).isEqualTo(receipt);
+        assertThat(TaskReport.parseFrom(released.get(0).canonicalTaskReport()).getExecutionDrainState())
+                .isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED);
+    }
+
+    @Test
+    void actualReleasePublicationFailureRetainsOneEnvelopeUntilNextCleanupSweep() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long available = runtime.arbitrator().getAvailableMemory();
+        var request = runtime.valuesRequest(true);
+        var rejectFirstObservation = new java.util.concurrent.atomic.AtomicBoolean(true);
+        TaskStatusReporter observer = report -> {
+            reports.report(report);
+            if (isNativeReleased(report) && rejectFirstObservation.compareAndSet(true, false)) {
+                throw new IllegalStateException("Actual released-report observation interrupted");
+            }
+        };
+        TaskInfo info = submit(request, "OUTPUT", observer);
+        awaitFinishedReport();
+        consumeActualResult(request);
+        await().atMost(Duration.ofSeconds(20)).until(() -> runtime.drainEvidence(info.executorHandle(), request).getDrained());
+        assertThatThrownBy(() -> manager.cleanupTerminalTasks(Duration.ofHours(1)))
+                .hasMessageContaining("cleanup sweep failed");
+        assertThat(manager.tasks.get(info.taskId())).isSameAs(info);
+        assertThat(info.resourcesReleased()).isTrue();
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
+        assertThat(manager.cleanupTerminalTasks(Duration.ofHours(1))).isEqualTo(1);
+        assertThat(manager.tasks).doesNotContainKey(info.taskId());
+        var attempts = reports.reports().stream().filter(OutputTaskMemoryReleaseTest::isNativeReleased).toList();
+        assertThat(attempts).hasSize(2);
+        assertThat(attempts.get(1)).isSameAs(attempts.get(0));
+        assertThat(attempts.get(1).canonicalTaskReport()).isEqualTo(info.executorReleaseReport());
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
+    }
+
+    private static boolean isNativeReleased(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        if (report.canonicalTaskReport() == null) return false;
+        try {
+            return TaskReport.parseFrom(report.canonicalTaskReport()).getExecutionDrainState()
+                    == org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED;
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            throw new IllegalStateException("Actual producer supplied malformed canonical metadata", malformed);
+        }
     }
 
     @Test

@@ -81,8 +81,7 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
         MetadataSchemaInitializer.createStateStoreTables(journalDs);
         truncateJournalTables(journalDs);
 
-        StateJournalConfig config = new StateJournalConfig(
-                "JDBC", mysqlJdbcUrl(), 50, 20, 24);
+        StateJournalConfig config = new StateJournalConfig("JDBC", mysqlJdbcUrl(), 50, 20, 24, 50_000);
         journal = new JdbcQueryStateJournal(journalDs, config);
 
         DistributedLease lease = new TestLeaseNamespace().jdbc(journalDs);
@@ -128,8 +127,7 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             // QueryManager does when a query is submitted
             String queryId = "journal-verify-" + System.nanoTime();
             long now = System.currentTimeMillis();
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT SUM(value) FROM " + fqn, "{}", "QUEUED", now));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT SUM(value) FROM " + fqn, "{}", "QUEUED"));
 
             // Verify journal has the QUEUED event
             int queuedCount = countJournalEvents(journalDs, queryId, "QUEUED");
@@ -138,8 +136,7 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
                     .isGreaterThanOrEqualTo(1);
 
             // Simulate query completion — write FINISHED and purge
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "FINISHED", now + 100));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 100, null), queryId, null, null, "FINISHED"));
             journal.purgeQuery(queryId);
 
             // Verify journal is purged
@@ -166,12 +163,9 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             long now = System.currentTimeMillis();
 
             // Simulate the full journal lifecycle: QUEUED → DISPATCHED → RUNNING → FINISHED
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-1", "DISPATCHED", 0, 1, now + 1));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-1", "RUNNING", 0, 2, now + 2));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, taskId, "worker-1", "DISPATCHED", 0, 1));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, taskId, "worker-1", "RUNNING", 0, 2));
 
             // Verify DISPATCHED event exists in journal before completion
             int dispatchedCount = countTaskJournalEvents(journalDs, queryId, "DISPATCHED");
@@ -190,8 +184,7 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
                     .contains(taskId);
 
             // Complete and purge
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "FINISHED", now + 100));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 100, null), queryId, null, null, "FINISHED"));
             journal.purgeQuery(queryId);
 
             // Verify purged
@@ -222,14 +215,10 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             String taskId = "task-crash-1";
             long now = System.currentTimeMillis();
 
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, "SELECT * FROM some_table", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    queryId, null, null, "RUNNING", now + 1));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-crash-1", "DISPATCHED", 0, 1, now + 2));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    queryId, taskId, "worker-crash-1", "RUNNING", 0, 2, now + 3));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), queryId, "SELECT * FROM some_table", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), queryId, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), queryId, taskId, "worker-crash-1", "DISPATCHED", 0, 1));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), queryId, taskId, "worker-crash-1", "RUNNING", 0, 2));
 
             // Phase 2: Simulate coordinator-1 crash (release lease)
             leaderElection.release("coordinator-1");
@@ -273,20 +262,14 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             long now = System.currentTimeMillis();
 
             // Query 1: assigned to worker that will be registered (alive)
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q1, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q1, null, null, "RUNNING", now + 1));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    q1, "task-alive-1", "worker-alive", "RUNNING", 0, 1, now + 2));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), q1, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), q1, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), q1, "task-alive-1", "worker-alive", "RUNNING", 0, 1));
 
             // Query 2: assigned to worker that will NOT be registered (dead)
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q2, "SELECT 2", "{}", "QUEUED", now + 3));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    q2, null, null, "RUNNING", now + 4));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    q2, "task-dead-1", "worker-dead", "RUNNING", 0, 1, now + 5));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 3, null), q2, "SELECT 2", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 4, null), q2, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 5, null), q2, "task-dead-1", "worker-dead", "RUNNING", 0, 1));
 
             // Simulate crash
             leaderElection.release("coordinator-1");
@@ -334,12 +317,9 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
 
             String oldQueryId = "old-query-" + System.nanoTime();
             long now = System.currentTimeMillis();
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    oldQueryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    oldQueryId, null, null, "RUNNING", now + 1));
-            journal.appendTaskEventSync(new TaskStateEvent(
-                    oldQueryId, "old-task", "dead-worker", "RUNNING", 0, 1, now + 2));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), oldQueryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), oldQueryId, null, null, "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 2, null), oldQueryId, "old-task", "dead-worker", "RUNNING", 0, 1));
 
             leaderElection.release("coordinator-1");
             leaderElection.tryAcquire("coordinator-2", LEASE_MS);
@@ -452,10 +432,8 @@ class JournalWiredFailoverE2ETest extends SqlE2ETestBase {
             // Journal some events to prove journal presence doesn't corrupt queries
             String journaledQueryId = "journal-noise-" + System.nanoTime();
             long now = System.currentTimeMillis();
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    journaledQueryId, "SELECT 1", "{}", "QUEUED", now));
-            journal.appendQueryEventSync(new QueryStateEvent(
-                    journaledQueryId, null, null, "FINISHED", now + 1));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now, null), journaledQueryId, "SELECT 1", "{}", "QUEUED"));
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(now + 1, null), journaledQueryId, null, null, "FINISHED"));
             journal.purgeQuery(journaledQueryId);
 
             // Failover

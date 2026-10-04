@@ -20,13 +20,16 @@ final class SubstraitAggregateShape {
         aggregate.getGroupingsList().forEach(group -> references.addAll(group.getExpressionReferencesList()));
         if (references.stream().anyMatch(index -> index < 0 || index >= aggregate.getGroupingExpressionsCount())
                 || references.size() != aggregate.getGroupingExpressionsCount()) {
-            throw new IllegalArgumentException("Grouping expressions must be referenced exactly within their shared list");
+            throw new IllegalArgumentException(
+                    "Grouping expressions must be referenced exactly within their shared list");
         }
         List<SubstraitSchemaFields.Field> fields = new ArrayList<>();
         for (int index = 0; index < aggregate.getGroupingExpressionsCount(); index++) {
             final int declaredIndex = index;
-            var field = SubstraitRelationShapes.expressionField(aggregate.getGroupingExpressions(index), input, "group_" + index);
-            if (aggregate.getGroupingsList().stream().anyMatch(group -> !group.getExpressionReferencesList().contains(declaredIndex))) {
+            var field = SubstraitRelationShapes.expressionField(
+                    aggregate.getGroupingExpressions(index), input, "group_" + index);
+            if (aggregate.getGroupingsList().stream()
+                    .anyMatch(group -> !group.getExpressionReferencesList().contains(declaredIndex))) {
                 field = new SubstraitSchemaFields.Field(field.name(), SubstraitSchemaFields.withNullability(
                         field.type(), Type.Nullability.NULLABILITY_NULLABLE), field.descendants());
             }
@@ -38,8 +41,10 @@ final class SubstraitAggregateShape {
             fields.add(SubstraitSchemaFields.computed("measure_" + i,
                     SubstraitExpressionTypes.declared(measure.getMeasure().getOutputType())));
         }
-        if (aggregate.getGroupingsCount() > 1) fields.add(SubstraitSchemaFields.computed("grouping_set_index",
-                SubstraitSchemaFields.primitive("i32", Type.Nullability.NULLABILITY_REQUIRED)));
+        if (aggregate.getGroupingsCount() > 1) {
+            fields.add(SubstraitSchemaFields.computed("grouping_set_index",
+                    SubstraitSchemaFields.primitive("i32", Type.Nullability.NULLABILITY_REQUIRED)));
+        }
         return SubstraitSchemaFields.schema(fields);
     }
 }

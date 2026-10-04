@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.PlanResult;
@@ -74,9 +74,13 @@ public final class CompilationPhase implements QueryExecutionPhase {
 
     @Override
     public PhaseResult execute(QueryExecutionContext context) {
-        SqlCompiler currentCompiler = compilerSnapshotFn.apply(context.compiler()).forSession(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(context.session()));
-        TimeTravelResult ttResult = timeTravelExtractor.extract(context.sql(), currentCompiler, context.session());
+        SqlCompiler snapshot = compilerSnapshotFn.apply(context.compiler());
+        var session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(context.session());
+        SqlCompiler extractionCompiler = snapshot.forSession(session);
+        TimeTravelResult ttResult = timeTravelExtractor.extract(context.sql(), extractionCompiler, context.session());
+        SqlCompiler currentCompiler = ttResult.snapshotOverrides().isEmpty() ? extractionCompiler
+                : snapshot.forSession(org.pangrova.coordinator.metadata.read.PlanningSnapshotSelectors.bind(
+                        session, ttResult.snapshotOverrides()));
         QueryExecutionContext updated = context.withCompiler(currentCompiler)
                 .withTimeTravelResult(ttResult.strippedSql(), ttResult.snapshotOverrides());
 

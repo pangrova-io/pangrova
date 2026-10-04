@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import com.google.protobuf.ByteString;
 import io.substrait.proto.Type;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.protocol.function.GovernedBindingProjection;
 import org.pangrova.protocol.function.GovernedScalarValue;
 import org.pangrova.protocol.v2.ExecutionPolicy;

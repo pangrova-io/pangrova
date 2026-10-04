@@ -1,7 +1,9 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
+import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.Connector;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
@@ -14,6 +16,7 @@ import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.apache.paimon.catalog.Catalog;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Paimon connector providing metadata, split management, and page source access.
@@ -28,6 +31,8 @@ public class PaimonConnector implements Connector {
     private final PaimonPageSourceProvider pageSourceProvider;
     private final PaimonPageSinkProvider pageSinkProvider;
     private final PaimonSplitRegistry splitRegistry;
+    private final AtomicBoolean shutdownInProgress = new AtomicBoolean();
+    private volatile boolean catalogClosed;
 
     PaimonConnector(String catalogName, Catalog catalog, String tempDir) {
         this.catalogName = catalogName;
@@ -86,11 +91,19 @@ public class PaimonConnector implements Connector {
 
     @Override
     public void shutdown() {
-        splitRegistry.clear();
+        if (!shutdownInProgress.compareAndSet(false, true)) {
+            throw new IllegalStateException("Paimon connector shutdown is still in progress");
+        }
         try {
+            if (catalogClosed) return;
             catalog.close();
-        } catch (Exception e) {
-            // Lenient close — filesystem catalogs may already be closed
+            splitRegistry.clear();
+            catalogClosed = true;
+        } catch (Exception failure) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TRANSIENT_ERROR,
+                    "Paimon connector shutdown failed: " + catalogName, failure);
+        } finally {
+            shutdownInProgress.set(false);
         }
     }
 

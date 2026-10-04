@@ -211,7 +211,7 @@ class NativeFunctionBridgeTest {
                         "tenant-a", "alice", "query-a", "task-a", "trace-a", 4_102_444_800_000L),
                 org.pangrova.protocol.v2.StageResourceGrant.newBuilder().setGrantId("grant")
                         .setCpuSlots(1).setNativeMemoryBytes(1048576).build());
-        return org.pangrova.protocol.CanonicalTaskRequests.callbackFor(request).toByteArray();
+        return org.pangrova.protocol.task.CanonicalTaskRequests.callbackFor(request).toByteArray();
     }
 
     // ---- Aggregate registration ----

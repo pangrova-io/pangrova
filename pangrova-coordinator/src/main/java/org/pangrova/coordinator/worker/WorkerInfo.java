@@ -3,7 +3,7 @@ package org.pangrova.coordinator.worker;
 import java.time.Instant;
 import java.util.List;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.resource.MemoryPressure;

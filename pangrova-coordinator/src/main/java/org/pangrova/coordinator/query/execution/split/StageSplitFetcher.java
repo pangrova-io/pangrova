@@ -60,11 +60,11 @@ public final class StageSplitFetcher {
     private List<SplitFetcher.SplitWithPaths> fetchWithoutConstraints(
             StageNode plan,
             StageDAG dag,
-            Map<String, Long> overrides, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            Map<String, Long> overrides, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         List<SplitSourceDescriptor> sources = plan.stagePlan().splitSources().stream()
                 .map(source -> new SplitSourceDescriptor(
                         source.catalogName(), source.schemaName(), source.tableName(),
-                        Constraint.EMPTY, source.tableColumns()))
+                        Constraint.EMPTY, source.tableColumns(), source.readBinding()))
                 .toList();
         return SplitFetcher.fetchSplitsWithFilePaths(
                 sources, catalogRegistry, overrides,
@@ -74,7 +74,7 @@ public final class StageSplitFetcher {
     private List<SplitFetcher.SplitWithPaths> fetchFromCatalog(
             StageNode plan,
             StageDAG dag,
-            Map<String, Long> overrides, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            Map<String, Long> overrides, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         return SplitFetcher.fetchSplitsWithFilePaths(
                 plan.stagePlan().splitSources(), catalogRegistry, overrides,
                 plan.stagePlan().queryOutputColumns(), session);

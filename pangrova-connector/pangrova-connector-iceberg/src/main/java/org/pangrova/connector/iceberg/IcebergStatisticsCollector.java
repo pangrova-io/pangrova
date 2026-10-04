@@ -51,7 +51,9 @@ final class IcebergStatisticsCollector {
      */
     static Map<String, TableStatistics.ColumnStatistics> collectColumnStatistics(
             Snapshot snapshot, Table icebergTable) {
-        Schema schema = icebergTable.schema();
+        Schema schema = snapshot.schemaId() == null ? icebergTable.schema()
+                : icebergTable.schemas().get(snapshot.schemaId());
+        if (schema == null) throw new IllegalStateException("Selected statistics schema is unavailable");
         Map<String, TableStatistics.ColumnStatistics> colStats = new HashMap<>();
         for (Types.NestedField field : schema.columns()) {
             colStats.put(field.name(), TableStatistics.ColumnStatistics.UNKNOWN);
@@ -75,21 +77,17 @@ final class IcebergStatisticsCollector {
         Map<Integer, Long> nullCounts = new HashMap<>();
         Map<Integer, Comparable<?>> lowerBounds = new HashMap<>();
         Map<Integer, Comparable<?>> upperBounds = new HashMap<>();
-        long totalFileSize = 0;
-        int fileCount = 0;
 
         for (org.apache.iceberg.ManifestFile manifest : snapshot.dataManifests(icebergTable.io())) {
             try (org.apache.iceberg.ManifestReader<org.apache.iceberg.DataFile> reader =
                          org.apache.iceberg.ManifestFiles.read(manifest, icebergTable.io())) {
                 for (org.apache.iceberg.DataFile dataFile : reader) {
-                    totalFileSize += dataFile.fileSizeInBytes();
-                    fileCount++;
                     aggregateNullCounts(nullCounts, dataFile);
                     aggregateBounds(lowerBounds, upperBounds, dataFile, schema);
                 }
             }
         }
-        return new AggregatedManifestStats(nullCounts, lowerBounds, upperBounds, totalFileSize, fileCount);
+        return new AggregatedManifestStats(nullCounts, lowerBounds, upperBounds);
     }
 
     /**
@@ -106,9 +104,9 @@ final class IcebergStatisticsCollector {
             Comparable<?> min = agg.lowerBounds().get(fieldId);
             Comparable<?> max = agg.upperBounds().get(fieldId);
             long ndv = puffinNdv.getOrDefault(fieldId, -1L);
-            double avgSize = agg.fileCount() > 0
-                    ? (double) agg.totalFileSize() / agg.fileCount() / schema.columns().size()
-                    : -1.0;
+            // File bytes divided by file/column count are not per-row value bytes.
+            // The SDK metadata does not prove an uncompressed average value size.
+            double avgSize = -1.0;
             colStats.put(field.name(),
                     new TableStatistics.ColumnStatistics(nullCount, ndv, min, max, avgSize));
         }
@@ -282,7 +280,7 @@ final class IcebergStatisticsCollector {
             return;
         }
         for (var entry : fileNulls.entrySet()) {
-            nullCounts.merge(entry.getKey(), entry.getValue(), Long::sum);
+            nullCounts.merge(entry.getKey(), entry.getValue(), Math::addExact);
         }
     }
 
@@ -334,7 +332,5 @@ final class IcebergStatisticsCollector {
     private record AggregatedManifestStats(
             Map<Integer, Long> nullCounts,
             Map<Integer, Comparable<?>> lowerBounds,
-            Map<Integer, Comparable<?>> upperBounds,
-            long totalFileSize,
-            int fileCount) {}
+            Map<Integer, Comparable<?>> upperBounds) {}
 }

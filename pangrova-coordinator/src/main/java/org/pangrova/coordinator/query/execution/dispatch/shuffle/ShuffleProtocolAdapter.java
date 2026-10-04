@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.protobuf.ByteString;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;

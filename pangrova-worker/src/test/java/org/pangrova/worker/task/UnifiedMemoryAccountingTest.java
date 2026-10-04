@@ -219,11 +219,11 @@ class UnifiedMemoryAccountingTest {
                 new QueryId(queryId), new TestPlanFragment(), List.of(), Map.of(),
                 0, 0, "COMPUTE", new TaskResourceLimit(memoryBytes, 1, 0, ""));
         var shuffle = org.pangrova.protocol.v2.ShuffleTaskOptions.newBuilder()
-                .setSerde(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW)
-                .setCompressionCodec("NONE").setBatchSize(1000).setPartitionCount(1)
+                .setSerde(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH)
+                .setCompressionCodec("none").setBatchSize(1000).setPartitionCount(1)
                 .setPersistenceMode(org.pangrova.protocol.v2.ShufflePersistenceMode
                         .SHUFFLE_PERSISTENCE_MODE_MEMORY_ONLY);
-        var canonical = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+        var canonical = org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
                         taskId, queryId, 0, 0,
                         org.pangrova.protocol.v2.TaskKind.TASK_KIND_SHUFFLE_WRITE,
                         "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8))

@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
+
 import org.pangrova.resource.memory.RootMemoryPool;
 import org.pangrova.resource.memory.NodeMemoryPool;
 import org.pangrova.resource.memory.QueryMemoryPool;
@@ -139,7 +141,8 @@ class MemoryPoolAssemblyVerificationTest {
                 WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_RETENTION,
                 WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_TRANSIT,
                 WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL,
-                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL_FILES, null);
+                WorkerBootstrapConfig.ResourceConfig.DEFAULT_SHUFFLE_SPILL_FILES, null,
+                WorkerBootstrapConfig.ResourceConfig.defaults().shuffleChannelLimits());
         WorkerBootstrapConfig config = new WorkerBootstrapConfig(
                 "mem-pool-config", 0, 0, stubCoordinator.baseUrl(),
                 WorkerBootstrapConfig.DEFAULT_HEARTBEAT_INTERVAL_MS,

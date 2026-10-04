@@ -88,9 +88,13 @@ class ProtoMessageFieldGoldenPropertyTest {
         RESOURCE_LIMIT_GOLDEN.put(10, "uint64");
         RESOURCE_LIMIT_GOLDEN.put(11, "uint64");
         RESOURCE_LIMIT_GOLDEN.put(12, "uint32");
-        RESOURCE_LIMIT_GOLDEN.put(13, "uint64");
-        RESOURCE_LIMIT_GOLDEN.put(14, "uint64");
         RESOURCE_LIMIT_GOLDEN.put(15, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(16, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(18, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(19, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(20, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(21, "uint64");
+        RESOURCE_LIMIT_GOLDEN.put(22, "uint64");
     }
 
     private static final Map<Integer, String> SHUFFLE_CONFIG_GOLDEN = new LinkedHashMap<>();
@@ -144,6 +148,19 @@ class ProtoMessageFieldGoldenPropertyTest {
         assertThat(parsed)
                 .as("Canonical ResourceLimit field %d must be type '%s'", e.getKey(), e.getValue())
                 .containsEntry(e.getKey(), e.getValue());
+    }
+
+    @Test
+    void canonicalResourceGrantHasTheCompleteLiveInventoryAndReservedRetiredFields() throws IOException {
+        var source = Files.readString(CANONICAL_COMMON_PROTO);
+        assertThat(parseMessageBody(source, "StageResourceGrant")).isEqualTo(RESOURCE_LIMIT_GOLDEN);
+        var start = source.indexOf("message StageResourceGrant {");
+        assertThat(start).isNotNegative();
+        var end = source.indexOf('}', start);
+        assertThat(end).isGreaterThan(start);
+        var body = source.substring(start, end);
+        assertThat(body).contains("reserved 13, 14, 17;");
+        assertThat(body).contains("reserved \"provider_input_tokens\", \"provider_output_tokens\", \"provider_invocations\";");
     }
 
     @Property(tries = 10)

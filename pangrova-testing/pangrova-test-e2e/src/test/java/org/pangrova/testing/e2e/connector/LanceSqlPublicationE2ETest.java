@@ -3,7 +3,7 @@ package org.pangrova.testing.e2e.connector;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.lance.LanceTableHandle;
 import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.coordination.WriteCommitEntry;

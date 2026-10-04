@@ -10,28 +10,18 @@ import java.util.Objects;
  * @param sql            the SQL text submitted (nullable for non-QUEUED events)
  * @param sessionJson    serialized session context (nullable for non-QUEUED events)
  * @param state          the query state at this transition point (required)
- * @param timestampMs    epoch millis when the transition occurred
- * @param coordinatorId  the coordinator that owns this query (nullable for legacy events)
+ * @param context        immutable identity, original time and issuing owner
  */
 public record QueryStateEvent(
+        JournalEventContext context,
         String queryId,
         String sql,
         String sessionJson,
-        String state,
-        long timestampMs,
-        String coordinatorId
+        String state
 ) {
     public QueryStateEvent {
+        Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(state, "state must not be null");
-        if (timestampMs < 0) {
-            throw new IllegalArgumentException("timestampMs must be non-negative");
-        }
-    }
-
-    /** Backward-compatible constructor without coordinatorId. */
-    public QueryStateEvent(String queryId, String sql, String sessionJson,
-                           String state, long timestampMs) {
-        this(queryId, sql, sessionJson, state, timestampMs, null);
     }
 }

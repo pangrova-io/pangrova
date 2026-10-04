@@ -36,7 +36,8 @@ final class GeneratedProtectedInputFixtures {
                         .addAllNames(List.of("title", "body"))));
         SubstraitProtocolVersion.stamp(plan);
         byte[] bytes = plan.build().toByteArray();
-        var source = new SplitSourceDescriptor("lake", "sales", "documents", Constraint.EMPTY, columns);
+        var source = new SplitSourceDescriptor("lake", "sales", "documents", Constraint.EMPTY, columns,
+                java.util.Optional.empty());
         var graph = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new AuthorizedStageGraph.SerializedStage(0, 1, "OUTPUT",
                         new SerializedPlanFragment(bytes, List.of(), List.of()), List.of(source),

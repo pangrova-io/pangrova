@@ -52,16 +52,13 @@ public class TenantResourceTracker {
      */
     public boolean tryAcquireQuery(String tenantId) {
         TenantResourceQuota quota = getQuota(tenantId);
-        if (!quota.hasConcurrencyLimit()) {
-            activeQueries.computeIfAbsent(tenantId, k -> new AtomicInteger(0)).incrementAndGet();
-            return true;
-        }
+        int limit = quota.hasConcurrencyLimit() ? quota.maxConcurrentQueries() : Integer.MAX_VALUE;
         AtomicInteger counter = activeQueries.computeIfAbsent(tenantId, k -> new AtomicInteger(0));
         while (true) {
             int current = counter.get();
-            if (current >= quota.maxConcurrentQueries()) {
+            if (current >= limit) {
                 LOG.warn("event=tenant_query_rejected tenantId={} active={} limit={}",
-                        tenantId, current, quota.maxConcurrentQueries());
+                        tenantId, current, limit);
                 return false;
             }
             if (counter.compareAndSet(current, current + 1)) {
@@ -87,26 +84,21 @@ public class TenantResourceTracker {
      * @return true if memory was admitted, false if over quota
      */
     public boolean tryAllocateMemory(String tenantId, long bytes) {
-        if (bytes <= 0 || !getQuota(tenantId).hasMemoryLimit()) {
-            return trackUnlimitedMemory(tenantId, bytes);
-        }
-        return tryAllocateWithLimit(tenantId, bytes, getQuota(tenantId));
+        if (bytes <= 0) return true;
+        TenantResourceQuota quota = getQuota(tenantId);
+        long limit = quota.hasMemoryLimit() ? quota.maxMemoryBytes() : Long.MAX_VALUE;
+        return tryAllocateWithLimit(tenantId, bytes, limit);
     }
 
-    private boolean trackUnlimitedMemory(String tenantId, long bytes) {
-        if (bytes > 0) {
-            memoryUsage.computeIfAbsent(tenantId, k -> new AtomicLong(0)).addAndGet(bytes);
-        }
-        return true;
-    }
-
-    private boolean tryAllocateWithLimit(String tenantId, long bytes, TenantResourceQuota quota) {
+    private boolean tryAllocateWithLimit(String tenantId, long bytes, long limit) {
         AtomicLong usage = memoryUsage.computeIfAbsent(tenantId, k -> new AtomicLong(0));
         while (true) {
             long current = usage.get();
-            if (current + bytes > quota.maxMemoryBytes()) {
+            // Check before addition: wrapping the counter would falsely admit
+            // bytes and turn usage snapshots into an apparent zero allocation.
+            if (current > limit || bytes > limit - current) {
                 LOG.warn("event=tenant_memory_rejected tenantId={} requested={} current={} limit={}",
-                        tenantId, bytes, current, quota.maxMemoryBytes());
+                        tenantId, bytes, current, limit);
                 return false;
             }
             if (usage.compareAndSet(current, current + bytes)) {

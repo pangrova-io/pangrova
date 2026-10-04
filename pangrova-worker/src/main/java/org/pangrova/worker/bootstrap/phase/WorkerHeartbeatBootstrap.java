@@ -95,7 +95,7 @@ public final class WorkerHeartbeatBootstrap {
                 new org.pangrova.protocol.rest.worker.WorkerRegistrationRequest(
                         config.workerId(), httpHost,
                         httpPort, transportPort, resultPort,
-                        org.pangrova.protocol.CanonicalTaskRequests.PROTOCOL_MAJOR,
+                        org.pangrova.protocol.task.CanonicalTaskRequests.PROTOCOL_MAJOR,
                         null, null, null,
                         refs.nativeCapabilityInventory());
         long coordinatorEpoch;

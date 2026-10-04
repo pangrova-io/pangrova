@@ -30,6 +30,7 @@
 
 namespace facebook::velox::exec {
 class Task;
+class FunctionRegistrySnapshot;
 class HashPartitionFunction;
 struct TaskStats;
 }
@@ -38,6 +39,9 @@ namespace pangrova::velox {
 
 // Configuration for VeloxTaskRunner.
 struct VeloxTaskRunnerConfig {
+  std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry;
+  std::shared_ptr<const substrait::NamedStruct> canonical_output_schema;
+  std::unordered_map<std::string, substrait::NamedStruct> serde_schema_bindings;
   int64_t executor_handle = 0;
   std::string callback_context;
   std::string task_id;
@@ -93,6 +97,9 @@ struct VeloxTaskRunnerConfig {
   // output through OutputBufferManager. No consumer callback is set, and
   // OutputQueue is not used for the result path.
   bool is_result_task = false;
+  // Exact admitted serialized-output backpressure threshold. This is not a
+  // total-memory hard cap: Velox can enqueue a final page before blocking.
+  int64_t serialized_output_buffer_threshold_bytes = 0;
   std::vector<pangrova::result::ResultColumnVectorDimension> result_column_types;
   std::vector<std::string> result_column_labels;
 
@@ -218,10 +225,6 @@ class VeloxTaskRunner
       const std::string& plan_node_id,
       facebook::velox::column_index_t column_index,
       std::unique_ptr<facebook::velox::common::Filter> filter);
-
-  // Returns true if the task failed due to an unsupported type in the
-  // result serde (ArrowBatch mode). Used by PlanExecutionDriver to detect
-  // when serde fallback to PrestoVectorSerde is needed.
 
   // Collect Velox TaskStats after completion.
   // Returns serialized proto (TaskStats message) for Java-side consumption.

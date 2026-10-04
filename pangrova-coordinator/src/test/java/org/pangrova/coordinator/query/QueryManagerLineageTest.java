@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -98,7 +100,7 @@ class QueryManagerLineageTest {
         orchestrator = buildOrchestrator();
         return new QueryManager(new QueryManagerContext(orchestrator, TestObservability.TRACING,
                 null, null, null, lineageEmitter, null, null, null, null,
-                org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE, null));
+                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(), null));
     }
 
     private QueryManager buildQueryManagerWithoutLineage() {

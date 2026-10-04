@@ -6,6 +6,7 @@ import org.pangrova.protocol.v2.CapabilityDescriptor;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.worker.jni.NativeFunctionConfig;
+import org.pangrova.testing.testkit.function.ActualNativeCatalogue;
 
 import java.util.Arrays;
 import java.util.Map;
@@ -97,7 +98,7 @@ class WorkerBootstrapCapabilityAdvertisementTest {
         CapabilityRef second = required.toBuilder()
                 .setImplementationBuildId("native-build-b")
                 .build();
-        CapabilityInventory ambiguous = CapabilityInventory.newBuilder()
+        CapabilityInventory ambiguous = actualInventory()
                 .addCapabilities(CapabilityDescriptor.newBuilder().setRef(first))
                 .addCapabilities(CapabilityDescriptor.newBuilder().setRef(second))
                 .build();
@@ -112,7 +113,7 @@ class WorkerBootstrapCapabilityAdvertisementTest {
         CapabilityRef text = BuiltInCapabilityCatalog.aiTextGenerationPlanRef();
         CapabilityRef multimodal = BuiltInCapabilityCatalog
                 .aiMultimodalGenerationPlanRef();
-        CapabilityInventory nativeInventory = CapabilityInventory.newBuilder()
+        CapabilityInventory nativeInventory = actualInventory()
                 .addCapabilities(CapabilityDescriptor.newBuilder().setRef(text))
                 .addCapabilities(CapabilityDescriptor.newBuilder().setRef(multimodal))
                 .build();
@@ -124,9 +125,18 @@ class WorkerBootstrapCapabilityAdvertisementTest {
     }
 
     private static CapabilityInventory inventory(CapabilityRef capability) {
-        return CapabilityInventory.newBuilder()
+        return actualInventory()
                 .addCapabilities(CapabilityDescriptor.newBuilder().setRef(capability))
                 .build();
+    }
+
+    private static CapabilityInventory.Builder actualInventory() {
+        try {
+            return CapabilityInventory.parseFrom(ActualNativeCatalogue.bytes()).toBuilder()
+                    .clearCapabilities().clearModels();
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new IllegalStateException("Actual Native catalogue exporter artifact is malformed", failure);
+        }
     }
 
     private static NativeFunctionConfig functionConfig() {

@@ -8,7 +8,7 @@ import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.artifact.PublishedArtifactBindingResolver;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveStagePlanResolver;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;

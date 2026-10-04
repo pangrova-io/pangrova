@@ -67,7 +67,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
                 .dataSource(dataSource)
                 .schemas(SHUFFLE_SCHEMA)
                 .defaultSchema(SHUFFLE_SCHEMA)
-                .locations("classpath:db/migration")
+                .locations("classpath:org/pangrova/shuffle/migration")
                 .load()
                 .migrate();
         read(dataSource, connection -> {

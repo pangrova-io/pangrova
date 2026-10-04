@@ -2,7 +2,7 @@ package org.pangrova.coordinator.dynamictable;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.dynamictable.schedule.RefreshScheduler;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.metadata.dynamictable.DynamicTableLifecycleState;
 import org.pangrova.metadata.dynamictable.DynamicTableState;
 import org.pangrova.metadata.dynamictable.DynamicTableStateStore;

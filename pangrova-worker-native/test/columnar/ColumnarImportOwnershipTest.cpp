@@ -1,15 +1,20 @@
 #include "../TestMemoryHelper.h"
 
 #include <arrow/api.h>
+#include <arrow/c/abi.h>
 #include <arrow/c/bridge.h>
 #include <folly/ScopeGuard.h>
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <cstdint>
+#include <memory>
 #include <stdexcept>
+#include <vector>
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
+#include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
 #include "velox/vector/arrow/Bridge.h"
 
@@ -62,19 +67,34 @@ TEST(ColumnarImportOwnershipTest, ActualChildBuffersKeepBothCDataOwnersUntilLast
   auto batch = arrow::RecordBatch::Make(arrow::schema({arrow::field("value", arrow::float64(), true)}),
       2, {actualDoubles()});
   ObservedExport exported(*batch);
+  const auto* sourceValues = exported.array.children[0]->buffers[1];
+  const auto* sourceNulls = exported.array.children[0]->buffers[0];
+  auto childArrays = std::make_shared<std::atomic<uint32_t>>(0);
+  auto childSchemas = std::make_shared<std::atomic<uint32_t>>(0);
+  ReleaseObservation<ArrowArray>::install(*exported.array.children[0], childArrays);
+  ReleaseObservation<ArrowSchema>::install(*exported.schema.children[0], childSchemas);
   auto vector = facebook::velox::importFromArrowAsOwner(exported.schema, exported.array, pool.get());
   ASSERT_EQ(exported.array.release, nullptr);
   ASSERT_EQ(exported.schema.release, nullptr);
   batch.reset();
   auto child = vector->as<facebook::velox::RowVector>()->childAt(0);
+  ASSERT_NE(child->nulls(), nullptr);
+  EXPECT_EQ(child->asFlatVector<double>()->rawValues(), sourceValues);
+  EXPECT_EQ(child->rawNulls(), sourceNulls);
   vector.reset();
-  EXPECT_EQ(exported.arrays->load(), 0);
-  EXPECT_EQ(exported.schemas->load(), 0);
+  // A non-null ROW has no shared buffers. Its children own the actual
+  // zero-copy payload and bitmap, through separate recursive C Data owners.
+  EXPECT_EQ(exported.arrays->load(), 1);
+  EXPECT_EQ(exported.schemas->load(), 1);
+  EXPECT_EQ(childArrays->load(), 0);
+  EXPECT_EQ(childSchemas->load(), 0);
   EXPECT_DOUBLE_EQ(child->asFlatVector<double>()->valueAt(0), 1.0000000001);
   EXPECT_TRUE(child->isNullAt(1));
   child.reset();
   EXPECT_EQ(exported.arrays->load(), 1);
   EXPECT_EQ(exported.schemas->load(), 1);
+  EXPECT_EQ(childArrays->load(), 1);
+  EXPECT_EQ(childSchemas->load(), 1);
 }
 
 TEST(ColumnarImportOwnershipTest, UnsupportedActualLayoutConsumesBothOwnersOnceOnFailure) {

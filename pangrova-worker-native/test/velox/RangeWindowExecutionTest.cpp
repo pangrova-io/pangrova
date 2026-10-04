@@ -1,7 +1,15 @@
 // Canonical RANGE plans executed by the actual task; not distributed SQL evidence.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
+#include <cstdint>
 #include <limits>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include "CanonicalTaskExecution.h"
 #include "substrait/plan.pb.h"
@@ -87,15 +95,17 @@ substrait::Plan rangePlan(const std::vector<Cell>& keys, RangeOptions options = 
   return plan;
 }
 
-core::PlanNodePtr convert(const substrait::Plan& plan) {
+core::PlanNodePtr convert(const substrait::Plan& plan, const FunctionRegistryOwner& registry) {
   pangrova::test::detail::ensureRuntimeInitialized();
-  VeloxPlanConverter converter;
-  const auto encoded = plan.SerializeAsString();
+  VeloxPlanConverter converter(registry);
+  const auto encoded = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   return converter.convert({encoded.begin(), encoded.end()}, {});
 }
 
 Rows execute(const substrait::Plan& plan) {
-  const auto output = executeCanonicalTask(convert(plan));
+  pangrova::test::detail::ensureRuntimeInitialized();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  const auto output = executeCanonicalTask(convert(plan, registry), registry);
   Rows rows;
   for (const auto& batch : output.batches) {
     DecodedVector keys(*batch->childAt(0));
@@ -132,27 +142,31 @@ TEST(RangeWindowExecutionTest, DecimalFractionalDigitsRemainExactInRangeComparis
 }
 
 TEST(RangeWindowExecutionTest, InvalidOffsetsAndMissingOrderingFailDuringConversion) {
-  EXPECT_THROW(convert(rangePlan({1, 2}, {false, false, false, 0})), std::runtime_error);
-  EXPECT_THROW(convert(rangePlan({1, 2}, {false, false, false, -1})), std::runtime_error);
+  pangrova::test::detail::ensureRuntimeInitialized();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  EXPECT_THROW(convert(rangePlan({1, 2}, {false, false, false, 0}), registry), std::runtime_error);
+  EXPECT_THROW(convert(rangePlan({1, 2}, {false, false, false, -1}), registry), std::runtime_error);
   auto plan = rangePlan({1, 2});
   auto* window = plan.mutable_relations(0)->mutable_root()->mutable_input()->mutable_project()
       ->mutable_expressions(0)->mutable_window_function();
   window->clear_sorts();
-  EXPECT_THROW(convert(plan), std::runtime_error);
+  EXPECT_THROW(convert(plan, registry), std::runtime_error);
 }
 
 TEST(RangeWindowExecutionTest, UnknownInvocationPhaseAndBoundsCannotFallBackToAllRows) {
+  pangrova::test::detail::ensureRuntimeInitialized();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
   auto plan = rangePlan({1, 2});
   auto* window = plan.mutable_relations(0)->mutable_root()->mutable_input()->mutable_project()
       ->mutable_expressions(0)->mutable_window_function();
   window->set_invocation(static_cast<substrait::AggregateFunction::AggregationInvocation>(99));
-  EXPECT_THROW(convert(plan), std::runtime_error);
+  EXPECT_THROW(convert(plan, registry), std::runtime_error);
   window->set_invocation(substrait::AggregateFunction::AGGREGATION_INVOCATION_ALL);
   window->set_phase(substrait::AGGREGATION_PHASE_UNSPECIFIED);
-  EXPECT_THROW(convert(plan), std::runtime_error);
+  EXPECT_THROW(convert(plan, registry), std::runtime_error);
   window->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   window->set_bounds_type(static_cast<substrait::Expression_WindowFunction::BoundsType>(99));
-  EXPECT_THROW(convert(plan), std::runtime_error);
+  EXPECT_THROW(convert(plan, registry), std::runtime_error);
 }
 }  // namespace
 }  // namespace pangrova::velox::test

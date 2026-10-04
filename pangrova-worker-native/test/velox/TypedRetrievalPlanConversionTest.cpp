@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <string>
 #include <unordered_map>
@@ -23,17 +25,20 @@ namespace {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 }
 
 void addFp64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_fp64();
+  schema->mutable_struct_()->add_types()->mutable_fp64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 }
 
 void addStringColumn(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_string();
+  schema->mutable_struct_()->add_types()->mutable_string()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void addFieldArgument(
@@ -67,7 +72,7 @@ std::vector<uint8_t> serializePlan(const substrait::Rel& rel) {
     }
   }
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -125,7 +130,7 @@ substrait::Rel retrievalMergeRelation(bool linear = false) {
       pangrova::protocol::v2::EXCHANGE_DISTRIBUTION_SINGLETON);
   exchange->set_partition_count(1);
   exchange->set_batch_serde(
-      pangrova::protocol::v2::BATCH_SERDE_NATIVE_ROW);
+      pangrova::protocol::v2::BATCH_SERDE_ARROW_BATCH);
   exchange->set_require_complete(true);
   addI64Column(exchange->mutable_output_schema(), "id");
   addFp64Column(exchange->mutable_output_schema(), "score");
@@ -292,13 +297,15 @@ std::shared_ptr<const facebook::velox::core::PlanNode> convertRelation(
     VeloxPlanConverter& converter,
     const substrait::Rel& rel) {
   return converter.convert(
-      serializePlan(rel), {}, false, "Presto", operatorBindings(rel));
+      serializePlan(rel), {}, false, "ArrowBatch", operatorBindings(rel));
 }
 
 }  // namespace
 
 TEST(TypedRetrievalPlanConversionTest, ExactTopKBuildsDeterministicPlan) {
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto rel = exactTopKRelation();
   auto result = convertRelation(converter, rel);
 
@@ -312,10 +319,16 @@ TEST(TypedRetrievalPlanConversionTest, ExactTopKBuildsDeterministicPlan) {
   EXPECT_EQ(final_topn->sortingKeys()[1]->name(), physicalFieldAlias(0));
   EXPECT_EQ(converter.resultColumnLabels(), (std::vector<std::string>{"id", "score"}));
 
+  auto gather = std::dynamic_pointer_cast<const facebook::velox::core::LocalPartitionNode>(final_topn->sources()[0]);
+  ASSERT_NE(gather, nullptr);
+  EXPECT_EQ(gather->type(), facebook::velox::core::LocalPartitionNode::Type::kGather);
+  ASSERT_EQ(gather->sources().size(), 1);
   auto partial_topn = std::dynamic_pointer_cast<
-      const facebook::velox::core::TopNNode>(final_topn->sources()[0]);
+      const facebook::velox::core::TopNNode>(gather->sources()[0]);
   ASSERT_NE(partial_topn, nullptr);
   EXPECT_TRUE(partial_topn->isPartial());
+  EXPECT_TRUE(final_topn->requiresSingleThread());
+  EXPECT_FALSE(partial_topn->requiresSingleThread());
   ASSERT_EQ(partial_topn->sources().size(), 1);
   EXPECT_EQ(partial_topn->sources()[0]->name(), "TableScan");
 }
@@ -363,18 +376,26 @@ TEST(TypedRetrievalPlanConversionTest, EveryAnnBuildsExactLocalTopNOverCandidate
     *artifact->mutable_row_locator() =
         pangrova::capability::physicalRowLocatorContract();
 
-    VeloxPlanConverter converter;
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     auto result = converter.convert(
-        serializePlan(rel), {}, false, "Presto", bindings);
+        serializePlan(rel), {}, false, "ArrowBatch", bindings);
     auto final_topn = std::dynamic_pointer_cast<
         const facebook::velox::core::TopNNode>(result);
     ASSERT_NE(final_topn, nullptr);
     EXPECT_FALSE(final_topn->isPartial());
     EXPECT_EQ(final_topn->count(), 7);
+    auto gather = std::dynamic_pointer_cast<const facebook::velox::core::LocalPartitionNode>(final_topn->sources()[0]);
+    ASSERT_NE(gather, nullptr);
+    EXPECT_EQ(gather->type(), facebook::velox::core::LocalPartitionNode::Type::kGather);
+    ASSERT_EQ(gather->sources().size(), 1);
     auto partial_topn = std::dynamic_pointer_cast<
-        const facebook::velox::core::TopNNode>(final_topn->sources()[0]);
+        const facebook::velox::core::TopNNode>(gather->sources()[0]);
     ASSERT_NE(partial_topn, nullptr);
     EXPECT_TRUE(partial_topn->isPartial());
+    EXPECT_TRUE(final_topn->requiresSingleThread());
+    EXPECT_FALSE(partial_topn->requiresSingleThread());
   }
 }
 
@@ -408,9 +429,11 @@ TEST(TypedRetrievalPlanConversionTest, FanOutRoutesArtifactSplitsToIndependentSc
       {"retrieval-source-1", {vector_split}},
       {"retrieval-source-2", {text_split}}};
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(fan_out), {}, false, "Presto", bindings, nullptr,
+      serializePlan(fan_out), {}, false, "ArrowBatch", bindings, nullptr,
       overrides);
 
   ASSERT_NE(result, nullptr);
@@ -459,18 +482,26 @@ TEST(TypedRetrievalPlanConversionTest, Bm25BuildsExactLocalTopNOverMaterializedS
   *artifact->mutable_row_locator() =
       pangrova::capability::physicalRowLocatorContract();
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(rel), {}, false, "Presto", bindings);
+      serializePlan(rel), {}, false, "ArrowBatch", bindings);
   auto final_topn = std::dynamic_pointer_cast<
       const facebook::velox::core::TopNNode>(result);
   ASSERT_NE(final_topn, nullptr);
   EXPECT_FALSE(final_topn->isPartial());
   EXPECT_EQ(final_topn->count(), 7);
+  auto gather = std::dynamic_pointer_cast<const facebook::velox::core::LocalPartitionNode>(final_topn->sources()[0]);
+  ASSERT_NE(gather, nullptr);
+  EXPECT_EQ(gather->type(), facebook::velox::core::LocalPartitionNode::Type::kGather);
+  ASSERT_EQ(gather->sources().size(), 1);
   auto partial_topn = std::dynamic_pointer_cast<
-      const facebook::velox::core::TopNNode>(final_topn->sources()[0]);
+      const facebook::velox::core::TopNNode>(gather->sources()[0]);
   ASSERT_NE(partial_topn, nullptr);
   EXPECT_TRUE(partial_topn->isPartial());
+  EXPECT_TRUE(final_topn->requiresSingleThread());
+  EXPECT_FALSE(partial_topn->requiresSingleThread());
 }
 
 TEST(TypedRetrievalPlanConversionTest, UnknownCapabilityFailsClosed) {
@@ -483,7 +514,9 @@ TEST(TypedRetrievalPlanConversionTest, UnknownCapabilityFailsClosed) {
       ->set_capability_id("pangrova.retrieval.vector.unknown");
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
 }
 
@@ -497,7 +530,9 @@ TEST(TypedRetrievalPlanConversionTest, UnknownOptionFailsClosed) {
       ->set_name("metric");
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
 }
 
@@ -512,7 +547,9 @@ TEST(TypedRetrievalPlanConversionTest, CandidateSchemaDriftFailsClosed) {
       ->assign("distance");
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
 }
 
@@ -527,12 +564,16 @@ TEST(TypedRetrievalPlanConversionTest, JsonVectorSideChannelIsRejected) {
       R"({"op":"vector_search","vectorColumn":"embedding","topK":10})");
   extension->mutable_detail()->PackFrom(detail);
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(converter.convert(serializePlan(rel), {}), std::runtime_error);
 }
 
 TEST(TypedRetrievalPlanConversionTest, RrfMergeBuildsNativeBoundedPlanNode) {
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto rel = retrievalMergeRelation();
   auto result = convertRelation(converter, rel);
 
@@ -543,11 +584,21 @@ TEST(TypedRetrievalPlanConversionTest, RrfMergeBuildsNativeBoundedPlanNode) {
   EXPECT_EQ(merge->config().output_limit, 10);
   EXPECT_EQ(merge->config().sources.size(), 2);
   ASSERT_EQ(merge->sources().size(), 1);
-  const auto exchange_projection = std::dynamic_pointer_cast<
-      const facebook::velox::core::ProjectNode>(merge->sources()[0]);
-  ASSERT_NE(exchange_projection, nullptr);
-  ASSERT_EQ(exchange_projection->sources().size(), 1);
-  EXPECT_EQ(exchange_projection->sources()[0]->name(), "Exchange");
+  const auto exchange = std::dynamic_pointer_cast<
+      const facebook::velox::core::ExchangeNode>(merge->sources()[0]);
+  ASSERT_NE(exchange, nullptr);
+  EXPECT_EQ(exchange->id(), "retrieval-exchange-input");
+  EXPECT_EQ(exchange->serdeKind(), "ArrowBatch");
+  EXPECT_TRUE(exchange->sources().empty());
+  ASSERT_EQ(exchange->outputType()->size(), 3);
+  EXPECT_EQ(exchange->outputType()->names(),
+      (std::vector<std::string>{physicalFieldAlias(0), physicalFieldAlias(1), physicalFieldAlias(2)}));
+  EXPECT_EQ(exchange->outputType()->childAt(0)->kind(), facebook::velox::TypeKind::BIGINT);
+  EXPECT_EQ(exchange->outputType()->childAt(1)->kind(), facebook::velox::TypeKind::DOUBLE);
+  EXPECT_EQ(exchange->outputType()->childAt(2)->kind(), facebook::velox::TypeKind::VARCHAR);
+  EXPECT_EQ(merge->config().score_channel, 1);
+  EXPECT_EQ(merge->config().source_id_channel, 2);
+  EXPECT_EQ(merge->config().stable_key_channels, (std::vector<size_t>{0}));
   EXPECT_EQ(merge->outputType()->names(),
       (std::vector<std::string>{physicalFieldAlias(0), physicalFieldAlias(1), physicalFieldAlias(2)}));
   EXPECT_EQ(converter.resultColumnLabels(),
@@ -555,7 +606,9 @@ TEST(TypedRetrievalPlanConversionTest, RrfMergeBuildsNativeBoundedPlanNode) {
 }
 
 TEST(TypedRetrievalPlanConversionTest, LinearMergeBindsPerSourceWeights) {
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto rel = retrievalMergeRelation(true);
   auto result = convertRelation(converter, rel);
 
@@ -574,7 +627,9 @@ TEST(TypedRetrievalPlanConversionTest, MergeMissingOptionFailsClosed) {
   envelope.mutable_retrieval_merge()->mutable_invocation()->clear_options();
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
 }
 
@@ -588,7 +643,9 @@ TEST(TypedRetrievalPlanConversionTest, MergeSchemaDriftFailsClosed) {
       ->set_names(1, "fused_score");
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
 }
 
@@ -602,7 +659,9 @@ TEST(TypedRetrievalPlanConversionTest, MergeOutsideSingletonStageFailsClosed) {
   addFp64Column(read->mutable_base_schema(), "score");
   addStringColumn(read->mutable_base_schema(), "source_id");
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
 }
 
@@ -613,10 +672,13 @@ TEST(TypedRetrievalPlanConversionTest, CrossEncoderRerankBuildsGovernedBoundedPl
   for (const auto& declared : pangrova::capability::generated::runtimeCallbackSignatures(
            pangrova::capability::kGovernedRerankFunction)) {
     registry.registerScalar(pangrova::udf::makeJvmScalarFunctionSpec(declared.name,
-        std::vector<std::string>(declared.arguments.begin(), declared.arguments.end()), declared.returnType));
+        std::vector<std::string>(declared.arguments.begin(), declared.arguments.end()),
+        declared.returnType, declared.deterministic));
   }
   registry.registerAllWithVelox();
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto rel = rerankRelation();
   auto result = convertRelation(converter, rel);
 
@@ -629,10 +691,16 @@ TEST(TypedRetrievalPlanConversionTest, CrossEncoderRerankBuildsGovernedBoundedPl
   EXPECT_EQ(final_topn->sortingKeys()[0]->name(), physicalFieldAlias(1));
   EXPECT_EQ(final_topn->sortingKeys()[1]->name(), physicalFieldAlias(0));
 
+  auto gather = std::dynamic_pointer_cast<const facebook::velox::core::LocalPartitionNode>(final_topn->sources()[0]);
+  ASSERT_NE(gather, nullptr);
+  EXPECT_EQ(gather->type(), facebook::velox::core::LocalPartitionNode::Type::kGather);
+  ASSERT_EQ(gather->sources().size(), 1);
   auto partial_topn = std::dynamic_pointer_cast<
-      const facebook::velox::core::TopNNode>(final_topn->sources()[0]);
+      const facebook::velox::core::TopNNode>(gather->sources()[0]);
   ASSERT_NE(partial_topn, nullptr);
   EXPECT_TRUE(partial_topn->isPartial());
+  EXPECT_TRUE(final_topn->requiresSingleThread());
+  EXPECT_FALSE(partial_topn->requiresSingleThread());
   auto project = std::dynamic_pointer_cast<
       const facebook::velox::core::ProjectNode>(partial_topn->sources()[0]);
   ASSERT_NE(project, nullptr);
@@ -652,9 +720,11 @@ TEST(TypedRetrievalPlanConversionTest, CrossEncoderModelDriftFailsClosed) {
       ->mutable_model()
       ->set_version("wrong-version");
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(
-      converter.convert(serializePlan(rel), {}, false, "Presto", bindings),
+      converter.convert(serializePlan(rel), {}, false, "ArrowBatch", bindings),
       std::runtime_error);
 }
 

@@ -21,7 +21,6 @@ import java.util.StringJoiner;
 public class IcebergPageSink extends AbstractIcebergPageSink {
 
     private static final Logger LOG = LoggerFactory.getLogger(IcebergPageSink.class);
-    private boolean writerClosed;
 
     public IcebergPageSink(IcebergWriteContext ctx) {
         super(ctx);
@@ -38,10 +37,7 @@ public class IcebergPageSink extends AbstractIcebergPageSink {
 
     private byte[] collectUnpartitionedMetadata() {
         try {
-            if (!writerClosed) {
-                unpartitionedWriter().close();
-                writerClosed = true;
-            }
+            closeUnpartitionedWriterForCommit();
             DataFile dataFile = unpartitionedWriter().toDataFile();
             if (dataFile.recordCount() == 0) {
                 // Closing an unused Parquet writer can yield a descriptor for

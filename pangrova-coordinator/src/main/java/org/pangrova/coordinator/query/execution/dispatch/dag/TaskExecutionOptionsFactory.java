@@ -145,7 +145,6 @@ final class TaskExecutionOptionsFactory {
 
     private static BatchSerde batchSerde(String serde) {
         return switch (serde) {
-            case "NATIVE_ROW", "PRESTO_PAGES" -> BatchSerde.BATCH_SERDE_NATIVE_ROW;
             case "ARROW_BATCH" -> BatchSerde.BATCH_SERDE_ARROW_BATCH;
             default -> throw new IllegalArgumentException(
                     "Unsupported shuffle serde: " + serde);

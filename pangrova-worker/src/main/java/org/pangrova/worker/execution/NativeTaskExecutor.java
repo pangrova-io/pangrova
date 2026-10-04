@@ -1,6 +1,7 @@
 package org.pangrova.worker.execution;
 
 import org.pangrova.observability.tracing.NativeTraceExporter;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.spi.execution.TaskExecutor;
 import org.pangrova.worker.ai.invocation.AiInvocationService;
 import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
@@ -9,7 +10,6 @@ import org.pangrova.worker.jni.NativeRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
@@ -28,56 +28,29 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * any JNI method is invoked. In production, this is guaranteed by
  * {@code NativeRuntimeBootstrap} running before {@code WorkerTaskBootstrap}.</p>
  *
- * <p>Concurrency strategy: per-handle {@link ReentrantReadWriteLock} entries
- * in {@link #handleLocks} serialize read-locked JNI operations (startTask,
- * isFinished, cancelTask, executeCommand) against write-locked release
- * (releaseTask, close). A global {@link #lifecycleLock} protects the
- * {@link #closed} flag and serializes createTask with close.</p>
+ * <p>Short-lock operation leases protect each exact creation owner without
+ * holding locks during JNI or remote cleanup. Exclusive cleanup claims join
+ * actual entered operations outside locks. The lifecycle lock seals public
+ * admission; close then joins admitted creation transactions and operations.</p>
  */
+@ThreadSafe
 public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(NativeTaskExecutor.class);
 
-    /** Active handles remain tracked until their actual joined cleanup succeeds. */
-    private final ConcurrentHashMap<Long, Boolean> activeHandles =
-            new ConcurrentHashMap<>();
-
-    /**
-     * Per-handle read-write locks: read lock = handle operations (concurrent),
-     * write lock = release/close (exclusive per handle). Prevents TOCTOU race
-     * between JNI operations and native handle release.
-     */
-    private final ConcurrentHashMap<Long, ReentrantReadWriteLock> handleLocks =
-            new ConcurrentHashMap<>();
-
-    private final ConcurrentHashMap<Long, TaskIdentity> taskIdentities =
-            new ConcurrentHashMap<>();
-
-    private final ConcurrentHashMap<Long, TaskIdentity> externalShuffleTasks =
-            new ConcurrentHashMap<>();
-
-    /** Final Native reports remain owned only while other task cleanup still needs retry. */
-    private final ConcurrentHashMap<Long, byte[]> nativeReleasedReports =
-            new ConcurrentHashMap<>();
-
     private final RemoteShuffleByteEgress externalShuffleEgress;
+    private final NativeCreationOwners creationOwners = new NativeCreationOwners();
+    private final NativeOperationLifetime globalOperations = new NativeOperationLifetime();
 
-    /** Serializes task creation with close; per-handle operations use their own locks. */
+    /** Serializes only in-memory admission with close; never held during JNI. */
     private final ReentrantReadWriteLock lifecycleLock = new ReentrantReadWriteLock();
     private volatile boolean closed = false;
-    private volatile org.pangrova.worker.jni.write.WorkerCatalogRuntime catalogRuntime;
+    private volatile org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime catalogRuntime;
 
     /** Supplies the production Worker-local catalog authority before Native dataset task creation. */
-    public void setCatalogRuntime(org.pangrova.worker.jni.write.WorkerCatalogRuntime runtime) {
-        if (!activeHandles.isEmpty()) throw new IllegalStateException("Cannot replace catalogs with active Native tasks");
+    public void setCatalogRuntime(org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime runtime) {
+        if (!creationOwners.isEmpty()) throw new IllegalStateException("Cannot replace catalogs with Native owners");
         catalogRuntime = java.util.Objects.requireNonNull(runtime);
-    }
-
-    {
-        // Handle 0 is a global (per-worker) command handle used for server-level
-        // commands. Register it with its own per-handle lock so that all handles
-        // follow the same locking path — no special-case branching.
-        handleLocks.put(0L, new ReentrantReadWriteLock());
     }
 
     /** Creates an executor for the Native Worker-local data plane. */
@@ -92,127 +65,135 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     @Override
     public long createTask(byte[] taskRequestBytes) {
+        org.pangrova.protocol.v2.TaskRequest request;
+        try {
+            request = parseTaskRequest(taskRequestBytes);
+        } catch (RuntimeException failure) {
+            throw new NativeTaskCreationFailure(0, true, failure);
+        }
+        var owner = prepareCreation(request);
+        try {
+            var local = org.pangrova.worker.jni.write.catalog.WorkerNativeStorageTasks.prepare(request, catalogRuntime);
+            prepareExternalShuffle(owner);
+            AiInvocationService.registerTask(request);
+            owner.aiRegistered = true;
+            String traceId = NativeTraceExporter.currentTraceId();
+            byte[] localBytes = local.toByteArray();
+            owner.enteredNative = true;
+            owner.handle = NativeRuntime.nativeCreateTaskExecutorWithTrace(localBytes, traceId);
+            if (owner.handle <= 0) throw new IllegalStateException("JNI creation returned no positive actual handle");
+            creationOwners.publish(owner);
+            return owner.handle;
+        } catch (Throwable failure) {
+            throw reconcileCreationFailure(owner, failure);
+        } finally {
+            owner.constructionExit.complete(null);
+        }
+    }
+
+    private NativeTaskCreationFailure reconcileCreationFailure(NativeCreationOwners.Owner owner, Throwable failure) {
+        if (owner.enteredNative && owner.handle == 0) {
+            try {
+                recoverCreation(owner);
+            } catch (Throwable recovery) {
+                failure.addSuppressed(recovery);
+                return new NativeTaskCreationFailure(owner.handle, failure);
+            }
+        }
+        if (owner.handle > 0) return new NativeTaskCreationFailure(owner.handle, failure);
+        if (!owner.enteredNative || owner.nativeClosedWithoutOwner) {
+            return creationOwners.rollbackWithoutNativeOwner(owner, externalShuffleEgress, failure);
+        }
+        return new NativeTaskCreationFailure(0, failure);
+    }
+
+    private void recoverCreation(NativeCreationOwners.Owner owner) {
+        var lease = globalOperations.enter();
+        try {
+            NativeCreationRecovery.recover(owner);
+            if (owner.handle > 0) creationOwners.publish(owner);
+        } finally {
+            lease.close();
+        }
+    }
+
+    private NativeCreationOwners.Owner prepareCreation(org.pangrova.protocol.v2.TaskRequest request) {
         lifecycleLock.writeLock().lock();
         try {
-            if (closed) {
-                throw new IllegalStateException("NativeTaskExecutor is closed");
-            }
-            var request = parseTaskRequest(taskRequestBytes);
-            var local = org.pangrova.worker.jni.write.WorkerNativeStorageTasks.prepare(request, catalogRuntime);
-            TaskIdentity identity = taskIdentity(request);
-            boolean externalShuffle = prepareExternalShuffle(request);
-            boolean aiRegistered = false;
-            try {
-                AiInvocationService.registerTask(request);
-                aiRegistered = true;
-                String traceId = NativeTraceExporter.currentTraceId();
-                long handle = NativeRuntime.nativeCreateTaskExecutorWithTrace(
-                        local.toByteArray(), traceId);
-                trackCreatedHandle(handle, identity, externalShuffle);
-                return handle;
-            } catch (RuntimeException failure) {
-                if (aiRegistered) { AiInvocationService.releaseTask(identity.tenantId(), identity.attempt()); }
-                if (externalShuffle) {
-                    externalShuffleEgress.releaseTask(identity.queryId(), identity.taskId());
-                }
-                throw failure;
-            }
+            if (closed) throw new IllegalStateException("NativeTaskExecutor is closed");
+            taskIdentity(request);
+            return creationOwners.prepare(request);
+        } catch (Throwable failure) {
+            // No Native/callback operation has run in this local admission
+            // section. A pre-existing exact owner must nevertheless be retained.
+            throw new NativeTaskCreationFailure(0, !creationOwners.ownsAttempt(request.getAttempt()), failure);
         } finally {
             lifecycleLock.writeLock().unlock();
         }
     }
 
-    private void trackCreatedHandle(
-            long handle, TaskIdentity identity, boolean externalShuffle) {
-        activeHandles.put(handle, Boolean.TRUE);
-        handleLocks.put(handle, new ReentrantReadWriteLock());
-        rememberTaskIdentity(handle, identity);
-        if (externalShuffle) {
-            externalShuffleTasks.put(handle, identity);
-        }
-    }
 
-    /**
-     * Acquires the per-handle read lock, preventing concurrent releaseTask/close
-     * from releasing the native handle while a JNI call is in flight.
-     * Throws IllegalStateException if the handle is not tracked (already released
-     * or never created).
-     *
-     * <p>Handle 0 is a global (per-worker) command handle registered at
-     * construction time with its own dedicated lock, same as task handles.</p>
-     *
-     * @return the per-handle lock (caller must unlock readLock in finally block)
-     */
-    ReentrantReadWriteLock acquireHandleReadLock(long executorHandle) {
-        ReentrantReadWriteLock lock = handleLocks.get(executorHandle);
-        if (lock == null) {
-            throw new IllegalStateException(
-                    "Handle " + executorHandle + " is not tracked");
+    /** Admits an actual operation; the returned lease must span its entire JNI lifetime. */
+    NativeOperationLifetime.Lease acquireHandleLease(long executorHandle) {
+        lifecycleLock.readLock().lock();
+        try {
+            if (closed) throw new IllegalStateException("Handle " + executorHandle + " is not tracked: executor is closed");
+            if (executorHandle == 0) return globalOperations.enter();
+            var owner = creationOwners.forHandle(executorHandle);
+            if (owner == null || !creationOwners.contains(owner)) {
+                throw new IllegalStateException("Handle " + executorHandle + " is not tracked");
+            }
+            return owner.operations.enter();
+        } finally {
+            lifecycleLock.readLock().unlock();
         }
-        lock.readLock().lock();
-        if (closed) {
-            lock.readLock().unlock();
-            throw new IllegalStateException(
-                    "NativeTaskExecutor is closed");
-        }
-        if (!handleLocks.containsKey(executorHandle)) {
-            lock.readLock().unlock();
-            throw new IllegalStateException(
-                    "Handle " + executorHandle + " is not tracked");
-        }
-        if (nativeReleasedReports.containsKey(executorHandle)) {
-            lock.readLock().unlock();
-            throw new IllegalStateException(
-                    "Handle " + executorHandle + " has completed native release");
-        }
-        return lock;
     }
 
     @Override
     public void startTask(long executorHandle) {
-        ReentrantReadWriteLock lock = acquireHandleReadLock(executorHandle);
+        var lease = acquireHandleLease(executorHandle);
         try {
             String traceId = NativeTraceExporter.currentTraceId();
             NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId);
         } finally {
-            lock.readLock().unlock();
+            lease.close();
         }
     }
 
     /** Joins Native before removing the handle; failed cleanup remains retryable. */
     @Override
     public java.util.Optional<byte[]> releaseTask(long executorHandle) {
-        ReentrantReadWriteLock lock = handleLocks.get(executorHandle);
-        if (lock == null) {
+        var owner = creationOwners.forHandle(executorHandle);
+        if (owner == null) {
             return java.util.Optional.empty();
         }
-        lock.writeLock().lock();
-        try {
-            if (!activeHandles.containsKey(executorHandle)) {
-                return java.util.Optional.empty();
-            }
-            revokeAiTask(executorHandle);
-            byte[] nativeReport = nativeReleasedReports.get(executorHandle);
-            if (nativeReport == null) {
-                nativeReport = NativeRuntime.nativeReleaseExecutor(executorHandle);
-                nativeReleasedReports.put(executorHandle, nativeReport);
-            }
-            byte[] finalReport = finalReleaseReport(executorHandle, nativeReport);
-            releaseExternalShuffle(executorHandle);
-            releaseAiTask(executorHandle);
-            activeHandles.remove(executorHandle);
-            handleLocks.remove(executorHandle, lock);
-            nativeReleasedReports.remove(executorHandle);
-            return java.util.Optional.of(finalReport);
-        } finally {
-            lock.writeLock().unlock();
+        owner.awaitConstructionExit();
+        try (var claim = owner.operations.claim(true)) {
+            claim.awaitReaders();
+            return releaseOwner(owner);
         }
+    }
+
+    private java.util.Optional<byte[]> releaseOwner(NativeCreationOwners.Owner owner) {
+        if (!creationOwners.contains(owner)) return java.util.Optional.empty();
+        revokeAiTask(owner.handle);
+        byte[] nativeReport = owner.releaseReceipt;
+        if (nativeReport == null) {
+            nativeReport = NativeRuntime.nativeReleaseExecutor(owner.handle);
+            owner.releaseReceipt = nativeReport;
+        }
+        byte[] finalReport = finalReleaseReport(owner.handle, nativeReport);
+        NativeCreationOwners.cleanupCallbacks(owner, externalShuffleEgress);
+        creationOwners.remove(owner);
+        return java.util.Optional.of(finalReport);
     }
 
     private byte[] finalReleaseReport(long executorHandle, byte[] encoded) {
         var report = parseNativeTaskReport(encoded);
         TaskIdentity identity = requireTaskIdentity(executorHandle, report.getAttempt());
         if (report.getReportOrigin() != org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                || report.getExecutionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
                 || (report.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
                 && report.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
                 && report.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED)) {
@@ -226,12 +207,12 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     @Override
     public void cancelTask(long executorHandle) {
-        ReentrantReadWriteLock lock = acquireHandleReadLock(executorHandle);
+        var lease = acquireHandleLease(executorHandle);
         try {
             revokeAiTask(executorHandle);
             NativeRuntime.nativeCancelTask(executorHandle);
         } finally {
-            lock.readLock().unlock();
+            lease.close();
         }
     }
 
@@ -247,18 +228,18 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
      */
     @Override
     public boolean isFinished(long executorHandle) {
-        ReentrantReadWriteLock lock = acquireHandleReadLock(executorHandle);
+        var lease = acquireHandleLease(executorHandle);
         try {
             byte[] statusBytes = NativeRuntime.nativeGetTaskStatus(executorHandle);
             return evaluateNativeStatus(statusBytes, executorHandle);
         } finally {
-            lock.readLock().unlock();
+            lease.close();
         }
     }
 
     @Override
     public byte[] getTaskStatus(long executorHandle) {
-        ReentrantReadWriteLock lock = acquireHandleReadLock(executorHandle);
+        var lease = acquireHandleLease(executorHandle);
         try {
             byte[] status = NativeRuntime.nativeGetTaskStatus(executorHandle);
             if (status == null || status.length == 0) {
@@ -270,18 +251,18 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
             return mergeProviderResources(report,
                     AiInvocationService.resourceUsage(identity.tenantId(), identity.attempt())).toByteArray();
         } finally {
-            lock.readLock().unlock();
+            lease.close();
         }
     }
 
     @Override
     public byte[] getTaskStats(long executorHandle) {
-        ReentrantReadWriteLock lock = acquireHandleReadLock(executorHandle);
+        var lease = acquireHandleLease(executorHandle);
         try {
             byte[] stats = NativeRuntime.nativeGetTaskStats(executorHandle);
             return stats == null ? new byte[0] : stats;
         } finally {
-            lock.readLock().unlock();
+            lease.close();
         }
     }
 
@@ -337,23 +318,18 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         }
     }
 
-    private void releaseAiTask(long executorHandle) {
-        TaskIdentity identity = taskIdentities.get(executorHandle);
-        if (identity != null) {
-            AiInvocationService.releaseTask(
-                    identity.tenantId(), identity.attempt());
-            taskIdentities.remove(executorHandle, identity);
-        }
-    }
-
     private void revokeAiTask(long executorHandle) {
-        TaskIdentity identity = taskIdentities.get(executorHandle);
-        if (identity != null) { AiInvocationService.cancelTask(identity.tenantId(), identity.attempt()); }
+        var owner = creationOwners.forHandle(executorHandle);
+        if (owner != null && owner.aiRegistered) {
+            AiInvocationService.cancelTask(owner.request.getSecurity().getTenantId(), owner.request.getAttempt());
+        }
     }
     private static org.pangrova.protocol.v2.TaskRequest parseTaskRequest(
             byte[] taskRequestBytes) {
         try {
-            return org.pangrova.protocol.v2.TaskRequest.parseFrom(taskRequestBytes);
+            var request = org.pangrova.protocol.v2.TaskRequest.parseFrom(taskRequestBytes);
+            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
+            return request;
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new NativeRuntimeException(
                     org.pangrova.common.exception.PangrovaErrorCode
@@ -374,12 +350,13 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         return new TaskIdentity(request.getSecurity().getTenantId(), attempt);
     }
 
-    private boolean prepareExternalShuffle(org.pangrova.protocol.v2.TaskRequest request) {
+    private void prepareExternalShuffle(NativeCreationOwners.Owner owner) {
+        var request = owner.request;
         boolean hasBinding = request.hasExecutionOptions()
                 && request.getExecutionOptions().hasShuffle()
                 && request.getExecutionOptions().getShuffle().hasExecutionBinding();
         if (!hasBinding) {
-            return false;
+            return;
         }
         if (externalShuffleEgress == null) {
             throw new NativeRuntimeException(
@@ -387,23 +364,16 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
                             .PROTOCOL_DESERIALIZATION_FAILED,
                     "TaskRequest requires external shuffle but this Worker uses Native shuffle");
         }
-        return externalShuffleEgress.installTask(request);
-    }
-
-    private void rememberTaskIdentity(
-            long executorHandle, TaskIdentity actual) {
-        TaskIdentity expected = taskIdentities.putIfAbsent(executorHandle, actual);
-        if (expected != null && !expected.equals(actual)) {
-            throw new NativeRuntimeException(
-                    org.pangrova.common.exception.PangrovaErrorCode
-                            .PROTOCOL_DESERIALIZATION_FAILED,
-                    "Native task status identity differs from its request");
-        }
+        // Installation can publish a retained candidate before failing its
+        // actual drain. This flag is a cleanup obligation, not a success claim.
+        owner.externalRegistered = true;
+        externalShuffleEgress.installTask(request);
     }
 
     private TaskIdentity requireTaskIdentity(
             long executorHandle, org.pangrova.protocol.v2.TaskAttemptId attempt) {
-        TaskIdentity expected = taskIdentities.get(executorHandle);
+        var owner = creationOwners.forHandle(executorHandle);
+        TaskIdentity expected = owner == null ? null : taskIdentity(owner.request);
         if (expected == null || !expected.attempt().equals(attempt)) {
             throw new NativeRuntimeException(
                     org.pangrova.common.exception.PangrovaErrorCode
@@ -432,11 +402,20 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     @Override
     public byte[] executeCommand(long executorHandle, byte[] commandProto) {
-        ReentrantReadWriteLock lock = acquireHandleReadLock(executorHandle);
+        var lease = acquireHandleLease(executorHandle);
         try {
+            if (executorHandle == 0) {
+                var command = org.pangrova.protocol.v2.RuntimeCommand.parseFrom(commandProto);
+                if (command.getCommandType() == org.pangrova.protocol.v2.RuntimeCommandType
+                        .RUNTIME_COMMAND_TYPE_RECOVER_EXECUTOR_CREATION) {
+                    return NativeCreationRecovery.recoverTracked(creationOwners, externalShuffleEgress, command);
+                }
+            }
             return NativeRuntime.nativeCommand(executorHandle, commandProto);
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            throw new IllegalArgumentException("Malformed canonical runtime command", malformed);
         } finally {
-            lock.readLock().unlock();
+            lease.close();
         }
     }
 
@@ -450,11 +429,11 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
             lifecycleLock.writeLock().unlock();
         }
         NativeRuntimeException failure = null;
-        for (long handle : activeHandles.keySet()) {
+        for (var owner : creationOwners.snapshot()) {
             try {
-                releaseTask(handle);
+                closeCreationOwner(owner);
             } catch (Throwable e) {
-                LOG.error("event=close_release_failed executorHandle={}", handle, e);
+                LOG.error("event=close_release_failed executorHandle={}", owner.handle, e);
                 if (failure == null) {
                     failure = new NativeRuntimeException(
                             org.pangrova.common.exception.PangrovaErrorCode.NATIVE_JNI_EXCEPTION,
@@ -464,23 +443,27 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
                 }
             }
         }
-        if (activeHandles.isEmpty()) {
-            if (externalShuffleEgress != null) { externalShuffleEgress.close(); }
-            handleLocks.remove(0L);
+        if (creationOwners.isEmpty()) {
+            globalOperations.sealAndAwait();
+            if (externalShuffleEgress != null) externalShuffleEgress.close();
         }
         if (failure != null) { throw failure; }
     }
 
-    private void releaseExternalShuffle(long executorHandle) {
-        TaskIdentity identity = externalShuffleTasks.get(executorHandle);
-        if (identity != null) {
-            externalShuffleEgress.releaseTask(identity.queryId(), identity.taskId());
-            externalShuffleTasks.remove(executorHandle, identity);
+    private void closeCreationOwner(NativeCreationOwners.Owner owner) {
+        owner.awaitConstructionExit();
+        try (var claim = owner.operations.claim(true)) {
+            claim.awaitReaders();
+            if (!creationOwners.contains(owner)) return;
+            if (owner.enteredNative && owner.handle == 0 && !owner.nativeClosedWithoutOwner) recoverCreation(owner);
+            if (owner.handle > 0) releaseOwner(owner);
+            else if (!owner.enteredNative || owner.nativeClosedWithoutOwner) {
+                NativeCreationOwners.cleanupCallbacks(owner, externalShuffleEgress);
+                creationOwners.remove(owner);
+            } else throw new IllegalStateException("JNI creation returned no resolvable owner for exact attempt "
+                    + owner.request.getAttempt().getTaskId());
         }
     }
 
-    private record TaskIdentity(String tenantId, org.pangrova.protocol.v2.TaskAttemptId attempt) {
-        String queryId() { return attempt.getQueryOrJobId(); }
-        String taskId() { return attempt.getTaskId(); }
-    }
+    private record TaskIdentity(String tenantId, org.pangrova.protocol.v2.TaskAttemptId attempt) {}
 }

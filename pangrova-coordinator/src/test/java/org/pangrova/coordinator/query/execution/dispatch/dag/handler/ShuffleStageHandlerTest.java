@@ -132,7 +132,7 @@ class ShuffleStageHandlerTest {
             Stage stage, StageDAG dag, String queryId) {
         return new StageLifecycleEvent(stage, dag, queryId,
                 new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(
-                        new org.pangrova.coordinator.query.CoordinatorSessionContext(queryId, Map.of(), null, "tenant-test")));
+                        new org.pangrova.coordinator.query.session.CoordinatorSessionContext(queryId, Map.of(), null, "tenant-test")));
     }
 
     private static StageDAG dag(Stage stage, StageEdge... edges) {
@@ -157,7 +157,7 @@ class ShuffleStageHandlerTest {
         return new StageEdge(
                 upstream, downstream, type, List.of(),
                 "exchange-" + upstream + "-" + downstream,
-                partitions, BatchSerde.BATCH_SERDE_NATIVE_ROW, true);
+                partitions, BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
     }
 
     private static PlanFragment plan() {

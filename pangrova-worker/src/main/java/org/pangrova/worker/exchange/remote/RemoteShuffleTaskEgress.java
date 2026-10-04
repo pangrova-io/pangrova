@@ -8,6 +8,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
+import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptResponse;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
 import org.pangrova.protocol.v2.shuffle.PartitionCommitSummary;
@@ -28,8 +29,11 @@ final class RemoteShuffleTaskEgress {
     private final long deadlineEpochMillis;
     private final CompressionCodec codec;
     private final ShuffleAccessCapability accessCapability;
+    private final TaskAdmissionSealRequest admissionSeal;
     private final RenewableShuffleAccess renewableAccess;
-    private final RemoteShuffleClientPool clientPool;
+    private final RemoteShuffleClientLease commitLease;
+    private final ConcurrentMap<ShuffleServerEndpoint, RemoteShuffleClientLease> endpointLeases =
+            new ConcurrentHashMap<>();
     private final ConcurrentMap<ShuffleServerEndpoint, RemoteShuffleProducerStream> streams =
             new ConcurrentHashMap<>();
     private final ConcurrentMap<Integer, RemoteShufflePartitionStats> partitions =
@@ -49,11 +53,18 @@ final class RemoteShuffleTaskEgress {
         this.deadlineEpochMillis = binding.deadlineEpochMillis();
         this.codec = binding.codec();
         this.accessCapability = binding.accessCapability();
-        this.clientPool = clientPool;
-        this.renewableAccess = new RenewableShuffleAccess(
-                clientPool.getOrCreateClient(commitAddress), shuffleId, taskAttempt,
-                ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE,
-                accessCapability);
+        this.admissionSeal = binding.admissionSeal();
+        this.commitLease = clientPool.borrow(commitAddress);
+        try {
+            for (var endpoint : endpoints) {
+                endpointLeases.put(endpoint, clientPool.borrow(endpoint));
+            }
+            this.renewableAccess = new RenewableShuffleAccess(commitLease.client(), shuffleId, taskAttempt,
+                    ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE, accessCapability);
+        } catch (RuntimeException | Error failure) {
+            try { releaseClientLeases(); } catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+            throw failure;
+        }
     }
 
     String queryId() {
@@ -71,8 +82,11 @@ final class RemoteShuffleTaskEgress {
                 && taskAttempt.equals(other.taskAttempt)
                 && deadlineEpochMillis == other.deadlineEpochMillis
                 && codec == other.codec
-                && accessCapability.equals(other.accessCapability);
+                && accessCapability.equals(other.accessCapability)
+                && admissionSeal.equals(other.admissionSeal);
     }
+
+    boolean belongsTo(TaskAdmissionSealRequest expected) { return admissionSeal.equals(expected); }
 
     void write(int partitionId, long rowCount, ByteBuffer data) {
         beginWrite();
@@ -118,6 +132,9 @@ final class RemoteShuffleTaskEgress {
                 lifecycleMonitor.notifyAll();
             }
         }
+        // This runs after activeFinish is cleared and all actual stream terminal
+        // callbacks and the blocking commit RPC have completed successfully.
+        releaseClientLeases();
     }
 
     private void commitProducer() {
@@ -128,8 +145,7 @@ final class RemoteShuffleTaskEgress {
         long expectedBytes = partitions.values().stream()
                 .mapToLong(RemoteShufflePartitionStats::bytes)
                 .sum();
-        CommitProducerAttemptResponse response = clientPool
-                .getOrCreateClient(commitAddress)
+        CommitProducerAttemptResponse response = commitLease.client()
                 .commitProducerAttempt(
                         shuffleId, taskAttempt, summaries,
                         renewableAccess.currentAtBoundary(deadlineEpochMillis),
@@ -154,16 +170,26 @@ final class RemoteShuffleTaskEgress {
         }
         long cleanupDeadline = System.nanoTime() + CLEANUP_GRACE_NANOS;
         Throwable failure = finished ? null : abortStreams(reason);
+        boolean drained = false;
         try {
             awaitOperationsDrained(cleanupDeadline);
             for (var stream : streams.values()) {
                 stream.awaitTerminal(cleanupDeadline);
             }
+            drained = true;
         } catch (RuntimeException | Error drainFailure) {
             if (failure == null) {
                 failure = drainFailure;
             } else {
                 failure.addSuppressed(drainFailure);
+            }
+        }
+        if (drained) {
+            try {
+                releaseClientLeases();
+            } catch (RuntimeException | Error leaseFailure) {
+                if (failure == null) failure = leaseFailure;
+                else failure.addSuppressed(leaseFailure);
             }
         }
         if (failure instanceof RuntimeException runtimeFailure) {
@@ -208,8 +234,32 @@ final class RemoteShuffleTaskEgress {
     }
 
     private RemoteShuffleProducerStream openStream(ShuffleServerEndpoint endpoint) {
-        return clientPool.getOrCreateClient(endpoint).openProducerStream(
+        var lease = endpointLeases.get(endpoint);
+        if (lease == null) throw new IllegalStateException("Producer endpoint lease was not pre-admitted");
+        // All channel owners were admitted before Native task creation.
+        return lease.client().openProducerStream(
                 shuffleId, taskAttempt, codec, renewableAccess, deadlineEpochMillis);
+    }
+
+    private void releaseClientLeases() {
+        Throwable failure = null;
+        for (var entry : endpointLeases.entrySet()) {
+            try {
+                entry.getValue().close();
+                endpointLeases.remove(entry.getKey(), entry.getValue());
+            } catch (RuntimeException | Error cleanup) {
+                if (failure == null) failure = cleanup;
+                else failure.addSuppressed(cleanup);
+            }
+        }
+        try {
+            commitLease.close();
+        } catch (RuntimeException | Error cleanup) {
+            if (failure == null) failure = cleanup;
+            else failure.addSuppressed(cleanup);
+        }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     private ShuffleServerEndpoint endpointFor(int partitionId) {
@@ -334,5 +384,6 @@ final class RemoteShuffleTaskEgress {
             ExchangeTaskAttempt taskAttempt,
             long deadlineEpochMillis,
             CompressionCodec codec,
-            ShuffleAccessCapability accessCapability) {}
+            ShuffleAccessCapability accessCapability,
+            TaskAdmissionSealRequest admissionSeal) {}
 }

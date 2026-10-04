@@ -136,6 +136,60 @@ TEST(NativeUdfRegistryTest, DuplicateScalarSignatureThrows) {
       std::runtime_error);
 }
 
+TEST(NativeUdfRegistryTest, InvalidRegistrationBatchDoesNotStageItsEarlierItems) {
+  NativeUdfRegistry registry;
+  registry.registerScalar(makeScalarSpec("batch_existing"));
+  const auto first = makeScalarSpec("batch_new");
+  const auto duplicate = makeScalarSpec("batch_existing");
+  EXPECT_THROW(registry.withScalars({first, duplicate}), std::runtime_error);
+  EXPECT_EQ(registry.scalarCount(), 1);
+  EXPECT_FALSE(registry.findScalar(first.name).has_value());
+  EXPECT_TRUE(registry.findScalar(duplicate.name).has_value());
+  auto candidate = registry.withScalars({first});
+  EXPECT_EQ(candidate.scalarCount(), 2);
+  EXPECT_EQ(registry.scalarCount(), 1);
+}
+
+TEST(NativeUdfRegistryTest, FinalizedRegistryRejectsBatchBeforeCallingAnyFactory) {
+  NativeUdfRegistry registry;
+  registry.registerScalar(makeScalarSpec("batch_finalized_existing"));
+  registry.registerAllWithVelox();
+  auto candidate = makeScalarSpec("batch_finalized_rejected");
+  int factoryCalls = 0;
+  candidate.stateful = false;
+  candidate.vectorFunctionFactory = [&factoryCalls](const auto&, const auto&) {
+    ++factoryCalls;
+    return std::make_unique<TaggedVectorFunction>(42);
+  };
+  EXPECT_THROW(registry.withScalars({candidate}), std::runtime_error);
+  EXPECT_EQ(factoryCalls, 0);
+  EXPECT_EQ(registry.scalarCount(), 1);
+  EXPECT_FALSE(facebook::velox::exec::getVectorFunctionSignatures(candidate.name).has_value());
+  EXPECT_THROW(registry.registerAllWithVelox(), std::runtime_error);
+}
+
+TEST(NativeUdfRegistryTest, EagerFactoryFailureDoesNotPublishAnyPreparedFunction) {
+  NativeUdfRegistry registry;
+  auto first = makeScalarSpec("batch_eager_first_unpublished");
+  first.stateful = false;
+  first.vectorFunctionFactory = [](const auto&, const auto&) {
+    return std::make_unique<TaggedVectorFunction>(1);
+  };
+  auto second = makeScalarSpec("batch_eager_failed_unpublished");
+  second.stateful = false;
+  second.vectorFunctionFactory = [](const auto&, const auto&)
+      -> std::unique_ptr<facebook::velox::exec::VectorFunction> {
+    throw std::runtime_error("actual eager initialization failure");
+  };
+  registry.registerScalar(first);
+  registry.registerScalar(second);
+  EXPECT_THROW(registry.registerAllWithVelox(), std::runtime_error);
+  EXPECT_FALSE(facebook::velox::exec::getVectorFunctionSignatures(first.name).has_value());
+  EXPECT_FALSE(facebook::velox::exec::getVectorFunctionSignatures(second.name).has_value());
+  // Preparation failure must not finalize the registry.
+  EXPECT_NO_THROW(registry.registerScalar(makeScalarSpec("batch_after_eager_failure")));
+}
+
 TEST(NativeUdfRegistryTest, DuplicateRowSignatureIgnoresFieldNames) {
   NativeUdfRegistry registry;
   auto first = makeScalarSpec("duplicate_row");

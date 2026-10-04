@@ -48,6 +48,14 @@ public final class SubstraitRelationLayout {
         }
 
         /**
+         * Returns the immutable relation instances covered by this schema snapshot.
+         * @return indexed relations; iteration order has no execution meaning
+         */
+        public List<Rel> relations() {
+            return List.copyOf(layouts.keySet());
+        }
+
+        /**
          * Returns a layout for the same immutable relation instance indexed at construction.
          * @param relation the fragment relation
          * @return its canonical layout
@@ -70,6 +78,38 @@ public final class SubstraitRelationLayout {
         Map<Rel, RelationLayout> layouts = new IdentityHashMap<>();
         visit(Objects.requireNonNull(root, "root"), layouts);
         return new LayoutTree(layouts);
+    }
+
+    /**
+     * Replaces exact indexed relation instances without modifying other canonical fields.
+     * @param root canonical fragment root
+     * @param replacements identity-keyed replacement relations
+     * @return immutable canonical tree with the selected relations replaced
+     * @throws IllegalArgumentException for a relation without an active operator
+     */
+    public static Rel replaceRelations(Rel root, Map<Rel, Rel> replacements) {
+        Map<Rel, Rel> indexed = new IdentityHashMap<>(replacements);
+        return replace(root, indexed, new IdentityHashMap<>());
+    }
+
+    private static Rel replace(Rel relation, Map<Rel, Rel> replacements, Map<Rel, Rel> rewritten) {
+        if (replacements.containsKey(relation)) return Objects.requireNonNull(replacements.get(relation));
+        if (rewritten.containsKey(relation)) return rewritten.get(relation);
+        Message original = payload(relation);
+        var builder = original.toBuilder();
+        for (var field : relationFields(original)) {
+            if (field.isRepeated()) {
+                for (int i = 0; i < original.getRepeatedFieldCount(field); i++) {
+                    builder.setRepeatedField(field, i,
+                            replace((Rel) original.getRepeatedField(field, i), replacements, rewritten));
+                }
+            } else if (original.hasField(field)) {
+                builder.setField(field, replace((Rel) original.getField(field), replacements, rewritten));
+            }
+        }
+        Rel result = relation.toBuilder().setField(activeField(relation), builder.build()).build();
+        rewritten.put(relation, result);
+        return result;
     }
 
     /**
@@ -130,6 +170,40 @@ public final class SubstraitRelationLayout {
      */
     public static List<String> topLevelNames(NamedStruct schema) {
         return SubstraitSchemaFields.fields(schema).stream().map(SubstraitSchemaFields.Field::name).toList();
+    }
+
+    /**
+     * Reads an existing field name through the same complete DFS schema authority.
+     * Collection paths use element 0, or map key/value 0/1; the terminal child
+     * must be a ROW field. An empty path names the requested top-level field.
+     *
+     * @param schema the complete canonical named schema
+     * @param topOrdinal top-level field ordinal
+     * @param childOrdinals nested type-child ordinals
+     * @return the source-owned field name, including an explicitly empty name
+     * @throws IllegalArgumentException for an invalid path or incomplete DFS names
+     */
+    public static String nameAtTypePath(NamedStruct schema, int topOrdinal, List<Integer> childOrdinals) {
+        var fields = SubstraitSchemaFields.fields(schema);
+        if (childOrdinals == null || childOrdinals.stream().anyMatch(java.util.Objects::isNull)) {
+            throw new IllegalArgumentException("Named field path requires explicit child ordinals");
+        }
+        if (topOrdinal < 0 || topOrdinal >= fields.size() || childOrdinals.size() > 64) {
+            throw new IllegalArgumentException("Named field path exceeds its schema or depth bound");
+        }
+        var field = fields.get(topOrdinal);
+        return childOrdinals.isEmpty() ? field.name()
+                : SubstraitSchemaFields.nameAtPath(field.type(), field.descendants(), childOrdinals, 0, 0);
+    }
+
+    /** Resolves a registered named-row constraint against source-owned canonical DFS names. */
+    public static String nameAtCanonicalTypePath(NamedStruct schema, int topOrdinal,
+            List<org.pangrova.protocol.v2.FunctionTypePathStep> path) {
+        if (!schema.hasStruct() || topOrdinal < 0 || topOrdinal >= schema.getStruct().getTypesCount()) {
+            throw new IllegalArgumentException("Named canonical type path has no input field");
+        }
+        return nameAtTypePath(schema, topOrdinal,
+                SubstraitSchemaFields.childOrdinals(schema.getStruct().getTypes(topOrdinal), path));
     }
 
     /**
@@ -246,7 +320,9 @@ public final class SubstraitRelationLayout {
         }
         var mapping = outputMapping(common, Math.addExact(inputFields, expressionFields));
         var emit = RelCommon.Emit.newBuilder();
-        for (int field : mapping) emit.addOutputMapping(field < inputFields ? field : Math.addExact(field, addedFields));
+        for (int field : mapping) {
+            emit.addOutputMapping(field < inputFields ? field : Math.addExact(field, addedFields));
+        }
         if (emitAddedFields) {
             for (int i = 0; i < addedFields; i++) emit.addOutputMapping(Math.addExact(inputFields, i));
         }
@@ -280,22 +356,34 @@ public final class SubstraitRelationLayout {
     }
 
     static Message payload(Rel relation) {
-        FieldDescriptor field = relation.getDescriptorForType().findFieldByNumber(relation.getRelTypeCase().getNumber());
+        return (Message) relation.getField(activeField(relation));
+    }
+
+    private static FieldDescriptor activeField(Rel relation) {
+        FieldDescriptor field = relation.getDescriptorForType()
+                .findFieldByNumber(relation.getRelTypeCase().getNumber());
         if (field == null || !relation.hasField(field)) throw new IllegalArgumentException("Relation has no operator");
-        return (Message) relation.getField(field);
+        return field;
     }
 
     private static List<Rel> children(Message payload) {
         List<Rel> children = new ArrayList<>();
-        for (var field : payload.getDescriptorForType().getFields()) {
-            if (field.getJavaType() != FieldDescriptor.JavaType.MESSAGE
-                    || !field.getMessageType().getFullName().equals("substrait.Rel")) continue;
+        for (var field : relationFields(payload)) {
             if (field.isRepeated()) {
                 for (int i = 0; i < payload.getRepeatedFieldCount(field); i++) {
                     children.add((Rel) payload.getRepeatedField(field, i));
                 }
-            } else if (payload.hasField(field)) children.add((Rel) payload.getField(field));
+            } else if (payload.hasField(field)) {
+                children.add((Rel) payload.getField(field));
+            }
         }
         return children;
+    }
+
+    private static List<FieldDescriptor> relationFields(Message payload) {
+        return payload.getDescriptorForType().getFields().stream()
+                .filter(field -> field.getJavaType() == FieldDescriptor.JavaType.MESSAGE
+                        && field.getMessageType().getFullName().equals("substrait.Rel"))
+                .toList();
     }
 }

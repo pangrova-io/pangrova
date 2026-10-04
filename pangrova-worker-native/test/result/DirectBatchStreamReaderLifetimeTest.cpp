@@ -28,7 +28,8 @@
 #include <arrow/type.h>
 
 #include "../TestMemoryHelper.h"
-#include "result/ArrowBatchVectorSerde.h"
+#include "velox/serde/ArrowBatchVectorSerde.h"
+#include "velox/plan/CanonicalPlanSchema.h"
 #include "result/FlightResultServer.h"
 
 #include "velox/common/memory/ByteStream.h"
@@ -43,6 +44,7 @@ namespace pangrova::result::test {
 namespace {
 
 using namespace facebook::velox;
+using pangrova::velox::ArrowBatchVectorSerde;
 
 class DirectBatchStreamReaderLifetimeTest : public ::testing::Test {
  protected:
@@ -66,9 +68,13 @@ class DirectBatchStreamReaderLifetimeTest : public ::testing::Test {
   std::vector<uint8_t> serializeCanonicalPage(
       const std::vector<RowVectorPtr>& vectors) {
     ArrowBatchVectorSerde serde;
+    ArrowBatchVectorSerde::StreamOptions options;
+    options.canonical_schema = std::make_shared<const substrait::NamedStruct>(
+        pangrova::velox::schema::named({pangrova::velox::schema::computed("col_int",
+            pangrova::velox::schema::primitive("i32", substrait::Type::NULLABILITY_NULLABLE))}));
     StreamArena arena(pool_.get());
     auto serializer = serde.createIterativeSerializer(
-        std::dynamic_pointer_cast<const RowType>(vectors.front()->type()), 0, &arena);
+        std::dynamic_pointer_cast<const RowType>(vectors.front()->type()), 0, &arena, &options);
     auto outputStream = std::make_unique<IOBufOutputStream>(*pool_);
     for (const auto& vec : vectors) {
       serializer->append(vec);

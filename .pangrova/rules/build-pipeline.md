@@ -98,10 +98,19 @@ cd pangrova-worker-native/build-asan && ctest --output-on-failure
 | `ci-linux-x86_64` | CI Linux (Release, tests OFF) | `build-ci/` |
 | `ci-osx-aarch64` | CI macOS (Release, tests OFF) | `build-ci/` |
 
-## Full-Chain Build Order (MANDATORY for completion)
+## Full-Chain Build Order
 
-Every modification session must execute this full chain before declaring done.
-Steps are sequential — each depends on the previous.
+This is the reference chain for production regression and broad execution changes.
+Select local validation using `development.md`: isolated Java changes run module
+checks; docs/tooling run their own checks; runtime JNI/protocol/native/execution
+changes validate the affected links below. ASan is required for memory, ownership,
+JNI, or concurrency changes. Full production CI/release validation runs all steps.
+
+Build artifacts must come from the revision under test. Dependency setup and Lance
+FFI builds may reuse verified outputs when their inputs/toolchains are unchanged.
+After native runtime changes, rebuild and package before Java tests load the library.
+Independent Java and native compilation may run separately; preserve artifact
+ordering for tests that consume the native bundle.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -143,12 +152,14 @@ Steps are sequential — each depends on the previous.
 │   mvn -q -pl pangrova-testing/pangrova-test-e2e                  │
 │     -Dtest=ActivationSmokeE2ETest test                           │
 │                                                                  │
-│ ALL 8 STEPS MUST PASS. No exceptions.                           │
+│ ALL REQUIRED STEPS MUST PASS; report blockers accurately.                           │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-If ANY step fails → fix it. Do not proceed to the next step until the current one passes.
-Do not skip steps. Do not claim "not my code". The full chain is your responsibility.
+A failed prerequisite blocks dependent checks; independent validation may continue.
+Fix failures caused by the change. Record baseline/environment failures with evidence
+and their validation impact according to `development.md`; do not claim a blocked
+chain passed or expand the task into unrelated repairs.
 `full-regression` removes daily filename/tag exclusions, including untagged
 `*IntegrationTest`, native bootstrap, routing integration, and performance tests.
 It does not turn routing integration into independent-process distributed evidence.

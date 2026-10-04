@@ -7,7 +7,7 @@ import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
-import org.pangrova.coordinator.query.task.NativeWriteCommitTracker;
+import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
 import org.pangrova.coordinator.scheduler.SchedulerCancelResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -405,6 +405,9 @@ class SpeculativeExecutionWiringTest {
     static class Rec implements TaskDispatcher {
         volatile String last;
         @Override public DispatchResult dispatch(SubmitTaskRequest r, WorkerInfo w) { return new DispatchResult(w.host(), r.taskRequest().getAttempt().getTaskId(), new ResultEndpoint(w.host(), w.httpPort(), "t", "grpc")); }
-        @Override public SchedulerCancelResult cancelTask(String tid, String h, int p) { last = tid; return SchedulerCancelResult.cancelled(); }
+        @Override public SchedulerCancelResult cancelTask(SubmitTaskRequest request, String h, int p) {
+            last = request.taskRequest().getAttempt().getTaskId();
+            return SchedulerCancelResult.failed("Recording fixture has no actual execution-drain owner", false);
+        }
     }
 }

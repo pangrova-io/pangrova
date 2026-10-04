@@ -71,7 +71,8 @@ class ElectionScheduler {
             return;
         }
         scheduledTask = scheduler.scheduleAtFixedRate(
-                () -> handleLeaseRenewal(coordinatorId),
+                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(
+                        scheduler, () -> handleLeaseRenewal(coordinatorId)),
                 config.heartbeatIntervalMs(),
                 config.heartbeatIntervalMs(),
                 TimeUnit.MILLISECONDS);
@@ -114,7 +115,8 @@ class ElectionScheduler {
             return;
         }
         scheduledTask = scheduler.scheduleAtFixedRate(
-                () -> handleFailureDetection(coordinatorId),
+                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(
+                        scheduler, () -> handleFailureDetection(coordinatorId)),
                 config.heartbeatIntervalMs(),
                 config.heartbeatIntervalMs(),
                 TimeUnit.MILLISECONDS);
@@ -160,14 +162,6 @@ class ElectionScheduler {
         if (scheduler == null) {
             return;
         }
-        scheduler.shutdownNow();
-        try {
-            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                LOG.warn("event=ha_scheduler_shutdown_timeout");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            LOG.warn("event=ha_scheduler_shutdown_interrupted");
-        }
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, 5000);
     }
 }

@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import java.util.List;
 import java.util.Map;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
 
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RerankIntent;

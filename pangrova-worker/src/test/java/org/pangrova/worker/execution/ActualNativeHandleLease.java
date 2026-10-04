@@ -1,22 +1,17 @@
 package org.pangrova.worker.execution;
 
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
 /** Actual handle-operation lease used to assert release exclusion, not task execution. */
 public final class ActualNativeHandleLease implements AutoCloseable {
-    private final ReentrantReadWriteLock lock;
-    private boolean held = true;
+    private final NativeOperationLifetime.Lease lease;
 
     public ActualNativeHandleLease(NativeTaskExecutor executor, long handle) {
-        lock = executor.acquireHandleReadLock(handle);
+        lease = executor.acquireHandleLease(handle);
     }
 
-    public boolean blocks(Thread releaseThread) { return lock.hasQueuedThread(releaseThread); }
+    public boolean blocks(Thread releaseThread) { return lease.blocks(releaseThread); }
 
     @Override
     public void close() {
-        if (!held) return;
-        lock.readLock().unlock();
-        held = false;
+        lease.close();
     }
 }

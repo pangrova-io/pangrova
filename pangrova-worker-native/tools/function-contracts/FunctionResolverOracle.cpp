@@ -9,7 +9,7 @@
 #include "google/protobuf/struct.pb.h"
 #include "google/protobuf/util/json_util.h"
 #include "velox/expression/SignatureBinder.h"
-#include "velox/functions/FunctionRegistry.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 #include "velox/type/Type.h"
 
 namespace pangrova::capability {
@@ -100,7 +100,10 @@ std::vector<TypePtr> argumentTypes(const Object& request) {
 
 }  // namespace
 
-std::string resolveRegisteredScalarOracle(const std::string& request_json) {
+std::string resolveRegisteredScalarOracle(
+    const std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot>& snapshot,
+    const std::string& request_json) {
+  if (!snapshot) throw std::invalid_argument("Resolver oracle requires its owned actual snapshot");
   if (request_json.size() > 1024 * 1024) {
     throw std::runtime_error("Resolver oracle request byte bound exceeded");
   }
@@ -116,12 +119,17 @@ std::string resolveRegisteredScalarOracle(const std::string& request_json) {
   Object result;
   text(result, "name", function_name);
   captureResolution(result, [&]() {
-    return facebook::velox::resolveFunctionOrCallableSpecialForm(function_name, args);
+    const auto selected = snapshot->bindScalar(function_name, args);
+    return selected ? selected->resultType : nullptr;
   });
   auto* candidates = (*result.mutable_fields())["candidates"].mutable_list_value();
-  for (const auto* signature : facebook::velox::getFunctionSignatures(function_name)) {
+  const auto found = snapshot->scalars().find(facebook::velox::exec::sanitizeName(function_name));
+  const std::vector<facebook::velox::exec::FunctionRegistrySnapshot::ScalarEntry> empty;
+  const auto& entries = found == snapshot->scalars().end() ? empty : found->second;
+  for (const auto& entry : entries) {
+    if (!entry.signature) continue;
     auto* candidate = candidates->add_values()->mutable_struct_value();
-    facebook::velox::exec::SignatureBinder binder(*signature, args);
+    facebook::velox::exec::SignatureBinder binder(*entry.signature, args);
     captureResolution(*candidate, [&]() {
       return binder.tryBind() ? binder.tryResolveReturnType() : nullptr;
     });

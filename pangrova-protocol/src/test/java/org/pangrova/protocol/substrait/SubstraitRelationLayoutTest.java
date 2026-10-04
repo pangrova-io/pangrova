@@ -55,9 +55,12 @@ class SubstraitRelationLayoutTest {
 
     @Test
     void dfsNamesRemainAttachedToStructListAndMapKeyValueSubtrees() {
-        Type struct = Type.newBuilder().setStruct(Type.Struct.newBuilder().addTypes(i64()).addTypes(bool())).build();
-        Type list = Type.newBuilder().setList(Type.List.newBuilder().setType(struct)).build();
-        Type map = Type.newBuilder().setMap(Type.Map.newBuilder().setKey(struct).setValue(list)).build();
+        Type struct = Type.newBuilder().setStruct(Type.Struct.newBuilder()
+                .setNullability(Type.Nullability.NULLABILITY_REQUIRED).addTypes(i64()).addTypes(bool())).build();
+        Type list = Type.newBuilder().setList(Type.List.newBuilder()
+                .setNullability(Type.Nullability.NULLABILITY_REQUIRED).setType(struct)).build();
+        Type map = Type.newBuilder().setMap(Type.Map.newBuilder()
+                .setNullability(Type.Nullability.NULLABILITY_REQUIRED).setKey(struct).setValue(list)).build();
         var schema = NamedStruct.newBuilder().addAllNames(List.of("record", "a", "b", "rows", "c", "d",
                 "lookup", "key_a", "key_b", "value_a", "value_b"))
                 .setStruct(Type.Struct.newBuilder().addTypes(struct).addTypes(list).addTypes(map)).build();
@@ -75,10 +78,34 @@ class SubstraitRelationLayoutTest {
         Rel source = read(flatSchema());
         Rel root = Rel.newBuilder().setProject(ProjectRel.newBuilder().setInput(source).setCommon(emit(0))).build();
         var tree = SubstraitRelationLayout.describeTree(root);
+        assertThat(tree.relations()).containsExactlyInAnyOrder(root, root.getProject().getInput());
+        assertThatThrownBy(() -> tree.relations().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThat(tree.layout(root.getProject().getInput()).outputSchema()).isEqualTo(flatSchema());
         assertThat(tree.layout(root).outputMapping()).containsExactly(0);
         assertThatThrownBy(() -> tree.layout(read(flatSchema())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("indexed fragment");
+    }
+
+    @Test
+    void exactRelationReplacementPreservesEmitAndDoesNotRewriteEqualSiblings() {
+        Rel left = read(flatSchema());
+        Rel right = read(flatSchema());
+        Rel root = Rel.newBuilder().setCross(io.substrait.proto.CrossRel.newBuilder().setLeft(left).setRight(right)
+                .setCommon(emit(2, 0, 3, 1))).build();
+        var replacement = left.toBuilder().setRead(left.getRead().toBuilder()
+                .setBaseSchema(flatSchema().toBuilder().setNames(0, "changed"))).build();
+        var replacements = new java.util.IdentityHashMap<Rel, Rel>();
+        replacements.put(root.getCross().getLeft(), replacement);
+        Rel result = SubstraitRelationLayout.replaceRelations(root, replacements);
+        assertThat(result.getCross().getLeft()).isEqualTo(replacement);
+        assertThat(result.getCross().getRight()).isEqualTo(right);
+        assertThat(result.getCross().getCommon()).isEqualTo(root.getCross().getCommon());
+        assertThat(SubstraitRelationLayout.topLevelNames(SubstraitRelationLayout.describe(result).outputSchema()))
+                .containsExactly("id", "changed", "allowed", "allowed");
+        assertThat(root.getCross().getLeft()).isEqualTo(left);
+        var unrelated = new java.util.IdentityHashMap<Rel, Rel>();
+        unrelated.put(read(flatSchema()), replacement);
+        assertThat(SubstraitRelationLayout.replaceRelations(root, unrelated)).isEqualTo(root);
     }
 
     @Test
@@ -218,7 +245,8 @@ class SubstraitRelationLayoutTest {
 
     @Test
     void physicalAliasesNeverOverwriteLogicalDuplicateLabelsOrNestedNames() {
-        var nested = Type.newBuilder().setStruct(Type.Struct.newBuilder().addTypes(i64())).build();
+        var nested = Type.newBuilder().setStruct(Type.Struct.newBuilder()
+                .setNullability(Type.Nullability.NULLABILITY_REQUIRED).addTypes(i64())).build();
         var schema = NamedStruct.newBuilder().addAllNames(List.of("same", "child", "same", "child"))
                 .setStruct(Type.Struct.newBuilder().addTypes(nested).addTypes(nested)
                         .setNullability(Type.Nullability.NULLABILITY_NULLABLE).setTypeVariationReference(9)).build();

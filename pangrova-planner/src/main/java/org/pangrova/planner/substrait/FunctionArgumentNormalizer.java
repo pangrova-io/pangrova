@@ -8,7 +8,7 @@ import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.pangrova.common.exception.PangrovaErrorCode;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.protocol.v2.FunctionNormalizedArgument;
 
 import java.util.ArrayList;

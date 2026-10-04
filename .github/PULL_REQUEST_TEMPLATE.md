@@ -55,7 +55,8 @@
 <!--
     Every P0 fix must demonstrate the same defect is not repeated elsewhere in
     the codebase. Run a grep pattern that catches the *shape* of the bug (not
-    just the single line you fixed) and paste the FULL output below.
+    just the single line you fixed). Provide the command, hit count, and relevant
+    examples below; link or attach complete output when it is long.
 
     Examples:
       - Bug: `value.toString()` used as Bloom hash input
@@ -65,8 +66,8 @@
       - Bug: missing fencing token on metadata write
         Grep: `git grep -n "metadataStore\.write" -- '*.java'`
 
-    Then explain why every other hit is (a) already correct, (b) fixed in this
-    PR, or (c) tracked in a follow-up issue.
+    Group equivalent hits and explain which are already correct, fixed here,
+    or tracked in a follow-up issue. Do not paste repeated full logs.
 -->
 
 **Grep command:**
@@ -75,23 +76,24 @@
 <!-- e.g.: git grep -nE "Thread\.sleep\(" -- 'pangrova-*/src/main/java/**/*.java' -->
 ```
 
-**Full output:**
+**Hit count, relevant examples, and full-output link:**
 
 ```
-<!-- paste full grep output here -->
+<!-- paste hit count and relevant samples; link complete output if long -->
 ```
 
-**Triage of every hit:**
+**Triage by defect pattern:**
 
-<!-- For each line above, classify: FIXED (this PR) / CORRECT (different context) / FOLLOWUP (#issue) -->
+<!-- Classify each group: FIXED (this PR) / CORRECT (different context) / FOLLOWUP (#issue) -->
 
 -
 
 ## Distributed Correctness
 
-<!-- REQUIRED for changes touching: coordinator, worker, shuffle, or metadata modules.
-     If your PR does NOT touch these modules, write "N/A" below.
-     If it DOES touch them, you MUST check all applicable items or explain why they don't apply.
+<!-- REQUIRED for production/config/build changes in coordinator, worker,
+     shuffle, or metadata modules. Documentation and unrelated test changes are exempt.
+     Check applicable risks when distributed behavior changes; otherwise write
+     "N/A: <reason>". Do not manufacture irrelevant distributed evidence.
      See docs/distributed-correctness-checklist.md for detailed examples. -->
 
 - [ ] **Network partition behavior**: Described how the system behaves if a network partition occurs during this operation (e.g., coordinator cannot reach workers, metadata store is unreachable)

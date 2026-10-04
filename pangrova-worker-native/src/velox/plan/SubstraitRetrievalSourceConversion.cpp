@@ -252,6 +252,8 @@ VeloxPlanConverter::convertTopKRetrieval(
       k,
       /*isPartial=*/true,
       input);
+  const auto gathered = facebook::velox::core::LocalPartitionNode::gather(
+      nextNodeId(), {partial_topn});
 
   return std::make_shared<facebook::velox::core::TopNNode>(
       nextNodeId(),
@@ -259,7 +261,7 @@ VeloxPlanConverter::convertTopKRetrieval(
       sorting_orders,
       k,
       /*isPartial=*/false,
-      partial_topn);
+      gathered);
 }
 
 

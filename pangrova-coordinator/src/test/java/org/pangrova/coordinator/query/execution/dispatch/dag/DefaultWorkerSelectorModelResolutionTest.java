@@ -14,7 +14,6 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
-import org.pangrova.protocol.CanonicalProtocolDescriptors;
 import org.pangrova.protocol.v2.CapabilityDescriptor;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.CapabilityKind;
@@ -25,7 +24,7 @@ import org.pangrova.protocol.v2.ExecutionPlacement;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
-import org.pangrova.protocol.v2.ProtocolVersion;
+import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.protocol.v2.VersionedRef;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.spi.ai.embedding.EmbeddingModelDescriptor;
@@ -189,15 +188,8 @@ class DefaultWorkerSelectorModelResolutionTest {
     private static WorkerInfo worker(String id, ModelAvailability availability) {
         CapabilityRef capability = availability.getCapabilityContracts(0)
                 .getCapability();
-        CapabilityInventory inventory = CapabilityInventory.newBuilder()
-                .setProtocol(ProtocolVersion.newBuilder()
-                        .setMajor(2)
-                        .setMinor(0)
-                        .setDescriptorSetSha256(ByteString.copyFrom(
-                                CanonicalProtocolDescriptors.sha256()))
-                        .setRolloutEpoch("test"))
-                .setResultEnvelopeVersion(1)
-                .setNativeEngineVersion("native-test")
+        CapabilityInventory inventory = TestWorkerInfoBuilder.canonicalInventory().toBuilder()
+                .clearCapabilities().clearModels()
                 .addCapabilities(CapabilityDescriptor.newBuilder()
                         .setRef(capability)
                         .setKind(CapabilityKind.CAPABILITY_KIND_MODEL_INVOCATION)

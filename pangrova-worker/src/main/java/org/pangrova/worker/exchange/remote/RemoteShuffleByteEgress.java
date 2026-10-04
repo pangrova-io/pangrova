@@ -6,9 +6,14 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 
+import org.pangrova.common.concurrent.GuardedBy;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
 import org.pangrova.protocol.v2.ShuffleExecutionBinding;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -20,11 +25,16 @@ import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
 import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
 
 /** Task-scoped JNI egress for coordinator-allocated external shuffle. */
+@ThreadSafe
 public final class RemoteShuffleByteEgress implements AutoCloseable {
 
     private final RemoteShuffleClientPool clientPool;
     private final ConcurrentMap<String, RemoteShuffleTaskEgress> tasks = new ConcurrentHashMap<>();
+    private final Set<RemoteShuffleTaskEgress> pendingCandidates = ConcurrentHashMap.newKeySet();
+    @GuardedBy("this")
     private boolean closed;
+    @GuardedBy("this")
+    private int installing;
 
     /** Creates an egress over the supplied data-plane connection pool. */
     public RemoteShuffleByteEgress(RemoteShuffleClientPool clientPool) {
@@ -32,18 +42,41 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
     }
 
     /** Installs the canonical external-shuffle binding before native task creation. */
-    public synchronized boolean installTask(TaskRequest request) {
+    public boolean installTask(TaskRequest request) {
         requireNonNull(request, "request must not be null");
-        if (closed) {
-            throw new IllegalStateException("Remote shuffle egress is closed");
+        synchronized (this) {
+            if (closed) throw new IllegalStateException("Remote shuffle egress is closed");
+            if (!hasExternalBinding(request)) return false;
+            installing++;
         }
-        if (!hasExternalBinding(request)) {
-            return false;
+        try {
+            return admitCandidate(toTaskEgress(request, clientPool));
+        } finally {
+            synchronized (this) {
+                installing--;
+                notifyAll();
+            }
         }
-        RemoteShuffleTaskEgress task = toTaskEgress(request, clientPool);
-        RemoteShuffleTaskEgress existing = tasks.putIfAbsent(task.taskId(), task);
-        if (existing != null && !existing.sameIdentity(task)) {
-            task.abort("conflicting task binding");
+    }
+
+    private boolean admitCandidate(RemoteShuffleTaskEgress task) {
+        final RemoteShuffleTaskEgress existing;
+        final boolean sealed;
+        synchronized (this) {
+            pendingCandidates.add(task);
+            sealed = closed;
+            existing = sealed ? null : tasks.putIfAbsent(task.taskId(), task);
+            if (!sealed && existing == null) {
+                pendingCandidates.remove(task);
+                return true;
+            }
+        }
+        // A failed candidate drain remains owned independently of the existing
+        // task with the same id. Do not hold the admission lock across RPC joins.
+        task.abort(sealed ? "egress closed during admission" : "duplicate task binding");
+        pendingCandidates.remove(task);
+        if (sealed) throw new IllegalStateException("Remote shuffle egress is closed");
+        if (!existing.sameIdentity(task)) {
             throw new RemoteShuffleClientException(
                     "Conflicting external shuffle task binding for taskId=" + task.taskId());
         }
@@ -101,20 +134,51 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
         tasks.remove(taskId, task);
     }
 
-    /** Releases an installed task that never reached the native callback path. */
-    public void releaseTask(String queryId, String taskId) {
-        onTaskAborted(queryId, taskId, "task released");
+    /** Joins only resources owned by this exact original NETWORK request, including failed candidates. */
+    public void releaseTask(TaskRequest request) {
+        var seal = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request);
+        String taskId = seal.getAttempt().getTaskId();
+        Throwable failure = null;
+        try {
+            var task = tasks.get(taskId);
+            if (task != null && task.belongsTo(seal)) {
+                task.abort("exact task released");
+                tasks.remove(taskId, task);
+            }
+        } catch (RuntimeException | Error cleanup) {
+            failure = cleanup;
+        }
+        for (var candidate : pendingCandidates) {
+            if (!candidate.belongsTo(seal)) continue;
+            try {
+                candidate.abort("unpublished task candidate released");
+                pendingCandidates.remove(candidate);
+            } catch (RuntimeException | Error cleanup) {
+                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+            }
+        }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     @Override
-    public synchronized void close() {
-        closed = true;
-        List<RemoteShuffleTaskEgress> active = new ArrayList<>(tasks.values());
+    public void close() {
+        final List<RemoteShuffleTaskEgress> active;
+        synchronized (this) {
+            closed = true;
+        }
+        awaitAdmissions();
+        synchronized (this) {
+            var all = new HashSet<>(tasks.values());
+            all.addAll(pendingCandidates);
+            active = new ArrayList<>(all);
+        }
         Throwable failure = null;
         for (var task : active) {
             try {
                 task.abort("egress closed");
                 tasks.remove(task.taskId(), task);
+                pendingCandidates.remove(task);
             } catch (RuntimeException | Error cleanupFailure) {
                 if (failure == null) {
                     failure = cleanupFailure;
@@ -130,6 +194,24 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
             throw error;
         }
         clientPool.close();
+    }
+
+    private void awaitAdmissions() {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        synchronized (this) {
+            while (installing != 0) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) {
+                    throw new RemoteShuffleClientException("Shuffle task admission has not exited");
+                }
+                try {
+                    TimeUnit.NANOSECONDS.timedWait(this, remaining);
+                } catch (InterruptedException failure) {
+                    Thread.currentThread().interrupt();
+                    throw new RemoteShuffleClientException("Shuffle task admission drain interrupted", failure);
+                }
+            }
+        }
     }
 
     private RemoteShuffleTaskEgress requireTask(String queryId, String taskId) {
@@ -177,7 +259,8 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
                 new ShuffleServiceAddress(
                         commit.getHost(), commit.getPort(), commit.getTlsIdentity()),
                 taskAttempt, request.getDeadlineEpochMs(),
-                parseCodec(shuffle.getCompressionCodec()), binding.getWriteCapability()),
+                parseCodec(shuffle.getCompressionCodec()), binding.getWriteCapability(),
+                org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request)),
                 clientPool);
     }
 
@@ -230,11 +313,12 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
     }
 
     private static CompressionCodec parseCodec(String codec) {
-        if ("NONE".equals(codec.trim().toUpperCase(java.util.Locale.ROOT))) {
-            return CompressionCodec.COMPRESSION_CODEC_NONE;
-        }
-        throw new IllegalArgumentException(
-                "External shuffle currently requires compression codec NONE: " + codec);
+        // The task codec controls the self-described columnar stream. This
+        // transport carries its bytes unchanged and never compresses them again.
+        return switch (codec) {
+            case "none", "lz4", "zstd" -> CompressionCodec.COMPRESSION_CODEC_NONE;
+            default -> throw new IllegalArgumentException("Unknown shuffle stream codec: " + codec);
+        };
     }
 
 }

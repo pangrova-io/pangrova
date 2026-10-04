@@ -21,7 +21,6 @@ import org.pangrova.protocol.v2.ModelBinding;
 import org.pangrova.protocol.v2.ModelRef;
 import org.pangrova.protocol.v2.NamedExpressionArgument;
 import org.pangrova.protocol.v2.OperatorBinding;
-import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 import org.pangrova.protocol.v2.RerankDetail;
 import org.pangrova.protocol.v2.RetryClass;
@@ -176,7 +175,8 @@ public final class RerankPlanBinder {
                 .setModel(ModelBinding.newBuilder()
                         .setModel(modelRef)
                         .setOutputType(binding.modelOutputType())
-                        .setRequestLimits(org.pangrova.protocol.ModelResourceEnvelopes.requestLimits(binding.modelLimits())))
+                        .setRequestLimits(org.pangrova.protocol.ModelResourceEnvelopes
+                                .requestLimits(binding.modelLimits())))
                 .setResources(org.pangrova.protocol.ModelResourceEnvelopes.resources(
                         binding.modelLimits(), binding.inputLimit(), false).toBuilder()
                         .setCandidateRows(binding.inputLimit()))

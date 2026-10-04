@@ -5,6 +5,7 @@
 // to proto wire format, including per-operator metrics extraction.
 
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <openssl/evp.h>
 
@@ -17,6 +18,7 @@
 
 // Velox TaskStats for constructing test data.
 #if __has_include("velox/exec/TaskStats.h")
+#include "velox/exec/BlockingReason.h"
 #include "velox/exec/TaskStats.h"
 #define PANGROVA_HAS_VELOX_TASK_STATS 1
 #else
@@ -81,6 +83,41 @@ TEST_F(StatusSerializerTest, SerializeEmptyTaskStats) {
   EXPECT_EQ(proto.peak_memory_bytes(), 0);
   EXPECT_EQ(proto.spill_bytes(), 0);
   EXPECT_EQ(proto.operator_stats_size(), 0);
+  EXPECT_EQ(proto.consumer_blocked_drivers(), 0);
+}
+
+TEST_F(StatusSerializerTest, LiveConsumerDriverCountIsDistinctFromCompletedWaitMetrics) {
+  facebook::velox::exec::TaskStats taskStats;
+  taskStats.numBlockedDrivers.emplace(
+      facebook::velox::exec::BlockingReason::kWaitForConsumer, 2);
+  taskStats.numBlockedDrivers.emplace(
+      facebook::velox::exec::BlockingReason::kWaitForConnector, 7);
+  auto bytes = serializeNativeTaskStats(taskStats);
+  pangrova::protocol::v2::NativeTaskStats decoded;
+  ASSERT_TRUE(decoded.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+  EXPECT_EQ(decoded.consumer_blocked_drivers(), 2);
+  EXPECT_EQ(decoded.backpressure_wait_ms(), 0);
+  taskStats.numBlockedDrivers.clear();
+  bytes = serializeNativeTaskStats(taskStats);
+  ASSERT_TRUE(decoded.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+  EXPECT_EQ(decoded.consumer_blocked_drivers(), 0);
+}
+
+TEST_F(StatusSerializerTest, ConsumerWaitMetricDoesNotIncludeIoOrOtherBlockingReasons) {
+  facebook::velox::exec::TaskStats taskStats;
+  facebook::velox::exec::PipelineStats pipeline(true, true);
+  facebook::velox::exec::OperatorStats op;
+  op.blockedWallNanos = 999'000'000;
+  op.runtimeStats.emplace("blockedWaitForConsumerWallNanos",
+      facebook::velox::RuntimeMetric(7'500'000, facebook::velox::RuntimeCounter::Unit::kNanos));
+  op.runtimeStats.emplace("blockedWaitForConnectorWallNanos",
+      facebook::velox::RuntimeMetric(990'000'000, facebook::velox::RuntimeCounter::Unit::kNanos));
+  pipeline.operatorStats.push_back(std::move(op));
+  taskStats.pipelineStats.push_back(std::move(pipeline));
+  auto bytes = serializeNativeTaskStats(taskStats);
+  pangrova::protocol::v2::NativeTaskStats decoded;
+  ASSERT_TRUE(decoded.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+  EXPECT_EQ(decoded.backpressure_wait_ms(), 7);
 }
 
 TEST_F(StatusSerializerTest, SerializeSingleOperator) {
@@ -249,6 +286,8 @@ TEST_F(StatusSerializerTest, AllMetricsNonNegative) {
 
 TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
   executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "task-1";
   config.query_id = "job-1";
   config.stage_id = 3;
@@ -313,6 +352,8 @@ TEST_F(StatusSerializerTest, TaskReportCarriesCanonicalArtifactWorkReport) {
 
 TEST_F(StatusSerializerTest, FailedTaskReportsPinnedSourceCoverage) {
   executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "task-coverage";
   config.query_id = "query-coverage";
   config.stage_id = 4;
@@ -362,6 +403,8 @@ TEST_F(StatusSerializerTest, FailedTaskReportsPinnedSourceCoverage) {
 
 TEST_F(StatusSerializerTest, FailedTaskReportsBoundLargeSplitCoverage) {
   executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "task-large-coverage";
   config.query_id = "query-large-coverage";
   for (int index = 0; index < 4097; ++index) {
@@ -390,6 +433,8 @@ TEST_F(StatusSerializerTest, FailedTaskReportsBoundLargeSplitCoverage) {
 
 TEST_F(StatusSerializerTest, FailedTaskRetainsTaskOwnedColumnarCopyObservation) {
   executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "copy-observation-owner";
   config.query_id = "copy-observation-query";
   executor::TaskExecutor executor(config);

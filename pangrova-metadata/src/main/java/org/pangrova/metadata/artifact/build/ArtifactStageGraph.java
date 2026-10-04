@@ -92,7 +92,7 @@ public record ArtifactStageGraph(int formatVersion, Purpose purpose, List<StageP
             distributionKeys = List.copyOf(distributionKeys);
             if (exchangeId == null || exchangeId.isBlank() || upstreamStageId < 0 || downstreamStageId < 0
                     || upstreamStageId == downstreamStageId || partitionCount <= 0 || !requireComplete
-                    || !"BATCH_SERDE_NATIVE_ROW".equals(batchSerde)
+                    || !"BATCH_SERDE_ARROW_BATCH".equals(batchSerde)
                     || distributionKeys.stream().anyMatch(key -> key < 0)
                     || new HashSet<>(distributionKeys).size() != distributionKeys.size()
                     || (distribution == Distribution.HASH) != !distributionKeys.isEmpty()

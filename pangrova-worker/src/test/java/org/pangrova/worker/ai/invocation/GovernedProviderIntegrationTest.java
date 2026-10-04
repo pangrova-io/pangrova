@@ -1,5 +1,7 @@
 package org.pangrova.worker.ai.invocation;
 
+import org.pangrova.worker.ai.governance.AiInvocationObserver;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;

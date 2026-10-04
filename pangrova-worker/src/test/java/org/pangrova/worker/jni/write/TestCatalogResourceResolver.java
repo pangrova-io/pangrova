@@ -1,5 +1,7 @@
 package org.pangrova.worker.jni.write;
 
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
+
 import org.pangrova.protocol.v2.TaskRequest;
 
 import java.util.function.BiFunction;

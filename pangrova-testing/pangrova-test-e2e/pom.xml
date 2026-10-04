@@ -35,6 +35,19 @@
         <!-- Pipeline integration dependencies for E2E tests -->
         <dependency>
             <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-worker</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <classifier>native-fixtures</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-shuffle-service</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
             <artifactId>pangrova-coordinator</artifactId>
             <scope>test</scope>
         </dependency>

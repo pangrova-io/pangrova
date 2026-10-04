@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <sstream>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -25,17 +26,16 @@
 #include "jni/bridge/NativeDatasetControl.h"
 #include "jni/command/FlightServerRegistry.h"
 #include "jni/command/NativeResourceDrainControl.h"
+#include "jni/command/NativeCreationControl.h"
 #include "jni/registry/HandleRegistry.h"
 #include "memory/MemoryPressure.h"
 #include "observability/PangrovaLog.h"
 #include "split/PathUtils.h"
 #include "udf/NativeUdfRegistry.h"
-#if PANGROVA_HAS_FLIGHT
 #include "result/FlightResultServer.h"
 #include "shuffle/FlightShuffleServer.h"
 #include "shuffle/ShuffleTicketKeys.h"
 #include "shuffle/TicketSigner.h"
-#endif
 #include "vector/diskann/DiskAnnIndexCache.h"
 #include "velox/exchange/PendingEndpointRegistry.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
@@ -44,6 +44,9 @@
 #include "artifact/ImmutableArtifactCache.h"
 #include "cache/SemanticResultCache.h"
 #include "capability/NativeCapabilityCatalog.h"
+#include "capability/FunctionCatalogAssembler.h"
+#include "capability/NativeCapabilityInventory.h"
+#include "velox/runtime/NativeEngineLifecycle.h"
 #include "compat/NativeFeatureDetection.h"
 
 #include "google/protobuf/descriptor.pb.h"
@@ -106,53 +109,6 @@ void setResponsePayload(proto::RuntimeCommandResponse& response,
   response.mutable_payload()->PackFrom(payload);
 }
 
-void collectDescriptorFiles(
-    const google::protobuf::FileDescriptor* descriptor,
-    std::map<std::string, const google::protobuf::FileDescriptor*>& files) {
-  if (!descriptor || !files.emplace(descriptor->name(), descriptor).second) {
-    return;
-  }
-  for (int i = 0; i < descriptor->dependency_count(); ++i) {
-    collectDescriptorFiles(descriptor->dependency(i), files);
-  }
-}
-
-void clearDerivedFields(google::protobuf::DescriptorProto* message) {
-  for (auto& field : *message->mutable_field()) {
-    field.clear_json_name();
-  }
-  for (auto& extension : *message->mutable_extension()) {
-    extension.clear_json_name();
-  }
-  for (auto& nested : *message->mutable_nested_type()) {
-    clearDerivedFields(&nested);
-  }
-}
-
-void normalizeDescriptor(google::protobuf::FileDescriptorProto* descriptor) {
-  for (auto& message : *descriptor->mutable_message_type()) {
-    clearDerivedFields(&message);
-  }
-  for (auto& extension : *descriptor->mutable_extension()) {
-    extension.clear_json_name();
-  }
-}
-
-std::string canonicalDescriptorSet(const google::protobuf::FileDescriptor* root,
-                                   bool normalize_derived_fields = false) {
-  std::map<std::string, const google::protobuf::FileDescriptor*> files;
-  collectDescriptorFiles(root, files);
-  google::protobuf::FileDescriptorSet descriptor_set;
-  for (const auto& [name, descriptor] : files) {
-    (void)name;
-    auto* output = descriptor_set.add_file();
-    descriptor->CopyTo(output);
-    if (normalize_derived_fields) {
-      normalizeDescriptor(output);
-    }
-  }
-  return descriptor_set.SerializeAsString();
-}
 
 std::string sha256(const std::string& input) {
   std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
@@ -297,15 +253,6 @@ validateExternalSource(const proto::ExternalShuffleInput& external,
     return "External shuffle source is missing service or producer metadata";
   }
   return validateExternalEndpointCoverage(external);
-}
-
-std::string formatExternalFailure(const proto::ExecutionError& failure) {
-  std::ostringstream message;
-  message << "code=" << failure.code()
-          << " component=" << failure.failed_component()
-          << " retryable=" << (failure.retryable() ? "true" : "false")
-          << " message=" << failure.message();
-  return message.str();
 }
 
 // --- Per-command handlers ---
@@ -553,100 +500,51 @@ void handleMemoryPressure(const proto::RuntimeCommand& cmd,
   resp = successResponse();
 }
 
+
+void handleFinalizeFunctionCatalog(const proto::RuntimeCommand& cmd,
+                                  int64_t executor_handle,
+                                  proto::RuntimeCommandResponse& resp) {
+  proto::FunctionCatalogFinalizeRequest request;
+  if (!unpackPayload(cmd, &request, resp, "FunctionCatalogFinalizeRequest")) return;
+  if (executor_handle != 0 || request.ByteSizeLong() > 1024 ||
+      !request.GetReflection()->GetUnknownFields(request).empty() ||
+      !request.has_protocol() || request.binding_declaration_sha256().size() != 32 ||
+      request.execution_selection_sha256().size() != 32) {
+    throw std::invalid_argument("Function catalogue finalize requires its exact bounded startup contract");
+  }
+  auto startup = NativeEngineLifecycle::instance().functionCatalogStartup();
+  auto publication = startup->finalize([&request] {
+    auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    auto inventory = capability::runtimeCapabilityInventory(*registry);
+    if (request.protocol().SerializeAsString() != inventory.protocol().SerializeAsString()) {
+      throw std::invalid_argument("Function catalogue startup protocol does not match the actual Native artifact");
+    }
+    auto prepared = capability::FunctionCatalogAssembler::assemble(
+        std::move(registry), std::move(inventory));
+    const auto& manifest = prepared->inventory().function_catalog();
+    if (!constantTimeEqual(request.binding_declaration_sha256(), manifest.binding_declaration_sha256()) ||
+        !constantTimeEqual(request.execution_selection_sha256(), manifest.execution_selection_sha256())) {
+      throw std::invalid_argument("Function catalogue startup declarations do not match the actual Native artifact");
+    }
+    return prepared;
+  });
+  proto::FunctionCatalogFinalizeResult result;
+  result.set_manifest_sha256(publication->inventory().function_catalog().manifest_sha256());
+  result.set_inventory_bytes(publication->inventory().ByteSizeLong());
+  result.set_encoded_inventory_bytes(4 * ((result.inventory_bytes() + 2) / 3));
+  setResponsePayload(resp, result);
+}
+
 void handleGetCapabilities(const proto::RuntimeCommand& /*cmd*/,
                            proto::RuntimeCommandResponse& resp) {
-  const auto descriptor_set_v2 =
-      canonicalDescriptorSet(proto::RuntimeCommand::descriptor()->file(), true);
-  const auto descriptor_set_v2_sha256 = sha256(descriptor_set_v2);
   proto::CapabilityResponse capabilities;
-  auto* inventory_v2 = capabilities.mutable_inventory();
-  auto* protocol_v2 = inventory_v2->mutable_protocol();
-  protocol_v2->set_major(2);
-  protocol_v2->set_minor(0);
-  protocol_v2->set_descriptor_set_sha256(descriptor_set_v2_sha256);
-  protocol_v2->set_rollout_epoch("ai-native-function-resource-r3");
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::exactTopKRetrievalDescriptor();
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::rrfRetrievalMergeDescriptor();
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::linearRetrievalMergeDescriptor();
-  auto* udf_registry = pangrova::jni::globalUdfRegistry();
-  if (udf_registry && udf_registry->findScalar(std::string(
-                          pangrova::capability::kGovernedRerankFunction))) {
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::crossEncoderRerankDescriptor();
-  }
-  if (udf_registry && udf_registry->findScalar("ai_complete")) {
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::aiTextGenerationDescriptor();
-  }
-  if (udf_registry && udf_registry->findScalar("ai_describe_image")) {
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::aiMultimodalGenerationDescriptor();
-  }
-  if (udf_registry && udf_registry->findScalar("ai_embed")) {
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::aiEmbeddingDescriptor();
-  }
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::diskAnnArtifactBuildDescriptor();
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::hnswArtifactBuildDescriptor();
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::ivfPqArtifactBuildDescriptor();
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::bm25ArtifactBuildDescriptor();
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::generatedValuesArtifactBuildDescriptor();
-  *inventory_v2->add_capabilities() =
-      pangrova::capability::tabularExportDescriptor();
-  // Retrieval is advertised only when the node-local immutable artifact
-  // substrate is actually ready. The scheduler therefore never routes a
-  // DiskANN task to a Worker that merely contains the software implementation
-  // but cannot satisfy its storage contract.
-  if (pangrova::artifact::ImmutableArtifactCache::instance().enabled() &&
-      pangrova::vector::diskann::DiskAnnIndexCache::instance().enabled()) {
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::diskAnnRetrievalDescriptor();
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::hnswRetrievalDescriptor();
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::ivfPqRetrievalDescriptor();
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::bm25RetrievalDescriptor();
-  }
-  // The generated-value overlay only needs checksum-verified immutable object
-  // materialization. It must not inherit the independent ANN parsed-cache
-  // readiness gate.
-  if (pangrova::artifact::ImmutableArtifactCache::instance().enabled()) {
-    *inventory_v2->add_capabilities() =
-        pangrova::capability::generatedValuesOverlayDescriptor();
-  }
-  inventory_v2->add_supported_relation_type_urls(
-      pangrova::capability::kRelationDetailEnvelopeTypeUrl);
-  inventory_v2->set_candidate_schema_version(
-      pangrova::capability::kRetrievalCandidateSchemaVersion);
-  inventory_v2->set_result_envelope_version(1);
-  inventory_v2->set_native_engine_version("0.1.0");
-  for (const auto* rel :
-       {"ReadRel", "FilterRel", "ProjectRel", "AggregateRel", "HashJoinRel",
-        "MergeJoinRel", "JoinRel", "ExchangeRel", "ExtensionLeafRel",
-        "SortRel", "FetchRel",
-        "ConsistentPartitionWindowRel", "SetRel", "CrossRel",
-        "ExtensionSingleRel", "ExtensionMultiRel"}) {
-    inventory_v2->add_supported_substrait_rel_types(rel);
-  }
-  for (const auto* expression : {"FieldReference", "Literal", "ScalarFunction",
-                                 "Cast", "IfThen", "WindowFunction"}) {
-    inventory_v2->add_supported_substrait_expression_types(expression);
-  }
+  *capabilities.mutable_inventory() = NativeEngineLifecycle::instance()
+      .functionCatalogStartup()->requirePublished()->inventory();
   setResponsePayload(resp, capabilities);
 }
 
 void handleStartResultServer(const proto::RuntimeCommand& cmd,
                              proto::RuntimeCommandResponse& resp) {
-#if PANGROVA_HAS_FLIGHT
   proto::StartResultServerRequest payload;
   if (!unpackPayload(cmd, &payload, resp,
                      "pangrova.protocol.v2.StartResultServerRequest")) {
@@ -674,28 +572,17 @@ void handleStartResultServer(const proto::RuntimeCommand& cmd,
   proto::StartResultServerResponse result;
   result.set_bound_port(bound_port);
   setResponsePayload(resp, result);
-#else
-  (void)cmd;
-  resp = errorResponse(
-      "Arrow Flight not available — built without PANGROVA_HAS_FLIGHT");
-#endif
 }
 
 void handleStopResultServer(const proto::RuntimeCommand& /*cmd*/,
                             proto::RuntimeCommandResponse& resp) {
-#if PANGROVA_HAS_FLIGHT
   FlightServerRegistry::instance().shutdownResultServer();
   resp = successResponse();
-#else
-  resp = errorResponse(
-      "Arrow Flight not available — built without PANGROVA_HAS_FLIGHT");
-#endif
 }
 
 void handleStartShuffleServer(const proto::RuntimeCommand& cmd,
                               int64_t executor_handle,
                               proto::RuntimeCommandResponse& resp) {
-#if PANGROVA_HAS_FLIGHT
   proto::StartShuffleServerRequest request;
   if (!unpackPayload(cmd, &request, resp,
                      "pangrova.protocol.v2.StartShuffleServerRequest")) {
@@ -800,11 +687,6 @@ void handleStartShuffleServer(const proto::RuntimeCommand& cmd,
         static_cast<uint64_t>(signed_ticket.expires_at_epoch_ms));
   }
   setResponsePayload(resp, result);
-#else
-  (void)cmd;
-  resp = errorResponse(
-      "Arrow Flight not available — built without PANGROVA_HAS_FLIGHT");
-#endif
 }
 
 // Unregisters the executor handle from the shared multiplexed shuffle server.
@@ -814,7 +696,6 @@ void handleStartShuffleServer(const proto::RuntimeCommand& cmd,
 void handleStopShuffleServer(const proto::RuntimeCommand& /*cmd*/,
                              int64_t executor_handle,
                              proto::RuntimeCommandResponse& resp) {
-#if PANGROVA_HAS_FLIGHT
   auto handle = executor_handle;
   if (handle == 0) {
     resp = errorResponse(
@@ -827,11 +708,6 @@ void handleStopShuffleServer(const proto::RuntimeCommand& /*cmd*/,
   PANGROVA_LOG(INFO) << "event=shuffle_handle_unregistered"
                      << " executor_handle=" << handle;
   resp = successResponse();
-#else
-  (void)cmd;
-  resp = errorResponse(
-      "Arrow Flight not available — built without PANGROVA_HAS_FLIGHT");
-#endif
 }
 
 // Signals the native engine that no more exchange sources will be added
@@ -1102,22 +978,29 @@ void handleFinishExchangeSource(const proto::RuntimeCommand& cmd,
     return;
   }
   std::string failure;
+  std::function<void()> on_failure_accepted;
   if (request.has_failure()) {
-    if (request.failure().error_class() == proto::ERROR_CLASS_UNSPECIFIED ||
+    if (!proto::ErrorClass_IsValid(request.failure().error_class()) ||
+        request.failure().error_class() == proto::ERROR_CLASS_UNSPECIFIED ||
         request.failure().code().empty() ||
         request.failure().message().empty() ||
-        request.failure().failed_component().empty()) {
+        request.failure().failed_component().empty() ||
+        !request.failure().GetReflection()
+             ->GetUnknownFields(request.failure()).empty()) {
       resp = errorResponse("External exchange failure must contain class, "
                            "code, component, and message",
                            proto::ERROR_CLASS_INVALID_REQUEST,
                            "INVALID_EXCHANGE_FAILURE");
       return;
     }
-    failure = formatExternalFailure(request.failure());
+    failure = request.failure().message();
+    on_failure_accepted = [&executor, &request] {
+      executor->recordExecutionError(request.failure());
+    };
   }
   pangrova::velox::PendingEndpointRegistry::instance().finishExternalSource(
       executor_handle, request.plan_node_id(), request.exchange_id(),
-      request.last_sequence(), failure);
+      request.last_sequence(), failure, on_failure_accepted);
   resp = successResponse();
 }
 
@@ -1146,6 +1029,9 @@ std::vector<uint8_t> dispatchParsedCommand(const proto::RuntimeCommand& cmd,
   }
   try {
     switch (cmd.command_type()) {
+    case proto::RUNTIME_COMMAND_TYPE_RECOVER_EXECUTOR_CREATION:
+      resp = recoverExecutorCreation(cmd, executor_handle);
+      break;
     case proto::RUNTIME_COMMAND_TYPE_GET_RESOURCE_DRAIN_EVIDENCE:
       resp = resourceDrainEvidence(cmd, executor_handle);
       break;
@@ -1175,6 +1061,9 @@ std::vector<uint8_t> dispatchParsedCommand(const proto::RuntimeCommand& cmd,
       break;
     case proto::RUNTIME_COMMAND_TYPE_GET_CAPABILITIES:
       handleGetCapabilities(cmd, resp);
+      break;
+    case proto::RUNTIME_COMMAND_TYPE_FINALIZE_FUNCTION_CATALOG:
+      handleFinalizeFunctionCatalog(cmd, executor_handle, resp);
       break;
     case proto::RUNTIME_COMMAND_TYPE_MEMORY_PRESSURE:
       handleMemoryPressure(cmd, resp);
@@ -1254,20 +1143,14 @@ dispatchCommandWithHandle(const std::vector<uint8_t>& command_proto,
 }
 
 void shutdownFlightResultServer() {
-#if PANGROVA_HAS_FLIGHT
   FlightServerRegistry::instance().shutdownAll();
-#endif
 }
 
 void cleanupShuffleServerForHandle(int64_t executor_handle) {
-#if PANGROVA_HAS_FLIGHT
   FlightServerRegistry::instance().unregisterShuffleHandle(executor_handle);
 
   PANGROVA_LOG(INFO) << "event=shuffle_handle_cleaned_on_release"
                      << " executor_handle=" << executor_handle;
-#else
-  (void)executor_handle;
-#endif
 }
 
 } // namespace pangrova::jni

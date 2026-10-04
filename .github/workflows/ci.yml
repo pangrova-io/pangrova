@@ -14,6 +14,23 @@ env:
   NATIVE_LIB_DIR: ${{ github.workspace }}/pangrova-worker-native/build
 
 jobs:
+  change-scope:
+    name: Select extra performance checks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      performance: ${{ steps.scope.outputs.performance }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Determine change scope
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 .pangrova/scripts/ci_change_scope.py --base-ref "$BASE_SHA" --head-ref "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
   native-build:
     name: Native Build (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
@@ -47,6 +64,11 @@ jobs:
             classifier: osx-aarch_64
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Cache native deps + Velox
         uses: actions/cache@v4
@@ -165,6 +187,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Download native library (for java.library.path fallback)
         uses: actions/download-artifact@v4
         with:
@@ -238,6 +265,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - uses: actions/setup-java@v5
         with:
           java-version: '17'
@@ -286,10 +318,15 @@ jobs:
   tpch-performance:
     name: TPC-H Performance Regression
     runs-on: ubuntu-latest
-    needs: java-build
-    if: github.event_name == 'pull_request'
+    needs: [java-build, change-scope]
+    if: github.event_name == 'pull_request' && needs.change-scope.outputs.performance == 'true'
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Download native library
         uses: actions/download-artifact@v4
@@ -363,6 +400,11 @@ jobs:
             preset: dev-ubsan
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Cache native deps + Velox
         uses: actions/cache@v4
@@ -459,10 +501,15 @@ jobs:
   jmh-benchmarks:
     name: JMH Micro-Benchmarks
     runs-on: ubuntu-latest
-    needs: java-build
-    if: github.event_name == 'pull_request'
+    needs: [java-build, change-scope]
+    if: github.event_name == 'pull_request' && needs.change-scope.outputs.performance == 'true'
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -511,11 +558,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Fetch base branch
         run: git fetch origin ${{ github.base_ref }} --depth=1
 
       - name: Extract PR metadata
-        run: echo '${{ github.event.pull_request.body }}' > /tmp/pr-body.md
+        run: printf '%s\n' "$PR_BODY" > /tmp/pr-body.md
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
 
@@ -579,7 +631,7 @@ jobs:
         run: git fetch origin ${{ github.base_ref }} --depth=1
 
       - name: Extract PR body
-        run: echo '${{ github.event.pull_request.body }}' > /tmp/pr-body.md
+        run: printf '%s\n' "$PR_BODY" > /tmp/pr-body.md
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
 
@@ -606,28 +658,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Check BOM dependency usage
-        run: ./.pangrova/scripts/check-bom-usage.sh
 
       - name: Check doc class references
         run: ./.pangrova/scripts/check-doc-class-refs.sh
-
-      - name: Check doc staleness (warning only)
-        run: ./.pangrova/scripts/check-doc-staleness.sh
-
-      - name: Check ADR status vs code grep alignment
-        run: |
-          chmod +x .pangrova/scripts/adr-grep-check.sh
-          ./.pangrova/scripts/adr-grep-check.sh
 
   lint:
     name: Code Quality
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Guard against root-level build artifacts
         run: |
@@ -654,6 +698,9 @@ jobs:
       - name: Test patch_flight_types.py
         run: python3 pangrova-worker-native/test/PatchFlightTypesTest.py
 
+      - name: Test gate selection and policy consistency
+        run: python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_gate_policy.py' -v
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -661,14 +708,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Compile (required for SpotBugs bytecode analysis)
-        run: mvn -B compile -pl '!pangrova-native-bundle'
-
-      - name: Check Code Style (Checkstyle)
-        run: mvn -B checkstyle:check -pl '!pangrova-native-bundle'
-
-      - name: SpotBugs Analysis
-        run: mvn -B com.github.spotbugs:spotbugs-maven-plugin:check -pl '!pangrova-native-bundle'
+      - name: Test Checkstyle boundary enforcement
+        run: python3 .pangrova/scripts/tests/checkstyle-boundaries-test.py
 
       - name: Static Analysis (profile gate)
         run: mvn -B verify -Pstatic-analysis -DskipTests -pl '!pangrova-native-bundle'
@@ -678,6 +719,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5

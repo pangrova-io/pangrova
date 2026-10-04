@@ -235,7 +235,8 @@ message TraceContext {
 // Stable wire-level batch serialization choices. Engine-specific serde names
 // are deliberately excluded from the protocol and are resolved inside Native.
 enum BatchSerde {
+  reserved 1;
+  reserved "BATCH_SERDE_NATIVE_ROW";
   BATCH_SERDE_UNSPECIFIED = 0;
-  BATCH_SERDE_NATIVE_ROW = 1;
   BATCH_SERDE_ARROW_BATCH = 2;
 }

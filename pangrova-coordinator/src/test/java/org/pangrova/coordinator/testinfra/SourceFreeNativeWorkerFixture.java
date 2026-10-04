@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.testinfra;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.AsyncSubmitConfig;
@@ -75,6 +75,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
     private TaskManager manager;
     private WorkerHttpServer server;
     private MemoryRefs memory;
+    private TaskStatusReceiver receiver;
     private boolean closed;
 
     public SourceFreeNativeWorkerFixture(String workerId, Path directory) throws Exception {
@@ -149,6 +150,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
 
     public WorkerHttpServer httpServer() { return server; }
     public TaskManager taskManager() { return manager; }
+    public TaskStatusReceiver statusReceiver() { return java.util.Objects.requireNonNull(receiver); }
 
     public WorkerInfo workerInfo() {
         return workerInfo(workers.get(0));
@@ -183,7 +185,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
 
     public void connect(QueryDispatcher dispatcher, CoordinatorTaskTracker tracker,
                         WorkerManager workers, QueryManager queries) {
-        var receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queries, tracker, workers,
+        receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queries, tracker, workers,
                 null, null, null, null, null, null, dispatcher.dagEngine(), null, null));
         sink.set(report -> {
             if (!receiver.onTaskStatus(report)) {

@@ -30,7 +30,7 @@ All worker-side configuration keys, as defined by `WorkerOptions` in the
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `worker.transport.port` | int | `0` | Listen port for the Arrow Flight transport server (`0` = auto-assign). Set a fixed port in production for firewall rules |
+| `worker.transport.port` | int | `0` | Preferred Native result transport listen port, in `0..65535` (`0` = actual OS auto-assignment). The Worker advertises the actual bound port; a configured occupied port fails startup instead of switching ports. Set a fixed port in production for firewall rules |
 | `worker.transport.tls.enabled` | boolean | `false` | Require mutual TLS for Native shuffle and result transport. Enable for distributed production |
 | `worker.transport.tls.certificate-chain-path` | string | `""` | Mounted PEM certificate chain presented by this worker |
 | `worker.transport.tls.private-key-path` | string | `""` | Mounted PEM private key for the worker certificate |

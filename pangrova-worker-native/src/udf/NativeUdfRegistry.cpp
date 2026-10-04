@@ -84,6 +84,76 @@ bool sameInputTypes(
   return true;
 }
 
+struct PreparedScalarRegistration {
+  std::string name;
+  std::vector<facebook::velox::exec::FunctionSignaturePtr> signatures;
+  facebook::velox::exec::VectorFunctionMetadata metadata;
+  facebook::velox::exec::VectorFunctionFactory factory;
+};
+
+PreparedScalarRegistration prepareScalar(
+    const std::string& name, const std::vector<ScalarUdfSpec>& overloads) {
+  if (overloads.empty()) {
+    throw std::runtime_error("Scalar overload set must not be empty");
+  }
+  PreparedScalarRegistration prepared;
+  prepared.name = name;
+  prepared.metadata = facebook::velox::exec::VectorFunctionMetadataBuilder()
+      .deterministic(overloads.front().deterministic).build();
+  for (const auto& overload : overloads) {
+    auto builder = facebook::velox::exec::FunctionSignatureBuilder();
+    for (const auto& type : overload.inputTypes) {
+      builder.argumentType(signatureType(type));
+    }
+    prepared.signatures.push_back(
+        builder.returnType(signatureType(overload.outputType)).build());
+  }
+  if (!overloads.front().stateful && overloads.size() == 1) {
+    std::shared_ptr<facebook::velox::exec::VectorFunction> function =
+        overloads.front().vectorFunctionFactory("", {});
+    if (!function) {
+      throw std::runtime_error("Stateless UDF factory returned null: " + name);
+    }
+    prepared.factory = [function](const auto&, const auto&, const auto&) {
+      return function;
+    };
+  } else {
+    prepared.factory = [registered = overloads](
+        const std::string& functionName,
+        const std::vector<facebook::velox::exec::VectorFunctionArg>& arguments,
+        const facebook::velox::core::QueryConfig&) {
+      std::vector<TypePtr> actualTypes;
+      for (const auto& argument : arguments) {
+        actualTypes.push_back(argument.type);
+      }
+      const ScalarUdfSpec* match = nullptr;
+      for (const auto& candidate : registered) {
+        if (sameInputTypes(candidate.inputTypes, actualTypes)) {
+          if (match) {
+            throw std::runtime_error("Ambiguous UDF overload: " + functionName);
+          }
+          match = &candidate;
+        }
+      }
+      if (!match) {
+        throw std::runtime_error("No UDF overload matches bound argument types: " + functionName);
+      }
+      return match->vectorFunctionFactory(functionName, arguments);
+    };
+  }
+  return prepared;
+}
+
+std::vector<facebook::velox::exec::AggregateFunctionSignaturePtr>
+prepareAggregateSignatures(const AggregateUdfSpec& spec) {
+  auto builder = facebook::velox::exec::AggregateFunctionSignatureBuilder();
+  for (const auto& type : spec.inputTypes) {
+    builder.argumentType(signatureType(type));
+  }
+  return {builder.intermediateType(signatureType(spec.intermediateType))
+              .returnType(signatureType(spec.outputType)).build()};
+}
+
 }  // namespace
 
 void NativeUdfRegistry::registerScalar(const ScalarUdfSpec& spec) {
@@ -119,8 +189,28 @@ void NativeUdfRegistry::registerScalar(const ScalarUdfSpec& spec) {
           "UDF registration failed for '" + spec.name +
           "': overload statefulness must be identical");
     }
+    if (existing.deterministic != spec.deterministic) {
+      throw std::runtime_error(
+          "UDF registration failed for '" + spec.name +
+          "': overload determinism must be identical");
+    }
   }
   overloads.push_back(spec);
+}
+
+NativeUdfRegistry NativeUdfRegistry::withScalars(
+    const std::vector<ScalarUdfSpec>& specs) const {
+  if (finalized_) {
+    throw std::runtime_error("UDF registry is finalized, registerAllWithVelox() already called");
+  }
+  if (specs.empty()) {
+    throw std::invalid_argument("Scalar registration batch must not be empty");
+  }
+  auto candidate = *this;
+  for (const auto& spec : specs) {
+    candidate.registerScalar(spec);
+  }
+  return candidate;
 }
 
 void NativeUdfRegistry::registerAggregate(const AggregateUdfSpec& spec) {
@@ -149,125 +239,42 @@ void NativeUdfRegistry::registerAggregate(const AggregateUdfSpec& spec) {
 }
 
 void NativeUdfRegistry::registerAllWithVelox() {
+  if (finalized_) {
+    throw std::runtime_error("UDF registry is finalized, registerAllWithVelox() already called");
+  }
+  // Prepare every signature and eager factory before the first SDK mutation.
+  // Deferred/stateful initialization still belongs to execution, as in Velox.
+  std::vector<PreparedScalarRegistration> scalars;
   for (const auto& [name, overloads] : scalarUdfs_) {
-    try {
-      if (overloads.empty()) {
-        throw std::runtime_error("scalar overload set must not be empty");
-      }
-      const auto& spec = overloads.front();
-      // Build the function signature from spec types.
-      std::vector<facebook::velox::exec::FunctionSignaturePtr> signatures;
-      for (const auto& overload : overloads) {
-        auto builder = facebook::velox::exec::FunctionSignatureBuilder();
-        for (const auto& inputType : overload.inputTypes) {
-          builder.argumentType(signatureType(inputType));
-        }
-        builder.returnType(signatureType(overload.outputType));
-        signatures.push_back(builder.build());
-      }
-
-      if (spec.stateful || overloads.size() > 1) {
-        // Overloads may have distinct factories. The Velox registry accepts
-        // one factory per name, so resolve the exact overload from the bound
-        // argument types instead of silently using the first implementation.
-        facebook::velox::exec::registerStatefulVectorFunction(
-            name,
-            signatures,
-            [registered = overloads](
-                const std::string& funcName,
-                const std::vector<facebook::velox::exec::VectorFunctionArg>&
-                    inputArgs,
-                const facebook::velox::core::QueryConfig& /*config*/)
-                -> std::unique_ptr<facebook::velox::exec::VectorFunction> {
-              std::vector<TypePtr> actualTypes;
-              actualTypes.reserve(inputArgs.size());
-              for (const auto& arg : inputArgs) {
-                actualTypes.push_back(arg.type);
-              }
-              const ScalarUdfSpec* match = nullptr;
-              for (const auto& candidate : registered) {
-                if (sameInputTypes(candidate.inputTypes, actualTypes)) {
-                  if (match != nullptr) {
-                    throw std::runtime_error(
-                        "Ambiguous UDF overload: " + funcName);
-                  }
-                  match = &candidate;
-                }
-              }
-              if (match == nullptr) {
-                throw std::runtime_error(
-                    "No UDF overload matches bound argument types: " +
-                    funcName);
-              }
-              return match->vectorFunctionFactory(funcName, inputArgs);
-            });
-      } else {
-        // Stateless scalar functions avoid per-batch factory overhead.
-        facebook::velox::exec::registerVectorFunction(
-            name,
-            signatures,
-            spec.vectorFunctionFactory("", {}));
-      }
-
-      std::cerr << "level=INFO event=udf_registered"
-                << " type=scalar"
-                << " name=" << name
-                << " overloads=" << overloads.size()
-                << " stateful=" << (spec.stateful ? "true" : "false")
-                << std::endl;
-    } catch (const std::exception& e) {
-      throw std::runtime_error(
-          "UDF registration failed for scalar '" + name + "': " + e.what());
-    }
+    scalars.push_back(prepareScalar(name, overloads));
   }
-
+  std::unordered_map<std::string,
+      std::vector<facebook::velox::exec::AggregateFunctionSignaturePtr>> aggregates;
   for (const auto& [name, spec] : aggregateUdfs_) {
-    try {
-      // Build the aggregate function signature.
-      std::vector<facebook::velox::exec::AggregateFunctionSignaturePtr>
-          signatures;
-      {
-        auto builder =
-            facebook::velox::exec::AggregateFunctionSignatureBuilder();
-        for (size_t i = 0; i < spec.inputTypes.size(); ++i) {
-          builder.argumentType(signatureType(spec.inputTypes[i]));
-        }
-        builder.intermediateType(signatureType(spec.intermediateType));
-        builder.returnType(signatureType(spec.outputType));
-        signatures.push_back(builder.build());
-      }
-
-      facebook::velox::exec::registerAggregateFunction(
-          name,
-          std::move(signatures),
-          [factory = spec.aggregateFactory](
-              facebook::velox::core::AggregationNode::Step step,
-              const std::vector<TypePtr>& argTypes,
-              const TypePtr& resultType,
-              const facebook::velox::core::QueryConfig& /*config*/)
-              -> std::unique_ptr<facebook::velox::exec::Aggregate> {
-            return factory(step, argTypes, resultType);
-          },
-          /*registerCompanionFunctions=*/false,
-          /*overwrite=*/true);
-
-      std::cerr << "level=INFO event=udf_registered"
-                << " type=aggregate"
-                << " name=" << name
-                << std::endl;
-    } catch (const std::exception& e) {
-      throw std::runtime_error(
-          "UDF registration failed for aggregate '" + name + "': " +
-          e.what());
-    }
+    aggregates.emplace(name, prepareAggregateSignatures(spec));
   }
-
+  for (auto& scalar : scalars) {
+    facebook::velox::exec::registerStatefulVectorFunction(
+        scalar.name, std::move(scalar.signatures), std::move(scalar.factory),
+        scalar.metadata, /*overwrite=*/true, registration_owner_);
+  }
+  for (auto& [name, signatures] : aggregates) {
+    const auto& spec = aggregateUdfs_.at(name);
+    facebook::velox::exec::registerAggregateFunction(
+        name, std::move(signatures),
+        [factory = spec.aggregateFactory](
+            facebook::velox::core::AggregationNode::Step step,
+            const std::vector<TypePtr>& arguments, const TypePtr& result,
+            const facebook::velox::core::QueryConfig&) {
+          return factory(step, arguments, result);
+        },
+        {}, /*registerCompanionFunctions=*/false, /*overwrite=*/true,
+        registration_owner_);
+  }
+  finalized_ = true;
   std::cerr << "level=INFO event=udf_registration_complete"
             << " scalar_count=" << scalarUdfs_.size()
-            << " aggregate_count=" << aggregateUdfs_.size()
-            << std::endl;
-
-  finalized_ = true;
+            << " aggregate_count=" << aggregateUdfs_.size() << std::endl;
 }
 
 std::optional<ScalarUdfSpec> NativeUdfRegistry::findScalar(
@@ -294,6 +301,10 @@ size_t NativeUdfRegistry::scalarCount() const {
 
 size_t NativeUdfRegistry::aggregateCount() const {
   return aggregateUdfs_.size();
+}
+
+void NativeUdfRegistry::retireOwnedRegistrations() {
+  facebook::velox::exec::unregisterOwnedFunctionEntries(registration_owner_);
 }
 
 }  // namespace pangrova::udf

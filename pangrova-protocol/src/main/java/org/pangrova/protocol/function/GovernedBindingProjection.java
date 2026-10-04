@@ -1,6 +1,8 @@
 package org.pangrova.protocol.function;
 
 import com.google.protobuf.Message;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.GovernedArgumentLayout;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.OperatorBinding;
 
@@ -35,7 +37,8 @@ public final class GovernedBindingProjection {
         var expected = values(layoutId, binding);
         for (var argument : layout.arguments()) {
             if (argument.source().equals("VALUE_EXPRESSION")) continue;
-            var observed = GovernedScalarEncoding.decode(encodedValues.get(layout.ordinal(argument.name())), argument.encoding());
+            var observed = GovernedScalarEncoding.decode(
+                    encodedValues.get(layout.ordinal(argument.name())), argument.encoding());
             if (!expected.get(argument.name()).equals(observed)) {
                 throw new IllegalArgumentException("Callback differs from admitted binding: " + argument.name());
             }
@@ -66,7 +69,9 @@ public final class GovernedBindingProjection {
                 throw new IllegalArgumentException("Binding authority contains unknown fields");
             }
             var field = current.getDescriptorForType().findFieldByName(argument.path().get(i));
-            if (field == null || field.isRepeated()) throw new IllegalArgumentException("Unknown or repeated binding path");
+            if (field == null || field.isRepeated()) {
+                throw new IllegalArgumentException("Unknown or repeated binding path");
+            }
             if (i + 1 == argument.path().size()) {
                 return GovernedScalarEncoding.field(field, current.getField(field), argument.encoding());
             }

@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
+import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
+
 import org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink;
 
 import org.pangrova.coordinator.query.QueryManager;

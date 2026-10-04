@@ -54,6 +54,7 @@ core::FieldAccessTypedExprPtr appendWindowValue(core::TypedExprPtr value,
 }
 
 core::TypedExprPtr preparedBound(const substrait::Expression_WindowFunction_Bound& bound,
+    const exec::FunctionRegistrySnapshot& registry,
     const core::WindowNode::WindowType type, const std::vector<core::FieldAccessTypedExprPtr>& sorts,
     const std::vector<core::SortOrder>& orders, std::vector<std::string>& names,
     std::vector<core::TypedExprPtr>& projections) {
@@ -64,7 +65,7 @@ core::TypedExprPtr preparedBound(const substrait::Expression_WindowFunction_Boun
   }
   auto comparison = projectedValue(sorts.front(), names, projections);
   const auto subtract = bound.has_preceding() == orders.front().isAscending();
-  return appendWindowValue(rangeWindowBoundary(std::move(comparison), offset->value().value<int64_t>(), subtract),
+  return appendWindowValue(rangeWindowBoundary(registry, std::move(comparison), offset->value().value<int64_t>(), subtract),
       names, projections);
 }
 
@@ -106,6 +107,7 @@ core::WindowNode::Function VeloxPlanConverter::convertWindowFunction(
     const substrait::Expression_WindowFunction& function, const RowTypePtr& expressionType,
     std::vector<std::string>& names, std::vector<core::TypedExprPtr>& projections,
     const std::vector<core::FieldAccessTypedExprPtr>& sorts, const std::vector<core::SortOrder>& orders) {
+  requireFunctionKind(function.function_reference(), protocol::v2::FUNCTION_KIND_WINDOW);
   const auto deprecated = function.GetDescriptor()->FindFieldByName("args");
   if (function.GetReflection()->FieldSize(function, deprecated) != 0) {
     throw std::runtime_error("Deprecated window args are not a canonical plan");
@@ -131,19 +133,22 @@ core::WindowNode::Function VeloxPlanConverter::convertWindowFunction(
   const auto name = function.invocation() == substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT
       ? distinctAggregateWindowName(found->second) : found->second;
   result.functionCall = pangrova::capability::bindRegisteredWindow(
-      name, convertType(function.output_type()), std::move(arguments));
+      *function_registry_, name, convertType(function.output_type()), std::move(arguments));
   result.frame.type = function.bounds_type() == substrait::Expression_WindowFunction::BOUNDS_TYPE_RANGE
       ? core::WindowNode::WindowType::kRange : core::WindowNode::WindowType::kRows;
   result.frame.startType = boundType(function.lower_bound(), true);
   result.frame.endType = boundType(function.upper_bound(), false);
-  result.frame.startValue = preparedBound(function.lower_bound(), result.frame.type, sorts, orders, names, projections);
-  result.frame.endValue = preparedBound(function.upper_bound(), result.frame.type, sorts, orders, names, projections);
+  result.frame.startValue = preparedBound(function.lower_bound(), *function_registry_, result.frame.type, sorts, orders, names, projections);
+  result.frame.endValue = preparedBound(function.upper_bound(), *function_registry_, result.frame.type, sorts, orders, names, projections);
   result.ignoreNulls = pangrova::capability::registeredWindowIgnoreNulls(found->second, function.options());
   return result;
 }
 
 VeloxPlanConverter::PreparedWindow VeloxPlanConverter::prepareWindowGroup(
     const WindowGroup& group, const RowTypePtr& expressionType, core::PlanNodePtr input) {
+  for (const auto& function : group.funcs) {
+    requireFunctionKind(function.wf->function_reference(), protocol::v2::FUNCTION_KIND_WINDOW);
+  }
   PreparedWindow result;
   auto names = input->outputType()->names();
   std::vector<core::TypedExprPtr> projections;

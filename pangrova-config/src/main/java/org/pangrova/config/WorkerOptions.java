@@ -132,6 +132,17 @@ public final class WorkerOptions {
             .build();
 
     // ---- Memory / Resources ----
+    public static final ConfigOption<Integer> SHUFFLE_CLIENT_MAX_OWNED_CHANNELS =
+            ConfigOptions.key("worker.shuffle.client.max-owned-channels")
+            .intType().defaultValue(100)
+            .withDescription("Worker-wide owned and creating ManagedChannel limit across shuffle ingress and egress")
+            .build();
+
+    public static final ConfigOption<Integer> SHUFFLE_CLIENT_MAX_OWNED_CHANNELS_PER_ENDPOINT =
+            ConfigOptions.key("worker.shuffle.client.max-owned-channels-per-endpoint")
+            .intType().defaultValue(8)
+            .withDescription("Owned and creating ManagedChannel limit per exact TLS-bound shuffle endpoint")
+            .build();
 
     public static final ConfigOption<Long> MEMORY_BUDGET_BYTES = ConfigOptions.key("worker.memory.budget-bytes")
             .longType()

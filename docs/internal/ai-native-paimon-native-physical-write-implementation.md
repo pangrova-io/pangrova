@@ -506,7 +506,7 @@ struct/list 在前 child 已派发、后 child 报错时丢弃任务的问题。
 
 ### 13.2 repository-owned 唯一补丁，不改 Cargo registry
 
-`patches/lance-writer-drain.patch` 精确覆盖 SDK 十七个文件、四个 crate：
+`patches/lance-writer-drain.patch` 精确覆盖 SDK 十九个文件、四个 crate：
 
 - `lance-io/src/object_writer.rs`：state-owned Aborting Future、拒绝新写、真实
   `abort_all → join_next` 全部已派发 part，再 await `MultipartUpload.abort`。
@@ -527,23 +527,52 @@ struct/list 在前 child 已派发、后 child 报错时丢弃任务的问题。
   stream/progress/write/tell/finish/update/merge/fragment 错误保留 writer，await 清理后
   返回原错误及真实 cleanup 诊断；不先 take writer 再 await finish。捕获操作 panic 后
   同样显式 await 清理，不把错误转成成功。default/blob 的 futures::join 并发不变。
+- 第一次完整 ABI12 Step 0 构建实际暴露 top-level Lance 四条警告（旧 registry
+  cap-lints 隐藏）。`datafusion/logical_plan.rs` 去掉闭包的多余括号，并明确
+  `Cow<'_, LogicalPlan>` 的借用生命周期；`dataset.rs` 明确 cleanup Future 借用
+  `self` 的 `BoxFuture<'_, Result<RemovalStats>>`；`index/vector/ivf/v2.rs` 的
+  load_partition 仅供同模块 search_in_partition 调用，返回私有 PartitionEntry，
+  因此去除不合法 public 可见性，不扩大类型访问权，不抑制警告。
 
-`bin/prepare-lance-sdk.sh` 校验四个原始 `.crate` archive SHA256、十七个源码 pre/post
+`bin/prepare-lance-sdk.sh` 校验四个原始 `.crate` archive SHA256、十九个源码 pre/post
 SHA256、四个完整 patched crate tree SHA256，正向 apply-check 与反向检查；prepare 到
 独立 owned source 目录，不修改 registry，也不接受其他文件漂移。已实际执行 shell
 syntax、原始 archive prepare、重复 prepare、完整 verify 与 reverse-check，通过；这仅是
 来源/补丁真实性检查，不是 SDK 编译或运行通过。
 
-当前补丁 SHA256 为 `b0f2587f4bb1ae0ea31f13028d9a56da199f9c3e88a3553a0283a219bb206d0b`，
-prepare 工具为 `e27d23491dc85c444bbf58f7dada0d964792e1c3e69f488764aa2ce5adc44fcc`。
+当前补丁 SHA256 为 `28a0fe64397708fc170b82cde6be804cbb1b0905e7113f26e74e0121e8e95cc5`，
+prepare 工具为 `ae8bd78f4f02a2492add4e7c110672ac8c1fb7f701aebad9ffdb8bca8611c718`。
 完整 patched tree：io `4d37b8acef263e71a0bcbf2e376f7348c8874cdff64bf92a5cc880a19f54b421`；
 file `58b5cfa12fbf3b84c6deee0162df110cd95cbbf9aa149bebf0538d74c9d59749`；
 encoding `f545f27491068ce3d20107ccd894b6a467f7bd49f947bd8e21411ee52fc9d36c`；
-lance `7c7ced7068ba8d4c51e9c453d05ff0757e618f29dda4966e47abd2e617c7c68d`。
+lance `dbbd123c62934e6531e6ff1359ff402ecd07b13f6b020622d1623eae6a10522a`。
 已实际执行四 archive 验证、完整 patch apply-check/apply、prepare upgrade、verify/reverse-check、
-shell syntax 与两个 `cargo generate-lockfile --offline`，均 exit 0。升级先验证此前三个
+shell syntax 与两个 `cargo generate-lockfile --offline`，均 exit 0。当前升级先验证此前四个
 完整已审 tree，再将原目录保存为精确同父恢复备份，唯一 canonical owned 路径发布新树；
-漂移拒绝，没有 registry 修改或生产兼容分支。新的编译/运行结果仍待统一复验。
+漂移拒绝，没有 registry 修改或生产兼容分支。其后统一复验结果见下文；不复用旧源码日志。
+
+ABI12 Step 0 r1 原命令完成构建（4m24s）但有上述四条真实 warning，按零警告门槛为
+FAIL；不能因 Cargo exit 0 或 archive 生成判定通过，未进入完整 Rust38/SDK10 验证。
+修正后的十九文件补丁已实际完成 fresh archive forward apply-check/apply、reverse-check、
+精确旧四 tree 升级、重复 prepare、完整 verify 与 shell syntax；ABI、Cargo lock、原38/10
+测试及递归 incomplete-upload 断言未改。主线程随后同原命令复验：
+
+- Step 0 r2：`./pangrova-worker-native/bin/build-lance-ffi.sh`，release 3m01s，
+  0 warning/error，实际 archive 构建 PASS。日志：
+  `/tmp/pangrova-production-lance-abi12-step0-r2.log`。
+- 主 Rust 全量原范围：`cargo test --locked --release --target aarch64-apple-darwin`，
+  release 2m11s，38 passed / 0 failed / 0 ignored / 0 filtered，测试 2.32s，
+  0 warning/error。日志：`/tmp/pangrova-production-lance-abi12-full-rust-r1.log`。
+- 独立 SDK r4 实际遗漏既定 `LANCE_CPU_THREADS=1`，8 passed / 2 failed，不能记录 PASS；
+  两个确定性 CPU owner barrier 用例实际失败日志保留：
+  `/tmp/pangrova-production-lance-owned-sdk-full-r4.log`。
+- 独立 SDK r5 按原文档环境重跑完整原范围，10 passed / 0 failed / 0 ignored /
+  0 filtered，测试 5.80s，0 warning/error；真实 MinIO、lost-response UNKNOWN、
+  CPU owner last-drop 与独立两 CPU slot 并发用例全部执行。日志：
+  `/tmp/pangrova-production-lance-owned-sdk-full-r5.log`。
+
+这些仅证明当前 ABI12 Rust/owned SDK 单元。当前新 Native/Java 生命周期源码尚待统一
+编译、打包及端到端复验；不把 archive 或 Rust PASS 当作整个发布链已通过。
 
 ### 13.3 发布观察与后续唯一调用点接线
 
@@ -552,9 +581,9 @@ abort 的未完成 multipart 可观察为 NOT_PUBLISHED；已发 single PUT / mu
 必须等待实际结果。成功为 PUBLISHED，响应/请求错误为 UNKNOWN；禁止尝试删除以使状态
 “确定”，禁止将超时或 unavailable 环境写成有效 UNKNOWN 场景已验证。
 
-主 Cargo 以唯一 `[patch.crates-io]` 消费三个 owned crate；build 工具先 prepare/verify 全部
+主 Cargo 以唯一 `[patch.crates-io]` 消费四个 owned crate；build 工具先 prepare/verify 全部
 来源。`finish_stage` 保留同一个 SDK writer 至 finish/abort 观察结束，不在 await 前 take。
-唯一 ABI **11** 删除旧 `physical_writer_close`，改为显式 `drain / destroy`：drain 总是
+唯一 ABI **12** 删除旧 physical 和 Dataset C close，改为显式 `drain / destroy`：drain 总是
 保留 opaque handle/runtime，await 全部实际 SDK 工作后输出 joined、private-stage-cleaned、
 仅私有 stage 的 publication 三项独立事实，错误仍返回真实诊断；destroy 必须同时具备
 joined 与 private-stage-cleaned，拒绝未完成清理的 owner。C++ `close` 失败保留可重试 owner；
@@ -655,7 +684,8 @@ NOT_PUBLISHED；publication 字段为未观察。Dataset C++ writer 持有真实
 与 abort Future、真实 CPU queue 及外部数组 last-drop；InsertBuilder 消费真实 Arrow
 构造失败 stream 并在返回时 owners 释放；已 finish 文件遇到真实本地 I/O 错误后 bytes
 保持；legacy Dataset 对真实 MinIO multipart 的停止/归零。主 Rust 再增加真实 Arrow
-数组失败移交每次 consume/reset/last-drop 和缺失 owner 拒绝用例。所有新用例尚未运行。
+数组失败移交每次 consume/reset/last-drop 和缺失 owner 拒绝用例。上述原范围已按
+本节前述 ABI12 Rust38/SDK10 日志运行通过；新的 JVM/Native 生产调用者未据此宣称完成。
 明确边界：GenericWriter Future-drop 后必须保留 writer 并显式 await abort；Insert 的
 合作 stream error 保持外层 Future 持续 await。直接 drop 外层 Insert Future 不是清理
 完成证明，当前 C ABI 使用 ChannelBatchReader 合作取消，不以 drop 冒充 drain。
@@ -664,3 +694,43 @@ NOT_PUBLISHED；publication 字段为未观察。Dataset C++ writer 持有真实
 `abortUncommittedFiles` 缺 durable non-publication disposition 时明确拒绝。
 Dataset `discard_fragments_impl`只删除精确 transaction sidecar，不删除 manifest/data files；
 这不能代替恢复 journal对 UNKNOWN的判定，也不能宣称完成 orphan回收。
+
+### 13.7 Worker 写入生命周期测试去替身：当前源码检查点
+
+`NativeWriteExecutorTest` 原12项、`NativeWriteExecutorMetricsTest` 原5项、
+`NativeWriteExecutorSessionCleanupPropertyTest` 原100次/1–100会话属性、
+`WorkerCatalogRuntimeTest` 原8项迁移到 `pangrova-test-e2e` 专属 package。
+删除旧 Worker 文件中的 Tracking/Stub/RecordingFactory/TestResolver，不以禁用、改名
+排除或减少 trials 掩盖缺口。新增一个明确的 public SQL INSERT/SELECT 三行 oracle。
+
+共同 fixture 通过真实认证 HTTP SELECT、CoordinatorTaskTracker 的实际 canonical
+TaskRequest 和 Flight EOF 获取现行身份；实际 metadata 分配 output handle 后，由
+生产 ConnectorWriteBindingFactory 生成 codec/checksum/schema binding。Worker 通过
+真实内部认证 deployment HTTP 和 ServiceLoader 加载实际 connector。手工 metadata
+request 仅用于真实部署下组件生命周期，不是 SQL admission 或分布式执行通过证明。
+
+清理以真实 Arrow batch/Parquet 写入及精确 owned path、销毁后 invalid-handle 拒绝为
+oracle；真实同名非空目录阻断 Hadoop 删除，验证失败可见、保留失败会话、继续清理其他
+会话，恢复文件后重试归零。close 先 drain sessions，仍有 task binding 时明确拒绝
+connector 关闭；实际 release 后再 retry，不把清缓存或丢 owner 当作成功。
+
+catalog 的1024 LRU/满 active lease边界保留，使用真实 Paimon connector、PostgreSQL
+持久化 tenant/principal membership 和生产 deployment，而不是制造1024个 Iceberg
+定时线程。共享 tenant 检查实际 distinct metadata/provider 与 session 隔离；旧假
+resolver 拼出的 tenant-secret 不作为真实凭据隔离证据。并发初始化与 close-during-fetch
+使用仅转发真实 Coordinator headers/status/body 的 HTTP transport barrier，不伪造认证
+或业务响应。原 getCodec 人为 throw 改为真实 Lance codec 创建后 S3 settings 缺失错误，
+保留 created owner 初始化失败→同步 shutdown 的检查；不声称具体 getCodec throw 分支
+已由真实 provider 触发。
+
+补充 `NativeWriteExecutorConcurrencyTest` 两项真实部署组件验证：实际 deployment HTTP
+阻塞期间 close 必须即时拒绝并保留初始化 owner，HTTP 退出后封闭 admission 拒绝 bind、
+补偿真实 lease、重试清理归零；两个真实 task 并行 begin/Arrow append/finish 后，逐任务核对
+非空 receipt 与实际 Parquet 行11/22。transport 仅转发真实响应，不替代业务实现，组件
+并发不宣称多进程 JNI E2E。Worker `NativeWriteAdmissionTest` 另有6项纯生产状态机边界
+测试，覆盖重入 claim、分 task release、临时 cleanup、永久 seal 后拒绝新 claim，以及
+实际双线程 owner 未退出时 cleanup 拒绝；没有 connector fake 或生产专用故障 hook。
+
+当前新增28项部署 JUnit、6项 admission JUnit和原100-trial属性仅完成源码迁移及
+`git diff --check`；未运行 Java 编译或 JNI，不记录 PASS。必须由统一新包运行四个原类
+及新并发类完整范围，并保留公开 SQL oracle；纯 admission 最近检查可独立执行。

@@ -1,5 +1,7 @@
 package org.pangrova.worker.bootstrap;
 
+import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -7,7 +9,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.worker.jni.write.CatalogResourceResolver;
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
 import org.pangrova.worker.jni.NativeFunctionConfig;
 
 class WorkerBootstrapFailureLifecycleTest {

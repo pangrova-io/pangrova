@@ -1,7 +1,6 @@
 package org.pangrova.coordinator;
 
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.QueryManager;
@@ -10,7 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
-import static org.pangrova.common.util.Preconditions.checkState;
 
 /**
  * Top-level coordinator entry point.
@@ -26,7 +24,8 @@ public class PangrovaCoordinator {
     private final WorkerManager workerManager;
     private final HighAvailabilityCoordinationService haService;
     private final long shutdownTimeoutMs;
-    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle =
+            new org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
 
     public PangrovaCoordinator(
             String coordinatorId,
@@ -50,38 +49,36 @@ public class PangrovaCoordinator {
     }
 
     public void start() {
-        checkState(!running.get(), "Coordinator is already running");
-        running.set(true);
+        lifecycle.beginStart();
+        lifecycle.endStart(true);
         LOG.info("event=coordinator_started coordinatorId={}", coordinatorId);
     }
 
     /**
      * Graceful shutdown: drain, finish, then yield durable execution anchors.
      *
-     * <p><b>R10.3 Timing dependency:</b> The ordering of shutdown phases is critical:
+     * <p>The ordering of shutdown phases is critical:
      * <ol>
      *   <li>{@code drain()} — sets {@code acceptingQueries=false} to reject new queries</li>
      *   <li>{@code finishInFlight()} — waits up to {@link #SHUTDOWN_TIMEOUT_MS} for running queries</li>
      *   <li>yield live execution anchors for bounded fenced takeover</li>
      * </ol>
-     * The drain must happen before anchors are yielded. The existing protection is the
-     * {@code running} CAS guard at the top of this method — once {@code running} is false,
-     * no new queries can be submitted via the HTTP layer (QueryManager rejects them).
+     * The drain must actually complete before anchors are yielded. Failed shutdown remains
+     * sealed and retryable; logical termination and a timeout are not physical exit evidence.
      * Durable anchors already contain exact process identity and fencing tokens, so a
      * takeover never depends on best-effort orphan-row creation.</p>
      */
     public void stop() {
-        if (!running.compareAndSet(true, false)) {
-            return;
-        }
-        drain();
-        finishInFlight();
-        yieldExecutionAnchors();
-        LOG.info("event=coordinator_stopped coordinatorId={}", coordinatorId);
+        lifecycle.close(() -> {
+            drain();
+            finishInFlight();
+            yieldExecutionAnchors();
+            LOG.info("event=coordinator_stopped coordinatorId={}", coordinatorId);
+        });
     }
 
     public boolean isRunning() {
-        return running.get();
+        return lifecycle.isRunning();
     }
 
     public QueryManager getQueryManager() {
@@ -102,7 +99,7 @@ public class PangrovaCoordinator {
         if (completed) {
             LOG.info("event=drain_completed coordinatorId={}", coordinatorId);
         } else {
-            LOG.warn("event=drain_timeout coordinatorId={} timeoutMs={}", coordinatorId, shutdownTimeoutMs);
+            throw new IllegalStateException("Coordinator still owns physical query cleanup: " + coordinatorId);
         }
     }
 

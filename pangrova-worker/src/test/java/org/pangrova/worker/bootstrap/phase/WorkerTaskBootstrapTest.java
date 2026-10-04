@@ -67,7 +67,9 @@ class WorkerTaskBootstrapTest {
     @Test
     void createTaskExecutor_throwsWhenNativeUnavailable() {
         assertThatThrownBy(() -> WorkerTaskBootstrap.createTaskExecutor(
-                false, WorkerBootstrapConfig.withDefaults("worker-test")))
+                false, WorkerBootstrapConfig.withDefaults("worker-test"),
+                new org.pangrova.worker.bootstrap.WorkerTaskOwnership(
+                        WorkerBootstrapConfig.ResourceConfig.defaults().shuffleChannelLimits())))
                 .isInstanceOf(BootstrapFailedException.class)
                 .hasMessageContaining("Native library unavailable");
     }
@@ -88,6 +90,12 @@ class WorkerTaskBootstrapTest {
         assertThatThrownBy(() -> WorkerTaskBootstrap.startTaskManager(config, refs, NOOP_OBSERVABILITY))
                 .isInstanceOf(BootstrapFailedException.class)
                 .hasMessageContaining("Native library unavailable");
+        assertThat(refs.taskOwnership()).isNotNull();
+        assertThat(refs.taskOwnership().isDrained()).isFalse();
+        assertThatThrownBy(() -> WorkerTaskBootstrap.startTaskManager(config, refs, NOOP_OBSERVABILITY))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Previous task bootstrap owners");
+        refs.taskOwnership().close();
+        assertThat(refs.taskOwnership().isDrained()).isTrue();
     }
 
     @Test

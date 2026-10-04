@@ -1,6 +1,5 @@
 package org.pangrova.metadata.coordination;
 
-import java.io.Closeable;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -8,325 +7,140 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.atomic.AtomicBoolean;
-
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
-
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.concurrent.ThreadUtils;
-import org.pangrova.spi.coordination.JournalWriteException;
 import org.pangrova.spi.coordination.QueryStateEvent;
 import org.pangrova.spi.coordination.QueryStateJournal;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.spi.coordination.TaskStateEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/**
- * JDBC-backed state journal with two-tier durability.
- *
- * <p>Sync methods execute a direct INSERT and block until committed.
- * Async methods enqueue events into a bounded queue; a background thread
- * flushes batches at configurable interval and batch size.</p>
- *
- * <p>Shutdown order (LIFO): flush remaining events → stop background thread → release DataSource.</p>
- */
+/** PostgreSQL journal with one ordered commit owner and retryable actual SQL drain. */
 @ThreadSafe
-public final class JdbcQueryStateJournal implements QueryStateJournal, Closeable {
-
-    private static final Logger LOG = LoggerFactory.getLogger(JdbcQueryStateJournal.class);
-
-    private static final String INSERT_QUERY_EVENT =
-            "INSERT INTO query_state_journal (query_id, sql_text, session_json, state, timestamp_ms, coordinator_id) "
-                    + "VALUES (?, ?, ?, ?, ?, ?)";
-
-    private static final String INSERT_TASK_EVENT =
-            "INSERT INTO task_state_journal (query_id, task_id, worker_id, state, stage_id, report_sequence, "
-                    + "timestamp_ms, coordinator_id) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-
-    private static final String REPLAY_ACTIVE_QUERIES =
-            "SELECT query_id, sql_text, session_json, state, timestamp_ms, coordinator_id "
-                    + "FROM query_state_journal WHERE query_id IN ("
-                    + "  SELECT DISTINCT query_id FROM query_state_journal "
-                    + "  WHERE query_id NOT IN ("
-                    + "    SELECT DISTINCT query_id FROM query_state_journal "
-                    + "    WHERE state IN ('FINISHED','FAILED','CANCELLED')"
-                    + "  )"
-                    + ") ORDER BY id ASC";
-
-    private static final String REPLAY_ACTIVE_TASKS =
-            "SELECT query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id "
-                    + "FROM task_state_journal WHERE query_id IN ("
-                    + "  SELECT DISTINCT query_id FROM query_state_journal "
-                    + "  WHERE query_id NOT IN ("
-                    + "    SELECT DISTINCT query_id FROM query_state_journal "
-                    + "    WHERE state IN ('FINISHED','FAILED','CANCELLED')"
-                    + "  )"
-                    + ") ORDER BY id ASC";
-
-    /** A-XNODE-01: latest event for one query — cross-coordinator state lookup fallback. */
-    private static final String LATEST_QUERY_EVENT =
-            "SELECT query_id, sql_text, session_json, state, timestamp_ms, coordinator_id "
-                    + "FROM query_state_journal WHERE query_id = ? ORDER BY id DESC";
-
-    private static final String PURGE_QUERY_EVENTS = "DELETE FROM query_state_journal WHERE query_id = ?";
-    private static final String PURGE_TASK_EVENTS = "DELETE FROM task_state_journal WHERE query_id = ?";
-
-    /** Bound on how long {@link #close()} waits for the flush thread to exit. */
-    private static final long FLUSH_THREAD_JOIN_TIMEOUT_MS = 5000;
-
-    /** Queue capacity is a fixed multiple of the configured batch size. */
-    private static final int QUEUE_CAPACITY_BATCH_MULTIPLIER = 10;
-
+public final class JdbcQueryStateJournal implements QueryStateJournal {
+    private static final long DRAIN_MS = 5000;
+    private static final String ACTIVE = "query_id NOT IN (SELECT query_id FROM query_state_journal "
+            + "WHERE state IN ('FINISHED','FAILED','CANCELLED'))";
     private final DataSource dataSource;
-    private final StateJournalConfig config;
-    private final LinkedBlockingQueue<Object> asyncQueue;
-    private final Thread flushThread;
-    private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final JournalPendingWrites pending;
+    private final JournalFlushOwner flushOwner;
 
-    /**
-     * Creates the journal and starts its background flush thread.
-     */
+    /** Starts the sole writer; the external DataSource remains owned by the caller. */
     public JdbcQueryStateJournal(DataSource dataSource, StateJournalConfig config) {
-        this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
-        this.config = Objects.requireNonNull(config, "config must not be null");
-        this.asyncQueue = new LinkedBlockingQueue<>(config.batchSize() * QUEUE_CAPACITY_BATCH_MULTIPLIER);
-        this.flushThread = new Thread(this::flushLoop, "journal-flush");
-        this.flushThread.setDaemon(true);
-        this.flushThread.start();
-        LOG.info("event=journal_started type=JDBC flushIntervalMs={} batchSize={}",
-                config.flushIntervalMs(), config.batchSize());
+        this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        Objects.requireNonNull(config, "config");
+        pending = new JournalPendingWrites(config.maxResidentEvents());
+        flushOwner = new JournalFlushOwner(dataSource, config, pending);
     }
 
-    @Override
-    public void appendQueryEvent(QueryStateEvent event) {
-        if (closed.get()) return;
-        if (!asyncQueue.offer(event)) {
-            LOG.warn("event=journal_queue_full dropped=query queryId={} state={}",
-                    event.queryId(), event.state());
-        }
+    @Override public void appendQueryEvent(QueryStateEvent event) {
+        pending.admit(pending.new Write(event), false);
+    }
+    @Override public void appendTaskEvent(TaskStateEvent event) {
+        pending.admit(pending.new Write(event), false);
+    }
+    @Override public void appendQueryEventSync(QueryStateEvent event) {
+        await(pending.admit(pending.new Write(event), true));
+    }
+    @Override public void appendTaskEventSync(TaskStateEvent event) {
+        await(pending.admit(pending.new Write(event), true));
     }
 
-    @Override
-    public void appendQueryEventSync(QueryStateEvent event) {
-        if (closed.get()) return;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(INSERT_QUERY_EVENT)) {
-            setQueryParams(ps, event);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            LOG.error("event=journal_sync_write_failed type=query queryId={} state={} error={}",
-                    event.queryId(), event.state(), e.getMessage(), e);
-            throw new JournalWriteException("Failed to write query event synchronously", e);
-        }
-    }
-
-    @Override
-    public void appendTaskEvent(TaskStateEvent event) {
-        if (closed.get()) return;
-        if (!asyncQueue.offer(event)) {
-            LOG.warn("event=journal_queue_full dropped=task taskId={} state={}",
-                    event.taskId(), event.state());
-        }
-    }
-
-    @Override
-    public void appendTaskEventSync(TaskStateEvent event) {
-        if (closed.get()) return;
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(INSERT_TASK_EVENT)) {
-            setTaskParams(ps, event);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            LOG.error("event=journal_sync_write_failed type=task taskId={} state={} error={}",
-                    event.taskId(), event.state(), e.getMessage(), e);
-            throw new JournalWriteException("Failed to write task event synchronously", e);
-        }
-    }
-
-    @Override
-    public List<QueryStateEvent> replayActiveQueries() {
-        List<QueryStateEvent> events = new ArrayList<>();
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(REPLAY_ACTIVE_QUERIES);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                events.add(new QueryStateEvent(
-                        rs.getString("query_id"),
-                        rs.getString("sql_text"),
-                        rs.getString("session_json"),
-                        rs.getString("state"),
-                        rs.getLong("timestamp_ms"),
-                        rs.getString("coordinator_id")));
-            }
-        } catch (SQLException e) {
-            LOG.error("event=journal_replay_failed type=query error={}", e.getMessage(), e);
-            throw new JournalWriteException("Failed to replay active queries", e);
-        }
-        LOG.info("event=journal_replay type=query count={}", events.size());
-        return List.copyOf(events);
-    }
-
-    @Override
-    public java.util.Optional<QueryStateEvent> latestQueryEvent(String queryId) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(LATEST_QUERY_EVENT)) {
-            ps.setString(1, queryId);
-            ps.setMaxRows(1);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return java.util.Optional.of(new QueryStateEvent(
-                            rs.getString("query_id"),
-                            rs.getString("sql_text"),
-                            rs.getString("session_json"),
-                            rs.getString("state"),
-                            rs.getLong("timestamp_ms"),
-                            rs.getString("coordinator_id")));
-                }
-                return java.util.Optional.empty();
-            }
-        } catch (SQLException e) {
-            LOG.error("event=journal_latest_lookup_failed queryId={} error={}",
-                    queryId, e.getMessage(), e);
-            throw new JournalWriteException("Failed to look up latest query event", e);
-        }
-    }
-
-    @Override
-    public List<TaskStateEvent> replayActiveTasks() {
-        List<TaskStateEvent> events = new ArrayList<>();
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(REPLAY_ACTIVE_TASKS);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                events.add(new TaskStateEvent(
-                        rs.getString("query_id"),
-                        rs.getString("task_id"),
-                        rs.getString("worker_id"),
-                        rs.getString("state"),
-                        rs.getInt("stage_id"),
-                        rs.getLong("report_sequence"),
-                        rs.getLong("timestamp_ms"),
-                        rs.getString("coordinator_id")));
-            }
-        } catch (SQLException e) {
-            LOG.error("event=journal_replay_failed type=task error={}", e.getMessage(), e);
-            throw new JournalWriteException("Failed to replay active tasks", e);
-        }
-        LOG.info("event=journal_replay type=task count={}", events.size());
-        return List.copyOf(events);
-    }
-
-    @Override
-    public void purgeQuery(String queryId) {
-        try (Connection conn = dataSource.getConnection()) {
-            try (PreparedStatement ps = conn.prepareStatement(PURGE_TASK_EVENTS)) {
-                ps.setString(1, queryId);
-                ps.executeUpdate();
-            }
-            try (PreparedStatement ps = conn.prepareStatement(PURGE_QUERY_EVENTS)) {
-                ps.setString(1, queryId);
-                ps.executeUpdate();
-            }
-        } catch (SQLException e) {
-            LOG.error("event=journal_purge_failed queryId={} error={}", queryId, e.getMessage(), e);
-        }
-    }
-
-    @Override
-    public void close() {
-        if (!closed.compareAndSet(false, true)) return;
-        LOG.info("event=journal_closing");
-        // Flush remaining events
-        flushBatch();
-        flushThread.interrupt();
-        try {
-            flushThread.join(FLUSH_THREAD_JOIN_TIMEOUT_MS);
-        } catch (InterruptedException e) {
+    private void await(CompletableFuture<Void> attempt) {
+        try { flushOwner.awaitCommit(attempt); }
+        catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-        }
-        LOG.info("event=journal_closed");
-    }
-
-    // ── Background flush loop ──
-
-    private void flushLoop() {
-        while (!closed.get()) {
-            ThreadUtils.sleepQuietly(config.flushIntervalMs());
-            if (Thread.currentThread().isInterrupted()) {
-                break;
-            }
-            flushBatch();
-        }
-        // Final flush on shutdown
-        flushBatch();
-    }
-
-    private void flushBatch() {
-        List<Object> batch = new ArrayList<>(config.batchSize());
-        asyncQueue.drainTo(batch, config.batchSize());
-        if (batch.isEmpty()) return;
-
-        try (Connection conn = dataSource.getConnection()) {
-            executeFlush(conn, batch);
-        } catch (SQLException e) {
-            LOG.error("event=journal_flush_connection_failed error={}", e.getMessage(), e);
+            throw JournalPendingWrites.failure("Interrupted awaiting journal commit; event remains owned", interrupted);
+        } catch (ExecutionException failure) {
+            throw JournalPendingWrites.failure("Journal commit was not established", failure.getCause());
         }
     }
 
-    private void executeFlush(Connection conn, List<Object> batch) throws SQLException {
-        conn.setAutoCommit(false);
-        try (PreparedStatement queryPs = conn.prepareStatement(INSERT_QUERY_EVENT);
-             PreparedStatement taskPs = conn.prepareStatement(INSERT_TASK_EVENT)) {
-            int[] counts = addBatchEvents(batch, queryPs, taskPs);
-            if (counts[0] > 0) queryPs.executeBatch();
-            if (counts[1] > 0) taskPs.executeBatch();
-            conn.commit();
-            LOG.debug("event=journal_flush queryEvents={} taskEvents={}", counts[0], counts[1]);
-        } catch (SQLException e) {
-            conn.rollback();
-            LOG.error("event=journal_flush_failed batchSize={} error={}",
-                    batch.size(), e.getMessage(), e);
+    @Override public List<QueryStateEvent> replayActiveQueries() {
+        try {
+            return pending.enterSql().perform(dataSource, connection -> {
+                List<QueryStateEvent> events = new ArrayList<>();
+                try (PreparedStatement statement = connection.prepareStatement("SELECT " + JournalEventSql.QUERY_COLUMNS
+                        + " FROM query_state_journal WHERE " + ACTIVE + " ORDER BY id ASC");
+                        ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) events.add(JournalEventSql.readQuery(rows));
+                }
+                return List.copyOf(events);
+            });
+        } catch (SQLException failure) { throw JournalPendingWrites.failure("Failed to replay active queries", failure); }
+    }
+
+    @Override public List<TaskStateEvent> replayActiveTasks() {
+        try {
+            return pending.enterSql().perform(dataSource, connection -> {
+                List<TaskStateEvent> events = new ArrayList<>();
+                try (PreparedStatement statement = connection.prepareStatement("SELECT " + JournalEventSql.TASK_COLUMNS
+                        + " FROM task_state_journal WHERE query_id IN (SELECT query_id FROM query_state_journal WHERE "
+                        + ACTIVE + ") ORDER BY id ASC"); ResultSet rows = statement.executeQuery()) {
+                    while (rows.next()) events.add(JournalEventSql.readTask(rows));
+                }
+                return List.copyOf(events);
+            });
+        } catch (SQLException failure) { throw JournalPendingWrites.failure("Failed to replay active tasks", failure); }
+    }
+
+    @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
+        Objects.requireNonNull(queryId, "queryId");
+        try {
+            return pending.enterSql().perform(dataSource, connection -> {
+                try (PreparedStatement statement = connection.prepareStatement("SELECT " + JournalEventSql.QUERY_COLUMNS
+                        + " FROM query_state_journal WHERE query_id = ? ORDER BY id DESC LIMIT 1")) {
+                    statement.setString(1, queryId);
+                    try (ResultSet rows = statement.executeQuery()) {
+                        return rows.next() ? Optional.of(JournalEventSql.readQuery(rows)) : Optional.empty();
+                    }
+                }
+            });
+        } catch (SQLException failure) { throw JournalPendingWrites.failure("Failed to read latest query event", failure); }
+    }
+
+    @Override public void purgeQuery(String queryId) {
+        Objects.requireNonNull(queryId, "queryId");
+        JournalSqlOperation operation = pending.enterPurge(queryId);
+        try {
+            pending.awaitQueryWrites(queryId, DRAIN_MS);
+        } catch (InterruptedException interrupted) {
+            operation.closeAfterFailure(interrupted);
+            Thread.currentThread().interrupt();
+            throw JournalPendingWrites.failure("Interrupted draining query journal before purge", interrupted);
+        } catch (RuntimeException | Error failure) {
+            operation.closeAfterFailure(failure);
+            throw failure;
+        }
+        try {
+            operation.perform(dataSource, connection -> { purgeCommitted(connection, queryId); return null; });
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to atomically purge query journal: " + queryId, failure);
         }
     }
 
-    private int[] addBatchEvents(List<Object> batch, PreparedStatement queryPs,
-                                 PreparedStatement taskPs) throws SQLException {
-        int queryCount = 0;
-        int taskCount = 0;
-        for (Object event : batch) {
-            if (event instanceof QueryStateEvent qe) {
-                setQueryParams(queryPs, qe);
-                queryPs.addBatch();
-                queryCount++;
-            } else if (event instanceof TaskStateEvent te) {
-                setTaskParams(taskPs, te);
-                taskPs.addBatch();
-                taskCount++;
-            }
+    private void purgeCommitted(Connection connection, String queryId) throws SQLException {
+        connection.setAutoCommit(false);
+        try {
+            delete(connection, "task_state_journal", queryId);
+            delete(connection, "query_state_journal", queryId);
+            connection.commit();
+        } catch (SQLException failure) {
+            try { connection.rollback(); }
+            catch (SQLException rollback) { if (rollback != failure) failure.addSuppressed(rollback); }
+            throw failure;
         }
-        return new int[]{queryCount, taskCount};
     }
 
-    private static void setQueryParams(PreparedStatement ps, QueryStateEvent event) throws SQLException {
-        ps.setString(1, event.queryId());
-        ps.setString(2, event.sql());
-        ps.setString(3, event.sessionJson());
-        ps.setString(4, event.state());
-        ps.setLong(5, event.timestampMs());
-        ps.setString(6, event.coordinatorId());
+    private static void delete(Connection connection, String table, String queryId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            statement.executeUpdate();
+        }
     }
 
-    private static void setTaskParams(PreparedStatement ps, TaskStateEvent event) throws SQLException {
-        ps.setString(1, event.queryId());
-        ps.setString(2, event.taskId());
-        ps.setString(3, event.workerId());
-        ps.setString(4, event.state());
-        ps.setInt(5, event.stageId());
-        ps.setLong(6, event.reportSequence());
-        ps.setLong(7, event.timestampMs());
-        ps.setString(8, event.coordinatorId());
-    }
+    @Override public void close() { flushOwner.close(); }
+    @Override public boolean isDrained() { return flushOwner.isDrained(); }
 }

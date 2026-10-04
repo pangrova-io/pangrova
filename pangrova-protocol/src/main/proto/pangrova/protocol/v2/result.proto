@@ -244,6 +244,8 @@ message NativeTaskStats {
   uint64 cache_miss_count = 15;
   uint64 cache_eviction_count = 16;
   uint64 cache_admission_rejection_count = 17;
+  // Live drivers blocked on the actual output consumer, not accumulated wait time.
+  uint64 consumer_blocked_drivers = 18;
 }
 
 // Generic report produced by one fenced background work page. Outputs are
@@ -262,6 +264,17 @@ message ArtifactWorkReport {
   Checksum report_checksum = 10;
 }
 
+// Execution-owner evidence, not publication authority or result consumption.
+// Native publishes RELEASED only after its actual executor release/join/drain
+// succeeds. A Worker may copy that exact receipt when reconciling a failure.
+// NO_NATIVE_OWNER requires sealed creation admission before any Native owner
+// was created; a zero handle or a failed JNI call alone does not prove it.
+enum ExecutionDrainState {
+  EXECUTION_DRAIN_STATE_UNSPECIFIED = 0;
+  EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED = 1;
+  EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER = 2;
+}
+
 message TaskReport {
   TaskAttemptId attempt = 1;
   TaskState state = 2;
@@ -276,6 +289,7 @@ message TaskReport {
   // Actual producer statistics captured after join, before native Task deletion.
   // Absent when admission/cancellation prevented execution from creating a Task.
   NativeTaskStats native_task_stats = 11;
+  ExecutionDrainState execution_drain_state = 12;
 }
 
 message ExecutionEnvelope {

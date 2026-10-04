@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.phase;
 import java.util.List;
 import java.util.Map;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;

@@ -13,6 +13,25 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class NativeFunctionDescriptorTest {
 
     @Test
+    void canonicalSerializationPreservesBothDeterminismValues()
+            throws com.google.protobuf.InvalidProtocolBufferException {
+        for (boolean deterministic : List.of(false, true)) {
+            var descriptor = new NativeFunctionDescriptor(
+                    "file_from_url", "ROW", List.of("VARCHAR"),
+                    NativeFunctionDescriptor.FunctionType.SCALAR, deterministic);
+            var canonical = org.pangrova.protocol.v2.NativeFunctionDescriptor.parseFrom(descriptor.toBytes());
+            assertThat(canonical.getName()).isEqualTo(descriptor.name());
+            assertThat(canonical.getReturnType().getCanonicalSql()).isEqualTo(descriptor.returnType());
+            assertThat(canonical.getArgumentTypesList())
+                    .extracting(org.pangrova.protocol.v2.LogicalType::getCanonicalSql)
+                    .containsExactly("VARCHAR");
+            assertThat(canonical.getFunctionKind()).isEqualTo(
+                    org.pangrova.protocol.v2.NativeFunctionKind.NATIVE_FUNCTION_KIND_SCALAR);
+            assertThat(canonical.getDeterministic()).isEqualTo(deterministic);
+        }
+    }
+
+    @Test
     void scalarDescriptorPreservesFields() {
         var desc = new NativeFunctionDescriptor(
                 "my_add", "BIGINT", List.of("BIGINT", "BIGINT"),

@@ -42,10 +42,8 @@ public record StageTransfer(
         if (partitionCount < 1) {
             throw new IllegalArgumentException("partitionCount must be >= 1");
         }
-        if (batchSerde == null
-                || batchSerde == BatchSerde.BATCH_SERDE_UNSPECIFIED
-                || batchSerde == BatchSerde.UNRECOGNIZED) {
-            throw new IllegalArgumentException("batchSerde must be explicitly bound");
+        if (batchSerde != BatchSerde.BATCH_SERDE_ARROW_BATCH) {
+            throw new IllegalArgumentException("batchSerde must be the canonical columnar batch format");
         }
     }
 }

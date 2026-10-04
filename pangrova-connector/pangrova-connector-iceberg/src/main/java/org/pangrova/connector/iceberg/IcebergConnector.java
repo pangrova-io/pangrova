@@ -3,7 +3,9 @@ package org.pangrova.connector.iceberg;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.iceberg.write.IcebergPageSinkProvider;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.Connector;
+import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ConnectorPageSinkProvider;
@@ -18,6 +20,8 @@ import org.apache.iceberg.io.FileIO;
 
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Iceberg connector providing metadata, split management, page source and sink access.
@@ -32,6 +36,8 @@ public class IcebergConnector implements Connector {
     private final IcebergPageSourceProvider pageSourceProvider;
     private final IcebergPageSinkProvider pageSinkProvider;
     private final ScheduledExecutorService pinEvictionScheduler;
+    private final AtomicBoolean shutdownInProgress = new AtomicBoolean();
+    private volatile boolean catalogClosed;
 
     public IcebergConnector(String catalogName, Catalog catalog) {
         this(catalogName, catalog, null, java.util.Set.of());
@@ -102,9 +108,33 @@ public class IcebergConnector implements Connector {
         return Optional.of(new IcebergIncrementalScanCapability(catalog));
     }
 
+    ScheduledExecutorService pinEvictionExecutor() {
+        return pinEvictionScheduler;
+    }
+
     @Override
     public void shutdown() {
-        pinEvictionScheduler.shutdownNow();
+        if (!shutdownInProgress.compareAndSet(false, true)) {
+            throw new IllegalStateException("Iceberg connector shutdown is still in progress");
+        }
+        try {
+            if (catalogClosed) return;
+            pinEvictionScheduler.shutdownNow();
+            if (!pinEvictionScheduler.awaitTermination(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Iceberg pin eviction has not terminated");
+            }
+            if (catalog instanceof AutoCloseable closeable) closeable.close();
+            catalogClosed = true;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TRANSIENT_ERROR,
+                    "Iceberg connector shutdown interrupted: " + catalogName, interrupted);
+        } catch (Exception failure) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TRANSIENT_ERROR,
+                    "Iceberg connector shutdown failed: " + catalogName, failure);
+        } finally {
+            shutdownInProgress.set(false);
+        }
     }
 
     @Override

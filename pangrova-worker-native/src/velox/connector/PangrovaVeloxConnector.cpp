@@ -1534,24 +1534,10 @@ PangrovaVeloxConnector::createDataSink(
         connectorInsertTableHandle,
     facebook::velox::connector::ConnectorQueryCtx* connectorQueryCtx,
     facebook::velox::connector::CommitStrategy commitStrategy) {
-  // ARCHITECTURE DECISION: Write path bypasses Velox Connector DataSink.
-  //
-  // The read path uses PangrovaVeloxDataSource (Connector DataSource interface)
-  // because Velox's TableScan operator natively integrates with DataSource.
-  // The write path, however, uses a custom WriteOperator (src/write/) that
-  // calls Java ConnectorPageSink via JNI (NativeWriteExecutor). This is
-  // because:
-  //   1. Velox's DataSink interface assumes the sink owns the file writer,
-  //      but Pangrova delegates writing to Java-side connectors which manage
-  //      transactions, metadata commits, and manifest updates.
-  //   2. The JNI callback model (C++ → Java) for write is inherently
-  //      synchronous and pull-based, matching WriteOperator's addInput()
-  //      contract but not DataSink's async model.
-  //   3. PlanExecutionDriver::drainOutputToWriter() bridges the gap by
-  //      draining the OutputQueue after Velox execution completes.
-  //
-  // See: src/write/WriteOperator.h, src/write/NativeWriteExecutor.h,
-  //      PlanExecutionDriver::drainOutputToWriter().
+  // Task-owned write sinks consume the same Velox output queue concurrently
+  // with the producer. Native format writers publish typed commit metadata;
+  // connector-owned sessions receive the canonical stream through JNI. This
+  // connector does not register a second Velox DataSink execution path.
   throw pangrova::executor::NativeUnsupportedFeatureException(
       "write_path",
       /*connectorType=*/"pangrova",

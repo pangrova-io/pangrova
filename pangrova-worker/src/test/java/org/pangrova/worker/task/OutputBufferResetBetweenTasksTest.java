@@ -3,8 +3,8 @@ package org.pangrova.worker.task;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskPlans;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

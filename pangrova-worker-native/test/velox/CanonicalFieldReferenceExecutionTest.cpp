@@ -1,5 +1,11 @@
 // Actual converter/Task reference-root oracles, not public SQL/JNI E2E.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
+
+#include <cstdint>
+#include <stdexcept>
+#include <string>
 
 #include "CanonicalTaskExecution.h"
 #include "substrait/plan.pb.h"
@@ -19,7 +25,9 @@ substrait::Plan referencePlan() {
   auto* schema = read->mutable_base_schema();
   schema->add_names("record");
   schema->add_names("part");
-  schema->mutable_struct_()->add_types()->mutable_struct_()->add_types()->mutable_i64();
+  auto* record = schema->mutable_struct_()->add_types()->mutable_struct_();
+  record->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  record->add_types()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   read->mutable_virtual_table()->add_expressions()->add_fields()
       ->mutable_literal()->mutable_struct_()->add_fields()->set_i64(17);
   auto* reference = project->add_expressions()->mutable_selection();
@@ -31,15 +39,16 @@ substrait::Plan referencePlan() {
   return plan;
 }
 
-core::PlanNodePtr convertReferencePlan(const substrait::Plan& plan) {
-  const auto bytes = plan.SerializeAsString();
-  VeloxPlanConverter converter;
+core::PlanNodePtr convertReferencePlan(const substrait::Plan& plan, const FunctionRegistryOwner& registry) {
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+  VeloxPlanConverter converter(registry);
   return converter.convert({bytes.begin(), bytes.end()}, {});
 }
 
 TEST(CanonicalFieldReferenceExecutionTest, ExplicitRootWalksTheCompleteNestedPath) {
   pangrova::test::testMemoryManager();
-  auto output = executeCanonicalTask(convertReferencePlan(referencePlan()));
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  auto output = executeCanonicalTask(convertReferencePlan(referencePlan(), registry), registry);
   ASSERT_EQ(output.batches.size(), 1);
   ASSERT_EQ(output.batches.front()->size(), 1);
   ASSERT_EQ(output.batches.front()->childrenSize(), 1);
@@ -50,12 +59,13 @@ TEST(CanonicalFieldReferenceExecutionTest, ExplicitRootWalksTheCompleteNestedPat
 
 TEST(CanonicalFieldReferenceExecutionTest, ExpressionRootIsNotReboundToTheInputRow) {
   pangrova::test::testMemoryManager();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
   auto plan = referencePlan();
   auto* reference = plan.mutable_relations(0)->mutable_root()->mutable_input()
       ->mutable_project()->mutable_expressions(0)->mutable_selection();
   reference->mutable_expression()->mutable_literal()->mutable_struct_()
       ->add_fields()->mutable_struct_()->add_fields()->set_i64(91);
-  auto output = executeCanonicalTask(convertReferencePlan(plan));
+  auto output = executeCanonicalTask(convertReferencePlan(plan, registry), registry);
   ASSERT_EQ(output.batches.size(), 1);
   DecodedVector selected(*output.batches.front()->childAt(0));
   EXPECT_EQ(selected.valueAt<int64_t>(0), 91);
@@ -63,6 +73,7 @@ TEST(CanonicalFieldReferenceExecutionTest, ExpressionRootIsNotReboundToTheInputR
 
 TEST(CanonicalFieldReferenceExecutionTest, MissingOuterAndLambdaRootsCannotImplicitlyReadInput) {
   pangrova::test::testMemoryManager();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
   for (int mutation = 0; mutation < 3; ++mutation) {
     SCOPED_TRACE(mutation);
     auto plan = referencePlan();
@@ -72,7 +83,7 @@ TEST(CanonicalFieldReferenceExecutionTest, MissingOuterAndLambdaRootsCannotImpli
     if (mutation == 1) reference->mutable_outer_reference()->set_steps_out(1);
     if (mutation == 2) reference->mutable_lambda_parameter_reference()->set_steps_out(0);
     try {
-      convertReferencePlan(plan);
+      convertReferencePlan(plan, registry);
       FAIL() << "Unsupported root must not read the incoming record";
     } catch (const std::runtime_error& error) {
       EXPECT_NE(std::string(error.what()).find("explicit supported root"), std::string::npos);
@@ -82,12 +93,13 @@ TEST(CanonicalFieldReferenceExecutionTest, MissingOuterAndLambdaRootsCannotImpli
 
 TEST(CanonicalFieldReferenceExecutionTest, RootMustStartWithAStructField) {
   pangrova::test::testMemoryManager();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
   auto plan = referencePlan();
   auto* reference = plan.mutable_relations(0)->mutable_root()->mutable_input()
       ->mutable_project()->mutable_expressions(0)->mutable_selection();
   reference->mutable_direct_reference()->mutable_list_element()->set_offset(0);
   try {
-    convertReferencePlan(plan);
+    convertReferencePlan(plan, registry);
     FAIL() << "RootReference with a ListElement is malformed";
   } catch (const std::runtime_error& error) {
     EXPECT_NE(std::string(error.what()).find("requires a struct_field"), std::string::npos);

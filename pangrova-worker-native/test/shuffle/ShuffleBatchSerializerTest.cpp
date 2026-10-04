@@ -2,9 +2,11 @@
 // Validates: Requirements Req-1, Req-4
 
 #include <gtest/gtest.h>
+#include <stdexcept>
 
 #include "../TestMemoryHelper.h"
 #include "shuffle/ShuffleBatchSerializer.h"
+#include "velox/plan/CanonicalPlanSchema.h"
 
 #include "velox/common/memory/Memory.h"
 #include "velox/type/Type.h"
@@ -15,6 +17,13 @@
 
 namespace pangrova::shuffle {
 namespace {
+namespace schema = pangrova::velox::schema;
+
+ShuffleBatchSerializer::Config declaredConfig(
+    ShuffleBatchSerializer::Config config, const std::vector<schema::Field>& fields) {
+  config.canonical_schema = std::make_shared<const substrait::NamedStruct>(schema::named(fields));
+  return config;
+}
 
 class ShuffleBatchSerializerTest : public ::testing::Test {
  protected:
@@ -28,7 +37,9 @@ class ShuffleBatchSerializerTest : public ::testing::Test {
 };
 
 TEST_F(ShuffleBatchSerializerTest, SerializeDeserializeRoundTrip) {
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("col_int", schema::primitive("i32", substrait::Type::NULLABILITY_REQUIRED)),
+      schema::computed("col_str", schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
   auto intVector = maker.flatVector<int32_t>({1, 2, 3, 4, 5});
@@ -59,7 +70,13 @@ TEST_F(ShuffleBatchSerializerTest, SerializeDeserializeRoundTrip) {
 }
 
 TEST_F(ShuffleBatchSerializerTest, ReplicatedUnnestSourceArrayRoundTripsAcrossStage) {
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  substrait::Type tagsType;
+  tagsType.mutable_list()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  *tagsType.mutable_list()->mutable_type() = schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED);
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("id", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED)),
+      schema::computed("tags", tagsType),
+      schema::computed("val", schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
   auto ids = maker.flatVector<int64_t>({1, 1, 2});
@@ -68,7 +85,7 @@ TEST_F(ShuffleBatchSerializerTest, ReplicatedUnnestSourceArrayRoundTripsAcrossSt
   auto values = maker.flatVector<facebook::velox::StringView>(
       {"alpha", "beta", "gamma"});
   auto produced = maker.rowVector(
-      {"id", "__unnest_placeholder_1", "val"}, {ids, tags, values});
+      {"id", "tags", "val"}, {ids, tags, values});
   auto expected = facebook::velox::ROW(
       {"id", "tags", "val"},
       {facebook::velox::BIGINT(),
@@ -96,7 +113,8 @@ TEST_F(ShuffleBatchSerializerTest, ReplicatedUnnestSourceArrayRoundTripsAcrossSt
 }
 
 TEST_F(ShuffleBatchSerializerTest, EmptyRowVector) {
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("col_int", schema::primitive("i32", substrait::Type::NULLABILITY_REQUIRED))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
   auto rowType = facebook::velox::ROW(
@@ -113,7 +131,9 @@ TEST_F(ShuffleBatchSerializerTest, EmptyRowVector) {
 }
 
 TEST_F(ShuffleBatchSerializerTest, NullValues) {
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("col_int", schema::primitive("i32", substrait::Type::NULLABILITY_NULLABLE)),
+      schema::computed("col_str", schema::primitive("string", substrait::Type::NULLABILITY_NULLABLE))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
   auto intVector = maker.flatVectorNullable<int32_t>(
@@ -154,7 +174,8 @@ TEST_F(ShuffleBatchSerializerTest, NullValues) {
 }
 
 TEST_F(ShuffleBatchSerializerTest, LargeRowVector) {
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("col_bigint", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
   constexpr int kNumRows = 10000;
@@ -182,7 +203,11 @@ TEST_F(ShuffleBatchSerializerTest, LargeRowVector) {
 }
 
 TEST_F(ShuffleBatchSerializerTest, MultipleTypes) {
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("col_bigint", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED)),
+      schema::computed("col_double", schema::primitive("fp64", substrait::Type::NULLABILITY_REQUIRED)),
+      schema::computed("col_bool", schema::primitive("bool", substrait::Type::NULLABILITY_REQUIRED)),
+      schema::computed("col_varchar", schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
   auto bigintVec = maker.flatVector<int64_t>({100L, 200L, 300L});
@@ -234,11 +259,26 @@ TEST(ShuffleBatchSerializerBoundaryTest, RejectsPageLimitAboveFlightContract) {
   EXPECT_THROW(ShuffleBatchSerializer writer(config), std::exception);
 }
 
+TEST(ShuffleBatchSerializerBoundaryTest, MissingContractCannotEnterEvenAnEmptyStream) {
+  EXPECT_THROW(ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{}),
+      facebook::velox::VeloxUserError);
+}
+
+TEST(ShuffleBatchSerializerBoundaryTest, EmptyStreamCannotHideUnspecifiedChildNullability) {
+  ShuffleBatchSerializer::Config config;
+  auto malformed = std::make_shared<substrait::NamedStruct>();
+  malformed->add_names("value");
+  malformed->mutable_struct_()->add_types()->mutable_i64();
+  config.canonical_schema = malformed;
+  EXPECT_THROW(ShuffleBatchSerializer writer(config), std::invalid_argument);
+}
+
 TEST_F(ShuffleBatchSerializerTest, SerializesRowsIntoBoundedCompletePages) {
   ShuffleBatchSerializer::Config config;
   config.compression_codec = "none";
   config.max_serialized_batch_bytes = 128 * 1024;
-  ShuffleBatchSerializer writer(config);
+  ShuffleBatchSerializer writer(declaredConfig(config, {
+      schema::computed("payload", schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
   std::vector<std::string> values(6, std::string(40 * 1024, 'v'));
@@ -267,16 +307,64 @@ TEST_F(ShuffleBatchSerializerTest, RejectsOneRowWiderThanBatchLimit) {
   ShuffleBatchSerializer::Config config;
   config.compression_codec = "none";
   config.max_serialized_batch_bytes = 128 * 1024;
-  ShuffleBatchSerializer writer(config);
+  ShuffleBatchSerializer writer(declaredConfig(config, {
+      schema::computed("payload", schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED))}));
   facebook::velox::test::VectorMaker maker(leafPool_.get());
 
-  const std::string value(96 * 1024, 'w');
+  const std::string value(129 * 1024, 'w');
   auto strings = maker.flatVector<facebook::velox::StringView>(
       {facebook::velox::StringView(value)});
   auto row_vector = maker.rowVector({"payload"}, {strings});
 
   EXPECT_THROW(writer.serializeBatches(row_vector, leafPool_.get()),
                facebook::velox::VeloxUserError);
+}
+
+TEST_F(ShuffleBatchSerializerTest, ActualArrowRowBelowLimitIsNotRejectedByEstimatedOverhead) {
+  ShuffleBatchSerializer::Config config;
+  config.max_serialized_batch_bytes = 128 * 1024;
+  ShuffleBatchSerializer writer(declaredConfig(config, {
+      schema::computed("payload", schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED))}));
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+  auto input = maker.rowVector({"payload"}, {maker.flatVector<std::string>({std::string(96 * 1024, 'w')})});
+  auto pages = writer.serializeBatches(input, leafPool_.get());
+  ASSERT_EQ(pages.size(), 1);
+  EXPECT_LE(pages[0].data->computeChainDataLength(), config.max_serialized_batch_bytes);
+  auto actual = writer.deserialize(std::move(*pages[0].data),
+      std::dynamic_pointer_cast<const facebook::velox::RowType>(input->type()), leafPool_.get());
+  EXPECT_TRUE(actual->equalValueAt(input.get(), 0, 0));
+}
+
+TEST_F(ShuffleBatchSerializerTest, AdmittedRowLimitBoundsEveryCompletePage) {
+  ShuffleBatchSerializer writer(declaredConfig({"zstd", 2}, {
+      schema::computed("id", schema::primitive("i64", substrait::Type::NULLABILITY_NULLABLE))}));
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+  auto input = maker.rowVector({"id"}, {maker.flatVectorNullable<int64_t>({1, std::nullopt, 3, 4, 5})});
+  auto pages = writer.serializeBatches(input, leafPool_.get());
+  ASSERT_EQ(pages.size(), 3);
+  facebook::velox::vector_size_t offset = 0;
+  for (auto& page : pages) {
+    EXPECT_LE(page.row_count, 2);
+    auto actual = writer.deserialize(std::move(*page.data),
+        std::dynamic_pointer_cast<const facebook::velox::RowType>(input->type()), leafPool_.get());
+    ASSERT_EQ(actual->size(), page.row_count);
+    for (facebook::velox::vector_size_t row = 0; row < actual->size(); ++row) {
+      EXPECT_TRUE(actual->equalValueAt(input.get(), row, offset++));
+    }
+  }
+  EXPECT_EQ(offset, input->size());
+}
+
+TEST_F(ShuffleBatchSerializerTest, RejectsExactSchemaDriftRatherThanRenamingWireColumns) {
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10}, {
+      schema::computed("source", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED))}));
+  ShuffleBatchSerializer reader(declaredConfig({"none", 10}, {
+      schema::computed("different", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED))}));
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+  auto input = maker.rowVector({"source"}, {maker.flatVector<int64_t>({42})});
+  auto wire = writer.serialize(input, leafPool_.get());
+  EXPECT_THROW(reader.deserialize(std::move(*wire), facebook::velox::ROW({"different"},
+      {facebook::velox::BIGINT()}), leafPool_.get()), facebook::velox::VeloxException);
 }
 
 }  // namespace

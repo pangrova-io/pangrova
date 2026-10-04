@@ -1,19 +1,28 @@
 package org.pangrova.coordinator.http.endpoint;
 
-import com.google.protobuf.ByteString;
-import jakarta.ws.rs.core.Response;
+import org.pangrova.common.http.EmbeddedHttpServerFactory;
+import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.security.authn.AuthenticationManager;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.glassfish.jersey.jackson.JacksonFeature;
+import org.glassfish.jersey.server.ResourceConfig;
+import org.glassfish.jersey.servlet.ServletContainer;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.WorkerControlResponse;
 import org.pangrova.protocol.CapabilityInventoryCodec;
-import org.pangrova.protocol.CanonicalProtocolDescriptors;
-import org.pangrova.protocol.v2.CapabilityInventory;
-import org.pangrova.protocol.v2.ProtocolVersion;
+import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -23,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class WorkerResourceVersionCheckTest {
 
+    private static final String INTERNAL_SECRET = "worker-version-test-internal-secret";
     private WorkerResource resource;
 
     @BeforeEach
@@ -41,17 +51,51 @@ class WorkerResourceVersionCheckTest {
     }
 
     @Test
-    void register_compatibleVersion2_succeeds() {
+    void register_compatibleVersion2_succeeds() throws Exception {
         WorkerRegistrationRequest request = new WorkerRegistrationRequest(
                 "worker-2", "host-2", 8080, 9090, 0,
                 2, null, List.of(), null, canonicalInventory());
 
-        Response response = resource.register(request);
+        HttpResponse<String> response = registerOverHttp(request, INTERNAL_SECRET);
 
-        assertThat(response.getStatus()).isEqualTo(200);
-        WorkerControlResponse body = (WorkerControlResponse) response.getEntity();
+        assertThat(response.statusCode()).isEqualTo(200);
+        WorkerControlResponse body = JsonMapperFactory.reader()
+                .forType(WorkerControlResponse.class).readValue(response.body());
         assertThat(body.status()).isEqualTo("registered");
         assertThat(body.requireCoordinatorEpoch()).isEqualTo(1L);
+    }
+
+    @Test
+    void compatibleInventoryCannotReplaceInternalServiceAuthentication() throws Exception {
+        var request = new WorkerRegistrationRequest(
+                "worker-unauthenticated", "host-2", 8080, 9090, 0,
+                2, null, List.of(), null, canonicalInventory());
+        assertThat(registerOverHttp(request, "wrong-secret").statusCode()).isEqualTo(401);
+    }
+
+    private HttpResponse<String> registerOverHttp(
+            WorkerRegistrationRequest request, String secret) throws Exception {
+        try (var authentication = new AuthenticationManager(List.of())) {
+            var config = new ResourceConfig().register(resource).register(JacksonFeature.class)
+                    .register(new AuthenticationFilter(authentication, INTERNAL_SECRET));
+            var handler = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
+            handler.setContextPath("/");
+            handler.addServlet(new ServletHolder(new ServletContainer(config)), "/*");
+            var server = EmbeddedHttpServerFactory.create(0, handler);
+            try {
+                server.start();
+                var httpRequest = HttpRequest.newBuilder(URI.create("http://localhost:"
+                        + EmbeddedHttpServerFactory.getPort(server) + "/v1/workers/register"))
+                        .timeout(Duration.ofSeconds(10))
+                        .header("Content-Type", "application/json")
+                        .header("Authorization", "Bearer " + secret)
+                        .POST(HttpRequest.BodyPublishers.ofString(
+                                JsonMapperFactory.writer().writeValueAsString(request))).build();
+                return HttpClient.newHttpClient().send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            } finally {
+                server.stop();
+            }
+        }
     }
 
     @Test
@@ -97,16 +141,6 @@ class WorkerResourceVersionCheckTest {
     }
 
     private static String canonicalInventory() {
-        CapabilityInventory inventory = CapabilityInventory.newBuilder()
-                .setProtocol(ProtocolVersion.newBuilder()
-                        .setMajor(2)
-                        .setMinor(0)
-                        .setDescriptorSetSha256(ByteString.copyFrom(
-                                CanonicalProtocolDescriptors.sha256()))
-                        .setRolloutEpoch("test"))
-                .setResultEnvelopeVersion(1)
-                .setNativeEngineVersion("native-test")
-                .build();
-        return CapabilityInventoryCodec.encode(inventory);
+        return CapabilityInventoryCodec.encode(TestWorkerInfoBuilder.canonicalInventory());
     }
 }

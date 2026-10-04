@@ -188,7 +188,8 @@ public final class TaskCompletionMonitor {
 
     private void finishCompletedTask(String taskId, TaskInfo info,
                                      TaskLifecycleManager.LifecycleCallback callback) {
-        if (!callback.transition(taskId, TaskManager.TaskState.FINISHED)) {
+        if (info.getState() != TaskManager.TaskState.FINISHED
+                && !callback.transition(taskId, TaskManager.TaskState.FINISHED)) {
             reportCancelledAfterRelease(info, callback);
             return;
         }
@@ -214,7 +215,8 @@ public final class TaskCompletionMonitor {
     private void finishFailedTask(String taskId, TaskInfo info,
                                   TaskLifecycleManager.LifecycleCallback callback,
                                   Exception cause, boolean nativeUnsupported) {
-        if (callback.transition(taskId, TaskManager.TaskState.FAILED)) {
+        if (info.getState() == TaskManager.TaskState.FAILED
+                || callback.transition(taskId, TaskManager.TaskState.FAILED)) {
             reportErrorStatus(info, cause, nativeUnsupported);
             callback.clearCoordinatorIndex(info);
         } else {
@@ -225,18 +227,18 @@ public final class TaskCompletionMonitor {
     private static void releaseThen(TaskInfo info, Runnable release, Runnable continuation) {
         try {
             release.run();
-        } catch (RuntimeException failure) {
+            continuation.run();
+        } catch (RuntimeException | Error failure) {
             info.retainCleanupRetry(() -> releaseThen(info, release, continuation));
             throw failure;
         }
-        continuation.run();
     }
 
     private void reportCancelledAfterRelease(
             TaskInfo info, TaskLifecycleManager.LifecycleCallback callback) {
-        if (info.getState() != TaskManager.TaskState.CANCELLING
-                || !callback.transition(info.taskId(), TaskManager.TaskState.CANCELLED)
-                || !info.markCancellationReported()) {
+        if (info.getState() != TaskManager.TaskState.CANCELLED
+                && (info.getState() != TaskManager.TaskState.CANCELLING
+                    || !callback.transition(info.taskId(), TaskManager.TaskState.CANCELLED))) {
             return;
         }
         if (statusCollector != null && info.request() != null) {
@@ -245,6 +247,7 @@ public final class TaskCompletionMonitor {
                             "TASK_CANCELLED", "Cancellation",
                             "Task cancelled by control plane"));
         }
+        info.markCancellationReported();
         callback.clearCoordinatorIndex(info);
     }
 
@@ -394,6 +397,11 @@ public final class TaskCompletionMonitor {
                 ? PangrovaErrorCode.NATIVE_FALLBACK_REQUIRED.getCode()
                 : "INTERNAL_ERROR";
         ErrorDetail error = nativeFailureDetail(info);
+        var admission = admissionFailure(cause);
+        if (error == null && admission != null) {
+            if (statusCollector != null) statusCollector.reportWorkerTerminalFailure(info, admission.executionError());
+            return;
+        }
         if (error == null) {
             error = new ErrorDetail(
                 errorCode, cause.getClass().getSimpleName(), cause.getMessage());
@@ -404,6 +412,15 @@ public final class TaskCompletionMonitor {
             // Worker owns its failure and reports conservative zero coverage.
             statusCollector.reportWorkerTerminalStatus(info, "FAILED", error);
         }
+    }
+
+    private static org.pangrova.worker.exchange.remote.RemoteShuffleAdmissionException admissionFailure(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current instanceof org.pangrova.worker.exchange.remote.RemoteShuffleAdmissionException admission) {
+                return admission;
+            }
+        }
+        return null;
     }
 
     private static ErrorDetail nativeFailureDetail(TaskInfo info) {

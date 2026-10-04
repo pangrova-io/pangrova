@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.audit;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.observability.audit.QueryAuditRecord;
 import org.pangrova.observability.audit.QueryAuditService;
 import org.pangrova.security.audit.AccessedObject;

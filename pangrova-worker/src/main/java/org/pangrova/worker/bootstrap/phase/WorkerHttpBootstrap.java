@@ -66,7 +66,7 @@ public final class WorkerHttpBootstrap {
     }
 
     private static org.pangrova.worker.dataset.NativeDatasetControlService datasetControl(WorkerComponentRefs refs) {
-        if (refs.catalogResourceResolver() instanceof org.pangrova.worker.jni.write.WorkerCatalogRuntime catalogs) {
+        if (refs.catalogResourceResolver() instanceof org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime catalogs) {
             return new org.pangrova.worker.dataset.NativeDatasetControlService(refs.taskManager(), catalogs);
         }
         return null;

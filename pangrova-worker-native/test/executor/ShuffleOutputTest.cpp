@@ -2,6 +2,7 @@
 // when num_shuffle_partitions > 0, serialized shuffle batches are routed
 // to the SerializedShuffleQueue.
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <chrono>
 #include <memory>
@@ -60,7 +61,8 @@ std::vector<uint8_t> buildValuesPlan() {
   root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();
   read->mutable_base_schema()->add_names("value");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   auto* vt = read->mutable_virtual_table();
   // Add one row with a single BIGINT value so ValuesNode produces 1 row.
   auto* row = vt->add_expressions();
@@ -77,7 +79,8 @@ std::vector<uint8_t> buildShuffleValuesPlan(int32_t partitions) {
   exchange->mutable_round_robin();
   auto* read = exchange->mutable_input()->mutable_read();
   read->mutable_base_schema()->add_names("value");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   auto* row = read->mutable_virtual_table()->add_expressions();
   row->add_fields()->mutable_literal()->set_i64(42);
   return serialize(plan);
@@ -85,6 +88,8 @@ std::vector<uint8_t> buildShuffleValuesPlan(int32_t partitions) {
 
 TaskExecutorConfig makeShuffleConfig(int32_t num_partitions) {
   TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "shuffle-test-task";
   config.query_id = "shuffle-test-query";
   config.substrait_plan = buildShuffleValuesPlan(num_partitions);
@@ -183,6 +188,7 @@ TEST(ShuffleOutputTest, OutputQueueEmptyWhenShuffleEnabled) {
   TaskExecutor exec(config);
   exec.start();
   ASSERT_TRUE(waitForTerminal(exec, milliseconds(2000)));
+  ASSERT_EQ(exec.state(), ExecutorState::FINISHED) << exec.errorMessage();
 
   // With shuffle enabled, output_queue should NOT receive the batch.
   facebook::velox::RowVectorPtr row_vector;
@@ -192,6 +198,8 @@ TEST(ShuffleOutputTest, OutputQueueEmptyWhenShuffleEnabled) {
 
 TEST(ShuffleOutputTest, NoShuffleRoutesToOutputQueue) {
   TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "no-shuffle-task";
   config.query_id = "no-shuffle-query";
   config.substrait_plan = buildValuesPlan();
@@ -228,6 +236,8 @@ TEST(ShuffleOutputTest, SerializedShuffleQueueCreatedWhenPartitionsSet) {
 
 TEST(ShuffleOutputTest, NoSerializedShuffleQueueWhenZeroPartitions) {
   TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "no-shuffle-task";
   config.query_id = "no-shuffle-query";
   config.substrait_plan = buildValuesPlan();

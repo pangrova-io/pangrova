@@ -13,20 +13,30 @@
 // **Validates: Requirements 8.1, 8.2**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "../TestMemoryHelper.h"
+#include "CanonicalTaskExecution.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
 #include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
 
 #include "velox/core/PlanNode.h"
+#include "velox/exec/AggregateFunctionRegistry.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox::test {
 namespace {
@@ -168,7 +178,8 @@ std::vector<std::vector<int>> generateGroupingSets(
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
@@ -235,10 +246,11 @@ std::vector<uint8_t> buildMultiGroupingSetPlan(
   agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   auto* arg = agg_func->add_arguments();
   setFieldRef(arg->mutable_value(), column_count);
-  agg_func->mutable_output_type()->mutable_i64();
+  agg_func->mutable_output_type()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -324,7 +336,9 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, GroupIdNodePresent) {
       << "Need at least 2 grouping sets for " << param.name;
 
   auto plan_bytes = buildMultiGroupingSetPlan(param.column_count, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr)
@@ -355,15 +369,136 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, SingleAggregationNodePresent) {
   ASSERT_GE(grouping_sets.size(), 2u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(param.column_count, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 
-  // Exactly one AggregationNode should exist (single-pass strategy).
-  int agg_count = countNodes(result, "Aggregation");
-  EXPECT_EQ(agg_count, 1)
-      << "Expected exactly 1 AggregationNode for " << param.name
-      << " but found " << agg_count;
+  // One expansion and one business aggregate, evaluated as actual
+  // partial→exchange→final states rather than duplicate raw aggregation.
+  EXPECT_EQ(countNodes(result, "GroupId"), 1);
+  const auto final = std::dynamic_pointer_cast<const core::AggregationNode>(findNode(result, "Aggregation"));
+  ASSERT_NE(final, nullptr);
+  EXPECT_EQ(final->step(), core::AggregationNode::Step::kFinal);
+  ASSERT_EQ(final->sources().size(), 1);
+  const auto exchange = std::dynamic_pointer_cast<const core::LocalPartitionNode>(final->sources().front());
+  ASSERT_NE(exchange, nullptr);
+  ASSERT_EQ(exchange->sources().size(), 1);
+  const auto partial = std::dynamic_pointer_cast<const core::AggregationNode>(exchange->sources().front());
+  ASSERT_NE(partial, nullptr);
+  EXPECT_EQ(partial->step(), core::AggregationNode::Step::kPartial);
+  EXPECT_EQ(countNodes(result, "Aggregation"), 2);
+  EXPECT_EQ(countNodes(partial->sources().front(), "Aggregation"), 0);
+  EXPECT_EQ(countNodes(partial->sources().front(), "GroupId"), 1);
+  ASSERT_EQ(partial->aggregates().size(), 1);
+  ASSERT_EQ(final->aggregates().size(), 1);
+  const auto& raw = partial->aggregates().front();
+  const auto& merged = final->aggregates().front();
+  ASSERT_EQ(raw.rawInputTypes.size(), 1);
+  EXPECT_TRUE(raw.rawInputTypes.front()->isBigint());
+  ASSERT_EQ(merged.rawInputTypes.size(), 1);
+  EXPECT_TRUE(merged.rawInputTypes.front()->equivalent(*raw.rawInputTypes.front()));
+  EXPECT_EQ(raw.call->name(), "sum");
+  EXPECT_EQ(merged.call->name(), raw.call->name());
+  EXPECT_TRUE(raw.call->type()->equivalent(*exec::resolveIntermediateType("sum", raw.rawInputTypes)));
+  EXPECT_TRUE(merged.call->type()->isBigint());
+  ASSERT_EQ(merged.call->inputs().size(), 1);
+  const auto state = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(merged.call->inputs().front());
+  ASSERT_NE(state, nullptr);
+  EXPECT_EQ(state->name(), partial->outputType()->nameOf(final->groupingKeys().size()));
+  EXPECT_TRUE(state->type()->equivalent(*raw.call->type()));
+  std::vector<vector_size_t> globalSets;
+  for (size_t set = 0; set < grouping_sets.size(); ++set) {
+    if (grouping_sets[set].empty()) globalSets.push_back(static_cast<vector_size_t>(set));
+  }
+  EXPECT_EQ(partial->globalGroupingSets(), globalSets);
+  EXPECT_EQ(partial->groupId().has_value(), !globalSets.empty());
+}
+
+using GroupCell = std::optional<int64_t>;
+using GroupRows = std::vector<std::vector<GroupCell>>;
+
+std::vector<GroupCell> groupingInputRow(int row, int columns) {
+  std::vector<GroupCell> result;
+  for (int column = 0; column < columns; ++column) {
+    result.push_back(row % 7 == 0 ? GroupCell{} : GroupCell{row % (column + 2)});
+  }
+  result.push_back(row + 1);
+  return result;
+}
+
+GroupRows expectedGroupingValues(const std::vector<std::vector<int>>& sets, int columns, int size) {
+  std::set<int> referenced;
+  for (const auto& set : sets) referenced.insert(set.begin(), set.end());
+  GroupRows expected;
+  for (size_t index = 0; index < sets.size(); ++index) {
+    std::map<std::vector<GroupCell>, int64_t> sums;
+    const std::set<int> present(sets[index].begin(), sets[index].end());
+    for (int row = 0; row < size; ++row) {
+      const auto values = groupingInputRow(row, columns);
+      std::vector<GroupCell> key;
+      for (const auto column : referenced) key.push_back(present.contains(column) ? values[column] : GroupCell{});
+      sums[key] += *values.back();
+    }
+    for (auto& [key, sum] : sums) {
+      auto result = key;
+      result.push_back(sum);
+      result.push_back(static_cast<int64_t>(index));
+      expected.push_back(std::move(result));
+    }
+    if (size == 0 && sets[index].empty()) {
+      std::vector<GroupCell> result(referenced.size() + 1);
+      result.push_back(static_cast<int64_t>(index));
+      expected.push_back(std::move(result));
+    }
+  }
+  std::sort(expected.begin(), expected.end());
+  return expected;
+}
+
+TEST_P(ExpandNodeGroupIdEquivalenceTest, ActualValuesAndEmptyGlobalSetsKeepExactAggregateSemantics) {
+  const auto& param = GetParam();
+  const auto sets = generateGroupingSets(param.pattern, param.column_count, param.grouping_set_count);
+  const auto bytes = buildMultiGroupingSetPlan(param.column_count, sets);
+  for (const bool empty : {false, true}) {
+    substrait::Plan proto;
+    ASSERT_TRUE(proto.ParseFromArray(bytes.data(), bytes.size()));
+    auto* read = proto.mutable_relations(0)->mutable_root()->mutable_input()
+        ->mutable_aggregate()->mutable_input()->mutable_read();
+    read->clear_named_table();
+    read->mutable_virtual_table();
+    for (auto& type : *read->mutable_base_schema()->mutable_struct_()->mutable_types()) {
+      type.mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+    }
+    const auto size = empty ? 0 : param.input_size;
+    for (int row = 0; row < size; ++row) {
+      auto* record = read->mutable_virtual_table()->add_expressions();
+      for (const auto& value : groupingInputRow(row, param.column_count)) {
+        auto* literal = record->add_fields()->mutable_literal();
+        if (value) literal->set_i64(*value);
+        else literal->mutable_null()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+      }
+    }
+    const auto encoded = pangrova::test::canonicalTestPlan(proto).SerializeAsString();
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
+    const auto plan = converter.convert({encoded.begin(), encoded.end()}, {});
+    const auto execution = executeCanonicalTask(plan, converter_registry);
+    GroupRows actual;
+    for (const auto& batch : execution.batches) for (vector_size_t row = 0; row < batch->size(); ++row) {
+      std::vector<GroupCell> values;
+      for (const auto& child : batch->children()) {
+        DecodedVector decoded(*child);
+        values.push_back(decoded.isNullAt(row) ? GroupCell{} : GroupCell{child->type()->isInteger()
+            ? int64_t{decoded.valueAt<int32_t>(row)} : decoded.valueAt<int64_t>(row)});
+      }
+      actual.push_back(std::move(values));
+    }
+    std::sort(actual.begin(), actual.end());
+    EXPECT_EQ(actual, expectedGroupingValues(sets, param.column_count, size));
+  }
 }
 
 // ===========================================================================
@@ -383,7 +518,9 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, GroupIdStrippedFromFinalOutput) {
   ASSERT_GE(grouping_sets.size(), 2u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(param.column_count, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 
@@ -414,7 +551,9 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, GroupIdNodeOutputHasGroupIdColumn) {
   ASSERT_GE(grouping_sets.size(), 2u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(param.column_count, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 
@@ -449,7 +588,9 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, OutputSchemaCorrect) {
   ASSERT_GE(grouping_sets.size(), 2u);
 
   auto plan_bytes = buildMultiGroupingSetPlan(param.column_count, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 
@@ -496,7 +637,9 @@ TEST_P(ExpandNodeGroupIdEquivalenceTest, PlanStructureConsistentAcrossInputSizes
 
   // Build and convert the plan.
   auto plan_bytes = buildMultiGroupingSetPlan(param.column_count, grouping_sets);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 

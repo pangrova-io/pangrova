@@ -19,7 +19,7 @@ import org.pangrova.spi.function.BatchableScalarFunction;
 import org.pangrova.spi.function.FunctionMetadata;
 import org.pangrova.worker.ai.context.AiExecutionContext;
 import org.pangrova.worker.ai.context.BoundAiInvocation;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import java.util.ArrayList;
 import java.util.HashMap;

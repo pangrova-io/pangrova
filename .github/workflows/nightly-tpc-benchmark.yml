@@ -94,6 +94,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
       - name: Cache native deps + Velox
         uses: actions/cache@v4
         with:
@@ -151,6 +156,11 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -224,6 +234,11 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4

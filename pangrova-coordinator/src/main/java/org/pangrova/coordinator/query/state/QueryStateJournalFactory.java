@@ -35,7 +35,7 @@ public final class QueryStateJournalFactory {
     public static QueryStateJournal create(StateJournalConfig config, DataSource dataSource) {
         checkNotNull(config, "config must not be null");
         return switch (config.type()) {
-            case "NONE" -> InMemoryQueryStateJournal.INSTANCE;
+            case "NONE" -> new InMemoryQueryStateJournal(config.maxResidentEvents());
             case "JDBC" -> {
                 if (dataSource == null) {
                     throw new IllegalArgumentException(

@@ -14,7 +14,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.coordinator.http.IdempotencyKeyRegistry;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.observability.profiling.ProfilerEndpoint;
 import org.pangrova.observability.profiling.QueryProfileService;
 import org.pangrova.protocol.rest.error.ErrorDetail;

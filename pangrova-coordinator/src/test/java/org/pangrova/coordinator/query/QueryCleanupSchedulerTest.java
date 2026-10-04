@@ -60,7 +60,26 @@ class QueryCleanupSchedulerTest {
         assertThat(queries).isEmpty();
     }
 
+    @Test
+    void logicalTerminalWithoutPhysicalCleanupIsRetained() {
+        var queries = new ConcurrentHashMap<String, QueryStateMachine>();
+        var scheduler = new QueryCleanupScheduler(queries, ignored -> false, () -> { });
+        // This is a lifecycle-state boundary test, not Native release evidence.
+        var state = logicalTerminal();
+        queries.put("physical-owner", state);
+        assertThat(scheduler.cleanupTerminalQueries(Duration.ZERO)).isZero();
+        assertThat(queries).containsKey("physical-owner");
+        assertThat(state.claimPhysicalCleanup()).isTrue();
+        assertThat(scheduler.cleanupTerminalQueries(Duration.ZERO)).isEqualTo(1);
+    }
+
     private static QueryStateMachine terminalStateMachine() {
+        var sm = logicalTerminal();
+        sm.claimPhysicalCleanup();
+        return sm;
+    }
+
+    private static QueryStateMachine logicalTerminal() {
         QueryStateMachine sm = new QueryStateMachine();
         sm.tryTransition(QueryStateMachine.State.PLANNING);
         sm.tryTransition(QueryStateMachine.State.SCHEDULING);

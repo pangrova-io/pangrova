@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <openssl/evp.h>
 
@@ -155,9 +157,11 @@ std::vector<uint8_t> buildPlan(
   auto* read = extension->mutable_input()->mutable_read();
   read->mutable_named_table()->add_names("items");
   read->mutable_base_schema()->add_names("id");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   read->mutable_base_schema()->add_names("score");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_fp64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_fp64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
   proto::RelationDetailEnvelope envelope;
   envelope.set_schema_version(1);
@@ -182,9 +186,11 @@ std::vector<uint8_t> buildPlan(
   contract->set_score_direction(proto::SCORE_DIRECTION_LOWER_IS_BETTER);
   contract->add_stable_key_fields("id");
   contract->mutable_schema()->add_names("id");
-  contract->mutable_schema()->mutable_struct_()->add_types()->mutable_i64();
+  contract->mutable_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   contract->mutable_schema()->add_names("score");
-  contract->mutable_schema()->mutable_struct_()->add_types()->mutable_fp64();
+  contract->mutable_schema()->mutable_struct_()->add_types()->mutable_fp64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
   proto::TypedValue vector;
   vector.mutable_type()->set_canonical_sql("VECTOR(4, FLOAT)");
@@ -211,7 +217,7 @@ std::vector<uint8_t> buildPlan(
   addOption(invocation, search_parameter, search_list);
   extension->mutable_detail()->PackFrom(envelope);
 
-  const auto bytes = plan.SerializeAsString();
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   return {bytes.begin(), bytes.end()};
 }
 
@@ -224,9 +230,11 @@ std::vector<uint8_t> buildBm25Plan() {
   auto* read = extension->mutable_input()->mutable_read();
   read->mutable_named_table()->add_names("items");
   read->mutable_base_schema()->add_names("id");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   read->mutable_base_schema()->add_names("score");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_fp64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_fp64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
   proto::RelationDetailEnvelope envelope;
   envelope.set_schema_version(1);
@@ -263,7 +271,7 @@ std::vector<uint8_t> buildBm25Plan() {
   b.set_double_value(0.75);
   addOption(invocation, "b", b);
   extension->mutable_detail()->PackFrom(envelope);
-  const auto bytes = plan.SerializeAsString();
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   return {bytes.begin(), bytes.end()};
 }
 
@@ -458,7 +466,7 @@ TEST(ArtifactRetrievalPlannerTest, ExactTopKRequiresZeroDetailRescoreAndNoArtifa
   detail->mutable_invocation()->clear_options();
   detail->set_exact_rescore_limit(0);
   extension->mutable_detail()->PackFrom(envelope);
-  const auto serialized = plan.SerializeAsString();
+  const auto serialized = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
 
   auto binding = buildBinding(directory.path());
   *binding.mutable_capability() =
@@ -501,9 +509,11 @@ TEST(ArtifactRetrievalPlannerTest, HnswAndIvfPqExecuteInNativeWithExactRescore) 
     EXPECT_TRUE(std::binary_search(positions.begin(), positions.end(), 10));
     EXPECT_EQ(prepared->leases.size(), 3);
 
-    pangrova::velox::VeloxPlanConverter converter;
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    pangrova::velox::VeloxPlanConverter converter(converter_registry);
     auto converted = converter.convert(
-        buildPlan(algorithm), prepared->splits, false, "Presto",
+        buildPlan(algorithm), prepared->splits, false, "ArrowBatch",
         {{plan_node, binding}}, nullptr, prepared->split_overrides);
     auto final_topn = std::dynamic_pointer_cast<
         const facebook::velox::core::TopNNode>(converted);

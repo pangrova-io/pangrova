@@ -2,7 +2,7 @@ package org.pangrova.coordinator.ai.branch;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.statement.TableResolver;
 import org.pangrova.metadata.catalog.CatalogHandle;
 import org.pangrova.parser.ast.statement.CreateBranchStatement;

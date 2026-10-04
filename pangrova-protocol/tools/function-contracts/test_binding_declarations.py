@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 from binding_declarations import read_declarations, structural_contract_digest, unresolved_bindings
-from generate_structural_contracts import render_header
+from generate_structural_contracts import render_callback_signatures, render_header, render_type_layout_naming
 
 
 RESOURCE = Path(__file__).resolve().parents[2] / "src/main/resources/function-contracts/sql-bindings.json"
@@ -13,7 +13,7 @@ RESOURCE = Path(__file__).resolve().parents[2] / "src/main/resources/function-co
 class BindingDeclarationsTest(unittest.TestCase):
     def test_actual_declaration_preserves_complete_mapping_and_purpose(self):
         declaration = read_declarations(RESOURCE.read_text())
-        self.assertEqual(94, len(declaration["bindings"]))
+        self.assertEqual(107, len(declaration["bindings"]))
         embed = next(entry for entry in declaration["bindings"] if entry["name"] == "ai_embed")
         self.assertEqual("WORKER_AI_CALLBACK", embed["registrationDependency"])
         self.assertEqual({"ordinal": 2, "name": "purpose", "type": "VARCHAR", "constant": True,
@@ -52,6 +52,22 @@ class BindingDeclarationsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 read_declarations(json.dumps(changed))
 
+    def test_each_binding_owns_its_exact_serialized_extension_identity(self):
+        declaration = read_declarations(RESOURCE.read_text())
+        helpers = [entry for entry in declaration["bindings"] if entry["namespace"] == "datetime"]
+        self.assertEqual({"year", "month", "day", "hour", "minute", "second", "quarter", "day_of_week",
+                          "day_of_year", "week"}, {entry["name"] for entry in helpers})
+        self.assertTrue(all(entry["canonicalUrn"] == "extension:org.pangrova:functions_datetime"
+                            and not entry.get("sqlNames") and not entry.get("operators") for entry in helpers))
+        for urn in (None, "", "http://invented", "extension:io.substrait:functions_string\n"):
+            changed = deepcopy(declaration)
+            if urn is None:
+                del changed["bindings"][0]["canonicalUrn"]
+            else:
+                changed["bindings"][0]["canonicalUrn"] = urn
+            with self.assertRaises(ValueError):
+                read_declarations(json.dumps(changed))
+
     def test_structural_generation_is_strict_deterministic_and_not_a_native_registration(self):
         declaration = read_declarations(RESOURCE.read_text())
         self.assertEqual(render_header(declaration), render_header(deepcopy(declaration)))
@@ -66,6 +82,20 @@ class BindingDeclarationsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 read_declarations(json.dumps(changed))
 
+    def test_type_layout_naming_is_generated_from_the_same_factory_declaration(self):
+        declaration = read_declarations(RESOURCE.read_text())
+        generated = render_type_layout_naming(declaration)
+        self.assertEqual(generated, render_type_layout_naming(deepcopy(declaration)))
+        self.assertIn('PREFIX = "' + declaration["physicalTypeBridge"]["anonymousComputedFieldPrefix"] + '"', generated)
+        self.assertIn("package org.pangrova.protocol.substrait.generated;", generated)
+        self.assertIn("if (ordinal < 0)", generated)
+        changed = deepcopy(declaration)
+        changed["physicalTypeBridge"]["anonymousComputedFieldPrefix"] = "changed_"
+        self.assertIn('PREFIX = "changed_"', render_type_layout_naming(changed))
+        changed["physicalTypeBridge"]["anonymousComputedFieldPrefix"] = 'bad";'
+        with self.assertRaises(ValueError):
+            render_type_layout_naming(changed)
+
     def test_purpose_callback_signature_cannot_remain_a_separate_two_argument_contract(self):
         declaration = read_declarations(RESOURCE.read_text())
         for signatures in ([["VARCHAR", "VARCHAR"]], [["VARCHAR", "VARCHAR", "BIGINT"]]):
@@ -74,6 +104,25 @@ class BindingDeclarationsTest(unittest.TestCase):
             embed["runtimeSignature"]["argumentSignatures"] = signatures
             with self.assertRaises(ValueError):
                 read_declarations(json.dumps(changed))
+
+    def test_generated_callback_determinism_is_taken_from_the_required_declaration(self):
+        declaration = read_declarations(RESOURCE.read_text())
+        generated = "\n".join(render_callback_signatures(declaration))
+        self.assertIn("bool deterministic;", generated)
+        self.assertIn('{"file_from_url", "ROW", file_from_url_arguments_0, false}', generated)
+        changed = deepcopy(declaration)
+        callback = next(entry for entry in changed["bindings"] if entry["name"] == "file_from_url")
+        callback["runtimeSignature"]["deterministic"] = True
+        normalized = read_declarations(json.dumps(changed))
+        self.assertIn('{"file_from_url", "ROW", file_from_url_arguments_0, true}',
+                      "\n".join(render_callback_signatures(normalized)))
+        for value in (None, "false", 0):
+            callback["runtimeSignature"]["deterministic"] = value
+            with self.assertRaises(ValueError):
+                read_declarations(json.dumps(changed))
+        del callback["runtimeSignature"]["deterministic"]
+        with self.assertRaises(ValueError):
+            read_declarations(json.dumps(changed))
 
     def test_governed_layout_keeps_repeated_message_names_and_exact_order(self):
         declaration = read_declarations(RESOURCE.read_text())

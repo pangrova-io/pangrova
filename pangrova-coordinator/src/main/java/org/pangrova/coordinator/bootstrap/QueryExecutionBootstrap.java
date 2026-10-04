@@ -55,7 +55,7 @@ final class QueryExecutionBootstrap {
     private final StreamingBootstrap streamingBootstrap;
     private final HighAvailabilityCoordinationService coordinationService;
     private final org.pangrova.shuffle.ShuffleExecutionOwnerResolver shuffleOwnerResolver;
-    private final org.pangrova.coordinator.query.task.NativeWriteCommitTracker writeCommitTracker;
+    private final org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker;
     private final org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
     private final org.pangrova.coordinator.query.execution.GeneratedWriteAuthoritySupplier writeAuthoritySupplier;
@@ -73,7 +73,7 @@ final class QueryExecutionBootstrap {
                          AccessControl accessControl, MetadataBootstrap metadataBootstrap,
                          ModuleIntegrationBootstrap moduleWiring, StreamingBootstrap streamingBootstrap,
                          HighAvailabilityCoordinationService coordinationService,
-                         org.pangrova.coordinator.query.task.NativeWriteCommitTracker writeCommitTracker,
+                         org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker,
                          org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
                                  generatedValueMaterialization,
                          org.pangrova.metadata.semantic.SemanticViewStore semanticViewStore,
@@ -200,7 +200,7 @@ final class QueryExecutionBootstrap {
 
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(
                 catalog, null,
-                org.pangrova.coordinator.metadata.MetadataSchemaBuilder::invalidateTableCaches);
+                org.pangrova.coordinator.metadata.read.MetadataSchemaBuilder::invalidateTableCaches);
         var showDescribeExecutor = new org.pangrova.coordinator.query.statement.ShowDescribeExecutor(catalog);
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(null);
 

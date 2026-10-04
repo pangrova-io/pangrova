@@ -69,7 +69,7 @@ public class WorkerHealthScheduler {
 
     public void start() {
         scheduledTask = scheduler.scheduleAtFixedRate(
-                this::evaluateAll,
+                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(scheduler, this::evaluateAll),
                 intervalMs,
                 intervalMs,
                 TimeUnit.MILLISECONDS);

@@ -189,7 +189,7 @@ Within `pangrova-worker-native/src/`, C++ components follow layered dependencies
 | `jni/command/` | `executor/`, `jni/bridge/`, `jni/registry/`, `compat/` |
 | `velox/` | Velox SDK, Arrow, Protobuf, `columnar/` — NO direct JNI includes |
 | `executor/` | `velox/`, `memory/`, `shuffle/`, `result/`, `observability/` |
-| `shuffle/` | Arrow Flight, `columnar/`, `memory/`, `observability/` |
+| `shuffle/` | Arrow Flight, `velox/serde/` public VectorSerde boundary only, `columnar/`, `memory/`, `observability/` |
 | `memory/` | Velox memory SDK, Arrow allocation API, `observability/` |
 | `columnar/` | Arrow, `memory/` only — no SQL type decoder, executor or JNI |
 | `merge/`, `delete/`, `index/`, `split/` | `velox/connector/`, `memory/` |
@@ -213,13 +213,15 @@ The system ships as ONE integrated binary. These invariants must hold at all tim
 
 ### Wiring Invariants
 
-1. **Every SPI interface has ≥1 implementation** — no dangling interfaces
+1. **Every production-used SPI has a wired implementation** — experimental
+   contracts may precede providers, but must not be advertised as runnable features
 2. **Every implementation is wired** — registered via constructor injection or ServiceLoader
 3. **Every Java `native` declaration has a C++ implementation** — no half-bridged JNI
 4. **Every C++ JNI function is in `jni_exported_symbols.map`** — no invisible exports
 5. **Every proto message is used** — no orphan message definitions
 6. **Every config key is read** — no orphan configuration
-7. **Every public API has Javadoc AND a test** — no undocumented or untested surfaces
+7. **Public contracts are documented and observable behavior is tested** —
+   existing tests may cover delegating methods and pure refactors
 
 ### Connectivity Verification
 

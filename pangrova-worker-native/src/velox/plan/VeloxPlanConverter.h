@@ -27,9 +27,12 @@
 #include "velox/plan/ShuffleOutputSpec.h"
 #include "velox/runner/SingleMatchJoinRequirement.h"
 #include "pangrova/protocol/v2/execution_binding.pb.h"
+#include "pangrova/protocol/v2/capability.pb.h"
 #include "substrait/algebra.pb.h"
 #include "velox/core/PlanNode.h"
 #include "velox/common/memory/Memory.h"
+
+namespace facebook::velox::exec { class FunctionRegistrySnapshot; }
 
 // Forward-declare Substrait protobuf types to avoid header pollution.
 namespace substrait {
@@ -74,6 +77,8 @@ struct ArtifactBuildTaskContext;
 // scan_node_output_types_). Use one instance per task.
 class VeloxPlanConverter {
  public:
+  explicit VeloxPlanConverter(
+      std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry);
   // Convert raw Substrait Plan protobuf bytes into a Velox PlanNode.
   // splits: connector split metadata for table scan operators.
   // is_result_task: when true, wraps the plan root with a
@@ -81,13 +86,12 @@ class VeloxPlanConverter {
   //   specified serde and routes it through OutputBufferManager for native
   //   result serving.
   // result_serde_name: serde name for PartitionedOutputNode when
-  //   is_result_task is true. "Presto" for legacy PrestoVectorSerde,
-  //   "ArrowBatch" for Arrow IPC direct serving.
+  //   is_result_task is true. The sole supported name is "ArrowBatch".
   std::shared_ptr<const facebook::velox::core::PlanNode> convert(
       const std::vector<uint8_t>& plan_bytes,
       const std::vector<split::SplitConfig>& splits,
       bool is_result_task = false,
-      const std::string& result_serde_name = "Presto",
+      const std::string& result_serde_name = "ArrowBatch",
       const std::unordered_map<
           std::string, pangrova::protocol::v2::OperatorBinding>&
           operator_bindings = {},
@@ -103,6 +107,12 @@ class VeloxPlanConverter {
 
   const std::vector<std::string>& resultColumnLabels() const {
     return result_column_labels_;
+  }
+
+  const substrait::NamedStruct& canonicalOutputSchema() const { return canonical_output_schema_; }
+
+  const std::unordered_map<std::string, substrait::NamedStruct>& serdeSchemaBindings() const {
+    return serde_schema_bindings_;
   }
 
   /** Uses the execution schema converter for metadata-only storage commands. */
@@ -145,6 +155,8 @@ class VeloxPlanConverter {
   void validateAllOperatorBindingsConsumed() const;
 
  private:
+  void requireFunctionKind(uint32_t anchor, pangrova::protocol::v2::FunctionKind kind) const;
+  const std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry_;
   // Monotonically increasing node id counter for unique PlanNode ids.
   int next_node_id_ = 0;
   int32_t shuffle_partition_count_ = 0;
@@ -152,6 +164,9 @@ class VeloxPlanConverter {
   std::unordered_map<const substrait::Rel*, facebook::velox::RowTypePtr>
       relation_output_types_;
   std::unordered_map<std::string, facebook::velox::RowTypePtr> logical_node_types_;
+  std::unordered_map<const substrait::Rel*, substrait::NamedStruct> relation_output_schemas_;
+  substrait::NamedStruct canonical_output_schema_;
+  std::unordered_map<std::string, substrait::NamedStruct> serde_schema_bindings_;
   std::vector<std::string> result_column_labels_;
 
   // Thread ownership tracking for @NotThreadSafe enforcement.
@@ -164,6 +179,7 @@ class VeloxPlanConverter {
   // Built from Plan.extensions (SimpleExtensionDeclaration.ExtensionFunction)
   // and queried when converting scalar/aggregate function calls.
   std::unordered_map<uint32_t, std::string> function_map_;
+  std::unordered_map<uint32_t, pangrova::protocol::v2::SubstraitFunctionDefinition> function_declarations_;
 
   // TableScan planNodeId → output RowType mapping.
   // Populated during convertReadRel() for each TableScanNode created.
@@ -196,7 +212,7 @@ class VeloxPlanConverter {
 
   // Wrap a plan node with PartitionedOutputNode for result tasks.
   // No-op when is_result_task is false or node is already a PartitionedOutputNode.
-  // serde_name: serialization format name ("Presto" or "ArrowBatch").
+  // serde_name: the canonical serialization format name ("ArrowBatch").
   std::shared_ptr<const facebook::velox::core::PlanNode> wrapResultTaskOutput(
       std::shared_ptr<const facebook::velox::core::PlanNode> node,
       bool is_result_task,
@@ -603,8 +619,8 @@ class VeloxPlanConverter {
   static facebook::velox::TypePtr convertDecimalType(int32_t precision, int32_t scale);
   static facebook::velox::TypePtr convertTimeType(int32_t precision);
 
-  // Bind against Velox's exact signatures; only explicit Substrait casts coerce.
-  static std::shared_ptr<const facebook::velox::core::ITypedExpr>
+  // Bind against this converter's immutable owner; only explicit casts coerce.
+  std::shared_ptr<const facebook::velox::core::ITypedExpr>
   checkedScalarCall(
       const std::string& name,
       const facebook::velox::TypePtr& output_type,

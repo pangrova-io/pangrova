@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include "executor/driver/WriteOutputDrain.h"
+#include "executor/queue/OutputQueue.h"
 #include "velox/type/Type.h"
 
 namespace facebook::velox::memory { class MemoryPool; }
@@ -11,7 +12,6 @@ namespace pangrova::observability { class NativeMetricsCollector; }
 namespace pangrova::shuffle { class SerializedShuffleQueue; }
 
 namespace pangrova::executor {
-class OutputQueue;
 struct TaskExecutorConfig;
 struct WriteConfigInfo;
 struct WorkerLocalSpillPolicy;
@@ -22,7 +22,8 @@ struct PhysicalWriterOwner {
 };
 
 void drainOutputToWriter(OutputQueue* queue, const WriteConfigInfo& config,
-    const std::string& taskId, facebook::velox::memory::MemoryPool* pool,
+    const std::string& taskId,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> pool,
     const WriteProducerOutcomeRef& outcome);
 void drainOutputToLance(OutputQueue* queue, const WriteConfigInfo& config,
     const std::string& taskId, const std::string& tenantId,

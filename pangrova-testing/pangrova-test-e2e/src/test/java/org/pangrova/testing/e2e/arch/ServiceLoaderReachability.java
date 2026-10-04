@@ -15,7 +15,7 @@ final class ServiceLoaderReachability {
     private static final String NATIVE_FUNCTION_BOOTSTRAP =
             "org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap";
     private static final Set<String> CONNECTOR_LOADERS = Set.of(
-            "org.pangrova.worker.jni.write.WorkerCatalogRuntime",
+            "org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime",
             "org.pangrova.coordinator.metadata.PluginConnectorHandleFactory",
             "org.pangrova.coordinator.plugin.PluginManager");
 

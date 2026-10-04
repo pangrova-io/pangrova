@@ -42,22 +42,16 @@ public class TaskManager implements AutoCloseable {
     final ConcurrentHashMap<String, TaskInfo> tasks = new ConcurrentHashMap<>();
     final AtomicLong taskIdCounter = new AtomicLong(0);
 
-    /** Maps coordinator-assigned taskId → worker-generated taskId for submission dedup. */
-    final ConcurrentHashMap<String, String> coordinatorTaskIndex = new ConcurrentHashMap<>();
+    /** Bounded exact admissions survive task-resource cleanup until their deadlines. */
+    final TaskAdmissionRegistry taskAdmissions = new TaskAdmissionRegistry(
+            MAX_TRACKED_TASKS, java.time.Clock.systemUTC());
 
-    /**
-     * Resolves the worker-internal task ID for a given coordinator-assigned task ID.
-     * The worker-internal ID is used as the native task_id in OutputBufferManager
-     * and the result server, so result fetch tickets must use this ID.
-     *
-     * @param coordinatorTaskId the coordinator-assigned task ID
-     * @return the worker task ID, or null if not found
-     */
+    /** Resolves the admitted local execution/result ID, or null if not admitted. */
     public String resolveWorkerTaskId(String coordinatorTaskId) {
         if (coordinatorTaskId == null) {
             return null;
         }
-        return coordinatorTaskIndex.get(coordinatorTaskId);
+        return taskAdmissions.resolve(coordinatorTaskId);
     }
 
     final TaskLifecycleManager lifecycleManager;
@@ -103,6 +97,7 @@ public class TaskManager implements AutoCloseable {
 
     final TaskDrainExecutor drainExecutor;
     private final TaskSubmissionHandler submissionHandler;
+    private final TaskAdmissionControl admissionControl = new TaskAdmissionControl(this);
     private final ControlEpochFence controlEpochFence = new ControlEpochFence();
     private final ExecutionOwnerFence executionOwnerFence = new ExecutionOwnerFence();
 
@@ -153,6 +148,8 @@ public class TaskManager implements AutoCloseable {
     @Override
     public void close() {
         drainExecutor.beginDraining();
+        for (TaskInfo info : tasks.values()) info.retryCleanup();
+        taskAdmissions.sealAndAwaitAdmissions();
         TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, java.util.List.copyOf(tasks.values()));
     }
 
@@ -236,6 +233,10 @@ public class TaskManager implements AutoCloseable {
         controlEpochFence.verify(epoch);
     }
 
+    void verifyExistingCleanupControlEpoch(long epoch) {
+        controlEpochFence.verifyExistingCleanup(epoch);
+    }
+
     /** Rejects task admission when its exact query or job owner does not match. */
     public void verifyExecutionOwnerForAdmission(SubmitTaskRequest request) {
         var attempt = request.taskRequest().getAttempt();
@@ -254,6 +255,17 @@ public class TaskManager implements AutoCloseable {
 
     public TaskCancelResult cancelTask(String taskId) {
         return submissionHandler.cancelTask(taskId);
+    }
+
+    /** Seals an exact canonical admission; empty means real resource exit remains unproven. */
+    public Optional<org.pangrova.protocol.v2.TaskReport> sealAdmission(
+            org.pangrova.protocol.v2.TaskAdmissionSealRequest request) {
+        return admissionControl.seal(request);
+    }
+
+    /** Checks the physical admission deadline before ticket creation or any resource acquisition. */
+    public void verifyAdmissionDeadline(long deadlineEpochMs) {
+        taskAdmissions.requireUnexpired(deadlineEpochMs);
     }
 
     public void releaseTaskExecutor(String taskId) {
@@ -279,13 +291,7 @@ public class TaskManager implements AutoCloseable {
         this.completionCallback = callback;
     }
 
-    /**
-     * Enables auto-finish mode for forHttpWiringOnly instances. When set,
-     * tasks submitted via {@link #submitTask(TaskDescriptor, SubmitTaskRequest)}
-     * are automatically advanced to FINISHED and reported through the given
-     * reporter. This closes the Coordinator→Worker→Coordinator lifecycle loop
-     * in environments without a native executor.
-     */
+    /** Enables state-machine-only reporting; this mode supplies no Native execution evidence. */
     public void setAutoFinishReporter(TaskStatusReporter reporter) {
         this.autoFinishReporter = reporter;
     }
@@ -413,10 +419,7 @@ public class TaskManager implements AutoCloseable {
     }
 
     void removeCoordinatorIndex(TaskInfo info) {
-        SubmitTaskRequest req = info.request();
-        if (req != null) {
-            coordinatorTaskIndex.remove(req.taskRequest().getAttempt().getTaskId());
-        }
+        admissionControl.completed(info);
     }
 
     private void notifyCompletion(String queryId) {

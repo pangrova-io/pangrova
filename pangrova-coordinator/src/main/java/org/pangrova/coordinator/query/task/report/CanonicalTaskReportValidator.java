@@ -4,7 +4,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.DataSplitProtoCodec;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.ArtifactFreshnessReport;
 import org.pangrova.protocol.v2.CompletionState;
@@ -63,6 +63,16 @@ public final class CanonicalTaskReportValidator {
         ArtifactTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);
         return Optional.of(status);
+    }
+
+    /** Execution-owner receipt only: does not commit artifacts, elect winners or notify the DAG. */
+    public TaskReport validateExecutionDrainReceipt(byte[] encoded, SubmitTaskRequest expected) {
+        if (encoded == null || encoded.length == 0 || encoded.length > MAX_STATUS_BYTES) {
+            throw invalid("Execution drain receipt exceeds the canonical control envelope");
+        }
+        TaskReport status = parse(encoded);
+        CanonicalExecutionDrainReports.validateReceipt(status, expected);
+        return status;
     }
 
     private static TaskReport parse(byte[] encoded) {
@@ -151,25 +161,10 @@ public final class CanonicalTaskReportValidator {
     }
 
     private static void validateOrigin(TaskReport status) {
-        switch (status.getReportOrigin()) {
-            case TASK_REPORT_ORIGIN_NATIVE -> {
-                // Native can report any task state, including a failed attempt.
-            }
-            case TASK_REPORT_ORIGIN_WORKER_RECONCILED -> {
-                if (status.getState() != TaskState.TASK_STATE_FAILED
-                        && status.getState() != TaskState.TASK_STATE_CANCELLED) {
-                    throw invalid("Worker-reconciled TaskReport cannot claim success");
-                }
-                if (!status.hasError()) {
-                    throw invalid("Worker-reconciled TaskReport needs a structured error");
-                }
-            }
-            case TASK_REPORT_ORIGIN_UNSPECIFIED, UNRECOGNIZED ->
-                    throw invalid("terminal TaskReport has no valid report origin");
-        }
+        CanonicalExecutionDrainReports.validateOrigin(status);
     }
 
-    private static void validateCoverage(
+    static void validateCoverage(
             TaskReport status, SubmitTaskRequest expectedRequest) {
         if (!status.hasCoverage()) {
             throw invalid("TaskReport is missing coverage evidence");
@@ -195,7 +190,7 @@ public final class CanonicalTaskReportValidator {
         validateCompletionState(status, coverage, expected);
     }
 
-    private static void validateTaskUsage(
+    static void validateTaskUsage(
             TaskReport status, SubmitTaskRequest expectedRequest) {
         if (!status.hasUsage()) {
             return;

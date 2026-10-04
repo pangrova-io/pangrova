@@ -23,7 +23,7 @@ import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
-import org.pangrova.coordinator.query.task.WriteCommitRecoveryService;
+import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.shuffle.ShuffleExecutionOwner;
 import org.pangrova.spi.coordination.ExecutionAnchor;
 import org.slf4j.Logger;
@@ -41,7 +41,10 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
             new AtomicReference<>();
     private final AtomicBoolean scanRunning = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorCallbackLifetime callbacks =
+            new org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorCallbackLifetime();
     private final Set<String> cleanupInFlight = ConcurrentHashMap.newKeySet();
+    private final Object schedulingAdmission = new Object();
 
     private JdbcShuffleCleanupIntentStore shuffleCleanupIntents;
     private QueryDispatcher queryDispatcher;
@@ -106,35 +109,49 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
         };
     }
 
-    synchronized void wireHighAvailability(
+    void wireHighAvailability(
             HighAvailabilityCoordinationService service,
             Supplier<ScheduledExecutorService> scheduler,
             Executor cleanupExecutor,
             long workerHealthCheckIntervalMs) {
-        if (closed.get()) {
-            throw new IllegalStateException("durable recovery is closed");
-        }
-        liveCoordination.set(service);
-        if (cleanupBatchProvider != null) {
-            ScheduledFuture<?> previous = cleanupFuture;
-            if (previous != null) {
-                previous.cancel(false);
-            }
-            cleanupFuture = scheduler.get().scheduleWithFixedDelay(
-                    () -> submitShuffleCleanupScan(cleanupExecutor), 0,
-                    workerHealthCheckIntervalMs, TimeUnit.MILLISECONDS);
+        try (var operation = callbacks.enter()) {
+            operation.run(() -> installSchedule(service, scheduler, cleanupExecutor, workerHealthCheckIntervalMs));
         }
     }
 
-    @Override
-    public synchronized void close() {
-        if (!closed.compareAndSet(false, true)) {
-            return;
+    private void installSchedule(HighAvailabilityCoordinationService service,
+            Supplier<ScheduledExecutorService> scheduler, Executor cleanupExecutor, long intervalMs) {
+        if (closed.get()) throw new IllegalStateException("durable recovery is closed");
+        ScheduledFuture<?> candidate = cleanupBatchProvider == null ? null : scheduler.get().scheduleWithFixedDelay(
+                () -> submitShuffleCleanupScan(cleanupExecutor), 0, intervalMs, TimeUnit.MILLISECONDS);
+        ScheduledFuture<?> previous;
+        boolean rejected;
+        synchronized (schedulingAdmission) {
+            rejected = closed.get();
+            previous = cleanupFuture;
+            if (!rejected) {
+                liveCoordination.set(service);
+                cleanupFuture = candidate;
+            }
         }
-        ScheduledFuture<?> future = cleanupFuture;
+        if (rejected) {
+            if (candidate != null) candidate.cancel(false);
+            throw new IllegalStateException("durable recovery closed during schedule installation");
+        }
+        if (previous != null) previous.cancel(false);
+    }
+
+    @Override
+    public void close() {
+        ScheduledFuture<?> future;
+        synchronized (schedulingAdmission) {
+            closed.set(true);
+            future = cleanupFuture;
+        }
         if (future != null) {
             future.cancel(false);
         }
+        callbacks.close(5000);
     }
 
     ShuffleExecutionOwner resolveShuffleOwner(String queryId) {
@@ -154,6 +171,15 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
         if (claimed.isEmpty()) {
             return Set.of();
         }
+        try (var operation = callbacks.enter()) {
+            java.util.concurrent.atomic.AtomicReference<Set<String>> result = new java.util.concurrent.atomic.AtomicReference<>();
+            operation.run(() -> result.set(recoverEntered(claimed, service, writeCommitRecoveryService)));
+            return result.get();
+        }
+    }
+
+    private Set<String> recoverEntered(List<ExecutionAnchor> claimed, HighAvailabilityCoordinationService service,
+            WriteCommitRecoveryService writeCommitRecoveryService) {
         liveCoordination.set(service);
         if (writeCommitRecoveryService != null) {
             Map<String, Long> tokens = claimed.stream()
@@ -191,16 +217,21 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
             return;
         }
         try {
-            cleanupExecutor.execute(() -> {
+            var operation = callbacks.enter();
+            try { cleanupExecutor.execute(() -> operation.run(() -> {
                 try {
                     retryOwnedShuffleCleanups(cleanupExecutor);
                 } finally {
                     scanRunning.set(false);
                 }
-            });
+            })); }
+            catch (RuntimeException | Error failure) { operation.close(); throw failure; }
         } catch (RejectedExecutionException rejected) {
             scanRunning.set(false);
             LOG.warn("event=shuffle_cleanup_scan_rejected error={}", rejected.getMessage());
+        } catch (RuntimeException | Error failure) {
+            scanRunning.set(false);
+            if (!closed.get()) throw failure;
         }
     }
 
@@ -225,13 +256,19 @@ final class QueryDurableRecoveryWiring implements AutoCloseable {
             return true;
         }
         try {
-            cleanupExecutor.execute(() -> runShuffleCleanup(queryId));
+            var operation = callbacks.enter();
+            try { cleanupExecutor.execute(() -> operation.run(() -> runShuffleCleanup(queryId))); }
+            catch (RuntimeException | Error failure) { operation.close(); throw failure; }
             return true;
         } catch (RejectedExecutionException rejected) {
             cleanupInFlight.remove(queryId);
             // The intent remains durable; retry next tick instead of growing
             // an unbounded in-memory queue.
             LOG.warn("event=shuffle_cleanup_queue_full queryId={}", queryId);
+            return false;
+        } catch (RuntimeException | Error failure) {
+            cleanupInFlight.remove(queryId);
+            if (!closed.get()) throw failure;
             return false;
         }
     }

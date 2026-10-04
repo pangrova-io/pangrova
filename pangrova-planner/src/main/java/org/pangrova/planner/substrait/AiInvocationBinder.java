@@ -7,7 +7,7 @@ import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.planner.AiInvocationPlanHint;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import java.util.ArrayList;
 import java.util.List;

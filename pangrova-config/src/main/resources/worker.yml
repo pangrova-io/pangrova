@@ -46,6 +46,11 @@ worker:
     buffer-capacity: 100
     max-memory-bytes: 536870912   # 512 MB
     spill-threshold: 0.8
+    client:
+      # ManagedChannel owners, including in-flight creation and failed joins;
+      # not OS TCP sockets or concurrent RPCs. Shared by ingress and egress.
+      max-owned-channels: 100
+      max-owned-channels-per-endpoint: 8
     service:
       retention-bytes: 16777216  # 16 MiB, reserved from node memory
       transit-bytes: 16777216    # 16 MiB, reserved separately for Flight send

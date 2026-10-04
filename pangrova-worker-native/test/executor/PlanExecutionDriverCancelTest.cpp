@@ -8,6 +8,7 @@
 // 4. Cancel before start is safe (early exit)
 // 5. Cancel after completion is safe (no-op)
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <chrono>
 #include <memory>
@@ -55,6 +56,8 @@ bool waitForTerminalState(TaskLifecycle& lifecycle, milliseconds timeout) {
 TaskExecutorConfig makeDriverConfig(
     const std::vector<uint8_t>& plan = {}) {
   TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "cancel-test-task";
   config.query_id = "cancel-test-query";
   config.substrait_plan = plan;
@@ -215,7 +218,8 @@ std::vector<uint8_t> buildValuesPlan() {
   root->add_names("value");
   auto* read = root->mutable_input()->mutable_read();
   read->mutable_base_schema()->add_names("value");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   read->mutable_virtual_table()->add_expressions()->add_fields()->mutable_literal()->set_i64(42);
   return serialize(plan);
 }

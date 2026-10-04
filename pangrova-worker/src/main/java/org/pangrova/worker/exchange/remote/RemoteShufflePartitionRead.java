@@ -2,6 +2,9 @@ package org.pangrova.worker.exchange.remote;
 
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CancellationException;
 
 import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.ClientResponseObserver;
@@ -13,7 +16,9 @@ import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
 public final class RemoteShufflePartitionRead implements AutoCloseable {
 
     private static final Object COMPLETED = new Object();
+    private static final Object REVOKED = new Object();
     private final BlockingQueue<Object> events = new ArrayBlockingQueue<>(2);
+    private final CountDownLatch rpcExited = new CountDownLatch(1);
     private volatile ClientCallStreamObserver<ReadPartitionRequest> call;
     private volatile boolean closed;
     private volatile boolean completed;
@@ -27,11 +32,14 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
 
     /** Returns the next frame, or {@code null} after clean RPC completion. */
     public ReadBatchResponse next() {
+        if (closed && !completed) {
+            throw readFailure();
+        }
         if (events.isEmpty() && terminalError != null) {
             throw new RemoteShuffleClientException(
                     "External shuffle read failed", terminalError);
         }
-        if (events.isEmpty() && (closed || completed)) {
+        if (events.isEmpty() && completed) {
             return null;
         }
         final Object event;
@@ -39,9 +47,12 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
             event = events.take();
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
-            close();
+            revoke();
             throw new RemoteShuffleClientException(
                     "External shuffle read interrupted", failure);
+        }
+        if (event == REVOKED || (closed && !completed)) {
+            throw readFailure();
         }
         if (event == COMPLETED) {
             return null;
@@ -59,15 +70,41 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
 
     @Override
     public void close() {
-        if (closed) {
-            return;
-        }
+        revoke();
+        awaitRpcExit();
+        events.clear();
+    }
+
+    /** Revokes inbound ownership immediately; cancellation is never clean EOF. */
+    public void revoke() {
+        if (completed) return;
         closed = true;
         ClientCallStreamObserver<ReadPartitionRequest> activeCall = call;
         if (activeCall != null) {
             activeCall.cancel("external shuffle consumer closed", null);
         }
-        events.offer(COMPLETED);
+        events.clear();
+        events.offer(REVOKED);
+    }
+
+    private void awaitRpcExit() {
+        try {
+            if (!rpcExited.await(5, TimeUnit.SECONDS)) {
+                throw new RemoteShuffleClientException(
+                        "External shuffle RPC did not reach its terminal callback");
+            }
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new RemoteShuffleClientException(
+                    "Interrupted while draining external shuffle RPC", failure);
+        }
+    }
+
+    private RemoteShuffleClientException readFailure() {
+        return new RemoteShuffleClientException("External shuffle read failed",
+                terminalError == null
+                        ? new CancellationException("External shuffle reader was revoked")
+                        : terminalError);
     }
 
     private final class ReaderObserver
@@ -85,21 +122,33 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
 
         @Override
         public void onNext(ReadBatchResponse value) {
+            if (closed) return;
             if (!events.offer(value)) {
                 closeWithFailure(new IllegalStateException(
                         "external shuffle server violated inbound flow control"));
+                revoke();
             }
         }
 
         @Override
         public void onError(Throwable failure) {
-            closeWithFailure(failure);
+            try {
+                closeWithFailure(failure);
+            } finally {
+                rpcExited.countDown();
+            }
         }
 
         @Override
         public void onCompleted() {
-            completed = true;
-            events.offer(COMPLETED);
+            try {
+                if (!closed) {
+                    completed = true;
+                    events.offer(COMPLETED);
+                }
+            } finally {
+                rpcExited.countDown();
+            }
         }
 
         private void closeWithFailure(Throwable failure) {

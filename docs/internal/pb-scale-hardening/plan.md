@@ -54,7 +54,7 @@ small-scale correctness tests with measured PB-scale capacity.
 
 ### P5. Worker write batches (REQ-005)
 
-- [ ] T009 [P] Trace `WriteOperator`, `NativeWriteExecutor`, `PageDecoder`, `WritePageProjector`, and connector sink implementations; preserve a canonical batch format and avoid avoidable per-batch object materialization.
+- [ ] T009 [P] Trace `WriteBatchStream`, `NativeWriteExecutor`, `PageDecoder`, `WritePageProjector`, and connector sink implementations; preserve a canonical batch format and avoid avoidable per-batch object materialization.
 - [ ] T010 Add contract/ownership tests for column order, complex values, nulls, empty batches, decode/write failures, and resource release; verify the actual native producer format against the Java consumer.
 
 ### P6. Validation evidence and documentation (REQ-006, REQ-007)

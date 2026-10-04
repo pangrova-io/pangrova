@@ -488,16 +488,13 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
             // Simulate a coordinator crash scenario where journal has active queries.
             // After crash, the surviving coordinator's JournalRecoveryService replays
             // the journal and marks queries with dead workers as FAILED.
-            StateJournalConfig journalConfig = new StateJournalConfig(
-                    "JDBC", mysqlJdbcUrl(), 50, 20, 24);
+            StateJournalConfig journalConfig = new StateJournalConfig("JDBC", mysqlJdbcUrl(), 50, 20, 24, 50_000);
             JdbcQueryStateJournal journal = new JdbcQueryStateJournal(stateDs, journalConfig);
 
             try {
                 // Simulate coordinator-1 journaling a query before crash
                 String queryId = "arch-crash-query-" + System.nanoTime();
-                journal.appendQueryEventSync(new QueryStateEvent(
-                        queryId, "SELECT 1", null,
-                        "QUEUED", System.currentTimeMillis(), "query-coord-1"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), queryId, "SELECT 1", null, "QUEUED"));
 
                 // Verify journal has the active query
                 List<QueryStateEvent> activeQueries = journal.replayActiveQueries();
@@ -508,9 +505,7 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
                 // Simulate crash: coordinator-1 is gone. Coordinator-2 starts recovery.
                 // Mark the query as FAILED (simulating what JournalRecoveryService does
                 // when the assigned worker is unreachable).
-                journal.appendQueryEventSync(new QueryStateEvent(
-                        queryId, null, null,
-                        "FAILED", System.currentTimeMillis(), "query-coord-2"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), queryId, null, null, "FAILED"));
                 journal.purgeQuery(queryId);
 
                 // Verify journal is clean after recovery
@@ -542,21 +537,16 @@ class MultiCoordinatorArchE2ETest extends SqlE2ETestBase {
                     + " (id, region, revenue) VALUES (4, 'WEST', 2500)");
 
             // Simulate crash + journal recovery
-            StateJournalConfig journalConfig = new StateJournalConfig(
-                    "JDBC", mysqlJdbcUrl(), 50, 20, 24);
+            StateJournalConfig journalConfig = new StateJournalConfig("JDBC", mysqlJdbcUrl(), 50, 20, 24, 50_000);
             JdbcQueryStateJournal journal = new JdbcQueryStateJournal(stateDs, journalConfig);
 
             try {
                 // Simulate orphaned query from crashed coordinator
                 String orphanQueryId = "arch-orphan-" + System.nanoTime();
-                journal.appendQueryEventSync(new QueryStateEvent(
-                        orphanQueryId, "SELECT * FROM " + fqn, null,
-                        "QUEUED", System.currentTimeMillis(), "query-coord-1"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "query-coord-1"), orphanQueryId, "SELECT * FROM " + fqn, null, "QUEUED"));
 
                 // Recovery: mark orphaned query FAILED and purge
-                journal.appendQueryEventSync(new QueryStateEvent(
-                        orphanQueryId, null, null,
-                        "FAILED", System.currentTimeMillis(), "query-coord-2"));
+                journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "query-coord-2"), orphanQueryId, null, null, "FAILED"));
                 journal.purgeQuery(orphanQueryId);
 
                 // After recovery, new queries on the survivor succeed

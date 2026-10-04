@@ -12,8 +12,8 @@ final class TaskManagerShutdown {
     static void close(TaskManagerContext deps, TaskExecutor executor,
                       TaskLifecycleManager lifecycle, Collection<TaskInfo> tasks) {
         if (deps == null) return;
-        deps.completionMonitorExecutor().shutdownNow();
-        RuntimeException failure = null;
+        RuntimeException failure = attempt(() -> deps.completionMonitorExecutor().shutdownNow(),
+                null, "stop completion monitors");
         for (var info : tasks) {
             failure = attempt(() -> cancelNative(executor, info), failure, "cancel task=" + info.taskId());
         }
@@ -25,10 +25,14 @@ final class TaskManagerShutdown {
             failure = attempt(() -> lifecycle.releaseFinishedTaskExecutor(info), failure,
                     "task=" + info.taskId() + " query=" + info.queryId());
         }
-        if (executor instanceof AutoCloseable nativeOwner) {
-            failure = attempt(() -> closeOwner(nativeOwner), failure, "native executor");
-        }
         failure = attempt(() -> awaitMonitorExit(deps), failure, "completion monitors");
+        if (failure != null) throw failure;
+        // Reader shutdown and task release still need this executor's global
+        // and task command handles on retry. Never retire their control plane
+        // while a dependent owner or monitor has failed to drain.
+        if (executor instanceof AutoCloseable nativeOwner) {
+            failure = attempt(() -> closeOwner(nativeOwner), null, "native executor");
+        }
         if (failure != null) throw failure;
     }
 

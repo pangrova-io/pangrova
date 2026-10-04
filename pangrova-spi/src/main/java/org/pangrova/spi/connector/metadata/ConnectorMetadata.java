@@ -55,6 +55,32 @@ public interface ConnectorMetadata
     }
 
     /**
+     * Binds one read to its immutable handle, declaration and same-source statistics.
+     * Snapshot-capable connectors override this method; the default claims no
+     * snapshot or cardinality evidence and does not grant native-read capability.
+     */
+    default org.pangrova.spi.connector.metadata.table.ConnectorReadBinding bindRead(
+            ConnectorSession session, ConnectorTableHandle table) {
+        return new org.pangrova.spi.connector.metadata.table.ConnectorReadBinding(table,
+                getTableReadMetadata(session, table), TableStatistics.UNKNOWN,
+                org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.UNVERSIONED,
+                java.util.OptionalLong.empty(), "");
+    }
+
+    /**
+     * Validates the selected source before enumerating splits, including an empty view.
+     * The default has no snapshot evidence to validate; native readability remains
+     * the connector's split-manager capability, not an inference from statistics.
+     */
+    default void validateReadBinding(ConnectorSession session,
+            org.pangrova.spi.connector.metadata.table.ConnectorReadBinding binding) {
+        if (binding.state() != org.pangrova.spi.connector.metadata.table.ConnectorReadBinding
+                .SnapshotState.UNVERSIONED) {
+            throw new UnsupportedOperationException("Connector cannot validate selected read evidence");
+        }
+    }
+
+    /**
      * Returns column handles for all columns in the specified table.
      *
      * @param session the current session context

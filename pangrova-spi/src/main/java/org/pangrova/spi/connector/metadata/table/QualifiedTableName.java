@@ -46,4 +46,17 @@ public record QualifiedTableName(String catalog, String schema, String table) {
     public String toString() {
         return catalog + "." + schema + "." + table;
     }
+
+    /**
+     * A component-preserving key for table-specific feedback, not SQL or source authority.
+     * Each component is length-prefixed in Java UTF-16 units; no splitting or case folding occurs.
+     */
+    public String canonicalKey() {
+        var key = new StringBuilder("TABLE/");
+        for (String component : java.util.Arrays.asList(catalog, schema, table)) {
+            java.util.Objects.requireNonNull(component, "table identifier component");
+            key.append(component.length()).append(':').append(component);
+        }
+        return key.toString();
+    }
 }

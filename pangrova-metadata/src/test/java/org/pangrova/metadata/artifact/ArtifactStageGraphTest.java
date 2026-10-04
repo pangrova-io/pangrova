@@ -12,12 +12,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ArtifactStageGraphTest {
+
+    @Test void rejectsRemovedOrUnknownPersistedBatchFormats() {
+        for (String format : List.of("BATCH_SERDE_NATIVE_ROW", "BATCH_SERDE_UNSPECIFIED", "BATCH_SERDE_UNKNOWN")) {
+            assertThatThrownBy(() -> new ArtifactStageGraph.Exchange("exchange", 1, 0,
+                    ArtifactStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1, format, true))
+                    .as("persisted format %s", format).isInstanceOf(IllegalArgumentException.class);
+        }
+    }
     @Test void roundTripsOneCanonicalGraphAndIncludesEveryStagePayloadAndCohort() {
         var source = stage(5, 2, ArtifactBuildPageKind.RELATIONAL_COMPUTE, false);
         var terminal = stage(0, 3, ArtifactBuildPageKind.RELATIONAL_PARTITION, true);
         var exchange = new ArtifactStageGraph.Exchange("exchange", 5, 0,
                 ArtifactStageGraph.Exchange.Distribution.HASH, List.of(0), 3,
-                "BATCH_SERDE_NATIVE_ROW", true);
+                "BATCH_SERDE_ARROW_BATCH", true);
         var graph = new ArtifactStageGraph(ArtifactStageGraph.FORMAT_VERSION, ArtifactStageGraph.Purpose.RELATIONAL_EXPORT,
                 List.of(source, terminal), List.of(exchange), List.of());
         assertThat(ArtifactStageGraph.decode(graph.canonicalBytes(), graph.sha256())).isEqualTo(graph);
@@ -32,7 +40,7 @@ class ArtifactStageGraphTest {
     @Test void rejectsPartialBarriersPurposeMismatchAndDetachedCompute() {
         assertThatThrownBy(() -> new ArtifactStageGraph.Exchange("exchange", 1, 0,
                 ArtifactStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1,
-                "BATCH_SERDE_NATIVE_ROW", false)).isInstanceOf(IllegalArgumentException.class);
+                "BATCH_SERDE_ARROW_BATCH", false)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ArtifactStageGraph(ArtifactStageGraph.FORMAT_VERSION, ArtifactStageGraph.Purpose.RELATIONAL_EXPORT,
                 List.of(stage(1, 1, ArtifactBuildPageKind.RELATIONAL_COMPUTE, false),
                         stage(0, 1, ArtifactBuildPageKind.RELATIONAL_PARTITION, true)), List.of(), List.of()))

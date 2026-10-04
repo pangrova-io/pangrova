@@ -40,6 +40,13 @@ class VectorArtifactBuildPlanBuilderTest {
         var extension = plan.getRelations(0).getRoot().getInput().getExtensionSingle();
         assertThat(extension.getInput().getRead().getBaseSchema().getNamesList())
                 .containsExactly(BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN, "embedding");
+        var types = extension.getInput().getRead().getBaseSchema().getStruct().getTypesList();
+        assertThat(types.get(0).getI64().getNullability())
+                .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
+        assertThat(types.get(1).getList().getNullability())
+                .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE);
+        assertThat(types.get(1).getList().getType().getFp32().getNullability())
+                .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
         assertThat(extension.getInput().getRead().getNamedTable().getNamesList())
                 .containsExactly("lake", "db", "items");
         RelationDetailEnvelope envelope = extension.getDetail()

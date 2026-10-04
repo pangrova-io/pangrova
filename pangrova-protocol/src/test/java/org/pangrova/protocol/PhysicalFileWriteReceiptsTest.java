@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.PhysicalFileAllocation;

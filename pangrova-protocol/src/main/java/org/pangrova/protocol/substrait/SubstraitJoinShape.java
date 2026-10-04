@@ -18,7 +18,8 @@ final class SubstraitJoinShape {
         if (inputs.size() != 2) throw new IllegalArgumentException("Join requires two inputs");
         Message join = SubstraitRelationLayout.payload(relation);
         validateCondition(join, "expression", context);
-        String kind = ((EnumValueDescriptor) join.getField(join.getDescriptorForType().findFieldByName("type"))).getName();
+        String kind = ((EnumValueDescriptor) join.getField(
+                join.getDescriptorForType().findFieldByName("type"))).getName();
         NamedStruct output = shape(kind, inputs);
         validateCondition(join, "post_join_filter", output);
         return output;

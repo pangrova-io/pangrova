@@ -12,6 +12,7 @@
 #include <arrow/ipc/writer.h>
 
 #include "jni/bridge/ColumnarDataExporter.h"
+#include "capability/FunctionCatalogPublication.h"
 #include "jni/bridge/GlobalEgressRegistry.h"
 #include "jni/bridge/GlobalWriterRegistry.h"
 #include "jni/command/FlightServerRegistry.h"
@@ -27,6 +28,7 @@
 #include "udf/JvmScalarFunction.h"
 #include "velox/exchange/PangrovaExchangeSource.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
+#include "velox/runtime/NativeEngineLifecycle.h"
 
 #include "pangrova/protocol/v2/runtime.pb.h"
 
@@ -46,7 +48,7 @@ namespace pangrova::jni {
 namespace {
 std::atomic<JavaVM*> g_cached_jvm{nullptr};
 
-std::shared_ptr<pangrova::executor::TaskExecutor> createTaskExecutor(
+std::shared_ptr<pangrova::executor::TaskExecutor> constructTaskExecutor(
     JNIEnv* env, pangrova::executor::TaskExecutorConfig config) {
   if (config.shuffle_execution.has_value()) {
     jobject egress = GlobalEgressRegistry::instance().acquire(env);
@@ -65,6 +67,27 @@ std::shared_ptr<pangrova::executor::TaskExecutor> createTaskExecutor(
     }
   }
   return std::make_shared<pangrova::executor::TaskExecutor>(config);
+}
+
+int64_t createTaskExecutor(JNIEnv* env, protocol::v2::TaskRequest request,
+                          const std::string& trace_id = {}, const std::string& span_id = {}) {
+  auto& registry = HandleRegistry::instance();
+  const auto handle = registry.reserveCreation(creationIdentity(request));
+  try {
+    auto config = taskConfigFromRequest(request);
+    config.function_registry = NativeEngineLifecycle::instance()
+        .functionCatalogStartup()->requirePublished()->registry();
+    config.trace_id = trace_id;
+    config.span_id = span_id;
+    registry.attachCreation(handle, constructTaskExecutor(env, std::move(config)));
+  } catch (...) {
+    // All constructor locals have unwound before this exit is recorded. An
+    // attached executor remains owned by the same registry for actual release.
+    registry.finishCreation(handle);
+    throw;
+  }
+  registry.finishCreation(handle);
+  return handle;
 }
 }  // namespace
 
@@ -203,6 +226,9 @@ void throwJavaException(JNIEnv* env, const char* className,
 }
 
 void throwNativeBridgeException(JNIEnv* env, const char* message) {
+  // Preserve the original JVM allocation/lookup failure. JNI exception
+  // construction must not invoke allocation while that exception is pending.
+  if (env->ExceptionCheck()) return;
   // Fast path: use cached class + constructor to avoid FindClass overhead.
   auto& cache = globalJniCache();
   if (cache.native_exception_class && cache.exception_constructor) {
@@ -348,8 +374,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeShutdownInternal(
     // Must happen while JNIEnv is still valid and before memory pools are destroyed.
     pangrova::jni::GlobalWriterRegistry::instance().clear(env);
     pangrova::jni::GlobalEgressRegistry::instance().clear(env);
-    pangrova::udf::clearJvmFunctionCallbacks(env);
     pangrova::jni::shutdownVeloxRuntime();
+    pangrova::udf::clearJvmFunctionCallbacks(env);
     // Release cached JNI global references after Velox shutdown.
     // Must happen last — Velox shutdown may still use JNI callbacks.
     pangrova::jni::releaseJniReferenceCache(env);
@@ -392,6 +418,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeRegisterFunctions0(
       throw std::invalid_argument(
           "Function callback and descriptors must not be null");
     }
+    auto registration = pangrova::jni::NativeEngineLifecycle::instance()
+        .functionCatalogStartup()->beginRegistration();
     auto* registry = pangrova::jni::globalUdfRegistry();
     if (!registry) {
       throw std::runtime_error(
@@ -431,19 +459,23 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeRegisterFunctions0(
       }
       scalarSpecs.push_back(pangrova::udf::makeJvmScalarFunctionSpec(
           descriptor.name(), argumentTypes,
-          descriptor.return_type().canonical_sql()));
+          descriptor.return_type().canonical_sql(), descriptor.deterministic()));
     }
 
-    pangrova::udf::installJvmFunctionCallbacks(env, callback);
-    try {
-      for (const auto& spec : scalarSpecs) {
-        registry->registerScalar(spec);
-      }
-      registry->registerAllWithVelox();
-    } catch (...) {
-      pangrova::udf::clearJvmFunctionCallbacks(env);
-      throw;
+    // Preflight the entire batch before retaining or publishing a callback.
+    // Invalid/duplicate/finalized registration must leave the active bridge
+    // and its factories untouched, not clear them in an error recovery path.
+    registry->withScalars(scalarSpecs);
+    const auto callbackOwner =
+        pangrova::udf::prepareJvmFunctionCallbacks(env, callback);
+    for (auto& spec : scalarSpecs) {
+      pangrova::udf::bindJvmFunctionCallbacks(spec, callbackOwner);
     }
+    auto candidate = registry->withScalars(scalarSpecs);
+    candidate.registerAllWithVelox();
+    *registry = std::move(candidate);
+    pangrova::udf::publishJvmFunctionCallbacks(callbackOwner);
+    registration.complete();
   } JNI_CATCH_AND_THROW(env)
 }
 
@@ -457,9 +489,7 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutor0(
     return 0;
   }
   try {
-    auto config = pangrova::jni::parseTaskConfig(toVector(env, taskRequestProto));
-    auto executor = pangrova::jni::createTaskExecutor(env, std::move(config));
-    return pangrova::jni::HandleRegistry::instance().create(std::move(executor));
+    return pangrova::jni::createTaskExecutor(env, pangrova::jni::parseTaskRequest(toVector(env, taskRequestProto)));
   } JNI_CATCH_AND_THROW(env)
   return 0;
 }
@@ -476,10 +506,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutorWithTrace0(
     return 0;
   }
   try {
-    auto config = pangrova::jni::parseTaskConfig(toVector(env, taskRequestProto));
-    config.trace_id = toString(env, traceId);
-    auto executor = pangrova::jni::createTaskExecutor(env, std::move(config));
-    return pangrova::jni::HandleRegistry::instance().create(std::move(executor));
+    return pangrova::jni::createTaskExecutor(env, pangrova::jni::parseTaskRequest(toVector(env, taskRequestProto)),
+                                           toString(env, traceId));
   } JNI_CATCH_AND_THROW(env)
   return 0;
 }
@@ -494,11 +522,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeCreateTaskExecutorWithTraceCont
     return 0;
   }
   try {
-    auto config = pangrova::jni::parseTaskConfig(toVector(env, taskRequestProto));
-    config.trace_id = toString(env, traceId);
-    config.span_id = toString(env, spanId);
-    auto executor = pangrova::jni::createTaskExecutor(env, std::move(config));
-    return pangrova::jni::HandleRegistry::instance().create(std::move(executor));
+    return pangrova::jni::createTaskExecutor(env, pangrova::jni::parseTaskRequest(toVector(env, taskRequestProto)),
+                                           toString(env, traceId), toString(env, spanId));
   } JNI_CATCH_AND_THROW(env)
   return 0;
 }

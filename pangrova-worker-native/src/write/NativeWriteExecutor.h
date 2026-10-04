@@ -83,9 +83,8 @@ class NativeWriteExecutor {
       const std::vector<uint8_t>& metadata);
 
   // Aborts the write session, rolling back partial writes.
-  // Does not throw — logs and swallows Java-side abort failures to
-  // avoid masking the original exception in catch blocks.
-  void abortWrite(int64_t handle) noexcept;
+  // Throws on failed cleanup. The Java task retains the session for release retry.
+  void abortWrite(int64_t handle);
 
  private:
   // Checks for a pending Java exception after a JNI call. If one exists,

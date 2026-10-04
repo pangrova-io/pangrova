@@ -10,11 +10,13 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.core.Context;
+import jakarta.ws.rs.container.ContainerRequestContext;
 import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerManager.HeartbeatData;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
@@ -70,7 +72,8 @@ public final class WorkerResource {
     /** Processes a worker heartbeat, recovering unregistered workers from the registry when possible. */
     @POST
     @Path("/worker/heartbeat")
-    public Response heartbeat(HeartbeatRequest request) {
+    public Response heartbeat(HeartbeatRequest request, @Context ContainerRequestContext context) {
+        AuthenticationFilter.requireInternalServiceIdentity(context);
         if (workerManager.getWorker(request.workerId()) == null) {
             // C-WK-01/C-WK-03: After coordinator failover, the new leader's
             // in-memory WorkerManager may not have this worker yet. Attempt to
@@ -99,7 +102,8 @@ public final class WorkerResource {
      */
     @POST
     @Path("/workers/register")
-    public Response register(WorkerRegistrationRequest request) {
+    public Response register(WorkerRegistrationRequest request, @Context ContainerRequestContext context) {
+        AuthenticationFilter.requireInternalServiceIdentity(context);
         return doRegister(request);
     }
 
@@ -110,7 +114,9 @@ public final class WorkerResource {
      */
     @DELETE
     @Path("/workers/{workerId}")
-    public Response deregisterWorker(@PathParam("workerId") String workerId) {
+    public Response deregisterWorker(@PathParam("workerId") String workerId,
+                                     @Context ContainerRequestContext context) {
+        AuthenticationFilter.requireInternalServiceIdentity(context);
         workerManager.removeWorker(workerId);
         LOG.info("event=worker_deregistered workerId={}", workerId);
         return Response.ok(Map.of("status", "deregistered")).build();

@@ -15,6 +15,8 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.paimon.write.PaimonPhysicalWriteAllocations;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
@@ -60,6 +62,41 @@ class PaimonPhysicalAllocationIntegrationTest {
             assertThat(pinned.files().get(0).restoredFileSetSha256())
                     .isEqualTo(allocation.files().get(0).restoredFileSetSha256());
             assertThat(pinned.baseSnapshotId()).isEqualTo(snapshot);
+        }
+    }
+
+    /** Tests only Java allocation/handle/template authority, not the still-unsupported LIST→Native VECTOR boundary. */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void propertyVectorJavaAllocationAndTemplateRetainDimensionWithoutClaimingNativeExecution(
+            boolean doubled) throws Exception {
+        try (var catalog = catalog()) {
+            catalog.createDatabase("db", false);
+            var id = Identifier.create("db", "allocation");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.BIGINT())
+                    .column("embedding", DataTypes.ARRAY(doubled ? DataTypes.DOUBLE() : DataTypes.FLOAT()))
+                    .option("pangrova.vector.dimension.embedding", "7")
+                    .option("bucket", "1").option("bucket-key", "id")
+                    .option("lance.native.encoder-cache-bytes", "65536")
+                    .option("file.format", "lance").build(), false);
+            var table = (FileStoreTable) catalog.getTable(id);
+            var allocation = PaimonPhysicalWriteAllocations.append(table, -1);
+            var column = allocation.schema().columns().get(1);
+            assertThat(column.fieldId()).isEqualTo(table.schema().fields().get(1).id());
+            assertThat(column.logicalType()).isEqualTo(new org.pangrova.spi.connector.data.type.VectorType(7,
+                    doubled ? org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE
+                            : org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT).getTypeSignature());
+            assertThat(column.nullable()).isTrue();
+            assertThat(column.declaredType().children()).singleElement()
+                    .satisfies(child -> assertThat(child.nullable()).isTrue());
+            var template = PhysicalFileWriteBindings.template(allocation);
+            assertThat(template.getColumns(1).getLogicalType()).isEqualTo(
+                    org.pangrova.protocol.type.VectorLogicalType.create(7, doubled
+                            ? org.pangrova.protocol.type.VectorLogicalType.FLOAT64
+                            : org.pangrova.protocol.type.VectorLogicalType.FLOAT32, true, true));
+            assertThat(table.fileIO().exists(new org.apache.paimon.fs.Path(
+                    allocation.files().get(0).location().opaqueLocation()))).isFalse();
+            assertPersistedAllocation(table, allocation);
         }
     }
 

@@ -132,9 +132,8 @@ public final class PangrovaExchangeInput extends AbstractRelNode {
             distribution = Objects.requireNonNull(
                     distribution, "distribution must not be null");
             batchSerde = Objects.requireNonNull(batchSerde, "batchSerde must not be null");
-            if (batchSerde == BatchSerde.BATCH_SERDE_UNSPECIFIED
-                    || batchSerde == BatchSerde.UNRECOGNIZED) {
-                throw new IllegalArgumentException("batchSerde must be explicitly bound");
+            if (batchSerde != BatchSerde.BATCH_SERDE_ARROW_BATCH) {
+                throw new IllegalArgumentException("batchSerde must be the canonical columnar batch format");
             }
         }
     }

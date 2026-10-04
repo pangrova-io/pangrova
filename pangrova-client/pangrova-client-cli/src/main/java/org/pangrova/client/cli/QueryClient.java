@@ -30,6 +30,8 @@ interface QueryClient {
         throw new UnsupportedOperationException("fetchResult not implemented");
     }
 
+    byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs);
+
     /**
      * Adapter that delegates to a real {@link PangrovaRestClient}.
      */
@@ -58,6 +60,11 @@ interface QueryClient {
             @Override
             public byte[] fetchResult(ResultEndpoint endpoint) {
                 return client.fetchResult(endpoint);
+            }
+
+            @Override
+            public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+                return client.fetchResult(endpoint, deadlineEpochMs);
             }
         };
     }

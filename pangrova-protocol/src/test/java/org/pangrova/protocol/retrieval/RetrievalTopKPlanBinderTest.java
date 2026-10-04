@@ -100,7 +100,7 @@ class RetrievalTopKPlanBinderTest {
                         .setDistribution(ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON)
                         .setPartitionCount(1)
                         .setOutputSchema(schema)
-                        .setBatchSerde(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW)
+                        .setBatchSerde(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH)
                         .setRequireComplete(true))
                 .build();
         Rel input = Rel.newBuilder().setExtensionLeaf(
@@ -266,9 +266,11 @@ class RetrievalTopKPlanBinderTest {
                 .addNames("content")
                 .setStruct(io.substrait.proto.Type.Struct.newBuilder()
                         .addTypes(io.substrait.proto.Type.newBuilder().setI64(
-                                io.substrait.proto.Type.I64.newBuilder()))
+                                io.substrait.proto.Type.I64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED)))
                         .addTypes(io.substrait.proto.Type.newBuilder().setString(
-                                io.substrait.proto.Type.String.newBuilder())))
+                                io.substrait.proto.Type.String.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE))))
                 .build();
         Rel read = Rel.newBuilder().setRead(io.substrait.proto.ReadRel.newBuilder()
                 .setBaseSchema(readSchema)
@@ -278,7 +280,8 @@ class RetrievalTopKPlanBinderTest {
                 Expression.ScalarFunction.newBuilder()
                         .setFunctionReference(8)
                         .setOutputType(io.substrait.proto.Type.newBuilder().setBool(
-                                io.substrait.proto.Type.Boolean.newBuilder()))
+                                io.substrait.proto.Type.Boolean.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE)))
                         .addArguments(io.substrait.proto.FunctionArgument.newBuilder()
                                 .setValue(fieldReference(1)))
                         .addArguments(io.substrait.proto.FunctionArgument.newBuilder()
@@ -293,7 +296,8 @@ class RetrievalTopKPlanBinderTest {
                 Expression.ScalarFunction.newBuilder()
                         .setFunctionReference(7)
                         .setOutputType(io.substrait.proto.Type.newBuilder().setFp64(
-                                io.substrait.proto.Type.FP64.newBuilder()))
+                                io.substrait.proto.Type.FP64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE)))
                         .addArguments(io.substrait.proto.FunctionArgument.newBuilder()
                                 .setValue(fieldReference(1)))
                         .addArguments(io.substrait.proto.FunctionArgument.newBuilder()
@@ -379,9 +383,11 @@ class RetrievalTopKPlanBinderTest {
                 .addNames("score")
                 .setStruct(io.substrait.proto.Type.Struct.newBuilder()
                         .addTypes(io.substrait.proto.Type.newBuilder().setI64(
-                                io.substrait.proto.Type.I64.newBuilder()))
+                                io.substrait.proto.Type.I64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED)))
                         .addTypes(io.substrait.proto.Type.newBuilder().setFp64(
-                                io.substrait.proto.Type.FP64.newBuilder())))
+                                io.substrait.proto.Type.FP64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE))))
                 .build();
     }
 

@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.Statement;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -21,7 +23,12 @@ public record StatementCompletionEvent(
         checkNotNull(result, "result");
     }
 
-    /** Convenience accessor for the mutated table name, or null. */
+    /** Resolves the typed target from the original statement and its admitted session. */
+    public QualifiedTableName mutatedTableIdentity() {
+        return TableNameExtractor.extractQualified(statement, session);
+    }
+
+    /** Convenience accessor for the display table name, or null. */
     public String mutatedTable() {
         return result.mutatedTable();
     }

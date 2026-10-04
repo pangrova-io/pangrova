@@ -17,7 +17,13 @@ mvn -pl pangrova-planner -am \
 Planner 22 项、19 PASS/3 ERROR/0 SKIP，19.260s；protocol 两组共8项PASS（formula5/binding3）。
 原六个 negative 仅要求 RuntimeException，也使用同一 VALUES 输入，因此存在提前
 parser failure 假绿。现已保留全部 SQL，并新增同形合法 RAW preflight、精确
-PlannerException/PLANNER_VALIDATION_FAILURE/AI_EMBED purpose 原因断言；修改后尚未运行。
+PlannerException/PLANNER_VALIDATION_FAILURE/AI_EMBED purpose 原因断言。
+2026-10-04 未筛选 Planner regression 实际1302项中1256 PASS、28 FAIL、18 ERROR：
+用途测试9项仍在同形合法 VALUES preflight 报 parser error，另一个 DISTINCT
+snapshot用例同因失败。日志
+`/tmp/pangrova-production-jackson-bom-planner-unfiltered-r1.log`；它证明原负例
+不能因“任意 RuntimeException”计通过。operator table 的2..3参数声明最近23项
+通过，不构成 VALUES 或用途完整SQL链路通过。
 不能把合法输入改为常量或另一种 SQL 以跳过这个生产入口缺陷。
 
 真实源码不是一概“ANTLR→SQL string→Calcite parser”串行解析：

@@ -2,7 +2,7 @@ package org.pangrova.protocol.rest.worker;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 
 import java.util.List;

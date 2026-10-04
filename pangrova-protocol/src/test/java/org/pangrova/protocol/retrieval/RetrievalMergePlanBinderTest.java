@@ -184,7 +184,7 @@ class RetrievalMergePlanBinderTest {
                         .setDistribution(distribution)
                         .setPartitionCount(partitions)
                         .setOutputSchema(schema)
-                        .setBatchSerde(BatchSerde.BATCH_SERDE_NATIVE_ROW)
+                        .setBatchSerde(BatchSerde.BATCH_SERDE_ARROW_BATCH)
                         .setRequireComplete(complete))
                 .build();
         Rel input = Rel.newBuilder().setExtensionLeaf(
@@ -232,9 +232,11 @@ class RetrievalMergePlanBinderTest {
                 .addNames("score")
                 .setStruct(io.substrait.proto.Type.Struct.newBuilder()
                         .addTypes(io.substrait.proto.Type.newBuilder().setI64(
-                                io.substrait.proto.Type.I64.newBuilder()))
+                                io.substrait.proto.Type.I64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED)))
                         .addTypes(io.substrait.proto.Type.newBuilder().setFp64(
-                                io.substrait.proto.Type.FP64.newBuilder())))
+                                io.substrait.proto.Type.FP64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE))))
                 .build();
     }
 
@@ -245,11 +247,14 @@ class RetrievalMergePlanBinderTest {
                 .addNames("source_id")
                 .setStruct(io.substrait.proto.Type.Struct.newBuilder()
                         .addTypes(io.substrait.proto.Type.newBuilder().setI64(
-                                io.substrait.proto.Type.I64.newBuilder()))
+                                io.substrait.proto.Type.I64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED)))
                         .addTypes(io.substrait.proto.Type.newBuilder().setFp64(
-                                io.substrait.proto.Type.FP64.newBuilder()))
+                                io.substrait.proto.Type.FP64.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE)))
                         .addTypes(io.substrait.proto.Type.newBuilder().setString(
-                                io.substrait.proto.Type.String.newBuilder())))
+                                io.substrait.proto.Type.String.newBuilder()
+                                        .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED))))
                 .build();
     }
 }

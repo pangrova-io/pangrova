@@ -4,7 +4,6 @@ import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
-import io.substrait.proto.Expression;
 import io.substrait.proto.FilterRel;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
@@ -141,7 +140,8 @@ public final class GeneratedValuesOverlayPlanBinder {
         Rel relation = Rel.newBuilder().setRead(read.toBuilder().setBaseSchema(extended)
                 .clearFilter().clearBestEffortFilter()
                 .setCommon(read.getCommon().toBuilder().setEmit(emitted))).build();
-        NamedStruct currentSchema = SubstraitRelationLayout.projectSchema(extended.build(), emitted.getOutputMappingList());
+        NamedStruct currentSchema = SubstraitRelationLayout.projectSchema(
+                extended.build(), emitted.getOutputMappingList());
 
         return new ReadLayout(original, targets, kept, relation, currentSchema);
     }
@@ -187,7 +187,8 @@ public final class GeneratedValuesOverlayPlanBinder {
 
     private static NamedExpressionArgument argument(String name, int field) {
         return NamedExpressionArgument.newBuilder().setName(name)
-                .setExpression(org.pangrova.protocol.substrait.SubstraitRelationLayout.rootFieldReference(field)).build();
+                .setExpression(org.pangrova.protocol.substrait.SubstraitRelationLayout
+                        .rootFieldReference(field)).build();
     }
 
     private static Plan parse(byte[] bytes) {

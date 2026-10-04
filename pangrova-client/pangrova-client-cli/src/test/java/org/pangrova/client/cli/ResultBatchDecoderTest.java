@@ -35,6 +35,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResultBatchDecoderTest {
 
     @Test
+    void actualSchemaDisplaysRowsWhenAsynchronousSubmitHasNoColumns() throws Exception {
+        String display = SqlShell.formatResults(buildIpcWithIntAndString(), List.of());
+        assertThat(display).contains("id", "name", "Alice", "Bob", "Charlie");
+        assertThat(display).doesNotContain("OK (no result set)");
+    }
+
+    @Test
+    void actualEmptyResultSchemaOverridesStaleSubmitColumnNames() throws Exception {
+        String display = SqlShell.formatResults(buildEmptyIpc(), List.of("stale"));
+        assertThat(display).contains("id", "name").doesNotContain("stale");
+    }
+
+    @Test
     void decodesIntAndStringColumnsIntoRows() throws Exception {
         byte[] batchData = buildIpcWithIntAndString();
 

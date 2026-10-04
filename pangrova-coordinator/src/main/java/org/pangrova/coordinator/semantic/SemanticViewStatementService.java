@@ -19,7 +19,7 @@ package org.pangrova.coordinator.semantic;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.metadata.semantic.SemanticViewId;
 import org.pangrova.metadata.semantic.SemanticViewPublication;

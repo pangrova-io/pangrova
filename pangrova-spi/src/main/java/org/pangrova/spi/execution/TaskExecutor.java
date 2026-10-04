@@ -16,9 +16,8 @@ import java.util.Optional;
  * native pointers managed by the underlying engine. Callers must
  * call {@link #releaseTask} when execution completes or fails.</p>
  *
- * <p>Data pull semantics: {@link #getNextBatchResult} and
- * {@link #getShuffleBatchResult} return discriminated {@link BatchResult}
- * values (DATA / EOF / NOT_READY / ERROR).</p>
+ * <p>Data travels only through the actual Native Arrow transports. This SPI
+ * carries task lifecycle, canonical reports and control commands, never rows.</p>
  */
 @Stable(since = "1.0")
 public interface TaskExecutor {
@@ -70,53 +69,7 @@ public interface TaskExecutor {
      * @param commandProto   serialized NativeCommand proto bytes
      * @return serialized NativeCommandResponse proto bytes
      */
-    default byte[] executeCommand(long executorHandle, byte[] commandProto) {
-        throw new UnsupportedOperationException("executeCommand not implemented");
-    }
-
-    /**
-     * Pulls the next result batch with discriminated status.
-     *
-     * <p>Returns a {@link BatchResult} that preserves full status semantics:</p>
-     * <ul>
-     *   <li>{@code DATA} — valid batch bytes available</li>
-     *   <li>{@code EOF} — end of stream, no more batches</li>
-     *   <li>{@code NOT_READY} — temporary, output queue empty but task running</li>
-     *   <li>{@code ERROR} — native execution error with message</li>
-     * </ul>
-     *
-     * <p>Default returns EOF. In the current architecture, result data is
-     * served by native transport servers; the production implementation
-     * returns EOF immediately.</p>
-     *
-     * @param executorHandle handle returned by {@link #createTask}
-     * @return discriminated batch result, never null
-     */
-    default BatchResult getNextBatchResult(long executorHandle) {
-        return BatchResult.eof();
-    }
-
-    /**
-     * Pulls the next shuffle batch with discriminated status.
-     *
-     * <p>Returns a {@link BatchResult} that preserves full status semantics:</p>
-     * <ul>
-     *   <li>{@code DATA} — valid shuffle batch bytes available</li>
-     *   <li>{@code EOF} — end of stream, no more shuffle batches</li>
-     *   <li>{@code NOT_READY} — temporary, shuffle queue empty but task running</li>
-     *   <li>{@code ERROR} — native execution error with message</li>
-     * </ul>
-     *
-     * <p>Default returns EOF. In the current architecture, shuffle data is
-     * served by native transport servers; the production implementation
-     * inherits this default.</p>
-     *
-     * @param executorHandle handle returned by {@link #createTask}
-     * @return discriminated batch result, never null
-     */
-    default BatchResult getShuffleBatchResult(long executorHandle) {
-        return BatchResult.eof();
-    }
+    byte[] executeCommand(long executorHandle, byte[] commandProto);
 
     /**
      * Checks whether the task has finished execution (completed or failed).
@@ -127,9 +80,7 @@ public interface TaskExecutor {
      * @param executorHandle handle returned by {@link #createTask}
      * @return true if the task has finished (completed, failed, or cancelled)
      */
-    default boolean isFinished(long executorHandle) {
-        return false;
-    }
+    boolean isFinished(long executorHandle);
 
     /**
      * Returns the executor's canonical v2 TaskReport envelope.
@@ -139,11 +90,9 @@ public interface TaskExecutor {
      * envelope.</p>
      *
      * @param executorHandle handle returned by {@link #createTask}
-     * @return serialized canonical v2 TaskReport, or an empty array
+     * @return the actual serialized canonical v2 TaskReport
      */
-    default byte[] getTaskStatus(long executorHandle) {
-        return new byte[0];
-    }
+    byte[] getTaskStatus(long executorHandle);
 
     /**
      * Returns the executor's canonical v2 NativeTaskStats envelope.
@@ -153,11 +102,8 @@ public interface TaskExecutor {
      * all-zero success record when it is unavailable.</p>
      *
      * @param executorHandle handle returned by {@link #createTask}
-     * @return serialized canonical v2 NativeTaskStats, or an empty array when
-     *         the executor does not implement native telemetry
+     * @return the actual serialized canonical v2 NativeTaskStats
      */
-    default byte[] getTaskStats(long executorHandle) {
-        return new byte[0];
-    }
+    byte[] getTaskStats(long executorHandle);
 
 }

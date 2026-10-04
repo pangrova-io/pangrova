@@ -1,36 +1,146 @@
 diff --git a/velox/expression/SimpleFunctionRegistry.h b/velox/expression/SimpleFunctionRegistry.h
+index 77a3acb..08c31f1 100644
 --- a/velox/expression/SimpleFunctionRegistry.h
 +++ b/velox/expression/SimpleFunctionRegistry.h
-@@ -46,6 +46,10 @@ struct FunctionEntry {
-     return *metadata_;
-   }
- 
+@@ -19,0 +20 @@
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -48,0 +50,4 @@ struct FunctionEntry {
 +  std::shared_ptr<const Metadata> metadataSnapshot() const {
 +    return metadata_;
 +  }
 +
-   std::unique_ptr<Function> createFunction() const {
-     return factory_();
-   }
-@@ -118,6 +122,11 @@ class SimpleFunctionRegistry {
-   std::vector<std::pair<VectorFunctionMetadata, const FunctionSignature*>>
-   getFunctionSignaturesAndMetadata(const std::string& name) const;
- 
+@@ -60 +65 @@ using SignatureMap = std::unordered_map<
+-    std::vector<std::unique_ptr<const FunctionEntry>>>;
++    std::vector<std::shared_ptr<const FunctionEntry>>>;
+@@ -62,0 +68,3 @@ using FunctionMap = std::unordered_map<std::string, SignatureMap>;
++// The actual physical matcher used by both live and owned entry binding.
++bool simpleFunctionPhysicalTypeMatches(const TypePtr& type, const TypePtr& physicalType);
++
+@@ -108,3 +116 @@ class SimpleFunctionRegistry {
+-  void clearRegistry() {
+-    registeredFunctions_.withWLock([&](auto& map) { map.clear(); });
+-  }
++  void clearRegistry();
+@@ -120,0 +127,10 @@ class SimpleFunctionRegistry {
 +  /// Owns immutable metadata for each actual implementation beyond the lock.
 +  /// Does not expose factories or change runtime resolver selection.
 +  std::vector<std::shared_ptr<const Metadata>> getFunctionMetadataSnapshot(
 +      const std::string& name) const;
 +
-   class ResolvedSimpleFunction {
-    public:
-     ResolvedSimpleFunction(
++  /// Actual entries in original registry traversal order. Owns both metadata
++  /// and factories even after a future live registry overwrite or clear.
++  std::unordered_map<std::string,
++      std::vector<std::shared_ptr<const FunctionEntry>>> entriesSnapshot() const;
++
+@@ -124 +140 @@ class SimpleFunctionRegistry {
+-        const FunctionEntry& functionEntry,
++        std::shared_ptr<const FunctionEntry> functionEntry,
+@@ -126 +142 @@ class SimpleFunctionRegistry {
+-        : functionEntry_(functionEntry), type_(type) {}
++        : functionEntry_(std::move(functionEntry)), type_(type) {}
+@@ -129 +145 @@ class SimpleFunctionRegistry {
+-      return functionEntry_.createFunction();
++      return functionEntry_->createFunction();
+@@ -137 +153 @@ class SimpleFunctionRegistry {
+-      return functionEntry_.getMetadata().helpMessage(name);
++      return functionEntry_->getMetadata().helpMessage(name);
+@@ -141 +157 @@ class SimpleFunctionRegistry {
+-      return functionEntry_.getMetadata().toDebugString();
++      return functionEntry_->getMetadata().toDebugString();
+@@ -147,2 +163,2 @@ class SimpleFunctionRegistry {
+-          functionEntry_.getMetadata().isDeterministic(),
+-          functionEntry_.getMetadata().defaultNullBehavior(),
++          functionEntry_->getMetadata().isDeterministic(),
++          functionEntry_->getMetadata().defaultNullBehavior(),
+@@ -150 +166 @@ class SimpleFunctionRegistry {
+-          functionEntry_.getMetadata().owner()};
++          functionEntry_->getMetadata().owner()};
+@@ -154 +170 @@ class SimpleFunctionRegistry {
+-    const FunctionEntry& functionEntry_;
++    const std::shared_ptr<const FunctionEntry> functionEntry_;
 diff --git a/velox/expression/SimpleFunctionRegistry.cpp b/velox/expression/SimpleFunctionRegistry.cpp
+index 2fa36c3..650df10 100644
 --- a/velox/expression/SimpleFunctionRegistry.cpp
 +++ b/velox/expression/SimpleFunctionRegistry.cpp
-@@ -144,6 +144,22 @@ SimpleFunctionRegistry::getFunctionSignaturesAndMetadata(
-   return result;
- }
- 
+@@ -42,10 +42,22 @@ bool SimpleFunctionRegistry::registerFunctionInternal(
+-  return registeredFunctions_.withWLock([&](auto& map) {
+-    SignatureMap& signatureMap = map[sanitizedName];
+-    auto& functions = signatureMap[*metadata->signature()];
+-
+-    for (auto it = functions.begin(); it != functions.end(); ++it) {
+-      const auto& otherMetadata = (*it)->getMetadata();
+-
+-      if (metadata->physicalSignatureEquals(otherMetadata)) {
+-        if (!overwrite) {
+-          return false;
++  const auto incoming = std::make_shared<const FunctionEntry>(metadata, factory);
++  std::shared_ptr<const FunctionEntry> retired;
++  bool registered;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    registered = registeredFunctions_.withWLock([&](auto& map) {
++      SignatureMap& signatureMap = map[sanitizedName];
++      auto& functions = signatureMap[*metadata->signature()];
++
++      for (size_t ordinal = 0; ordinal < functions.size(); ++ordinal) {
++        const auto& otherMetadata = functions[ordinal]->getMetadata();
++
++        if (metadata->physicalSignatureEquals(otherMetadata)) {
++          if (!overwrite) {
++            return false;
++          }
++          // Reserve before replacing an existing factory. Allocation failure
++          // leaves its entry intact and incoming retains the new factory.
++          functions.reserve(functions.size() + 1);
++          retired = std::move(functions[ordinal]);
++          functions.erase(functions.begin() + ordinal);
++          break;
+@@ -53,3 +64,0 @@ bool SimpleFunctionRegistry::registerFunctionInternal(
+-        functions.erase(it);
+-        break;
+-      }
+@@ -57,7 +66,7 @@ bool SimpleFunctionRegistry::registerFunctionInternal(
+-      // Make sure default-null-behavior and deterministic properties are the
+-      // same for all implementations of a given logical signature.
+-      VELOX_USER_CHECK_EQ(
+-          metadata->defaultNullBehavior(), otherMetadata.defaultNullBehavior());
+-      VELOX_USER_CHECK_EQ(
+-          metadata->isDeterministic(), otherMetadata.isDeterministic());
+-    }
++        // All physical implementations of one logical signature share these
++        // actual metadata properties, just as the stock registrar requires.
++        VELOX_USER_CHECK_EQ(
++            metadata->defaultNullBehavior(), otherMetadata.defaultNullBehavior());
++        VELOX_USER_CHECK_EQ(
++            metadata->isDeterministic(), otherMetadata.isDeterministic());
++      }
+@@ -65,4 +74,5 @@ bool SimpleFunctionRegistry::registerFunctionInternal(
+-    functions.emplace_back(
+-        std::make_unique<const FunctionEntry>(metadata, factory));
+-    return true;
+-  });
++      functions.emplace_back(incoming);
++      return true;
++    });
++  }
++  return registered;
+@@ -73 +83,13 @@ void SimpleFunctionRegistry::removeFunction(const std::string& name) {
+-  registeredFunctions_.withWLock([&](auto& map) { map.erase(sanitizedName); });
++  FunctionMap::node_type retired;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    registeredFunctions_.withWLock([&](auto& map) { retired = map.extract(sanitizedName); });
++  }
++}
++
++void SimpleFunctionRegistry::clearRegistry() {
++  FunctionMap retired;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    registeredFunctions_.withWLock([&](auto& map) { retired.swap(map); });
++  }
+@@ -147 +169,15 @@ SimpleFunctionRegistry::getFunctionSignaturesAndMetadata(
+-namespace {
 +std::vector<std::shared_ptr<const Metadata>>
 +SimpleFunctionRegistry::getFunctionMetadataSnapshot(
 +    const std::string& name) const {
@@ -46,65 +156,83 @@ diff --git a/velox/expression/SimpleFunctionRegistry.cpp b/velox/expression/Simp
 +  });
 +  return result;
 +}
+@@ -150 +186 @@ namespace {
+-bool physicalTypeMatches(const TypePtr& type, const TypePtr& physicalType) {
++bool simpleFunctionPhysicalTypeMatches(const TypePtr& type, const TypePtr& physicalType) {
+@@ -164 +200 @@ bool physicalTypeMatches(const TypePtr& type, const TypePtr& physicalType) {
+-    if (!physicalTypeMatches(type->childAt(i), physicalType->childAt(i))) {
++    if (!simpleFunctionPhysicalTypeMatches(type->childAt(i), physicalType->childAt(i))) {
+@@ -172,2 +207,0 @@ bool physicalTypeMatches(const TypePtr& type, const TypePtr& physicalType) {
+-} // namespace
+-
+@@ -180 +214 @@ SimpleFunctionRegistry::resolveFunction(
+-  using Candidate = std::pair<const FunctionEntry*, TypePtr>;
++  using Candidate = std::pair<std::shared_ptr<const FunctionEntry>, TypePtr>;
+@@ -215 +249 @@ SimpleFunctionRegistry::resolveFunction(
+-              if (!physicalTypeMatches(argType, m.argPhysicalTypes()[i])) {
++              if (!simpleFunctionPhysicalTypeMatches(argType, m.argPhysicalTypes()[i])) {
+@@ -228 +262 @@ SimpleFunctionRegistry::resolveFunction(
+-            if (physicalTypeMatches(resultType, m.resultPhysicalType())) {
++            if (simpleFunctionPhysicalTypeMatches(resultType, m.resultPhysicalType())) {
+@@ -235 +269 @@ SimpleFunctionRegistry::resolveFunction(
+-                    std::make_pair(currentCandidate.get(), resultType));
++                    std::make_pair(currentCandidate, resultType));
+@@ -240 +274 @@ SimpleFunctionRegistry::resolveFunction(
+-                    std::make_pair(currentCandidate.get(), resultType));
++                    std::make_pair(currentCandidate, resultType));
+@@ -268 +302 @@ SimpleFunctionRegistry::resolveFunction(
+-            *(selectedCandidate->first), selectedCandidate->second))
++            selectedCandidate->first, selectedCandidate->second))
+@@ -271,0 +306,15 @@ SimpleFunctionRegistry::resolveFunction(
++std::unordered_map<std::string, std::vector<std::shared_ptr<const FunctionEntry>>>
++SimpleFunctionRegistry::entriesSnapshot() const {
++  return registeredFunctions_.withRLock([](const auto& map) {
++    std::unordered_map<std::string,
++        std::vector<std::shared_ptr<const FunctionEntry>>> result;
++    for (const auto& [name, signatures] : map) {
++      auto& entries = result[name];
++      for (const auto& [signature, implementations] : signatures) {
++        entries.insert(entries.end(), implementations.begin(), implementations.end());
++      }
++    }
++    return result;
++  });
++}
 +
- namespace {
- 
- // Same as Type::kindEquals, but matches UNKNOWN in 'physicalType' to any type.
 diff --git a/velox/vector/BaseVector.h b/velox/vector/BaseVector.h
+index 16fb99f..f8d7e96 100644
 --- a/velox/vector/BaseVector.h
 +++ b/velox/vector/BaseVector.h
-@@ -181,6 +181,9 @@ class BaseVector {
-     return pool_;
-   }
- 
+@@ -183,0 +184,3 @@ class BaseVector {
 +  /// Reports whether the creating pool is owned for this vector's lifetime.
 +  bool ownsMemoryPool() const;
 +
-   virtual bool isNullAt(vector_size_t idx) const {
-     VELOX_DCHECK_GE(idx, 0, "Index must not be negative");
-     VELOX_DCHECK_LT(idx, length_, "Index is too large");
-@@ -1023,6 +1026,10 @@ class BaseVector {
-     return nulls_ ? nulls_->capacity() : 0;
-   }
- 
+@@ -1025,0 +1029,4 @@ class BaseVector {
 +  // Vectors and independently sliced children can outlive their creating Task.
 +  // Declare the pool owner first so all vector buffers are destroyed before it.
 +  // Raw BufferPtr extraction is not a lifetime transfer API.
 +  std::shared_ptr<memory::MemoryPool> poolOwner_;
-   TypePtr type_;
-   const TypeKind typeKind_;
-   // Whether `type_` is a type that provides custom comparison operations.
 diff --git a/velox/vector/BaseVector.cpp b/velox/vector/BaseVector.cpp
+index 454e72b..26ca432 100644
 --- a/velox/vector/BaseVector.cpp
 +++ b/velox/vector/BaseVector.cpp
-@@ -152,6 +152,10 @@ std::vector<Variant> BaseVector::toVariants() const {
-   return result;
- }
- 
+@@ -154,0 +155,4 @@ std::vector<Variant> BaseVector::toVariants() const {
 +bool BaseVector::ownsMemoryPool() const {
 +  return pool_ == nullptr || poolOwner_.get() == pool_;
 +}
 +
- BaseVector::BaseVector(
-     velox::memory::MemoryPool* pool,
-     std::shared_ptr<const Type> type,
-@@ -162,7 +166,8 @@ BaseVector::BaseVector(
-     std::optional<vector_size_t> nullCount,
-     std::optional<ByteCount> representedByteCount,
-     std::optional<ByteCount> storageByteCount)
+@@ -165 +169,2 @@ BaseVector::BaseVector(
 -    : type_(std::move(type)),
 +    : poolOwner_(pool ? pool->shared_from_this() : nullptr),
 +      type_(std::move(type)),
-       typeKind_(type_ ? type_->kind() : TypeKind::INVALID),
-       typeUsesCustomComparison_(
-           type_ ? type_->providesCustomComparison() : false),
 diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
+index f980599..83cae6b 100644
 --- a/velox/vector/arrow/Bridge.cpp
 +++ b/velox/vector/arrow/Bridge.cpp
-@@ -42,7 +42,13 @@ void clearNullableFlag(int64_t& flags) {
- // carried by ArrowArray.private_data
- class VeloxToArrowBridgeHolder {
-  public:
+@@ -28,0 +29,2 @@
++#include <unordered_map>
++
+@@ -45 +47,7 @@ class VeloxToArrowBridgeHolder {
 -  VeloxToArrowBridgeHolder() = default;
 +  VeloxToArrowBridgeHolder(memory::MemoryPool* source, memory::MemoryPool* output)
 +      : sourcePool_(source ? source->shared_from_this() : nullptr),
@@ -113,13 +241,7 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  void holdVector(const VectorPtr& vector) {
 +    vectorOwner_ = vector;
 +  }
- 
-   // Call to this method may require a call to `getArrowBuffers()` in order to
-   // re-acquire the underlying buffer
-@@ -102,6 +108,14 @@ class VeloxToArrowBridgeHolder {
-   }
- 
-  private:
+@@ -104,0 +113,8 @@ class VeloxToArrowBridgeHolder {
 +  // Constant scalar exports may reference inline vector storage, not a buffer.
 +  VectorPtr vectorOwner_;
 +  // Export keeps buffers, not vectors. Pin both actual pools before the buffer
@@ -128,40 +250,247 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  std::shared_ptr<memory::MemoryPool> sourcePool_;
 +  std::shared_ptr<memory::MemoryPool> outputPool_;
 +
-   // Holds the count of total buffers
-   size_t numBuffers_ = kMaxBuffers;
- 
-@@ -1227,7 +1241,7 @@ void exportConstant(
- 
-   // Create the run ends child.
-   auto* runEnds = holder.allocateChild(0);
+@@ -365,0 +382,5 @@ struct Selection {
++    applyWithVisibility([&](vector_size_t row, bool) { f(row); });
++  }
++
++  template <typename F>
++  void applyWithVisibility(F&& f) const {
+@@ -367 +388 @@ struct Selection {
+-      for (auto [offset, size] : *ranges_) {
++      for (auto [offset, size, hidden] : *ranges_) {
+@@ -369 +390 @@ struct Selection {
+-          f(offset + i);
++          f(offset + i, hidden);
+@@ -374 +395 @@ struct Selection {
+-        f(i);
++        f(i, false);
+@@ -378,0 +400,21 @@ struct Selection {
++  bool masked() const {
++    return masked_;
++  }
++
++  Selection withParentNulls(const BaseVector& parent) const {
++    if (!parent.mayHaveNulls()) {
++      return *this;
++    }
++    bool hasNull = false;
++    apply([&](vector_size_t row) { hasNull |= parent.isNullAt(row); });
++    if (!hasNull) {
++      return *this;
++    }
++    Selection selected(total_);
++    selected.clearAll();
++    applyWithVisibility([&](vector_size_t row, bool hidden) {
++      selected.addRange(row, 1, hidden || parent.isNullAt(row));
++    });
++    return selected;
++  }
++
+@@ -384,2 +426,3 @@ struct Selection {
+-    for (auto [_, size] : *ranges_) {
+-      ans += size;
++    for (const auto& range : *ranges_) {
++      auto size = range.size;
++      ans = checkedPlus<vector_size_t>(ans, size);
+@@ -391 +434,2 @@ struct Selection {
+-    ranges_ = std::vector<std::pair<vector_size_t, vector_size_t>>();
++    ranges_ = std::vector<Range>();
++    masked_ = false;
+@@ -394 +438 @@ struct Selection {
+-  void addRange(vector_size_t offset, vector_size_t size) {
++  void addRange(vector_size_t offset, vector_size_t size, bool hidden = false) {
+@@ -396 +440,5 @@ struct Selection {
+-    ranges_->emplace_back(offset, size);
++    VELOX_CHECK_GE(offset, 0);
++    VELOX_CHECK_GE(size, 0);
++    VELOX_CHECK_LE(checkedPlus<vector_size_t>(offset, size), total_);
++    ranges_->push_back({offset, size, hidden});
++    masked_ |= hidden;
+@@ -400 +448,6 @@ struct Selection {
+-  std::optional<std::vector<std::pair<vector_size_t, vector_size_t>>> ranges_;
++  struct Range {
++    vector_size_t offset;
++    vector_size_t size;
++    bool hidden;
++  };
++  std::optional<std::vector<Range>> ranges_;
+@@ -401,0 +455 @@ struct Selection {
++  bool masked_{false};
+@@ -710 +764 @@ void exportValidityBitmap(
+-  if (!vec.nulls()) {
++  if (!vec.nulls() && !rows.masked()) {
+@@ -718 +772,7 @@ void exportValidityBitmap(
+-  if (rows.changed()) {
++  if (rows.masked()) {
++    nulls = AlignedBuffer::allocate<bool>(out.length, pool);
++    vector_size_t ordinal = 0;
++    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
++      bits::setBit(nulls->asMutable<uint64_t>(), ordinal++, !hidden && !vec.isNullAt(row));
++    });
++  } else if (rows.changed()) {
+@@ -992,0 +1053 @@ void exportRows(
++  const auto childRows = rows.withParentNulls(vec);
+@@ -997 +1058 @@ void exportRows(
+-          rows,
++          childRows,
+@@ -1012,0 +1074,11 @@ bool isCompact(const Vector& vec) {
++  if (vec.size() == 0) {
++    return true;
++  }
++  if (vec.offsetAt(0) != 0) {
++    return false;
++  }
++  for (vector_size_t i = 0; i < vec.size(); ++i) {
++    if (vec.isNullAt(i)) {
++      return false;
++    }
++  }
+@@ -1014 +1086 @@ bool isCompact(const Vector& vec) {
+-    if (vec.offsetAt(i - 1) + vec.sizeAt(i - 1) != vec.offsetAt(i)) {
++    if (checkedPlus<vector_size_t>(vec.offsetAt(i - 1), vec.sizeAt(i - 1)) != vec.offsetAt(i)) {
+@@ -1029,2 +1100,0 @@ void exportOffsets(
+-  VELOX_CHECK_GE(vec.size(), rows.count());
+-
+@@ -1035 +1105,4 @@ void exportOffsets(
+-  if (!rows.changed() && isCompact(vec)) {
++  const bool exactCoverage = !rows.changed() && isCompact(vec) &&
++      (vec.size() == 0 ? 0 : checkedPlus<vector_size_t>(
++          vec.offsetAt(vec.size() - 1), vec.sizeAt(vec.size() - 1))) == childRows.count();
++  if (exactCoverage) {
+@@ -1046 +1119 @@ void exportOffsets(
+-    rows.apply([&](vector_size_t i) {
++    rows.applyWithVisibility([&](vector_size_t i, bool hidden) {
+@@ -1048 +1121 @@ void exportOffsets(
+-      if (!vec.isNullAt(i)) {
++      if (!hidden && !vec.isNullAt(i)) {
+@@ -1050 +1123 @@ void exportOffsets(
+-        k += vec.sizeAt(i);
++        k = checkedPlus<vector_size_t>(k, vec.sizeAt(i));
+@@ -1094,0 +1168,3 @@ void exportMaps(
++  childRows.apply([&](vector_size_t row) {
++    VELOX_USER_CHECK(!vec.mapKeys()->isNullAt(row), "Visible MAP key contains NULL");
++  });
+@@ -1141,0 +1218,27 @@ void exportDictionary(
++  auto& values = *vec.valueVector()->loadedVector();
++  if (!values.isScalar()) {
++    auto indices = AlignedBuffer::allocate<vector_size_t>(out.length, pool);
++    auto rawIndices = indices->asMutable<vector_size_t>();
++    const auto inputIndices = vec.wrapInfo()->as<vector_size_t>();
++    Selection selectedValues(values.size());
++    selectedValues.clearAll();
++    vector_size_t ordinal = 0;
++    std::unordered_map<vector_size_t, vector_size_t> referenced;
++    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
++      if (hidden || vec.isNullAt(row)) {
++        rawIndices[ordinal++] = 0;
++      } else {
++        const auto index = inputIndices[row];
++        const auto [entry, inserted] = referenced.emplace(
++            index, static_cast<vector_size_t>(referenced.size()));
++        rawIndices[ordinal++] = entry->second;
++        if (inserted) {
++          selectedValues.addRange(index, 1);
++        }
++      }
++    });
++    holder.setBuffer(1, indices);
++    out.dictionary = holder.allocateDictionary();
++    exportToArrowImpl(values, selectedValues, options, *out.dictionary, pool);
++    return;
++  }
+@@ -1149 +1251,0 @@ void exportDictionary(
+-  auto& values = *vec.valueVector()->loadedVector();
+@@ -1181,0 +1284 @@ void exportConstantValue(
++    selection = Selection(valuesVector->size());
+@@ -1226 +1329,29 @@ void exportConstant(
+-  exportConstantValue(vec, options, *holder.allocateChild(1), pool);
++  const bool constantNull = vec.size() > 0 && vec.isNullAt(0);
++  const bool expandVisibility = !vec.isScalar() && (rows.masked() || constantNull);
++  std::vector<int32_t> visibleRunEnds;
++  if (expandVisibility) {
++    auto values = vec.valueVector();
++    vector_size_t index = 0;
++    if (constantNull) {
++      values = BaseVector::create(vec.type(), 1, pool);
++      values->setNull(0, true);
++    } else {
++      index = vec.as<ConstantVector<ComplexType>>()->index();
++    }
++    Selection selectedValues(values->size());
++    selectedValues.clearAll();
++    std::optional<bool> previous;
++    vector_size_t ordinal = 0;
++    rows.applyWithVisibility([&](vector_size_t, bool hidden) {
++      const bool invisible = hidden || constantNull;
++      if (!previous || *previous != invisible) {
++        selectedValues.addRange(index, 1, invisible);
++        visibleRunEnds.push_back(0);
++        previous = invisible;
++      }
++      visibleRunEnds.back() = ++ordinal;
++    });
++    exportToArrowImpl(*values, selectedValues, options, *holder.allocateChild(1), pool);
++  } else {
++    exportConstantValue(vec, options, *holder.allocateChild(1), pool);
++  }
+@@ -1230 +1361 @@ void exportConstant(
 -  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>();
 +  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
- 
-   runEnds->buffers = runEndsHolder->getArrowBuffers();
-   runEnds->length = 1;
-@@ -1253,7 +1267,7 @@ void exportToArrowImpl(
-     const ArrowOptions& options,
-     ArrowArray& out,
-     memory::MemoryPool* pool) {
+@@ -1233 +1364 @@ void exportConstant(
+-  runEnds->length = 1;
++  runEnds->length = expandVisibility ? visibleRunEnds.size() : 1;
+@@ -1242,2 +1373,8 @@ void exportConstant(
+-  auto runsBuffer = AlignedBuffer::allocate<int32_t>(1, pool);
+-  runsBuffer->asMutable<int32_t>()[0] = vec.size();
++  auto runsBuffer = AlignedBuffer::allocate<int32_t>(runEnds->length, pool);
++  if (expandVisibility) {
++    for (size_t run = 0; run < visibleRunEnds.size(); ++run) {
++      runsBuffer->asMutable<int32_t>()[run] = visibleRunEnds[run];
++    }
++  } else {
++    runsBuffer->asMutable<int32_t>()[0] = rows.count();
++  }
+@@ -1256 +1393,24 @@ void exportToArrowImpl(
 -  auto holder = std::make_unique<VeloxToArrowBridgeHolder>();
++  const bool dictionary = vec.encoding() == VectorEncoding::Simple::DICTIONARY;
++  const bool constant = vec.encoding() == VectorEncoding::Simple::CONSTANT;
++  if (!vec.isScalar() && ((dictionary && options.flattenDictionary) ||
++                         (constant && options.flattenConstant))) {
++    auto values = vec.valueVector();
++    const bool missingValues = !values || values->size() == 0;
++    if (missingValues) {
++      values = BaseVector::create(vec.type(), 1, pool);
++      values->setNull(0, true);
++    }
++    Selection selectedValues(values->size());
++    selectedValues.clearAll();
++    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
++      const bool invisible = hidden || vec.isNullAt(row);
++      VELOX_CHECK(invisible || !missingValues, "A visible complex value has no backing payload");
++      const auto index = invisible ? 0 : dictionary
++          ? vec.wrapInfo()->as<vector_size_t>()[row]
++          : vec.as<ConstantVector<ComplexType>>()->index();
++      selectedValues.addRange(index, 1, invisible);
++    });
++    exportToArrowImpl(*values->loadedVector(), selectedValues, options, out, pool);
++    return;
++  }
 +  auto holder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
-   out.buffers = holder->getArrowBuffers();
-   out.length = rows.count();
-   out.offset = 0;
-@@ -1482,6 +1496,8 @@ void exportToArrow(
-     const ArrowOptions& options) {
-   exportToArrowImpl(
-       *vector, Selection(vector->size()), options, arrowArray, pool);
+@@ -1484,0 +1645,2 @@ void exportToArrow(
 +  static_cast<VeloxToArrowBridgeHolder*>(arrowArray.private_data)
 +      ->holdVector(vector);
- }
- 
- void exportToArrow(
-@@ -2383,27 +2399,30 @@ VectorPtr importFromArrowImpl(
-   // release callbacks when use count reaches zero. These ArrowSchema object and
-   // ArrowArray object will be co-owned by both the BufferVieweReleaser of the
-   // nulls buffer and values buffer.
+@@ -1490,0 +1653,9 @@ void exportToArrow(
++  const bool dictionary = vec->encoding() == VectorEncoding::Simple::DICTIONARY;
++  const bool constant = vec->encoding() == VectorEncoding::Simple::CONSTANT;
++  if (!vec->isScalar() && ((dictionary && options.flattenDictionary) ||
++                           (constant && options.flattenConstant))) {
++    const auto& values = vec->valueVector();
++    VELOX_CHECK_NOT_NULL(values, "A complex encoded schema requires its backing vector");
++    exportToArrow(BaseVector::loadedVectorShared(values), arrowSchema, options);
++    return;
++  }
+@@ -2386,18 +2557,21 @@ VectorPtr importFromArrowImpl(
 -  std::shared_ptr<ArrowSchema> schemaReleaser(
 -      new ArrowSchema(arrowSchema), [](ArrowSchema* toDelete) {
 -        if (toDelete != nullptr) {
@@ -201,21 +530,1768 @@ diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
 +  arrowArray.release = nullptr;
 +  std::shared_ptr<ArrowSchema> schemaReleaser(owner, &owner->schema);
 +  std::shared_ptr<ArrowArray> arrayReleaser(owner, &owner->array);
-   VectorPtr imported = importFromArrowImpl(
+@@ -2405,2 +2579,2 @@ VectorPtr importFromArrowImpl(
 -      arrowSchema,
 -      arrowArray,
 +      owner->schema,
 +      owner->array,
-       pool,
-       /*isViewer=*/false,
-       [&schemaReleaser, &arrayReleaser](const void* buffer, size_t length) {
-@@ -2411,9 +2430,6 @@ VectorPtr importFromArrowImpl(
-             buffer, length, schemaReleaser, arrayReleaser);
-       });
- 
+@@ -2414,3 +2587,0 @@ VectorPtr importFromArrowImpl(
 -  arrowSchema.release = nullptr;
 -  arrowArray.release = nullptr;
 -
-   return imported;
- }
- 
+diff --git a/velox/exec/RowContainer.cpp b/velox/exec/RowContainer.cpp
+index 5a3e8e2..ae843dc 100644
+--- a/velox/exec/RowContainer.cpp
++++ b/velox/exec/RowContainer.cpp
+@@ -102 +102,3 @@ void Accumulator::destroy(folly::Range<char**> groups) {
+-  destroyFunction_(groups);
++  if (destroyFunction_) {
++    destroyFunction_(groups);
++  }
+diff --git a/velox/core/PlanNode.h b/velox/core/PlanNode.h
+index 4a1ba15..2585c36 100644
+--- a/velox/core/PlanNode.h
++++ b/velox/core/PlanNode.h
+@@ -3858 +3858,2 @@ class NestedLoopJoinNode : public PlanNode {
+-      RowTypePtr outputType);
++      RowTypePtr outputType,
++      bool nullAwareMarker = false);
+@@ -3872,0 +3874 @@ class NestedLoopJoinNode : public PlanNode {
++      nullAwareMarker_ = other.nullAwareMarker();
+@@ -3889,0 +3892,5 @@ class NestedLoopJoinNode : public PlanNode {
++    Builder& nullAwareMarker(bool enabled) {
++      nullAwareMarker_ = enabled;
++      return *this;
++    }
++
+@@ -3925 +3932,2 @@ class NestedLoopJoinNode : public PlanNode {
+-          outputType_.value());
++          outputType_.value(),
++          nullAwareMarker_);
+@@ -3930,0 +3939 @@ class NestedLoopJoinNode : public PlanNode {
++    bool nullAwareMarker_ = false;
+@@ -3959,0 +3969,5 @@ class NestedLoopJoinNode : public PlanNode {
++  // MARK reduces TRUE > UNKNOWN > FALSE; ordinary SEMI/ANTI remains two-valued.
++  bool nullAwareMarker() const {
++    return nullAwareMarker_;
++  }
++
+@@ -3973,0 +3988 @@ class NestedLoopJoinNode : public PlanNode {
++  const bool nullAwareMarker_;
+diff --git a/velox/core/PlanNode.cpp b/velox/core/PlanNode.cpp
+index ac39919..be770ab 100644
+--- a/velox/core/PlanNode.cpp
++++ b/velox/core/PlanNode.cpp
+@@ -2007 +2007,2 @@ NestedLoopJoinNode::NestedLoopJoinNode(
+-    RowTypePtr outputType)
++    RowTypePtr outputType,
++    bool nullAwareMarker)
+@@ -2009,0 +2011 @@ NestedLoopJoinNode::NestedLoopJoinNode(
++      nullAwareMarker_(nullAwareMarker),
+@@ -2017,0 +2020,4 @@ NestedLoopJoinNode::NestedLoopJoinNode(
++  VELOX_USER_CHECK(
++      !nullAwareMarker_ || isLeftSemiProjectJoin(joinType_),
++      "Null-aware marker requires a left semi project join");
++
+@@ -2075,0 +2082 @@ folly::dynamic NestedLoopJoinNode::serialize() const {
++  obj["nullAwareMarker"] = nullAwareMarker_;
+@@ -2109 +2116,2 @@ PlanNodePtr NestedLoopJoinNode::create(
+-      outputType);
++      outputType,
++      obj["nullAwareMarker"].asBool());
+diff --git a/velox/exec/NestedLoopJoinProbe.h b/velox/exec/NestedLoopJoinProbe.h
+index cbec6cc..6821971 100644
+--- a/velox/exec/NestedLoopJoinProbe.h
++++ b/velox/exec/NestedLoopJoinProbe.h
+@@ -287,0 +288 @@ class NestedLoopJoinProbe : public Operator {
++  const bool nullAwareMarker_;
+@@ -340,0 +342,2 @@ class NestedLoopJoinProbe : public Operator {
++  // Persists across build vectors; cleared only when advancing the probe row.
++  bool probeRowHasUnknown_{false};
+diff --git a/velox/exec/NestedLoopJoinProbe.cpp b/velox/exec/NestedLoopJoinProbe.cpp
+index 868e808..de710ca 100644
+--- a/velox/exec/NestedLoopJoinProbe.cpp
++++ b/velox/exec/NestedLoopJoinProbe.cpp
+@@ -61,0 +62 @@ NestedLoopJoinProbe::NestedLoopJoinProbe(
++      nullAwareMarker_(joinNode->nullAwareMarker()),
+@@ -314,0 +316 @@ bool NestedLoopJoinProbe::advanceProbe() {
++    probeRowHasUnknown_ = false;
+@@ -385,0 +388,3 @@ bool NestedLoopJoinProbe::addToOutput() {
++        if (nullAwareMarker_ && decodedFilterResult_.isNullAt(i)) {
++          probeRowHasUnknown_ = true;
++        }
+@@ -667,3 +672,5 @@ void NestedLoopJoinProbe::addProbeMismatchRow() {
+-    output_->childAt(outputType_->size() - 1)
+-        ->asFlatVector<bool>()
+-        ->set(numOutputRows_, false);
++    auto* marker = output_->childAt(outputType_->size() - 1)->asFlatVector<bool>();
++    marker->set(numOutputRows_, false);
++    if (nullAwareMarker_ && probeRowHasUnknown_) {
++      marker->setNull(numOutputRows_, true);
++    }
+diff --git a/velox/exec/PartitionedOutput.cpp b/velox/exec/PartitionedOutput.cpp
+index ba4e23d..2b6b2f2 100644
+--- a/velox/exec/PartitionedOutput.cpp
++++ b/velox/exec/PartitionedOutput.cpp
+@@ -89 +88,0 @@ BlockingReason Destination::advance(
+-    VELOX_CHECK_EQ(serde_->kind(), "Presto");
+@@ -235,0 +235,2 @@ PartitionedOutput::PartitionedOutput(
++          ctx->queryConfig(),
++          planNode->id(),
+@@ -331 +331,0 @@ void PartitionedOutput::estimateRowSizes() {
+-    VELOX_CHECK_EQ(serde_->kind(), "Presto");
+diff --git a/velox/vector/VectorStream.h b/velox/vector/VectorStream.h
+index 7da701b..f6bca6e 100644
+--- a/velox/vector/VectorStream.h
++++ b/velox/vector/VectorStream.h
+@@ -212,0 +213 @@ class VectorSerde {
++    kArrowBatch,
+@@ -359,0 +361,12 @@ class VectorSerde {
++/// Immutable query-owned option bindings for actual serialization operators.
++/// Implementations must be thread-safe and return independent options on every
++/// invocation. Missing or incompatible node bindings must throw.
++class VectorSerdeOptionsFactory {
++ public:
++  virtual ~VectorSerdeOptionsFactory() = default;
++
++  virtual std::unique_ptr<VectorSerde::Options> create(
++      const std::string& kind,
++      const std::string& planNodeId) const = 0;
++};
++
+diff --git a/velox/vector/VectorStream.cpp b/velox/vector/VectorStream.cpp
+index b257436..9674307 100644
+--- a/velox/vector/VectorStream.cpp
++++ b/velox/vector/VectorStream.cpp
+@@ -104,0 +105,2 @@ std::string VectorSerde::kindName(Kind kind) {
++    case Kind::kArrowBatch:
++      return "ArrowBatch";
+@@ -114 +116,2 @@ VectorSerde::Kind VectorSerde::kindByName(const std::string& kindName) {
+-      {"UnsafeRow", Kind::kUnsafeRow}};
++      {"UnsafeRow", Kind::kUnsafeRow},
++      {"ArrowBatch", Kind::kArrowBatch}};
+diff --git a/velox/expression/SpecialFormRegistry.h b/velox/expression/SpecialFormRegistry.h
+index 167d379..3032d17 100644
+--- a/velox/expression/SpecialFormRegistry.h
++++ b/velox/expression/SpecialFormRegistry.h
+@@ -19,0 +20 @@
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -23 +24 @@ using RegistryType =
+-    std::unordered_map<std::string, std::unique_ptr<FunctionCallToSpecialForm>>;
++    std::unordered_map<std::string, std::shared_ptr<FunctionCallToSpecialForm>>;
+@@ -45,0 +47,2 @@ class SpecialFormRegistry {
++  RegistryType entriesSnapshot() const;
++
+diff --git a/velox/expression/SpecialFormRegistry.cpp b/velox/expression/SpecialFormRegistry.cpp
+index dbfeb4b..7e7e535 100644
+--- a/velox/expression/SpecialFormRegistry.cpp
++++ b/velox/expression/SpecialFormRegistry.cpp
+@@ -17,0 +18 @@
++#include <utility>
+@@ -33,3 +34,13 @@ void SpecialFormRegistry::registerFunctionCallToSpecialForm(
+-  registry_.withWLock([&](auto& map) {
+-    map[sanitizedName] = std::move(functionCallToSpecialForm);
+-  });
++  std::shared_ptr<FunctionCallToSpecialForm> incoming(std::move(functionCallToSpecialForm));
++  std::shared_ptr<FunctionCallToSpecialForm> retired;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    registry_.withWLock([&](auto& map) {
++      const auto found = map.find(sanitizedName);
++      if (found == map.end()) {
++        map.emplace(sanitizedName, incoming);
++      } else {
++        retired = std::exchange(found->second, incoming);
++      }
++    });
++  }
+@@ -39 +50,5 @@ void SpecialFormRegistry::unregisterAllFunctionCallToSpecialForm() {
+-  registry_.withWLock([&](auto& map) { map.clear(); });
++  RegistryType retired;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    registry_.withWLock([&](auto& map) { retired.swap(map); });
++  }
+@@ -65,0 +81,4 @@ std::vector<std::string> SpecialFormRegistry::getSpecialFormNames() const {
++RegistryType SpecialFormRegistry::entriesSnapshot() const {
++  return registry_.withRLock([](const auto& map) { return map; });
++}
++
+diff --git a/velox/expression/VectorFunction.cpp b/velox/expression/VectorFunction.cpp
+index 08cf3c5..d6abd93 100644
+--- a/velox/expression/VectorFunction.cpp
++++ b/velox/expression/VectorFunction.cpp
+@@ -16,0 +17,2 @@
++#include "velox/expression/FunctionRegistryMutation.h"
++#include "velox/expression/FunctionRegistrySnapshot.h"
+@@ -29,7 +31,4 @@ std::optional<TResult> applyToVectorFunctionEntry(
+-  return vectorFunctionFactories().withRLock(
+-      [&](auto& functions) -> std::optional<TResult> {
+-        auto it = functions.find(sanitizedName);
+-        if (it == functions.end()) {
+-          return std::nullopt;
+-        }
+-        return applyFunc(sanitizedName, it->second);
++  auto owned = vectorFunctionFactories().withRLock(
++      [&](const auto& functions) -> std::optional<VectorFunctionEntry> {
++        const auto it = functions.find(sanitizedName);
++        return it == functions.end() ? std::nullopt : std::make_optional(it->second);
+@@ -36,0 +36,6 @@ std::optional<TResult> applyToVectorFunctionEntry(
++  // Function factories may invoke user initialization. Never retain the map
++  // read lock across that invocation, including for ordinary stock callers.
++  if (!owned) {
++    return std::nullopt;
++  }
++  return applyFunc(sanitizedName, *owned);
+@@ -193,0 +199,3 @@ getVectorFunctionWithMetadata(
++  if (const auto& registry = config.functionRegistrySnapshot()) {
++    return registry->vectorFunction(name, inputTypes, constantInputs, config);
++  }
+@@ -224 +232,2 @@ bool registerStatefulVectorFunction(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -226,6 +235,19 @@ bool registerStatefulVectorFunction(
+-
+-  if (overwrite) {
+-    vectorFunctionFactories().withWLock([&](auto& functionMap) {
+-      // Insert/overwrite.
+-      functionMap[sanitizedName] = {
+-          std::move(signatures), std::move(factory), std::move(metadata)};
++  VectorFunctionEntry incoming{
++      std::move(signatures), std::move(factory), std::move(metadata),
++      std::move(registrationOwner)};
++  std::optional<VectorFunctionEntry> retired;
++  bool registered = false;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    vectorFunctionFactories().withWLock([&](auto& map) {
++      const auto found = map.find(sanitizedName);
++      if (found == map.end()) {
++        // Copy the outer owner: allocation failure must not destroy the last
++        // user factory reference while either registry lock is held.
++        map.emplace(sanitizedName, incoming);
++        registered = true;
++      } else if (overwrite) {
++        retired.emplace(std::move(found->second));
++        found->second = std::move(incoming);
++        registered = true;
++      }
+@@ -233 +254,0 @@ bool registerStatefulVectorFunction(
+-    return true;
+@@ -235,7 +256,2 @@ bool registerStatefulVectorFunction(
+-
+-  return vectorFunctionFactories().withWLock([&](auto& functionMap) {
+-    auto [iterator, inserted] = functionMap.insert(
+-        {sanitizedName,
+-         {std::move(signatures), std::move(factory), std::move(metadata)}});
+-    return inserted;
+-  });
++  // Retired and rejected factories are released after mutation and map locks.
++  return registered;
+diff --git a/velox/core/QueryConfig.h b/velox/core/QueryConfig.h
+index 772015d..272fde3 100644
+--- a/velox/core/QueryConfig.h
++++ b/velox/core/QueryConfig.h
+@@ -21,0 +22,8 @@
++namespace facebook::velox {
++class VectorSerdeOptionsFactory;
++}
++
++namespace facebook::velox::exec {
++class FunctionRegistrySnapshot;
++}
++
+@@ -77 +85,28 @@ class QueryConfig {
+-  explicit QueryConfig(std::unordered_map<std::string, std::string> values);
++  explicit QueryConfig(
++      std::unordered_map<std::string, std::string> values,
++      std::shared_ptr<const exec::FunctionRegistrySnapshot> registry = nullptr,
++      std::shared_ptr<const VectorSerdeOptionsFactory> serdeOptionsFactory = nullptr);
++
++  const std::shared_ptr<const exec::FunctionRegistrySnapshot>&
++  functionRegistrySnapshot() const {
++    VELOX_USER_CHECK(
++        !get<bool>("require_function_registry_snapshot", false) || functionRegistry_,
++        "A required owned function registry snapshot was not supplied");
++    return functionRegistry_;
++  }
++
++  const std::shared_ptr<const VectorSerdeOptionsFactory>&
++  vectorSerdeOptionsFactory() const {
++    VELOX_USER_CHECK(
++        !requireVectorSerdeOptionsFactory() || serdeOptionsFactory_,
++        "A required query-owned vector serde options factory was not supplied");
++    return serdeOptionsFactory_;
++  }
++
++  VELOX_QUERY_CONFIG(
++      kRequireVectorSerdeOptionsFactory,
++      requireVectorSerdeOptionsFactory,
++      "require_vector_serde_options_factory",
++      bool,
++      false,
++      "Require query-owned options for each serialization operator.")
+@@ -85 +120,3 @@ class QueryConfig {
+-      std::shared_ptr<const config::IConfig> config);
++      std::shared_ptr<const config::IConfig> config,
++      std::shared_ptr<const exec::FunctionRegistrySnapshot> registry = nullptr,
++      std::shared_ptr<const VectorSerdeOptionsFactory> serdeOptionsFactory = nullptr);
+@@ -1574,0 +1612,2 @@ class QueryConfig {
++  std::shared_ptr<const exec::FunctionRegistrySnapshot> functionRegistry_;
++  std::shared_ptr<const VectorSerdeOptionsFactory> serdeOptionsFactory_;
+diff --git a/velox/core/QueryConfig.cpp b/velox/core/QueryConfig.cpp
+index 4a31862..ff1f8c7 100644
+--- a/velox/core/QueryConfig.cpp
++++ b/velox/core/QueryConfig.cpp
+@@ -51,0 +52 @@ const std::vector<config::ConfigProperty>& QueryConfig::registeredProperties() {
++    VELOX_REGISTER_QUERY_CONFIG(kRequireVectorSerdeOptionsFactory);
+@@ -279 +280,4 @@ const std::vector<config::ConfigProperty>& QueryConfig::registeredProperties() {
+-QueryConfig::QueryConfig(std::unordered_map<std::string, std::string> values)
++QueryConfig::QueryConfig(
++    std::unordered_map<std::string, std::string> values,
++    std::shared_ptr<const exec::FunctionRegistrySnapshot> registry,
++    std::shared_ptr<const VectorSerdeOptionsFactory> serdeOptionsFactory)
+@@ -282 +286,3 @@ QueryConfig::QueryConfig(std::unordered_map<std::string, std::string> values)
+-          std::make_shared<config::ConfigBase>(std::move(values))} {}
++          std::make_shared<config::ConfigBase>(std::move(values)),
++          std::move(registry),
++          std::move(serdeOptionsFactory)} {}
+@@ -286,2 +292,6 @@ QueryConfig::QueryConfig(
+-    std::shared_ptr<const config::IConfig> config)
+-    : config_{std::move(config)} {
++    std::shared_ptr<const config::IConfig> config,
++    std::shared_ptr<const exec::FunctionRegistrySnapshot> registry,
++    std::shared_ptr<const VectorSerdeOptionsFactory> serdeOptionsFactory)
++    : config_{std::move(config)},
++      functionRegistry_{std::move(registry)},
++      serdeOptionsFactory_{std::move(serdeOptionsFactory)} {
+diff --git a/velox/expression/ExprCompiler.cpp b/velox/expression/ExprCompiler.cpp
+index 9a8e96f..17b58ae 100644
+--- a/velox/expression/ExprCompiler.cpp
++++ b/velox/expression/ExprCompiler.cpp
+@@ -17,0 +18 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
+@@ -192,0 +194,4 @@ ExprPtr getSpecialForm(
++  if (const auto& registry = config.functionRegistrySnapshot()) {
++    return registry->constructSpecial(
++        name, type, std::move(compiledChildren), trackCpuUsage, config);
++  }
+@@ -287,0 +293,4 @@ ExprPtr compileCall(
++  if (const auto& registry = ctx.queryCtx->queryConfig().functionRegistrySnapshot()) {
++    return registry->compileCall(call->name(), resultType, std::move(inputs),
++        trackCpuUsage, ctx.queryCtx->queryConfig(), ctx.pool);
++  }
+diff --git a/velox/expression/FunctionCallToSpecialForm.cpp b/velox/expression/FunctionCallToSpecialForm.cpp
+index c23fbd8..da125d2 100644
+--- a/velox/expression/FunctionCallToSpecialForm.cpp
++++ b/velox/expression/FunctionCallToSpecialForm.cpp
+@@ -19,0 +20,4 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
++#include "ExecutionSelection.h"
++
++#include <stdexcept>
+@@ -22,0 +27,28 @@ namespace facebook::velox::exec {
++namespace {
++struct NativeSpecialTypes {
++  std::string_view kind(const TypePtr& type) const {
++    VELOX_CHECK_NOT_NULL(type);
++    return type->kindName();
++  }
++  bool equal(const TypePtr& left, const TypePtr& right) const {
++    VELOX_CHECK_NOT_NULL(left);
++    VELOX_CHECK_NOT_NULL(right);
++    return *left == *right;
++  }
++  TypePtr booleanType() const { return BOOLEAN(); }
++  TypePtr row(const std::vector<TypePtr>& children) const {
++    return ROW(std::vector<std::string>(children.size(), ""), children);
++  }
++};
++} // namespace
++
++TypePtr FunctionCallToSpecialForm::resolveDeclaredType(
++    const std::vector<TypePtr>& arguments, const TypePtr& declaredTarget) const {
++  try {
++    return pangrova::contract::generated::evaluateSpecialType(
++        typeProgram(), arguments, declaredTarget, NativeSpecialTypes{});
++  } catch (const std::invalid_argument& error) {
++    VELOX_USER_FAIL("{}", error.what());
++  }
++}
++
+@@ -51,0 +84,4 @@ ExprPtr constructSpecialForm(
++  if (const auto& registry = config.functionRegistrySnapshot()) {
++    return registry->constructSpecial(
++        functionName, type, std::move(compiledChildren), trackCpuUsage, config);
++  }
+diff --git a/velox/exec/Aggregate.cpp b/velox/exec/Aggregate.cpp
+index c48cfe4..ab59a62 100644
+--- a/velox/exec/Aggregate.cpp
++++ b/velox/exec/Aggregate.cpp
+@@ -17,0 +18,2 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -19,0 +22 @@
++#include <optional>
+@@ -66 +69,2 @@ AggregateRegistrationResult registerAggregateFunction(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -69,2 +73,4 @@ AggregateRegistrationResult registerAggregateFunction(
+-
+-  if (overwrite) {
++  AggregateFunctionEntry incoming{signatures, factory, metadata, registrationOwner};
++  std::optional<AggregateFunctionEntry> retired;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
+@@ -72,2 +78,9 @@ AggregateRegistrationResult registerAggregateFunction(
+-      aggregationFunctionMap[sanitizedName] = {
+-          signatures, std::move(factory), metadata};
++      const auto found = aggregationFunctionMap.find(sanitizedName);
++      if (found == aggregationFunctionMap.end()) {
++        aggregationFunctionMap.emplace(sanitizedName, incoming);
++        registered.mainFunction = true;
++      } else if (overwrite) {
++        retired.emplace(std::move(found->second));
++        found->second = std::move(incoming);
++        registered.mainFunction = true;
++      }
+@@ -75,9 +87,0 @@ AggregateRegistrationResult registerAggregateFunction(
+-    registered.mainFunction = true;
+-  } else {
+-    auto inserted =
+-        aggregateFunctions().withWLock([&](auto& aggregationFunctionMap) {
+-          auto [_, inserted_2] = aggregationFunctionMap.insert(
+-              {sanitizedName, {signatures, factory, metadata}});
+-          return inserted_2;
+-        });
+-    registered.mainFunction = inserted;
+@@ -89 +93 @@ AggregateRegistrationResult registerAggregateFunction(
+-    registerAggregateWindowFunction(sanitizedName);
++    registerAggregateWindowFunction(sanitizedName, registrationOwner);
+@@ -99 +103 @@ AggregateRegistrationResult registerAggregateFunction(
+-            name, signatures, companionMetadata, overwrite);
++            name, signatures, companionMetadata, overwrite, registrationOwner);
+@@ -102 +106 @@ AggregateRegistrationResult registerAggregateFunction(
+-            name, signatures, companionMetadata, overwrite);
++            name, signatures, companionMetadata, overwrite, registrationOwner);
+@@ -105 +109 @@ AggregateRegistrationResult registerAggregateFunction(
+-            name, signatures, overwrite);
++            name, signatures, overwrite, registrationOwner);
+@@ -108 +112 @@ AggregateRegistrationResult registerAggregateFunction(
+-            name, signatures, companionMetadata, overwrite);
++            name, signatures, companionMetadata, overwrite, registrationOwner);
+@@ -297,0 +302,6 @@ std::unique_ptr<Aggregate> Aggregate::create(
++  if (const auto& registry = config.functionRegistrySnapshot()) {
++    const auto entry = registry->aggregate(name);
++    VELOX_USER_CHECK_NOT_NULL(entry,
++        "Aggregate not present in owned registry snapshot: {}", name);
++    return entry->factory(step, argTypes, resultType, config);
++  }
+diff --git a/velox/exec/WindowFunction.cpp b/velox/exec/WindowFunction.cpp
+index 3c2d31c..a6e9569 100644
+--- a/velox/exec/WindowFunction.cpp
++++ b/velox/exec/WindowFunction.cpp
+@@ -17,0 +18,2 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -45 +47,2 @@ bool registerWindowFunction(
+-    WindowFunctionFactory factory) {
++    WindowFunctionFactory factory,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -47,2 +50,15 @@ bool registerWindowFunction(
+-  windowFunctions()[sanitizedName] = {
+-      std::move(signatures), std::move(factory), std::move(metadata)};
++  WindowFunctionEntry incoming{
++      std::move(signatures), std::move(factory), std::move(metadata),
++      std::move(registrationOwner)};
++  std::optional<WindowFunctionEntry> retired;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    auto& functions = windowFunctions();
++    const auto found = functions.find(sanitizedName);
++    if (found == functions.end()) {
++      functions.emplace(sanitizedName, incoming);
++    } else {
++      retired.emplace(std::move(found->second));
++      found->second = std::move(incoming);
++    }
++  }
+@@ -51,0 +68,11 @@ bool registerWindowFunction(
++WindowFunction::Metadata getWindowFunctionMetadata(
++    const std::string& name, const core::QueryConfig& config) {
++  if (const auto& registry = config.functionRegistrySnapshot()) {
++    const auto entry = registry->window(name);
++    VELOX_USER_CHECK_NOT_NULL(entry,
++        "Window not present in owned registry snapshot: {}", name);
++    return entry->metadata;
++  }
++  return getWindowFunctionMetadata(name);
++}
++
+@@ -124,2 +151,11 @@ std::unique_ptr<WindowFunction> WindowFunction::create(
+-  // Lookup the function in the new registry first.
+-  if (auto func = getWindowFunctionEntry(name)) {
++  const auto owner = config.functionRegistrySnapshot();
++  auto ownedEntry = owner ? owner->window(name) : nullptr;
++  std::optional<const WindowFunctionEntry*> entry;
++  if (owner) {
++    VELOX_USER_CHECK_NOT_NULL(ownedEntry,
++        "Window not present in owned registry snapshot: {}", name);
++    entry = ownedEntry.get();
++  } else {
++    entry = getWindowFunctionEntry(name);
++  }
++  if (auto func = entry) {
+diff --git a/velox/exec/WindowFunction.h b/velox/exec/WindowFunction.h
+index 7f997df..c4c1ee2 100644
+--- a/velox/exec/WindowFunction.h
++++ b/velox/exec/WindowFunction.h
+@@ -16,0 +17 @@
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -175 +176,2 @@ bool registerWindowFunction(
+-    WindowFunctionFactory factory);
++    WindowFunctionFactory factory,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+@@ -202,0 +205 @@ struct WindowFunctionEntry {
++  std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr;
+@@ -206,0 +210,2 @@ WindowFunction::Metadata getWindowFunctionMetadata(const std::string& name);
++WindowFunction::Metadata getWindowFunctionMetadata(
++    const std::string& name, const core::QueryConfig& config);
+diff --git a/velox/exec/Window.cpp b/velox/exec/Window.cpp
+index f910752..04b2d3c 100644
+--- a/velox/exec/Window.cpp
++++ b/velox/exec/Window.cpp
+@@ -245 +245,2 @@ bool Window::supportRowsStreaming() {
+-        exec::getWindowFunctionMetadata(functionName);
++        exec::getWindowFunctionMetadata(
++            functionName, operatorCtx_->driverCtx()->queryConfig());
+diff --git a/velox/expression/CMakeLists.txt b/velox/expression/CMakeLists.txt
+index 5983d14..4c8e176 100644
+--- a/velox/expression/CMakeLists.txt
++++ b/velox/expression/CMakeLists.txt
+@@ -55,0 +56,2 @@ velox_add_library(
++  FunctionRegistrySnapshot.cpp
++  FunctionRegistryIdentity.cpp
+@@ -105,0 +108,3 @@ velox_add_library(
++  FunctionRegistryMutation.h
++  FunctionRegistrySnapshot.h
++  FunctionRegistryIdentity.h
+@@ -138,0 +144,47 @@ endif()
++
++# Pangrova's selection is generated from the same generic declaration as Java.
++# The pinned patch cannot silently compile a second handwritten selector.
++set(PANGROVA_FUNCTION_SELECTION_TOOLS "" CACHE PATH "Canonical contract generator directory")
++set(PANGROVA_FUNCTION_SELECTION_DECLARATION "" CACHE FILEPATH "Canonical execution-selection declaration")
++set(PANGROVA_FUNCTION_SDK_PATCH_FILE "" CACHE FILEPATH "Canonical reviewed SDK source patch")
++if(NOT EXISTS "${PANGROVA_FUNCTION_SDK_PATCH_FILE}" OR IS_DIRECTORY "${PANGROVA_FUNCTION_SDK_PATCH_FILE}")
++  message(FATAL_ERROR "The owned function registry requires its actual canonical SDK patch input")
++endif()
++file(SHA256 "${PANGROVA_FUNCTION_SDK_PATCH_FILE}" pangrova_sdk_patch_sha256)
++set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PANGROVA_FUNCTION_SDK_PATCH_FILE}")
++if(NOT EXISTS "${PANGROVA_FUNCTION_SELECTION_TOOLS}/generate_execution_selection.py"
++   OR NOT EXISTS "${PANGROVA_FUNCTION_SELECTION_TOOLS}/execution_selection.py"
++   OR NOT EXISTS "${PANGROVA_FUNCTION_SELECTION_DECLARATION}")
++  message(FATAL_ERROR "The owned function registry requires the canonical selection generator/declaration")
++endif()
++find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
++set(pangrova_selection_dir "${PROJECT_BINARY_DIR}/pangrova-function-contracts")
++set(pangrova_selection_header "${pangrova_selection_dir}/ExecutionSelection.h")
++add_custom_command(
++  OUTPUT "${pangrova_selection_header}"
++  COMMAND "${Python3_EXECUTABLE}"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/generate_execution_selection.py"
++    --declaration "${PANGROVA_FUNCTION_SELECTION_DECLARATION}"
++    --cpp-output "${pangrova_selection_header}"
++  DEPENDS "${PANGROVA_FUNCTION_SELECTION_TOOLS}/generate_execution_selection.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/execution_selection.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/generate_special_type_programs.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/contract_generation_inputs.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/special_type_programs.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/registration_catalog.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/scalar_implementations.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/registered_signature.py"
++    "${PANGROVA_FUNCTION_SELECTION_TOOLS}/type_formula.py"
++    "${PANGROVA_FUNCTION_SELECTION_DECLARATION}"
++  VERBATIM)
++add_custom_target(pangrova_function_selection DEPENDS "${pangrova_selection_header}")
++if(VELOX_MONO_LIBRARY)
++  set(pangrova_expression_target velox)
++else()
++  set(pangrova_expression_target velox_expression)
++endif()
++set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/FunctionRegistryIdentity.cpp"
++  TARGET_DIRECTORY "${pangrova_expression_target}" APPEND PROPERTY COMPILE_DEFINITIONS
++  "PANGROVA_FUNCTION_SDK_PATCH_SHA256=\"${pangrova_sdk_patch_sha256}\"")
++add_dependencies(${pangrova_expression_target} pangrova_function_selection)
++target_include_directories(${pangrova_expression_target} PRIVATE "${pangrova_selection_dir}")
+diff --git a/velox/exec/CMakeLists.txt b/velox/exec/CMakeLists.txt
+index 3a5bec7..41b70e6 100644
+--- a/velox/exec/CMakeLists.txt
++++ b/velox/exec/CMakeLists.txt
+@@ -20,0 +21,2 @@ velox_add_library(
++  FunctionRegistrySnapshot.cpp
++  FunctionRegistrySnapshotBindings.cpp
+diff --git a/velox/expression/FunctionRegistrySnapshot.h b/velox/expression/FunctionRegistrySnapshot.h
+new file mode 100644
+index 0000000..9e18aaf
+--- /dev/null
++++ b/velox/expression/FunctionRegistrySnapshot.h
+@@ -0,0 +1,104 @@
++#pragma once
++
++#include <cstdint>
++#include <memory>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <unordered_map>
++#include <utility>
++#include <vector>
++
++#include "velox/expression/SimpleFunctionRegistry.h"
++#include "velox/expression/FunctionSignature.h"
++#include "velox/expression/SpecialFormRegistry.h"
++#include "velox/expression/VectorFunction.h"
++
++namespace facebook::velox::exec {
++struct AggregateFunctionEntry;
++struct WindowFunctionEntry;
++
++class FunctionRegistrySnapshot final {
++ public:
++  struct ScalarEntry {
++    uint32_t implementationFamily;
++    uint32_t implementationPriority;
++    FunctionSignaturePtr signature;
++    std::shared_ptr<FunctionCallToSpecialForm> special;
++    std::shared_ptr<const VectorFunctionEntry> vector;
++    std::shared_ptr<const FunctionEntry> simple;
++    uint32_t family() const { return implementationFamily; }
++    uint32_t priority() const { return implementationPriority; }
++  };
++  struct BoundScalar {
++    ScalarEntry implementation;
++    TypePtr resultType;
++  };
++  struct BoundAggregate {
++    std::shared_ptr<const AggregateFunctionEntry> implementation;
++    AggregateFunctionSignaturePtr signature;
++    TypePtr resultType;
++    TypePtr intermediateType;
++  };
++  struct BoundWindow {
++    std::shared_ptr<const WindowFunctionEntry> implementation;
++    FunctionSignaturePtr signature;
++    TypePtr resultType;
++  };
++  using Scalars = std::unordered_map<std::string, std::vector<ScalarEntry>>;
++  using Vectors = std::unordered_map<std::string,
++      std::shared_ptr<const VectorFunctionEntry>>;
++  using Aggregates = std::unordered_map<std::string,
++      std::shared_ptr<const AggregateFunctionEntry>>;
++  using Windows = std::unordered_map<std::string,
++      std::shared_ptr<const WindowFunctionEntry>>;
++
++  FunctionRegistrySnapshot(Scalars scalars, Vectors vectors,
++      Aggregates aggregates, Windows windows)
++      : scalars_(std::move(scalars)), vectors_(std::move(vectors)),
++        aggregates_(std::move(aggregates)), windows_(std::move(windows)) {}
++
++  static std::shared_ptr<const FunctionRegistrySnapshot> capture();
++  const Scalars& scalars() const { return scalars_; }
++  const Vectors& vectors() const { return vectors_; }
++  const Aggregates& aggregates() const { return aggregates_; }
++  const Windows& windows() const { return windows_; }
++
++  std::optional<BoundScalar> bindScalar(
++      const std::string& name, const std::vector<TypePtr>& arguments,
++      const TypePtr& declaredTarget = nullptr) const;
++  std::optional<BoundAggregate> bindAggregate(
++      const std::string& name, const std::vector<TypePtr>& arguments) const;
++  std::optional<BoundWindow> bindWindow(
++      const std::string& name, const std::vector<TypePtr>& arguments) const;
++
++  ExprPtr compileCall(
++      const std::string& name, const TypePtr& result,
++      std::vector<ExprPtr> inputs, bool trackCpuUsage,
++      const core::QueryConfig& config, memory::MemoryPool* pool) const;
++  std::optional<std::pair<std::shared_ptr<VectorFunction>, VectorFunctionMetadata>>
++  vectorFunction(const std::string& name, const std::vector<TypePtr>& arguments,
++      const std::vector<VectorPtr>& constants, const core::QueryConfig& config) const;
++  static std::string_view executionSelectionContractSha256();
++
++  ExprPtr constructSpecial(
++      const std::string& name, const TypePtr& result,
++      std::vector<ExprPtr>&& inputs, bool trackCpuUsage,
++      const core::QueryConfig& config) const;
++
++  // Reads an exact registered companion entry. It does not perform scalar
++  // overload selection, synthesize a signature, or instantiate its factory.
++  std::shared_ptr<const VectorFunctionEntry> vectorCompanion(
++      const std::string& name) const;
++  std::shared_ptr<const AggregateFunctionEntry> aggregate(
++      const std::string& name) const;
++  std::shared_ptr<const WindowFunctionEntry> window(
++      const std::string& name) const;
++
++ private:
++  const Scalars scalars_;
++  const Vectors vectors_;
++  const Aggregates aggregates_;
++  const Windows windows_;
++};
++}  // namespace facebook::velox::exec
+diff --git a/velox/expression/FunctionRegistryMutation.h b/velox/expression/FunctionRegistryMutation.h
+new file mode 100644
+index 0000000..559a593
+--- /dev/null
++++ b/velox/expression/FunctionRegistryMutation.h
+@@ -0,0 +1,20 @@
++#pragma once
++#include <mutex>
++#include <memory>
++
++namespace facebook::velox::exec {
++/// Exact process-local entry ownership. It is neither a digest nor authority.
++struct FunctionRegistrationOwner final {};
++
++/// Removes exact owned vector/aggregate/window entries without clearing names
++/// belonging to another incarnation or a later lawful registration.
++void unregisterOwnedFunctionEntries(
++    const std::shared_ptr<const FunctionRegistrationOwner>& owner);
++/// Short registry entry publication/capture transaction. Retired factory
++/// owners must be released after this lock and each registry map lock.
++/// This must never be held while invoking a function factory or user callback.
++inline std::recursive_mutex& functionRegistryMutationMutex() {
++  static std::recursive_mutex mutex;
++  return mutex;
++}
++} // namespace facebook::velox::exec
+diff --git a/velox/expression/FunctionRegistrySnapshot.cpp b/velox/expression/FunctionRegistrySnapshot.cpp
+new file mode 100644
+index 0000000..c9d2bcc
+--- /dev/null
++++ b/velox/expression/FunctionRegistrySnapshot.cpp
+@@ -0,0 +1,145 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
++#include <algorithm>
++#include "ExecutionSelection.h"
++#include "velox/expression/ConstantExpr.h"
++#include "velox/expression/SignatureBinder.h"
++
++namespace facebook::velox::exec {
++namespace {
++std::optional<FunctionRegistrySnapshot::BoundScalar> bindEntry(
++    const FunctionRegistrySnapshot::ScalarEntry& entry,
++    const std::vector<TypePtr>& arguments, const TypePtr& declaredTarget) {
++  if (entry.special) {
++    // A registered special form is authoritative. A type error is not a
++    // non-match and must never fall through to another implementation.
++    return FunctionRegistrySnapshot::BoundScalar{
++        entry, entry.special->resolveDeclaredType(arguments, declaredTarget)};
++  }
++  SignatureBinder binder(*entry.signature, arguments);
++  if (!binder.tryBind()) {
++    return std::nullopt;
++  }
++  auto result = binder.tryResolveReturnType();
++  VELOX_CHECK_NOT_NULL(result);
++  if (entry.simple) {
++    const auto& metadata = entry.simple->getMetadata();
++    const auto count = std::min(arguments.size(), metadata.argPhysicalTypes().size());
++    for (size_t i = 0; i < count; ++i) {
++      if (!simpleFunctionPhysicalTypeMatches(arguments[i], metadata.argPhysicalTypes()[i])) {
++        return std::nullopt;
++      }
++    }
++    if (!simpleFunctionPhysicalTypeMatches(result, metadata.resultPhysicalType())) {
++      return std::nullopt;
++    }
++  }
++  return FunctionRegistrySnapshot::BoundScalar{entry, std::move(result)};
++}
++std::pair<std::shared_ptr<VectorFunction>, VectorFunctionMetadata> instantiateVector(
++    const std::string& name, const VectorFunctionEntry& entry,
++    const std::vector<TypePtr>& types, const std::vector<VectorPtr>& constants,
++    const core::QueryConfig& config) {
++  VELOX_CHECK(constants.empty() || constants.size() == types.size());
++  std::vector<VectorFunctionArg> arguments;
++  for (size_t i = 0; i < types.size(); ++i) {
++    arguments.push_back({types[i], constants.empty() ? nullptr : constants[i]});
++  }
++  auto function = entry.factory(sanitizeName(name), arguments, config);
++  VELOX_CHECK_NOT_NULL(function, "Selected function factory returned null: {}", name);
++  return {std::move(function), entry.metadata};
++}
++} // namespace
++
++std::string_view FunctionRegistrySnapshot::executionSelectionContractSha256() {
++  return pangrova::contract::generated::executionSelectionSha256;
++}
++
++std::optional<std::pair<std::shared_ptr<VectorFunction>, VectorFunctionMetadata>>
++FunctionRegistrySnapshot::vectorFunction(
++    const std::string& name, const std::vector<TypePtr>& arguments,
++    const std::vector<VectorPtr>& constants, const core::QueryConfig& config) const {
++  const auto selected = bindScalar(name, arguments);
++  if (!selected || !selected->implementation.vector) {
++    return std::nullopt;
++  }
++  return instantiateVector(name, *selected->implementation.vector, arguments, constants, config);
++}
++
++std::optional<FunctionRegistrySnapshot::BoundScalar>
++FunctionRegistrySnapshot::bindScalar(
++    const std::string& name, const std::vector<TypePtr>& arguments,
++    const TypePtr& declaredTarget) const {
++  const auto found = scalars_.find(sanitizeName(name));
++  if (found == scalars_.end()) {
++    return std::nullopt;
++  }
++  return pangrova::contract::generated::selectExecution<BoundScalar>(
++      std::span<const ScalarEntry>(found->second),
++      [&](const ScalarEntry& entry) { return bindEntry(entry, arguments, declaredTarget); });
++}
++
++ExprPtr FunctionRegistrySnapshot::constructSpecial(
++    const std::string& name, const TypePtr& result, std::vector<ExprPtr>&& inputs,
++    bool trackCpuUsage, const core::QueryConfig& config) const {
++  const auto found = scalars_.find(sanitizeName(name));
++  if (found == scalars_.end() || found->second.empty() || !found->second.front().special) {
++    return nullptr;
++  }
++  std::vector<TypePtr> types;
++  for (const auto& input : inputs) types.push_back(input->type());
++  const auto resolved = found->second.front().special->resolveDeclaredType(types, result);
++  VELOX_USER_CHECK(result->equivalent(*resolved),
++      "Special form declared result differs from its owned type program: {}", name);
++  return found->second.front().special->constructSpecialForm(
++      result, std::move(inputs), trackCpuUsage, config);
++}
++
++ExprPtr FunctionRegistrySnapshot::compileCall(
++    const std::string& name, const TypePtr& result, std::vector<ExprPtr> inputs,
++    bool trackCpuUsage, const core::QueryConfig& config, memory::MemoryPool* pool) const {
++  std::vector<TypePtr> types;
++  std::vector<VectorPtr> constants;
++  for (const auto& input : inputs) {
++    types.push_back(input->type());
++    constants.push_back(input->isConstant()
++        ? dynamic_cast<const ConstantExpr&>(*input).value() : nullptr);
++  }
++  auto bound = bindScalar(name, types, result);
++  VELOX_USER_CHECK(bound.has_value(),
++      "Function not present in the owned registry snapshot: {}", name);
++  VELOX_USER_CHECK(result->equivalent(*bound->resultType),
++      "Selected implementation return type differs for {}: {} vs {}",
++      name, bound->resultType->toString(), result->toString());
++  const auto& implementation = bound->implementation;
++  if (implementation.special) {
++    return implementation.special->constructSpecialForm(
++        result, std::move(inputs), trackCpuUsage, config);
++  }
++  std::shared_ptr<VectorFunction> function;
++  VectorFunctionMetadata metadata;
++  if (implementation.vector) {
++    auto selected = instantiateVector(name, *implementation.vector, types, constants, config);
++    function = std::move(selected.first);
++    metadata = selected.second;
++  } else {
++    SimpleFunctionRegistry::ResolvedSimpleFunction selected(
++        implementation.simple, bound->resultType);
++    function = selected.createFunction()->createVectorFunction(types, constants, config, pool);
++    metadata = selected.metadata();
++  }
++  VELOX_CHECK_NOT_NULL(function, "Selected function factory returned null: {}", name);
++  return std::make_shared<Expr>(result, std::move(inputs), std::move(function),
++      metadata, sanitizeName(name), trackCpuUsage);
++}
++
++std::shared_ptr<const AggregateFunctionEntry>
++FunctionRegistrySnapshot::aggregate(const std::string& name) const {
++  const auto found = aggregates_.find(sanitizeName(name));
++  return found == aggregates_.end() ? nullptr : found->second;
++}
++std::shared_ptr<const WindowFunctionEntry>
++FunctionRegistrySnapshot::window(const std::string& name) const {
++  const auto found = windows_.find(sanitizeName(name));
++  return found == windows_.end() ? nullptr : found->second;
++}
++} // namespace facebook::velox::exec
+diff --git a/velox/exec/FunctionRegistrySnapshot.cpp b/velox/exec/FunctionRegistrySnapshot.cpp
+new file mode 100644
+index 0000000..2250fe6
+--- /dev/null
++++ b/velox/exec/FunctionRegistrySnapshot.cpp
+@@ -0,0 +1,52 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
++
++#include "velox/exec/Aggregate.h"
++#include "velox/exec/WindowFunction.h"
++#include "velox/expression/FunctionRegistryMutation.h"
++
++#include <mutex>
++#include <utility>
++
++namespace facebook::velox::exec {
++
++std::shared_ptr<const FunctionRegistrySnapshot> FunctionRegistrySnapshot::capture() {
++  std::lock_guard mutation(functionRegistryMutationMutex());
++  Scalars scalars;
++  for (const auto& [name, special] : specialFormRegistry().entriesSnapshot()) {
++    scalars[name].push_back(ScalarEntry{1, 0, nullptr, special, nullptr, nullptr});
++  }
++  Vectors vectors;
++  vectorFunctionFactories().withRLock([&](const auto& map) {
++    for (const auto& [name, entry] : map) {
++      auto owned = std::make_shared<const VectorFunctionEntry>(entry);
++      // A real signature-less companion still owns its factory and metadata.
++      // Scalar entries and companion access retain the same allocation.
++      vectors.emplace(name, owned);
++      for (const auto& signature : owned->signatures) {
++        scalars[name].push_back(ScalarEntry{2, 0, signature, nullptr, owned, nullptr});
++      }
++    }
++  });
++  for (const auto& [name, entries] : simpleFunctions().entriesSnapshot()) {
++    for (const auto& entry : entries) {
++      const auto& metadata = entry->getMetadata();
++      scalars[name].push_back(ScalarEntry{
++          3, metadata.priority(), metadata.signature(), nullptr, nullptr, entry});
++    }
++  }
++  Aggregates aggregates;
++  aggregateFunctions().withRLock([&](const auto& map) {
++    for (const auto& [name, entry] : map) {
++      aggregates.emplace(name, std::make_shared<const AggregateFunctionEntry>(entry));
++    }
++  });
++  Windows windows;
++  for (const auto& [name, entry] : windowFunctions()) {
++    windows.emplace(name, std::make_shared<const WindowFunctionEntry>(entry));
++  }
++  return std::make_shared<const FunctionRegistrySnapshot>(
++      std::move(scalars), std::move(vectors),
++      std::move(aggregates), std::move(windows));
++}
++
++}  // namespace facebook::velox::exec
+diff --git a/velox/exec/Exchange.cpp b/velox/exec/Exchange.cpp
+index c72cfea..92a3c8d 100644
+--- a/velox/exec/Exchange.cpp
++++ b/velox/exec/Exchange.cpp
+@@ -22,0 +23,2 @@
++#include <limits>
++
+@@ -58,0 +61,19 @@ std::unique_ptr<folly::IOBuf> mergePages(
++
++RowVectorPtr coalesceColumnarBatches(
++    const std::vector<RowVectorPtr>& batches,
++    const RowTypePtr& type,
++    vector_size_t rows,
++    memory::MemoryPool* pool) {
++  VELOX_CHECK(!batches.empty());
++  if (batches.size() == 1) {
++    return batches.front();
++  }
++  auto combined = std::dynamic_pointer_cast<RowVector>(
++      BaseVector::create(type, rows, pool));
++  vector_size_t offset{0};
++  for (const auto& batch : batches) {
++    combined->copy(batch.get(), offset, 0, batch->size());
++    offset += batch->size();
++  }
++  return combined;
++}
+@@ -80 +101,3 @@ Exchange::Exchange(
+-          serdeKind_)},
++          serdeKind_,
++          driverCtx->queryConfig(),
++          exchangeNode->id())},
+@@ -207,0 +231 @@ RowVectorPtr Exchange::getOutputFromColumnarPages(VectorSerde* serde) {
++  std::vector<RowVectorPtr> batches;
+@@ -228,0 +253 @@ RowVectorPtr Exchange::getOutputFromColumnarPages(VectorSerde* serde) {
++      RowVectorPtr batch;
+@@ -233,2 +258,2 @@ RowVectorPtr Exchange::getOutputFromColumnarPages(VectorSerde* serde) {
+-          &result_,
+-          resultOffset,
++          &batch,
++          0,
+@@ -236,2 +261,8 @@ RowVectorPtr Exchange::getOutputFromColumnarPages(VectorSerde* serde) {
+-
+-      resultOffset = result_->size();
++      VELOX_CHECK_NOT_NULL(batch);
++      VELOX_CHECK(*batch->type() == *outputType_);
++      VELOX_CHECK_LE(
++          batch->size(),
++          std::numeric_limits<vector_size_t>::max() - resultOffset,
++          "Columnar exchange output exceeds vector row capacity");
++      resultOffset += batch->size();
++      batches.push_back(std::move(batch));
+@@ -253,2 +284,6 @@ RowVectorPtr Exchange::getOutputFromColumnarPages(VectorSerde* serde) {
+-  const auto numOutputRows = result_->size();
+-  VELOX_CHECK_GT(numOutputRows, 0);
++  VELOX_CHECK_GT(resultOffset, 0);
++  // Decode each input into an independent owner, then copy each row at most
++  // once. Never append by recopying the accumulated prefix, or mutate an
++  // earlier output that a downstream operator may still own.
++  auto combined =
++      coalesceColumnarBatches(batches, outputType_, resultOffset, pool());
+@@ -257 +292 @@ RowVectorPtr Exchange::getOutputFromColumnarPages(VectorSerde* serde) {
+-      result_->estimateFlatSize() / numOutputRows,
++      combined->estimateFlatSize() / resultOffset,
+@@ -259,0 +295,8 @@ RowVectorPtr Exchange::getOutputFromColumnarPages(VectorSerde* serde) {
++  addRuntimeStat(
++      "columnarCoalesceInputBatches",
++      RuntimeCounter(static_cast<int64_t>(batches.size())));
++  addRuntimeStat(
++      "columnarCoalesceCopiedRows",
++      RuntimeCounter(batches.size() > 1 ? resultOffset : 0));
++  result_ = std::move(combined);
++
+diff --git a/velox/functions/FunctionRegistry.cpp b/velox/functions/FunctionRegistry.cpp
+index a76b738..d86a543 100644
+--- a/velox/functions/FunctionRegistry.cpp
++++ b/velox/functions/FunctionRegistry.cpp
+@@ -26,0 +27 @@
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -89,2 +90,6 @@ void clearFunctionRegistry() {
+-  exec::vectorFunctionFactories().withWLock(
+-      [](auto& functionMap) { functionMap.clear(); });
++  std::unordered_map<std::string, exec::VectorFunctionEntry> retired;
++  {
++    std::lock_guard mutation(exec::functionRegistryMutationMutex());
++    exec::vectorFunctionFactories().withWLock(
++        [&](auto& functionMap) { retired.swap(functionMap); });
++  }
+@@ -264,2 +269,6 @@ void removeFunction(const std::string& functionName) {
+-  exec::vectorFunctionFactories().withWLock(
+-      [&](auto& functionMap) { functionMap.erase(functionName); });
++  std::unordered_map<std::string, exec::VectorFunctionEntry>::node_type retired;
++  {
++    std::lock_guard mutation(exec::functionRegistryMutationMutex());
++    exec::vectorFunctionFactories().withWLock(
++        [&](auto& functionMap) { retired = functionMap.extract(functionName); });
++  }
+diff --git a/velox/exec/Aggregate.h b/velox/exec/Aggregate.h
+index d38f91b..5b10a60 100644
+--- a/velox/exec/Aggregate.h
++++ b/velox/exec/Aggregate.h
+@@ -24,0 +25 @@
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -561 +562,2 @@ AggregateRegistrationResult registerAggregateFunction(
+-    bool overwrite);
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+@@ -598,0 +601 @@ struct AggregateFunctionEntry {
++  std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr;
+diff --git a/velox/exec/AggregateCompanionAdapter.cpp b/velox/exec/AggregateCompanionAdapter.cpp
+index 9aab4fb..ea7d56a 100644
+--- a/velox/exec/AggregateCompanionAdapter.cpp
++++ b/velox/exec/AggregateCompanionAdapter.cpp
+@@ -22,0 +23 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
+@@ -25,0 +27,31 @@ namespace facebook::velox::exec {
++namespace {
++std::shared_ptr<const AggregateFunctionEntry> companionAggregate(
++    const std::string& name, const core::QueryConfig& config) {
++  if (const auto& owner = config.functionRegistrySnapshot()) {
++    return owner->aggregate(name);
++  }
++  return aggregateFunctions().withRLock(
++      [&](const auto& entries) -> std::shared_ptr<const AggregateFunctionEntry> {
++        const auto found = entries.find(sanitizeName(name));
++        return found == entries.end() ? nullptr
++            : std::make_shared<const AggregateFunctionEntry>(found->second);
++      });
++}
++
++TypePtr companionResult(const std::string& name,
++    const std::vector<TypePtr>& arguments, const core::QueryConfig& config,
++    bool vector) {
++  if (const auto& owner = config.functionRegistrySnapshot()) {
++    if (vector) {
++      const auto binding = owner->bindScalar(name, arguments);
++      VELOX_USER_CHECK(binding.has_value(), "Extract companion signature absent from owned registry: {}", name);
++      return binding->resultType;
++    }
++    const auto binding = owner->bindAggregate(name, arguments);
++    VELOX_USER_CHECK(binding.has_value(), "Aggregate companion signature absent from owned registry: {}", name);
++    return binding->resultType;
++  }
++  return vector ? resolveVectorFunction(name, arguments) : resolveResultType(name, arguments);
++}
++} // namespace
++
+@@ -253 +285,2 @@ bool CompanionFunctionsRegistrar::registerPartialFunction(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -269 +302 @@ bool CompanionFunctionsRegistrar::registerPartialFunction(
+-               if (auto func = getAggregateFunctionEntry(name)) {
++               if (auto func = companionAggregate(name, config)) {
+@@ -286 +319 @@ bool CompanionFunctionsRegistrar::registerPartialFunction(
+-             overwrite)
++             overwrite, registrationOwner)
+@@ -294 +327,2 @@ bool CompanionFunctionsRegistrar::registerMergeFunction(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -310 +344 @@ bool CompanionFunctionsRegistrar::registerMergeFunction(
+-               if (auto func = getAggregateFunctionEntry(name)) {
++               if (auto func = companionAggregate(name, config)) {
+@@ -328 +362 @@ bool CompanionFunctionsRegistrar::registerMergeFunction(
+-             overwrite)
++             overwrite, registrationOwner)
+@@ -338 +372,2 @@ bool registerMergeExtractFunctionInternal(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -357 +392 @@ bool registerMergeExtractFunctionInternal(
+-                     resolveResultType(mergeExtractFunctionName, argTypes);
++                     companionResult(mergeExtractFunctionName, argTypes, config, false);
+@@ -367 +402 @@ bool registerMergeExtractFunctionInternal(
+-               if (auto func = getAggregateFunctionEntry(name)) {
++               if (auto func = companionAggregate(name, config)) {
+@@ -385 +420 @@ bool registerMergeExtractFunctionInternal(
+-             overwrite)
++             overwrite, registrationOwner)
+@@ -393 +428,2 @@ bool CompanionFunctionsRegistrar::registerMergeExtractFunctionWithSuffix(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -412 +448 @@ bool CompanionFunctionsRegistrar::registerMergeExtractFunctionWithSuffix(
+-        overwrite);
++        overwrite, registrationOwner);
+@@ -421 +457,2 @@ bool CompanionFunctionsRegistrar::registerMergeExtractFunction(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -425 +462 @@ bool CompanionFunctionsRegistrar::registerMergeExtractFunction(
+-        name, signatures, metadata, overwrite);
++        name, signatures, metadata, overwrite, registrationOwner);
+@@ -441 +478 @@ bool CompanionFunctionsRegistrar::registerMergeExtractFunction(
+-      overwrite);
++      overwrite, registrationOwner);
+@@ -458 +495 @@ VectorFunctionFactory getVectorFunctionFactory(
+-    auto resultType = resolveVectorFunction(name, argTypes);
++    auto resultType = companionResult(name, argTypes, config, true);
+@@ -466 +503 @@ VectorFunctionFactory getVectorFunctionFactory(
+-    if (auto func = getAggregateFunctionEntry(originalName)) {
++    if (auto func = companionAggregate(originalName, config)) {
+@@ -481 +518,2 @@ bool CompanionFunctionsRegistrar::registerExtractFunctionWithSuffix(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -501 +539 @@ bool CompanionFunctionsRegistrar::registerExtractFunctionWithSuffix(
+-        overwrite);
++        overwrite, registrationOwner);
+@@ -509 +547,2 @@ bool CompanionFunctionsRegistrar::registerExtractFunction(
+-    bool overwrite) {
++    bool overwrite,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -513 +552 @@ bool CompanionFunctionsRegistrar::registerExtractFunction(
+-        originalName, signatures, overwrite);
++        originalName, signatures, overwrite, registrationOwner);
+@@ -531 +570 @@ bool CompanionFunctionsRegistrar::registerExtractFunction(
+-      overwrite);
++      overwrite, registrationOwner);
+diff --git a/velox/exec/AggregateCompanionAdapter.h b/velox/exec/AggregateCompanionAdapter.h
+index fc0a590..2251ee3 100644
+--- a/velox/exec/AggregateCompanionAdapter.h
++++ b/velox/exec/AggregateCompanionAdapter.h
+@@ -195 +195,2 @@ class CompanionFunctionsRegistrar {
+-      bool overwrite = false);
++      bool overwrite = false,
++      std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+@@ -205 +206,2 @@ class CompanionFunctionsRegistrar {
+-      bool overwrite = false);
++      bool overwrite = false,
++      std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+@@ -219 +221,2 @@ class CompanionFunctionsRegistrar {
+-      bool overwrite = false);
++      bool overwrite = false,
++      std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+@@ -235 +238,2 @@ class CompanionFunctionsRegistrar {
+-      bool overwrite = false);
++      bool overwrite = false,
++      std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+@@ -244 +248,2 @@ class CompanionFunctionsRegistrar {
+-      bool overwrite);
++      bool overwrite,
++      std::shared_ptr<const FunctionRegistrationOwner> registrationOwner);
+@@ -250 +255,2 @@ class CompanionFunctionsRegistrar {
+-      bool overwrite);
++      bool overwrite,
++      std::shared_ptr<const FunctionRegistrationOwner> registrationOwner);
+diff --git a/velox/exec/AggregateWindow.cpp b/velox/exec/AggregateWindow.cpp
+index 6c90a4f..97f6e93 100644
+--- a/velox/exec/AggregateWindow.cpp
++++ b/velox/exec/AggregateWindow.cpp
+@@ -405 +405,2 @@ class AggregateWindowFunction : public exec::WindowFunction {
+-void registerAggregateWindowFunction(const std::string& name) {
++void registerAggregateWindowFunction(const std::string& name,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner) {
+@@ -435 +436 @@ void registerAggregateWindowFunction(const std::string& name) {
+-        });
++        }, std::move(registrationOwner));
+diff --git a/velox/exec/AggregateWindow.h b/velox/exec/AggregateWindow.h
+index 09bb55f..c325254 100644
+--- a/velox/exec/AggregateWindow.h
++++ b/velox/exec/AggregateWindow.h
+@@ -17,0 +18 @@
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -21 +22,2 @@ namespace facebook::velox::exec {
+-void registerAggregateWindowFunction(const std::string& name);
++void registerAggregateWindowFunction(const std::string& name,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+diff --git a/velox/exec/FunctionRegistrySnapshotBindings.cpp b/velox/exec/FunctionRegistrySnapshotBindings.cpp
+new file mode 100644
+index 0000000..dc4991a
+--- /dev/null
++++ b/velox/exec/FunctionRegistrySnapshotBindings.cpp
+@@ -0,0 +1,91 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
++
++#include "velox/exec/Aggregate.h"
++#include "velox/exec/WindowFunction.h"
++#include "velox/expression/SignatureBinder.h"
++#include "velox/expression/FunctionRegistryMutation.h"
++
++#include <utility>
++#include <mutex>
++#include <type_traits>
++
++namespace facebook::velox::exec {
++
++namespace {
++template <typename Map, typename Entry>
++void retireOwnedEntries(Map& entries,
++    const std::shared_ptr<const FunctionRegistrationOwner>& owner,
++    std::vector<Entry>& retired) {
++  static_assert(std::is_nothrow_move_constructible_v<Entry>);
++  for (auto entry = entries.begin(); entry != entries.end();) {
++    if (entry->second.registrationOwner != owner) {
++      ++entry;
++      continue;
++    }
++    retired.push_back(std::move(entry->second));
++    entry = entries.erase(entry);
++  }
++}
++} // namespace
++
++void unregisterOwnedFunctionEntries(
++    const std::shared_ptr<const FunctionRegistrationOwner>& owner) {
++  VELOX_CHECK_NOT_NULL(owner);
++  // Outer retirement owners outlive the global mutation and all map locks.
++  std::vector<VectorFunctionEntry> vectors;
++  std::vector<AggregateFunctionEntry> aggregates;
++  std::vector<WindowFunctionEntry> windows;
++  {
++    std::lock_guard mutation(functionRegistryMutationMutex());
++    // Complete every allocation before moving the first published entry.
++    vectorFunctionFactories().withRLock([&](const auto& map) { vectors.reserve(map.size()); });
++    aggregateFunctions().withRLock([&](const auto& map) { aggregates.reserve(map.size()); });
++    windows.reserve(windowFunctions().size());
++    vectorFunctionFactories().withWLock([&](auto& map) { retireOwnedEntries(map, owner, vectors); });
++    aggregateFunctions().withWLock([&](auto& map) { retireOwnedEntries(map, owner, aggregates); });
++    retireOwnedEntries(windowFunctions(), owner, windows);
++  }
++}
++
++std::optional<FunctionRegistrySnapshot::BoundAggregate>
++FunctionRegistrySnapshot::bindAggregate(
++    const std::string& name, const std::vector<TypePtr>& arguments) const {
++  const auto implementation = aggregate(name);
++  if (!implementation) return std::nullopt;
++  for (const auto& signature : implementation->signatures) {
++    SignatureBinder binder(*signature, arguments);
++    if (!binder.tryBind()) continue;
++    auto result = binder.tryResolveReturnType();
++    auto intermediate = binder.tryResolveType(signature->intermediateType());
++    // Binding succeeded: unresolved output/state is an error in this entry,
++    // not permission to search a later overload by the desired output.
++    VELOX_CHECK_NOT_NULL(result);
++    VELOX_CHECK_NOT_NULL(intermediate);
++    return BoundAggregate{implementation, signature,
++        std::move(result), std::move(intermediate)};
++  }
++  return std::nullopt;
++}
++
++std::optional<FunctionRegistrySnapshot::BoundWindow>
++FunctionRegistrySnapshot::bindWindow(
++    const std::string& name, const std::vector<TypePtr>& arguments) const {
++  const auto implementation = window(name);
++  if (!implementation) return std::nullopt;
++  for (const auto& signature : implementation->signatures) {
++    SignatureBinder binder(*signature, arguments);
++    if (!binder.tryBind()) continue;
++    auto result = binder.tryResolveReturnType();
++    VELOX_CHECK_NOT_NULL(result);
++    return BoundWindow{implementation, signature, std::move(result)};
++  }
++  return std::nullopt;
++}
++
++std::shared_ptr<const VectorFunctionEntry>
++FunctionRegistrySnapshot::vectorCompanion(const std::string& name) const {
++  const auto found = vectors_.find(sanitizeName(name));
++  return found == vectors_.end() ? nullptr : found->second;
++}
++
++}  // namespace facebook::velox::exec
+diff --git a/velox/expression/CastExpr.cpp b/velox/expression/CastExpr.cpp
+index 1fa4dd7..ae84976 100644
+--- a/velox/expression/CastExpr.cpp
++++ b/velox/expression/CastExpr.cpp
+@@ -1158,8 +1158 @@ ExprPtr CastCallToSpecialForm::constructSpecialForm(
+-  const auto inputKind = compiledChildren[0]->type()->kind();
+-  if (type->kind() == TypeKind::VARBINARY &&
+-      (inputKind == TypeKind::TINYINT || inputKind == TypeKind::SMALLINT ||
+-       inputKind == TypeKind::INTEGER || inputKind == TypeKind::BIGINT)) {
+-    VELOX_UNSUPPORTED(
+-        "Cannot cast {} to VARBINARY.",
+-        compiledChildren[0]->type()->toString());
+-  }
++  resolveDeclaredType({compiledChildren[0]->type()}, type);
+diff --git a/velox/expression/CastExpr.h b/velox/expression/CastExpr.h
+index 9a08cea..426f8fa 100644
+--- a/velox/expression/CastExpr.h
++++ b/velox/expression/CastExpr.h
+@@ -332,0 +333 @@ class CastCallToSpecialForm : public FunctionCallToSpecialForm {
++  std::string_view typeProgram() const override { return "DECLARED_TARGET_CHECKED"; }
+@@ -343,0 +345 @@ class TryCastCallToSpecialForm : public FunctionCallToSpecialForm {
++  std::string_view typeProgram() const override { return "DECLARED_TARGET"; }
+diff --git a/velox/expression/CoalesceExpr.cpp b/velox/expression/CoalesceExpr.cpp
+index 4f7023a..6534182 100644
+--- a/velox/expression/CoalesceExpr.cpp
++++ b/velox/expression/CoalesceExpr.cpp
+@@ -71,2 +71 @@ TypePtr resolveTypeInt(const std::vector<TypePtr>& argTypes) {
+-  std::vector<TypePtr> coercions;
+-  return resolveTypeInt(argTypes, false, coercions);
++  return CoalesceCallToSpecialForm().resolveDeclaredType(argTypes);
+@@ -147 +146 @@ TypePtr CoalesceCallToSpecialForm::resolveType(
+-  return resolveTypeInt(argTypes);
++  return resolveDeclaredType(argTypes);
+diff --git a/velox/expression/CoalesceExpr.h b/velox/expression/CoalesceExpr.h
+index 8afbcdf..7331a29 100644
+--- a/velox/expression/CoalesceExpr.h
++++ b/velox/expression/CoalesceExpr.h
+@@ -44,0 +45 @@ class CoalesceCallToSpecialForm : public FunctionCallToSpecialForm {
++  std::string_view typeProgram() const override { return "EXACT_SEQUENCE"; }
+diff --git a/velox/expression/ConjunctExpr.cpp b/velox/expression/ConjunctExpr.cpp
+index 1dd98b4..c680ccd 100644
+--- a/velox/expression/ConjunctExpr.cpp
++++ b/velox/expression/ConjunctExpr.cpp
+@@ -396,15 +396 @@ TypePtr ConjunctExpr::resolveType(const std::vector<TypePtr>& argTypes) {
+-  VELOX_CHECK_GT(
+-      argTypes.size(),
+-      0,
+-      "Conjunct expressions expect at least one argument, received: {}",
+-      argTypes.size());
+-
+-  for (const auto& argType : argTypes) {
+-    VELOX_CHECK(
+-        argType->kind() == TypeKind::BOOLEAN ||
+-            argType->kind() == TypeKind::UNKNOWN,
+-        "Conjunct expressions expect BOOLEAN or UNKNOWN arguments, received: {}",
+-        argType->toString());
+-  }
+-
+-  return BOOLEAN();
++  return ConjunctCallToSpecialForm(true).resolveDeclaredType(argTypes);
+@@ -415 +401 @@ TypePtr ConjunctCallToSpecialForm::resolveType(
+-  return ConjunctExpr::resolveType(argTypes);
++  return resolveDeclaredType(argTypes);
+diff --git a/velox/expression/ConjunctExpr.h b/velox/expression/ConjunctExpr.h
+index ba3135f..0002bcd 100644
+--- a/velox/expression/ConjunctExpr.h
++++ b/velox/expression/ConjunctExpr.h
+@@ -112,0 +113 @@ class ConjunctCallToSpecialForm : public FunctionCallToSpecialForm {
++  std::string_view typeProgram() const override { return "BOOLEAN_SEQUENCE"; }
+diff --git a/velox/expression/FunctionCallToSpecialForm.h b/velox/expression/FunctionCallToSpecialForm.h
+index 9da39b7..9c2d146 100644
+--- a/velox/expression/FunctionCallToSpecialForm.h
++++ b/velox/expression/FunctionCallToSpecialForm.h
+@@ -21,0 +22,2 @@
++#include <string_view>
++
+@@ -26,0 +29,11 @@ class FunctionCallToSpecialForm {
++  /// Structural contract owned by this exact registered special-form entry.
++  /// Empty means the custom entry is diagnostic-only in a canonical catalogue.
++  virtual std::string_view typeProgram() const { return {}; }
++
++  /// An actual signature-less registered execution companion, when required.
++  virtual std::string_view vectorCompanion() const { return {}; }
++
++  /// Evaluates the sole generated program without expressions or factories.
++  TypePtr resolveDeclaredType(const std::vector<TypePtr>& arguments,
++      const TypePtr& declaredTarget = nullptr) const;
++
+diff --git a/velox/expression/RowConstructor.cpp b/velox/expression/RowConstructor.cpp
+index 323acac..afab5d7 100644
+--- a/velox/expression/RowConstructor.cpp
++++ b/velox/expression/RowConstructor.cpp
+@@ -17,0 +18 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
+@@ -25,2 +26,5 @@ TypePtr RowConstructorCallToSpecialForm::resolveType(
+-  std::vector<std::string> names(argTypes.size(), "");
+-  return ROW(std::move(names), folly::copy(argTypes));
++  return resolveDeclaredType(argTypes);
++}
++
++std::string_view RowConstructorCallToSpecialForm::vectorCompanion() const {
++  return expression::kRowConstructor;
+@@ -34,12 +38,10 @@ ExprPtr RowConstructorCallToSpecialForm::constructSpecialForm(
+-  auto [function, metadata] = vectorFunctionFactories().withRLock(
+-      [&config](auto& functionMap) -> std::pair<
+-                                       std::shared_ptr<VectorFunction>,
+-                                       VectorFunctionMetadata> {
+-        auto functionIterator = functionMap.find(expression::kRowConstructor);
+-        if (functionIterator != functionMap.end()) {
+-          return {
+-              functionIterator->second.factory(
+-                  expression::kRowConstructor, {}, config),
+-              functionIterator->second.metadata};
+-        } else {
+-          VELOX_FAIL(
++  std::shared_ptr<const VectorFunctionEntry> companion;
++  if (const auto& registry = config.functionRegistrySnapshot()) {
++    companion = registry->vectorCompanion(expression::kRowConstructor);
++    VELOX_USER_CHECK_NOT_NULL(companion,
++        "ROW companion is not present in the owned registry snapshot");
++  } else {
++    companion = vectorFunctionFactories().withRLock(
++        [](const auto& functionMap) -> std::shared_ptr<const VectorFunctionEntry> {
++          const auto found = functionMap.find(expression::kRowConstructor);
++          VELOX_CHECK(found != functionMap.end(),
+@@ -47,2 +49,5 @@ ExprPtr RowConstructorCallToSpecialForm::constructSpecialForm(
+-        }
+-      });
++          return std::make_shared<const VectorFunctionEntry>(found->second);
++        });
++  }
++  auto function = companion->factory(expression::kRowConstructor, {}, config);
++  VELOX_CHECK_NOT_NULL(function, "Selected ROW companion factory returned null");
+@@ -54 +59 @@ ExprPtr RowConstructorCallToSpecialForm::constructSpecialForm(
+-      metadata,
++      companion->metadata,
+diff --git a/velox/expression/RowConstructor.h b/velox/expression/RowConstructor.h
+index dd84d26..0d8bce6 100644
+--- a/velox/expression/RowConstructor.h
++++ b/velox/expression/RowConstructor.h
+@@ -23,0 +24,2 @@ class RowConstructorCallToSpecialForm : public FunctionCallToSpecialForm {
++  std::string_view typeProgram() const override { return "ROW_CHILDREN"; }
++  std::string_view vectorCompanion() const override;
+diff --git a/velox/expression/SwitchExpr.cpp b/velox/expression/SwitchExpr.cpp
+index 500ea7c..c57b144 100644
+--- a/velox/expression/SwitchExpr.cpp
++++ b/velox/expression/SwitchExpr.cpp
+@@ -35,2 +35 @@ TypePtr resolveTypeInt(const std::vector<TypePtr>& argTypes) {
+-  std::vector<TypePtr> coercions;
+-  return resolveTypeInt(argTypes, false, coercions);
++  return SwitchCallToSpecialForm().resolveDeclaredType(argTypes);
+@@ -312 +311 @@ TypePtr SwitchCallToSpecialForm::resolveType(
+-  return resolveTypeInt(argTypes);
++  return resolveDeclaredType(argTypes);
+@@ -333,5 +332 @@ TypePtr IfCallToSpecialForm::resolveType(const std::vector<TypePtr>& argTypes) {
+-  VELOX_CHECK(
+-      argTypes.size() == 2 || argTypes.size() == 3,
+-      "An IF statement must have 2 or 3 clauses: 'if', 'then', and optional 'else'.");
+-
+-  return resolveTypeInt(argTypes);
++  return resolveDeclaredType(argTypes);
+diff --git a/velox/expression/SwitchExpr.h b/velox/expression/SwitchExpr.h
+index 15ac6ca..c06be0a 100644
+--- a/velox/expression/SwitchExpr.h
++++ b/velox/expression/SwitchExpr.h
+@@ -69,0 +70 @@ class SwitchCallToSpecialForm : public FunctionCallToSpecialForm {
++  std::string_view typeProgram() const override { return "CONDITIONAL_PAIRS"; }
+@@ -88,0 +90 @@ class IfCallToSpecialForm : public SwitchCallToSpecialForm {
++  std::string_view typeProgram() const override { return "OPTIONAL_CONDITIONAL"; }
+diff --git a/velox/expression/TryExpr.cpp b/velox/expression/TryExpr.cpp
+index 174947c..7350def 100644
+--- a/velox/expression/TryExpr.cpp
++++ b/velox/expression/TryExpr.cpp
+@@ -171,6 +171 @@ TypePtr TryCallToSpecialForm::resolveType(
+-  VELOX_CHECK_EQ(
+-      argTypes.size(),
+-      1,
+-      "TRY expressions expect exactly 1 argument, received: {}",
+-      argTypes.size());
+-  return argTypes[0];
++  return resolveDeclaredType(argTypes);
+diff --git a/velox/expression/TryExpr.h b/velox/expression/TryExpr.h
+index d248f9d..a1f6c07 100644
+--- a/velox/expression/TryExpr.h
++++ b/velox/expression/TryExpr.h
+@@ -60,0 +61 @@ class TryCallToSpecialForm : public FunctionCallToSpecialForm {
++  std::string_view typeProgram() const override { return "EXACT_IDENTITY"; }
+diff --git a/velox/expression/VectorFunction.h b/velox/expression/VectorFunction.h
+index cbe2139..7d38050 100644
+--- a/velox/expression/VectorFunction.h
++++ b/velox/expression/VectorFunction.h
+@@ -24,0 +25 @@
++#include "velox/expression/FunctionRegistryMutation.h"
+@@ -260,0 +262 @@ struct VectorFunctionEntry {
++  std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr;
+@@ -295 +297,2 @@ bool registerStatefulVectorFunction(
+-    bool overwrite = true);
++    bool overwrite = true,
++    std::shared_ptr<const FunctionRegistrationOwner> registrationOwner = nullptr);
+diff --git a/velox/expression/FunctionRegistryIdentity.cpp b/velox/expression/FunctionRegistryIdentity.cpp
+new file mode 100644
+index 0000000..584687f
+--- /dev/null
++++ b/velox/expression/FunctionRegistryIdentity.cpp
+@@ -0,0 +1,16 @@
++#include "velox/expression/FunctionRegistryIdentity.h"
++#include "ExecutionSelection.h"
++
++#ifndef PANGROVA_FUNCTION_SDK_PATCH_SHA256
++#error "The actual SDK build must supply its canonical patch identity"
++#endif
++
++namespace facebook::velox::exec {
++std::string_view functionContractGenerationSha256() {
++  return pangrova::contract::generated::executionSelectionInputSha256;
++}
++
++std::string_view functionContractSdkPatchSha256() {
++  return PANGROVA_FUNCTION_SDK_PATCH_SHA256;
++}
++} // namespace facebook::velox::exec
+diff --git a/velox/expression/FunctionRegistryIdentity.h b/velox/expression/FunctionRegistryIdentity.h
+new file mode 100644
+index 0000000..27ca5c8
+--- /dev/null
++++ b/velox/expression/FunctionRegistryIdentity.h
+@@ -0,0 +1,11 @@
++#pragma once
++
++#include <string_view>
++
++namespace facebook::velox::exec {
++// Compiled from the same actual generated input as the execution selector.
++// No registry entry, function factory or execution value is accessed.
++std::string_view functionContractGenerationSha256();
++// Read from the compiled SDK object, not from a source-side proof file.
++std::string_view functionContractSdkPatchSha256();
++} // namespace facebook::velox::exec
+diff --git a/velox/exec/OperatorUtils.h b/velox/exec/OperatorUtils.h
+index 909a208..7ab49db 100644
+--- a/velox/exec/OperatorUtils.h
++++ b/velox/exec/OperatorUtils.h
+@@ -321 +321,2 @@ class BlockedOperatorFactory : public Operator::PlanNodeTranslator {
+-/// settings. Optionally configures minimum compression ratio.
++/// settings from the actual query and operator binding. Optionally configures
++/// minimum compression ratio on the newly created independent options object.
+@@ -324,0 +326,2 @@ std::unique_ptr<VectorSerde::Options> getVectorSerdeOptions(
++    const core::QueryConfig& queryConfig,
++    const std::string& planNodeId,
+diff --git a/velox/exec/OperatorUtils.cpp b/velox/exec/OperatorUtils.cpp
+index c4ed55d..bd763da 100644
+--- a/velox/exec/OperatorUtils.cpp
++++ b/velox/exec/OperatorUtils.cpp
+@@ -588,0 +589,2 @@ std::unique_ptr<VectorSerde::Options> getVectorSerdeOptions(
++    const core::QueryConfig& queryConfig,
++    const std::string& planNodeId,
+@@ -590,3 +592,11 @@ std::unique_ptr<VectorSerde::Options> getVectorSerdeOptions(
+-  std::unique_ptr<VectorSerde::Options> options = kind == "Presto"
+-      ? std::make_unique<serializer::presto::PrestoVectorSerde::PrestoOptions>()
+-      : std::make_unique<VectorSerde::Options>();
++  const auto& factory = queryConfig.vectorSerdeOptionsFactory();
++  std::unique_ptr<VectorSerde::Options> options;
++  if (factory) {
++    VELOX_USER_CHECK(!planNodeId.empty(), "Vector serde requires an actual plan node identity");
++    options = factory->create(kind, planNodeId);
++    VELOX_USER_CHECK_NOT_NULL(options, "Query-owned vector serde factory returned no options");
++  } else {
++    options = kind == "Presto"
++        ? std::make_unique<serializer::presto::PrestoVectorSerde::PrestoOptions>()
++        : std::make_unique<VectorSerde::Options>();
++  }
+diff --git a/velox/exec/Merge.cpp b/velox/exec/Merge.cpp
+index 0f42d3d..a1955e7 100644
+--- a/velox/exec/Merge.cpp
++++ b/velox/exec/Merge.cpp
+@@ -787 +787,3 @@ MergeExchange::MergeExchange(
+-          mergeExchangeNode->serdeKind())) {}
++          mergeExchangeNode->serdeKind(),
++          driverCtx->queryConfig(),
++          mergeExchangeNode->id())) {}
+diff --git a/velox/vector/arrow/Bridge.h b/velox/vector/arrow/Bridge.h
+index 278d82d..1175121 100644
+--- a/velox/vector/arrow/Bridge.h
++++ b/velox/vector/arrow/Bridge.h
+@@ -37 +37 @@ struct ArrowOptions {
+-  // NOTE: flattenConstant is only supported for scalar types.
++  // Complex constants preserve visible nested payload through row selection.
+diff --git a/CMake/resolve_dependency_modules/duckdb.cmake b/CMake/resolve_dependency_modules/duckdb.cmake
+index bd3fbd7..3a2b866 100644
+--- a/CMake/resolve_dependency_modules/duckdb.cmake
++++ b/CMake/resolve_dependency_modules/duckdb.cmake
+@@ -56,3 +56,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-non-virtual-dtor")
+-# Clang17 requires this. See issue #13215.
+-if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 17.0.0)
+-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-missing-template-arg-list-after-template-kw")
++# Only add this diagnostic option when the actual compiler supports it.
++# Unknown -Wno options can otherwise be accepted by a probe with a warning.
++if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
++  include(CheckCXXCompilerFlag)
++  check_cxx_compiler_flag(
++    "-Werror=unknown-warning-option -Wno-missing-template-arg-list-after-template-kw"
++    VELOX_DUCKDB_HAS_TEMPLATE_ARGUMENT_DIAGNOSTIC
++  )
++  if(VELOX_DUCKDB_HAS_TEMPLATE_ARGUMENT_DIAGNOSTIC)
++    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-missing-template-arg-list-after-template-kw")
++  endif()
+diff --git a/scripts/setup-macos.sh b/scripts/setup-macos.sh
+index aded94e..c910e8d 100755
+--- a/scripts/setup-macos.sh
++++ b/scripts/setup-macos.sh
+@@ -138,0 +139,24 @@ function install_adapters {
++function cxx_supports_diagnostic_option {
++  local compiler="$1"
++  local option="$2"
++  if ! command -v "$compiler" >/dev/null; then
++    echo "C++ compiler is unavailable: $compiler" >&2
++    return 2
++  fi
++  if ! printf 'int main() { return 0; }\n' | "$compiler" -x c++ -fsyntax-only - >/dev/null; then
++    echo "C++ compiler cannot compile the option probe: $compiler" >&2
++    return 2
++  fi
++  if printf 'int main() { return 0; }\n' | "$compiler" -x c++ -fsyntax-only \
++      -Werror=unknown-warning-option "$option" - >/dev/null 2>&1; then
++    return 0
++  else
++    local status=$?
++    if [[ "$status" != 1 ]]; then
++      echo "C++ compiler option probe failed with status $status: $compiler" >&2
++      return 2
++    fi
++    return 1
++  fi
++}
++
+@@ -140,4 +164,5 @@ function install_duckdb_clang {
+-  clang_major_version=$(echo | clang -dM -E - | grep __clang_major__ | awk '{print $3}')
+-  # Clang17 requires this. See issue #13215.
+-  if [ "${clang_major_version}" -ge 17 ]; then
+-    EXTRA_PKG_CXXFLAGS=" -Wno-missing-template-arg-list-after-template-kw" install_duckdb
++  local compiler="${CXX:-c++}"
++  local option="-Wno-missing-template-arg-list-after-template-kw"
++  local extra_flags="${EXTRA_PKG_CXXFLAGS:-}"
++  if cxx_supports_diagnostic_option "$compiler" "$option"; then
++    extra_flags+=" $option"
+@@ -145 +170,2 @@ function install_duckdb_clang {
+-    install_duckdb
++    local status=$?
++    [[ "$status" == 1 ]] || return "$status"
+@@ -146,0 +173 @@ function install_duckdb_clang {
++  CXX="$compiler" EXTRA_PKG_CXXFLAGS="$extra_flags" install_duckdb
+diff --git a/velox/exec/AggregateInfo.cpp b/velox/exec/AggregateInfo.cpp
+index 044a510..7020e35 100644
+--- a/velox/exec/AggregateInfo.cpp
++++ b/velox/exec/AggregateInfo.cpp
+@@ -21,0 +22 @@
++#include "velox/expression/FunctionRegistrySnapshot.h"
+@@ -37,0 +39,23 @@ std::vector<core::LambdaTypedExprPtr> extractLambdaInputs(
++
++void applyAggregateMetadata(
++    AggregateInfo& info,
++    const core::AggregationNode::Aggregate& aggregate,
++    const RowTypePtr& inputType,
++    const core::QueryConfig& config) {
++  const auto& registry = config.functionRegistrySnapshot();
++  const auto& name = aggregate.call->name();
++  const auto owned = registry ? registry->aggregate(name) : nullptr;
++  VELOX_USER_CHECK(!registry || owned,
++      "Aggregate not present in owned registry snapshot: {}", name);
++  const auto& metadata = owned ? owned->metadata : getAggregateFunctionMetadata(name);
++  info.distinct = !metadata.ignoreDuplicates && aggregate.distinct;
++  if (metadata.orderSensitive) {
++    const auto numSortingKeys = aggregate.sortingKeys.size();
++    VELOX_CHECK_EQ(numSortingKeys, aggregate.sortingOrders.size());
++    info.sortingOrders = aggregate.sortingOrders;
++    info.sortingKeys.reserve(numSortingKeys);
++    for (const auto& key : aggregate.sortingKeys) {
++      info.sortingKeys.push_back(exprToChannel(key.get(), inputType));
++    }
++  }
++}
+@@ -86,2 +110,2 @@ std::vector<AggregateInfo> toAggregateInfo(
+-    info.intermediateType =
+-        resolveIntermediateType(name, aggregate.rawInputTypes);
++    info.intermediateType = resolveIntermediateType(
++        name, aggregate.rawInputTypes, operatorCtx.driverCtx()->queryConfig());
+@@ -122,17 +146,2 @@ std::vector<AggregateInfo> toAggregateInfo(
+-    // 1. Ignore duplicates property
+-    //    if aggregate function is not sensitive to duplicates.
+-    // 2. Ignore sorting properties
+-    //    if aggregate function is not sensitive to the order of inputs.
+-    auto* entry = getAggregateFunctionEntry(name);
+-    const auto& metadata = entry->metadata;
+-    info.distinct = !metadata.ignoreDuplicates && aggregate.distinct;
+-    if (metadata.orderSensitive) {
+-      // Sorting keys and orders.
+-      const auto numSortingKeys = aggregate.sortingKeys.size();
+-      VELOX_CHECK_EQ(numSortingKeys, aggregate.sortingOrders.size());
+-      info.sortingOrders = aggregate.sortingOrders;
+-      info.sortingKeys.reserve(numSortingKeys);
+-      for (const auto& key : aggregate.sortingKeys) {
+-        info.sortingKeys.push_back(exprToChannel(key.get(), inputType));
+-      }
+-    }
++    applyAggregateMetadata(info, aggregate, inputType,
++        operatorCtx.driverCtx()->queryConfig());
+diff --git a/velox/exec/ColumnStatsCollector.cpp b/velox/exec/ColumnStatsCollector.cpp
+index 1ec8567..6e8bc19 100644
+--- a/velox/exec/ColumnStatsCollector.cpp
++++ b/velox/exec/ColumnStatsCollector.cpp
+@@ -103 +103 @@ std::vector<AggregateInfo> ColumnStatsCollector::createAggregates(
+-        aggregate.call->name(), aggregate.rawInputTypes);
++        aggregate.call->name(), aggregate.rawInputTypes, *queryConfig_);
+diff --git a/velox/exec/AggregateFunctionRegistry.cpp b/velox/exec/AggregateFunctionRegistry.cpp
+index 1122218..a73329d 100644
+--- a/velox/exec/AggregateFunctionRegistry.cpp
++++ b/velox/exec/AggregateFunctionRegistry.cpp
+@@ -18,0 +19,2 @@
++#include "velox/core/QueryConfig.h"
++#include "velox/expression/FunctionRegistrySnapshot.h"
+@@ -96,0 +99,14 @@ TypePtr resolveIntermediateType(
++TypePtr resolveIntermediateType(
++    const std::string& name,
++    const std::vector<TypePtr>& argTypes,
++    const core::QueryConfig& config) {
++  if (const auto& registry = config.functionRegistrySnapshot()) {
++    const auto bound = registry->bindAggregate(name, argTypes);
++    VELOX_USER_CHECK(bound.has_value(),
++        "Aggregate signature not present in owned registry snapshot: {}",
++        toString(name, argTypes));
++    return bound->intermediateType;
++  }
++  return resolveIntermediateType(name, argTypes);
++}
++
+diff --git a/velox/exec/AggregateFunctionRegistry.h b/velox/exec/AggregateFunctionRegistry.h
+index 4adea53..2415036 100644
+--- a/velox/exec/AggregateFunctionRegistry.h
++++ b/velox/exec/AggregateFunctionRegistry.h
+@@ -22,0 +23,4 @@
++namespace facebook::velox::core {
++class QueryConfig;
++}
++
+@@ -58,0 +63,6 @@ TypePtr resolveIntermediateType(
++/// Resolves from the query-owned registration when one is supplied or required.
++TypePtr resolveIntermediateType(
++    const std::string& name,
++    const std::vector<TypePtr>& argTypes,
++    const core::QueryConfig& config);
++

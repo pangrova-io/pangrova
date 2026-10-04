@@ -1,5 +1,7 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import java.util.Map;
 
 import org.pangrova.planner.stats.StatisticsCollector;
@@ -142,17 +144,17 @@ class StageReplanCoordinatorTest {
     @Test
     void cardinalityFeedback_recordedToStatisticsCollector() {
         // Pre-populate statistics so recordRuntimeFeedback has something to update
-        statisticsCollector.analyzeTable("orders", java.util.List.of("id", "amount"));
+        statisticsCollector.analyzeTable(new QualifiedTableName("test", "db", "orders"), java.util.List.of("id", "amount"));
 
         // Large divergence: estimated 1000 rows, actual 10000 rows
         ShuffleStageStats stats = new ShuffleStageStats(
                 "stage-feedback", 100 * MB, 10000, 10 * MB, 1000,
                 Map.of(0, new ShufflePartitionStats(0, 100 * MB, 10000)));
 
-        coordinator.onShuffleStageCompleted(stats, JoinStrategy.HASH_JOIN, "orders");
+        coordinator.onShuffleStageCompleted(stats, JoinStrategy.HASH_JOIN, new QualifiedTableName("test", "db", "orders"));
 
         // Verify statistics were updated (getStatistics returns the adjusted value)
-        var updatedStats = statisticsCollector.getStatistics("orders");
+        var updatedStats = statisticsCollector.getStatistics(new QualifiedTableName("test", "db", "orders"));
         assertThat(updatedStats).isPresent();
     }
 

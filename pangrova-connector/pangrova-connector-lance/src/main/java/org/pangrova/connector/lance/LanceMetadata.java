@@ -80,6 +80,33 @@ public final class LanceMetadata implements ConnectorMetadata {
     @Override public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
         return new TableStatistics(snapshots.resolve(session, requireTable(session, table)).rowCount(), -1);
     }
+    @Override public org.pangrova.spi.connector.metadata.table.ConnectorReadBinding bindRead(
+            ConnectorSession session, ConnectorTableHandle table) {
+        var selected = snapshots.resolve(session, requireTable(session, table));
+        return new org.pangrova.spi.connector.metadata.table.ConnectorReadBinding(selected,
+                getTableReadMetadata(session, selected), new TableStatistics(selected.rowCount(), -1),
+                selected.version() == 0
+                        ? org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY
+                        : org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT,
+                selected.version() == 0 ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(selected.version()),
+                selected.tableId() + ":" + selected.version());
+    }
+    @Override public void validateReadBinding(ConnectorSession session,
+            org.pangrova.spi.connector.metadata.table.ConnectorReadBinding binding) {
+        var selected = requireTable(session, binding.handle());
+        LanceSessionIdentity.requireTenant(session, selected.tenantId());
+        if (!binding.sourceIdentity().equals(selected.tableId() + ":" + selected.version())) {
+            throw new IllegalStateException("Selected dataset identity differs");
+        }
+        var current = store.get().load(catalog, selected.tenantId(), selected.table());
+        if (current == null || !current.tableId().equals(selected.tableId())
+                || !current.datasetUri().equals(selected.datasetUri())) {
+            throw new IllegalStateException("Selected dataset was dropped or replaced");
+        }
+        if (binding.state() != org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY) {
+            snapshots.resolve(session, selected);
+        }
+    }
     @Override public ConnectorOutputTableHandle createTable(ConnectorSession session, ConnectorTableMetadata metadata) {
         String tenant = LanceSessionIdentity.tenant(session);
         if (metadata.typedColumns().isEmpty() || metadata.columns().size() != metadata.typedColumns().size()) {

@@ -21,7 +21,7 @@ import org.pangrova.coordinator.ai.embedding.ConcurrentMapEmbeddingModelRegistry
 import org.pangrova.coordinator.ai.embedding.EmbeddingModelExecutionAdmission;
 import org.pangrova.coordinator.ai.embedding.EmbeddingRegistryAccessDeniedException;
 import org.pangrova.coordinator.ai.embedding.ModelDropUnavailableException;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.StatementExecutionContext;
 import org.pangrova.parser.SqlParser;
 import org.pangrova.parser.ast.statement.CreateEmbeddingModelStatement;

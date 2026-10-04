@@ -15,6 +15,19 @@ import static org.junit.jupiter.api.Assertions.*;
 class StageEdgeTest {
 
     @Test
+    void defaultFormatIsCanonicalAndUnboundOrUnknownFormatsAreRejected() {
+        var format = org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH;
+        assertEquals(format, new StageEdge(0, 1, org.pangrova.planner.ShuffleType.SINGLETON).batchSerde());
+        for (var invalid : List.of(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_UNSPECIFIED,
+                org.pangrova.protocol.v2.BatchSerde.UNRECOGNIZED)) {
+            assertThrows(IllegalArgumentException.class, () -> new StageEdge(0, 1,
+                    org.pangrova.planner.ShuffleType.SINGLETON, List.of(), "exchange", 1, invalid, true));
+        }
+        assertThrows(IllegalArgumentException.class, () -> new StageEdge(0, 1,
+                org.pangrova.planner.ShuffleType.SINGLETON, List.of(), "exchange", 1, null, true));
+    }
+
+    @Test
     void hashDistributionMapsToBlocking() {
         StageEdge edge = new StageEdge(0, 1, org.pangrova.planner.ShuffleType.HASH);
         assertEquals(ExchangeReadMode.BLOCKING, edge.readMode());
@@ -43,7 +56,7 @@ class StageEdgeTest {
         for (var distribution : List.of(org.pangrova.planner.ShuffleType.SINGLETON,
                 org.pangrova.planner.ShuffleType.BROADCAST)) {
             var edge = new StageEdge(0, 1, distribution, List.of(), "stream", 1,
-                    org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
+                    org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
             assertEquals(ExchangeReadMode.STREAMING, edge.readMode());
         }
     }

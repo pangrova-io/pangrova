@@ -97,6 +97,44 @@ enum RuntimeCommandType {
   RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE = 18;
   RUNTIME_COMMAND_TYPE_DATASET_SCAN_PARTITIONS = 19;
   RUNTIME_COMMAND_TYPE_GET_RESOURCE_DRAIN_EVIDENCE = 20;
+  RUNTIME_COMMAND_TYPE_RECOVER_EXECUTOR_CREATION = 21;
+  RUNTIME_COMMAND_TYPE_FINALIZE_FUNCTION_CATALOG = 22;
+}
+
+// One explicit startup transition, before the Worker accepts any task. This
+// freezes actual registered factories; GET_CAPABILITIES never performs it.
+message FunctionCatalogFinalizeRequest {
+  ProtocolVersion protocol = 1;
+  bytes binding_declaration_sha256 = 2;
+  bytes execution_selection_sha256 = 3;
+}
+
+message FunctionCatalogFinalizeResult {
+  bytes manifest_sha256 = 1;
+  uint64 inventory_bytes = 2;
+  uint64 encoded_inventory_bytes = 3;
+}
+
+// Process-local recovery uses the same exact identity as network admission.
+// It seals creation when no executor exists; it never re-admits an old attempt.
+message ExecutorCreationRecoveryRequest {
+  TaskAdmissionSealRequest admission_seal = 1;
+  SecurityContext security = 2;
+}
+
+enum ExecutorCreationState {
+  EXECUTOR_CREATION_STATE_UNSPECIFIED = 0;
+  EXECUTOR_CREATION_STATE_CONSTRUCTING = 1;
+  EXECUTOR_CREATION_STATE_OWNER_PRESENT = 2;
+  EXECUTOR_CREATION_STATE_CLOSED_WITHOUT_OWNER = 3;
+}
+
+// Native-only ownership evidence. CLOSED_WITHOUT_OWNER does not prove that
+// Worker callbacks, admission grants, result readers or connectors were drained.
+message ExecutorCreationRecoveryResult {
+  ExecutorCreationRecoveryRequest identity = 1;
+  ExecutorCreationState state = 2;
+  uint64 executor_handle = 3;
 }
 
 enum ResourceDrainScope {

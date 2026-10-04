@@ -13,7 +13,7 @@ import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TraceContext;
-import org.pangrova.worker.CanonicalTaskRequestTestFixture;
+import org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture;
 
 /** Canonical authority for component tests; this does not execute a Native task. */
 public final class AiTestTaskAuthority {

@@ -6,7 +6,7 @@ import java.util.List;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.coordinator.query.audit.QueryLineageInfo;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
@@ -122,7 +122,8 @@ public class QueryDispatcher {
         checkNotNull(sm, "state machine must not be null");
         checkNotNull(sql, "sql must not be null");
         checkNotNull(session, "session must not be null");
-        try {
+        taskTracker.openQueryIssuance(session.queryId());
+        try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
             DispatchResult result = pipelineExecutor.doExecute(
                     sm, sql, session);
             emitQueryStartedLineage(session.queryId(), sql);
@@ -133,14 +134,16 @@ public class QueryDispatcher {
             // QueryManager owns the terminal transition and its durable journal,
             // active-count and admission cleanup. This layer only releases the
             // dispatch ownership it acquired before propagating the failure.
-            ownershipTracker.cleanupQuery(session.queryId());
+            try { ownershipTracker.cancelDispatchedTasks(session.queryId());
+                ownershipTracker.cleanupQuery(session.queryId());
+            } catch (RuntimeException | Error cleanup) { if (cleanup != e) e.addSuppressed(cleanup); }
             throw wrapIfNeeded(e, session.queryId());
         }
     }
 
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
                                         CoordinatorSessionContext session) {
-        return pipelineExecutor.executeDmlSql(sm, sql, session);
+        return executeDmlSql(sm, sql, session, null);
     }
 
     /** Compiles a protected read relation using this dispatcher's current query authority. */
@@ -152,15 +155,20 @@ public class QueryDispatcher {
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
                                         CoordinatorSessionContext session,
                                         String writeModeOverride) {
-        return pipelineExecutor.executeDmlSql(
-                sm, sql, session, writeModeOverride);
+        taskTracker.openQueryIssuance(session.queryId());
+        try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
+            return pipelineExecutor.executeDmlSql(sm, sql, session, writeModeOverride);
+        }
     }
 
     public DispatchResult executeDmlStatement(
             QueryStateMachine sm,
             org.pangrova.parser.ast.Statement stmt,
             CoordinatorSessionContext session) {
-        return pipelineExecutor.executeDmlStatement(sm, stmt, session);
+        taskTracker.openQueryIssuance(session.queryId());
+        try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
+            return pipelineExecutor.executeDmlStatement(sm, stmt, session);
+        }
     }
 
     public QueryLineageInfo removeLineageInfo(String queryId) {
@@ -179,7 +187,7 @@ public class QueryDispatcher {
     }
 
     public void setWriteCommitTracker(
-            org.pangrova.coordinator.query.task
+            org.pangrova.coordinator.query.task.write
                     .NativeWriteCommitTracker tracker) {
         schedulingEngine.setWriteCommitTracker(tracker);
     }
@@ -206,6 +214,22 @@ public class QueryDispatcher {
 
     public boolean acquireQueryOwnership(String queryId) {
         return ownershipTracker.acquireQueryOwnership(queryId);
+    }
+
+    public void openQueryIssuance(String queryId) { taskTracker.openQueryIssuance(queryId); }
+
+    public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryOperation(String queryId) { return taskTracker.enterQueryOperation(queryId); }
+
+    public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryMetadataOperation(String queryId) {
+        return taskTracker.enterQueryMetadataOperation(queryId);
+    }
+
+    public void markRecoveredIssuanceUnresolved(String queryId) { taskTracker.markRecoveredIssuanceUnresolved(queryId); }
+
+    public void retireQueryIssuance(String queryId) { taskTracker.retireQueryIssuance(queryId); }
+
+    public void addExecutionDrainListener(java.util.function.Consumer<String> listener) {
+        taskTracker.addExecutionDrainListener(report -> listener.accept(report.getAttempt().getQueryOrJobId()));
     }
 
     public void cleanupQuery(String queryId) {

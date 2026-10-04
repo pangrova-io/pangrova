@@ -1,11 +1,16 @@
 // Semantic oracles: canonical Substrait -> production converter -> real Velox Task.
 // These are Native component tests, not JNI or distributed SQL E2E evidence.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 #include <google/protobuf/message.h>
 
 #include <atomic>
 #include <cstdint>
+#include <exception>
+#include <memory>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -16,8 +21,10 @@
 #include "velox/core/PlanFragment.h"
 #include "velox/core/QueryCtx.h"
 #include "velox/exec/Task.h"
+#include "velox/common/base/VeloxException.h"
 #include "velox/type/DecimalUtil.h"
 #include "velox/type/Timestamp.h"
+#include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/FlatVector.h"
 
@@ -32,6 +39,7 @@ substrait::Type decimalType(int precision, int scale) {
   substrait::Type type;
   type.mutable_decimal()->set_precision(precision);
   type.mutable_decimal()->set_scale(scale);
+  type.mutable_decimal()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   return type;
 }
 
@@ -74,7 +82,8 @@ substrait::Plan projection(
   auto* project = root->mutable_input()->mutable_project();
   auto* read = project->mutable_input()->mutable_read();
   read->mutable_base_schema()->add_names("seed");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   read->mutable_virtual_table()->add_expressions()->add_fields()
       ->mutable_literal()->set_i64(1);
   for (size_t i = 0; i < expressions.size(); ++i) {
@@ -109,7 +118,7 @@ substrait::Plan values(
 }
 
 std::vector<uint8_t> serialize(const substrait::Plan& plan) {
-  const auto bytes = plan.SerializeAsString();
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   return {bytes.begin(), bytes.end()};
 }
 
@@ -131,14 +140,17 @@ class SubstraitLiteralExecutionTest : public ::testing::Test {
   }
 
   RowVectorPtr execute(const substrait::Plan& plan) {
-    VeloxPlanConverter converter;
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     auto converted = converter.convert(serialize(plan), {});
     // Actual vectors own their creating pools independently of the converter.
     static std::atomic<uint64_t> id{0};
     auto task = facebook::velox::exec::Task::create(
         "canonical-literal-" + std::to_string(id.fetch_add(1)),
         facebook::velox::core::PlanFragment{converted}, 0,
-        facebook::velox::core::QueryCtx::create(pangrova::jni::globalExecutor().get()),
+        facebook::velox::core::QueryCtx::create(pangrova::jni::globalExecutor().get(),
+            facebook::velox::core::QueryConfig({{"require_function_registry_snapshot", "true"}}, converter_registry)),
         facebook::velox::exec::Task::ExecutionMode::kSerial);
     EXPECT_TRUE(task->supportSerialExecutionMode());
     RowVectorPtr result;
@@ -156,13 +168,30 @@ class SubstraitLiteralExecutionTest : public ::testing::Test {
   }
 
   void reject(const substrait::Plan& plan, const std::string& reason) {
-    VeloxPlanConverter converter;
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     try {
       converter.convert(serialize(plan), {});
       ADD_FAILURE() << "invalid canonical plan was accepted: " << reason;
     } catch (const std::exception& failure) {
       EXPECT_NE(std::string(failure.what()).find(reason), std::string::npos)
           << failure.what();
+    }
+  }
+
+  void rejectSpecialFormInput(const substrait::Plan& plan) {
+    const auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(registry);
+    try {
+      converter.convert(serialize(plan), {});
+      ADD_FAILURE() << "Invalid special-form input contract was accepted";
+    } catch (const facebook::velox::VeloxUserError& failure) {
+      EXPECT_EQ(failure.errorSource(), "USER");
+      EXPECT_EQ(failure.errorCode(), "INVALID_ARGUMENT");
+      EXPECT_STREQ(failure.function(), "resolveDeclaredType");
+      EXPECT_NE(failure.message().find("Special form input contract mismatch"), std::string::npos);
+      EXPECT_FALSE(failure.isRetriable());
     }
   }
 
@@ -293,6 +322,7 @@ TEST_F(SubstraitLiteralExecutionTest, AllNullAndNestedTypedEmptyArrays) {
   null_array.mutable_list()->add_values()->CopyFrom(nullLiteral(decimalType(10, 2)));
   null_array.mutable_list()->add_values()->CopyFrom(nullLiteral(decimalType(10, 2)));
   Literal empty;
+  empty.mutable_empty_list()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   empty.mutable_empty_list()->mutable_type()->CopyFrom(decimalType(10, 2));
   Literal nested;
   nested.mutable_list()->add_values()->CopyFrom(empty);
@@ -330,9 +360,9 @@ TEST_F(SubstraitLiteralExecutionTest, ValuesShareDecimalAndNullDecoder) {
 
 TEST_F(SubstraitLiteralExecutionTest, ValuesPreserveTinySmallAndBinaryLiterals) {
   substrait::Type tiny, small, binary_type;
-  tiny.mutable_i8();
-  small.mutable_i16();
-  binary_type.mutable_binary();
+  tiny.mutable_i8()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  small.mutable_i16()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  binary_type.mutable_binary()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   Literal tiny_value, small_value, binary_value;
   tiny_value.set_i8(-7);
   small_value.set_i16(1234);
@@ -402,7 +432,8 @@ TEST_F(SubstraitLiteralExecutionTest, TemporalLiteralsRetainUnitsAndNegativeEpoc
   timestamp.mutable_precision_timestamp()->set_precision(10);
   reject(projection({expression(timestamp)}), "precision must be in [0, 9]");
   millis.mutable_precision_time()->set_precision(7);
-  reject(projection({expression(millis)}), "precision must be in [0, 6]");
+  reject(projection({expression(millis)}),
+         "Canonical bridge precision_time.precision must be in [0, 6]; actual=7");
 }
 
 TEST_F(SubstraitLiteralExecutionTest, StrictDecimalLengthAndTypeParameters) {
@@ -412,11 +443,15 @@ TEST_F(SubstraitLiteralExecutionTest, StrictDecimalLengthAndTypeParameters) {
     reject(projection({expression(literal)}), "exactly 16 bytes");
     reject(values({decimalType(18, 2)}, {{literal}}), "exactly 16 bytes");
   }
-  for (const auto& pair : std::vector<std::pair<int, int>>{
-           {0, 0}, {39, 0}, {256, 0}, {18, -1}, {18, 19}}) {
-    auto literal = decimalLiteral(pair.first, pair.second, 0);
-    reject(projection({expression(literal)}), "precision in [1, 38]");
-    reject(values({decimalType(pair.first, pair.second)}, {}), "precision in [1, 38]");
+  for (const auto& [precision, scale, reason] : std::vector<std::tuple<int, int, std::string>>{
+           {0, 0, "Canonical bridge decimal.precision must be in [1, 38]; actual=0"},
+           {39, 0, "Canonical bridge decimal.precision must be in [1, 38]; actual=39"},
+           {256, 0, "Canonical bridge decimal.precision must be in [1, 38]; actual=256"},
+           {18, -1, "Canonical bridge decimal.scale must be in [0, 38]; actual=-1"},
+           {18, 19, "Canonical bridge decimal parameter constraint failed: (s <= p); precision=18; scale=19"}}) {
+    auto literal = decimalLiteral(precision, scale, 0);
+    reject(projection({expression(literal)}), reason);
+    reject(values({decimalType(precision, scale)}, {}), reason);
   }
 }
 
@@ -468,9 +503,13 @@ TEST_F(SubstraitLiteralExecutionTest, RejectGuessedScalarOutputAndUnboundAnchor)
   reject(projection({binary(left, right, decimalType(35, 5))}, {"multiply"}),
          "output contract mismatch");
   reject(projection({binary(left, right, decimalType(35, 6))}),
-         "unbound scalar function anchor");
-  reject(projection({binary(left, right, decimalType(35, 6))}, {"missing_scalar"}),
-         "no exact scalar signature");
+         "Unbound canonical function anchor");
+  auto unknown = pangrova::test::canonicalTestPlan(
+      projection({binary(left, right, decimalType(35, 6))}, {"add"}));
+  // Qualify a valid declaration before corrupting its name. The fixture adapter
+  // must not intercept this negative production-decoder oracle.
+  unknown.mutable_extensions(0)->mutable_extension_function()->set_name("missing_scalar");
+  reject(unknown, "Unbound canonical function declaration");
   Literal integer;
   integer.set_i32(2);
   reject(projection({binary(left, integer, decimalType(10, 2))}, {"add"}),
@@ -499,7 +538,7 @@ TEST_F(SubstraitLiteralExecutionTest, RejectCaseBranchPrecisionDrift) {
   clause->mutable_then()->mutable_literal()->CopyFrom(decimalLiteral(10, 2, 123));
   conditional.mutable_if_then()->mutable_else_()->mutable_literal()
       ->CopyFrom(decimalLiteral(10, 3, 1230));
-  reject(projection({conditional}), "same type");
+  rejectSpecialFormInput(projection({conditional}));
 }
 
 TEST_F(SubstraitLiteralExecutionTest, RejectCaseNonBooleanCondition) {
@@ -508,7 +547,7 @@ TEST_F(SubstraitLiteralExecutionTest, RejectCaseNonBooleanCondition) {
   clause->mutable_if_()->mutable_literal()->set_i64(1);
   clause->mutable_then()->mutable_literal()->set_i64(2);
   conditional.mutable_if_then()->mutable_else_()->mutable_literal()->set_i64(3);
-  reject(projection({conditional}), "not bool");
+  rejectSpecialFormInput(projection({conditional}));
 }
 
 TEST_F(SubstraitLiteralExecutionTest, ExplicitArrayCastRunsDistanceWithoutGuessing) {
@@ -518,7 +557,7 @@ TEST_F(SubstraitLiteralExecutionTest, ExplicitArrayCastRunsDistanceWithoutGuessi
   right.mutable_list()->add_values()->CopyFrom(decimalLiteral(10, 2, 400));
   right.mutable_list()->add_values()->CopyFrom(decimalLiteral(10, 2, 600));
   substrait::Type output_type;
-  output_type.mutable_fp64();
+  output_type.mutable_fp64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   auto call = binary(left, right, output_type);
   reject(projection({call}, {"l2_distance"}), "no exact scalar signature");
   for (int index = 0; index < 2; ++index) {
@@ -527,12 +566,13 @@ TEST_F(SubstraitLiteralExecutionTest, ExplicitArrayCastRunsDistanceWithoutGuessi
     auto original = *argument;
     argument->Clear();
     argument->mutable_cast()->mutable_input()->CopyFrom(original);
-    auto* element = argument->mutable_cast()->mutable_type()
-                        ->mutable_list()->mutable_type();
+    auto* list = argument->mutable_cast()->mutable_type()->mutable_list();
+    list->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+    auto* element = list->mutable_type();
     if (index == 0) {
-      element->mutable_fp32();
+      element->mutable_fp32()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
     } else {
-      element->mutable_fp64();
+      element->mutable_fp64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
     }
   }
   auto output = execute(projection({call}, {"l2_distance"}));

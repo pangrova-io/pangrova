@@ -141,6 +141,6 @@ public final class WorkerResourceBootstrap {
                         observability.otelInitializer(), refs.nativeAvailable(),
                         refs.shuffleServiceMemoryLease()),
                 new ShutdownContext.BufferRefs(null, refs.shuffleBufferManager()));
-        WorkerShutdownSequence.releaseResources(ctx);
+        WorkerShutdownSequence.releaseResources(ctx, () -> refs.setNativeAvailable(false));
     }
 }

@@ -9,7 +9,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
@@ -249,7 +249,7 @@ class WritePolicyObservationTest extends ContainerTestBase {
                 ignored -> Optional.empty());
         metadata = org.pangrova.coordinator.metadata.MetadataBootstrap.initialize(directory, connectorFactory);
         var root = metadata.buildCalciteSchema(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(actor));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(actor));
         return new SqlCompiler(new PangrovaPlanner(root, List.of("default", "default")),
                 new SubstraitConverter(), new SubstraitPlanSerializer());
     }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Distributed correctness checklist enforcement.
-# Ensures PRs touching critical modules (coordinator, worker, shuffle, metadata)
+# Ensures PRs changing critical production/config/build paths
 # have the distributed correctness section filled in the PR body.
 #
 # Usage: distributed-checklist-check.sh --base-ref origin/main [--pr-body-file /path/to/body.md]
@@ -38,8 +38,10 @@ CRITICAL_PATTERNS=(
 )
 
 # Collect changed files
-CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "${BASE_REF}"...HEAD 2>/dev/null || \
-                git diff --name-only --diff-filter=ACMR "${BASE_REF}" 2>/dev/null || true)
+if ! CHANGED_FILES=$(git diff --name-only "${BASE_REF}"...HEAD); then
+  echo "ERROR: Cannot determine changes against ${BASE_REF}." >&2
+  exit 1
+fi
 
 if [[ -z "${CHANGED_FILES}" ]]; then
   echo "No changed files detected. Skipping checklist check."
@@ -50,15 +52,19 @@ fi
 TOUCHES_CRITICAL=false
 CRITICAL_FILES=""
 
-for file in ${CHANGED_FILES}; do
+while IFS= read -r file; do
+  case "$file" in
+    */src/main/*|*/pom.xml) ;;
+    */src/test/*|*/docs/*|*.md|*.rst|*.adoc) continue ;;
+  esac
   for pattern in "${CRITICAL_PATTERNS[@]}"; do
-    if [[ "${file}" == *"${pattern}"* ]]; then
+    if [[ "${file}" == "${pattern}"* ]]; then
       TOUCHES_CRITICAL=true
       CRITICAL_FILES="${CRITICAL_FILES}  ${file}\n"
       break
     fi
   done
-done
+done <<< "$CHANGED_FILES"
 
 if [[ "${TOUCHES_CRITICAL}" == "false" ]]; then
   echo "No critical modules touched. Distributed checklist not required."
@@ -72,7 +78,7 @@ echo "Distributed correctness checklist is REQUIRED for this PR."
 echo ""
 
 # Get PR body content
-PR_BODY=""
+PR_BODY="${PR_BODY:-}"
 if [[ -n "${PR_BODY_FILE}" && -f "${PR_BODY_FILE}" ]]; then
   PR_BODY=$(cat "${PR_BODY_FILE}")
 elif [[ -n "${PR_BODY:-}" ]]; then
@@ -97,12 +103,16 @@ if ! echo "${PR_BODY}" | grep -qi "## Distributed Correctness"; then
 fi
 
 # Extract the distributed correctness section
-CHECKLIST_SECTION=$(echo "${PR_BODY}" | sed -n '/## Distributed Correctness/,/^## /p' | head -n -1)
+CHECKLIST_SECTION=$(printf '%s\n' "$PR_BODY" | awk '
+  /^## Distributed Correctness[[:space:]]*$/ { in_section=1; next }
+  in_section && /^## / { exit }
+  in_section { print }
+')
 
 # Check if the section is marked as N/A
-if echo "${CHECKLIST_SECTION}" | grep -qi "N/A"; then
+if printf '%s\n' "$CHECKLIST_SECTION" | grep -qiE '^[[:space:]]*N/A[[:space:]]*:[[:space:]]*[^[:space:]]'; then
   echo "PASSED: Distributed correctness section marked as N/A."
-  echo "(Author has explicitly declared this change does not affect distributed behavior.)"
+  echo "(Author supplied a reason why distributed behavior is unaffected.)"
   exit 0
 fi
 
@@ -121,7 +131,7 @@ if [[ "${CHECKED_ITEMS}" -eq 0 ]]; then
   echo ""
   echo "This PR touches critical modules (coordinator, worker, shuffle, metadata)."
   echo "You must check at least one item and provide a brief explanation,"
-  echo "or mark the section as N/A with justification."
+  echo "or write 'N/A: <reason>' when distributed behavior is unaffected."
   echo ""
   echo "Checklist items:"
   echo "  - Network partition behavior"

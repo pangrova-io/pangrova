@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.metadata;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.SessionContextConverter;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.spi.connector.ConnectorSession;
 
 import java.util.Map;

@@ -3,7 +3,7 @@ package org.pangrova.connector.iceberg;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.connector.iceberg.handle.IcebergOutputHandleCodec;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 

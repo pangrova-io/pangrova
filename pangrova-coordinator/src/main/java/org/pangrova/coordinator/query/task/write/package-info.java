@@ -1,6 +1,7 @@
 /**
- * Coordinator-owned write allocation identity. Internal stable values are consumed by scheduling
- * and commit tracking inside this leaf; this package does not authorize writes, perform SDK I/O,
- * execute data, or define a second serialized execution protocol.
+ * Coordinator-owned write allocation, fragment tracking and fenced commit-recovery contracts.
+ * Scheduling and report completion consume these owners; recovery invokes an explicit reconciler
+ * through the existing catalog adapter. This leaf depends on SPI coordination/connector values,
+ * not task-report reception, query scheduling, Native execution or another wire protocol.
  */
 package org.pangrova.coordinator.query.task.write;

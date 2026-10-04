@@ -106,8 +106,20 @@ class QueryDurableRecoveryWiringTest {
                 new InMemoryDistributedLease())) {
             wiring.wireHighAvailability(service, () -> healthTimer, cleanupPool, 10L);
             assertThat(rpcStarted.await(3, TimeUnit.SECONDS)).isTrue();
-            wiring.close();
-            releaseRpc.countDown();
+            var closing = Executors.newSingleThreadExecutor();
+            try {
+                var exited = closing.submit(wiring::close);
+                org.awaitility.Awaitility.await().atMost(3, TimeUnit.SECONDS).untilAsserted(() ->
+                        assertThatThrownBy(() -> wiring.wireHighAvailability(
+                                service, () -> healthTimer, cleanupPool, 10L))
+                                .isInstanceOf(IllegalStateException.class));
+                assertThat(exited).isNotDone();
+                releaseRpc.countDown();
+                exited.get(3, TimeUnit.SECONDS);
+            } finally {
+                releaseRpc.countDown();
+                org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(closing, 3000);
+            }
             healthTimer.schedule(() -> { }, 50, TimeUnit.MILLISECONDS)
                     .get(3, TimeUnit.SECONDS);
             assertThat(attempts.get()).isEqualTo(1);
@@ -119,6 +131,40 @@ class QueryDurableRecoveryWiringTest {
             wiring.close();
             cleanupPool.shutdownNow();
             healthTimer.shutdownNow();
+        }
+    }
+
+    @Test
+    void scheduleInstallationMustActuallyExitBeforeShutdownCompletes() throws Exception {
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
+        var installing = Executors.newSingleThreadExecutor();
+        CountDownLatch selected = new CountDownLatch(1);
+        CountDownLatch publish = new CountDownLatch(1);
+        var wiring = QueryDurableRecoveryWiring.withCleanupSource(
+                CoordinatorBootstrapConfig.withDefaults("coordinator-1", 0), List::of, ignored -> { });
+        try (var service = new HighAvailabilityCoordinationService(new InMemoryDistributedLease())) {
+            var actualInstall = installing.submit(() -> wiring.wireHighAvailability(service, () -> {
+                selected.countDown();
+                await(publish);
+                return scheduler;
+            }, Runnable::run, 10L));
+            assertThat(selected.await(3, TimeUnit.SECONDS)).isTrue();
+            Thread.currentThread().interrupt();
+            try {
+                assertThatThrownBy(wiring::close).isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("Interrupted joining actual coordinator callbacks");
+            } finally { Thread.interrupted(); }
+            publish.countDown();
+            assertThatThrownBy(() -> actualInstall.get(3, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(IllegalStateException.class);
+            wiring.close();
+            assertThatThrownBy(() -> wiring.wireHighAvailability(
+                    service, () -> scheduler, Runnable::run, 10L)).isInstanceOf(IllegalStateException.class);
+        } finally {
+            publish.countDown();
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(installing, 3000);
+            wiring.close();
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, 3000);
         }
     }
 

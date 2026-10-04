@@ -63,6 +63,17 @@ message ExecutionCallbackContext {
   TraceContext trace_context = 6;
 }
 
+// Compact control-plane cancellation authority for the exact NETWORK request.
+// The digest is SHA-256 over deterministic TaskRequest serialization before
+// Worker-local storage bindings are added. It carries no plan or source rows.
+// Sealing this identity must prevent a late submission from reopening it.
+message TaskAdmissionSealRequest {
+  ProtocolVersion protocol = 1;
+  TaskAttemptId attempt = 2;
+  Checksum canonical_request_checksum = 3;
+  uint64 deadline_epoch_ms = 4;
+}
+
 message TaskRequest {
   ProtocolVersion protocol = 1;
   TaskAttemptId attempt = 2;

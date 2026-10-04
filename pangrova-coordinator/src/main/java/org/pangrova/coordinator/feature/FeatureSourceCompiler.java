@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.feature;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
 
 /** Trusted process-injected access to the sole authenticated SQL compilation pipeline. */

@@ -19,7 +19,8 @@
 
 #include "../TestMemoryHelper.h"
 #include "columnar/CanonicalBatchStream.h"
-#include "result/ArrowBatchVectorSerde.h"
+#include "velox/serde/ArrowBatchVectorSerde.h"
+#include "velox/plan/CanonicalPlanSchema.h"
 
 #include "velox/common/memory/ByteStream.h"
 #include "velox/common/memory/Memory.h"
@@ -34,6 +35,15 @@ namespace pangrova::velox::test {
 namespace {
 
 using namespace facebook::velox;
+namespace schema = pangrova::velox::schema;
+
+ArrowBatchVectorSerde::StreamOptions declaredInteger(
+    const std::string& name, substrait::Type::Nullability nullability) {
+  ArrowBatchVectorSerde::StreamOptions options;
+  options.canonical_schema = std::make_shared<const substrait::NamedStruct>(
+      schema::named({schema::computed(name, schema::primitive("i64", nullability))}));
+  return options;
+}
 
 class BatchSerdeRegistrationTest : public ::testing::Test {
  protected:
@@ -53,7 +63,7 @@ class BatchSerdeRegistrationTest : public ::testing::Test {
 // Verifies that the named batch serde is registered after runtime init.
 TEST_F(BatchSerdeRegistrationTest, SerdeRegisteredAtStartup) {
   EXPECT_TRUE(facebook::velox::isRegisteredNamedVectorSerde(
-      pangrova::result::ArrowBatchVectorSerde::kSerdeKind))
+      pangrova::velox::ArrowBatchVectorSerde::kSerdeKind))
       << "Batch serde must be registered after runtime initialization";
 }
 
@@ -71,8 +81,9 @@ TEST_F(BatchSerdeRegistrationTest, SerializeProducesValidArrowBatch) {
   ASSERT_EQ(input->size(), 6);
 
   // Serialize via the batch serde.
-  pangrova::result::ArrowBatchVectorSerde serde;
-  auto serializer = serde.createBatchSerializer(pool_.get());
+  pangrova::velox::ArrowBatchVectorSerde serde;
+  const auto options = declaredInteger("id", substrait::Type::NULLABILITY_REQUIRED);
+  auto serializer = serde.createBatchSerializer(pool_.get(), &options);
   ASSERT_NE(serializer, nullptr);
 
   auto outputStream = std::make_unique<IOBufOutputStream>(*pool_);
@@ -97,6 +108,7 @@ TEST_F(BatchSerdeRegistrationTest, SerializeProducesValidArrowBatch) {
   ASSERT_TRUE(batch->ValidateFull().ok());
   ASSERT_EQ(batch->num_columns(), 1);
   EXPECT_EQ(batch->schema()->field(0)->name(), "id");
+  EXPECT_FALSE(batch->schema()->field(0)->nullable());
   ASSERT_EQ(batch->num_rows(), int_values.size());
   ASSERT_EQ(batch->column(0)->type_id(), arrow::Type::INT64);
   auto values = std::static_pointer_cast<arrow::Int64Array>(batch->column(0));
@@ -116,8 +128,9 @@ TEST_F(BatchSerdeRegistrationTest, UnsupportedTypeFailsWithoutWritingPayload) {
       pool_.get(), rowType, nullptr, 3,
       std::vector<VectorPtr>{opaqueVector});
 
-  pangrova::result::ArrowBatchVectorSerde serde;
-  auto serializer = serde.createBatchSerializer(pool_.get());
+  pangrova::velox::ArrowBatchVectorSerde serde;
+  const auto options = declaredInteger("opaque_col", substrait::Type::NULLABILITY_NULLABLE);
+  auto serializer = serde.createBatchSerializer(pool_.get(), &options);
   ASSERT_NE(serializer, nullptr);
 
   auto outputStream = std::make_unique<IOBufOutputStream>(*pool_);
@@ -129,7 +142,7 @@ TEST_F(BatchSerdeRegistrationTest, UnsupportedTypeFailsWithoutWritingPayload) {
           rowVector,
           folly::Range<const IndexRange*>(ranges.data(), ranges.size()),
           outputStream.get()),
-      pangrova::result::ArrowBatchUnsupportedTypeException)
+      pangrova::velox::ArrowBatchUnsupportedTypeException)
       << "Unsupported type must fail before publishing any payload";
   EXPECT_EQ(outputStream->tellp(), std::streampos(0));
 }

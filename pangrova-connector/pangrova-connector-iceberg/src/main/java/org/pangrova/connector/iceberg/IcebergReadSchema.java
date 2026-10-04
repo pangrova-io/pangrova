@@ -21,6 +21,13 @@ record IcebergReadSchema(Schema schema, Optional<Map<String, String>> declaratio
         if (!table.location().equals(handle.tableLocation())) {
             throw new IllegalArgumentException("Iceberg metadata belongs to a different table");
         }
+        if (IcebergTableHandle.READ_MODE_FULL.equals(handle.readMode())
+                && handle.properties().containsKey(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY)) {
+            var properties = new java.util.LinkedHashMap<>(handle.properties());
+            properties.remove(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY);
+            return new IcebergReadSchema(org.apache.iceberg.SchemaParser.fromJson(handle.schemaJson()),
+                    Optional.of(Map.copyOf(properties)));
+        }
         if (handle.snapshotId().isEmpty()) {
             return new IcebergReadSchema(table.schema(), Optional.of(Map.copyOf(table.properties())));
         }

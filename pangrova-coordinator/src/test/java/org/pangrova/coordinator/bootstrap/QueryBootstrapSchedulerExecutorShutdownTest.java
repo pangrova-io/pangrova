@@ -4,8 +4,12 @@ import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that {@link QueryBootstrap#shutdown()} shuts down the schedulerExecutor
@@ -14,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class QueryBootstrapSchedulerExecutorShutdownTest {
 
     @Test
-    void shutdownTerminatesSchedulerExecutor() {
+    void shutdownTerminatesSchedulerExecutor() throws Exception {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("exec-shutdown-1", 0);
         QueryBootstrap bootstrap = new QueryBootstrap(
                 config, new NoOpTracingProvider(), null, null, null,
@@ -25,12 +29,21 @@ class QueryBootstrapSchedulerExecutorShutdownTest {
         // Force lazy creation of schedulerExecutor
         ScheduledExecutorService executor = bootstrap.schedulerExecutor();
         assertThat(executor.isShutdown()).isFalse();
+        var actualCallback = new CountDownLatch(1);
+        executor.execute(actualCallback::countDown);
+        assertThat(actualCallback.await(3, TimeUnit.SECONDS)).isTrue();
 
         bootstrap.shutdown();
 
         assertThat(executor.isShutdown())
                 .as("schedulerExecutor should be shut down after QueryBootstrap.shutdown()")
                 .isTrue();
+        assertThat(executor.isTerminated())
+                .as("shutdown returns only after the actual owned executor has exited")
+                .isTrue();
+        assertThatThrownBy(() -> executor.execute(() -> {
+            throw new AssertionError("retired scheduler accepted new work");
+        })).isInstanceOf(RejectedExecutionException.class);
     }
 
     @Test

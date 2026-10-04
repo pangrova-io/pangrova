@@ -18,6 +18,9 @@ import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore
 import org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore.PartitionProgress;
 import org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore;
 import org.pangrova.planner.ShuffleType;
+import org.pangrova.planner.AuthorizedStageGraph;
+import org.pangrova.planner.SerializedPlanFragment;
+import org.pangrova.planner.StageTransfer;
 import org.pangrova.protocol.BoundExecutionPlan;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.BatchSerde;
@@ -103,6 +106,7 @@ public final class DurableStageRuntime {
     /** Creates ordinary Stage entities from the same persisted graph's exact parallelism and exchange shape. */
     public StageDAG dag() {
         var graph = execution.authority().dispatchSpec().stageGraph();
+        validateExchangeContracts(graph);
         List<StageNode> nodes = graph.stages().stream().map(stage -> new StageNode(stage.stageId(),
                 new PersistedStagePlan(stage), stage.parallelism(), stage.publicationOutput() ? "OUTPUT" : "COMPUTE",
                 List.of())).toList();
@@ -116,6 +120,23 @@ public final class DurableStageRuntime {
                 .add(edge.upstreamStageId()));
         upstream.replaceAll((stage, inputs) -> List.copyOf(inputs));
         return StageDAG.fromNodes(nodes, upstream, edges).withStages(control.executionId());
+    }
+
+    /** Opaque persisted bytes are inspected only at this execution boundary, never by the metadata store. */
+    static void validateExchangeContracts(ArtifactStageGraph graph) {
+        if (graph.exchanges().isEmpty()) return;
+        Map<Integer, SerializedPlanFragment> plans = new HashMap<>();
+        graph.stages().forEach(stage -> plans.put(stage.stageId(),
+                new SerializedPlanFragment(stage.planBytes(), List.of(), List.of())));
+        var transfers = graph.exchanges().stream().map(edge -> new StageTransfer(edge.upstreamStageId(),
+                edge.downstreamStageId(), ShuffleType.valueOf(edge.distribution().name()), edge.distributionKeys(),
+                edge.exchangeId(), edge.partitionCount(), BatchSerde.valueOf(edge.batchSerde()),
+                edge.requireComplete())).toList();
+        try {
+            AuthorizedStageGraph.validateExchangeContracts(plans, transfers);
+        } catch (IllegalArgumentException failure) {
+            throw new IllegalArgumentException("Persisted exchange wire contract is invalid; rebuild required", failure);
+        }
     }
 
     /** Reads only frozen bytes and exact model contracts; does not resolve a new model version or publication. */

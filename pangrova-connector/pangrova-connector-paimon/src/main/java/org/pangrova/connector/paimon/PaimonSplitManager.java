@@ -67,14 +67,20 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             Constraint constraint) {
         PaimonTableHandle paimonTable = (PaimonTableHandle) table;
         Table freshTable = loadFreshTable(paimonTable);
+        FileStoreTable selectedTable = PaimonReadBindings.requireSelectedTable(freshTable, paimonTable);
+        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         if (paimonTable.snapshotId().isPresent()) {
-            freshTable = applyTimeTravel(freshTable, paimonTable.snapshotId().get());
+            freshTable = "true".equals(paimonTable.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))
+                    ? selectedTable.copyWithoutTimeTravel(Map.of("scan.snapshot-id",
+                            Long.toString(paimonTable.snapshotId().orElseThrow())))
+                    : applyTimeTravel(freshTable, paimonTable.snapshotId().get());
         } else {
             freshTable = applyTimeTravelHints(freshTable, paimonTable.properties());
         }
         String changelogProducer = resolveChangelogProducer(freshTable);
         TableSplitContext ctx = buildTableContext(freshTable, changelogProducer);
         List<ConnectorSplit> splits = planSplits(freshTable, paimonTable.tableName(), ctx, constraint);
+        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         LOG.debug("event=splits_planned count={} table={}.{} changelog_producer={} partitioned={} snapshotId={}",
                 splits.size(), paimonTable.schemaName(), paimonTable.tableName(),
                 changelogProducer, !freshTable.partitionKeys().isEmpty(),

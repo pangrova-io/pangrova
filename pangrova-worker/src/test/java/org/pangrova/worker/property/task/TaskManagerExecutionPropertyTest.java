@@ -10,8 +10,8 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskPlans;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 import org.pangrova.worker.task.ActualTaskManagerFixture;
 import org.pangrova.worker.task.TaskManager;
 

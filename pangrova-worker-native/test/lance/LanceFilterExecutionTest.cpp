@@ -1,6 +1,8 @@
 // Native component oracle: real Lance write/commit -> canonical FilterRel ->
 // production connector -> real Velox Task. This is not JNI or SQL E2E evidence.
 #include "LanceDatasetTestFixture.h"
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <atomic>
 #include <unordered_map>
@@ -36,7 +38,7 @@ substrait::Expression predicate(
   substrait::Expression expression;
   auto* call = expression.mutable_scalar_function();
   call->set_function_reference(anchor);
-  call->mutable_output_type()->mutable_bool_();
+  call->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   call->add_arguments()->mutable_value()->CopyFrom(left);
   call->add_arguments()->mutable_value()->CopyFrom(right);
   return expression;
@@ -63,9 +65,15 @@ substrait::Plan filterPlan(
     base->add_names(schema->nameOf(i));
     auto* type = base->mutable_struct_()->add_types();
     switch (schema->childAt(i)->kind()) {
-      case TypeKind::BIGINT: type->mutable_i64(); break;
-      case TypeKind::VARCHAR: type->mutable_string(); break;
-      case TypeKind::DOUBLE: type->mutable_fp64(); break;
+      case TypeKind::BIGINT:
+        type->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+        break;
+      case TypeKind::VARCHAR:
+        type->mutable_string()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+        break;
+      case TypeKind::DOUBLE:
+        type->mutable_fp64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+        break;
       default: throw std::invalid_argument("Unsupported Lance oracle schema");
     }
   }
@@ -114,8 +122,10 @@ class LanceFilterExecutionTest : public LanceDatasetTestFixture {
       const std::string& path, substrait::Plan& plan, uint32_t batch_rows,
       bool mutate_after_conversion = false) {
     auto splits = partitions(path);
-    const auto bytes = plan.SerializeAsString();
-    pangrova::velox::VeloxPlanConverter converter;
+    const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    pangrova::velox::VeloxPlanConverter converter(converter_registry);
     auto converted = converter.convert({bytes.begin(), bytes.end()}, splits);
     // Mutating the original IR cannot change the already compiled predicate.
     if (mutate_after_conversion) {
@@ -128,6 +138,7 @@ class LanceFilterExecutionTest : public LanceDatasetTestFixture {
       throw std::runtime_error("Lance oracle requires one scan and real partitions");
     }
     std::unordered_map<std::string, std::string> config{
+        {"require_function_registry_snapshot", "true"},
         {core::QueryConfig::kPreferredOutputBatchRows, std::to_string(batch_rows)},
         {core::QueryConfig::kMaxOutputBatchRows, std::to_string(batch_rows)}};
     static std::atomic<uint64_t> sequence{0};
@@ -135,7 +146,7 @@ class LanceFilterExecutionTest : public LanceDatasetTestFixture {
         "canonical-lance-filter-" + std::to_string(sequence.fetch_add(1)),
         core::PlanFragment{converted}, 0,
         core::QueryCtx::create(pangrova::jni::globalExecutor().get(),
-            core::QueryConfig{std::move(config)}), exec::Task::ExecutionMode::kSerial);
+            core::QueryConfig{std::move(config), converter_registry}), exec::Task::ExecutionMode::kSerial);
     EXPECT_TRUE(task->supportSerialExecutionMode());
     for (auto& split : splits) {
       task->addSplit(scans.begin()->first, exec::Split{

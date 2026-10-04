@@ -49,7 +49,19 @@ WORKDIR /workspace
 # sources/builds; the installed archives remain in the resulting image layer.
 COPY pangrova-worker-native/bin/setup-native-build-env.sh /workspace/pangrova-worker-native/bin/setup-native-build-env.sh
 COPY pangrova-worker-native/bin/apply-velox-patches.sh /workspace/pangrova-worker-native/bin/apply-velox-patches.sh
+COPY pangrova-worker-native/bin/record-function-provenance.sh /workspace/pangrova-worker-native/bin/record-function-provenance.sh
+COPY pangrova-worker-native/tools/function-contracts/FunctionGenerationIdentity.cpp /workspace/pangrova-worker-native/tools/function-contracts/FunctionGenerationIdentity.cpp
 COPY pangrova-worker-native/patches/velox-function-metadata-snapshot.patch /workspace/pangrova-worker-native/patches/velox-function-metadata-snapshot.patch
+COPY pangrova-protocol/tools/function-contracts/generate_execution_selection.py /workspace/pangrova-protocol/tools/function-contracts/generate_execution_selection.py
+COPY pangrova-protocol/tools/function-contracts/execution_selection.py /workspace/pangrova-protocol/tools/function-contracts/execution_selection.py
+COPY pangrova-protocol/tools/function-contracts/generate_special_type_programs.py /workspace/pangrova-protocol/tools/function-contracts/generate_special_type_programs.py
+COPY pangrova-protocol/tools/function-contracts/contract_generation_inputs.py /workspace/pangrova-protocol/tools/function-contracts/contract_generation_inputs.py
+COPY pangrova-protocol/tools/function-contracts/special_type_programs.py /workspace/pangrova-protocol/tools/function-contracts/special_type_programs.py
+COPY pangrova-protocol/tools/function-contracts/registered_signature.py /workspace/pangrova-protocol/tools/function-contracts/registered_signature.py
+COPY pangrova-protocol/tools/function-contracts/type_formula.py /workspace/pangrova-protocol/tools/function-contracts/type_formula.py
+COPY pangrova-protocol/tools/function-contracts/registration_catalog.py /workspace/pangrova-protocol/tools/function-contracts/registration_catalog.py
+COPY pangrova-protocol/tools/function-contracts/scalar_implementations.py /workspace/pangrova-protocol/tools/function-contracts/scalar_implementations.py
+COPY pangrova-protocol/src/main/resources/function-contracts/execution-selection.json /workspace/pangrova-protocol/src/main/resources/function-contracts/execution-selection.json
 COPY pangrova-worker-native/bin/prepare-lance-sdk.sh /workspace/pangrova-worker-native/bin/prepare-lance-sdk.sh
 COPY pangrova-worker-native/patches/lance-writer-drain.patch /workspace/pangrova-worker-native/patches/lance-writer-drain.patch
 RUN --mount=type=cache,id=pangrova-native-deps-${TARGETARCH},target=/tmp/pangrova-native-build,sharing=locked \

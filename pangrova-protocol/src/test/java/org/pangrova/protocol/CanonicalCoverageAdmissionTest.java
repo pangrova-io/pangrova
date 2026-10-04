@@ -1,5 +1,8 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.task.WorkerTerminalTaskReports;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 

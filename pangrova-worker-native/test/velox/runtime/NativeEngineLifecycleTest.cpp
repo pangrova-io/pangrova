@@ -5,6 +5,7 @@
 // lifecycle, accessor validity, and stale handle rejection after re-init.
 
 #include "velox/runtime/NativeEngineLifecycle.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <stdexcept>
 
@@ -30,6 +31,8 @@ NativeRuntimeConfig makeTestConfig() {
 
 pangrova::executor::TaskExecutorConfig makeTaskConfig(const std::string& id) {
   pangrova::executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = id;
   config.query_id = "test-query";
   return config;

@@ -1,6 +1,14 @@
 package org.pangrova.planner;
 
 import com.google.common.collect.ImmutableList;
+import com.google.protobuf.Any;
+import io.substrait.proto.Plan;
+import io.substrait.proto.Rel;
+import io.substrait.proto.ExchangeRel;
+import org.pangrova.protocol.substrait.SubstraitRelationLayout;
+import org.pangrova.protocol.v2.ExchangeInputDetail;
+import org.pangrova.protocol.v2.ExchangeDistribution;
+import org.pangrova.protocol.v2.RelationDetailEnvelope;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
 import org.apache.calcite.rel.logical.LogicalValues;
@@ -25,11 +33,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AuthorizedStageGraphTest {
     @Test
     void canonicalizesOrderingAndPreservesMultiplePhysicalSources() throws Exception {
-        var left = stage(1, 4, "COMPUTE", "left", plan());
-        var right = stage(2, 4, "COMPUTE", "right", plan());
-        var output = stage(0, 1, "OUTPUT", null, plan());
         var first = edge(1, 0, "left-gather");
         var second = edge(2, 0, "right-gather");
+        var left = stage(1, 4, "COMPUTE", "left", producerPlan());
+        var right = stage(2, 4, "COMPUTE", "right", producerPlan());
+        var output = stage(0, 1, "OUTPUT", null, consumerPlan(List.of(first, second)));
         var graph = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(right, output, left), List.of(second, first));
         var reordered = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
@@ -76,7 +84,7 @@ class AuthorizedStageGraphTest {
                 List.of(edge(1, 2, "forward"), edge(2, 1, "backward"), edge(2, 0, "terminal"))))
                 .hasMessageContaining("cycle");
         var partial = new StageTransfer(1, 0, ShuffleType.SINGLETON, List.of(), "partial", 1,
-                BatchSerde.BATCH_SERDE_NATIVE_ROW, false);
+                BatchSerde.BATCH_SERDE_ARROW_BATCH, false);
         assertThatThrownBy(() -> new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, first), List.of(partial)))
                 .hasMessageContaining("invalid exchange");
@@ -86,15 +94,46 @@ class AuthorizedStageGraphTest {
     }
 
     private static SerializedStage stage(int id, int parallelism, String role, String source,
-            SerializedPlanFragment plan) {
+            SerializedPlanFragment plan) throws Exception {
         List<SplitSourceDescriptor> sources = source == null ? List.of() : List.of(
-                new SplitSourceDescriptor("lake", "raw", source, Constraint.EMPTY, List.of("id")));
-        return new SerializedStage(id, parallelism, role, plan, sources, List.of("id"), List.of(), -1, -1);
+                new SplitSourceDescriptor("lake", "raw", source, Constraint.EMPTY, List.of("id"), java.util.Optional.empty()));
+        var schema = SubstraitRelationLayout.rootSchema(Plan.parseFrom(plan.planBytes()).getRelations(0).getRoot());
+        return new SerializedStage(id, parallelism, role, plan, sources,
+                SubstraitRelationLayout.topLevelNames(schema), List.of(), -1, -1);
+    }
+
+    private static SerializedPlanFragment producerPlan() throws Exception {
+        Plan source = Plan.parseFrom(plan().planBytes());
+        var root = source.getRelations(0).getRoot();
+        var exchange = Rel.newBuilder().setExchange(ExchangeRel.newBuilder().setInput(root.getInput())
+                .setPartitionCount(1).setRoundRobin(ExchangeRel.RoundRobin.newBuilder().setExact(true))).build();
+        return new SerializedPlanFragment(source.toBuilder().setRelations(0, source.getRelations(0).toBuilder()
+                .setRoot(root.toBuilder().setInput(exchange))).build().toByteArray(), List.of(), List.of());
+    }
+
+    private static SerializedPlanFragment consumerPlan(List<StageTransfer> edges) throws Exception {
+        Plan source = Plan.parseFrom(plan().planBytes());
+        var schema = SubstraitRelationLayout.describe(source.getRelations(0).getRoot().getInput()).outputSchema();
+        List<Rel> inputs = edges.stream().map(edge -> {
+            var detail = ExchangeInputDetail.newBuilder().setPlanNodeId("input-" + edge.exchangeId())
+                    .setExchangeId(edge.exchangeId()).setUpstreamStageId(edge.upstreamStageId())
+                    .setDownstreamStageId(edge.downstreamStageId()).setPartitionCount(edge.partitionCount())
+                    .setDistribution(ExchangeDistribution.EXCHANGE_DISTRIBUTION_SINGLETON)
+                    .setBatchSerde(edge.batchSerde()).setRequireComplete(true).setOutputSchema(schema).build();
+            return Rel.newBuilder().setExtensionLeaf(io.substrait.proto.ExtensionLeafRel.newBuilder()
+                    .setDetail(Any.pack(RelationDetailEnvelope.newBuilder().setSchemaVersion(1)
+                            .setExchangeInput(detail).build()))).build();
+        }).toList();
+        Rel root = Rel.newBuilder().setCross(io.substrait.proto.CrossRel.newBuilder()
+                .setLeft(inputs.get(0)).setRight(inputs.get(1))).build();
+        return new SerializedPlanFragment(source.toBuilder().setRelations(0, source.getRelations(0).toBuilder()
+                .setRoot(source.getRelations(0).getRoot().toBuilder().setInput(root).clearNames()
+                        .addNames("left_id").addNames("right_id"))).build().toByteArray(), List.of(), List.of());
     }
 
     private static StageTransfer edge(int source, int target, String id) {
         return new StageTransfer(source, target, ShuffleType.SINGLETON, List.of(), id, 1,
-                BatchSerde.BATCH_SERDE_NATIVE_ROW, true);
+                BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
     }
 
     private static SerializedPlanFragment plan() throws Exception {

@@ -17,8 +17,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * to check whether a tenant has exceeded its memory or CPU time budget.
  * When a quota is exceeded, the task is cancelled.</p>
  *
- * <p>Concurrency strategy: all mutable state uses atomic types with CAS,
- * ensuring thread-safe accounting without locks.</p>
+ * <p>Each pre-registered task owns its slot and counters. Per-owner synchronization
+ * covers only in-memory quota accounting, never execution or external I/O.</p>
  */
 @ThreadSafe
 public final class TenantExecutionQuotaEnforcer {
@@ -27,32 +27,42 @@ public final class TenantExecutionQuotaEnforcer {
 
     private final TenantResourceTracker resourceTracker;
 
-    /** Per-task CPU time tracking: taskId → accumulated CPU time in milliseconds. */
-    private final Map<String, AtomicLong> taskCpuTime = new ConcurrentHashMap<>();
-
-    /** Per-task scan bytes tracking: taskId → accumulated scan bytes. */
-    private final Map<String, AtomicLong> taskScanBytes = new ConcurrentHashMap<>();
-
-    /** Per-task tenant mapping: taskId → tenantId. */
-    private final Map<String, String> taskTenantMap = new ConcurrentHashMap<>();
+    private final Map<String, TaskQuota> taskQuotas = new ConcurrentHashMap<>();
 
     public TenantExecutionQuotaEnforcer(TenantResourceTracker resourceTracker) {
         this.resourceTracker = resourceTracker;
     }
 
     /**
-     * Registers a task for quota tracking.
+     * Atomically reserves and registers a task's tenant concurrency slot.
      *
      * @param taskId   the worker-assigned task identifier
      * @param tenantId the tenant owning this task (null means no enforcement)
+     * @return whether this exact task owns a concurrency slot
      */
-    public void registerTask(String taskId, String tenantId) {
+    public boolean tryReserveTask(String taskId, String tenantId) {
+        java.util.Objects.requireNonNull(taskId, "taskId");
         if (tenantId == null || tenantId.isBlank()) {
-            return;
+            return true;
         }
-        taskTenantMap.put(taskId, tenantId);
-        taskCpuTime.put(taskId, new AtomicLong(0));
-        taskScanBytes.put(taskId, new AtomicLong(0));
+        TaskQuota added = new TaskQuota(tenantId);
+        TaskQuota existing = taskQuotas.putIfAbsent(taskId, added);
+        TaskQuota quota = existing == null ? added : existing;
+        synchronized (quota) {
+            if (!quota.tenantId.equals(tenantId)) {
+                throw new IllegalArgumentException("Task quota tenant cannot change: " + taskId);
+            }
+            if (quota.released) return false;
+            if (quota.acquired) return true;
+            try {
+                quota.acquired = resourceTracker.tryAcquireQuery(tenantId);
+                if (!quota.acquired) taskQuotas.remove(taskId, quota);
+                return quota.acquired;
+            } catch (RuntimeException | Error failure) {
+                taskQuotas.remove(taskId, quota);
+                throw failure;
+            }
+        }
     }
 
     /**
@@ -62,14 +72,8 @@ public final class TenantExecutionQuotaEnforcer {
      * @param cpuTimeDeltaMs incremental CPU time in milliseconds
      */
     public void recordCpuTime(String taskId, long cpuTimeDeltaMs) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return;
-        }
-        AtomicLong counter = taskCpuTime.get(taskId);
-        if (counter != null && cpuTimeDeltaMs > 0) {
-            counter.addAndGet(cpuTimeDeltaMs);
-        }
+        TaskQuota quota = taskQuotas.get(taskId);
+        if (quota != null && cpuTimeDeltaMs > 0) quota.cpuTime.addAndGet(cpuTimeDeltaMs);
     }
 
     /**
@@ -79,14 +83,8 @@ public final class TenantExecutionQuotaEnforcer {
      * @param scanBytesDelta incremental scan bytes
      */
     public void recordScanBytes(String taskId, long scanBytesDelta) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return;
-        }
-        AtomicLong counter = taskScanBytes.get(taskId);
-        if (counter != null && scanBytesDelta > 0) {
-            counter.addAndGet(scanBytesDelta);
-        }
+        TaskQuota quota = taskQuotas.get(taskId);
+        if (quota != null && scanBytesDelta > 0) quota.scanBytes.addAndGet(scanBytesDelta);
     }
 
     /**
@@ -97,11 +95,8 @@ public final class TenantExecutionQuotaEnforcer {
      * @return true if the task should be rejected/cancelled due to quota violation
      */
     public boolean isQuotaExceeded(String taskId) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return false;
-        }
-        return resourceTracker.isOverMemoryQuota(tenantId);
+        TaskQuota quota = taskQuotas.get(taskId);
+        return quota != null && resourceTracker.isOverMemoryQuota(quota.tenantId);
     }
 
     /**
@@ -117,13 +112,12 @@ public final class TenantExecutionQuotaEnforcer {
      * @throws TenantQuotaViolation if CPU time or scan bytes exceed tenant quota
      */
     public void checkDuringExecution(String taskId) {
-        String tenantId = taskTenantMap.get(taskId);
-        if (tenantId == null) {
-            return;
-        }
+        TaskQuota tracked = taskQuotas.get(taskId);
+        if (tracked == null) return;
+        String tenantId = tracked.tenantId;
         TenantResourceQuota quota = resourceTracker.getQuota(tenantId);
 
-        AtomicLong cpuCounter = taskCpuTime.get(taskId);
+        AtomicLong cpuCounter = tracked.cpuTime;
         if (cpuCounter != null && quota.hasCpuTimeLimit()) {
             long cpuTimeMs = cpuCounter.get();
             if (cpuTimeMs > quota.maxCpuTimePerQueryMs()) {
@@ -134,7 +128,7 @@ public final class TenantExecutionQuotaEnforcer {
             }
         }
 
-        AtomicLong scanCounter = taskScanBytes.get(taskId);
+        AtomicLong scanCounter = tracked.scanBytes;
         if (scanCounter != null && quota.hasScanBytesLimit()) {
             long scanBytes = scanCounter.get();
             if (scanBytes > quota.maxScanBytesPerQuery()) {
@@ -147,31 +141,18 @@ public final class TenantExecutionQuotaEnforcer {
     }
 
     /**
-     * Checks whether a new task can be admitted for the given tenant.
-     * Verifies both memory and concurrency quotas.
-     *
-     * @param tenantId the tenant identifier
-     * @return true if the task is admitted, false if quota is exceeded
-     */
-    public boolean canAdmitTask(String tenantId) {
-        if (tenantId == null || tenantId.isBlank()) {
-            return true;
-        }
-        return resourceTracker.tryAcquireQuery(tenantId);
-    }
-
-    /**
      * Releases a query slot when a task completes or is cancelled.
      *
      * @param taskId the task identifier
      */
     public void releaseTask(String taskId) {
-        String tenantId = taskTenantMap.remove(taskId);
-        if (tenantId != null) {
-            resourceTracker.releaseQuery(tenantId);
+        TaskQuota quota = taskQuotas.get(taskId);
+        if (quota == null) return;
+        synchronized (quota) {
+            if (quota.acquired && !quota.released) resourceTracker.releaseQuery(quota.tenantId);
+            quota.released = true;
+            taskQuotas.remove(taskId, quota);
         }
-        taskCpuTime.remove(taskId);
-        taskScanBytes.remove(taskId);
     }
 
     /**
@@ -195,10 +176,21 @@ public final class TenantExecutionQuotaEnforcer {
         return resourceTracker.getQuota(tenantId);
     }
 
+    private static final class TaskQuota {
+        private final String tenantId;
+        private final AtomicLong cpuTime = new AtomicLong();
+        private final AtomicLong scanBytes = new AtomicLong();
+        private boolean acquired;
+        private boolean released;
+
+        private TaskQuota(String tenantId) { this.tenantId = tenantId; }
+    }
+
     /**
      * Exception indicating a tenant quota violation during execution.
      */
     public static final class TenantQuotaViolation extends RuntimeException {
+        private static final long serialVersionUID = 1L;
         private final String tenantId;
         private final String violationType;
 

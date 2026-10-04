@@ -3,8 +3,18 @@
 //   - Velox adapter classes compile and are functional.
 //   - TaskExecutor uses Velox as the sole execution path.
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
+#include "../TestMemoryHelper.h"
+#include <stdexcept>
+#include <memory>
+#include <vector>
 
 #include "executor/driver/TaskExecutor.h"
+#include "executor/queue/OutputQueue.h"
+#include "velox/core/PlanNode.h"
+#include "velox/connectors/ConnectorRegistry.h"
+#include "velox/vector/BaseVector.h"
+#include "velox/vector/ComplexVector.h"
 #include "velox/connector/PangrovaVeloxConnector.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
 #include "velox/plan/VeloxPlanConverter.h"
@@ -16,37 +26,60 @@ namespace {
 // --- Availability checks ---
 
 TEST(VeloxAvailabilityTest, ConnectorAdapterIsAvailable) {
-  // Velox is a REQUIRED dependency — VeloxConnectorAdapter is always a real class.
-  EXPECT_TRUE(true);
+  pangrova::test::detail::ensureRuntimeInitialized();
+  const auto connector = facebook::velox::connector::ConnectorRegistry::tryGet(
+      PangrovaVeloxConnector::kConnectorId);
+  ASSERT_NE(connector, nullptr);
+  EXPECT_EQ(connector->connectorId(), PangrovaVeloxConnector::kConnectorId);
+  EXPECT_NE(std::dynamic_pointer_cast<PangrovaVeloxConnector>(connector), nullptr);
 }
 
 TEST(VeloxAvailabilityTest, PlanConverterIsAlwaysAvailable) {
-  // VeloxPlanConverter is always available — Velox is a REQUIRED dependency.
-  VeloxPlanConverter converter;
-  (void)converter;
-  EXPECT_TRUE(true);
+  pangrova::test::detail::ensureRuntimeInitialized();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  EXPECT_EQ(converter.convert({}, {}), nullptr);
+  EXPECT_THROW(converter.convert({0xff, 0xfe, 0xfd}, {}), std::runtime_error);
 }
 
 TEST(VeloxAvailabilityTest, TaskRunnerClassIsAvailable) {
-  // VeloxTaskRunner is always available — Velox is a REQUIRED dependency.
-  // Construction requires non-null plan and output_queue, so we just
-  // verify the class compiles and VeloxTaskRunnerConfig is usable.
+  auto pool = pangrova::test::testLeafPool("runner-admission-oracle");
+  using namespace facebook::velox;
+  auto values = BaseVector::create<RowVector>(ROW({"v"}, {BIGINT()}), 1, pool.get());
+  auto plan = std::make_shared<core::ValuesNode>("runner-values", std::vector<RowVectorPtr>{values});
+  executor::OutputQueue queue(1);
   VeloxTaskRunnerConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "test-task";
   config.query_id = "test-query";
   config.max_drivers = 1;
   EXPECT_EQ(config.max_drivers, 1);
+  EXPECT_NO_THROW(VeloxTaskRunner(config, plan, {}, &queue));
+  config.function_registry.reset();
+  EXPECT_THROW(VeloxTaskRunner(config, plan, {}, &queue), std::invalid_argument);
 }
 
 TEST(VeloxAvailabilityTest, MemoryBridgeIsAvailable) {
-  // Velox is a REQUIRED dependency — VeloxMemoryGovernor is always available.
-  EXPECT_TRUE(VeloxMemoryGovernor::isAvailable());
+  auto root = pangrova::test::testRootPool("velox-integration-allocation-root");
+  auto pool = root->addLeafChild("velox-integration-allocation");
+  ASSERT_TRUE(pool->trackUsage());
+  ASSERT_NE(pangrova::jni::globalVeloxMemoryGovernor(), nullptr);
+  auto* allocation = pool->allocate(1024);
+  ASSERT_NE(allocation, nullptr);
+  EXPECT_GE(pool->usedBytes(), 1024);
+  pool->free(allocation, 1024);
+  EXPECT_EQ(pool->usedBytes(), 0);
+  EXPECT_EQ(root->usedBytes(), 0);
 }
 
 // --- TaskExecutor uses Velox as sole execution path ---
 
 TEST(VeloxExecutionTest, TaskExecutorConstructsWithVeloxPath) {
   executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "test-task-velox";
   config.query_id = "test-query-1";
   config.substrait_plan = {};  // Empty plan.
@@ -61,9 +94,9 @@ TEST(VeloxExecutionTest, TaskExecutorConstructsWithVeloxPath) {
 // --- Compile-time verification ---
 
 TEST(VeloxCompileGuardTest, VeloxClassesCompile) {
-  // This test verifies that all Velox classes compile without
-  // conditional compilation guards.
-  EXPECT_TRUE(true);
+  EXPECT_THROW(VeloxPlanConverter(nullptr), std::invalid_argument);
+  VeloxTaskRunnerConfig config;
+  EXPECT_THROW(VeloxTaskRunner(config, nullptr, {}, nullptr), std::invalid_argument);
 }
 
 }  // namespace

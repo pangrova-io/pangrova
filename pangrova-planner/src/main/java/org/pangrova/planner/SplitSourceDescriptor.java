@@ -1,8 +1,10 @@
 package org.pangrova.planner;
 
 import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Calcite-free descriptor of a table scan extracted from a query plan.
@@ -17,16 +19,20 @@ import java.util.List;
  * @param tableName     table name
  * @param constraint    predicate constraint extracted from the plan (may be {@link Constraint#EMPTY})
  * @param tableColumns  column names visible in this table scan
+ * @param readBinding   selected connector source shared by planning and split enumeration;
+ *                      empty only for descriptors without a metadata-backed planning table
  */
 public record SplitSourceDescriptor(
         String catalogName,
         String schemaName,
         String tableName,
         Constraint constraint,
-        List<String> tableColumns) {
+        List<String> tableColumns,
+        Optional<ConnectorReadBinding> readBinding) {
 
     public SplitSourceDescriptor {
         tableColumns = tableColumns != null ? List.copyOf(tableColumns) : List.of();
+        java.util.Objects.requireNonNull(readBinding, "readBinding");
     }
 
     /**

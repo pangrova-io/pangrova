@@ -1,7 +1,8 @@
-// ShuffleBatchSerializer: PrestoVectorSerde-based shuffle serialization.
+// ShuffleBatchSerializer: standard Arrow stream shuffle serialization.
 // See ShuffleBatchSerializer.h for class documentation.
 
 #include "shuffle/ShuffleBatchSerializer.h"
+#include "velox/serde/CanonicalResultNullability.h"
 
 #include <algorithm>
 #include <folly/io/IOBuf.h>
@@ -71,12 +72,17 @@ std::vector<size_t> planShuffleBatchRowCounts(
 ShuffleBatchSerializer::ShuffleBatchSerializer(const Config& config)
     : config_(config),
       compression_kind_(resolveCompressionKind(config.compression_codec)) {
+  VELOX_USER_CHECK_GT(config_.batch_size, 0, "Shuffle batch row limit must be positive");
+  VELOX_USER_CHECK_GE(config_.compression_min_bytes, 0, "Shuffle compression threshold must be non-negative");
   VELOX_USER_CHECK_GT(
       config_.max_serialized_batch_bytes, kSerializedPageOverheadBytes,
       "Shuffle batch limit must exceed serialization overhead");
   VELOX_USER_CHECK_LE(
       config_.max_serialized_batch_bytes, kCanonicalShuffleBatchBytes,
       "Shuffle serializer limit exceeds canonical Flight page size");
+  VELOX_USER_CHECK_NOT_NULL(config_.canonical_schema,
+      "Shuffle serialization requires its admitted canonical schema");
+  velox::admittedCanonicalResultType(*config_.canonical_schema);
 }
 
 std::unique_ptr<folly::IOBuf> ShuffleBatchSerializer::serialize(
@@ -94,35 +100,22 @@ std::unique_ptr<folly::IOBuf> ShuffleBatchSerializer::serializeRange(
     facebook::velox::vector_size_t size,
     facebook::velox::memory::MemoryPool* pool) {
 
-  // PERF-T1: Use thread_local cached serializer to eliminate cross-thread
-  // lock contention. Each Velox Driver thread owns its own serializer
-  // instance, so no synchronization is needed.
-  static thread_local ThreadLocalSerializer tls_serializer;
-
-  // L4-1B: Determine effective compression. Skip compression for small
-  // vectors where CPU cost exceeds network savings (tiny buffers typically
-  // expand under compression due to framing overhead).
+  // Serializer ownership is scoped to this call; no driver-local cache retains
+  // a raw pool pointer after its task has terminated.
   auto effective_compression = compression_kind_;
-  auto estimated_bytes = vector->estimateFlatSize();
+  const auto selected = std::dynamic_pointer_cast<facebook::velox::RowVector>(vector->slice(begin, size));
+  const auto estimated_bytes = selected->estimateFlatSize();
   if (config_.compression_min_bytes > 0 &&
       estimated_bytes < static_cast<uint64_t>(config_.compression_min_bytes)) {
     effective_compression = facebook::velox::common::CompressionKind::
         CompressionKind_NONE;
   }
 
-  // L2-8: Reuse the cached BatchSerializer instance when the pool and
-  // compression match. createBatchSerializer() allocates internal scratch
-  // buffers; reusing avoids that overhead on every serialize() call.
-  if (!tls_serializer.serializer || tls_serializer.pool != pool ||
-      tls_serializer.compression != effective_compression) {
-    facebook::velox::serializer::presto::PrestoVectorSerde::PrestoOptions
-        options;
-    options.compressionKind = effective_compression;
-    options.useLosslessTimestamp = true;
-    tls_serializer.serializer = serde_.createBatchSerializer(pool, &options);
-    tls_serializer.pool = pool;
-    tls_serializer.compression = effective_compression;
-  }
+  pangrova::velox::ArrowBatchVectorSerde::StreamOptions options;
+  options.compressionKind = effective_compression;
+  options.maximum_bytes = config_.max_serialized_batch_bytes;
+  options.canonical_schema = config_.canonical_schema;
+  auto serializer = serde_.createBatchSerializer(pool, &options);
 
   facebook::velox::IndexRange range{
       begin, size};
@@ -131,7 +124,7 @@ std::unique_ptr<folly::IOBuf> ShuffleBatchSerializer::serializeRange(
   auto outputStream =
       std::make_unique<facebook::velox::IOBufOutputStream>(*pool);
 
-  tls_serializer.serializer->serialize(
+  serializer->serialize(
       vector,
       folly::Range<const facebook::velox::IndexRange*>(
           ranges.data(), ranges.size()),
@@ -142,29 +135,11 @@ std::unique_ptr<folly::IOBuf> ShuffleBatchSerializer::serializeRange(
 
 std::vector<uint64_t> ShuffleBatchSerializer::estimateRowBytes(
     const facebook::velox::RowVectorPtr& vector) {
-  std::vector<facebook::velox::IndexRange> ranges;
-  ranges.reserve(vector->size());
-  std::vector<facebook::velox::vector_size_t> estimates(vector->size(), 0);
-  std::vector<facebook::velox::vector_size_t*> estimate_pointers;
-  estimate_pointers.reserve(vector->size());
-  for (facebook::velox::vector_size_t row = 0; row < vector->size(); ++row) {
-    ranges.push_back({row, 1});
-    estimate_pointers.push_back(&estimates[row]);
-  }
-  facebook::velox::Scratch scratch;
-  serde_.estimateSerializedSize(
-      vector.get(),
-      folly::Range<const facebook::velox::IndexRange*>(
-          ranges.data(), ranges.size()),
-      estimate_pointers.data(), scratch);
-  std::vector<uint64_t> result;
-  result.reserve(estimates.size());
-  for (const auto estimate : estimates) {
-    VELOX_USER_CHECK_GE(
-        estimate, 0, "Shuffle serializer produced a negative row estimate");
-    result.push_back(static_cast<uint64_t>(estimate));
-  }
-  return result;
+  const auto average = vector->estimateFlatSize() / std::max(1, vector->size());
+  // A planning hint only: compressed output size is checked by the bounded
+  // Arrow sink, not inferred from a row's uncompressed representation.
+  const auto budget = config_.max_serialized_batch_bytes - kSerializedPageOverheadBytes;
+  return std::vector<uint64_t>(vector->size(), std::min<uint64_t>(average, budget));
 }
 
 std::vector<SerializedShuffleSlice> ShuffleBatchSerializer::serializeBatches(
@@ -183,7 +158,11 @@ std::vector<SerializedShuffleSlice> ShuffleBatchSerializer::serializeBatches(
   for (const auto row_count : row_counts) {
     const auto size =
         static_cast<facebook::velox::vector_size_t>(row_count);
-    serializeBoundedRange(vector, begin, size, pool, result);
+    for (facebook::velox::vector_size_t offset = 0; offset < size;) {
+      const auto count = std::min(config_.batch_size, size - offset);
+      serializeBoundedRange(vector, begin + offset, count, pool, result);
+      offset += count;
+    }
     begin += size;
   }
   return result;
@@ -195,18 +174,15 @@ void ShuffleBatchSerializer::serializeBoundedRange(
     facebook::velox::vector_size_t size,
     facebook::velox::memory::MemoryPool* pool,
     std::vector<SerializedShuffleSlice>& output) {
-  auto data = serializeRange(vector, begin, size, pool);
-  const auto serialized_bytes = data->computeChainDataLength();
-  if (serialized_bytes <= config_.max_serialized_batch_bytes) {
+  try {
+    auto data = serializeRange(vector, begin, size, pool);
     output.push_back({std::move(data), size});
     return;
+  } catch (const pangrova::velox::ArrowBatchWireLimitException&) {
+    VELOX_USER_CHECK_GT(size, 1,
+        "SHUFFLE_ROW_EXCEEDS_BATCH_LIMIT: complete Arrow row exceeds the {} byte batch limit",
+        config_.max_serialized_batch_bytes);
   }
-  VELOX_USER_CHECK_GT(
-      size, 1,
-      "SHUFFLE_ROW_EXCEEDS_BATCH_LIMIT: serialized row bytes {} exceed the "
-      "{} byte batch limit",
-      serialized_bytes, config_.max_serialized_batch_bytes);
-  data.reset();
   const auto first_size = size / 2;
   serializeBoundedRange(vector, begin, first_size, pool, output);
   serializeBoundedRange(
@@ -222,10 +198,10 @@ facebook::velox::RowVectorPtr ShuffleBatchSerializer::deserialize(
   auto byteStream = std::make_unique<facebook::velox::BufferInputStream>(
       facebook::velox::byteRangesFromIOBuf(&data));
 
-  facebook::velox::serializer::presto::PrestoVectorSerde::PrestoOptions
-      options;
+  velox::ArrowBatchVectorSerde::StreamOptions options;
+  options.maximum_bytes = static_cast<int64_t>(config_.max_serialized_batch_bytes);
+  options.canonical_schema = config_.canonical_schema;
   options.compressionKind = resolveCompressionKind(config_.compression_codec);
-  options.useLosslessTimestamp = true;
 
   facebook::velox::RowVectorPtr result;
   serde_.deserialize(byteStream.get(), pool, type, &result, &options);

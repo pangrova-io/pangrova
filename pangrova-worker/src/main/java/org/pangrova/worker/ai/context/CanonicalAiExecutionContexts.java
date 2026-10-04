@@ -1,7 +1,7 @@
 package org.pangrova.worker.ai.context;
 
 import com.google.protobuf.InvalidProtocolBufferException;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionCallbackContext;
 import org.pangrova.spi.ai.AiInvocationException;
 

@@ -16,6 +16,8 @@
 // **Validates: Requirements 2.2**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <memory>
 #include <string>
@@ -87,7 +89,7 @@ namespace {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setJoinKeyRef(
@@ -109,7 +111,7 @@ void addStandardJoinKey(JoinRel* join, int left_index, int right_index) {
 
 std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -246,12 +248,16 @@ TEST_P(MergeJoinOutputEquivalenceTest, OutputSchemaEquivalent) {
       param.hash_join_type, param.dataset_size, param.key_distribution);
   ASSERT_FALSE(hash_plan_bytes.empty());
 
-  VeloxPlanConverter merge_converter;
+  const auto merge_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter merge_converter(merge_converter_registry);
   auto merge_plan = merge_converter.convert(merge_plan_bytes, {});
   ASSERT_NE(merge_plan, nullptr)
       << "MergeJoin plan conversion failed for " << param.name;
 
-  VeloxPlanConverter hash_converter;
+  const auto hash_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter hash_converter(hash_converter_registry);
   auto hash_plan = hash_converter.convert(hash_plan_bytes, {});
   ASSERT_NE(hash_plan, nullptr)
       << "HashJoin plan conversion failed for " << param.name;
@@ -295,11 +301,15 @@ TEST_P(MergeJoinOutputEquivalenceTest, JoinTypeMappingCorrect) {
       param.hash_join_type, param.dataset_size, param.key_distribution);
   ASSERT_FALSE(hash_plan_bytes.empty());
 
-  VeloxPlanConverter merge_converter;
+  const auto merge_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter merge_converter(merge_converter_registry);
   auto merge_plan = merge_converter.convert(merge_plan_bytes, {});
   ASSERT_NE(merge_plan, nullptr);
 
-  VeloxPlanConverter hash_converter;
+  const auto hash_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter hash_converter(hash_converter_registry);
   auto hash_plan = hash_converter.convert(hash_plan_bytes, {});
   ASSERT_NE(hash_plan, nullptr);
 
@@ -336,11 +346,15 @@ TEST_P(MergeJoinOutputEquivalenceTest, KeyColumnMappingEquivalent) {
       param.hash_join_type, param.dataset_size, param.key_distribution);
   ASSERT_FALSE(hash_plan_bytes.empty());
 
-  VeloxPlanConverter merge_converter;
+  const auto merge_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter merge_converter(merge_converter_registry);
   auto merge_plan = merge_converter.convert(merge_plan_bytes, {});
   ASSERT_NE(merge_plan, nullptr);
 
-  VeloxPlanConverter hash_converter;
+  const auto hash_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter hash_converter(hash_converter_registry);
   auto hash_plan = hash_converter.convert(hash_plan_bytes, {});
   ASSERT_NE(hash_plan, nullptr);
 
@@ -405,11 +419,15 @@ TEST_P(MergeJoinOutputEquivalenceTest, OutputColumnNameConsistency) {
       param.hash_join_type, param.dataset_size, param.key_distribution);
   ASSERT_FALSE(hash_plan_bytes.empty());
 
-  VeloxPlanConverter merge_converter;
+  const auto merge_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter merge_converter(merge_converter_registry);
   auto merge_plan = merge_converter.convert(merge_plan_bytes, {});
   ASSERT_NE(merge_plan, nullptr);
 
-  VeloxPlanConverter hash_converter;
+  const auto hash_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter hash_converter(hash_converter_registry);
   auto hash_plan = hash_converter.convert(hash_plan_bytes, {});
   ASSERT_NE(hash_plan, nullptr);
 
@@ -459,11 +477,15 @@ TEST_P(MergeJoinOutputEquivalenceTest, PlanLeafNodeEquivalence) {
       param.hash_join_type, param.dataset_size, param.key_distribution);
   ASSERT_FALSE(hash_plan_bytes.empty());
 
-  VeloxPlanConverter merge_converter;
+  const auto merge_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter merge_converter(merge_converter_registry);
   auto merge_plan = merge_converter.convert(merge_plan_bytes, {});
   ASSERT_NE(merge_plan, nullptr);
 
-  VeloxPlanConverter hash_converter;
+  const auto hash_converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter hash_converter(hash_converter_registry);
   auto hash_plan = hash_converter.convert(hash_plan_bytes, {});
   ASSERT_NE(hash_plan, nullptr);
 

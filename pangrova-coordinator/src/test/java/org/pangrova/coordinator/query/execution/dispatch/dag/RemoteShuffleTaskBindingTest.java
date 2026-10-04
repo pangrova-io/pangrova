@@ -12,7 +12,7 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.sql.type.SqlTypeFactoryImpl;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rel.logical.LogicalValues;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
@@ -47,6 +47,10 @@ class RemoteShuffleTaskBindingTest {
 
         var allocation = request.taskRequest().getExecutionOptions()
                 .getShuffle().getExecutionBinding();
+        var wire = request.taskRequest().getExecutionOptions().getShuffle();
+        assertThat(wire.getSerde()).isEqualTo(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH);
+        assertThat(wire.getCompressionCodec()).isEqualTo("zstd");
+        assertThat(wire.getBatchSize()).isEqualTo(1024);
         assertThat(allocation.getShuffleId()).isEqualTo("shuffle-1");
         assertThat(allocation.getPlanEpoch()).isEqualTo(7L);
         assertThat(allocation.getWriteCapability().getExpiresAtEpochMs())

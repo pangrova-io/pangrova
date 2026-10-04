@@ -16,7 +16,7 @@ package org.pangrova.coordinator.query.execution;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.index.IndexAwareSplitFetcher;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Literal;
 import org.pangrova.parser.ast.LiteralValue;

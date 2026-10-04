@@ -1,6 +1,6 @@
 // FlightResultServer: Arrow Flight server that pulls pre-serialized
 // SerializedPage from Velox's OutputBufferManager and serves them
-// to the coordinator via Arrow Flight DoGet.
+// to the authorized client via Arrow Flight DoGet.
 //
 // Aligned with Prestissimo: same Velox components, Arrow Flight transport.
 
@@ -26,7 +26,8 @@ FlightResultServer* FlightResultServer::instance() {
 
 void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskOutputInfo info) {
   auto* server = instance();
-  if (!server || !server->isRunning() || !info.output_type || !info.pool || !info.ownership ||
+  if (!server || !server->isRunning() || !info.output_type || !info.wire_schema || !info.pool || !info.ownership ||
+      static_cast<size_t>(info.wire_schema->num_fields()) != info.output_type->size() ||
       info.column_labels.size() != info.output_type->size() || info.authority.attempt().task_id() != taskId ||
       info.authority.security().tenant_id().empty() || info.authority.deadline_epoch_ms() == 0 || info.claimed) {
     throw std::invalid_argument("Result task requires live server, exact admitted authority, schema, labels and pool");

@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.parser.ast.ShowSchemasStatement;
 import org.pangrova.parser.ast.statement.DescribeTableStatement;
 import org.pangrova.parser.ast.statement.ShowTablesStatement;

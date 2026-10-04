@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine.StageDispatchRecord;
 import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;

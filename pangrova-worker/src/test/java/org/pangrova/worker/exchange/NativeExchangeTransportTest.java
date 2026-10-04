@@ -10,8 +10,8 @@ import org.pangrova.shuffle.exchange.ExchangeAttemptFence;
 import org.pangrova.shuffle.exchange.ExchangeEndpoint;
 import org.pangrova.shuffle.exchange.ExchangeInput;
 import org.pangrova.shuffle.exchange.ExchangeTaskAttempt;
-import org.pangrova.worker.bootstrap.phase.ActualNativeShuffleRequests;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.shuffle.NativeShuffleTransport;
 
 import java.util.List;

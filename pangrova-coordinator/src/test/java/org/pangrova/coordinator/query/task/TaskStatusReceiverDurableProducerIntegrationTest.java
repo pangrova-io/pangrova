@@ -320,7 +320,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                                 new byte[]{2}, ArtifactStageTemplate.of(new byte[]{3}, List.of(), List.of()),
                                 List.of(), List.of("id"), true)),
                 List.of(new ArtifactStageGraph.Exchange("exchange-1-0", 1, 0,
-                        ArtifactStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1, "BATCH_SERDE_NATIVE_ROW", true)), List.of());
+                        ArtifactStageGraph.Exchange.Distribution.SINGLETON, List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true)), List.of());
         return ArtifactBuildDispatchSpec.of(KEY.jobId(), graph, KEY.tenantId(), "report-principal",
                 DeferredAuthorizationScope.raw(new QualifiedTableName("lake", "raw", "items"), Set.of("id"),
                         new QualifiedTableName("lake", "features", "output")),

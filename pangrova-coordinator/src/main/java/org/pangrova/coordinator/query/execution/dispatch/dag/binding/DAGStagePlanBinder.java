@@ -2,7 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
 import org.pangrova.coordinator.artifact.GeneratedValueReadResolver;
 import org.pangrova.coordinator.artifact.PublishedArtifactBindingResolver.ResolvedRetrievalArtifact;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGQueryContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalArtifactResolver;

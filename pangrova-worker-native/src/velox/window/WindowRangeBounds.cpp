@@ -4,7 +4,6 @@
 #include <stdexcept>
 
 #include "capability/RegisteredFunctionBinding.h"
-#include "velox/functions/FunctionRegistry.h"
 #include "velox/type/Type.h"
 
 namespace pangrova::velox {
@@ -47,6 +46,7 @@ facebook::velox::core::TypedExprPtr rangeWindowComparison(
 }
 
 facebook::velox::core::TypedExprPtr rangeWindowBoundary(
+    const facebook::velox::exec::FunctionRegistrySnapshot& registry,
     facebook::velox::core::TypedExprPtr comparison, int64_t offset, bool subtract) {
   using namespace facebook::velox;
   if (offset <= 0) throw std::runtime_error("Window bound offset must be strictly positive");
@@ -57,7 +57,7 @@ facebook::velox::core::TypedExprPtr rangeWindowBoundary(
   // The running engine owns the arithmetic formula and overflow behavior.
   // No saturation is legal: a bound below the domain is not its minimum key.
   const auto outputType = comparison->type();
-  return pangrova::capability::bindRegisteredScalar(subtract ? "minus" : "plus",
+  return pangrova::capability::bindRegisteredScalar(registry, subtract ? "minus" : "plus",
       outputType, {std::move(comparison), std::move(amount)});
 }
 

@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 
 /**
  * Bundles the dependencies for {@link PlanExecutionFactory} construction,

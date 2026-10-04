@@ -66,8 +66,8 @@ public record WorkerBootstrapConfig(
     }
 
     private static void checkPort(int port, String name) {
-        if (port < 0) {
-            throw new IllegalArgumentException(name + " must be >= 0");
+        if (port < 0 || port > 65_535) {
+            throw new IllegalArgumentException(name + " must be in [0, 65535]");
         }
     }
 
@@ -165,7 +165,8 @@ public record WorkerBootstrapConfig(
             long shuffleTransitBytes,
             long shuffleSpillBytes,
             int shuffleSpillFiles,
-            String shuffleSpillDirectory) {
+            String shuffleSpillDirectory,
+            org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission.Limits shuffleChannelLimits) {
 
         public static final long DEFAULT_MEMORY_BUDGET = 512L * 1024 * 1024;
         public static final long DEFAULT_SYSTEM_RESERVED = 64L * 1024 * 1024;
@@ -182,6 +183,7 @@ public record WorkerBootstrapConfig(
         public static final double DEFAULT_PRESSURE_THRESHOLD_CRITICAL = 95.0;
 
         public ResourceConfig {
+            java.util.Objects.requireNonNull(shuffleChannelLimits, "shuffleChannelLimits");
             if (nodeMemoryBytes <= 0) {
                 nodeMemoryBytes = DEFAULT_NODE_MEMORY;
             }
@@ -199,7 +201,10 @@ public record WorkerBootstrapConfig(
                     DEFAULT_PRESSURE_THRESHOLD_LOW, DEFAULT_PRESSURE_THRESHOLD_MEDIUM,
                     DEFAULT_PRESSURE_THRESHOLD_HIGH, DEFAULT_PRESSURE_THRESHOLD_CRITICAL,
                     DEFAULT_SHUFFLE_RETENTION, DEFAULT_SHUFFLE_TRANSIT,
-                    DEFAULT_SHUFFLE_SPILL, DEFAULT_SHUFFLE_SPILL_FILES, null);
+                    DEFAULT_SHUFFLE_SPILL, DEFAULT_SHUFFLE_SPILL_FILES, null,
+                    new org.pangrova.worker.exchange.remote.RemoteShuffleChannelAdmission.Limits(
+                            org.pangrova.config.WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS.defaultValue(),
+                            org.pangrova.config.WorkerOptions.SHUFFLE_CLIENT_MAX_OWNED_CHANNELS_PER_ENDPOINT.defaultValue()));
         }
     }
 

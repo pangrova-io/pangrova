@@ -75,7 +75,7 @@ public final class PangrovaStatement implements java.sql.Statement {
             success = true;
             return rs;
         } finally {
-            currentQueryId.set(null);
+            currentQueryId.compareAndSet(queryId, null);
             cancelOnFailure(client, queryId, success);
         }
     }
@@ -207,7 +207,7 @@ public final class PangrovaStatement implements java.sql.Statement {
                     return true;
                 }
             } finally {
-                currentQueryId.set(null);
+                currentQueryId.compareAndSet(queryId, null);
                 cancelOnFailure(client, queryId, success);
             }
         } catch (SQLException e) {
@@ -236,7 +236,7 @@ public final class PangrovaStatement implements java.sql.Statement {
                 success = true;
                 return count;
             } finally {
-                currentQueryId.set(null);
+                currentQueryId.compareAndSet(queryId, null);
                 cancelOnFailure(client, queryId, success);
             }
         } catch (SQLException e) {
@@ -393,12 +393,18 @@ public final class PangrovaStatement implements java.sql.Statement {
         this.queryTimeoutSeconds = Math.max(0, seconds);
     }
     @Override public void cancel() throws SQLException {
-        // Atomic getAndSet ensures the cancel thread gets the queryId exactly once,
-        // even if executeQueryInternal's finally block races to clear it.
-        String qid = currentQueryId.getAndSet(null);
+        String qid = currentQueryId.get();
         if (qid != null) {
             try {
-                connection.restClient().cancelQuery(qid);
+                PangrovaRestClient.CancelOutcome outcome = connection.restClient().cancelQuery(qid);
+                if (outcome == PangrovaRestClient.CancelOutcome.NOT_FOUND) {
+                    throw new SQLException("Coordinator did not find active query queryId=" + qid);
+                }
+                // Confirmed logical intent/terminal status is not physical resource-drain proof.
+                // Retire only the identity that this RPC actually addressed.
+                currentQueryId.compareAndSet(qid, null);
+            } catch (SQLException failure) {
+                throw failure;
             } catch (Exception e) {
                 throw new SQLException("Failed to cancel query queryId=" + qid, e);
             }

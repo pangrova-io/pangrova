@@ -276,52 +276,16 @@
          each removal deletes its entry here.
          ==================================================================== -->
 
-    <!-- ====================================================================
-         FileLength (max 500) — 25 files
-
-         Pre-existing large classes. Splitting them is a behavioural refactor with real
-         regression risk, not a formatting change, so each needs its own extraction
-         spec and test pass. The same files are already tracked by
-         CleanCodeMetricsPropertyTest#GOD_CLASS_TRACKED, which is the authoritative
-         ratchet: that set may only shrink, so this list cannot grow silently.
-
-         Convergence: drive down through the GOD_CLASS_TRACKED shrink list; the largest offenders
-         (IcebergMetadata, PaimonMetadata, PangrovaDatabaseMetaData) split along their
-         DDL / DML / read-path seams.
-         ==================================================================== -->
-
-    <!-- ====================================================================
-         MethodLength (max 60 non-empty lines) — 36 methods
-
-         Overlong methods in the same pre-existing hot spots as FileLength. Extracting
-         helpers changes control flow and needs per-method coverage first; doing 36 of
-         them blind would be a larger risk than the debt itself.
-
-         Convergence: converge together with the owning file's FileLength split — the long methods
-         are the natural extraction boundaries.
-         ==================================================================== -->
-
-    <!-- ====================================================================
-         CyclomaticComplexity (max 8) — 152 methods
-
-         Branch-heavy methods concentrated in the type/expression mapping layers
-         (connector type coercion, Substrait conversion, JDBC metadata) and the
-         coordinator state machines. Most are wide flat switch/if-chains over a closed
-         set of types or states, where the branch count is inherent to the domain and
-         splitting yields indirection without reducing real complexity. pangrova-parser
-         and pangrova-planner already carry a module-wide suppression for exactly this
-         reason (§3); this block extends the same treatment file-scoped to the
-         remaining modules rather than widening it to whole modules.
-
-         Convergence: replace the flat type-dispatch chains with table-driven lookup
-         (Map&lt;Type, Handler&gt;), which removes the branches rather than hiding them.
-         ==================================================================== -->
+    <!-- Existing file-scoped complexity exceptions for domain dispatch remain.
+         The canonical structural limits are in checkstyle.xml. Remove each
+         exception when its owning behavior is simplified; do not widen them
+         solely to obtain a passing build. -->
     <suppress files="[\\/]org[\\/]pangrova[\\/]coordinator[\\/]streaming[\\/]StreamConfig\.java$" checks="CyclomaticComplexity"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]protocol[\\/]rest[\\/]task[\\/]TaskStatusReport\.java$" checks="CyclomaticComplexity"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="CyclomaticComplexity"/>
 
     <!-- ====================================================================
-         ParameterNumber (max 7) — 61 methods
+         ParameterNumber (max 10) — documented API-shape exceptions
 
          Wide parameter lists, almost all constructors of immutable value/handle types and
          bootstrap wiring where every dependency is injected explicitly (the repo bans
@@ -393,7 +357,6 @@
     <suppress files="[\\/]org[\\/]pangrova[\\/]testing[\\/]e2e[\\/]runner[\\/]QueryError\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]http[\\/]endpoint[\\/]WorkerExceptionMapper\.java$" checks="MagicNumber"/>
     <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]http[\\/]endpoint[\\/]WorkerHealthResource\.java$" checks="MagicNumber"/>
-    <suppress files="[\\/]org[\\/]pangrova[\\/]worker[\\/]shuffle[\\/]ShufflePageValidator\.java$" checks="MagicNumber"/>
 
     <!-- ====================================================================
          MissingJavadocMethod (public, minLineCount 3) — 426 methods

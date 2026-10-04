@@ -1,5 +1,7 @@
 package org.pangrova.planner;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.junit.jupiter.api.Test;
 import org.pangrova.planner.cache.QueryResultCache;
@@ -36,9 +38,9 @@ class PlannerServiceOwnershipTest {
             assertThat(planner.getQueryResultCache()).isSameAs(cache);
             assertThat(compiler.queryResultCache()).isSameAs(cache);
             assertThat(context.statisticsCollector()).isSameAs(statistics);
-            var observed = new PlannerTableStatistics("documents", Map.of(), Instant.EPOCH);
-            context.statisticsCollector().putStatistics("documents", observed);
-            assertThat(statistics.getStatistics("documents")).contains(observed);
+            var observed = new PlannerTableStatistics(new QualifiedTableName("test", "db", "documents"), Map.of(), Instant.EPOCH);
+            context.statisticsCollector().putStatistics(new QualifiedTableName("test", "db", "documents"), observed);
+            assertThat(statistics.getStatistics(new QualifiedTableName("test", "db", "documents"))).contains(observed);
             assertThat(context.runtimeFilterRegistry()).isSameAs(filters);
             var filter = RuntimeFilter.minMax("id", 1, 7);
             context.runtimeFilterRegistry().register("query:stage", filter);

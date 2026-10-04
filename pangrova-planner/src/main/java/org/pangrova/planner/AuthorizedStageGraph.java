@@ -31,6 +31,7 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
         transfers = List.copyOf(transfers.stream().sorted(Comparator.comparingInt(StageTransfer::upstreamStageId)
                 .thenComparingInt(StageTransfer::downstreamStageId).thenComparing(StageTransfer::exchangeId)).toList());
         validate(stages, transfers);
+        AuthorizedStageExchangeBindings.validate(stages, transfers);
     }
 
     /** Stage payload has no planner framework node and can be durably replayed without SQL recompilation. */
@@ -47,7 +48,7 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
             resultColumnModels = List.copyOf(resultColumnModels);
             if (stageId < 0 || parallelism <= 0 || serializedPlan.planBytes().length == 0
                     || !("OUTPUT".equals(taskType) || "COMPUTE".equals(taskType))
-                    || outputNames.isEmpty() || outputNames.stream().anyMatch(String::isBlank)
+                    || outputNames.stream().anyMatch(String::isBlank)
                     || new HashSet<>(outputNames).size() != outputNames.size()) {
                 throw new IllegalArgumentException("Invalid authorized stage payload");
             }
@@ -113,7 +114,19 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
                     fragment.toSerializedPlan(compiler, names), fragment.splitSources(), names,
                     fragment.resultColumnModels(), fragment.estimatedShuffleBytes(), fragment.estimatedShuffleRows()));
         }
-        return new AuthorizedStageGraph(terminalPurpose, stages, graph.transfers());
+        return new AuthorizedStageGraph(terminalPurpose,
+                AuthorizedStageExchangeBindings.bind(stages, graph.transfers()), graph.transfers());
+    }
+
+    /**
+     * Verifies actual frozen wire schemas during replay; never repairs or recompiles persisted plans.
+     * @param plans exact serialized canonical plan per stage
+     * @param transfers frozen exchange edges
+     * @throws IllegalArgumentException for missing plans or inconsistent canonical wire contracts
+     */
+    public static void validateExchangeContracts(Map<Integer, SerializedPlanFragment> plans,
+            List<StageTransfer> transfers) {
+        AuthorizedStageExchangeBindings.validate(Map.copyOf(plans), List.copyOf(transfers));
     }
 
     /** Returns a stable digest covering stage payloads, scheduling coordinates, exact sources and exchanges. */

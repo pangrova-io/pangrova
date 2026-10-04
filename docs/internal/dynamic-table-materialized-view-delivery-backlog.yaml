@@ -187,7 +187,7 @@ tasks:
     depends_on: [MAT-003, MAT-007]
     existing_entrypoints:
       - pangrova-coordinator/src/main/java/org/pangrova/coordinator/dynamictable/refresh/pipeline/RefreshLockCoordinator.java
-      - pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/task/WriteCommitFencer.java
+      - pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/task/write/WriteCommitFencer.java
     deliverables:
       - '每 claim 独立 lease/renew state；共享库 live claim/epoch/definition/lifecycle/base head/policy CAS。'
       - 'head、source vector、state manifest、receipt、attempt、history、outbox 同一发布事务。'

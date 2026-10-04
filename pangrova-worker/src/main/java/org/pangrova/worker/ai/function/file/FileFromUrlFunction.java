@@ -16,7 +16,7 @@ package org.pangrova.worker.ai.function.file;
 import org.pangrova.spi.ai.embedding.BlobReference;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.FunctionMetadata;
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.spi.function.ScalarFunction;
 import org.pangrova.worker.ai.blob.HttpsBlobImporter;
 

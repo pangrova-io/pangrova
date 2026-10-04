@@ -44,47 +44,38 @@ final class TaskSubmissionHandler {
         // particular, a stale leader must not receive a successful dedup reply.
         var canonical = request.taskRequest();
         owner.verifyControlEpochForAdmission(canonical.getAttempt().getControlEpoch());
+        owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
         owner.verifyExecutionOwnerForAdmission(request);
         if (owner.drainExecutor.isDraining()) {
             throw new IllegalStateException("Worker is draining — new tasks are rejected");
         }
-        checkTenantQuota(request);
-
-        String coordinatorTaskId = canonical.getAttempt().getTaskId();
-        boolean hasCoordinatorId = coordinatorTaskId != null && !coordinatorTaskId.isBlank();
-
-        if (hasCoordinatorId) {
-            String existing = owner.coordinatorTaskIndex.get(coordinatorTaskId);
-            if (existing != null) {
-                LOG.info("event=task_submit_dedup coordinatorTaskId={} workerTaskId={}",
-                        coordinatorTaskId, existing);
-                return existing;
-            }
-        }
-
         String taskId = descriptor.queryId().toString() + "-" + owner.taskIdCounter.incrementAndGet();
+        var reservation = owner.taskAdmissions.reserve(canonical, taskId);
+        if (!reservation.first()) return reservation.awaitAdmission();
+        return submitReserved(descriptor, request, taskId, reservation);
+    }
+
+    private String submitReserved(TaskDescriptor descriptor, SubmitTaskRequest request,
+                                  String taskId, TaskAdmissionRegistry.Reservation reservation) {
         String queryId = descriptor.queryId().toString();
-
-        TaskInfo info = new TaskInfo(taskId, queryId, request, descriptor, Instant.now());
-        if (owner.lifecycleManager != null) {
-            owner.lifecycleManager.reserveAdmissionResources(info);
-        }
-
-        if (hasCoordinatorId) {
-            String race = owner.coordinatorTaskIndex.putIfAbsent(coordinatorTaskId, taskId);
-            if (race != null) {
-                if (owner.lifecycleManager != null) {
-                    owner.lifecycleManager.releaseMemoryIfNeeded(info);
-                }
-                LOG.info("event=task_submit_dedup_race coordinatorTaskId={} workerTaskId={}",
-                        coordinatorTaskId, race);
-                return race;
+        TaskInfo info = null;
+        try {
+            if (owner.tasks.size() >= TaskManager.MAX_TRACKED_TASKS) {
+                throw new TaskAdmissionException(TaskAdmissionException.Reason.CAPACITY,
+                        "Task resource tracking limit reached: " + TaskManager.MAX_TRACKED_TASKS);
             }
+            info = new TaskInfo(taskId, queryId, request, descriptor, Instant.now());
+            reserveTenantQuota(info);
+            if (owner.lifecycleManager != null) owner.lifecycleManager.reserveAdmissionResources(info);
+            TaskInfo published = info;
+            reservation.publish(() -> owner.tasks.put(taskId, published));
+            owner.transition(taskId, TaskManager.TaskState.INITIALIZING);
+            registerSubmittedTask(taskId, queryId, request);
+            reservation.admitted();
+        } catch (RuntimeException | Error failure) {
+            rejectBeforeOwnership(info, reservation, failure);
+            throw failure;
         }
-
-        owner.tasks.put(taskId, info);
-        owner.transition(taskId, TaskManager.TaskState.INITIALIZING);
-        registerSubmittedTask(taskId, queryId, request);
         LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
         if (owner.lifecycleManager != null) {
             owner.lifecycleManager.executeTask(taskId, info, owner.lifecycleCallback);
@@ -92,6 +83,42 @@ final class TaskSubmissionHandler {
             autoFinishIfConfigured(taskId, queryId, request);
         }
         return taskId;
+    }
+
+    private void rejectBeforeOwnership(TaskInfo info,
+                                       TaskAdmissionRegistry.Reservation reservation, Throwable failure) {
+        if (info == null) {
+            reservation.rejectedBeforeOwnership(failure);
+            return;
+        }
+        try {
+            rollbackBeforeOwnership(info);
+            reservation.rejectedBeforeOwnership(failure);
+        } catch (RuntimeException | Error cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+            info.retainCleanupRetry(() -> {
+                rollbackBeforeOwnership(info);
+                reservation.rejectedBeforeOwnership(failure);
+                owner.tasks.remove(info.taskId(), info);
+            });
+            owner.tasks.put(info.taskId(), info);
+        }
+    }
+
+    private void rollbackBeforeOwnership(TaskInfo info) {
+        TaskAdmissionRollback.release(
+                () -> {
+                    if (owner.lifecycleManager != null) owner.lifecycleManager.releaseMemoryIfNeeded(info);
+                },
+                () -> {
+                    if (owner.quotaEnforcer != null) owner.quotaEnforcer.releaseTask(info.taskId());
+                },
+                () -> {
+                    if (owner.cancellationPropagator != null) {
+                        owner.cancellationPropagator.deregisterTask(info.queryId(), info.taskId());
+                    }
+                });
+        owner.tasks.remove(info.taskId(), info);
     }
 
     String submitTask(TaskDescriptor descriptor) {
@@ -138,8 +165,7 @@ final class TaskSubmissionHandler {
             return TaskCancelResult.notCancellable(taskId, current.name());
         }
         owner.lifecycleManager.cancelNativeExecutor(info);
-        // The completion monitor sends canonical CANCELLED and clears the
-        // coordinator index only after Native releaseTask has joined its driver.
+        // Terminal resource release does not reopen the exact admission identity.
         LOG.info("event=task_cancel_requested taskId={} queryId={}", taskId, info.queryId());
         return TaskCancelResult.cancelled();
     }
@@ -151,11 +177,11 @@ final class TaskSubmissionHandler {
         }
     }
 
-    private void checkTenantQuota(SubmitTaskRequest request) {
+    private void reserveTenantQuota(TaskInfo info) {
         TenantExecutionQuotaEnforcer enforcer = owner.quotaEnforcer;
-        String tenantId = request.taskRequest().getSecurity().getTenantId();
+        String tenantId = info.request().taskRequest().getSecurity().getTenantId();
         if (enforcer != null && tenantId != null && !tenantId.isBlank()) {
-            if (!enforcer.canAdmitTask(tenantId)) {
+            if (!enforcer.tryReserveTask(info.taskId(), tenantId)) {
                 throw new IllegalStateException(
                         "Tenant quota exceeded: tenantId=" + tenantId
                                 + " — new tasks rejected until resources are released");
@@ -165,11 +191,6 @@ final class TaskSubmissionHandler {
 
     private void registerSubmittedTask(String taskId, String queryId,
                                        SubmitTaskRequest request) {
-        TenantExecutionQuotaEnforcer enforcer = owner.quotaEnforcer;
-        String tenantId = request.taskRequest().getSecurity().getTenantId();
-        if (enforcer != null && tenantId != null && !tenantId.isBlank()) {
-            enforcer.registerTask(taskId, tenantId);
-        }
         if (owner.statusCollector != null) {
             owner.statusCollector.logTaskSubmitted(taskId);
         }

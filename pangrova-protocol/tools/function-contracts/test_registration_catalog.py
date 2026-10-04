@@ -7,11 +7,16 @@ from test_registered_signature import signature
 
 
 def catalog():
-    return {"schemaVersion": 3, "functions": [
+    return {"schemaVersion": 4, "functions": [
         {"kind": "SCALAR", "name": "actual_registered_name", "overloads": [signature()],
          "resolutionPolicy": "SCALAR_RUNTIME_PRIORITY",
-         "deterministic": True, "defaultNullBehavior": True,
-         "simpleImplementations": [], "vectorOverloads": [signature()]}], "specialForms": ["if", "coalesce"]}
+         "simpleImplementations": [], "vectorImplementations": [vector_implementation()]}],
+            "specialForms": ["if", "coalesce"]}
+
+
+def vector_implementation():
+    return {"signature": signature(), "deterministic": True, "defaultNullBehavior": True,
+            "supportsFlattening": False, "companionFunction": False}
 
 
 class RegistrationCatalogTest(unittest.TestCase):
@@ -22,7 +27,7 @@ class RegistrationCatalogTest(unittest.TestCase):
         other["functions"][0]["overloads"][0]["variables"].reverse()
         self.assertEqual(registration_digest(source), registration_digest(other))
         other["functions"][0]["overloads"][0]["constantArguments"][0] = True
-        other["functions"][0]["vectorOverloads"][0]["constantArguments"][0] = True
+        other["functions"][0]["vectorImplementations"][0]["signature"]["constantArguments"][0] = True
         self.assertNotEqual(registration_digest(source), registration_digest(other))
 
     def test_duplicate_signature_is_deduplicated_without_first_match_execution_policy(self):
@@ -55,7 +60,7 @@ class RegistrationCatalogTest(unittest.TestCase):
         source = catalog()
         source["functions"] = [{"kind": "SCALAR", "name": "row_constructor", "overloads": [],
                                 "resolutionPolicy": "SCALAR_RUNTIME_PRIORITY",
-                                "simpleImplementations": [], "vectorOverloads": []}]
+                                "simpleImplementations": [], "vectorImplementations": []}]
         with self.assertRaises(ValueError):
             normalize_catalog(source)
         source["specialForms"].append("row_constructor")

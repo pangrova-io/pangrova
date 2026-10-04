@@ -62,6 +62,11 @@ arrow::TimeUnit::type timeUnit(int32_t precision) {
   return arrow::TimeUnit::NANO;
 }
 
+arrow::TimeUnit::type timestampUnit(int32_t precision) {
+  if (precision == 0) return arrow::TimeUnit::SECOND;
+  return timeUnit(precision);
+}
+
 std::string boundedString(const Type& type, const arrow::DataType& physical) {
     const int32_t length = type.has_varchar() ? type.varchar().length() : type.fixed_char().length();
     if (length <= 0 || physical.id() != arrow::Type::STRING) mismatch();
@@ -83,7 +88,7 @@ std::string temporal(const Type& type, const arrow::DataType& physical) {
     const bool zoned = type.has_precision_timestamp_tz();
     const int32_t precision = zoned ? type.precision_timestamp_tz().precision() : type.precision_timestamp().precision();
     const auto& timestamp = static_cast<const arrow::TimestampType&>(physical);
-    if (timestamp.unit() != timeUnit(precision) || timestamp.timezone().empty() == zoned) mismatch();
+    if (timestamp.unit() != timestampUnit(precision) || timestamp.timezone().empty() == zoned) mismatch();
     return std::string(zoned ? "TIMESTAMP_TZ(" : "TIMESTAMP(") + std::to_string(precision) + ')';
   }
   if (type.has_precision_time()) {

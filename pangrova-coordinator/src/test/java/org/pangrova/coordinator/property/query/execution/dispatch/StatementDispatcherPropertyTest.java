@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.property.query.execution.dispatch;
 
 import net.jqwik.api.*;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.*;
 import org.pangrova.parser.ast.*;
 import org.pangrova.parser.ast.expression.BinaryExpression;

@@ -18,7 +18,6 @@
 #include <utility>
 
 #include "jni/bridge/JniBridge.h"
-#include "jni/bridge/JniExceptionScope.h"
 #include "observability/PangrovaLog.h"
 
 namespace pangrova::write {
@@ -550,26 +549,14 @@ void NativeWriteExecutor::publishCommitMetadataForTask(
   checkJniException(env, "publishCommitMetadataForTask");
 }
 
-void NativeWriteExecutor::abortWrite(int64_t handle) noexcept {
+void NativeWriteExecutor::abortWrite(int64_t handle) {
   auto guard = acquireEnv(vm_);
   JNIEnv* env = guard.env();
   if (!env) {
-    PANGROVA_LOG_ERROR << "NativeWriteExecutor::abortWrite: no JNIEnv handle=" << handle;
-    return;
+    throw std::runtime_error("NativeWriteExecutor::abortWrite: no attached JNIEnv");
   }
-
-  // Task 27.8: JniExceptionScope (Mode::kSwallow) makes the "abort must
-  // never raise" contract explicit. abortWrite() is called from C++ catch
-  // blocks; rethrowing a JNI exception here would mask the original error.
-  pangrova::jni::JniExceptionScope scope(
-      env, "NativeWriter.abortWrite",
-      pangrova::jni::JniExceptionScope::Mode::kSwallow);
   env->CallVoidMethod(writer_, abortWriteId_, static_cast<jlong>(handle));
-  if (scope.hasPending()) {
-    scope.clear();
-    PANGROVA_LOG_WARN << "NativeWriteExecutor::abortWrite: Java exception during abort"
-                    << " handle=" << handle;
-  }
+  checkJniException(env, "NativeWriter.abortWrite");
 }
 
 WriteCommitResult NativeWriteExecutor::parseCommitResult(

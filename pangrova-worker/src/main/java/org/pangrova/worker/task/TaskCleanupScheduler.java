@@ -79,7 +79,7 @@ public final class TaskCleanupScheduler {
                 if (referenceTime == null) {
                     referenceTime = info.startTime();
                 }
-                if (referenceTime.isBefore(cutoff) || resultDeadlineExpired(info)
+                if (info.resourcesReleased() || referenceTime.isBefore(cutoff) || resultDeadlineExpired(info)
                         || consumedResultProbe.test(info)) {
                     // Retain the exact task and its grant if the actual release fails.
                     resourceRelease.accept(info);

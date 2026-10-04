@@ -20,8 +20,8 @@ namespace pangrova::executor {
 // happens at the JNI boundary (nativeGetNextBatch), avoiding intermediate
 // RecordBatch conversion.
 //
-// Shuffle queue stores pre-serialized ShuffleBatch (PrestoVectorSerde bytes),
-// replacing the old ShuffleQueue<RecordBatch> to eliminate Arrow IPC overhead.
+// Shuffle queue stores complete canonical Arrow IPC streams in ShuffleBatch,
+// serialized once in Native before the transport forwards their opaque bytes.
 class TaskOutputRouter {
  public:
   TaskOutputRouter(int32_t num_shuffle_partitions,

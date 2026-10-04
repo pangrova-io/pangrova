@@ -2,26 +2,15 @@ package org.pangrova.client.jdbc;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import org.apache.arrow.flight.FlightServer;
-import org.apache.arrow.flight.Location;
-import org.apache.arrow.flight.NoOpFlightProducer;
-import org.apache.arrow.flight.Ticket;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.RootAllocator;
-import org.apache.arrow.vector.IntVector;
-import org.apache.arrow.vector.VarCharVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.pojo.ArrowType;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
-import org.apache.arrow.vector.types.pojo.Schema;
+import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.protocol.rest.query.SubmitQueryRequest;
+import org.pangrova.testing.testkit.result.TestResultEndpoint;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -45,42 +34,41 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>Connection close</li>
  * </ol>
  *
- * <p>Uses an embedded HTTP server as a coordinator REST stub and an embedded
- * gRPC result server for result delivery. No mock frameworks.</p>
+ * <p>Uses real HTTP protocol inputs and SDK result transport. This does not prove
+ * a deployed Coordinator, authenticated metadata authorization, or Native SQL execution.</p>
  */
 @DisplayName("BI Tool Connection Integration (DBeaver/IntelliJ patterns)")
 class BiToolConnectionIntegrationTest {
 
     private HttpServer httpServer;
-    private FlightServer resultServer;
+    private TestResultEndpoint resultServer;
+    private MetadataProtocolPeer metadataPeer;
     private int httpPort;
-    private int resultPort;
-    private BufferAllocator allocator;
 
     @BeforeEach
     void setUp() throws Exception {
-        allocator = new RootAllocator();
-        httpServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        httpPort = httpServer.getAddress().getPort();
+        metadataPeer = new MetadataProtocolPeer();
+        httpServer = metadataPeer.server();
+        httpPort = metadataPeer.port();
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        if (httpServer != null) {
-            httpServer.stop(0);
+        Exception failure = null;
+        try { if (metadataPeer != null) metadataPeer.close(); } catch (Exception cleanup) { failure = cleanup; }
+        try { if (resultServer != null) resultServer.close(); } catch (Exception cleanup) {
+            if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
         }
-        if (resultServer != null) {
-            resultServer.close();
+        try { PangrovaDriver.shutdownSharedClient(); } catch (Exception cleanup) {
+            if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
         }
-        if (allocator != null) {
-            allocator.close();
-        }
+        if (failure != null) throw failure;
     }
 
     @Test
     @DisplayName("DBeaver pattern: connect → getMetaData → getCatalogs → getSchemas → getTables → getColumns → close")
     void dbeaverMetadataDiscoveryPattern() throws Exception {
-        startResultServer(buildCatalogSchema(), this::populateCatalogData);
+        startCatalogResultServer();
         registerSubmitEndpoint(new AtomicReference<>());
         httpServer.start();
 
@@ -105,18 +93,27 @@ class BiToolConnectionIntegrationTest {
             try (ResultSet schemas = metaData.getSchemas("lakehouse", null)) {
                 assertThat(schemas).isNotNull();
                 assertThat(schemas.next()).isTrue();
+                assertThat(schemas.getString("TABLE_SCHEM")).isEqualTo("empty");
+                assertThat(schemas.next()).isTrue();
+                assertThat(schemas.getString("TABLE_SCHEM")).isEqualTo("public");
+                assertThat(schemas.next()).isFalse();
             }
 
             // getTables — DBeaver expands a schema node
             try (ResultSet tables = metaData.getTables("lakehouse", "public", "%", null)) {
                 assertThat(tables).isNotNull();
                 assertThat(tables.next()).isTrue();
+                assertThat(tables.getString("TABLE_SCHEM")).isEqualTo("public");
+                assertThat(tables.getString("TABLE_NAME")).isEqualTo("orders");
             }
 
             // getColumns — DBeaver inspects a table
             try (ResultSet columns = metaData.getColumns("lakehouse", "public", "orders", null)) {
                 assertThat(columns).isNotNull();
                 assertThat(columns.next()).isTrue();
+                assertThat(columns.getString("COLUMN_NAME")).isEqualTo("order_id");
+                assertThat(columns.getInt("DATA_TYPE")).isEqualTo(java.sql.Types.BIGINT);
+                assertThat(columns.getInt("ORDINAL_POSITION")).isEqualTo(1);
             }
         }
     }
@@ -126,7 +123,7 @@ class BiToolConnectionIntegrationTest {
     void intellijPreparedStatementPattern() throws Exception {
         AtomicReference<String> capturedSql = new AtomicReference<>();
 
-        startResultServer(buildOrdersSchema(), this::populateOrdersData);
+        startOrdersResultServer();
         registerSubmitEndpoint(capturedSql);
         httpServer.start();
 
@@ -147,31 +144,33 @@ class BiToolConnectionIntegrationTest {
 
                     assertThat(rs.next()).isTrue();
                     assertThat(rs.getInt("order_id")).isEqualTo(2);
+                    assertThat(rs.getString("customer_name")).isEqualTo("Bob");
+                    assertThat(rs.getInt("amount")).isEqualTo(175);
+                    assertThat(rs.next()).isFalse();
                 }
             }
 
             // Verify the SQL was sent with inlined parameters
             assertThat(capturedSql.get())
-                    .contains("100.0")
-                    .contains("'Alice'");
+                    .isEqualTo("SELECT order_id, customer_name, amount FROM orders WHERE amount > 100.0 AND customer_name = 'Alice'");
         }
     }
 
     @Test
     @DisplayName("Connection lifecycle: isValid → getAutoCommit → setReadOnly → close → isClosed")
     void connectionLifecyclePattern() throws Exception {
-        startResultServer(buildCatalogSchema(), this::populateCatalogData);
+        startCatalogResultServer();
         registerSubmitEndpoint(new AtomicReference<>());
         httpServer.start();
 
-        Connection conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort);
-        assertThat(conn.isValid(5)).isTrue();
-        assertThat(conn.getAutoCommit()).isTrue();
-        conn.setReadOnly(true);
-        assertThat(conn.isReadOnly()).isTrue();
-
-        conn.close();
-        assertThat(conn.isClosed()).isTrue();
+        try (Connection conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort)) {
+            assertThat(conn.isValid(5)).isTrue();
+            assertThat(conn.getAutoCommit()).isTrue();
+            conn.setReadOnly(true);
+            assertThat(conn.isReadOnly()).isTrue();
+            conn.close();
+            assertThat(conn.isClosed()).isTrue();
+        }
     }
 
     @Test
@@ -179,7 +178,7 @@ class BiToolConnectionIntegrationTest {
     void preparedStatementReusePattern() throws Exception {
         AtomicReference<String> capturedSql = new AtomicReference<>();
 
-        startResultServer(buildOrdersSchema(), this::populateOrdersData);
+        startOrdersResultServer();
         registerSubmitEndpoint(capturedSql);
         httpServer.start();
 
@@ -190,21 +189,21 @@ class BiToolConnectionIntegrationTest {
             try (ResultSet rs = ps.executeQuery()) {
                 assertThat(rs.next()).isTrue();
             }
-            assertThat(capturedSql.get()).contains("42");
+            assertThat(capturedSql.get()).isEqualTo("SELECT * FROM orders WHERE id = 42");
 
             ps.clearParameters();
             ps.setInt(1, 99);
             try (ResultSet rs = ps.executeQuery()) {
                 assertThat(rs.next()).isTrue();
             }
-            assertThat(capturedSql.get()).contains("99");
+            assertThat(capturedSql.get()).isEqualTo("SELECT * FROM orders WHERE id = 99");
         }
     }
 
     @Test
     @DisplayName("DatabaseMetaData capability reporting for BI tool compatibility")
     void metadataCapabilityReporting() throws Exception {
-        startResultServer(buildCatalogSchema(), this::populateCatalogData);
+        startCatalogResultServer();
         registerSubmitEndpoint(new AtomicReference<>());
         httpServer.start();
 
@@ -225,13 +224,18 @@ class BiToolConnectionIntegrationTest {
 
     // --- Test infrastructure ---
 
-    private void startResultServer(Schema schema, DataPopulator populator) throws IOException {
-        Location location = Location.forGrpcInsecure("127.0.0.1", 0);
-        resultServer = FlightServer.builder(allocator, location,
-                        new TestResultProducer(schema, populator))
-                .build()
-                .start();
-        resultPort = resultServer.getPort();
+    private void startCatalogResultServer() throws Exception {
+        resultServer = new TestResultEndpoint(List.of(new TestResultEndpoint.Column("TABLE_CAT", TestResultEndpoint.ScalarType.TEXT)),
+                List.of(List.of(new TestResultEndpoint.TextCell("lakehouse"))));
+    }
+
+    private void startOrdersResultServer() throws Exception {
+        resultServer = new TestResultEndpoint(List.of(
+                new TestResultEndpoint.Column("order_id", TestResultEndpoint.ScalarType.INTEGER),
+                new TestResultEndpoint.Column("customer_name", TestResultEndpoint.ScalarType.TEXT),
+                new TestResultEndpoint.Column("amount", TestResultEndpoint.ScalarType.INTEGER)), List.of(
+                List.of(new TestResultEndpoint.IntegerCell(1), new TestResultEndpoint.TextCell("Alice"), new TestResultEndpoint.IntegerCell(250)),
+                List.of(new TestResultEndpoint.IntegerCell(2), new TestResultEndpoint.TextCell("Bob"), new TestResultEndpoint.IntegerCell(175))));
     }
 
     private void registerSubmitEndpoint(AtomicReference<String> capturedSql) {
@@ -253,59 +257,17 @@ class BiToolConnectionIntegrationTest {
                       },
                       "column_names": []
                     }
-                    """.formatted(queryId, resultPort, queryId);
+                    """.formatted(queryId, resultServer.endpoint().port(), resultServer.endpoint().ticket());
             sendJsonResponse(exchange, 200, response);
         });
     }
 
-    private Schema buildCatalogSchema() {
-        return new Schema(List.of(
-                new Field("TABLE_CAT", FieldType.nullable(new ArrowType.Utf8()), null)));
-    }
-
-    private void populateCatalogData(VectorSchemaRoot root) {
-        VarCharVector catVector = (VarCharVector) root.getVector("TABLE_CAT");
-        root.allocateNew();
-        catVector.setSafe(0, "lakehouse".getBytes(StandardCharsets.UTF_8));
-        root.setRowCount(1);
-    }
-
-    private Schema buildOrdersSchema() {
-        return new Schema(List.of(
-                new Field("order_id", FieldType.nullable(new ArrowType.Int(32, true)), null),
-                new Field("customer_name", FieldType.nullable(new ArrowType.Utf8()), null),
-                new Field("amount", FieldType.nullable(new ArrowType.Int(32, true)), null)));
-    }
-
-    private void populateOrdersData(VectorSchemaRoot root) {
-        IntVector idVector = (IntVector) root.getVector("order_id");
-        VarCharVector nameVector = (VarCharVector) root.getVector("customer_name");
-        IntVector amountVector = (IntVector) root.getVector("amount");
-
-        root.allocateNew();
-        idVector.setSafe(0, 1);
-        nameVector.setSafe(0, "Alice".getBytes(StandardCharsets.UTF_8));
-        amountVector.setSafe(0, 250);
-
-        idVector.setSafe(1, 2);
-        nameVector.setSafe(1, "Bob".getBytes(StandardCharsets.UTF_8));
-        amountVector.setSafe(1, 175);
-
-        root.setRowCount(2);
-    }
-
-    private static String extractSqlFromRequest(String json) {
-        int sqlIdx = json.indexOf("\"sql\"");
-        if (sqlIdx < 0) {
-            return json;
+    private static String extractSqlFromRequest(String json) throws IOException {
+        var request = JsonMapperFactory.create().readValue(json, SubmitQueryRequest.class);
+        if (request.query() == null || request.query().isBlank()) {
+            throw new IOException("Submission omitted the canonical query field");
         }
-        int colonIdx = json.indexOf(':', sqlIdx);
-        int startQuote = json.indexOf('"', colonIdx + 1);
-        int endQuote = json.indexOf('"', startQuote + 1);
-        if (startQuote >= 0 && endQuote > startQuote) {
-            return json.substring(startQuote + 1, endQuote);
-        }
-        return json;
+        return request.query();
     }
 
     private static void sendJsonResponse(HttpExchange exchange, int statusCode, String body)
@@ -317,32 +279,4 @@ class BiToolConnectionIntegrationTest {
         exchange.close();
     }
 
-    @FunctionalInterface
-    private interface DataPopulator {
-        void populate(VectorSchemaRoot root);
-    }
-
-    /**
-     * Minimal gRPC result producer that serves test data for any ticket request.
-     */
-    private final class TestResultProducer extends NoOpFlightProducer {
-
-        private final Schema schema;
-        private final DataPopulator populator;
-
-        TestResultProducer(Schema schema, DataPopulator populator) {
-            this.schema = schema;
-            this.populator = populator;
-        }
-
-        @Override
-        public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
-            try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
-                listener.start(root);
-                populator.populate(root);
-                listener.putNext();
-                listener.completed();
-            }
-        }
-    }
 }

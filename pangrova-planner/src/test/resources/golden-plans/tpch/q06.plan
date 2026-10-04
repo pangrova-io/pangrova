@@ -1,4 +1,4 @@
-LogicalProject(revenue=[CASE(=($1, 0), null:DECIMAL(19, 4), $0)])
+LogicalProject(revenue=[CASE(=($1, 0), null:DECIMAL(38, 4), $0)])
   LogicalAggregate(group=[{}], revenue=[$SUM0($0)], agg#1=[COUNT()])
     LogicalProject($f0=[*($1, $2)])
       LogicalProject(L_QUANTITY=[$4], L_EXTENDEDPRICE=[$5], L_DISCOUNT=[$6], L_SHIPDATE=[$10])

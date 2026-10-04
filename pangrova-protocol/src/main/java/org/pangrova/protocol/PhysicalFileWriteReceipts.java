@@ -21,8 +21,19 @@ import java.util.OptionalLong;
 public final class PhysicalFileWriteReceipts {
     public static final int CONTRACT_VERSION = 1;
     private static final int MAX_FRAGMENT_BYTES = 16 * 1024 * 1024;
+    private static final int MIN_LANCE_FILE_BYTES = 40;
+
     private PhysicalFileWriteReceipts() {}
 
+    /**
+     * Decodes winning task fragments against their exact durable allocation and append metadata.
+     *
+     * @param template connector-owned allocation before task-attempt binding
+     * @param fragments canonical fragments from winning task attempts
+     * @return immutable validated receipts, not evidence that their objects exist or are published
+     * @throws IllegalArgumentException if fragments are absent, malformed, duplicated, or mismatched
+     * @throws ArithmeticException if receipt row or sequence accounting overflows
+     */
     public static List<NativePhysicalFileReceipt> decode(
             PhysicalFileWriteBinding template, List<byte[]> fragments) {
         var result = new ArrayList<NativePhysicalFileReceipt>();
@@ -113,23 +124,35 @@ public final class PhysicalFileWriteReceipts {
     }
 
     private static void validateReceipt(PhysicalFileWriteBinding bound, PhysicalFileReceipt receipt) {
+        validateAppendAllocation(bound, receipt);
+        requireSha256(receipt.getObjectChecksum());
+        validateAppendSequence(receipt);
+        validateStatistics(bound, receipt);
+    }
+
+    private static void validateAppendAllocation(PhysicalFileWriteBinding bound, PhysicalFileReceipt receipt) {
         if (!receipt.getUnknownFields().asMap().isEmpty() || !receipt.hasAllocation()
                 || !bound.getFilesList().contains(receipt.getAllocation())
                 || receipt.getFileFormat() != FileFormat.FILE_FORMAT_LANCE
                 || receipt.getFileFormat() != bound.getFileFormat()
                 || receipt.getSchemaId() != bound.getSchemaId()
-                || receipt.getSizeBytes() < 40 || receipt.getPhysicalRows() <= 0
+                || receipt.getSizeBytes() < MIN_LANCE_FILE_BYTES || receipt.getPhysicalRows() <= 0
                 || receipt.hasMinKey() || receipt.hasMaxKey() || receipt.getLevel() != 0
                 || receipt.getDeleteRowCount() != 0) {
             throw new IllegalArgumentException("Physical object receipt differs from its exact append allocation");
         }
-        requireSha256(receipt.getObjectChecksum());
+    }
+
+    private static void validateAppendSequence(PhysicalFileReceipt receipt) {
         long expectedMin = Math.addExact(receipt.getAllocation().getRestoredMaxSequence(), 1);
         if (receipt.getMinSequence() != expectedMin
                 || receipt.getMaxSequence() != Math.addExact(expectedMin, receipt.getPhysicalRows() - 1)
                 || receipt.getEncodingMajor() != 0 || receipt.getEncodingMinor() != 3) {
             throw new IllegalArgumentException("Physical append receipt sequence or actual encoding is invalid");
         }
+    }
+
+    private static void validateStatistics(PhysicalFileWriteBinding bound, PhysicalFileReceipt receipt) {
         var fields = new HashSet<Integer>();
         for (var column : receipt.getColumnsList()) {
             var declared = bound.getColumnsList().stream().filter(value -> value.getFieldId() == column.getFieldId())
@@ -168,6 +191,7 @@ public final class PhysicalFileWriteReceipts {
                 new NativePhysicalFileReceipt.ColumnStatistics(column.getFieldId(), column.getColumnName(),
                         column.hasNullCount() ? OptionalLong.of(column.getNullCount()) : OptionalLong.empty(),
                         Optional.empty(), Optional.empty(), column.getCollectionPolicy())).toList();
-        return new NativePhysicalFileReceipt(allocation, metrics, receipt.getObjectChecksum().getDigest().toByteArray(), statistics);
+        return new NativePhysicalFileReceipt(
+                allocation, metrics, receipt.getObjectChecksum().getDigest().toByteArray(), statistics);
     }
 }

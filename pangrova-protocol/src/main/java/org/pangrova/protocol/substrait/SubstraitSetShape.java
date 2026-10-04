@@ -52,6 +52,8 @@ final class SubstraitSetShape {
     }
 
     static Type merge(List<Type> types) {
+        if (types.isEmpty()) throw new IllegalArgumentException("Set requires declared input types");
+        types.forEach(SubstraitExpressionTypes::declared);
         Type first = types.get(0);
         var kind = first.getKindCase();
         if (types.stream().anyMatch(type -> type.getKindCase() != kind)) {
@@ -77,7 +79,8 @@ final class SubstraitSetShape {
                     .setValue(merge(types.stream().map(type -> type.getMap().getValue()).toList()))).build();
         } else return SubstraitExpressionTypes.homogeneous(types);
         Type merged = first;
-        if (types.stream().anyMatch(type -> !SubstraitSchemaFields.samePhysicalType(replaceChildren(type, merged), merged))) {
+        if (types.stream().anyMatch(type -> !SubstraitSchemaFields.samePhysicalType(
+                replaceChildren(type, merged), merged))) {
             throw new IllegalArgumentException("Nested physical type parameters differ");
         }
         boolean nullable = types.stream().anyMatch(SubstraitExpressionTypes::nullable);

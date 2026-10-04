@@ -1,5 +1,7 @@
 package org.pangrova.planner.stats;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
@@ -24,7 +26,7 @@ public class StatisticsCollector {
     static final int HISTOGRAM_BUCKET_COUNT = 256;
     static final double LOW_CARDINALITY_RATIO = 0.01;
 
-    private final Map<String, org.pangrova.planner.stats.PlannerTableStatistics> store = new ConcurrentHashMap<>();
+    private final Map<QualifiedTableName, org.pangrova.planner.stats.PlannerTableStatistics> store = new ConcurrentHashMap<>();
     private final ConnectorStatisticsProvider connectorProvider;
 
     /** Creates a collector with a real connector statistics provider. */
@@ -38,7 +40,7 @@ public class StatisticsCollector {
     }
 
     /** Req 7.1 — Full ANALYZE TABLE collection. */
-    public org.pangrova.planner.stats.PlannerTableStatistics analyzeTable(String tableName, List<String> columns) {
+    public org.pangrova.planner.stats.PlannerTableStatistics analyzeTable(QualifiedTableName tableName, List<String> columns) {
         Map<String, org.pangrova.planner.stats.ColumnStatistics> colStats = new HashMap<>();
         // Try real connector statistics first
         if (connectorProvider != null) {
@@ -66,7 +68,7 @@ public class StatisticsCollector {
     }
 
     /** Req 7.2 — Lightweight incremental collection after write commit. */
-    public org.pangrova.planner.stats.PlannerTableStatistics collectIncremental(String tableName, long affectedRows) {
+    public org.pangrova.planner.stats.PlannerTableStatistics collectIncremental(QualifiedTableName tableName, long affectedRows) {
         org.pangrova.planner.stats.PlannerTableStatistics existing = store.get(tableName);
         if (existing == null) {
             return analyzeTable(tableName, List.of());
@@ -81,7 +83,7 @@ public class StatisticsCollector {
     }
 
     /** Req 7.3 — Staleness detection for periodic scheduler. */
-    public boolean checkStaleness(String tableName, Instant currentSnapshot, Duration staleThreshold) {
+    public boolean checkStaleness(QualifiedTableName tableName, Instant currentSnapshot, Duration staleThreshold) {
         org.pangrova.planner.stats.PlannerTableStatistics existing = store.get(tableName);
         if (existing == null) {
             return true;
@@ -114,7 +116,7 @@ public class StatisticsCollector {
     }
 
     /** Retrieve stored statistics for a table, lazily loading from connector if available. */
-    public Optional<org.pangrova.planner.stats.PlannerTableStatistics> getStatistics(String tableName) {
+    public Optional<org.pangrova.planner.stats.PlannerTableStatistics> getStatistics(QualifiedTableName tableName) {
         org.pangrova.planner.stats.PlannerTableStatistics cached = store.get(tableName);
         if (cached != null) {
             return Optional.of(cached);
@@ -144,7 +146,12 @@ public class StatisticsCollector {
     }
 
     /** Store pre-built statistics for a table. */
-    public void putStatistics(String tableName, org.pangrova.planner.stats.PlannerTableStatistics stats) {
+    public void putStatistics(QualifiedTableName tableName, org.pangrova.planner.stats.PlannerTableStatistics stats) {
+        java.util.Objects.requireNonNull(tableName, "tableName");
+        java.util.Objects.requireNonNull(stats, "stats");
+        if (!tableName.equals(stats.tableName())) {
+            throw new IllegalArgumentException("Statistics identity differs from the cache key");
+        }
         store.put(tableName, stats);
     }
 
@@ -164,7 +171,7 @@ public class StatisticsCollector {
      * @param estimatedRows the planner's original row count estimate
      * @param actualRows    the actual row count observed at runtime
      */
-    public void recordRuntimeFeedback(String tableName, long estimatedRows, long actualRows) {
+    public void recordRuntimeFeedback(QualifiedTableName tableName, long estimatedRows, long actualRows) {
         if (estimatedRows <= 0 || actualRows <= 0) {
             return;
         }
@@ -208,7 +215,7 @@ public class StatisticsCollector {
     }
 
     /** Invalidates cached statistics for the given table. */
-    public void invalidate(String tableName) {
+    public void invalidate(QualifiedTableName tableName) {
         if (tableName != null && store.remove(tableName) != null) {
             LOG.info("event=statistics_invalidated table={}", tableName);
         }
@@ -323,6 +330,6 @@ public class StatisticsCollector {
      */
     @FunctionalInterface
     public interface ConnectorStatisticsProvider {
-        org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(String tableName);
+        org.pangrova.spi.connector.metadata.table.TableStatistics getTableStatistics(QualifiedTableName tableName);
     }
 }

@@ -57,12 +57,12 @@ public final class GeneratedValueArtifactBuildPlanBuilder {
         Anchors anchors = nextAnchors(source);
         Rel projected = projectedSource(source, sources.size(), logicalModelName, anchors);
         Plan.Builder plan = source.toBuilder().clearRelations()
-                .addExtensionUrns(extensionUrn(anchors.aiUrn(), "extension:org.pangrova:functions_ai"))
+                .addExtensionUrns(extensionUrn(anchors.aiUrn(), canonicalUrn("ai", "ai_embed")))
                 .addExtensions(extensionFunction(anchors.aiUrn(), anchors.embedFunction(), "ai_embed:"))
                 .addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
                         .setInput(artifactSink(projected, targetColumn))));
         if (sources.size() > 1) {
-            plan.addExtensionUrns(extensionUrn(anchors.stringUrn(), "extension:io.substrait:functions_string"))
+            plan.addExtensionUrns(extensionUrn(anchors.stringUrn(), canonicalUrn("string", "concat")))
                     .addExtensions(extensionFunction(anchors.stringUrn(), anchors.concatFunction(), "concat:"));
         }
         org.pangrova.protocol.substrait.SubstraitRelationLayout.rootSchema(plan.getRelations(0).getRoot());
@@ -89,6 +89,11 @@ public final class GeneratedValueArtifactBuildPlanBuilder {
         } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
             throw new IllegalArgumentException("Malformed authorized generated source", malformed);
         }
+    }
+
+    private static String canonicalUrn(String namespace, String name) {
+        return org.pangrova.protocol.function.declaration.FunctionBindingDeclarations.canonicalUrn(
+                org.pangrova.protocol.v2.FunctionKind.FUNCTION_KIND_SCALAR, namespace, name);
     }
 
     private static Anchors nextAnchors(Plan source) {

@@ -1,5 +1,8 @@
 package org.pangrova.client.rest;
 
+import org.pangrova.client.rest.auth.ClientAuthentication;
+import org.pangrova.transport.security.ResultTransportSecurity;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.json.JsonMapperFactory;
@@ -45,18 +48,13 @@ public final class PangrovaRestClient implements AutoCloseable {
     private final PangrovaRestClientConfig config;
     private final RetryPolicy retryPolicy;
     private final ConnectionPoolConfig connectionPoolConfig;
-    private final HttpClient httpClient;
-    private final boolean ownsHttpClient;
+    private final RestHttpClientOwner httpOwner;
     private final ObjectMapper objectMapper;
     private final ResultStreamFetcher resultFetcher;
     private final List<String> endpoints;
     private final AtomicInteger endpointIndex;
     private final RestResponseHandler responseHandler;
     private final RetryableHttpExecutor executor;
-
-    private PangrovaRestClient(PangrovaRestClientConfig config) {
-        this(config, null);
-    }
 
     /**
      * @param config         client configuration
@@ -69,52 +67,17 @@ public final class PangrovaRestClient implements AutoCloseable {
         this.objectMapper = JsonMapperFactory.create();
         this.responseHandler = new RestResponseHandler(objectMapper);
 
-        if (sharedClient != null) {
-            this.httpClient = sharedClient;
-            this.ownsHttpClient = false;
-            LOG.debug("event=rest_client_created mode=shared_http_client host={} port={}",
-                    config.coordinatorHost(), config.coordinatorPort());
-        } else {
-            HttpClient.Builder clientBuilder = HttpClient.newBuilder()
-                    // A-CLIENT-02: never transparently follow 3xx redirects — a redirect Location could
-                    // point at an internal/private address (SSRF surface). Any 3xx is surfaced via
-                    // checkResponse instead of being blindly followed; leader re-routing is handled
-                    // explicitly, not via Location. (Java's default is NEVER; made explicit here so a
-                    // future refactor cannot silently enable transparent redirects.)
-                    .followRedirects(HttpClient.Redirect.NEVER)
-                    .connectTimeout(config.connectTimeout());
-            if (config.useTls() && config.trustStorePath() != null) {
-                clientBuilder.sslContext(TlsContextFactory.build(config));
-            }
-            if (connectionPoolConfig != null) {
-                int poolSize = connectionPoolConfig.maxConnectionsPerEndpoint()
-                        * connectionPoolConfig.endpoints().size();
-                clientBuilder.executor(java.util.concurrent.Executors.newFixedThreadPool(
-                        poolSize, r -> {
-                            Thread t = new Thread(r, "pangrova-rest-pool");
-                            t.setDaemon(true);
-                            return t;
-                        }));
-                LOG.debug("event=rest_client_pool_configured poolSize={} idleTimeout={}",
-                        poolSize, connectionPoolConfig.connectionIdleTimeout());
-            }
-            this.httpClient = clientBuilder.build();
-            this.ownsHttpClient = true;
-        }
-        // F-REST-05: Guard against partial construction failure leaking resources.
+        this.httpOwner = RestHttpClientOwner.create(config, sharedClient);
         try {
-            this.resultFetcher = new ResultStreamFetcher(config.useTls(), config.trustStorePath());
-        } catch (RuntimeException ex) {
-            if (this.ownsHttpClient) {
-                // HttpClient doesn't implement AutoCloseable in JDK 11-17;
-                // executor is daemon-threaded and will be GC'd.
-                LOG.warn("event=rest_client_constructor_failure closing_resources", ex);
-            }
-            throw ex;
+            this.resultFetcher = new ResultStreamFetcher(config.resultTransportSecurity());
+        } catch (RuntimeException | Error failure) {
+            try { httpOwner.close(); }
+            catch (RuntimeException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+            throw failure;
         }
         this.endpoints = resolveEndpoints();
         this.endpointIndex = new AtomicInteger(0);
-        this.executor = new RetryableHttpExecutor(httpClient, retryPolicy, connectionPoolConfig,
+        this.executor = new RetryableHttpExecutor(httpOwner, retryPolicy, connectionPoolConfig,
                 endpoints, endpointIndex, config.scheme(), config.requestTimeout());
     }
 
@@ -150,6 +113,7 @@ public final class PangrovaRestClient implements AutoCloseable {
      * Cancels a running query.
      */
     public CancelOutcome cancelQuery(String queryId) {
+        if (queryId == null || queryId.isBlank()) throw new IllegalArgumentException("Query cancellation requires its query identity");
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(currentBaseUrl() + "/v1/query/" + queryId + "/cancel"))
                 .timeout(config.requestTimeout())
@@ -158,29 +122,40 @@ public final class PangrovaRestClient implements AutoCloseable {
                 .header("Accept", "application/json");
         injectAuthHeader(builder);
         HttpResponse<String> response = executor.executeWithRetry(builder.build());
-        return parseCancelOutcome(response);
+        return parseCancelOutcome(response, queryId);
     }
 
-    private CancelOutcome parseCancelOutcome(HttpResponse<String> response) {
+    private CancelOutcome parseCancelOutcome(HttpResponse<String> response, String queryId) {
         int status = response.statusCode();
-        if (status == HttpStatusCodes.NOT_FOUND) {
-            return CancelOutcome.NOT_FOUND;
-        }
+        if (status != HttpStatusCodes.NOT_FOUND) responseHandler.check(response);
+        CancelOutcome expected = switch (status) {
+            case HttpStatusCodes.OK -> CancelOutcome.ALREADY_TERMINAL;
+            case HttpStatusCodes.ACCEPTED -> CancelOutcome.CANCEL_ACCEPTED;
+            case HttpStatusCodes.NOT_FOUND -> CancelOutcome.NOT_FOUND;
+            default -> throw new PangrovaProtocolException("CANCEL_RESPONSE_INVALID",
+                    "Unexpected query cancellation response status", status);
+        };
+        JsonNode node;
         try {
-            var node = objectMapper.readTree(response.body());
-            String outcome = node.has("outcome") ? node.get("outcome").asText() : "";
-            return switch (outcome) {
-                case "CANCEL_ACCEPTED" -> CancelOutcome.CANCEL_ACCEPTED;
-                case "ALREADY_TERMINAL" -> CancelOutcome.ALREADY_TERMINAL;
-                default -> CancelOutcome.NOT_FOUND;
-            };
-        } catch (Exception e) {
-            return (status == HttpStatusCodes.ACCEPTED)
-                    ? CancelOutcome.CANCEL_ACCEPTED : CancelOutcome.ALREADY_TERMINAL;
+            node = objectMapper.readerFor(JsonNode.class)
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                    .readValue(response.body());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalidBody) {
+            throw new PangrovaProtocolException("CANCEL_RESPONSE_INVALID",
+                    "Query cancellation response is not valid JSON", status, invalidBody);
         }
+        if (node == null || !node.isObject() || !java.util.Objects.equals(queryId, node.path("query_id").textValue())
+                || !expected.name().equals(node.path("outcome").textValue())
+                || !node.path("cancelled").isBoolean()
+                || node.path("cancelled").booleanValue() != (expected == CancelOutcome.CANCEL_ACCEPTED)) {
+            throw new PangrovaProtocolException("CANCEL_RESPONSE_INVALID",
+                    "Query cancellation response does not match its requested identity and status", status);
+        }
+        return expected;
     }
 
-    /** Outcome of a cancel request. */
+    /** Logical cancellation outcome only; none of these values establishes physical execution or socket exit. */
     public enum CancelOutcome {
         CANCEL_ACCEPTED,
         ALREADY_TERMINAL,
@@ -195,39 +170,50 @@ public final class PangrovaRestClient implements AutoCloseable {
         return CatalogMetadataParser.parseCatalogs(node);
     }
 
+    /** Lists actual schemas, including schemas with no tables, under one catalog. */
+    public List<String> listSchemas(String catalog) {
+        var node = get("/v1/namespaces?parent=" + metadataPathComponent(catalog), JsonNode.class);
+        return CatalogMetadataParser.parseSchemas(node, catalog);
+    }
+
     /**
      * Lists tables in a given namespace (catalog).
      */
     public List<MetadataTableIdentifier> listTables(String namespace) {
-        try {
-            var node = get("/v1/namespaces/" + namespace + "/tables", JsonNode.class);
-            return CatalogMetadataParser.parseTables(node);
-        } catch (PangrovaClientException e) {
-            LOG.warn("Failed to list tables: {}", e.getMessage(), e);
-            return List.of();
-        }
+        var node = get("/v1/namespaces/" + metadataPathComponent(namespace) + "/tables", JsonNode.class);
+        return CatalogMetadataParser.parseTables(node);
     }
 
     /**
      * Loads table metadata including column information.
      */
-    public MetadataTableInfo loadTableMetadata(String namespace, String table) {
-        try {
-            var node = get("/v1/namespaces/" + namespace + "/tables/" + table, JsonNode.class);
-            return new MetadataTableInfo(namespace, table, CatalogMetadataParser.parseColumns(node));
-        } catch (PangrovaClientException e) {
-            return null;
+    public MetadataTableInfo loadTableMetadata(List<String> namespace, String table) {
+        if (namespace == null || namespace.isEmpty() || namespace.stream().anyMatch(
+                part -> part == null || part.isEmpty() || part.contains("\u001f"))) {
+            throw new IllegalArgumentException("Namespace requires nonempty components without the reserved separator");
         }
+        String encodedNamespace = metadataPathComponent(String.join("\u001f", namespace));
+        var node = get("/v1/namespaces/" + encodedNamespace + "/tables/" + metadataPathComponent(table), JsonNode.class);
+        return new MetadataTableInfo(namespace, table, CatalogMetadataParser.parseColumns(node));
+    }
+
+    private static String metadataPathComponent(String component) {
+        return java.net.URLEncoder.encode(java.util.Objects.requireNonNull(component, "component"),
+                java.nio.charset.StandardCharsets.UTF_8).replace("+", "%20");
     }
 
     /** Table identifier returned by the catalog REST API. */
-    public record MetadataTableIdentifier(List<String> namespace, String name) {}
+    public record MetadataTableIdentifier(List<String> namespace, String name) {
+        public MetadataTableIdentifier { namespace = List.copyOf(namespace); }
+    }
 
     /** Column metadata from the catalog REST API. */
     public record MetadataColumnInfo(int id, String name, String type, boolean required) {}
 
     /** Table metadata including columns from the catalog REST API. */
-    public record MetadataTableInfo(String namespace, String table, List<MetadataColumnInfo> columns) {}
+    public record MetadataTableInfo(List<String> namespace, String table, List<MetadataColumnInfo> columns) {
+        public MetadataTableInfo { namespace = List.copyOf(namespace); columns = List.copyOf(columns); }
+    }
 
     /**
      * Pings the coordinator's health endpoint to verify connectivity.
@@ -237,13 +223,13 @@ public final class PangrovaRestClient implements AutoCloseable {
      * @throws PangrovaConnectionException if the server is unreachable
      */
     public void ping(int timeoutSeconds) {
-        HttpRequest request = HttpRequest.newBuilder()
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(currentBaseUrl() + "/v1/health"))
                 .timeout(Duration.ofSeconds(timeoutSeconds))
-                .GET()
-                .build();
-        HttpResponse<String> response = executor.execute(request);
-        if (response.statusCode() >= HttpStatusCodes.INTERNAL_SERVER_ERROR) {
+                .GET();
+        injectAuthHeader(builder);
+        HttpResponse<String> response = executor.execute(builder.build());
+        if (response.statusCode() != HttpStatusCodes.OK) {
             throw new PangrovaConnectionException(
                     "HEALTH_CHECK_FAILED",
                     "Server returned " + response.statusCode(),
@@ -272,31 +258,10 @@ public final class PangrovaRestClient implements AutoCloseable {
 
     @Override
     public void close() {
+        httpOwner.seal();
         resultFetcher.close();
-        if (ownsHttpClient) {
-            shutdownHttpClientExecutor();
-        }
-        LOG.debug("event=rest_client_closed ownsHttpClient={}", ownsHttpClient);
-    }
-
-    private void shutdownHttpClientExecutor() {
-        httpClient.executor()
-                .filter(java.util.concurrent.ExecutorService.class::isInstance)
-                .map(java.util.concurrent.ExecutorService.class::cast)
-                .ifPresent(this::shutdownExecutorService);
-    }
-
-    private void shutdownExecutorService(java.util.concurrent.ExecutorService es) {
-        es.shutdown();
-        try {
-            if (!es.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                es.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            es.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-        LOG.debug("event=http_client_executor_shutdown");
+        httpOwner.close();
+        LOG.debug("event=rest_client_closed");
     }
 
     public PangrovaRestClientConfig config() {
@@ -362,8 +327,8 @@ public final class PangrovaRestClient implements AutoCloseable {
     }
 
     private void injectAuthHeader(HttpRequest.Builder builder) {
-        if (config.bearerToken() != null && !config.bearerToken().isBlank()) {
-            builder.header("Authorization", "Bearer " + config.bearerToken());
+        if (config.authentication() != null) {
+            builder.header("Authorization", config.authentication().authorizationHeader());
         }
     }
 
@@ -378,10 +343,12 @@ public final class PangrovaRestClient implements AutoCloseable {
         private boolean useTls;
         private String trustStorePath;
         private String trustStorePassword;
-        private String bearerToken;
+        private ResultTransportSecurity resultTransportSecurity = ResultTransportSecurity.systemTrust(false);
+        private ClientAuthentication authentication;
         private HttpClient sharedHttpClient;
         private RetryPolicy retryPolicy = RetryPolicy.DEFAULT;
         private ConnectionPoolConfig connectionPoolConfig;
+        private Integer httpExecutorThreads;
 
         private Builder() {}
 
@@ -413,15 +380,35 @@ public final class PangrovaRestClient implements AutoCloseable {
             this.trustStorePassword = password;
             return this;
         }
+
+        /**
+         * Sets the result-channel PEM policy independently of REST HTTPS trust stores.
+         *
+         * @param security immutable result policy and optional PEM material
+         * @return this builder
+         */
+        public Builder resultTransportSecurity(ResultTransportSecurity security) {
+            this.resultTransportSecurity = java.util.Objects.requireNonNull(security, "security");
+            return this;
+        }
         public Builder bearerToken(String token) {
-            this.bearerToken = token;
+            return authentication(ClientAuthentication.bearer(token));
+        }
+
+        public Builder authentication(ClientAuthentication value) {
+            java.util.Objects.requireNonNull(value, "authentication");
+            if (authentication != null) {
+                throw new IllegalArgumentException("Authentication has already been configured");
+            }
+            this.authentication = value;
             return this;
         }
 
         /**
          * Injects a shared HttpClient instance instead of creating a new one.
          * When set, the client is NOT owned by this PangrovaRestClient — the caller
-         * is responsible for its lifecycle.
+         * is responsible for its lifecycle. An explicit HTTPS trust store cannot
+         * be combined with a shared client; build rejects ambiguous trust ownership.
          */
         public Builder httpClient(HttpClient client) {
             this.sharedHttpClient = client;
@@ -447,14 +434,20 @@ public final class PangrovaRestClient implements AutoCloseable {
             return this;
         }
 
+        /** Sets the owned HTTP executor thread count without multiplying it by failover endpoints. */
+        public Builder httpExecutorThreads(int threads) {
+            this.httpExecutorThreads = threads;
+            return this;
+        }
+
         /**
          * Builds the client from the configured values.
          */
         public PangrovaRestClient build() {
             PangrovaRestClientConfig config = new PangrovaRestClientConfig(
                     coordinatorHost, coordinatorPort, connectTimeout, requestTimeout,
-                    useTls, trustStorePath, trustStorePassword, bearerToken,
-                    retryPolicy, connectionPoolConfig);
+                    useTls, trustStorePath, trustStorePassword, authentication,
+                    retryPolicy, connectionPoolConfig, httpExecutorThreads, resultTransportSecurity);
             return new PangrovaRestClient(config, sharedHttpClient);
         }
     }

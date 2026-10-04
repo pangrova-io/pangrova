@@ -121,7 +121,7 @@ public record QueryManagerContext(
             QueryDispatcher queryDispatcher, TracingProvider tracingProvider) {
         return new QueryManagerContext(queryDispatcher, tracingProvider,
                 null, null, null, null, null, null, null, null,
-                InMemoryQueryStateJournal.INSTANCE, null, null, null, null);
+                new InMemoryQueryStateJournal(), null, null, null, null);
     }
 
     /**
@@ -134,7 +134,7 @@ public record QueryManagerContext(
             AsyncSubmitConfig asyncSubmitConfig, ExecutorService asyncExecutor) {
         return new QueryManagerContext(queryDispatcher, tracingProvider,
                 null, null, null, null, null, null, null, null,
-                InMemoryQueryStateJournal.INSTANCE, null, null,
+                new InMemoryQueryStateJournal(), null, null,
                 asyncSubmitConfig, asyncExecutor);
     }
 }

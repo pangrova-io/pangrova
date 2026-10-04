@@ -8,7 +8,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.coordinator.query.statement.TableWarmupExecutor;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.slf4j.Logger;

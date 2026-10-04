@@ -51,6 +51,7 @@ core::AggregationNode::Aggregate VeloxPlanConverter::convertAggregateMeasure(
     std::vector<std::string>& names, std::vector<core::TypedExprPtr>& projections) {
   if (!measure.has_measure()) throw std::runtime_error("Aggregate measure has no function");
   const auto& function = measure.measure();
+  requireFunctionKind(function.function_reference(), protocol::v2::FUNCTION_KIND_AGGREGATE);
   const auto deprecated = function.GetDescriptor()->FindFieldByName("args");
   if (function.GetReflection()->FieldSize(function, deprecated) != 0) {
     throw std::runtime_error("Deprecated aggregate args are not a canonical plan");
@@ -70,7 +71,7 @@ core::AggregationNode::Aggregate VeloxPlanConverter::convertAggregateMeasure(
       function.phase() == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT) {
     throw std::runtime_error("State aggregate phase requires authoritative original raw-input types");
   }
-  aggregate.call = pangrova::capability::bindRegisteredRawAggregate(found->second,
+  aggregate.call = pangrova::capability::bindRegisteredRawAggregate(*function_registry_, found->second,
       convertType(function.output_type()), std::move(arguments),
       function.phase() == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE).call;
   aggregate.distinct = function.invocation() == substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT;

@@ -63,12 +63,7 @@ final class IcebergCatalogTables {
     Table resolveTable(IcebergTableHandle handle) {
         TableIdentifier id = TableIdentifier.of(handle.schemaName(), handle.tableName());
         Table table = catalog.loadTable(id);
-        try {
-            table.refresh();
-        } catch (RuntimeException e) {
-            LOG.warn("event=table_refresh_failed table={}.{} error={}",
-                    handle.schemaName(), handle.tableName(), e.getMessage());
-        }
+        table.refresh();
         return table;
     }
 
@@ -90,7 +85,10 @@ final class IcebergCatalogTables {
     }
 
     ConnectorTableReadMetadata getTableReadMetadata(IcebergTableHandle handle) {
-        Table icebergTable = resolveTable(handle);
+        return getTableReadMetadata(handle, resolveTable(handle));
+    }
+
+    ConnectorTableReadMetadata getTableReadMetadata(IcebergTableHandle handle, Table icebergTable) {
         var evidence = IcebergReadSchema.resolve(handle, icebergTable);
         var properties = evidence.declarationProperties().orElse(Map.of());
         var typedColumns = IcebergTypeMapper.toPangrovaColumns(

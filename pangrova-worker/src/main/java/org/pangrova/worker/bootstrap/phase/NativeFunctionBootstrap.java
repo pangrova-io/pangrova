@@ -7,6 +7,7 @@ import org.pangrova.worker.bootstrap.WorkerComponentRefs;
 import org.pangrova.worker.jni.NativeFunctionBridge;
 import org.pangrova.worker.jni.NativeFunctionConfig;
 import org.pangrova.worker.jni.NativeFunctionDescriptor;
+import org.pangrova.worker.jni.NativeCapabilityLoader;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,20 +52,24 @@ public final class NativeFunctionBootstrap {
                            NativeFunctionConfig functionConfig,
                            Iterable<FunctionFactory> factories) {
         if (!functionConfig.autoRegister()) {
+            if (refs.nativeAvailable()) NativeCapabilityLoader.finalizeStartup();
             LOG.info("event=phase_skipped phase=native_functions reason=auto_register_disabled");
             return;
+        }
+
+        if (!refs.nativeFunctionResources().isEmpty()) {
+            throw new IllegalStateException("Previous native function owners have not drained");
         }
 
         NativeFunctionBridge bridge = new NativeFunctionBridge();
         int scalarCount = 0;
         int aggregateCount = 0;
         int factoryCount = 0;
-        List<AutoCloseable> resources = new java.util.ArrayList<>();
 
         try {
             for (FunctionFactory factory : factories) {
                 if (factory instanceof AutoCloseable closeable) {
-                    resources.add(closeable);
+                    refs.retainNativeFunctionResource(closeable);
                 }
                 factoryCount++;
                 String pluginName = factory.getName();
@@ -76,50 +81,26 @@ public final class NativeFunctionBootstrap {
             }
 
             refs.setNativeFunctionBridge(bridge);
-            refs.setNativeFunctionResources(resources);
 
             List<NativeFunctionDescriptor> descriptors = bridge.buildDescriptors();
             if (refs.nativeAvailable()) {
                 NativeRuntime.nativeRegisterFunctions(bridge, descriptors);
+                NativeCapabilityLoader.finalizeStartup();
             }
             LOG.info("event=native_functions_registered factories={} scalars={} aggregates={} descriptors={}",
                     factoryCount, scalarCount, aggregateCount, descriptors.size());
         } catch (RuntimeException | Error startupFailure) {
-            closeResources(resources, startupFailure);
-            refs.setNativeFunctionResources(List.of());
+            try { refs.closeNativeFunctionResources(); }
+            catch (RuntimeException | Error cleanupFailure) {
+                if (cleanupFailure != startupFailure) startupFailure.addSuppressed(cleanupFailure);
+            }
             throw startupFailure;
         }
     }
 
     /** Closes provider registries and other resources owned by function factories. */
     public static void close(WorkerComponentRefs refs) {
-        List<AutoCloseable> resources = refs.nativeFunctionResources();
-        RuntimeException firstFailure = closeResources(resources, null);
-        refs.setNativeFunctionResources(List.of());
-        if (firstFailure != null) {
-            throw firstFailure;
-        }
-    }
-
-    private static RuntimeException closeResources(
-            List<AutoCloseable> resources, Throwable startupFailure) {
-        RuntimeException firstFailure = null;
-        for (int i = resources.size() - 1; i >= 0; i--) {
-            try {
-                resources.get(i).close();
-            } catch (Exception failure) {
-                if (firstFailure == null) {
-                    firstFailure = new IllegalStateException(
-                            "Failed to close native function resource", failure);
-                } else {
-                    firstFailure.addSuppressed(failure);
-                }
-                if (startupFailure != null) {
-                    startupFailure.addSuppressed(failure);
-                }
-            }
-        }
-        return firstFailure;
+        refs.closeNativeFunctionResources();
     }
 
     private static int registerScalarFunctions(NativeFunctionBridge bridge,

@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -78,7 +79,8 @@ class PendingEndpointRegistry {
       const std::string& plan_node_id,
       const std::string& exchange_id,
       int64_t last_sequence,
-      const std::string& failure);
+      const std::string& failure,
+      const std::function<void()>& on_failure_accepted);
 
   void sealInput(
       int64_t executor_handle,

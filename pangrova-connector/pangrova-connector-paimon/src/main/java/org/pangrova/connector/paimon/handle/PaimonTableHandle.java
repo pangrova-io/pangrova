@@ -35,6 +35,10 @@ public record PaimonTableHandle(
 
     /** No limit pushed down. */
     public static final long NO_LIMIT = 0L;
+    /** Evidence captured from the selected SDK source, never a query-wide mutable pin. */
+    public static final String SOURCE_IDENTITY_PROPERTY = "pangrova.read.source_identity";
+    /** Ordinary reads retain their captured current schema while selecting a data snapshot. */
+    public static final String CURRENT_SCHEMA_PROPERTY = "pangrova.read.current_schema";
 
     /**
      * Compact constructor with defensive copies and null safety.
@@ -63,10 +67,13 @@ public record PaimonTableHandle(
      * @return a new handle with the specified snapshot ID
      */
     public PaimonTableHandle withSnapshotId(long targetSnapshotId) {
+        var selectedProperties = new java.util.LinkedHashMap<>(properties);
+        selectedProperties.remove(CURRENT_SCHEMA_PROPERTY);
+        selectedProperties.remove(SOURCE_IDENTITY_PROPERTY);
         return new PaimonTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.of(targetSnapshotId), rowTypeJson,
-                primaryKeys, partitionKeys, properties, pushedLimit);
+                primaryKeys, partitionKeys, selectedProperties, pushedLimit);
     }
 
     @Override
@@ -80,10 +87,13 @@ public record PaimonTableHandle(
      * @return a new handle without snapshot ID
      */
     public PaimonTableHandle withoutSnapshotId() {
+        var selectedProperties = new java.util.LinkedHashMap<>(properties);
+        selectedProperties.remove(CURRENT_SCHEMA_PROPERTY);
+        selectedProperties.remove(SOURCE_IDENTITY_PROPERTY);
         return new PaimonTableHandle(
                 schemaName, tableName, tableLocation,
                 Optional.empty(), rowTypeJson,
-                primaryKeys, partitionKeys, properties, pushedLimit);
+                primaryKeys, partitionKeys, selectedProperties, pushedLimit);
     }
 
     /**

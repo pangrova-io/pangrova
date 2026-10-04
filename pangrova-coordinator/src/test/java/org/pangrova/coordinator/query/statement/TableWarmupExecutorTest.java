@@ -69,7 +69,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class TableWarmupExecutorTest {
 
-    private static org.pangrova.coordinator.query.CoordinatorSessionContext statementSession() {
+    private static org.pangrova.coordinator.query.session.CoordinatorSessionContext statementSession() {
         return context();
     }
 

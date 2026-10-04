@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <algorithm>
 #include <array>
@@ -11,6 +12,7 @@
 
 #include "executor/driver/TaskExecutor.h"
 #include "jni/command/NativeCommandDispatcher.h"
+#include "jni/command/StatusSerializer.h"
 #include "jni/registry/HandleRegistry.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/exchange/PendingEndpointRegistry.h"
@@ -83,6 +85,8 @@ protected:
     deadline_epoch_ms_ = nowMillis() + 600'000;
 
     pangrova::executor::TaskExecutorConfig config;
+    config.function_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
     config.task_id = "consumer-task-3";
     config.query_id = "query-1";
     config.stage_id = 2;
@@ -294,6 +298,8 @@ TEST_F(NativeCommandExchangeTest, UsesDefaultBudgetForUnboundLocalExecutor) {
   HandleRegistry::instance().release(handle_);
   handle_ = 0;
   pangrova::executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "consumer-task-3";
   config.query_id = "query-1";
   config.stage_id = 2;
@@ -432,18 +438,31 @@ TEST_F(NativeCommandExchangeTest, PropagatesStructuredExternalFailure) {
       dispatch(proto::RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE, invalid);
   ASSERT_FALSE(invalid_response.success());
   EXPECT_EQ(invalid_response.error().code(), "INVALID_EXCHANGE_FAILURE");
+  const auto executor = HandleRegistry::instance().acquire(handle_);
+  EXPECT_FALSE(executor->lifecycleSnapshot().error.has_value());
+  EXPECT_EQ(endpoint->external_ingress->take(std::chrono::microseconds(1)).kind,
+            pangrova::velox::ExternalShuffleIngress::ResultKind::kPending);
 
   auto valid = invalid;
   valid.mutable_failure()->set_failed_component("remote-shuffle-client");
+  valid.mutable_failure()->set_retryable(true);
   auto failure_response =
       dispatch(proto::RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE, valid);
   ASSERT_TRUE(failure_response.success()) << failure_response.error().message();
   auto terminal = endpoint->external_ingress->take(std::chrono::seconds(1));
   ASSERT_EQ(terminal.kind,
             pangrova::velox::ExternalShuffleIngress::ResultKind::kFailed);
-  EXPECT_NE(terminal.error.find("code=REMOTE_READ_FAILED"), std::string::npos);
-  EXPECT_NE(terminal.error.find("message=connection closed"),
-            std::string::npos);
+  EXPECT_EQ(terminal.error, valid.failure().message());
+  const auto accepted = executor->lifecycleSnapshot();
+  ASSERT_TRUE(accepted.error.has_value());
+  EXPECT_EQ(accepted.error->SerializeAsString(), valid.failure().SerializeAsString());
+  executor->notifyTaskFailed(terminal.error);
+  const auto status = serializeTaskStatus(*executor);
+  proto::TaskReport report;
+  ASSERT_TRUE(report.ParseFromArray(status.data(), static_cast<int>(status.size())));
+  EXPECT_EQ(report.state(), proto::TASK_STATE_FAILED);
+  ASSERT_TRUE(report.has_error());
+  EXPECT_EQ(report.error().SerializeAsString(), valid.failure().SerializeAsString());
 }
 
 TEST_F(NativeCommandExchangeTest, RejectsWrongPayloadAndUnknownCommand) {

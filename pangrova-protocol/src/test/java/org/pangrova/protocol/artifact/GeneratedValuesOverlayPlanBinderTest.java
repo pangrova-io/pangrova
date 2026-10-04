@@ -115,7 +115,8 @@ class GeneratedValuesOverlayPlanBinderTest {
     void rejectsScalarTargetHiddenNameCollisionAndOutOfBoundsEmit() {
         var scalar = read().toBuilder().setBaseSchema(read().getBaseSchema().toBuilder()
                 .setStruct(read().getBaseSchema().getStruct().toBuilder()
-                        .setTypes(2, Type.newBuilder().setFp32(Type.FP32.newBuilder())))).build();
+                        .setTypes(2, Type.newBuilder().setFp32(Type.FP32.newBuilder()
+                                .setNullability(Type.Nullability.NULLABILITY_NULLABLE))))).build();
         var hidden = read().toBuilder().setBaseSchema(read().getBaseSchema().toBuilder()
                 .setNames(0, "$pangrova$row_position")).build();
         var badEmit = read().toBuilder().setCommon(RelCommon.newBuilder()
@@ -140,10 +141,14 @@ class GeneratedValuesOverlayPlanBinderTest {
     private static ReadRel read() {
         var schema = NamedStruct.newBuilder().addAllNames(List.of("id", "content", "embedding"))
                 .setStruct(Type.Struct.newBuilder()
-                        .addTypes(Type.newBuilder().setI64(Type.I64.newBuilder()))
-                        .addTypes(Type.newBuilder().setString(Type.String.newBuilder()))
+                        .addTypes(Type.newBuilder().setI64(Type.I64.newBuilder()
+                                .setNullability(Type.Nullability.NULLABILITY_REQUIRED)))
+                        .addTypes(Type.newBuilder().setString(Type.String.newBuilder()
+                                .setNullability(Type.Nullability.NULLABILITY_NULLABLE)))
                         .addTypes(Type.newBuilder().setList(Type.List.newBuilder()
-                                .setType(Type.newBuilder().setFp32(Type.FP32.newBuilder())))));
+                                .setNullability(Type.Nullability.NULLABILITY_NULLABLE)
+                                .setType(Type.newBuilder().setFp32(Type.FP32.newBuilder()
+                                        .setNullability(Type.Nullability.NULLABILITY_REQUIRED))))));
         return ReadRel.newBuilder().setBaseSchema(schema)
                 .setNamedTable(ReadRel.NamedTable.newBuilder().addAllNames(TABLE)).build();
     }

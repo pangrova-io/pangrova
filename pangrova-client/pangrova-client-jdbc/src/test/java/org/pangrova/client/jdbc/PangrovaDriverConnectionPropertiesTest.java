@@ -3,6 +3,9 @@ package org.pangrova.client.jdbc;
 import org.pangrova.client.rest.PangrovaRestClientConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.testing.testkit.security.TestTlsAuthority;
+import org.pangrova.testing.testkit.security.TestHttpsEndpoint;
 
 import java.sql.DriverPropertyInfo;
 import java.sql.SQLException;
@@ -19,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * silently swallowed (architecture-remediation #185).
  */
 class PangrovaDriverConnectionPropertiesTest {
+    @TempDir java.nio.file.Path directory;
 
     private static final String BASE_URL = "jdbc:pangrova://localhost:8080";
 
@@ -30,9 +34,10 @@ class PangrovaDriverConnectionPropertiesTest {
     private static PangrovaRestClientConfig connectAndGetConfig(String url, Properties info)
             throws SQLException {
         PangrovaDriver driver = new PangrovaDriver();
-        PangrovaConnection conn = (PangrovaConnection) driver.connect(url, info);
-        assertThat(conn).isNotNull();
-        return conn.restClient().config();
+        try (PangrovaConnection conn = (PangrovaConnection) driver.connect(url, info)) {
+            assertThat(conn).isNotNull();
+            return conn.restClient().config();
+        }
     }
 
     @Test
@@ -40,25 +45,29 @@ class PangrovaDriverConnectionPropertiesTest {
         Properties info = new Properties();
         info.setProperty("token", "secret-token");
         PangrovaRestClientConfig cfg = connectAndGetConfig(BASE_URL, info);
-        assertThat(cfg.bearerToken()).isEqualTo("secret-token");
+        assertThat(cfg.authentication().authorizationHeader()).isEqualTo("Bearer secret-token");
     }
 
     @Test
     void connect_tokenFromUrlQuery_appliedToClientConfig() throws SQLException {
         PangrovaRestClientConfig cfg = connectAndGetConfig(BASE_URL + "?token=url-token", null);
-        assertThat(cfg.bearerToken()).isEqualTo("url-token");
+        assertThat(cfg.authentication().authorizationHeader()).isEqualTo("Bearer url-token");
     }
 
     @Test
-    void connect_sslProperties_appliedToClientConfig() throws SQLException {
+    void connect_sslProperties_appliedToClientConfig() throws Exception {
+        var store = directory.resolve("actual-truststore.jks");
+        try (var authority = new TestTlsAuthority(directory)) {
+            TestHttpsEndpoint.writeTrustStore(store, authority.root(), "changeit".toCharArray());
+        }
         Properties info = new Properties();
         info.setProperty("ssl", "true");
-        info.setProperty("sslTrustStore", "/etc/pangrova/truststore.jks");
+        info.setProperty("sslTrustStore", store.toString());
         info.setProperty("sslTrustStorePassword", "changeit");
         PangrovaRestClientConfig cfg = connectAndGetConfig(BASE_URL, info);
         assertThat(cfg.useTls()).isTrue();
         assertThat(cfg.scheme()).isEqualTo("https");
-        assertThat(cfg.trustStorePath()).isEqualTo("/etc/pangrova/truststore.jks");
+        assertThat(cfg.trustStorePath()).isEqualTo(store.toString());
         assertThat(cfg.trustStorePassword()).isEqualTo("changeit");
     }
 
@@ -96,7 +105,23 @@ class PangrovaDriverConnectionPropertiesTest {
         Properties info = new Properties();
         info.setProperty("token", "props-wins");
         PangrovaRestClientConfig cfg = connectAndGetConfig(BASE_URL + "?token=url-loses", info);
-        assertThat(cfg.bearerToken()).isEqualTo("props-wins");
+        assertThat(cfg.authentication().authorizationHeader()).isEqualTo("Bearer props-wins");
+    }
+
+    @Test
+    void connect_sharedPoolRejectsExplicitConflictButAllowsAnUnspecifiedSize() throws SQLException {
+        var props = new Properties();
+        props.setProperty("poolSize", "2");
+        try (var first = new PangrovaDriver().connect(BASE_URL, props);
+             var same = new PangrovaDriver().connect(BASE_URL, props);
+             var unspecified = new PangrovaDriver().connect(BASE_URL, null)) {
+            assertThat(first).isNotNull();
+            assertThat(same).isNotNull();
+            assertThat(unspecified).isNotNull();
+            props.setProperty("poolSize", "3");
+            assertThatThrownBy(() -> new PangrovaDriver().connect(BASE_URL, props))
+                    .isInstanceOf(SQLException.class).hasMessageContaining("existing shared HTTP executor size");
+        }
     }
 
     @Test

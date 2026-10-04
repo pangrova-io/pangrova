@@ -121,8 +121,9 @@ public final class TaskResource implements Closeable {
         // must precede every admission side effect.
         taskManager.verifyControlEpochForAdmission(
                 request.taskRequest().getAttempt().getControlEpoch());
+        taskManager.verifyAdmissionDeadline(request.taskRequest().getDeadlineEpochMs());
         // Validate the one canonical contract before any admission side effect.
-        org.pangrova.protocol.CanonicalTaskRequests.validateForAdmission(
+        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(
                 request.taskRequest());
         taskManager.verifyExecutionOwnerForAdmission(request);
         ResultEndpoint endpoint = resultEndpoint(request.taskRequest());
@@ -156,15 +157,17 @@ public final class TaskResource implements Closeable {
     }
 
     private Response handleSubmitError(SubmitTaskRequest request, Exception e) {
-        if (e instanceof org.pangrova.worker.task.ControlEpochFenceException fenceError) {
-            int status = switch (fenceError.reason()) {
-                case CONTROL_PLANE_NOT_READY -> Response.Status.SERVICE_UNAVAILABLE.getStatusCode();
-                // The task is from a newer elected coordinator. No admission side effect
-                // has occurred; retry only after an authenticated heartbeat advances
-                // this Worker's independently observed control epoch.
-                case EPOCH_AHEAD -> 425;
-                default -> Response.Status.CONFLICT.getStatusCode();
+        if (e instanceof org.pangrova.worker.task.TaskAdmissionException admission) {
+            int status = switch (admission.reason()) {
+                case EXPIRED -> Response.Status.REQUEST_TIMEOUT.getStatusCode();
+                case IDENTITY_CONFLICT, SEALED -> Response.Status.CONFLICT.getStatusCode();
+                case CAPACITY, CLOSED -> Response.Status.SERVICE_UNAVAILABLE.getStatusCode();
             };
+            return Response.status(status).entity(new SubmitTaskResponse(
+                    false, admission.getMessage(), null, null, null)).build();
+        }
+        if (e instanceof org.pangrova.worker.task.ControlEpochFenceException fenceError) {
+            int status = epochRejectionStatus(fenceError);
             LOG.warn("event=task_submit_epoch_rejected queryId={} reason={} error={}",
                     queryId(request), fenceError.reason(), fenceError.getMessage());
             return Response.status(status)
@@ -204,30 +207,54 @@ public final class TaskResource implements Closeable {
                 : "unknown";
     }
 
-    /** Cancels the task identified by {@code taskId}. */
+    /** Seals the exact issued admission; only a real canonical drain receipt qualifies as success. */
     @DELETE
     @Path("/{taskId}")
-    public Response cancelTask(@PathParam("taskId") String taskId) {
-        String workerTaskId = taskManager.resolveWorkerTaskId(taskId);
-        org.pangrova.worker.task.TaskCancelResult result = workerTaskId == null
-                ? org.pangrova.worker.task.TaskCancelResult.notFound(taskId)
-                : taskManager.cancelTask(workerTaskId);
-        if (result.status() == org.pangrova.worker.task.TaskCancelResult.Status.NOT_FOUND) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "NOT_FOUND", "USER_ERROR",
-                            result.errorMessage()))
-                    .build();
+    @Consumes("application/x-protobuf")
+    @Produces("application/x-protobuf")
+    public Response cancelTask(@PathParam("taskId") String taskId, byte[] canonicalSeal) {
+        try {
+            if (canonicalSeal == null || canonicalSeal.length == 0) {
+                throw new IllegalArgumentException("Exact canonical admission seal is required");
+            }
+            var request = org.pangrova.protocol.v2.TaskAdmissionSealRequest.parseFrom(canonicalSeal);
+            org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.validate(request, taskId);
+            var receipt = taskManager.sealAdmission(request);
+            return receipt.isPresent()
+                    ? Response.ok(receipt.orElseThrow().toByteArray(), "application/x-protobuf").build()
+                    : Response.status(Response.Status.ACCEPTED).build();
+        } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException failure) {
+            return sealError(Response.Status.BAD_REQUEST, failure);
+        } catch (org.pangrova.worker.task.TaskAdmissionException failure) {
+            return sealError(failure.reason() == org.pangrova.worker.task.TaskAdmissionException.Reason.CAPACITY
+                    ? Response.Status.SERVICE_UNAVAILABLE : Response.Status.CONFLICT, failure);
+        } catch (org.pangrova.worker.task.ControlEpochFenceException failure) {
+            return sealError(epochRejectionStatus(failure), failure.reason().name(), failure);
+        } catch (org.pangrova.worker.task.ExecutionOwnerFenceException failure) {
+            return sealError(Response.Status.CONFLICT, failure);
+        } catch (RuntimeException failure) {
+            LOG.error("event=task_admission_seal_failed taskId={}", taskId, failure);
+            return sealError(Response.Status.INTERNAL_SERVER_ERROR, failure);
         }
-        if (!result.isSuccess()) {
-            return Response.status(Response.Status.CONFLICT)
-                    .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
-                            "CONFLICT", "USER_ERROR",
-                            result.errorMessage()))
-                    .build();
-        }
-        LOG.info("event=task_cancelled taskId={}", taskId);
-        return Response.ok().build();
+    }
+
+    private static Response sealError(Response.Status status, Exception failure) {
+        return sealError(status.getStatusCode(), status.name(), failure);
+    }
+
+    private static Response sealError(int status, String code, Exception failure) {
+        return Response.status(status).type(MediaType.APPLICATION_JSON)
+                .entity(new org.pangrova.protocol.rest.error.ErrorDetail(
+                        code, "SYSTEM_ERROR", failure.getMessage())).build();
+    }
+
+    private static int epochRejectionStatus(org.pangrova.worker.task.ControlEpochFenceException failure) {
+        return switch (failure.reason()) {
+            case CONTROL_PLANE_NOT_READY -> Response.Status.SERVICE_UNAVAILABLE.getStatusCode();
+            // No admission/seal side effect: wait for an authenticated heartbeat to observe this epoch.
+            case EPOCH_AHEAD -> 425;
+            default -> Response.Status.CONFLICT.getStatusCode();
+        };
     }
 
     /** Handles an upstream commit notification for a running task. */

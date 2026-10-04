@@ -1,6 +1,6 @@
 #include "velox/plan/VeloxPlanConverter.h"
 
-#include "velox/exec/AggregateFunctionRegistry.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 #include "velox/exec/HashPartitionFunction.h"
 
 namespace pangrova::velox {
@@ -47,9 +47,11 @@ VeloxPlanConverter::buildParallelAggregation(
   partialAggs.reserve(aggregates.size());
   for (size_t i = 0; i < aggregates.size(); ++i) {
     auto pa = aggregates[i];
+    const auto resolved = function_registry_->bindAggregate(
+        aggregates[i].call->name(), aggregates[i].rawInputTypes);
+    if (!resolved) throw std::runtime_error("Parallel aggregate has no admitted raw-input signature");
     pa.call = std::make_shared<facebook::velox::core::CallTypedExpr>(
-        facebook::velox::exec::resolveIntermediateType(
-            aggregates[i].call->name(), aggregates[i].rawInputTypes),
+        resolved->intermediateType,
         aggregates[i].call->inputs(), aggregates[i].call->name());
     partialAggs.push_back(std::move(pa));
   }

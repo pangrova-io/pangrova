@@ -26,7 +26,8 @@ sidebar_label: "Developer Guide"
 │  │  Software           │ Version       │ Purpose                           │   │
 │  │  ─────────────────────────────────────────────────────────────────────  │   │
 │  │  JDK                │ 17+           │ Java compile and run              │   │
-│  │  Maven              │ 3.8+          │ Build management                  │   │
+│  │  Maven              │ 3.9+          │ Build management                  │   │
+│  │  Python             │ 3.10+         │ Function-contract generation      │   │
 │  │  CMake              │ 3.20+         │ Native build                      │   │
 │  │  GCC/Clang          │ 11+/14+       │ C++ compile                       │   │
 │  │  Docker             │ 20+           │ Test containers                   │   │
@@ -42,6 +43,14 @@ sidebar_label: "Developer Guide"
 ```
 
 ### 1.2 Quick Start
+
+Use JDK 17 for the repository verification chain. Both Maven's function-contract
+generator and the native SDK generator require Python 3.10 or later. Ensure
+`python3` on `PATH` selects that interpreter, including test subprocesses. For an
+explicit Maven generator interpreter use
+`-Dpangrova.function-contract.python=/absolute/path/to/python3`; native bootstrap
+accepts `PANGROVA_FUNCTION_CONTRACT_PYTHON`, and CMake accepts `Python3_EXECUTABLE`.
+The host OS's older default Python is not a compliant build runtime.
 
 ```bash
 # 1. Clone the code
@@ -121,10 +130,10 @@ pangrova-{module}/
  * Class design convention example
  * 
  * Rules:
- * 1. Single responsibility per class, no more than 500 lines
- * 2. Methods no longer than 20 lines
- * 3. No more than 5 parameters
- * 4. No more than 3 levels of indentation
+ * 1. One responsibility per class; Java file hard ceiling: 800 lines
+ * 2. Coherent methods; hard ceiling: 100 nonblank, noncomment lines
+ * 3. At most 10 method/constructor parameters; group only cohesive concepts
+ * 4. Keep nesting shallow; Checkstyle depth limits: if/for 3, try 2
  */
 public class QueryExecutor {
     
@@ -160,6 +169,38 @@ public class QueryExecutor {
     private QueryResult executeInternal(ExecutionPlan plan, QueryContext ctx) { /* ... */ }
 }
 ```
+
+### Validation Scope and Readability
+
+The canonical policy is `.pangrova/rules/development.md`. Start with the closest
+check, then the owning module and affected consumers. Maven `test`/`verify`
+already compiles; avoid duplicate invocations unless diagnosing a failure.
+Runtime JNI/protocol/native/execution changes require affected native, packaging,
+Java, and E2E/smoke validation; memory/ownership/JNI/concurrency changes also need
+ASan. Docs/tooling edits use their own checks. Full production regression remains
+required in CI and before release, and locally for broad execution changes.
+
+Structural ceilings (800 file lines, 100 effective method lines, complexity 15,
+10 parameters) are backstops. Review constructors above 6 dependencies and
+interfaces above 12 methods for mixed responsibilities. Preserve meaningful names,
+cohesion, explicit control flow, and shallow nesting. Do not introduce forwarding
+classes, generic parameter bags, or compressed statements just to pass a metric.
+Checkstyle owns these metrics; a second regex scanner and historical rename
+ledgers have been removed. Enums may contain as many values as the domain needs. Established pattern names
+such as Adapter, Visitor, and Observer are valid when they describe the actual role.
+
+Test changed behavior and relevant errors/boundaries. Pure refactors may reuse
+existing coverage; retain the 60% changed executable Java line coverage gate.
+Record unrelated baseline/environment failures with evidence and their impact;
+do not disable tests, claim blocked checks passed, or require stashing a shared
+worktree. Submit concise execution evidence with links to complete logs.
+
+Extra TPC-H/JMH jobs are selected by production/dependency/benchmark changes;
+docs and unrelated tests do not require them. Correctness regression and existing
+performance thresholds remain enforced. Static analysis runs once per CI job. Date-based doc-age alarms, the fixed
+historical dependency-use list, and an unused ADR trailer hook are removed.
+See [Quality Gate Audit](quality-gate-audit.md) for measurements and decisions.
+Repository instruction discovery uses `AGENTS.md` and `.pangrova/rules/` only.
 
 ### 2.3 Comment Conventions
 

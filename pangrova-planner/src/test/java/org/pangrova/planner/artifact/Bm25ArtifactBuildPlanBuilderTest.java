@@ -36,6 +36,11 @@ class Bm25ArtifactBuildPlanBuilderTest {
         assertThat(extension.getInput().getRead().getBaseSchema().getNamesList())
                 .containsExactly(BuiltInCapabilityCatalog.PHYSICAL_ROW_POSITION_COLUMN,
                         "description");
+        var types = extension.getInput().getRead().getBaseSchema().getStruct().getTypesList();
+        assertThat(types.get(0).getI64().getNullability())
+                .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED);
+        assertThat(types.get(1).getString().getNullability())
+                .isEqualTo(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE);
         RelationDetailEnvelope envelope = extension.getDetail()
                 .unpack(RelationDetailEnvelope.class);
         assertThat(envelope.getArtifactBuild().getPlanNodeId())

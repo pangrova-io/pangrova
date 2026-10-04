@@ -21,12 +21,9 @@ import org.pangrova.spi.transport.TransportServerLifecycle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sql.DataSource;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
-import static org.pangrova.common.util.Preconditions.checkState;
-import static org.pangrova.coordinator.bootstrap.CoordinatorResourceRelease.present;
 
 /**
  * Orchestrates the full Coordinator startup/shutdown sequence.
@@ -39,7 +36,8 @@ public final class CoordinatorBootstrap {
     private static final java.time.Duration EXECUTION_OWNER_LEASE_TTL = java.time.Duration.ofSeconds(30);
 
     private final CoordinatorBootstrapConfig config;
-    private final AtomicBoolean started = new AtomicBoolean(false);
+    private final org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission lifecycle =
+            new org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
 
     private SecretResolver secretResolver;
     private ObservabilityBootstrap observability;
@@ -67,7 +65,13 @@ public final class CoordinatorBootstrap {
 
     /** Starts configured subsystems and rolls back all owned resources if any phase fails. */
     public void start() {
-        checkState(!started.get(), "CoordinatorBootstrap already started");
+        lifecycle.beginStart();
+        boolean succeeded = false;
+        try { startOwned(); succeeded = true; }
+        finally { lifecycle.endStart(succeeded); }
+    }
+
+    private void startOwned() {
         config.requireAuthenticatedTenancy();
         LOG.info("event=coordinator_bootstrap_start coordinatorId={} role={}",
                 config.coordinatorId(), config.role());
@@ -78,7 +82,6 @@ public final class CoordinatorBootstrap {
             startMetadata();
             bindExecutionAuthority();
             startRoleSubsystems();
-            started.set(true);
             LOG.info("event=coordinator_bootstrap_completed coordinatorId={} role={}",
                     config.coordinatorId(), config.role());
         } catch (RuntimeException | Error failure) {
@@ -170,33 +173,22 @@ public final class CoordinatorBootstrap {
 
     /** Stops admission and releases every owned subsystem in dependency order. */
     public void shutdown() {
-        if (!started.compareAndSet(true, false)) {
-            return;
-        }
-        LOG.info("event=coordinator_shutdown_start coordinatorId={} role={}",
-                config.coordinatorId(), config.role());
-        closeResources(null);
-        LOG.info("event=coordinator_shutdown_completed coordinatorId={} role={}",
-                config.coordinatorId(), config.role());
+        lifecycle.close(() -> closeResources(null));
     }
 
     private void closeResources(Throwable primary) {
-        CoordinatorResourceRelease.close(primary,
-                present(ha, HighAvailabilityBootstrap::shutdown),
-                present(maintenanceLeadership, MaintenanceLeadershipBootstrap::close),
-                present(http, HttpBootstrap::shutdown),
-                present(query, QueryBootstrap::shutdown),
-                present(branchTtlCleanupTask, CoordinatorShutdownSequence::closeBranchCleanup),
-                present(streamingBootstrap, CoordinatorShutdownSequence::closeStreamingBootstrap),
-                present(moduleWiring, CoordinatorShutdownSequence::closeModules),
-                present(executionAuthority, org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority::close),
-                present(nativeDatasetControl, NativeDatasetControlBootstrap::close),
-                present(metadataBootstrap, MetadataBootstrap::shutdown),
-                present(connectorHandleFactory, PluginConnectorHandleFactory::shutdown),
-                present(metadataDataSource, CoordinatorShutdownSequence::closeDataSource),
-                present(security, SecurityBootstrap::shutdown),
-                present(observability, ObservabilityBootstrap::shutdown),
-                present(zkLeaseProvider, org.pangrova.metadata.coordination.ZooKeeperLeaseProvider::close));
+        try { closeOwnedResources(); }
+        catch (RuntimeException | Error failure) {
+            if (primary == null) throw failure;
+            if (primary != failure) primary.addSuppressed(failure);
+        }
+    }
+
+    private void closeOwnedResources() {
+        CoordinatorShutdownSequence.closeOwnedResources(lifecycle, new CoordinatorShutdownSequence.ShutdownOwners(
+                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, http, moduleWiring,
+                nativeDatasetControl, metadataBootstrap, connectorHandleFactory, executionAuthority,
+                metadataDataSource, security, observability, zkLeaseProvider));
     }
 
     private void initSecretResolver() {
@@ -471,7 +463,7 @@ public final class CoordinatorBootstrap {
     }
 
     // -- Accessors for testing and health checks --
-    public boolean isStarted() { return started.get(); }
+    public boolean isStarted() { return lifecycle.isRunning(); }
     public int getHttpPort() { return http != null && http.httpServer() != null ? http.httpServer().getPort() : -1; }
     public QueryManager getQueryManager() { return query != null ? query.queryManager() : null; }
     public WorkerManager getWorkerManager() { return query != null ? query.workerManager() : null; }

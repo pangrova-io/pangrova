@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <string>
+
 #include "../TestMemoryHelper.h"
 #include "velox/expression/SimpleFunctionRegistry.h"
 #include "velox/functions/Registerer.h"

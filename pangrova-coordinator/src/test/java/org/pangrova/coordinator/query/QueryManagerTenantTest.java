@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
@@ -73,7 +75,7 @@ class QueryManagerTenantTest {
 
         queryManager = new QueryManager(new QueryManagerContext(
                 orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker, null, null, null, null, null,
-                org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE, null));
+                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(), null));
     }
 
     @AfterEach
@@ -153,7 +155,7 @@ class QueryManagerTenantTest {
                 orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker,
                 null, null, null, null,
                 new QueryThrottlingService(2, 0.001, 100.0),
-                org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal.INSTANCE,
+                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(),
                 null));
 
         for (String tenantId : List.of("tenant-a", "tenant-b")) {

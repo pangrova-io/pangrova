@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.planner.PlanFragment;
 import org.pangrova.planner.SqlCompiler;

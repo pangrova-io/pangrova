@@ -1,5 +1,9 @@
 package org.pangrova.worker.ai.invocation;
 
+import org.pangrova.worker.ai.governance.AiInvocationObserver;
+
+import org.pangrova.worker.ai.governance.AiInvocationAuthorizer;
+
 import org.pangrova.spi.ai.AiCapabilityDescriptor;
 import org.pangrova.spi.ai.AiModelIdentity;
 import org.pangrova.spi.ai.AiInvocationRequest;
@@ -82,7 +86,7 @@ final class GovernedAiTestModels implements AutoCloseable {
 
     private org.pangrova.protocol.v2.TaskRequest taskRequest(
             String taskId, AiCapabilityDescriptor.Operation operation, long calls) {
-        var builder = org.pangrova.worker.CanonicalTaskRequestTestFixture.builder(
+        var builder = org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
                 taskId, "query-a", 0, 0, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, authorityPlan());
         builder.setAttempt(builder.getAttempt().toBuilder().setExecutionOwner(
                 builder.getAttempt().getExecutionOwner().toBuilder().setOwnerIncarnation(incarnation)));

@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "../../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <array>
 #include <chrono>
@@ -23,6 +25,7 @@
 #include "velox/exchange/PangrovaExchangeSource.h"
 #include "velox/exchange/PendingEndpointRegistry.h"
 #include "velox/plan/VeloxPlanConverter.h"
+#include "velox/plan/CanonicalOrdinalIdentity.h"
 #include "velox/runner/VeloxTaskRunner.h"
 #include "velox/vector/tests/utils/VectorMaker.h"
 
@@ -38,6 +41,21 @@ constexpr char kExchangeId[] = "native-e2e";
 constexpr uint64_t kPlanEpoch = 9;
 constexpr uint32_t kAttemptId = 0;
 constexpr uint64_t kFencingToken = 38'654'705'665ULL;
+
+// Real loopback Flight/SDK integration; not independent-process SQL E2E.
+substrait::NamedStruct inputSchema() {
+  substrait::NamedStruct schema;
+  schema.add_names("id");
+  schema.mutable_struct_()->add_types()->mutable_i64()->set_nullability(
+      substrait::Type::NULLABILITY_REQUIRED);
+  return schema;
+}
+
+shuffle::ShuffleBatchSerializer::Config serializerConfig() {
+  shuffle::ShuffleBatchSerializer::Config config{"none", 10'000};
+  config.canonical_schema = std::make_shared<const substrait::NamedStruct>(inputSchema());
+  return config;
+}
 
 std::vector<uint8_t> exchangePlan() {
   substrait::Plan plan;
@@ -55,14 +73,13 @@ std::vector<uint8_t> exchangePlan() {
       pangrova::protocol::v2::EXCHANGE_DISTRIBUTION_SINGLETON);
   detail->set_partition_count(1);
   detail->set_batch_serde(
-      pangrova::protocol::v2::BATCH_SERDE_NATIVE_ROW);
+      pangrova::protocol::v2::BATCH_SERDE_ARROW_BATCH);
   detail->set_require_complete(true);
-  detail->mutable_output_schema()->add_names("id");
-  detail->mutable_output_schema()->mutable_struct_()->add_types()->mutable_i64();
+  *detail->mutable_output_schema() = inputSchema();
   extension->mutable_detail()->PackFrom(envelope);
 
   std::string bytes;
-  EXPECT_TRUE(plan.SerializeToString(&bytes));
+  EXPECT_TRUE(pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes));
   return {bytes.begin(), bytes.end()};
 }
 
@@ -129,9 +146,14 @@ std::filesystem::path tlsResource(const char* filename) {
 
 std::shared_ptr<VeloxTaskRunner> makeConsumer(
     executor::OutputQueue* output_queue) {
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto plan = converter.convert(exchangePlan(), {});
   VeloxTaskRunnerConfig config;
+  config.function_registry = converter_registry;
+  config.canonical_output_schema = std::make_shared<const substrait::NamedStruct>(converter.canonicalOutputSchema());
+  config.serde_schema_bindings = converter.serdeSchemaBindings();
   config.executor_handle = kConsumerHandle;
   config.task_id = "consumer-task-native-e2e";
   config.query_id = "query-native-e2e";
@@ -241,9 +263,8 @@ TEST_F(NativeExchangeDataPlaneE2ETest, NonEmptyBatchTraversesFlightAndVelox) {
   auto leaf_pool = root_pool->addLeafChild("producer");
   facebook::velox::test::VectorMaker maker(leaf_pool.get());
   auto input = maker.rowVector(
-      {"id"}, {maker.flatVector<int64_t>({42, 7, 99})});
-  shuffle::ShuffleBatchSerializer serializer(
-      shuffle::ShuffleBatchSerializer::Config{"none", 10'000});
+      {physicalFieldAlias(0)}, {maker.flatVector<int64_t>({42, 7, 99})});
+  shuffle::ShuffleBatchSerializer serializer(serializerConfig());
 
   shuffle::SerializedShuffleQueue producerQueue(8);
   shuffle::ShuffleBatch batch;
@@ -308,13 +329,12 @@ TEST_F(NativeExchangeDataPlaneE2ETest, CompressedBatchTraversesFlightAndVelox) {
   auto leafPool = rootPool->addLeafChild("producer");
   facebook::velox::test::VectorMaker maker(leafPool.get());
   std::vector<int64_t> ids(512, 42);
-  auto input = maker.rowVector({"id"}, {maker.flatVector<int64_t>(ids)});
-  shuffle::ShuffleBatchSerializer::Config compressedConfig;
+  auto input = maker.rowVector({physicalFieldAlias(0)}, {maker.flatVector<int64_t>(ids)});
+  auto compressedConfig = serializerConfig();
   compressedConfig.compression_codec = "lz4";
   compressedConfig.compression_min_bytes = 1;
   shuffle::ShuffleBatchSerializer compressed(compressedConfig);
-  shuffle::ShuffleBatchSerializer plain(
-      shuffle::ShuffleBatchSerializer::Config{"none", 10'000});
+  shuffle::ShuffleBatchSerializer plain(serializerConfig());
   auto encoded = compressed.serialize(input, leafPool.get());
   EXPECT_LT(encoded->computeChainDataLength(),
             plain.serialize(input, leafPool.get())->computeChainDataLength());
@@ -404,9 +424,8 @@ TEST_F(NativeExchangeDataPlaneE2ETest, WaitBudgetDoesNotCancelSparseStream) {
 
   facebook::velox::test::VectorMaker maker(leafPool.get());
   auto input = maker.rowVector(
-      {"id"}, {maker.flatVector<int64_t>({11, 22})});
-  shuffle::ShuffleBatchSerializer serializer(
-      shuffle::ShuffleBatchSerializer::Config{"none", 10'000});
+      {physicalFieldAlias(0)}, {maker.flatVector<int64_t>({11, 22})});
+  shuffle::ShuffleBatchSerializer serializer(serializerConfig());
   shuffle::ShuffleBatch batch;
   batch.partition_id = 0;
   batch.data = serializer.serialize(input, leafPool.get());

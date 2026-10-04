@@ -23,7 +23,8 @@
 #include <vector>
 
 #include "../TestMemoryHelper.h"
-#include "result/ArrowBatchVectorSerde.h"
+#include "velox/serde/ArrowBatchVectorSerde.h"
+#include "velox/plan/CanonicalPlanSchema.h"
 
 #include "velox/buffer/Buffer.h"
 #include "velox/common/memory/ByteStream.h"
@@ -40,7 +41,8 @@ namespace pangrova::velox::test {
 namespace {
 
 using namespace facebook::velox;
-using pangrova::result::ArrowBatchVectorSerde;
+using pangrova::velox::ArrowBatchVectorSerde;
+namespace schema = pangrova::velox::schema;
 
 // ===========================================================================
 // Test parameters: column type × null pattern × batch size
@@ -350,14 +352,64 @@ RowVectorPtr makeTestVector(
   return nullptr;
 }
 
+// The parameter's logical contract is explicit, never inferred from a vector.
+ArrowBatchVectorSerde::StreamOptions declaredOptions(const SerdeEquivalenceParam& param) {
+  const auto nullable = param.null_pattern == NullPattern::kNoNulls
+      ? substrait::Type::NULLABILITY_REQUIRED : substrait::Type::NULLABILITY_NULLABLE;
+  substrait::Type declared;
+  std::string name;
+  std::vector<std::string> descendants;
+  switch (param.column_type) {
+    case ColumnType::kInt:
+      name = "col_int"; declared = schema::primitive("i32", nullable); break;
+    case ColumnType::kBigint:
+      name = "col_bigint"; declared = schema::primitive("i64", nullable); break;
+    case ColumnType::kVarchar:
+      name = "col_varchar"; declared = schema::primitive("string", nullable); break;
+    case ColumnType::kDecimal:
+      name = "col_decimal";
+      declared.mutable_decimal()->set_precision(18);
+      declared.mutable_decimal()->set_scale(2);
+      declared.mutable_decimal()->set_nullability(nullable);
+      break;
+    case ColumnType::kArray:
+      name = "col_array";
+      declared.mutable_list()->set_nullability(nullable);
+      *declared.mutable_list()->mutable_type() =
+          schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED);
+      break;
+    case ColumnType::kMap:
+      name = "col_map";
+      declared.mutable_map()->set_nullability(nullable);
+      *declared.mutable_map()->mutable_key() =
+          schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED);
+      *declared.mutable_map()->mutable_value() =
+          schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED);
+      break;
+    case ColumnType::kRow:
+      name = "col_row";
+      declared.mutable_struct_()->set_nullability(nullable);
+      *declared.mutable_struct_()->add_types() = schema::primitive("i64", nullable);
+      *declared.mutable_struct_()->add_types() = schema::primitive("string", nullable);
+      descendants = {"f_int", "f_str"};
+      break;
+  }
+  ArrowBatchVectorSerde::StreamOptions options;
+  options.canonical_schema = std::make_shared<const substrait::NamedStruct>(
+      schema::named({{name, declared, descendants}}));
+  return options;
+}
+
 // Serializes a RowVector using ArrowBatchVectorSerde and deserializes it back.
 RowVectorPtr serdeRoundTrip(
     const RowVectorPtr& input,
-    facebook::velox::memory::MemoryPool* pool) {
+    facebook::velox::memory::MemoryPool* pool,
+    const SerdeEquivalenceParam& param) {
   ArrowBatchVectorSerde serde;
+  const auto options = declaredOptions(param);
 
   // Serialize using BatchVectorSerializer.
-  auto serializer = serde.createBatchSerializer(pool);
+  auto serializer = serde.createBatchSerializer(pool, &options);
 
   // Create output stream to capture serialized bytes.
   auto outputStream = std::make_unique<IOBufOutputStream>(*pool);
@@ -380,7 +432,7 @@ RowVectorPtr serdeRoundTrip(
 
   auto rowType = std::dynamic_pointer_cast<const RowType>(input->type());
   RowVectorPtr result;
-  serde.deserialize(byteStream.get(), pool, rowType, &result);
+  serde.deserialize(byteStream.get(), pool, rowType, &result, &options);
   return result;
 }
 
@@ -454,7 +506,7 @@ TEST_P(BatchVectorSerdeEquivalenceTest, RoundTripPreservesSchema) {
   ASSERT_NE(input, nullptr) << "Failed to create test vector for " << param.name;
   ASSERT_EQ(input->size(), param.batch_size);
 
-  auto result = serdeRoundTrip(input, pool_.get());
+  auto result = serdeRoundTrip(input, pool_.get(), param);
   ASSERT_NE(result, nullptr) << "Deserialization returned null for " << param.name;
 
   // Schema must be equivalent.
@@ -482,7 +534,7 @@ TEST_P(BatchVectorSerdeEquivalenceTest, RoundTripPreservesRowCount) {
       pool_.get(), param.column_type, param.null_pattern, param.batch_size);
   ASSERT_NE(input, nullptr);
 
-  auto result = serdeRoundTrip(input, pool_.get());
+  auto result = serdeRoundTrip(input, pool_.get(), param);
   ASSERT_NE(result, nullptr);
   EXPECT_EQ(result->size(), input->size())
       << "Row count mismatch for " << param.name;
@@ -504,7 +556,7 @@ TEST_P(BatchVectorSerdeEquivalenceTest, RoundTripPreservesValuesAndNulls) {
       pool_.get(), param.column_type, param.null_pattern, param.batch_size);
   ASSERT_NE(input, nullptr);
 
-  auto result = serdeRoundTrip(input, pool_.get());
+  auto result = serdeRoundTrip(input, pool_.get(), param);
   ASSERT_NE(result, nullptr);
   ASSERT_EQ(result->size(), input->size());
 

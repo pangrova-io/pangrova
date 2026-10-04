@@ -5,6 +5,7 @@ import re
 
 from registration_catalog import canonical_json, read_export
 from registered_signature import exact_bool, exact_keys
+from physical_type_bridge import validate_bridge
 
 
 KINDS = {"SCALAR", "AGGREGATE", "WINDOW"}
@@ -20,10 +21,13 @@ def strings(value):
 
 
 def validate_binding(value):
-    exact_keys(value, ("namespace", "name", "kind"),
+    exact_keys(value, ("namespace", "canonicalUrn", "name", "kind"),
                ("implementation", "sqlNames", "operators", "rewrite", "structuralLowering",
                 "registrationDependency", "governedLayout", "normalizedArguments", "runtimeSignature", "options"))
     strings([value["namespace"], value["name"]])
+    if (not isinstance(value["canonicalUrn"], str)
+            or not re.fullmatch(r"extension:[a-z0-9.]+:[a-z][a-z0-9_]*", value["canonicalUrn"])):
+        raise ValueError("A binding requires its exact canonical extension URN")
     if value["kind"] not in KINDS:
         raise ValueError("Unknown binding kind")
     choices = {"implementation", "rewrite", "structuralLowering"} & value.keys()
@@ -122,10 +126,7 @@ def read_declarations(source):
     exact_keys(value, ("schemaVersion", "bindings", "structuralContracts", "physicalTypeBridge", "governedLayouts"))
     if type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1:
         raise ValueError("Unknown binding declaration schema")
-    exact_keys(value["physicalTypeBridge"], ("anonymousComputedFieldPrefix",))
-    prefix = value["physicalTypeBridge"]["anonymousComputedFieldPrefix"]
-    if not isinstance(prefix, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", prefix):
-        raise ValueError("Anonymous computed field names require an explicit safe prefix")
+    validate_bridge(value["physicalTypeBridge"])
     layout_ids = validate_governed_layouts(value["governedLayouts"])
     identities, names = set(), set()
     if not isinstance(value["bindings"], list) or len(value["bindings"]) > MAX_DECLARATIONS:

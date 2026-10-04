@@ -27,6 +27,8 @@ public final class TaskInfo {
     // --- Mutable execution state (delegated) ---
     private final TaskExecutionState execution = new TaskExecutionState();
     private final TaskCleanupRetry cleanupRetry = new TaskCleanupRetry();
+    private final TaskNativeCreation nativeCreation = new TaskNativeCreation();
+    private final TaskTerminalPublication terminalPublication = new TaskTerminalPublication();
 
     TaskInfo(String taskId, String queryId, SubmitTaskRequest request,
              TaskDescriptor descriptor, Instant startTime) {
@@ -72,7 +74,19 @@ public final class TaskInfo {
     // --- Executor handle (delegated) ---
 
     public long executorHandle() { return execution.executorHandle(); }
-    public void setExecutorHandle(long handle) { execution.setExecutorHandle(handle); }
+    public void setExecutorHandle(long handle) {
+        nativeCreation.publish(handle, execution::setExecutorHandle);
+    }
+    void beginNativeCreation() { nativeCreation.begin(); }
+    void failNativeCreation(Throwable failure) { nativeCreation.failed(failure); }
+    void nativeCreationRolledBackBeforeEntry() { nativeCreation.failedBeforeNativeEntry(); }
+    boolean sealNativeCreationWithoutOwnerOrAwaitExit() { return nativeCreation.sealWithoutOwnerOrAwaitExit(); }
+    void resolveNativeCreationFailure(long handle) {
+        if (executorHandle() != 0 && executorHandle() != handle) {
+            throw new IllegalStateException("Recovered Native owner differs from the recorded executor handle");
+        }
+        nativeCreation.resolveEnteredFailure(handle, execution::setExecutorHandle);
+    }
     public boolean compareAndSetExecutorHandle(long expected, long update) {
         return execution.compareAndSetExecutorHandle(expected, update);
     }
@@ -83,6 +97,22 @@ public final class TaskInfo {
     }
 
     byte[] executorReleaseReport() { return execution.executorReleaseReport(); }
+    byte[] stagedExecutorReleaseReceipt() { return execution.stagedExecutorReleaseReceipt(); }
+    void stageExecutorReleaseReceipt(byte[] receipt) { execution.stageExecutorReleaseReceipt(receipt); }
+    byte[] stagedCreationRecoveryReceipt() { return execution.stagedCreationRecoveryReceipt(); }
+    void stageCreationRecoveryReceipt(byte[] receipt) { execution.stageCreationRecoveryReceipt(receipt); }
+    boolean resourcesReleased() { return execution.resourcesReleased(); }
+    org.pangrova.protocol.v2.ExecutionDrainState executionDrainState() {
+        byte[] receipt = executorReleaseReport();
+        if (receipt != null) {
+            return TaskCompletionMonitor.requireCanonicalTaskReport(request.taskRequest(), receipt)
+                    .getExecutionDrainState();
+        }
+        if (!nativeCreation.sealWithoutOwnerOrAwaitExit()) {
+            throw new IllegalStateException("Created Native owner has no actual release receipt");
+        }
+        return org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER;
+    }
 
     java.util.concurrent.CompletableFuture<Void> claimResourcesRelease(
             java.util.concurrent.CompletableFuture<Void> candidate) {
@@ -96,6 +126,12 @@ public final class TaskInfo {
     // --- Report sequencing (delegated) ---
 
     long nextReportSequence() { return execution.nextReportSequence(); }
+
+    void publishReleasedTerminal(java.util.function.Supplier<org.pangrova.protocol.rest.task.TaskStatusReport> prepare,
+                                 java.util.function.Consumer<org.pangrova.protocol.rest.task.TaskStatusReport> send) {
+        if (!resourcesReleased()) throw new IllegalStateException("Terminal publication precedes actual resource release");
+        terminalPublication.publish(prepare, send);
+    }
 
     // --- Resource accounting (delegated) ---
 

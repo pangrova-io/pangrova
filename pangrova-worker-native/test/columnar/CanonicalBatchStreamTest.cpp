@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 #include <arrow/array.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
 #include <cstring>
+#include <limits>
 
 #include "../TestMemoryHelper.h"
 #include "columnar/CanonicalBatchStream.h"
@@ -124,6 +127,54 @@ TEST_F(CanonicalBatchStreamTest, RealTaskCapRejectsAllocationWithoutLeakingUsage
   allocator.Free(data, 2048, 64);
   EXPECT_EQ(allocator.bytes_allocated(), 0);
   EXPECT_EQ(leaf->usedBytes(), 0);
+}
+
+TEST_F(CanonicalBatchStreamTest, StandardCompressedStreamsAreReadableWithoutPrivateCodecOptions) {
+  const std::vector<int64_t> input(4096, 42);
+  auto original = batch(pool_, input);
+  auto plain = encodeBatchStream({original}, pool_);
+  ASSERT_TRUE(plain.ok());
+  for (const auto codec : {arrow::Compression::LZ4_FRAME, arrow::Compression::ZSTD}) {
+    BatchStreamOptions config;
+    config.compression = codec;
+    auto encoded = encodeBatchStream({original}, pool_, config);
+    ASSERT_TRUE(encoded.ok()) << encoded.status().ToString();
+    EXPECT_LT((*encoded)->size(), (*plain)->size());
+    auto readOptions = arrow::ipc::IpcReadOptions::Defaults();
+    readOptions.memory_pool = pool_.get();
+    readOptions.use_threads = false;
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(
+        std::make_shared<arrow::io::BufferReader>(*encoded), readOptions);
+    ASSERT_TRUE(reader.ok()) << reader.status().ToString();
+    std::shared_ptr<arrow::RecordBatch> actual;
+    ASSERT_TRUE((*reader)->ReadNext(&actual).ok());
+    ASSERT_NE(actual, nullptr);
+    EXPECT_TRUE(actual->Equals(*original));
+    ASSERT_TRUE((*reader)->ReadNext(&actual).ok());
+    EXPECT_EQ(actual, nullptr);
+  }
+}
+
+TEST_F(CanonicalBatchStreamTest, RejectsUnsupportedCodecInvalidSavingsAndNullBatch) {
+  BatchStreamOptions config;
+  config.compression = arrow::Compression::SNAPPY;
+  EXPECT_TRUE(encodeBatchStream({batch(pool_, {1})}, pool_, config).status().IsInvalid());
+  config.compression = arrow::Compression::UNCOMPRESSED;
+  for (const auto savings : {-0.1, 1.1, std::numeric_limits<double>::quiet_NaN()}) {
+    config.minimum_space_savings = savings;
+    EXPECT_TRUE(encodeBatchStream({batch(pool_, {1})}, pool_, config).status().IsInvalid());
+  }
+  EXPECT_TRUE(encodeBatchStream({nullptr}, pool_).status().IsInvalid());
+}
+
+TEST_F(CanonicalBatchStreamTest, WireCeilingRejectsBeforeGrowingOutputAndReleasesAllocator) {
+  const auto original = batch(pool_, std::vector<int64_t>(8192, 7));
+  const auto baseline = pool_->bytes_allocated();
+  BatchStreamOptions config;
+  config.maximum_bytes = 1024;
+  auto encoded = encodeBatchStream({original}, pool_, config);
+  ASSERT_TRUE(encoded.status().IsCapacityError()) << encoded.status().ToString();
+  EXPECT_EQ(pool_->bytes_allocated(), baseline);
 }
 }  // namespace
 }  // namespace pangrova::columnar::test

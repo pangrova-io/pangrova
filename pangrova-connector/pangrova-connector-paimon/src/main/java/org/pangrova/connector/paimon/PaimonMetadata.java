@@ -1,7 +1,6 @@
 package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.scan.PaimonReadSchema;
-
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
@@ -17,6 +16,7 @@ import org.pangrova.spi.connector.metadata.table.ColumnHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableHandle;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.apache.paimon.catalog.Catalog;
@@ -141,17 +141,18 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public TableStatistics getTableStatistics(ConnectorSession session, ConnectorTableHandle table) {
-        PaimonTableHandle handle = (PaimonTableHandle) table;
-        try {
-            Table freshTable = loadFreshTable(handle.schemaName(), handle.tableName());
-            // Pin the snapshot for the current query to ensure consistent reads
-            snapshotPins.pinLatestForQuery(session, freshTable);
-            return PaimonTableStatisticsReader.build(freshTable);
-        } catch (Exception e) {
-            LOG.debug("event=paimon_stats_collection_failed schema={} table={} error={}",
-                    handle.schemaName(), handle.tableName(), e.getMessage());
-            return TableStatistics.UNKNOWN;
-        }
+        return bindRead(session, table).statistics();
+    }
+
+    @Override
+    public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
+        return PaimonReadBindings.bind(catalog, (PaimonTableHandle) table);
+    }
+
+    @Override
+    public void validateReadBinding(ConnectorSession session,
+            ConnectorReadBinding binding) {
+        PaimonReadBindings.validate(catalog, binding);
     }
 
     @Override

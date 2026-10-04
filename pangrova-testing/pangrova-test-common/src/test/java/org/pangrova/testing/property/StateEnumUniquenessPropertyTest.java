@@ -47,6 +47,7 @@ class StateEnumUniquenessPropertyTest {
      */
     private static final Set<String> SPI_AUTHORITATIVE_ENUMS = Set.of(
             "QueryState",
+            "SnapshotState",
             "TransportStatus"
     );
 
@@ -70,6 +71,8 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-coordinator:StageStateMachine.State",
             "pangrova-coordinator:HealthState",
             "pangrova-worker:TaskManager.TaskState",
+            // One-shot local assembly admission/cleanup phases, not distributed Worker health or task state.
+            "pangrova-worker:WorkerBootstrapLifecycle.State",
             "pangrova-worker:ExchangeClient.State",
             "pangrova-worker:RemoteShuffleProducerStream.State",
             "pangrova-operations:DdlJob.DdlJobState",
@@ -89,7 +92,6 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-coordinator:SchedulerCancelResult.Status",
             "pangrova-security:AuthenticatorHealthStatus",
             "pangrova-worker:TaskCancelResult.Status",
-            "pangrova-spi:BatchResult.Status",
             "pangrova-metadata:StreamLifecycleState",
             "pangrova-spi:ClusteringState",
             "pangrova-spi:IndexState",

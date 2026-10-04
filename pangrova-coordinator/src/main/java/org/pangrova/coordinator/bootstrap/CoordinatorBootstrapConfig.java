@@ -306,6 +306,11 @@ public record CoordinatorBootstrapConfig(
                 throw new IllegalArgumentException("jdbcUrl must not be blank");
             }
         }
+
+        @Override
+        public String toString() {
+            return "MetadataJdbcConfig[jdbcUrl=<redacted>, username=<redacted>, password=<redacted>]";
+        }
     }
 
     /** Security subsystem configuration: authenticator type and backend-specific properties. */

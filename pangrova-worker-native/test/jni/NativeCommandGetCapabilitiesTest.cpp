@@ -14,11 +14,17 @@
 #include <openssl/evp.h>
 
 #include "artifact/ImmutableArtifactCache.h"
+#include "../TestMemoryHelper.h"
+#include "capability/FunctionPlanBindings.h"
 #include "capability/NativeCapabilityCatalog.h"
+#include "capability/NativeCapabilityInventory.h"
 #include "google/protobuf/descriptor.pb.h"
 #include "jni/command/NativeCommandDispatcher.h"
+#include "jni/RuntimeInitializer.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "vector/diskann/DiskAnnIndexCache.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
+#include "velox/runtime/NativeEngineLifecycle.h"
 
 namespace pangrova::jni::test {
 namespace {
@@ -118,7 +124,55 @@ std::string toHex(std::string_view bytes) {
   return result;
 }
 
-TEST(NativeCommandGetCapabilitiesTest, ReturnsTypedV2SuccessResponse) {
+std::vector<uint8_t> buildFinalizeCommand() {
+  const auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  proto::FunctionCatalogFinalizeRequest request;
+  *request.mutable_protocol() = pangrova::capability::runtimeCapabilityInventory(*registry).protocol();
+  request.set_binding_declaration_sha256(
+      pangrova::capability::declaredPlanFunctions().binding_declaration_sha256());
+  const auto digest = registry->executionSelectionContractSha256();
+  std::string bytes;
+  for (size_t offset = 0; offset < digest.size(); offset += 2) {
+    bytes.push_back(static_cast<char>(std::stoul(std::string(digest.substr(offset, 2)), nullptr, 16)));
+  }
+  request.set_execution_selection_sha256(bytes);
+  proto::RuntimeCommand command;
+  *command.mutable_protocol() = request.protocol();
+  command.set_command_type(proto::RUNTIME_COMMAND_TYPE_FINALIZE_FUNCTION_CATALOG);
+  command.mutable_payload()->PackFrom(request);
+  return serialize(command);
+}
+
+class NativeCommandGetCapabilitiesTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    NativeRuntimeConfig config;
+    config.max_memory_bytes = 256L * 1024 * 1024;
+    config.io_thread_count = 2;
+    config.num_drivers = 1;
+    config.cache_enabled = false;
+    NativeEngineLifecycle::instance().initialize(config);
+  }
+
+  void TearDown() override {
+    NativeEngineLifecycle::instance().shutdown();
+    // Preserve the default test runtime for other suites in one-process runs.
+    pangrova::test::detail::ensureRuntimeInitialized();
+  }
+
+  void finalizeCatalogue() {
+    const auto response = parseResponse(dispatchCommand(buildFinalizeCommand()));
+    ASSERT_TRUE(response.success()) << response.error().message();
+    proto::FunctionCatalogFinalizeResult result;
+    ASSERT_TRUE(response.payload().UnpackTo(&result));
+    EXPECT_EQ(result.manifest_sha256().size(), 32);
+    EXPECT_GT(result.inventory_bytes(), 0);
+    EXPECT_LE(result.encoded_inventory_bytes(), 4 * 1024 * 1024);
+  }
+};
+
+TEST_F(NativeCommandGetCapabilitiesTest, ReturnsTypedV2SuccessResponse) {
+  finalizeCatalogue();
   auto response = parseResponse(dispatchCommand(buildGetCapabilitiesCommand()));
   ASSERT_TRUE(response.success()) << response.error().message();
   ASSERT_TRUE(response.has_payload());
@@ -127,7 +181,8 @@ TEST(NativeCommandGetCapabilitiesTest, ReturnsTypedV2SuccessResponse) {
       "type.googleapis.com/pangrova.protocol.v2.CapabilityResponse");
 }
 
-TEST(NativeCommandGetCapabilitiesTest, AdvertisesSubstraitSupportInInventory) {
+TEST_F(NativeCommandGetCapabilitiesTest, AdvertisesSubstraitSupportInInventory) {
+  finalizeCatalogue();
   auto inventory = parseInventory(parseResponse(
       dispatchCommand(buildGetCapabilitiesCommand())));
   std::unordered_set<std::string> rel_types(
@@ -144,11 +199,14 @@ TEST(NativeCommandGetCapabilitiesTest, AdvertisesSubstraitSupportInInventory) {
   EXPECT_TRUE(rel_types.contains("ExtensionMultiRel"));
   EXPECT_TRUE(expression_types.contains("Literal"));
   EXPECT_TRUE(expression_types.contains("ScalarFunction"));
-  EXPECT_EQ(rel_types.size(), 16u);
-  EXPECT_EQ(expression_types.size(), 6u);
+  EXPECT_TRUE(rel_types.contains("NestedLoopJoinRel"));
+  EXPECT_TRUE(expression_types.contains("WindowFunction"));
+  EXPECT_EQ(rel_types.size(), 17u);
+  EXPECT_EQ(expression_types.size(), 7u);
 }
 
-TEST(NativeCommandGetCapabilitiesTest, BindsInventoryToCanonicalDescriptor) {
+TEST_F(NativeCommandGetCapabilitiesTest, BindsInventoryToCanonicalDescriptor) {
+  finalizeCatalogue();
   auto inventory = parseInventory(parseResponse(
       dispatchCommand(buildGetCapabilitiesCommand())));
   auto descriptor_set = canonicalDescriptorSet();
@@ -160,7 +218,7 @@ TEST(NativeCommandGetCapabilitiesTest, BindsInventoryToCanonicalDescriptor) {
   EXPECT_FALSE(inventory.native_engine_version().empty());
 }
 
-TEST(NativeCommandGetCapabilitiesTest, AdvertisesTypedBoundedRetrievalContract) {
+TEST_F(NativeCommandGetCapabilitiesTest, AdvertisesTypedBoundedRetrievalContract) {
   const auto cache_path = std::filesystem::temp_directory_path() /
       ("pangrova-capability-cache-" + std::to_string(
           std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -168,6 +226,7 @@ TEST(NativeCommandGetCapabilitiesTest, AdvertisesTypedBoundedRetrievalContract) 
       cache_path.string(), 1024 * 1024);
   pangrova::vector::diskann::DiskAnnIndexCache::instance().configure(
       1024 * 1024);
+  finalizeCatalogue();
   auto inventory = parseInventory(parseResponse(
       dispatchCommand(buildGetCapabilitiesCommand())));
   ASSERT_EQ(inventory.capabilities_size(), 14);
@@ -287,13 +346,14 @@ TEST(NativeCommandGetCapabilitiesTest, AdvertisesTypedBoundedRetrievalContract) 
   std::filesystem::remove_all(cache_path, ignored);
 }
 
-TEST(NativeCommandGetCapabilitiesTest, OmitsDiskAnnWhenArtifactCacheIsNotReady) {
+TEST_F(NativeCommandGetCapabilitiesTest, OmitsDiskAnnWhenArtifactCacheIsNotReady) {
   if (pangrova::artifact::ImmutableArtifactCache::instance().enabled()) {
     pangrova::artifact::ImmutableArtifactCache::instance().shutdown();
   }
   if (pangrova::vector::diskann::DiskAnnIndexCache::instance().enabled()) {
     pangrova::vector::diskann::DiskAnnIndexCache::instance().shutdown();
   }
+  finalizeCatalogue();
   auto inventory = parseInventory(parseResponse(
       dispatchCommand(buildGetCapabilitiesCommand())));
   EXPECT_EQ(inventory.capabilities_size(), 9);
@@ -308,7 +368,7 @@ TEST(NativeCommandGetCapabilitiesTest, OmitsDiskAnnWhenArtifactCacheIsNotReady) 
       }));
 }
 
-TEST(NativeCommandGetCapabilitiesTest,
+TEST_F(NativeCommandGetCapabilitiesTest,
      AdvertisesOverlayWithoutAnnParsedCache) {
   const auto cache_path = std::filesystem::temp_directory_path() /
       ("pangrova-overlay-capability-cache-" + std::to_string(
@@ -318,7 +378,7 @@ TEST(NativeCommandGetCapabilitiesTest,
   if (pangrova::vector::diskann::DiskAnnIndexCache::instance().enabled()) {
     pangrova::vector::diskann::DiskAnnIndexCache::instance().shutdown();
   }
-
+  finalizeCatalogue();
   auto inventory = parseInventory(parseResponse(
       dispatchCommand(buildGetCapabilitiesCommand())));
   EXPECT_TRUE(std::any_of(
@@ -337,7 +397,7 @@ TEST(NativeCommandGetCapabilitiesTest,
   std::filesystem::remove_all(cache_path, ignored);
 }
 
-TEST(NativeCommandGetCapabilitiesTest, RejectsWrongProtocolMajor) {
+TEST_F(NativeCommandGetCapabilitiesTest, RejectsWrongProtocolMajor) {
   auto response = parseResponse(dispatchCommand(buildGetCapabilitiesCommand(1)));
   EXPECT_FALSE(response.success());
   EXPECT_EQ(
@@ -345,10 +405,29 @@ TEST(NativeCommandGetCapabilitiesTest, RejectsWrongProtocolMajor) {
   EXPECT_NE(response.error().message().find("protocol major"), std::string::npos);
 }
 
-TEST(NativeCommandGetCapabilitiesTest, RejectsMalformedEnvelope) {
+TEST_F(NativeCommandGetCapabilitiesTest, RejectsMalformedEnvelope) {
   auto response = parseResponse(dispatchCommand({0xff, 0xff, 0xff}));
   EXPECT_FALSE(response.success());
   EXPECT_FALSE(response.error().message().empty());
+}
+
+TEST_F(NativeCommandGetCapabilitiesTest, ReadOnlyGetCannotFinalizeAnUnpublishedCatalogue) {
+  const auto first = parseResponse(dispatchCommand(buildGetCapabilitiesCommand()));
+  EXPECT_FALSE(first.success());
+  EXPECT_NE(first.error().message().find("has not been published"), std::string::npos);
+  const auto second = parseResponse(dispatchCommand(buildGetCapabilitiesCommand()));
+  EXPECT_FALSE(second.success());
+  finalizeCatalogue();
+  EXPECT_TRUE(parseResponse(dispatchCommand(buildGetCapabilitiesCommand())).success());
+}
+
+TEST_F(NativeCommandGetCapabilitiesTest, RepeatedFinalizeCannotReplaceThePublishedCatalogue) {
+  finalizeCatalogue();
+  const auto original = parseInventory(parseResponse(dispatchCommand(buildGetCapabilitiesCommand())));
+  const auto repeated = parseResponse(dispatchCommand(buildFinalizeCommand()));
+  EXPECT_FALSE(repeated.success());
+  const auto retained = parseInventory(parseResponse(dispatchCommand(buildGetCapabilitiesCommand())));
+  EXPECT_EQ(retained.SerializeAsString(), original.SerializeAsString());
 }
 
 }  // namespace

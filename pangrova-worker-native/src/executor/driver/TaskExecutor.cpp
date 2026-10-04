@@ -46,6 +46,9 @@ TaskExecutor::~TaskExecutor() {
 }
 
 void TaskExecutor::start() {
+  if (isExecutionReleased()) {
+    throw std::runtime_error("Cannot start a released Native executor: " + config_.task_id);
+  }
   if (!lifecycle_.transitionTo(ExecutorState::RUNNING)) {
     throw std::runtime_error(
         "Cannot start task " + config_.task_id +
@@ -93,6 +96,7 @@ void TaskExecutor::release() {
     pangrova::velox::PendingEndpointRegistry::instance().discardExecutor(
         config_.executor_handle);
   }
+  execution_released_.store(true, std::memory_order_release);
 }
 
 void TaskExecutor::startDeadlineWatchdog() {
@@ -254,6 +258,15 @@ int64_t TaskExecutor::executorHandle() const {
 }
 std::string TaskExecutor::errorMessage() const {
   return lifecycle_.errorMessage();
+}
+
+TaskLifecycle::Snapshot TaskExecutor::lifecycleSnapshot() const {
+  return lifecycle_.snapshot();
+}
+
+void TaskExecutor::recordExecutionError(
+    const protocol::v2::ExecutionError& error) {
+  lifecycle_.recordExecutionError(error);
 }
 
 std::string TaskExecutor::nativeStackTrace() const {

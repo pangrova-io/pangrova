@@ -10,27 +10,35 @@ package org.pangrova.coordinator.scheduler;
  * @param errorMessage human-readable error detail (null on success)
  * @param retryable    whether the caller may retry the cancel
  */
-public record SchedulerCancelResult(Status status, String errorMessage, boolean retryable) {
+public record SchedulerCancelResult(Status status, String errorMessage, boolean retryable,
+        org.pangrova.protocol.v2.TaskReport executionDrainReceipt) {
 
     public enum Status {
-        CANCELLED,
-        NOT_FOUND,
+        DRAINED,
+        PENDING,
         FAILED
     }
 
-    public static SchedulerCancelResult cancelled() {
-        return new SchedulerCancelResult(Status.CANCELLED, null, false);
+    public SchedulerCancelResult {
+        if (status == Status.DRAINED && executionDrainReceipt == null
+                || status != Status.DRAINED && executionDrainReceipt != null) {
+            throw new IllegalArgumentException("Only actual drained cancellation carries its canonical receipt");
+        }
     }
 
-    public static SchedulerCancelResult notFound(String taskId) {
-        return new SchedulerCancelResult(Status.NOT_FOUND, "Task not found: " + taskId, false);
+    public static SchedulerCancelResult drained(org.pangrova.protocol.v2.TaskReport receipt) {
+        return new SchedulerCancelResult(Status.DRAINED, null, false, receipt);
+    }
+
+    public static SchedulerCancelResult pending() {
+        return new SchedulerCancelResult(Status.PENDING, "Execution owner has not drained", true, null);
     }
 
     public static SchedulerCancelResult failed(String message, boolean retryable) {
-        return new SchedulerCancelResult(Status.FAILED, message, retryable);
+        return new SchedulerCancelResult(Status.FAILED, message, retryable, null);
     }
 
     public boolean isSuccess() {
-        return status == Status.CANCELLED;
+        return status == Status.DRAINED;
     }
 }

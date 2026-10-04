@@ -6,7 +6,7 @@ import org.pangrova.protocol.v2.ResultReadScope;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.worker.CanonicalTaskRequestTestFixture;
+import org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;

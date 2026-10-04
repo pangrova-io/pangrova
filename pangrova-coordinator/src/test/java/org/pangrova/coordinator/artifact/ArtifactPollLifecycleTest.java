@@ -48,6 +48,33 @@ class ArtifactPollLifecycleTest {
         lifecycle.close(() -> { });
     }
 
+    @Test
+    void failedCleanupKeepsAdmissionSealedAndRetriesTheSameActualOwner() throws Exception {
+        var lifecycle = new ArtifactPollLifecycle();
+        var pipe = java.nio.channels.Pipe.open();
+        try {
+            assertThatThrownBy(() -> lifecycle.close(() -> {
+                throw new IllegalStateException("Actual owner has not been closed");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("Actual owner has not been closed");
+            assertThat(pipe.source().isOpen()).isTrue();
+            assertThat(lifecycle.poll(() -> { throw new AssertionError("Closed admission reopened"); })).isZero();
+            lifecycle.close(() -> {
+                try {
+                    pipe.source().close();
+                    pipe.sink().close();
+                } catch (java.io.IOException failure) {
+                    throw new java.io.UncheckedIOException(failure);
+                }
+            });
+            assertThat(pipe.source().isOpen()).isFalse();
+            assertThat(pipe.sink().isOpen()).isFalse();
+            lifecycle.close(() -> { throw new AssertionError("Successful cleanup repeated"); });
+        } finally {
+            pipe.source().close();
+            pipe.sink().close();
+        }
+    }
+
     private static int gatedPoll(CountDownLatch entered, CountDownLatch release) {
         entered.countDown();
         try {

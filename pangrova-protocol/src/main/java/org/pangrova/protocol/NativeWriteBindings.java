@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+
 import com.google.protobuf.CodedOutputStream;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -32,7 +34,8 @@ public final class NativeWriteBindings {
 
     /** Binds exact SDK file names to one complete fenced attempt without changing bucket or source snapshot. */
     public static PhysicalFileWriteBinding bindPhysical(PhysicalFileWriteBinding template, TaskAttemptId attempt) {
-        if (!template.getAttemptPrefix().isEmpty() || template.getFilesList().stream().anyMatch(file -> file.hasTaskAttempt())) {
+        if (!template.getAttemptPrefix().isEmpty()
+                || template.getFilesList().stream().anyMatch(file -> file.hasTaskAttempt())) {
             throw new IllegalArgumentException("Physical allocation template has already been bound to an attempt");
         }
         String prefix = attemptPrefix(template.getAllocationPrefix(), attempt);
@@ -42,7 +45,8 @@ public final class NativeWriteBindings {
             String name = file.getFileName();
             String location = file.getOpaqueLocation();
             if (!name.endsWith(".lance") || !location.endsWith("/" + name)
-                    || !location.substring(0, location.length() - name.length() - 1).equals(template.getAllocationPrefix())) {
+                    || !location.substring(0, location.length() - name.length() - 1)
+                            .equals(template.getAllocationPrefix())) {
                 throw new IllegalArgumentException("Physical file escapes its exact SDK allocation directory");
             }
             String attemptName = name.substring(0, name.length() - ".lance".length()) + "." + suffix + ".lance";

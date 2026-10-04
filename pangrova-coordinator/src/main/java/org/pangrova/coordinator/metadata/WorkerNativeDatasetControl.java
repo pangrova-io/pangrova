@@ -4,11 +4,11 @@ import org.pangrova.coordinator.metadata.nativecontrol.NativeDatasetControlRpcEx
 
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
-import org.pangrova.coordinator.query.task.WriteCommitFencer;
+import org.pangrova.coordinator.query.task.write.WriteCommitFencer;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;

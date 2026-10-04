@@ -536,6 +536,88 @@ and retained-owner evidence. The remaining old controllable-executor lifecycle
 fixtures, complete shuffle migration and actual multi-Worker acceptance remain
 open gates.
 
+### Creation, exact cancellation and cleanup ownership checkpoint
+
+Status: the following source changes form one atomic lifecycle migration. They
+have not yet passed the same-source Native build, packaged JNI, full Java
+regression or distributed E2E. Earlier successful builds do not validate this
+checkpoint.
+
+An HTTP cancellation acknowledgement is not execution exit. The canonical
+`TaskReport.execution_drain_state` distinguishes actual Native owner release
+from closed Worker admission with no Native owner. Neither statistics absence,
+a zero handle, HTTP NOT_FOUND nor a completed scheduling future establishes
+either fact. Native release joins actual execution and write owners before
+producing its report; Worker reconciliation retains this genuine evidence while
+preserving the unsuccessful state and first error. Result-stream retained
+owners remain a separate resource obligation.
+
+The compact `TaskAdmissionSealRequest` binds the originally issued NETWORK
+request's deterministic SHA-256, exact attempt and deadline. Cancellation uses
+this sole binary control request, not a raw query/task identifier. Compact drain
+receipts contain only exact identity, terminal state, origin, error and exit
+evidence: they omit result, source coverage, usage, statistics and partition
+lists. They are cleanup receipts, never winner/publication authority. A genuine
+authenticated receipt remains usable for cleanup even when PostgreSQL rejects
+that old attempt's publication lease; no old winner is reinstated.
+
+Native creation reserves the existing HandleRegistry ownership entry before
+configuration, callback or SDK construction. Java registers its exact creation
+owner before entering JNI and stores the returned primitive handle before
+further Java index allocation. Generic runtime command 21 recovers only this
+same registry owner or its actually sealed, exited no-owner state. Constructors
+and JNI response allocation failures never become no-owner merely because Java
+did not receive the handle. Java callback, external shuffle and catalog cleanup
+must also succeed before Worker publishes admission-closed evidence. Actual JVM
+OOME/lookup-allocation failure injection is still an independent unverified
+acceptance boundary; decoder tests are not evidence of such a failure.
+
+All ordinary JNI commands and reads now hold actual operation leases, not locks
+over JNI. `NativeOperationLifetime` admits and records exit under short memory
+locks; exclusive release/recovery claims wait for entered operations outside
+locks and perform JNI and remote cleanup without a held lifecycle lock. Failed
+cleanup exits its claim while retaining the exact owner and real release
+receipt for retry. Close seals public admission, waits for actual creation and
+operation exit, then closes its lower-level transport owner. A creation thread
+or entered operation cannot wait for its own exit. This preserves release/close
+exclusion without a lock-during-I/O implementation or a compatibility read-lock
+path.
+
+External shuffle callback cleanup uses the full TaskRequest seal and complete
+producer binding. A conflicting candidate cleans only its own lease; it cannot
+abort the installed owner. Native raw abort callbacks are notifications, not
+accepted exact-owner cleanup evidence. Metadata durable cancellation locks a
+deterministic exact job ID set and updates that same job/page set within one
+transaction. Durable dispatch retains issued attempts until authenticated exit;
+revoked publication rights do not fabricate FAILED or erase active ownership.
+
+Closest source acceptance inventory:
+
+- Protocol SHA/seal/compact validation and Worker receipt projection tests;
+  these are generated-protocol boundary tests, not task execution.
+- `NativeOperationLifetimeTest` has five actual thread/exit-barrier tests;
+  `TaskNativeCreationTest` retains actual creation-admission and exit coverage.
+- `NativeCreationRecoveryContractTest` has six strict decoder tests, including
+  rejection of a changed already-published handle. They do not execute JNI.
+- `NativeCreationTransactionIntegrationTest` has four packaged-Native creation,
+  registry recovery and release cases; `ExecutorCreationRegistryTest` exercises
+  actual Native owners. Both remain pending same-source execution.
+- The original real JNI release/concurrent-close tests retain their actual
+  Native-handle-gone and entered-operation exclusion assertions under the new
+  lease API. The real PostgreSQL lock/isolation/requeue and real service exact
+  shuffle-owner tests require their complete integration environment.
+
+The build owner must regenerate both protocol sides, run the unchanged full
+pipeline and execute these closest suites without replacing original SQL/value
+or resource oracles. Outstanding gates include actual JNI allocation failure,
+all ambiguous submission/cancel races, independent-process speculative
+execution, Worker process-incarnation/restart fencing, failure of a retained
+candidate's actual channel join, and large-scale resource/performance acceptance.
+Runtime CPU/scan quota recording and current in-progress row/CPU statistics are
+not connected/accurate merely because task admission and exit are bounded.
+DROP MODEL is not enabled by this generic durable-job cancellation work; its
+cross-object durable publication/drop ownership still requires a complete saga.
+
 - [Substrait logical relation semantics](https://substrait.io/relations/logical_relations/)
 - [Substrait common emit/output ordering](https://substrait.io/relations/basics/)
 - [Substrait depth-first NamedStruct names](https://substrait.io/types/named_structs/)

@@ -49,6 +49,7 @@ one connector-owned atomic commit.
 |-------------|---------|-------|
 | JDK | 17+ | `JAVA_HOME` must be set |
 | Maven | 3.9+ | For building from source |
+| Python | 3.10+ | Required for canonical function-contract generation |
 | Docker | 20+ | Required for integration tests (TestContainers) |
 | CMake + Ninja | 3.20+ | Optional — only for building the C++ native execution library |
 
@@ -61,6 +62,13 @@ cd pangrova
 ./pangrova-worker-native/bin/build-native.sh
 mvn clean install -DskipTests
 ```
+
+The native bootstrap verifies installed tools; it does not install or upgrade
+OS packages. Run `./pangrova-worker-native/bin/setup-native-build-env.sh --check-tools`
+for the read-only prerequisite check. Dependency builds select one complete RE2
+package (pinned `2024-07-02`) for both gRPC and the execution SDK; do not repair
+an archive by appending objects from another release. SDK and main builds must
+also select the same Abseil package, including the instrumented package for ASan.
 
 Pangrova ships as an integrated Java/native engine. The native library must be built and packaged
 before executing queries through a Worker. See the

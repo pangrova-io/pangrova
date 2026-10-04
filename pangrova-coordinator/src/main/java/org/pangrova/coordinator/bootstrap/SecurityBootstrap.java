@@ -15,7 +15,6 @@ import org.pangrova.security.store.PersistentColumnMaskStore;
 import org.pangrova.security.store.PersistentRowPolicyStore;
 import org.pangrova.security.tenant.quota.ClusterConcurrencySlots;
 import org.pangrova.security.tenant.quota.JdbcClusterConcurrencySlots;
-import org.pangrova.security.tenant.quota.QuotaChecker;
 import org.pangrova.security.tenant.quota.TenantQuotaAdmissionController;
 import org.pangrova.security.tenant.store.TenantStore;
 import org.pangrova.spi.resource.tenant.GlobalTenantUsageView;
@@ -164,6 +163,6 @@ final class SecurityBootstrap {
         ClusterConcurrencySlots clusterSlots = metadataDataSource != null
                 ? new JdbcClusterConcurrencySlots(metadataDataSource) : null;
         return new TenantQuotaAdmissionController(
-                tenantStore, new QuotaChecker(), usageView, clusterSlots);
+                tenantStore, usageView, clusterSlots);
     }
 }

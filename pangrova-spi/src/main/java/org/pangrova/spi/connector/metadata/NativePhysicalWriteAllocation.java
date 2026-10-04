@@ -12,6 +12,10 @@ import java.util.Objects;
 public record NativePhysicalWriteAllocation(
         Identity identity, Schema schema, Policy policy, String allocationPrefix,
         long baseSnapshotId, List<NativePhysicalFileAllocation> files) {
+    private static final int MAX_ALLOCATED_FILES = 4096;
+    private static final int MAX_NESTED_TYPES = 4096;
+    private static final int MAX_SCHEMA_COLUMNS = 4096;
+    private static final int MAX_TEXT_LENGTH = 16_384;
 
     public NativePhysicalWriteAllocation {
         Objects.requireNonNull(identity, "identity");
@@ -20,7 +24,7 @@ public record NativePhysicalWriteAllocation(
         requireText(allocationPrefix, "allocationPrefix");
         if (baseSnapshotId < -1) throw new IllegalArgumentException("Invalid base snapshot");
         files = List.copyOf(files);
-        if (files.isEmpty() || files.size() > 4096) {
+        if (files.isEmpty() || files.size() > MAX_ALLOCATED_FILES) {
             throw new IllegalArgumentException("Physical allocation requires a bounded file set");
         }
     }
@@ -48,7 +52,9 @@ public record NativePhysicalWriteAllocation(
         public DeclaredType {
             Objects.requireNonNull(signature, "signature");
             children = List.copyOf(children);
-            if (children.size() > 4096) throw new IllegalArgumentException("Too many nested physical types");
+            if (children.size() > MAX_NESTED_TYPES) {
+                throw new IllegalArgumentException("Too many nested physical types");
+            }
         }
     }
 
@@ -60,7 +66,7 @@ public record NativePhysicalWriteAllocation(
             sha256 = copyBytes(sha256, 32, "schema SHA-256");
             if (sha256.length != 32) throw new IllegalArgumentException("Invalid schema SHA-256");
             columns = List.copyOf(columns);
-            if (columns.isEmpty() || columns.size() > 4096) {
+            if (columns.isEmpty() || columns.size() > MAX_SCHEMA_COLUMNS) {
                 throw new IllegalArgumentException("Physical schema requires bounded columns");
             }
             if (columns.stream().map(Column::fieldId).distinct().count() != columns.size()
@@ -74,7 +80,10 @@ public record NativePhysicalWriteAllocation(
     }
 
     public record Policy(String writeMode, List<Integer> partitionFields, List<Integer> primaryKeyFields,
-                         List<Integer> bucketKeyFields, int bucketCount, long writerBufferHintBytes, Map<String, String> options) {
+                         List<Integer> bucketKeyFields, int bucketCount, long writerBufferHintBytes,
+                         Map<String, String> options) {
+        private static final int MIN_BUCKET_COUNT = -2;
+
         public Policy {
             if (!List.of("INSERT", "OVERWRITE", "DELETE").contains(writeMode)) {
                 throw new IllegalArgumentException("Unsupported physical write mode");
@@ -83,8 +92,12 @@ public record NativePhysicalWriteAllocation(
             primaryKeyFields = List.copyOf(primaryKeyFields);
             bucketKeyFields = List.copyOf(bucketKeyFields);
             options = Map.copyOf(options);
-            if (bucketCount < -2 || bucketCount == 0) throw new IllegalArgumentException("Invalid bucket policy");
-            if (writerBufferHintBytes <= 0) throw new IllegalArgumentException("Physical writer requires an explicit positive buffer hint");
+            if (bucketCount < MIN_BUCKET_COUNT || bucketCount == 0) {
+                throw new IllegalArgumentException("Invalid bucket policy");
+            }
+            if (writerBufferHintBytes <= 0) {
+                throw new IllegalArgumentException("Physical writer requires an explicit positive buffer hint");
+            }
         }
     }
 
@@ -95,7 +108,7 @@ public record NativePhysicalWriteAllocation(
     }
 
     static void requireText(String value, String name) {
-        if (value == null || value.isBlank() || value.length() > 16_384) {
+        if (value == null || value.isBlank() || value.length() > MAX_TEXT_LENGTH) {
             throw new IllegalArgumentException("Invalid " + name);
         }
     }

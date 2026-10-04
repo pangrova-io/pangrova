@@ -5,6 +5,7 @@
 
 #include "../TestMemoryHelper.h"
 #include "shuffle/ShuffleBatchSerializer.h"
+#include "velox/plan/CanonicalPlanSchema.h"
 
 #include "velox/common/memory/Memory.h"
 #include "velox/type/Type.h"
@@ -21,18 +22,6 @@ class ShuffleBatchSerializerCompressionTest : public ::testing::Test {
     pool_ = pangrova::test::testRootPool(
         "ShuffleBatchSerializerCompressionTest");
     leafPool_ = pool_->addLeafChild("leaf");
-  }
-
-  // Returns true if the given compression codec is supported by the Velox build.
-  bool isCodecAvailable(const std::string& codec) {
-    try {
-      auto vector = makeCompressibleVector(10);
-      ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{codec, 10000});
-      writer.serialize(vector, leafPool_.get());
-      return true;
-    } catch (const std::exception&) {
-      return false;
-    }
   }
 
   facebook::velox::RowVectorPtr makeCompressibleVector(int numRows) {
@@ -55,22 +44,28 @@ class ShuffleBatchSerializerCompressionTest : public ::testing::Test {
         {facebook::velox::BIGINT(), facebook::velox::VARCHAR()});
   }
 
+  ShuffleBatchSerializer::Config config(const std::string& compression) {
+    namespace schema = pangrova::velox::schema;
+    ShuffleBatchSerializer::Config result{compression, 10000};
+    result.canonical_schema = std::make_shared<const substrait::NamedStruct>(schema::named({
+        schema::computed("col_bigint", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED)),
+        schema::computed("col_str", schema::primitive("string", substrait::Type::NULLABILITY_REQUIRED))}));
+    return result;
+  }
+
   std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
   std::shared_ptr<facebook::velox::memory::MemoryPool> leafPool_;
 };
 
 TEST_F(ShuffleBatchSerializerCompressionTest, Lz4CompressionReducesSize) {
-  if (!isCodecAvailable("lz4")) {
-    GTEST_SKIP() << "LZ4 compression not supported in this Velox build";
-  }
   constexpr int kNumRows = 5000;
   auto vector = makeCompressibleVector(kNumRows);
 
-  ShuffleBatchSerializer noneWriter(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer noneWriter(config("none"));
   auto noneBytes = noneWriter.serialize(vector, leafPool_.get());
   auto noneSize = noneBytes->computeChainDataLength();
 
-  ShuffleBatchSerializer lz4Writer(ShuffleBatchSerializer::Config{"lz4", 10000});
+  ShuffleBatchSerializer lz4Writer(config("lz4"));
   auto lz4Bytes = lz4Writer.serialize(vector, leafPool_.get());
   auto lz4Size = lz4Bytes->computeChainDataLength();
 
@@ -79,17 +74,14 @@ TEST_F(ShuffleBatchSerializerCompressionTest, Lz4CompressionReducesSize) {
 }
 
 TEST_F(ShuffleBatchSerializerCompressionTest, ZstdCompressionReducesSize) {
-  if (!isCodecAvailable("zstd")) {
-    GTEST_SKIP() << "ZSTD compression not supported in this Velox build";
-  }
   constexpr int kNumRows = 5000;
   auto vector = makeCompressibleVector(kNumRows);
 
-  ShuffleBatchSerializer noneWriter(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer noneWriter(config("none"));
   auto noneBytes = noneWriter.serialize(vector, leafPool_.get());
   auto noneSize = noneBytes->computeChainDataLength();
 
-  ShuffleBatchSerializer zstdWriter(ShuffleBatchSerializer::Config{"zstd", 10000});
+  ShuffleBatchSerializer zstdWriter(config("zstd"));
   auto zstdBytes = zstdWriter.serialize(vector, leafPool_.get());
   auto zstdSize = zstdBytes->computeChainDataLength();
 
@@ -101,7 +93,7 @@ TEST_F(ShuffleBatchSerializerCompressionTest, NoneCompressionPreservesSize) {
   constexpr int kNumRows = 500;
   auto vector = makeCompressibleVector(kNumRows);
 
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer writer(config("none"));
   auto bytes = writer.serialize(vector, leafPool_.get());
   auto size = bytes->computeChainDataLength();
 
@@ -109,13 +101,10 @@ TEST_F(ShuffleBatchSerializerCompressionTest, NoneCompressionPreservesSize) {
 }
 
 TEST_F(ShuffleBatchSerializerCompressionTest, Lz4RoundTrip) {
-  if (!isCodecAvailable("lz4")) {
-    GTEST_SKIP() << "LZ4 compression not supported in this Velox build";
-  }
   constexpr int kNumRows = 1000;
   auto vector = makeCompressibleVector(kNumRows);
 
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"lz4", 10000});
+  ShuffleBatchSerializer writer(config("lz4"));
   auto serialized = writer.serialize(vector, leafPool_.get());
   auto deserialized = writer.deserialize(std::move(*serialized), rowType(), leafPool_.get());
 
@@ -129,13 +118,10 @@ TEST_F(ShuffleBatchSerializerCompressionTest, Lz4RoundTrip) {
 }
 
 TEST_F(ShuffleBatchSerializerCompressionTest, ZstdRoundTrip) {
-  if (!isCodecAvailable("zstd")) {
-    GTEST_SKIP() << "ZSTD compression not supported in this Velox build";
-  }
   constexpr int kNumRows = 1000;
   auto vector = makeCompressibleVector(kNumRows);
 
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"zstd", 10000});
+  ShuffleBatchSerializer writer(config("zstd"));
   auto serialized = writer.serialize(vector, leafPool_.get());
   auto deserialized = writer.deserialize(std::move(*serialized), rowType(), leafPool_.get());
 
@@ -152,7 +138,7 @@ TEST_F(ShuffleBatchSerializerCompressionTest, NoneRoundTrip) {
   constexpr int kNumRows = 1000;
   auto vector = makeCompressibleVector(kNumRows);
 
-  ShuffleBatchSerializer writer(ShuffleBatchSerializer::Config{"none", 10000});
+  ShuffleBatchSerializer writer(config("none"));
   auto serialized = writer.serialize(vector, leafPool_.get());
   auto deserialized = writer.deserialize(std::move(*serialized), rowType(), leafPool_.get());
 
@@ -166,17 +152,14 @@ TEST_F(ShuffleBatchSerializerCompressionTest, NoneRoundTrip) {
 }
 
 TEST_F(ShuffleBatchSerializerCompressionTest, ZstdGenerallySmallerThanLz4) {
-  if (!isCodecAvailable("lz4") || !isCodecAvailable("zstd")) {
-    GTEST_SKIP() << "LZ4/ZSTD compression not supported in this Velox build";
-  }
   constexpr int kNumRows = 5000;
   auto vector = makeCompressibleVector(kNumRows);
 
-  ShuffleBatchSerializer lz4Writer(ShuffleBatchSerializer::Config{"lz4", 10000});
+  ShuffleBatchSerializer lz4Writer(config("lz4"));
   auto lz4Bytes = lz4Writer.serialize(vector, leafPool_.get());
   auto lz4Size = lz4Bytes->computeChainDataLength();
 
-  ShuffleBatchSerializer zstdWriter(ShuffleBatchSerializer::Config{"zstd", 10000});
+  ShuffleBatchSerializer zstdWriter(config("zstd"));
   auto zstdBytes = zstdWriter.serialize(vector, leafPool_.get());
   auto zstdSize = zstdBytes->computeChainDataLength();
 

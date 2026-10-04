@@ -49,6 +49,24 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class PlanFragmenterTest {
 
+    @Test
+    void unknownDeclaredSourceDoesNotTreatCalciteDefault100AsObservedRows() {
+        // This is a Calcite metadata-only unit: no connector or row execution is substituted.
+        var schema = org.apache.calcite.tools.Frameworks.createRootSchema(true);
+        schema.add("declared", new org.apache.calcite.schema.impl.AbstractTable() {
+            @Override public RelDataType getRowType(RelDataTypeFactory factory) {
+                return factory.builder().add("id", SqlTypeName.BIGINT).build();
+            }
+        });
+        var builder = org.apache.calcite.tools.RelBuilder.create(
+                org.apache.calcite.tools.Frameworks.newConfigBuilder().defaultSchema(schema).build());
+        RelNode scan = builder.scan("declared").build();
+        assertThat(scan.getCluster().getMetadataQuery().getRowCount(scan)).isEqualTo(100.0);
+        var stages = PlanFragmenter.fragment(scan, 0,
+                AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT);
+        assertThat(stages.stages()).singleElement().satisfies(stage -> assertThat(stage.parallelism()).isEqualTo(4));
+    }
+
     private RelOptCluster cluster;
     private RelDataTypeFactory typeFactory;
 
@@ -73,7 +91,7 @@ class PlanFragmenterTest {
 
         assertThat(hashTransfer.exchangeId()).isEqualTo("exchange-1-to-0");
         assertThat(hashTransfer.partitionCount()).isEqualTo(8);
-        assertThat(hashTransfer.batchSerde()).isEqualTo(BatchSerde.BATCH_SERDE_NATIVE_ROW);
+        assertThat(hashTransfer.batchSerde()).isEqualTo(BatchSerde.BATCH_SERDE_ARROW_BATCH);
         assertThat(hashTransfer.requireComplete()).isTrue();
         assertThat(fragmented.stageDependencies().get(consumer.stageId()))
                 .containsExactly(producer.stageId());
@@ -161,7 +179,7 @@ class PlanFragmenterTest {
                 .isEqualTo(transfer.exchangeId());
         assertThat(envelope.getExchangeInput().getPartitionCount()).isEqualTo(8);
         assertThat(envelope.getExchangeInput().getBatchSerde())
-                .isEqualTo(BatchSerde.BATCH_SERDE_NATIVE_ROW);
+                .isEqualTo(BatchSerde.BATCH_SERDE_ARROW_BATCH);
     }
 
     @Test

@@ -31,12 +31,12 @@ import org.pangrova.spi.resource.admission.AdmissionVerdict;
 import org.pangrova.spi.resource.tenant.GlobalTenantUsageView;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
- * Validates P1-5 phase 2: {@link TenantQuotaAdmissionController} enforces
- * cluster-wide tenant limits using a heartbeat-fed {@link GlobalTenantUsageView},
- * not just this coordinator's local counters. Uses a real in-memory view
- * implementation (no mocks) per project testing rules.
+ * Checks admission against an immutable usage sample at the {@link GlobalTenantUsageView} boundary.
+ * Local slots and sample totals are component inputs, not independent-process cluster evidence.
  */
 class TenantQuotaAdmissionControllerClusterTest {
 
@@ -62,7 +62,7 @@ class TenantQuotaAdmissionControllerClusterTest {
     }
 
     private TenantQuotaAdmissionController controllerWith(GlobalTenantUsageView view) {
-        return new TenantQuotaAdmissionController(tenantStore, new QuotaChecker(), view);
+        return new TenantQuotaAdmissionController(tenantStore, view);
     }
 
     @Test
@@ -86,6 +86,59 @@ class TenantQuotaAdmissionControllerClusterTest {
                 OptionalLong.of(2_000_000_000L)); // 5 + 2 = 7 GB < 10 GB
 
         assertThat(controllerWith(view).admit(req).isAdmitted()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void wrappedClusterMemoryCannotAdmitOrLeakAReservedSlot(boolean useSharedSlots) {
+        var tenant = tenantStore.getTenant("t1").orElseThrow();
+        var quota = new ResourceQuota(Long.MAX_VALUE, 3, 5, 100, 100, 100, 100, 100);
+        tenantStore.updateTenant(new Tenant(tenant.tenantId(), tenant.name(), tenant.status(), quota,
+                tenant.allowedCatalogs(), tenant.allowedSchemas(), tenant.resourcePool(), tenant.properties(),
+                tenant.createdAt(), tenant.createdBy()));
+        var view = new FixedGlobalUsageView(Map.of("t1", new long[]{Long.MAX_VALUE - 2, 0}));
+        var slots = useSharedSlots ? new InMemoryClusterConcurrencySlots() : null;
+        var controller = new TenantQuotaAdmissionController(tenantStore, view, slots);
+
+        var decision = controller.admit(new AdmissionRequest("t1", "default", "query",
+                OptionalLong.of(10)));
+
+        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
+        assertThat(decision.reason()).contains("cluster memory");
+        assertThat(controller.admittedCount("t1")).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void exactRepresentableClusterLimitCanBeAdmitted(boolean useSharedSlots) {
+        var tenant = tenantStore.getTenant("t1").orElseThrow();
+        var quota = new ResourceQuota(Long.MAX_VALUE, 3, 5, 100, 100, 100, 100, 100);
+        tenantStore.updateTenant(new Tenant(tenant.tenantId(), tenant.name(), tenant.status(), quota,
+                tenant.allowedCatalogs(), tenant.allowedSchemas(), tenant.resourcePool(), tenant.properties(),
+                tenant.createdAt(), tenant.createdBy()));
+        var view = new FixedGlobalUsageView(Map.of("t1", new long[]{Long.MAX_VALUE - 10, 0}));
+        var slots = useSharedSlots ? new InMemoryClusterConcurrencySlots() : null;
+        var controller = new TenantQuotaAdmissionController(tenantStore, view, slots);
+
+        assertThat(controller.admit(new AdmissionRequest("t1", "default", "query",
+                OptionalLong.of(10))).isAdmitted()).isTrue();
+        assertThat(controller.admittedCount("t1")).isEqualTo(1);
+        controller.release("query", "t1");
+        assertThat(controller.admittedCount("t1")).isZero();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void invalidNegativeClusterUsageFailsClosed(boolean useSharedSlots) {
+        var view = new FixedGlobalUsageView(Map.of("t1", new long[]{-1, 0}));
+        var slots = useSharedSlots ? new InMemoryClusterConcurrencySlots() : null;
+        var controller = new TenantQuotaAdmissionController(tenantStore, view, slots);
+
+        var decision = controller.admit(new AdmissionRequest("t1", "default", "query", OptionalLong.of(1)));
+
+        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
+        assertThat(decision.reason()).contains("negative cluster memory");
+        assertThat(controller.admittedCount("t1")).isZero();
     }
 
     @Test
@@ -114,7 +167,7 @@ class TenantQuotaAdmissionControllerClusterTest {
         assertThat(controller.admittedCount("t1")).isEqualTo(1);
     }
 
-    /** Real in-memory {@link GlobalTenantUsageView}: tenant -> [memoryBytes, activeQueries]. */
+    /** Immutable component input: tenant -> [memoryBytes, activeQueries]. */
     private static final class FixedGlobalUsageView implements GlobalTenantUsageView {
         private final Map<String, long[]> usage;
 

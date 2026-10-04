@@ -8,6 +8,12 @@ import org.pangrova.protocol.v2.OperatorResourceRequirement;
 public final class ModelResourceEnvelopes {
     private ModelResourceEnvelopes() {}
 
+    /**
+     * Validates the explicit serving limits within Java's signed accounting domain.
+     *
+     * @param limits model-serving limits advertised by the capability inventory
+     * @throws IllegalArgumentException if limits are absent, unknown, nonpositive, or outside that domain
+     */
     public static void validate(CapabilityLimits limits) {
         if (limits == null || !limits.getUnknownFields().asMap().isEmpty()) {
             throw new IllegalArgumentException("Model serving limits are absent or contain unknown fields");
@@ -24,6 +30,13 @@ public final class ModelResourceEnvelopes {
         }
     }
 
+    /**
+     * Projects validated serving limits into per-request token and body constraints.
+     *
+     * @param limits exact model-serving capability limits
+     * @return canonical request limits without deriving body budgets from token limits
+     * @throws IllegalArgumentException if serving limits are invalid
+     */
     public static ModelRequestLimits requestLimits(CapabilityLimits limits) {
         validate(limits);
         return ModelRequestLimits.newBuilder().setMaxInputTokens(limits.getMaxInputTokens())
@@ -31,6 +44,16 @@ public final class ModelResourceEnvelopes {
                 .setMaxResponseBytes(limits.getMaxResponseBytes()).build();
     }
 
+    /**
+     * Derives checked task resources from logical items and the explicit physical-attempt envelope.
+     *
+     * @param limits exact model-serving capability limits
+     * @param items logical provider items assigned to the task
+     * @param media whether the task consumes the declared per-item media budget
+     * @return canonical task concurrency, item, attempt, body-byte, and media requirements
+     * @throws IllegalArgumentException if limits or items are invalid or attempts cannot cover the items
+     * @throws ArithmeticException if cumulative byte accounting overflows
+     */
     public static OperatorResourceRequirement resources(CapabilityLimits limits, long items, boolean media) {
         validate(limits);
         if (items <= 0 || items > limits.getMaxProviderItemsPerTask()) {

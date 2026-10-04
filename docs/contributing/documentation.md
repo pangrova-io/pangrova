@@ -67,6 +67,10 @@ Sources of truth, in descending order:
 
 ## Validation
 
+Repository policy is discovered through `AGENTS.md` and `.pangrova/rules/`.
+`.pangrova/setup.sh --check` validates this canonical layout without creating any
+tool-specific adapter directories.
+
 Run the closest documentation checks after every structural change:
 
 ```bash

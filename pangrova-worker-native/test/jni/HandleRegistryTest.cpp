@@ -5,6 +5,7 @@
 // stale handle rejection, and concurrent safety.
 
 #include "jni/registry/HandleRegistry.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <atomic>
 #include <new>
@@ -15,6 +16,8 @@
 #include <gtest/gtest.h>
 
 #include "executor/driver/TaskExecutor.h"
+#include "jni/command/StatusSerializer.h"
+#include "pangrova/protocol/v2/result.pb.h"
 
 namespace pangrova::jni {
 namespace {
@@ -22,6 +25,8 @@ namespace {
 // Minimal TaskExecutorConfig for test — only task_id is needed.
 pangrova::executor::TaskExecutorConfig makeTestConfig(const std::string& id) {
   pangrova::executor::TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = id;
   config.query_id = "test-query";
   return config;
@@ -65,12 +70,14 @@ TEST_F(HandleRegistryTest, ReceiptPreparationKeepsExactDrainedExecutorUntilErase
   auto task = std::make_shared<executor::TaskExecutor>(makeTestConfig("receipt-owner"));
   auto& registry = HandleRegistry::instance();
   const auto handle = registry.create(task);
+  EXPECT_FALSE(task->isExecutionReleased());
   bool observed = false;
   registry.release(handle, [&](executor::TaskExecutor& drained) {
     EXPECT_EQ(&drained, task.get());
     EXPECT_EQ(registry.acquire(handle), task);
     EXPECT_EQ(drained.state(), executor::ExecutorState::CANCELLED);
     EXPECT_EQ(drained.taskId(), "receipt-owner");
+    EXPECT_TRUE(drained.isExecutionReleased());
     EXPECT_EQ(registry.size(), 1);
     observed = true;
   });
@@ -87,6 +94,7 @@ TEST_F(HandleRegistryTest, ReceiptAllocationFailureRetainsExactOwnerForRetry) {
   EXPECT_THROW(registry.release(handle, [&](executor::TaskExecutor& drained) {
     EXPECT_EQ(&drained, task.get());
     EXPECT_EQ(drained.state(), executor::ExecutorState::CANCELLED);
+    EXPECT_TRUE(drained.isExecutionReleased());
     throw std::bad_alloc();
   }), std::bad_alloc);
   ASSERT_EQ(registry.acquire(handle), task);
@@ -101,6 +109,25 @@ TEST_F(HandleRegistryTest, ReceiptAllocationFailureRetainsExactOwnerForRetry) {
   EXPECT_TRUE(receiptPrepared);
   EXPECT_EQ(registry.size(), 0);
   EXPECT_THROW(registry.acquire(handle), std::runtime_error);
+}
+
+TEST_F(HandleRegistryTest, PendingNativeOwnerReleaseHasEvidenceWithoutInventedTaskStatistics) {
+  auto task = std::make_shared<executor::TaskExecutor>(makeTestConfig("pending-release-evidence"));
+  auto& registry = HandleRegistry::instance();
+  const auto handle = registry.create(task);
+  auto before = serializeTaskStatus(*task);
+  protocol::v2::TaskReport status;
+  ASSERT_TRUE(status.ParseFromArray(before.data(), static_cast<int>(before.size())));
+  EXPECT_EQ(status.execution_drain_state(), protocol::v2::EXECUTION_DRAIN_STATE_UNSPECIFIED);
+  registry.release(handle, [&](executor::TaskExecutor& drained) {
+    const auto bytes = serializeTaskStatus(drained);
+    ASSERT_TRUE(status.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+    EXPECT_EQ(status.attempt().task_id(), "pending-release-evidence");
+    EXPECT_EQ(status.state(), protocol::v2::TASK_STATE_CANCELLED);
+    EXPECT_EQ(status.execution_drain_state(), protocol::v2::EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+    EXPECT_FALSE(status.has_native_task_stats());
+  });
+  EXPECT_THROW(task->start(), std::runtime_error);
 }
 
 TEST_F(HandleRegistryTest, AcquireAfterDestroyAllThrowsStaleGeneration) {

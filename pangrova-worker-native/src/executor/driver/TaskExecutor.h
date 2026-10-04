@@ -3,6 +3,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
@@ -30,6 +31,10 @@
 namespace pangrova::velox {
 class VeloxTaskRunner;
 }  // namespace pangrova::velox
+
+namespace facebook::velox::exec {
+class FunctionRegistrySnapshot;
+}
 
 namespace pangrova::shuffle {
 class ShuffleEgressExecutor;
@@ -116,6 +121,8 @@ struct ShuffleExecutionConfig {
 
 // Configuration extracted from TaskRequest protobuf for executor construction.
 struct TaskExecutorConfig {
+  // Admitted process-local factory owner; never re-read from a live registry.
+  std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry;
   // Serialized once after canonical admission, reused by every callback batch.
   std::string callback_context;
   // Process-local identity assigned by HandleRegistry before start(). It is
@@ -147,6 +154,10 @@ struct TaskExecutorConfig {
   WriteConfigInfo write_config;
   int32_t task_type = 0;  // Maps to canonical v2 TaskKind.
   int32_t num_shuffle_partitions = 0;
+  pangrova::protocol::v2::BatchSerde shuffle_batch_serde =
+      pangrova::protocol::v2::BATCH_SERDE_ARROW_BATCH;
+  std::string shuffle_compression_codec = "none";
+  int32_t shuffle_batch_size = 10000;
   // Non-null only for a coordinator-allocated external shuffle binding.
   std::shared_ptr<pangrova::shuffle::ShuffleEgressExecutor> shuffle_egress;
   pangrova::protocol::v2::ShufflePersistenceMode shuffle_persistence_mode =
@@ -160,7 +171,7 @@ struct TaskExecutorConfig {
   std::chrono::milliseconds queue_poll_timeout{100};
   // True for final-stage result tasks. When set, VeloxPlanConverter wraps the
   // plan root with a PartitionedOutputNode so Velox serializes output via
-  // PrestoVectorSerde and routes it through OutputBufferManager.
+  // the canonical batch serde and routes it through OutputBufferManager.
   bool is_result_task = false;
   std::string trace_id;  // Propagated from Java via JNI for tracing.
   std::string span_id;   // Parent span ID from Java for trace chain continuity.
@@ -198,6 +209,7 @@ class TaskExecutor {
   void start();
   void cancel();
   void release();
+  bool isExecutionReleased() const { return execution_released_.load(std::memory_order_acquire); }
 
   // Binds the process-local handle exactly once while the task is still NEW.
   // HandleRegistry calls this before publishing the executor to JNI callers.
@@ -231,6 +243,8 @@ class TaskExecutor {
   bool usesExternalShuffle() const;
   int64_t executorHandle() const;
   std::string errorMessage() const;
+  TaskLifecycle::Snapshot lifecycleSnapshot() const;
+  void recordExecutionError(const protocol::v2::ExecutionError& error);
   std::string nativeStackTrace() const;
   std::optional<protocol::v2::ArtifactWorkReport> artifactWorkReport() const;
 
@@ -281,6 +295,7 @@ class TaskExecutor {
   std::unique_ptr<PlanExecutionDriver> execution_driver_;
 
   observability::NativeMetricsCollector metrics_collector_;
+  std::atomic<bool> execution_released_{false};
 
   // Trace ID for observability — set via constructor config or setTraceId().
   std::string trace_id_;

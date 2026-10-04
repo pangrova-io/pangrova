@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <memory>
 #include <stdexcept>
@@ -23,7 +25,7 @@ namespace {
 std::vector<uint8_t> serializePlan(const substrait::Rel& rel) {
   substrait::Plan plan;
   *plan.add_relations()->mutable_root()->mutable_input() = rel;
-  const auto bytes = plan.SerializeAsString();
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   return {bytes.begin(), bytes.end()};
 }
 
@@ -34,14 +36,12 @@ substrait::Rel artifactRelation() {
   read->mutable_named_table()->add_names("items");
   read->mutable_base_schema()->add_names(
       std::string(kPhysicalRowPositionColumnName));
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   read->mutable_base_schema()->add_names("embedding");
-  read->mutable_base_schema()
-      ->mutable_struct_()
-      ->add_types()
-      ->mutable_list()
-      ->mutable_type()
-      ->mutable_fp32();
+  auto* embedding = read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_list();
+  embedding->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  embedding->mutable_type()->mutable_fp32()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
 
   protocol::v2::RelationDetailEnvelope envelope;
   envelope.set_schema_version(1);
@@ -108,9 +108,11 @@ substrait::Rel bm25ArtifactRelation() {
   read->mutable_named_table()->add_names("items");
   read->mutable_base_schema()->add_names(
       std::string(kPhysicalRowPositionColumnName));
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   read->mutable_base_schema()->add_names("description");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_string();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_string()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   protocol::v2::RelationDetailEnvelope envelope;
   envelope.set_schema_version(1);
   auto* detail = envelope.mutable_artifact_build();
@@ -160,7 +162,7 @@ substrait::Rel generatedValuesArtifactRelation() {
       ->mutable_types(1)
       ->mutable_list()
       ->mutable_type()
-      ->mutable_fp32();
+      ->mutable_fp32()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
   protocol::v2::RelationDetailEnvelope envelope;
   envelope.set_schema_version(1);
   auto* detail = envelope.mutable_artifact_build();
@@ -220,9 +222,11 @@ substrait::Rel tabularExportRelation() {
   auto* read = extension->mutable_input()->mutable_read();
   read->mutable_named_table()->add_names("items");
   read->mutable_base_schema()->add_names("item_id");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   read->mutable_base_schema()->add_names("feature_value");
-  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_string();
+  read->mutable_base_schema()->mutable_struct_()->add_types()->mutable_string()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
   protocol::v2::RelationDetailEnvelope envelope;
   envelope.set_schema_version(1);
@@ -309,9 +313,11 @@ std::shared_ptr<ArtifactBuildTaskContext> runtimeContext() {
 TEST(ArtifactBuildPlanConversionTest, BuildsTypedNativeSink) {
   auto rel = artifactRelation();
   auto binding = artifactBinding();
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(rel), {}, false, "Presto",
+      serializePlan(rel), {}, false, "ArrowBatch",
       {{binding.plan_node_id(), binding}}, runtimeContext());
   auto artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(result);
   ASSERT_NE(artifact, nullptr);
@@ -327,8 +333,10 @@ TEST(ArtifactBuildPlanConversionTest, RejectsNonRootAndNestedArtifactArguments) 
       {bm25ArtifactRelation(), bm25ArtifactBinding()},
       {generatedValuesArtifactRelation(), generatedValuesArtifactBinding()}};
   for (const auto& [valid, binding] : cases) {
-    VeloxPlanConverter accepted;
-    ASSERT_NE(accepted.convert(serializePlan(valid), {}, false, "Presto",
+    const auto accepted_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter accepted(accepted_registry);
+    ASSERT_NE(accepted.convert(serializePlan(valid), {}, false, "ArrowBatch",
                               {{binding.plan_node_id(), binding}}, runtimeContext()),
               nullptr);
     for (int origin = 0; origin < 3; ++origin) {
@@ -346,8 +354,10 @@ TEST(ArtifactBuildPlanConversionTest, RejectsNonRootAndNestedArtifactArguments) 
             ->mutable_child()->mutable_struct_field()->set_field(0);
       }
       invalid.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
-      VeloxPlanConverter rejected;
-      EXPECT_THROW(rejected.convert(serializePlan(invalid), {}, false, "Presto",
+      const auto rejected_registry =
+          facebook::velox::exec::FunctionRegistrySnapshot::capture();
+      VeloxPlanConverter rejected(rejected_registry);
+      EXPECT_THROW(rejected.convert(serializePlan(invalid), {}, false, "ArrowBatch",
                                     {{binding.plan_node_id(), binding}}, runtimeContext()),
                    std::runtime_error);
     }
@@ -363,8 +373,10 @@ TEST(ArtifactBuildPlanConversionTest, PhysicalAliasCannotReplaceLogicalRowIdenti
   envelope.mutable_artifact_build()->set_input_fields(0, physicalFieldAlias(0));
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
   auto binding = artifactBinding();
-  VeloxPlanConverter converter;
-  EXPECT_THROW(converter.convert(serializePlan(rel), {}, false, "Presto",
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  EXPECT_THROW(converter.convert(serializePlan(rel), {}, false, "ArrowBatch",
                                  {{binding.plan_node_id(), binding}}, runtimeContext()),
                std::runtime_error);
 }
@@ -410,9 +422,11 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedHnswAndIvfPqNativeSinks) {
         add_integer("training_samples", 256);
       }
 
-      VeloxPlanConverter converter;
+      const auto converter_registry =
+          facebook::velox::exec::FunctionRegistrySnapshot::capture();
+      VeloxPlanConverter converter(converter_registry);
       auto result = converter.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext());
       auto artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(result);
       ASSERT_NE(artifact, nullptr);
@@ -430,15 +444,15 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedHnswAndIvfPqNativeSinks) {
       // The metric is a required typed field in the v2 build contract.
       metric_property->mutable_value()->set_string_value("MANHATTAN");
       EXPECT_THROW(converter.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()), std::invalid_argument);
       metric_property->mutable_value()->set_int64_value(1);
       EXPECT_THROW(converter.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()), std::runtime_error);
       output->mutable_properties()->DeleteSubrange(1, 1);
       EXPECT_THROW(converter.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()), std::runtime_error);
     }
   }
@@ -448,10 +462,12 @@ TEST(ArtifactBuildPlanConversionTest, RejectsFormatDrift) {
   auto rel = artifactRelation();
   auto binding = artifactBinding();
   binding.mutable_output_artifact()->mutable_format()->set_major_version(3);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(
       converter.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()),
       std::runtime_error);
 }
@@ -459,9 +475,11 @@ TEST(ArtifactBuildPlanConversionTest, RejectsFormatDrift) {
 TEST(ArtifactBuildPlanConversionTest, BuildsTypedNativeBm25Sink) {
   auto rel = bm25ArtifactRelation();
   auto binding = bm25ArtifactBinding();
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(rel), {}, false, "Presto",
+      serializePlan(rel), {}, false, "ArrowBatch",
       {{binding.plan_node_id(), binding}}, runtimeContext());
   auto artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(result);
   ASSERT_NE(artifact, nullptr);
@@ -473,9 +491,11 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedNativeBm25Sink) {
 TEST(ArtifactBuildPlanConversionTest, BuildsTypedGeneratedValuesNativeSink) {
   auto rel = generatedValuesArtifactRelation();
   auto binding = generatedValuesArtifactBinding();
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(rel), {}, false, "Presto",
+      serializePlan(rel), {}, false, "ArrowBatch",
       {{binding.plan_node_id(), binding}}, runtimeContext());
   auto artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(result);
   ASSERT_NE(artifact, nullptr);
@@ -492,10 +512,12 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedGeneratedValuesNativeSink) {
   option->set_name("fallback");
   option->mutable_value()->set_string_value("empty");
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
-  VeloxPlanConverter rejected;
+  const auto rejected_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter rejected(rejected_registry);
   EXPECT_THROW(
       rejected.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()),
       std::runtime_error);
 }
@@ -503,9 +525,11 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedGeneratedValuesNativeSink) {
 TEST(ArtifactBuildPlanConversionTest, BuildsTypedTabularExportNativeSink) {
   auto rel = tabularExportRelation();
   auto binding = tabularExportBinding();
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(rel), {}, false, "Presto",
+      serializePlan(rel), {}, false, "ArrowBatch",
       {{binding.plan_node_id(), binding}}, runtimeContext());
   auto artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(result);
   ASSERT_NE(artifact, nullptr);
@@ -516,24 +540,30 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedTabularExportNativeSink) {
 
   auto bad_binding = binding;
   *bad_binding.mutable_output_artifact()->mutable_row_locator() = capability::physicalRowLocatorContract();
-  VeloxPlanConverter physical_locator;
+  const auto physical_locator_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter physical_locator(physical_locator_registry);
   EXPECT_THROW(physical_locator.convert(
-      serializePlan(rel), {}, false, "Presto", {{bad_binding.plan_node_id(), bad_binding}}, runtimeContext()),
+      serializePlan(rel), {}, false, "ArrowBatch", {{bad_binding.plan_node_id(), bad_binding}}, runtimeContext()),
       std::runtime_error);
   bad_binding = binding;
   bad_binding.mutable_output_artifact()->set_output_scope_id("another-partition");
-  VeloxPlanConverter wrong_scope;
+  const auto wrong_scope_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter wrong_scope(wrong_scope_registry);
   EXPECT_THROW(wrong_scope.convert(
-      serializePlan(rel), {}, false, "Presto", {{bad_binding.plan_node_id(), bad_binding}}, runtimeContext()),
+      serializePlan(rel), {}, false, "ArrowBatch", {{bad_binding.plan_node_id(), bad_binding}}, runtimeContext()),
       std::runtime_error);
 
   protocol::v2::RelationDetailEnvelope envelope;
   ASSERT_TRUE(rel.extension_single().detail().UnpackTo(&envelope));
   envelope.mutable_artifact_build()->set_input_fields(1, "masked_feature");
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
-  VeloxPlanConverter renamed;
+  const auto renamed_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter renamed(renamed_registry);
   auto renamed_result = renamed.convert(
-      serializePlan(rel), {}, false, "Presto",
+      serializePlan(rel), {}, false, "ArrowBatch",
       {{binding.plan_node_id(), binding}}, runtimeContext());
   auto renamed_artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(renamed_result);
   ASSERT_NE(renamed_artifact, nullptr);
@@ -554,21 +584,25 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedTabularExportNativeSink) {
 
   envelope.mutable_artifact_build()->set_input_fields(1, "item_id");
   rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
-  VeloxPlanConverter rejected;
+  const auto rejected_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter rejected(rejected_registry);
   EXPECT_THROW(
       rejected.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()),
       std::runtime_error);
 }
 
 TEST(ArtifactBuildPlanConversionTest, BuildsTypedBm25ReductionAndFinalizer) {
   auto rel = bm25ArtifactRelation();
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   for (const bool finalizer : {false, true}) {
     auto binding = bm25ReductionBinding(finalizer);
     auto result = converter.convert(
-        serializePlan(rel), {}, false, "Presto",
+        serializePlan(rel), {}, false, "ArrowBatch",
         {{binding.plan_node_id(), binding}}, runtimeContext());
     auto artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(result);
     ASSERT_NE(artifact, nullptr);
@@ -589,10 +623,12 @@ TEST(ArtifactBuildPlanConversionTest, RejectsLocatorDrift) {
   binding.mutable_output_artifact()
       ->mutable_row_locator()
       ->set_source_object_scoped(false);
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(
       converter.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()),
       std::runtime_error);
 }
@@ -602,10 +638,12 @@ TEST(ArtifactBuildPlanConversionTest, RejectsMissingWorkerLocalScratchPolicy) {
   auto binding = artifactBinding();
   auto context = runtimeContext();
   context->scratch_directory.clear();
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(
       converter.convert(
-          serializePlan(rel), {}, false, "Presto",
+          serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, context),
       std::runtime_error);
 }

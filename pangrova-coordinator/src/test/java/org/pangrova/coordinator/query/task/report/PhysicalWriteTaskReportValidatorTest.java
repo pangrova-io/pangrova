@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.task.report;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.NativeWriteBindings;
 import org.pangrova.protocol.PhysicalFileWriteReceipts;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;

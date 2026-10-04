@@ -4,6 +4,7 @@ import org.pangrova.spi.execution.TaskExecutor;
 import org.pangrova.config.ShuffleMode;
 import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.WorkerTaskOwnership;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress;
 import org.pangrova.worker.exchange.remote.RemoteShuffleClientPool;
@@ -49,9 +50,11 @@ public final class WorkerTaskBootstrap {
     public static void startTaskManager(WorkerBootstrapConfig config,
                                         WorkerComponentRefs refs,
                                         WorkerObservabilitySetup observability) {
-        TaskExecutor executor = createTaskExecutor(refs.nativeAvailable(), config);
+        var ownership = new WorkerTaskOwnership(config.resourceConfig().shuffleChannelLimits());
+        refs.installTaskOwnership(ownership);
+        TaskExecutor executor = createTaskExecutor(refs.nativeAvailable(), config, ownership);
         if (executor instanceof NativeTaskExecutor nativeExecutor
-                && refs.catalogResourceResolver() instanceof org.pangrova.worker.jni.write.WorkerCatalogRuntime catalogs) {
+                && refs.catalogResourceResolver() instanceof org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime catalogs) {
             nativeExecutor.setCatalogRuntime(catalogs);
         }
         injectShuffleHmacKey(refs);
@@ -59,13 +62,22 @@ public final class WorkerTaskBootstrap {
         MemoryRefs memoryDeps = new MemoryRefs(
                 refs.resourceManager(), refs.nodeMemoryPool(),
                 observability.tracingProvider());
-        TransportRefs transportDeps = createTransportRefs(executor, config);
+        TransportRefs transportDeps = createTransportRefs(executor, config, ownership);
         refs.setResultServerPort(extractResultServerPort(transportDeps));
         refs.setExchangeTransport(transportDeps.exchangeTransport());
         TaskManagerContext deps = new TaskManagerContext(
                 reporter, executor, memoryDeps, transportDeps,
-                createOrchestrationExecutor(config));
+                retainedOrchestrationExecutor(config, ownership));
         TaskManager tm = new TaskManager(deps, config.workerId(), 0.0);
+        ownership.publish(tm);
+        refs.setTaskManager(tm);
+        configureTaskManager(config, refs, tm, ownership);
+        registerNativeWriter(refs);
+        LOG.info("event=task_manager_initialized transport=native");
+    }
+
+    private static void configureTaskManager(
+            WorkerBootstrapConfig config, WorkerComponentRefs refs, TaskManager tm, WorkerTaskOwnership ownership) {
         if (config.coordinatorUrl() != null && !config.coordinatorUrl().isBlank()) {
             // The task endpoint may become reachable before the first control
             // handshake completes; reject every task during that window.
@@ -96,6 +108,7 @@ public final class WorkerTaskBootstrap {
         java.util.concurrent.ScheduledExecutorService cleanupExecutor =
                 org.pangrova.common.concurrent.ManagedExecutorFactory
                         .newSingleThreadScheduledExecutor("worker-task-cleanup");
+        retainExecutor(cleanupExecutor, ownership);
         ((java.util.concurrent.ScheduledThreadPoolExecutor) cleanupExecutor)
                 .setRemoveOnCancelPolicy(true);
         // Retention is measured from terminal-time (see TaskCleanupScheduler)
@@ -104,9 +117,6 @@ public final class WorkerTaskBootstrap {
         // task entry is evicted, while still bounding worker memory growth.
         tm.startPeriodicCleanup(cleanupExecutor,
                 java.time.Duration.ofMinutes(TASK_CLEANUP_INTERVAL_MINUTES), java.time.Duration.ofMinutes(1));
-        refs.setTaskManager(tm);
-        registerNativeWriter(refs);
-        LOG.info("event=task_manager_initialized transport=native");
     }
 
     /**
@@ -146,18 +156,21 @@ public final class WorkerTaskBootstrap {
      * Native transport is mandatory -- failure to start is fatal.
      */
     static TransportRefs createTransportRefs(TaskExecutor executor,
-                                             WorkerBootstrapConfig config) {
+                                             WorkerBootstrapConfig config, WorkerTaskOwnership ownership) {
         String workerHost = WorkerHttpBootstrap.resolveAdvertisedHost(config);
         String tlsIdentity = config.transportSecurityConfig().enabled()
                 ? config.transportSecurityConfig().tlsIdentity()
                 : "";
         var shuffleTransport = new NativeShuffleTransport(executor, workerHost, tlsIdentity);
+        ownership.retain(shuffleTransport);
         var resultTransport = new NativeResultTransport(executor, workerHost);
-        resultTransport.startServer(0);
+        ownership.retain(resultTransport);
+        resultTransport.startServer(config.transportPort());
         var exchangeTransport = config.shuffleMode() == ShuffleMode.REMOTE
                 ? new NativeExchangeTransport(
-                        executor, createRemoteShuffleClientPool(config))
+                        executor, createRemoteShuffleClientPool(config, ownership))
                 : new NativeExchangeTransport(executor);
+        ownership.retain(exchangeTransport);
         LOG.info("event=transport_spi_selected shuffle=native result=native exchange=native resultPort={}",
                 resultTransport.boundPort());
         return new TransportRefs(shuffleTransport, resultTransport, exchangeTransport);
@@ -174,14 +187,19 @@ public final class WorkerTaskBootstrap {
     }
 
     static TaskExecutor createTaskExecutor(
-            boolean nativeAvailable, WorkerBootstrapConfig config) {
+            boolean nativeAvailable, WorkerBootstrapConfig config, WorkerTaskOwnership ownership) {
         if (nativeAvailable) {
             if (config.shuffleMode() == ShuffleMode.REMOTE) {
-                RemoteShuffleByteEgress egress = createRemoteShuffleEgress(config);
+                RemoteShuffleByteEgress egress = new RemoteShuffleByteEgress(createRemoteShuffleClientPool(config, ownership));
+                ownership.retain(egress);
                 org.pangrova.worker.jni.NativeRuntime.nativeRegisterEgress(egress);
-                return new NativeTaskExecutor(egress);
+                var executor = new NativeTaskExecutor(egress);
+                ownership.retain(executor);
+                return executor;
             }
-            return new NativeTaskExecutor();
+            var executor = new NativeTaskExecutor();
+            ownership.retain(executor);
+            return executor;
         }
         throw new org.pangrova.operations.bootstrap.BootstrapFailedException(
                 "TaskExecutor",
@@ -189,16 +207,10 @@ public final class WorkerTaskBootstrap {
                         "Native library unavailable — worker cannot execute queries without native engine"));
     }
 
-    private static RemoteShuffleByteEgress createRemoteShuffleEgress(
-            WorkerBootstrapConfig config) {
-        return new RemoteShuffleByteEgress(createRemoteShuffleClientPool(config));
-    }
-
     private static RemoteShuffleClientPool createRemoteShuffleClientPool(
-            WorkerBootstrapConfig config) {
+            WorkerBootstrapConfig config, WorkerTaskOwnership ownership) {
         final long writeTimeoutMillis = 30_000L;
         final long readTimeoutMillis = 30_000L;
-        final int maxConnectionsPerServer = 8;
         RemoteShuffleClientPool pool;
         var transportSecurity = config.transportSecurityConfig();
         if (transportSecurity.enabled()) {
@@ -208,13 +220,36 @@ public final class WorkerTaskBootstrap {
                     java.nio.file.Path.of(transportSecurity.rootCaPath()));
             pool = new RemoteShuffleClientPool(
                     writeTimeoutMillis, readTimeoutMillis,
-                    maxConnectionsPerServer, pem);
+                    RemoteShuffleClientPool.PoolOptions.mutualTls(pem), ownership.channelAdmission());
         } else {
             pool = new RemoteShuffleClientPool(
                     writeTimeoutMillis, readTimeoutMillis,
-                    maxConnectionsPerServer);
+                    RemoteShuffleClientPool.PoolOptions.defaults(), ownership.channelAdmission());
         }
+        ownership.retain(pool);
         return pool;
+    }
+
+    private static java.util.concurrent.ExecutorService retainedOrchestrationExecutor(
+            WorkerBootstrapConfig config, WorkerTaskOwnership ownership) {
+        var executor = createOrchestrationExecutor(config);
+        retainExecutor(executor, ownership);
+        return executor;
+    }
+
+    private static void retainExecutor(
+            java.util.concurrent.ExecutorService executor, WorkerTaskOwnership ownership) {
+        ownership.retain(() -> {
+            executor.shutdownNow();
+            try {
+                if (!executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("Task bootstrap executor has not exited");
+                }
+            } catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw failure;
+            }
+        });
     }
 
     /**

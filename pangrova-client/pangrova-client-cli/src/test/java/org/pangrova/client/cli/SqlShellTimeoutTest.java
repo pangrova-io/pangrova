@@ -292,5 +292,10 @@ class SqlShellTimeoutTest {
         public void fetchResultStream(ResultEndpoint endpoint, ResultBatchConsumer consumer) {
             // no-op default
         }
+
+        @Override
+        public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+            throw new UnsupportedOperationException("This polling-only test does not execute a result stream");
+        }
     }
 }

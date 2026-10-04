@@ -15,6 +15,8 @@
 // **Validates: Requirements 4.1, 4.2, 4.3**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <memory>
 #include <string>
@@ -102,7 +104,7 @@ namespace {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
@@ -114,7 +116,7 @@ void setFieldRef(substrait::Expression* expr, int field_index) {
 
 std::vector<uint8_t> serializePlan(const substrait::Plan& plan) {
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -214,7 +216,7 @@ std::vector<uint8_t> buildNljPlan(
       // left_key < right_key → lt(field[0], field[2])
       auto* func = expr->mutable_scalar_function();
       func->set_function_reference(function_anchors[0]);
-      func->mutable_output_type()->mutable_bool_();
+      func->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
       setFieldRef(func->add_arguments()->mutable_value(), 0);
       setFieldRef(func->add_arguments()->mutable_value(), 2);
       break;
@@ -223,7 +225,7 @@ std::vector<uint8_t> buildNljPlan(
       // left_key > right_key → gt(field[0], field[2])
       auto* func = expr->mutable_scalar_function();
       func->set_function_reference(function_anchors[0]);
-      func->mutable_output_type()->mutable_bool_();
+      func->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
       setFieldRef(func->add_arguments()->mutable_value(), 0);
       setFieldRef(func->add_arguments()->mutable_value(), 2);
       break;
@@ -233,13 +235,13 @@ std::vector<uint8_t> buildNljPlan(
       // → and(gte(field[0], field[2]), lte(field[0], field[3]))
       auto* and_func = expr->mutable_scalar_function();
       and_func->set_function_reference(function_anchors[2]);
-      and_func->mutable_output_type()->mutable_bool_();
+      and_func->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
       // First arg: gte(left_key, right_key)
       auto* gte_expr =
           and_func->add_arguments()->mutable_value()->mutable_scalar_function();
       gte_expr->set_function_reference(function_anchors[0]);
-      gte_expr->mutable_output_type()->mutable_bool_();
+      gte_expr->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
       setFieldRef(gte_expr->add_arguments()->mutable_value(), 0);
       setFieldRef(gte_expr->add_arguments()->mutable_value(), 2);
 
@@ -247,7 +249,7 @@ std::vector<uint8_t> buildNljPlan(
       auto* lte_expr =
           and_func->add_arguments()->mutable_value()->mutable_scalar_function();
       lte_expr->set_function_reference(function_anchors[1]);
-      lte_expr->mutable_output_type()->mutable_bool_();
+      lte_expr->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
       setFieldRef(lte_expr->add_arguments()->mutable_value(), 0);
       setFieldRef(lte_expr->add_arguments()->mutable_value(), 3);
       break;
@@ -257,13 +259,13 @@ std::vector<uint8_t> buildNljPlan(
       // → and(lt(field[0], field[2]), gt(field[1], field[3]))
       auto* and_func = expr->mutable_scalar_function();
       and_func->set_function_reference(function_anchors[2]);
-      and_func->mutable_output_type()->mutable_bool_();
+      and_func->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 
       // First arg: lt(left_key, right_key)
       auto* lt_expr =
           and_func->add_arguments()->mutable_value()->mutable_scalar_function();
       lt_expr->set_function_reference(function_anchors[0]);
-      lt_expr->mutable_output_type()->mutable_bool_();
+      lt_expr->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
       setFieldRef(lt_expr->add_arguments()->mutable_value(), 0);
       setFieldRef(lt_expr->add_arguments()->mutable_value(), 2);
 
@@ -271,7 +273,7 @@ std::vector<uint8_t> buildNljPlan(
       auto* gt_expr =
           and_func->add_arguments()->mutable_value()->mutable_scalar_function();
       gt_expr->set_function_reference(function_anchors[1]);
-      gt_expr->mutable_output_type()->mutable_bool_();
+      gt_expr->mutable_output_type()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
       setFieldRef(gt_expr->add_arguments()->mutable_value(), 1);
       setFieldRef(gt_expr->add_arguments()->mutable_value(), 3);
       break;
@@ -340,7 +342,9 @@ TEST_P(NljConditionCorrectnessTest, CorrectJoinTypeMapping) {
   auto plan_bytes = buildNljPlan(param.join_type, param.condition_type, anchors);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
 
   ASSERT_NE(result, nullptr) << "Plan conversion failed for " << param.name;
@@ -376,7 +380,9 @@ TEST_P(NljConditionCorrectnessTest, FilterExpressionPresent) {
   auto plan_bytes = buildNljPlan(param.join_type, param.condition_type, anchors);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 
@@ -419,7 +425,9 @@ TEST_P(NljConditionCorrectnessTest, OutputSchemaCorrectness) {
   auto plan_bytes = buildNljPlan(param.join_type, param.condition_type, anchors);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 
@@ -464,7 +472,9 @@ TEST_P(NljConditionCorrectnessTest, TwoSourceInputsPresent) {
   auto plan_bytes = buildNljPlan(param.join_type, param.condition_type, anchors);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 

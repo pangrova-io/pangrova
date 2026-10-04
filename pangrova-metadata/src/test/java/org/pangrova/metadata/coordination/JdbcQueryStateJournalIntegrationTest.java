@@ -35,6 +35,7 @@ class JdbcQueryStateJournalIntegrationTest {
 
     private DataSource dataSource;
     private JdbcQueryStateJournal journal;
+    private boolean stickyConflict;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -42,23 +43,26 @@ class JdbcQueryStateJournalIntegrationTest {
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         initSchema(dataSource);
         cleanTables(dataSource);
-        var config = new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24);
+        var config = new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000);
         journal = new JdbcQueryStateJournal(dataSource, config);
     }
 
     @AfterEach
     void tearDown() {
         if (journal != null) {
-            journal.close();
+            if (stickyConflict) {
+                assertThrows(org.pangrova.spi.coordination.JournalWriteException.class, journal::close);
+                assertTrue(journal.isDrained());
+            } else { journal.close(); }
         }
     }
 
     @Test
     void syncWriteAndReplayQueryEvents() {
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", null, null, "RUNNING", 2000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(2000L, null), "q-1", null, null, "RUNNING"));
 
         List<QueryStateEvent> events = journal.replayActiveQueries();
         assertEquals(2, events.size());
@@ -70,11 +74,11 @@ class JdbcQueryStateJournalIntegrationTest {
     void syncWriteAndReplayTaskEvents() {
         // Need a non-terminal query for tasks to be replayed
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendTaskEventSync(
-                new TaskStateEvent("q-1", "t-1", "w-1", "RUNNING", 0, 1L, 1000L));
+                new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "t-1", "w-1", "RUNNING", 0, 1L));
         journal.appendTaskEventSync(
-                new TaskStateEvent("q-1", "t-2", "w-2", "RUNNING", 1, 1L, 1100L));
+                new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1100L, null), "q-1", "t-2", "w-2", "RUNNING", 1, 1L));
 
         List<TaskStateEvent> events = journal.replayActiveTasks();
         assertEquals(2, events.size());
@@ -85,9 +89,9 @@ class JdbcQueryStateJournalIntegrationTest {
     @Test
     void terminalQueryExcludedFromReplay() {
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", null, null, "FINISHED", 2000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(2000L, null), "q-1", null, null, "FINISHED"));
 
         List<QueryStateEvent> events = journal.replayActiveQueries();
         assertTrue(events.isEmpty(), "Finished query should not be replayed");
@@ -96,9 +100,9 @@ class JdbcQueryStateJournalIntegrationTest {
     @Test
     void purgeRemovesAllEventsForQuery() {
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendTaskEventSync(
-                new TaskStateEvent("q-1", "t-1", "w-1", "RUNNING", 0, 1L, 1000L));
+                new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "t-1", "w-1", "RUNNING", 0, 1L));
 
         journal.purgeQuery("q-1");
 
@@ -109,9 +113,9 @@ class JdbcQueryStateJournalIntegrationTest {
     @Test
     void purgeDoesNotAffectOtherQueries() {
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-2", "SELECT 2", "{}", "QUEUED", 1100L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1100L, null), "q-2", "SELECT 2", "{}", "QUEUED"));
 
         journal.purgeQuery("q-1");
 
@@ -121,15 +125,81 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void purgePermissionFailureRollsBackTaskDeletionAndSameQueryCanRetry() throws Exception {
+        String role = "purge_" + java.util.UUID.randomUUID().toString().replace("-", "");
+        String password = java.util.UUID.randomUUID().toString();
+        executeSql("CREATE ROLE " + role + " LOGIN PASSWORD '" + password + "'");
+        try {
+            seedPurgeQueries();
+            executeSql("GRANT USAGE ON SCHEMA public TO " + role);
+            executeSql("GRANT SELECT, DELETE ON task_state_journal TO " + role);
+            executeSql("GRANT SELECT ON query_state_journal TO " + role);
+            try (var restrictedSource = new EmbeddedDataSource(POSTGRES.getJdbcUrl(), role, password);
+                 var restricted = new JdbcQueryStateJournal(restrictedSource,
+                         new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000))) {
+                var failure = assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                        () -> restricted.purgeQuery("q-owned"));
+                assertTrue(failure.getMessage().contains("q-owned"));
+                assertInstanceOf(java.sql.SQLException.class, failure.getCause());
+                assertEquals(1, countQueryRows("task_state_journal", "q-owned"));
+                assertEquals(1, countQueryRows("query_state_journal", "q-owned"));
+                executeSql("GRANT DELETE ON query_state_journal TO " + role);
+                restricted.purgeQuery("q-owned");
+                restricted.purgeQuery("q-owned");
+                assertEquals(0, countQueryRows("task_state_journal", "q-owned"));
+                assertEquals(0, countQueryRows("query_state_journal", "q-owned"));
+                assertEquals(1, countQueryRows("task_state_journal", "q-other"));
+                assertEquals(1, countQueryRows("query_state_journal", "q-other"));
+            }
+        } finally {
+            executeSql("DROP OWNED BY " + role);
+            executeSql("DROP ROLE " + role);
+        }
+    }
+
+    @Test
+    void closedJournalCannotAcknowledgePurgeWithoutRemovingRows() throws Exception {
+        seedPurgeQueries();
+        journal.close();
+        assertThrows(org.pangrova.spi.coordination.JournalWriteException.class, () -> journal.purgeQuery("q-owned"));
+        assertEquals(1, countQueryRows("task_state_journal", "q-owned"));
+        assertEquals(1, countQueryRows("query_state_journal", "q-owned"));
+    }
+
+    private void seedPurgeQueries() {
+        for (String queryId : List.of("q-owned", "q-other")) {
+            journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), queryId, "SELECT 1", "{}", "RUNNING"));
+            journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), queryId, queryId + "-task", "worker", "RUNNING", 0, 1L));
+        }
+    }
+
+    private void executeSql(String sql) throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    private int countQueryRows(String table, String queryId) throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("SELECT count(*) FROM " + table + " WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                return rows.getInt(1);
+            }
+        }
+    }
+
+    @Test
     void asyncFlushBatchingBehavior() throws InterruptedException {
         // Need a non-terminal query for tasks to be replayed
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-async", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-async", "SELECT 1", "{}", "QUEUED"));
 
         // Append async events
         for (int i = 0; i < 5; i++) {
             journal.appendTaskEvent(
-                    new TaskStateEvent("q-async", "t-" + i, "w-1", "RUNNING", 0, i, 1000L + i));
+                    new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L + i, null), "q-async", "t-" + i, "w-1", "RUNNING", 0, i));
         }
 
         // Wait for flush (config interval is 50ms, give it 2s)
@@ -142,19 +212,19 @@ class JdbcQueryStateJournalIntegrationTest {
     @Test
     void closeFlushesRemainingEvents() throws InterruptedException {
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-close", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-close", "SELECT 1", "{}", "QUEUED"));
 
         // Append async events
         for (int i = 0; i < 3; i++) {
             journal.appendTaskEvent(
-                    new TaskStateEvent("q-close", "t-" + i, "w-1", "RUNNING", 0, i, 1000L + i));
+                    new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L + i, null), "q-close", "t-" + i, "w-1", "RUNNING", 0, i));
         }
 
         // Close immediately (should flush remaining)
         journal.close();
 
         // Create a new journal to verify data was persisted
-        var config2 = new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24);
+        var config2 = new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000);
         try (var journal2 = new JdbcQueryStateJournal(dataSource, config2)) {
             List<TaskStateEvent> events = journal2.replayActiveTasks();
             assertEquals(3, events.size(), "Close should flush remaining async events");
@@ -165,19 +235,19 @@ class JdbcQueryStateJournalIntegrationTest {
     void multipleQueriesMixedStates() {
         // q-1: active (QUEUED → RUNNING)
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", "SELECT 1", "{}", "QUEUED", 1000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-1", null, null, "RUNNING", 2000L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(2000L, null), "q-1", null, null, "RUNNING"));
 
         // q-2: terminal (QUEUED → FAILED)
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-2", "SELECT 2", "{}", "QUEUED", 1100L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1100L, null), "q-2", "SELECT 2", "{}", "QUEUED"));
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-2", null, null, "FAILED", 2100L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(2100L, null), "q-2", null, null, "FAILED"));
 
         // q-3: active (QUEUED only)
         journal.appendQueryEventSync(
-                new QueryStateEvent("q-3", "SELECT 3", "{}", "QUEUED", 1200L));
+                new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(1200L, null), "q-3", "SELECT 3", "{}", "QUEUED"));
 
         List<QueryStateEvent> events = journal.replayActiveQueries();
         // Only q-1 and q-3 events should be replayed
@@ -188,37 +258,112 @@ class JdbcQueryStateJournalIntegrationTest {
                 "Terminal query q-2 should not be replayed");
     }
 
-    private static void initSchema(DataSource ds) throws Exception {
-        try (Connection conn = ds.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS query_state_journal (
-                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        query_id VARCHAR(64) NOT NULL,
-                        sql_text TEXT,
-                        session_json TEXT,
-                        state VARCHAR(32) NOT NULL,
-                        timestamp_ms BIGINT NOT NULL,
-                        coordinator_id VARCHAR(128),
-                        epoch BIGINT NOT NULL DEFAULT 0
-                    )""");
-            stmt.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_qsj_query_state ON query_state_journal (query_id, state)");
-            stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS task_state_journal (
-                        id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                        query_id VARCHAR(64) NOT NULL,
-                        task_id VARCHAR(64) NOT NULL,
-                        worker_id VARCHAR(64),
-                        state VARCHAR(32) NOT NULL,
-                        stage_id INT NOT NULL,
-                        report_sequence BIGINT NOT NULL DEFAULT 0,
-                        timestamp_ms BIGINT NOT NULL,
-                        coordinator_id VARCHAR(128),
-                        epoch BIGINT NOT NULL DEFAULT 0
-                    )""");
-            stmt.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_tsj_task_query ON task_state_journal (query_id, task_id)");
+    private static void initSchema(DataSource source) {
+        org.pangrova.metadata.store.SchemaMigrationRunner.migrate(source);
+    }
+
+    @Test
+    void exactEventRetryReconcilesOriginalPayloadWithoutCreatingAnotherOrderedRow() throws Exception {
+        var event = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(123, "issuer"),
+                "q-exact", "SELECT 3", "{\"user\":\"alice\"}", "QUEUED");
+        journal.appendQueryEventSync(event);
+        long rowId = eventRowId(event.context().eventId());
+        journal.appendQueryEventSync(event);
+        assertEquals(event, journal.latestQueryEvent("q-exact").orElseThrow());
+        assertEquals(1, countQueryRows("query_state_journal", "q-exact"));
+        assertEquals(rowId, eventRowId(event.context().eventId()));
+    }
+
+    @Test
+    void changedPayloadCannotReplaceCommittedEventAndStickyFailureCannotMasqueradeAsCloseSuccess() throws Exception {
+        var context = org.pangrova.spi.coordination.JournalEventContext.create(456, "issuer");
+        var event = new QueryStateEvent(context, "q-conflict", "SELECT 1", "{}", "QUEUED");
+        journal.appendQueryEventSync(event);
+        var changed = new QueryStateEvent(context, "q-conflict", "SELECT 2", "{}", "QUEUED");
+        assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                () -> journal.appendQueryEventSync(changed));
+        stickyConflict = true;
+        assertEquals(event, journal.latestQueryEvent("q-conflict").orElseThrow());
+        assertEquals(1, countQueryRows("query_state_journal", "q-conflict"));
+        assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                () -> journal.appendQueryEvent(new QueryStateEvent(
+                        org.pangrova.spi.coordination.JournalEventContext.create(999, "issuer"),
+                        "q-after-conflict", "SELECT 1", "{}", "QUEUED")));
+        assertThrows(org.pangrova.spi.coordination.JournalWriteException.class, journal::close);
+        assertTrue(journal.isDrained(), "Actual writer and SQL owners have exited, not a successful commit claim");
+        assertThrows(org.pangrova.spi.coordination.JournalWriteException.class, journal::close);
+        assertEquals(0, countQueryRows("query_state_journal", "q-after-conflict"));
+    }
+
+    @Test
+    void actualBlockedCommitConsumesResidentCapacityUntilSqlCommit() throws Exception {
+        journal.close();
+        journal = new JdbcQueryStateJournal(dataSource,
+                new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 10, 1, 24, 1));
+        var context = org.pangrova.spi.coordination.JournalEventContext.create(700, "issuer");
+        var event = new QueryStateEvent(context, "q-bounded", "SELECT 1", "{}", "QUEUED");
+        try (Connection blocker = dataSource.getConnection()) {
+            blocker.setAutoCommit(false);
+            try (Statement statement = blocker.createStatement()) {
+                statement.execute("LOCK TABLE query_state_journal IN ACCESS EXCLUSIVE MODE");
+            }
+            journal.appendQueryEvent(event);
+            await().atMost(5, SECONDS).until(this::actualJournalInsertWaitsForTableLock);
+            assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.appendQueryEvent(new QueryStateEvent(
+                            org.pangrova.spi.coordination.JournalEventContext.create(701, "issuer"),
+                            "q-overflow", "SELECT 2", "{}", "QUEUED")));
+            blocker.commit();
+        }
+        await().atMost(5, SECONDS).until(() -> journal.latestQueryEvent("q-bounded").isPresent());
+        assertEquals(event, journal.latestQueryEvent("q-bounded").orElseThrow());
+        assertEquals(1, countQueryRows("query_state_journal", "q-bounded"));
+        assertEquals(0, countQueryRows("query_state_journal", "q-overflow"));
+    }
+
+    @Test
+    void failedActualWriterJoinRetainsEventAndCloseRetriesAfterDatabaseUnblocks() throws Exception {
+        var event = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(900, "issuer"),
+                "q-held-close", "SELECT 1", "{}", "QUEUED");
+        try (Connection blocker = dataSource.getConnection()) {
+            blocker.setAutoCommit(false);
+            try (Statement statement = blocker.createStatement()) {
+                statement.execute("LOCK TABLE query_state_journal IN ACCESS EXCLUSIVE MODE");
+            }
+            journal.appendQueryEvent(event);
+            await().atMost(5, SECONDS).until(this::actualJournalInsertWaitsForTableLock);
+            assertThrows(org.pangrova.spi.coordination.JournalWriteException.class, journal::close);
+            assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.appendQueryEvent(event));
+            blocker.commit();
+        }
+        journal.close();
+        try (var reopened = new JdbcQueryStateJournal(dataSource,
+                new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000))) {
+            assertEquals(event, reopened.latestQueryEvent("q-held-close").orElseThrow());
+            assertEquals(1, countQueryRows("query_state_journal", "q-held-close"));
+        }
+    }
+
+    private long eventRowId(java.util.UUID eventId) throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement("SELECT id FROM query_state_journal WHERE event_id = ?")) {
+            statement.setObject(1, eventId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                long id = rows.getLong(1);
+                assertFalse(rows.next());
+                return id;
+            }
+        }
+    }
+
+    private boolean actualJournalInsertWaitsForTableLock() throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                        + "WHERE wait_event_type = 'Lock' AND query LIKE 'INSERT INTO query_state_journal%')")) {
+            assertTrue(rows.next());
+            return rows.getBoolean(1);
         }
     }
 
@@ -227,6 +372,48 @@ class JdbcQueryStateJournalIntegrationTest {
              Statement stmt = conn.createStatement()) {
             stmt.execute("DELETE FROM task_state_journal");
             stmt.execute("DELETE FROM query_state_journal");
+        }
+    }
+
+    @Test
+    void lostActualPostgresCommitResponseReconcilesSameFrozenEventAndRetainsOrderedIdentity() throws Exception {
+        journal.close();
+        try (var wire = new JournalCommitWireFault(POSTGRES.getHost(), POSTGRES.getMappedPort(5432))) {
+            var source = new org.postgresql.ds.PGSimpleDataSource();
+            source.setServerNames(new String[] {java.net.InetAddress.getLoopbackAddress().getHostAddress()});
+            source.setPortNumbers(new int[] {wire.port()});
+            source.setDatabaseName(POSTGRES.getDatabaseName());
+            source.setUser(POSTGRES.getUsername()); source.setPassword(POSTGRES.getPassword());
+            // Only the local fault-observation connection is plaintext, matching this PostgreSQL container.
+            source.setSslMode("disable"); source.setGssEncMode("disable");
+            journal = new JdbcQueryStateJournal(source,
+                    new StateJournalConfig("JDBC", source.getURL(), 20, 1, 24, 1));
+            var event = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(222, "issuer"),
+                    "q-lost-commit", "SELECT 222", "{\"original\":true}", "QUEUED");
+            wire.armCommitResponseLoss();
+            try {
+                var failed = assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                        () -> journal.appendQueryEventSync(event));
+                assertEquals(org.pangrova.spi.coordination.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
+                        failed.admissionOutcome());
+                assertTrue(wire.awaitActualCommit());
+                assertEquals(1, countQueryRows("query_state_journal", event.queryId()));
+                long originalRow = eventRowId(event.context().eventId());
+                Thread.currentThread().interrupt();
+                try {
+                    assertThrows(org.pangrova.spi.coordination.JournalWriteException.class, journal::close);
+                    assertTrue(Thread.currentThread().isInterrupted());
+                    assertFalse(journal.isDrained());
+                } finally { Thread.interrupted(); }
+                wire.allowReconciliation();
+                journal.close();
+                try (var reader = new JdbcQueryStateJournal(dataSource,
+                        new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 20, 1, 24, 1))) {
+                    assertEquals(event, reader.latestQueryEvent(event.queryId()).orElseThrow());
+                }
+                assertEquals(1, countQueryRows("query_state_journal", event.queryId()));
+                assertEquals(originalRow, eventRowId(event.context().eventId()));
+            } finally { wire.allowReconciliation(); journal.close(); }
         }
     }
 }

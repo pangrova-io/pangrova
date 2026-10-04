@@ -79,6 +79,19 @@ class CoordinatorOptionsTest {
     // ---- HA defaults ----
 
     @Test
+    void internalControlSecretIsExplicitAndSpeculationIsOptIn() {
+        var defaults = PangrovaConfiguration.fromYaml(Map.of());
+        assertThat(defaults.getString(CoordinatorOptions.INTERNAL_AUTH_SECRET)).isNull();
+        assertThat(defaults.getBoolean(CoordinatorOptions.SPECULATION_ENABLED)).isFalse();
+        var configured = PangrovaConfiguration.fromYaml(Map.of(
+                "coordinator.internal-auth-secret", "configured-exact-secret",
+                "coordinator.speculation.enabled", "true"));
+        assertThat(configured.getString(CoordinatorOptions.INTERNAL_AUTH_SECRET))
+                .isEqualTo("configured-exact-secret");
+        assertThat(configured.getBoolean(CoordinatorOptions.SPECULATION_ENABLED)).isTrue();
+    }
+
+    @Test
     void highAvailabilityEnabledDefaultsToFalse() {
         assertThat(CoordinatorOptions.HIGH_AVAILABILITY_ENABLED.defaultValue()).isFalse();
         assertThat(CoordinatorOptions.HIGH_AVAILABILITY_ENABLED.key()).isEqualTo("coordinator.ha.enabled");
@@ -146,6 +159,15 @@ class CoordinatorOptionsTest {
     void metadataJdbcUrlHasNoDefault() {
         assertThat(CoordinatorOptions.METADATA_JDBC_URL.defaultValue()).isNull();
         assertThat(CoordinatorOptions.METADATA_JDBC_URL.hasDefaultValue()).isFalse();
+    }
+
+    @Test
+    void metadataCredentialsDefaultToEmptyAndHaveIndependentTypedKeys() {
+        var config = PangrovaConfiguration.fromYaml(Map.of());
+        assertThat(config.getString(CoordinatorOptions.METADATA_JDBC_USERNAME)).isEmpty();
+        assertThat(config.getString(CoordinatorOptions.METADATA_JDBC_PASSWORD)).isEmpty();
+        assertThat(CoordinatorOptions.METADATA_JDBC_USERNAME.key()).isEqualTo("metadata.jdbc-username");
+        assertThat(CoordinatorOptions.METADATA_JDBC_PASSWORD.key()).isEqualTo("metadata.jdbc-password");
     }
 
     @Test

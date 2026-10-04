@@ -66,7 +66,6 @@ void applySessionProperties(RunnerConfig& runner, const TaskExecutorConfig& task
               [](const std::string& text) { return std::stoi(text); }) ||
           applyOption(runner, key, value, wideIntegerOptions,
               [](const std::string& text) { return std::stol(text); })) continue;
-      if (key == "velox.shuffle_compression_codec") runner.shuffle_compression_codec = value;
     } catch (const std::exception&) {
       PANGROVA_LOG_WARN << "invalid_session_property" << " key=" << key
                        << " value=" << value << " task_id=" << task.task_id;
@@ -78,6 +77,9 @@ void applySessionProperties(RunnerConfig& runner, const TaskExecutorConfig& task
 velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
     const velox::VeloxPlanConverter& converter, const WorkerLocalSpillPolicy& spill_policy) {
   velox::VeloxTaskRunnerConfig runner_config;
+  runner_config.function_registry = config.function_registry;
+  runner_config.canonical_output_schema = std::make_shared<const substrait::NamedStruct>(converter.canonicalOutputSchema());
+  runner_config.serde_schema_bindings = converter.serdeSchemaBindings();
   runner_config.executor_handle = config.executor_handle;
   runner_config.task_id = config.task_id;
   runner_config.query_id = config.query_id;
@@ -96,6 +98,7 @@ velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
   runner_config.max_provider_request_bytes = config.resource_limit.max_provider_request_bytes;
   runner_config.max_provider_response_bytes = config.resource_limit.max_provider_response_bytes;
   runner_config.max_media_bytes = config.resource_limit.max_media_bytes;
+  runner_config.max_memory_bytes = config.resource_limit.max_memory_bytes;
   // Spill paths are Worker-local runtime state. The Coordinator grants only
   // a byte budget and must never select a filesystem path on another host.
   // Both the node policy and the task grant must enable spill; if a future
@@ -107,8 +110,16 @@ velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
   // Propagate shuffle configuration.
   runner_config.is_shuffle_task = (config.num_shuffle_partitions > 0);
   runner_config.num_shuffle_partitions = config.num_shuffle_partitions;
+  runner_config.shuffle_compression_codec = config.shuffle_compression_codec;
+  runner_config.preferred_output_batch_rows = config.shuffle_batch_size;
   runner_config.shuffle_output_spec = converter.shuffleOutputSpec();
   if (runner_config.is_shuffle_task) {
+    if (config.shuffle_batch_serde != pangrova::protocol::v2::BATCH_SERDE_ARROW_BATCH ||
+        config.shuffle_batch_size <= 0 ||
+        (config.shuffle_compression_codec != "none" && config.shuffle_compression_codec != "lz4" &&
+         config.shuffle_compression_codec != "zstd")) {
+      throw std::runtime_error("Shuffle execution requires canonical batch serde, codec and row limit");
+    }
     if (!runner_config.shuffle_output_spec ||
         runner_config.shuffle_output_spec->partition_count !=
             runner_config.num_shuffle_partitions ||
@@ -125,6 +136,13 @@ velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
   // consumer callback — Velox's PartitionedOutputNode routes output
   // through OutputBufferManager, and FlightResultServer pulls from it.
   runner_config.is_result_task = config.is_result_task;
+  if (runner_config.is_result_task || runner_config.is_shuffle_task) {
+    if (config.resource_limit.max_shuffle_buffer_bytes <= 0) {
+      throw std::runtime_error("Serialized output requires a positive serialized-buffer grant");
+    }
+    runner_config.serialized_output_buffer_threshold_bytes =
+        config.resource_limit.max_shuffle_buffer_bytes;
+  }
   runner_config.result_column_types = config.result_column_types;
   runner_config.result_column_labels = converter.resultColumnLabels();
 

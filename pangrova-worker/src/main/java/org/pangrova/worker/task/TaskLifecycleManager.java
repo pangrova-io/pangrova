@@ -1,6 +1,5 @@
 package org.pangrova.worker.task;
 
-import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.observability.Span;
 import org.pangrova.spi.observability.SpanKind;
 import org.pangrova.spi.observability.TracingProvider;
@@ -10,7 +9,6 @@ import org.pangrova.shuffle.ShuffleServerHandle;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 import org.pangrova.shuffle.ShuffleTransport;
-import org.pangrova.worker.jni.NativeRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,9 +100,15 @@ final class TaskLifecycleManager {
      * @param callback lifecycle event callbacks (state transition, index cleanup, completion)
      */
     void executeTask(String taskId, TaskInfo info, LifecycleCallback callback) {
+        boolean creationBegun = false;
+        boolean creationDelegated = false;
         try {
             requireTaskTransports(info);
+            requireNotCancelled(info);
+            info.beginNativeCreation();
+            creationBegun = true;
             bindWriteResources(taskId, info);
+            creationDelegated = true;
             long handle = createExecutor(taskId, info);
             Consumer<String> onCompleted = tid -> completionMonitor.onTaskCompleted(
                     tid, info, callback, () -> releaseAllResources(info, taskId));
@@ -124,10 +128,25 @@ final class TaskLifecycleManager {
             startExecutor(taskId, info, handle, callback);
 
             routeCompletionPipeline(taskId, info, handle, callback, onCompleted, onError);
-        } catch (Exception e) {
-            completionMonitor.onTaskError(taskId, info, e, callback,
-                    () -> releaseAllResources(info, taskId));
+        } catch (RuntimeException | Error failure) {
+            handleSetupFailure(taskId, info, callback, failure, creationBegun, creationDelegated);
         }
+    }
+
+    private void handleSetupFailure(String taskId, TaskInfo info, LifecycleCallback callback,
+                                   Throwable failure, boolean creationBegun, boolean creationDelegated) {
+        if (creationBegun && !creationDelegated) info.nativeCreationRolledBackBeforeEntry();
+        Exception reportable = failure instanceof Exception exception ? exception
+                : new IllegalStateException("Task setup failed", failure);
+        try {
+            completionMonitor.onTaskError(taskId, info, reportable, callback,
+                    () -> releaseAllResources(info, taskId));
+        } catch (RuntimeException | Error cleanup) {
+            if (cleanup != failure) failure.addSuppressed(cleanup);
+            if (failure instanceof Error error) throw error;
+            throw cleanup;
+        }
+        if (failure instanceof Error error) throw error;
     }
 
     private void bindWriteResources(String taskId, TaskInfo info) {
@@ -328,12 +347,10 @@ final class TaskLifecycleManager {
     // ── Lifecycle flow methods ──
 
     private long createExecutor(String taskId, TaskInfo info) {
-        requireNotCancelled(info);
-        byte[] taskRequestBytes = info.request().canonicalBytes();
-        traceTaskExecute(taskId, info);
-        long handle = deps.taskExecutor().createTask(taskRequestBytes);
-        validateHandle(taskId, handle);
-        info.setExecutorHandle(handle);
+        long handle = TaskExecutorCreation.create(info, deps.taskExecutor(), () -> {
+            requireNotCancelled(info);
+            traceTaskExecute(taskId, info);
+        });
         requireNotCancelled(info);
         // Propagate memory limit before startTask(), which launches a
         // background thread that calls NativeMemoryGovernor::
@@ -431,6 +448,7 @@ final class TaskLifecycleManager {
      */
     void releaseFinishedTaskExecutor(TaskInfo info) {
         releaseAllResources(info, info.taskId());
+        statusCollector.reportReleasedTerminal(info);
     }
 
     boolean resultResourcesDrained(TaskInfo info) {
@@ -449,14 +467,6 @@ final class TaskLifecycleManager {
             span.setAttribute("stageId", info.descriptor().stageId());
         }
         span.end();
-    }
-
-    private void validateHandle(String taskId, long handle) {
-        if (handle == 0) {
-            throw new NativeRuntimeException(
-                    PangrovaErrorCode.NATIVE_INVALID_HANDLE,
-                    "createTask returned zero handle for task " + taskId);
-        }
     }
 
     private void propagateMemoryLimitToNative(TaskInfo info) {

@@ -12,7 +12,9 @@ public sealed interface GovernedScalarValue {
 
     record Signature(ByteString value) implements GovernedScalarValue {
         public Signature {
-            if (value == null || value.size() != 32) throw new IllegalArgumentException("Binding SHA-256 must be 32 bytes");
+            if (value == null || value.size() != 32) {
+                throw new IllegalArgumentException("Binding SHA-256 must be 32 bytes");
+            }
         }
     }
 

@@ -1,6 +1,13 @@
 // Canonical plan -> production converter -> actual Velox Task values.
 // Not public SQL/JNI/distributed end-to-end evidence.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
+
+#include <cstdint>
+#include <optional>
+#include <stdexcept>
+#include <vector>
 
 #include "../TestMemoryHelper.h"
 #include "substrait/plan.pb.h"
@@ -8,6 +15,7 @@
 #include "velox/core/QueryCtx.h"
 #include "velox/exec/Task.h"
 #include "velox/plan/VeloxPlanConverter.h"
+#include "velox/vector/ComplexVector.h"
 #include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox::test {
@@ -70,11 +78,14 @@ substrait::Plan windows(bool sliding, bool constants = false) {
 
 std::vector<std::vector<NullableLong>> execute(const substrait::Plan& plan) {
   pangrova::test::detail::ensureRuntimeInitialized();
-  VeloxPlanConverter converter;
-  const auto encoded = plan.SerializeAsString();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  const auto encoded = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
   auto node = converter.convert({encoded.begin(), encoded.end()}, {});
   auto task = exec::Task::create("distinct-window-values", core::PlanFragment{node}, 0,
-      core::QueryCtx::create(pangrova::jni::globalExecutor().get()), exec::Task::ExecutionMode::kSerial);
+      core::QueryCtx::create(pangrova::jni::globalExecutor().get(),
+          core::QueryConfig({{"require_function_registry_snapshot", "true"}}, converter_registry)), exec::Task::ExecutionMode::kSerial);
   EXPECT_TRUE(task->supportSerialExecutionMode());
   std::vector<std::vector<NullableLong>> output;
   while (auto batch = task->next()) {

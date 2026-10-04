@@ -7,11 +7,11 @@ import java.util.List;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.operations.bootstrap.BootstrapFailedException;
-import org.pangrova.protocol.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerRegistrationClient;
+import org.pangrova.testing.testkit.function.ActualNativeCatalogue;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -92,10 +92,10 @@ class WorkerRegistrationSerializationTest {
     }
 
     private static String canonicalInventory() {
-        return CapabilityInventoryCodec.encode(CapabilityInventory.newBuilder()
-                .setProtocol(CanonicalTaskRequests.protocolVersion())
-                .setResultEnvelopeVersion(1)
-                .setNativeEngineVersion("test-native")
-                .build());
+        try {
+            return CapabilityInventoryCodec.encode(CapabilityInventory.parseFrom(ActualNativeCatalogue.bytes()));
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new IllegalStateException("Actual Native catalogue exporter artifact is malformed", failure);
+        }
     }
 }

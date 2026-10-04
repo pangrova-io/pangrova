@@ -420,32 +420,4 @@ abstract class JdbcArtifactBuildStoreSupport extends JdbcArtifactBuildStoreMappi
     }
 
 
-    protected static int cancelBuilds(Connection connection, String tenantId, String artifactId, Instant now)
-            throws SQLException {
-        try (PreparedStatement pages = connection.prepareStatement(
-                "UPDATE artifact_build_pages SET state='CANCELLED', "
-                    + "lease_owner=NULL, lease_expires_at=NULL, updated_at=? "
-                    + "WHERE tenant_id=? AND job_id IN "
-                    + "(SELECT job_id FROM artifact_build_jobs "
-                    + "WHERE tenant_id=? AND artifact_id=? AND state IN "
-                    + "('QUEUED','RUNNING','READY_TO_PUBLISH')) "
-                    + "AND state IN ('PENDING','LEASED')")) {
-            setInstant(pages, 1, now);
-            pages.setString(2, tenantId);
-            pages.setString(3, tenantId);
-            pages.setString(4, artifactId);
-            pages.executeUpdate();
-        }
-        try (PreparedStatement jobs = connection.prepareStatement(
-                "UPDATE artifact_build_jobs SET state='CANCELLED', "
-                    + "publication_lease_expires_at=NULL, updated_at=? "
-                    + "WHERE tenant_id=? AND artifact_id=? AND state IN "
-                    + "('QUEUED','RUNNING','READY_TO_PUBLISH')")) {
-            setInstant(jobs, 1, now);
-            jobs.setString(2, tenantId);
-            jobs.setString(3, artifactId);
-            return jobs.executeUpdate();
-        }
-    }
-
 }

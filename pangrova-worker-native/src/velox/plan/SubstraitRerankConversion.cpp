@@ -159,8 +159,9 @@ VeloxPlanConverter::convertRerank(const Detail& detail,
   const auto ordering = rerankOrdering(detail, score_channel, declared_type, project->outputType());
   const auto partial = std::make_shared<facebook::velox::core::TopNNode>(nextNodeId(),
       ordering.keys, ordering.orders, static_cast<int32_t>(detail.output_limit()), true, project);
+  const auto gathered = facebook::velox::core::LocalPartitionNode::gather(nextNodeId(), {partial});
   return std::make_shared<facebook::velox::core::TopNNode>(detail.plan_node_id(),
-      ordering.keys, ordering.orders, static_cast<int32_t>(detail.output_limit()), false, partial);
+      ordering.keys, ordering.orders, static_cast<int32_t>(detail.output_limit()), false, gathered);
 }
 
 }  // namespace pangrova::velox

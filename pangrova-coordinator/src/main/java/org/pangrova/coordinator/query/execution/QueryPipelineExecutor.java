@@ -6,7 +6,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.pangrova.coordinator.query.QueryStateMachine;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.query.execution.phase.CompilationPhase;
 import org.pangrova.coordinator.query.execution.phase.DistributedDispatchPhase;
@@ -165,7 +165,7 @@ final class QueryPipelineExecutor {
     AuthorizedRelation compileAuthorizedRelation(String sql, CoordinatorSessionContext session) {
         requireAuthorizedSession(session);
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
         var statement = compiler.parseToAst(sql);
         if (!(statement instanceof org.pangrova.parser.ast.Query)
                 && !(statement instanceof org.pangrova.parser.ast.CteQuery)) {
@@ -216,7 +216,7 @@ final class QueryPipelineExecutor {
                                  CoordinatorSessionContext session,
                                  String writeModeOverride) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
         var observed = securityPolicyApplier.applyPoliciesObserved(compiler.compileToPlannedQuery(sql), session);
         PlannedQuery plan = observed.plan();
         LOG.info("event=dml_plan_dump sql_preview={} plan=\n{}",
@@ -242,7 +242,7 @@ final class QueryPipelineExecutor {
                                        org.pangrova.parser.ast.Statement stmt,
                                        CoordinatorSessionContext session) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
 
         // A MERGE must be dispatched as one Native write and one catalog commit.
         if (stmt instanceof MergeStatement merge) {
@@ -395,7 +395,7 @@ final class QueryPipelineExecutor {
     private CompilationPhase.TimeTravelResult extractTimeTravelFromSql(
             String sql, SqlCompiler compiler, CoordinatorSessionContext context) {
         String expanded = viewExpander.expand(sql, compiler, context);
-        return TimeTravelExtractor.extract(expanded, compiler,
+        return TimeTravelExtractor.extract(expanded, context,
                 (catalog, schema, table, refType, refName) -> resolveRefSnapshot(
                         context, catalog, schema, table, refType, refName));
     }
@@ -407,15 +407,32 @@ final class QueryPipelineExecutor {
         if (catalogRegistry == null) {
             return java.util.OptionalLong.empty();
         }
-        CatalogHandle handle = catalogRegistry.getCatalog(catalog);
-        if (handle == null) {
+        String selectedCatalog = canonicalName(catalog, catalogRegistry.listCatalogNames());
+        if (selectedCatalog == null) {
             return java.util.OptionalLong.empty();
         }
-        var session = org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(
-                context, catalog, schema);
-        var stn = new SchemaTableName(schema, table);
-        return handle.getMetadata(session).resolveRefSnapshotId(
-                session, stn, refType, refName);
+        CatalogHandle handle = catalogRegistry.getCatalog(selectedCatalog);
+        var session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
+                context, selectedCatalog, schema);
+        var metadata = handle.getMetadata(session);
+        String selectedSchema = canonicalName(schema, metadata.listSchemaNames(session));
+        if (selectedSchema == null) return java.util.OptionalLong.empty();
+        session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
+                context, selectedCatalog, selectedSchema);
+        String selectedTable = canonicalName(table, metadata.listTables(session, java.util.Optional.of(selectedSchema))
+                .stream().map(SchemaTableName::table).toList());
+        if (selectedTable == null) return java.util.OptionalLong.empty();
+        return metadata.resolveRefSnapshotId(session, new SchemaTableName(selectedSchema, selectedTable), refType, refName);
+    }
+
+    private static String canonicalName(String requested, List<String> names) {
+        if (names.contains(requested)) return requested;
+        var matches = names.stream().filter(name -> name.equalsIgnoreCase(requested)).toList();
+        if (matches.size() > 1) {
+            throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                    "Ambiguous case-insensitive source name: " + requested);
+        }
+        return matches.isEmpty() ? null : matches.get(0);
     }
 
     /**

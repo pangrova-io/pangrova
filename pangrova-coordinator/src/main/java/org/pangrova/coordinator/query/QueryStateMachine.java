@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -51,9 +53,31 @@ public class QueryStateMachine {
     private final CompletableFuture<ResultEndpoint> resultEndpointReady =
             new CompletableFuture<>();
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
+    private final AtomicBoolean physicalCleanupApplied = new AtomicBoolean();
+    private final AtomicBoolean journalOwnership = new AtomicBoolean();
+    private volatile Runnable admissionRelease;
+
+    void retainAdmissionRelease(Runnable release) { admissionRelease = release; }
+
+    void releaseAdmission() {
+        Runnable release = admissionRelease;
+        if (release != null) {
+            release.run();
+            admissionRelease = null;
+        }
+    }
+
+    boolean claimPhysicalCleanup() { return physicalCleanupApplied.compareAndSet(false, true); }
+    boolean physicalCleanupApplied() { return physicalCleanupApplied.get(); }
+    void retainJournalOwnership() { journalOwnership.set(true); }
+    boolean hasJournalOwnership() { return journalOwnership.get(); }
     private final List<QueryStateChangeListener> listeners = new CopyOnWriteArrayList<>();
     private volatile Runnable beforeTerminalTransition = () -> { };
+    private volatile java.util.function.BiConsumer<State, State> transitionRecorder;
+    private volatile java.util.function.Supplier<org.pangrova.coordinator.task.QueryIssuanceOperation> transitionOperations;
+    private final ConcurrentHashMap<State, org.pangrova.spi.coordination.QueryStateEvent> journalFacts = new ConcurrentHashMap<>();
     private final CompletableFuture<Boolean> ownershipReady;
+    private final boolean locallySubmitted;
     /** A reserved terminal transition; waiters join only after leaving this monitor. */
     @javax.annotation.concurrent.GuardedBy("this")
     private CompletableFuture<Void> terminalTransitionPending;
@@ -68,6 +92,7 @@ public class QueryStateMachine {
     }
 
     QueryStateMachine(boolean ownershipPending, CoordinatorSessionContext session) {
+        locallySubmitted = ownershipPending;
         auditPrincipal = session != null && session.userIdentity() != null
                 ? session.userIdentity().principal() : "anonymous";
         ownershipReady = ownershipPending
@@ -81,6 +106,8 @@ public class QueryStateMachine {
     boolean awaitOwnership() {
         return ownershipReady.join();
     }
+
+    boolean discardUnadmittedQuery() { return locallySubmitted && !hasJournalOwnership(); }
 
     /** Stage state aggregation: stageId → current StageStateMachine.State. */
     private final ConcurrentHashMap<String, StageStateMachine.State> stageStates =
@@ -111,66 +138,76 @@ public class QueryStateMachine {
     }
 
     private boolean tryTransition(State target, ErrorDetail failureError) {
-        if (!TRANSITIONS.getOrDefault(state.get(), Set.of()).contains(target)) {
-            return false;
-        }
+        if (!TRANSITIONS.getOrDefault(state.get(), Set.of()).contains(target)) return false;
         boolean terminal = TRANSITIONS.getOrDefault(target, Set.of()).isEmpty();
-        if (terminal && !awaitOwnership()) {
-            return false;
+        if (terminal && !awaitOwnership() && target != State.FAILED) return false;
+        org.pangrova.coordinator.task.QueryIssuanceOperation operation;
+        try {
+            operation = transitionOperations == null ? null : transitionOperations.get();
+        } catch (IllegalStateException closedAdmission) {
+            if (!TRANSITIONS.getOrDefault(state.get(), Set.of()).contains(target)) return false;
+            throw closedAdmission;
         }
-        while (true) {
-            State current = null;
-            CompletableFuture<Void> pending;
-            Runnable recorder = null;
-            synchronized (this) {
-                pending = terminalTransitionPending;
-                if (pending == null) {
-                    current = state.get();
-                    if (!TRANSITIONS.getOrDefault(current, Set.of()).contains(target)) {
-                        return false;
-                    }
-                    if (terminal) {
-                        pending = new CompletableFuture<>();
-                        terminalTransitionPending = pending;
-                        recorder = beforeTerminalTransition;
-                    } else {
-                        state.set(target);
-                    }
-                }
+        try {
+            while (true) {
+                Transition decision = reserveTransition(target);
+                if (decision == null) return false;
+                if (decision.previous() == null) { decision.pending().join(); continue; }
+                publishTransition(decision, target, failureError);
+                completeResultEndpointReadiness();
+                notifyListeners(decision.previous(), target);
+                return true;
             }
-            if (current == null) {
-                pending.join();
-                continue;
-            }
-            if (terminal) {
-                publishTerminal(target, failureError, recorder, pending);
-            }
-            completeResultEndpointReadiness();
-            notifyListeners(current, target);
-            return true;
+        } finally {
+            if (operation != null) operation.close();
         }
     }
 
-    private void publishTerminal(State target, ErrorDetail failureError,
-            Runnable recorder, CompletableFuture<Void> pending) {
+    private synchronized Transition reserveTransition(State target) {
+        if (terminalTransitionPending != null) return new Transition(null, terminalTransitionPending);
+        State previous = state.get();
+        if (!TRANSITIONS.getOrDefault(previous, Set.of()).contains(target)) return null;
+        var pending = new CompletableFuture<Void>();
+        Transition decision = new Transition(previous, pending);
+        terminalTransitionPending = pending;
+        return decision;
+    }
+
+    private void publishTransition(Transition decision, State target, ErrorDetail failureError) {
         try {
-            // JDBC may block: the state stays non-terminal, but no monitor is held.
-            recorder.run();
+            if (TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) beforeTerminalTransition.run();
+            java.util.function.BiConsumer<State, State> recorder = transitionRecorder;
+            if (recorder != null) recorder.accept(decision.previous(), target);
         } catch (RuntimeException | Error failure) {
-            synchronized (this) {
-                terminalTransitionPending = null;
-            }
-            pending.complete(null);
+            synchronized (this) { terminalTransitionPending = null; }
+            decision.pending().complete(null);
             throw failure;
         }
         synchronized (this) {
-            if (target == State.FAILED && failureError != null) {
-                error.compareAndSet(null, failureError);
-            }
+            if (target == State.FAILED && failureError != null) error.compareAndSet(null, failureError);
             state.set(target);
             terminalTransitionPending = null;
         }
-        pending.complete(null);
+        decision.pending().complete(null);
+    }
+
+    private record Transition(State previous, CompletableFuture<Void> pending) { }
+
+    void setTransitionRecorder(java.util.function.BiConsumer<State, State> recorder) {
+        transitionRecorder = java.util.Objects.requireNonNull(recorder);
+    }
+
+    void setTransitionOperations(java.util.function.Supplier<org.pangrova.coordinator.task.QueryIssuanceOperation> operations) {
+        transitionOperations = java.util.Objects.requireNonNull(operations);
+    }
+
+    org.pangrova.spi.coordination.QueryStateEvent journalEvent(State target,
+            java.util.function.Supplier<org.pangrova.spi.coordination.QueryStateEvent> create) {
+        var existing = journalFacts.get(target);
+        if (existing != null) return existing;
+        var candidate = create.get();
+        var retained = journalFacts.putIfAbsent(target, candidate);
+        return retained != null ? retained : candidate;
     }
 
     /** Persists terminal cleanup responsibility before a terminal state becomes visible. */

@@ -1,5 +1,7 @@
 package org.pangrova.worker.jni.write;
 
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
+
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.connector.data.ConnectorPageSink;

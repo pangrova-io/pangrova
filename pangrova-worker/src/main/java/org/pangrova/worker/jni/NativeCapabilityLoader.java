@@ -2,10 +2,12 @@ package org.pangrova.worker.jni;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.CapabilityInventoryCodec;
+import org.pangrova.protocol.function.catalog.FunctionCatalogStartupContracts;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.CapabilityResponse;
 import org.pangrova.protocol.v2.FunctionAvailability;
 import org.pangrova.protocol.v2.FunctionCatalogManifest;
+import org.pangrova.protocol.v2.FunctionCatalogFinalizeResult;
 
 import java.util.List;
 import java.util.Set;
@@ -14,6 +16,20 @@ import java.util.Set;
 public final class NativeCapabilityLoader {
 
     private NativeCapabilityLoader() {}
+
+    /** Performs the explicit startup publication; capability reads cannot substitute for it. */
+    public static void finalizeStartup() {
+        byte[] response = NativeRuntime.nativeCommand(0, NativeCommandBuilder.finalizeFunctionCatalog());
+        byte[] payload = NativeCommandBuilder.extractResultPayload(response);
+        if (payload == null || payload.length == 0) {
+            throw new IllegalStateException("Native function catalogue finalization returned no receipt");
+        }
+        try {
+            FunctionCatalogStartupContracts.validate(FunctionCatalogFinalizeResult.parseFrom(payload));
+        } catch (InvalidProtocolBufferException failure) {
+            throw new IllegalStateException("Malformed actual function catalogue finalization receipt", failure);
+        }
+    }
 
     /** Returns the complete validated inventory for lossless Worker registration. */
     public static ParsedCapabilities loadInventory() {

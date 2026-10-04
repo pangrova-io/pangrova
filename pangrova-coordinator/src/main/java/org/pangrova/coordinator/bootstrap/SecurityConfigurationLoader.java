@@ -28,8 +28,10 @@ final class SecurityConfigurationLoader {
 
     static SecurityConfig load(PangrovaConfiguration config) {
         rejectUnsupportedSecurityKeys(config.toMap());
+        String internalSecret = config.getString(CoordinatorOptions.INTERNAL_AUTH_SECRET);
         if (!config.getBoolean(CoordinatorOptions.SECURITY_ENABLED)) {
-            return null;
+            return internalSecret == null ? null
+                    : new SecurityConfig(AuthenticatorType.NOOP, internalSecret, Map.of());
         }
         String type = config.getString(CoordinatorOptions.SECURITY_AUTH_TYPE);
         if (type == null || type.isBlank()) {
@@ -41,7 +43,7 @@ final class SecurityConfigurationLoader {
         } catch (IllegalArgumentException failure) {
             throw invalid("Unknown security.auth.type: " + type);
         }
-        return new SecurityConfig(authenticator, null,
+        return new SecurityConfig(authenticator, internalSecret,
                 authenticatorProperties(config.toMap(), authenticator));
     }
 

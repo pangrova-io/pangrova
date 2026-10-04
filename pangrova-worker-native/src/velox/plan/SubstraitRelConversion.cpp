@@ -50,26 +50,12 @@ namespace pangrova::velox {
 
 namespace {
 
-// Default serialization format for shuffle exchange.
-// MUST be "Presto" (capital P) — Velox's getVectorSerdeOptions() uses
-// case-sensitive comparison to decide whether to create PrestoOptions
-// or base VectorSerde::Options. Lowercase "presto" causes INVALID_STATE
-// at runtime in PrestoSerializer::toPrestoOptions().
-constexpr const char* kDefaultSerdeFormat = "Presto";
-
 std::string resolveExchangeSerde(
     pangrova::protocol::v2::BatchSerde batch_serde) {
-  switch (batch_serde) {
-    case pangrova::protocol::v2::BATCH_SERDE_NATIVE_ROW:
-      return kDefaultSerdeFormat;
-    case pangrova::protocol::v2::BATCH_SERDE_ARROW_BATCH:
-      throw std::runtime_error(
-          "VeloxPlanConverter: Arrow batch serde is not supported by exchange");
-    case pangrova::protocol::v2::BATCH_SERDE_UNSPECIFIED:
-    default:
-      throw std::runtime_error(
-          "VeloxPlanConverter: exchange batch serde must be explicitly bound");
+  if (batch_serde != pangrova::protocol::v2::BATCH_SERDE_ARROW_BATCH) {
+    throw std::runtime_error("VeloxPlanConverter: exchange requires canonical Arrow batch serde");
   }
+  return "ArrowBatch";
 }
 
 void validateExchangeInputDetail(
@@ -103,9 +89,9 @@ void validateExchangeInputDetail(
         "VeloxPlanConverter: implicit partial exchange input is forbidden");
   }
   const auto& schema = detail.output_schema();
-  if (schema.struct_().types_size() == 0 || schema.names().empty()) {
+  if (!detail.has_output_schema() || !schema.has_struct_()) {
     throw std::runtime_error(
-        "VeloxPlanConverter: exchange output schema must not be empty");
+        "VeloxPlanConverter: exchange output schema must be explicitly bound");
   }
 }
 
@@ -156,7 +142,7 @@ VeloxPlanConverter::convertExtensionLeafRel(
 
   const auto& detail = envelope.exchange_input();
   validateExchangeInputDetail(detail);
-  auto output_type = convertNamedStruct(detail.output_schema());
+  auto output_type = physicalRowType(convertNamedStruct(detail.output_schema()));
   auto serde = resolveExchangeSerde(detail.batch_serde());
   return std::make_shared<facebook::velox::core::ExchangeNode>(
       detail.plan_node_id(), std::move(output_type), std::move(serde));

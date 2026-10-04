@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.statement;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.*;
 import org.pangrova.parser.ast.Identifier;
 import org.pangrova.parser.ast.InsertStatement;

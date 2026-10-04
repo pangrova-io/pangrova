@@ -7,7 +7,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 
 /**
- * Builds {@link TableStatistics} for a table's current snapshot, pinning the
+ * Builds {@link TableStatistics} for a table's selected snapshot, pinning the
  * snapshot for the active query and classifying failures through the catalog
  * exception classifier.
  */
@@ -15,7 +15,7 @@ final class IcebergTableStatisticsReader {
 
     private IcebergTableStatisticsReader() {}
 
-    /** Reads table statistics for the current snapshot of the given table. */
+    /** Reads table statistics for the selected snapshot of the given table. */
     static TableStatistics read(IcebergCatalogTables catalogTables,
                                 IcebergTableHandle handle,
                                 ConnectorSession session,
@@ -24,14 +24,14 @@ final class IcebergTableStatisticsReader {
         String tableId = handle.schemaName() + "." + handle.tableName();
         try {
             Table icebergTable = catalogTables.resolveTable(handle);
-            Snapshot snapshot = icebergTable.currentSnapshot();
+            Snapshot snapshot = IcebergReadBindings.selectedSnapshot(icebergTable, handle);
             if (snapshot == null) {
-                return TableStatistics.UNKNOWN;
+                return new TableStatistics(0, 0);
             }
             // Pin the snapshot for the current query to ensure consistent reads
             String queryId = session.getProperties().get("queryId");
             if (queryId != null) {
-                pinManager.pinSnapshotForQuery(queryId, snapshot.snapshotId());
+                pinManager.pinSnapshotForQuery(queryId, handle.schemaName(), handle.tableName(), snapshot.snapshotId());
             }
             return IcebergStatisticsCollector.buildStatistics(snapshot, icebergTable);
         } catch (Exception e) {

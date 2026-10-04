@@ -8,6 +8,7 @@
 #include "google/protobuf/struct.pb.h"
 #include "google/protobuf/util/json_util.h"
 #include "substrait/type.pb.h"
+#include "CanonicalPhysicalTypeProjection.h"
 
 namespace pangrova::capability {
 namespace {
@@ -74,6 +75,17 @@ std::string exportCanonicalTypeDescriptor() {
   const auto status = google::protobuf::util::MessageToJsonString(result, &json);
   if (!status.ok()) {
     throw std::runtime_error("Canonical type descriptor JSON encoding failed: " + status.ToString());
+  }
+  return json;
+}
+
+std::string exportCanonicalPhysicalTypeProjections() {
+  pangrova::protocol::v2::FunctionCatalogManifest bridge;
+  generated::appendCanonicalPhysicalProjections(&bridge);
+  std::string json;
+  const auto status = google::protobuf::util::MessageToJsonString(bridge, &json);
+  if (!status.ok()) {
+    throw std::runtime_error("Canonical type projection JSON encoding failed: " + status.ToString());
   }
   return json;
 }

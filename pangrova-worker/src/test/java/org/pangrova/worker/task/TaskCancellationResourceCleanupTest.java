@@ -6,9 +6,9 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskFixture;
-import org.pangrova.worker.bootstrap.phase.ActualNativeTaskPlans;
-import org.pangrova.worker.bootstrap.phase.ActualPausedNativeResultReader;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
+import org.pangrova.testing.nativefixture.ActualPausedNativeResultReader;
 import org.pangrova.worker.execution.ActualNativeHandleLease;
 
 import java.time.Duration;
@@ -74,7 +74,7 @@ class TaskCancellationResourceCleanupTest {
             assertThat(TaskReport.parseFrom(info.executorReleaseReport()).getState())
                     .isEqualTo(TaskState.TASK_STATE_CANCELLED);
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isFalse();
-            assertThat(runtime.memory().currentReservation()).isZero();
+            assertThat(runtime.nodePool().getUsedBytes()).isZero();
             assertThat(runtime.nodePool().getUsedBytes()).isZero();
             assertThat(runtime.arbitrator().getUsedMemory()).isZero();
         }

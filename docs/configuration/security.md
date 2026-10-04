@@ -30,14 +30,18 @@ coordinator `SecurityBootstrap`.
 
 Coordinator-to-worker control calls carry an `X-Internal-Auth` header verified
 against a shared secret on each worker.
+Worker registration, heartbeat and task reports authenticate to the Coordinator
+with the same secret as a Bearer token; it does not grant client SQL permissions.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
+| `coordinator.internal-auth-secret` | string | — | Shared internal secret; the production Coordinator requires a nonblank value of at least 32 UTF-8 bytes even when client authentication is disabled |
 | `worker.internal-auth-secret` | string | — | Shared secret for the `X-Internal-Auth` header. Must be identical on all nodes |
 
-The secret can also be supplied through the environment variable
-`PANGROVA_INTERNAL_AUTH_SECRET` (see [Configuration model](index.md) for the `PANGROVA_*`
-override mechanism). Generate a strong secret, for example:
+The production Coordinator and Worker YAML templates bind the environment variable
+`PANGROVA_INTERNAL_AUTH_SECRET` through an explicit placeholder. The generic
+underscore-to-dot override mapping does not map this variable to either hyphenated
+secret key. Generate a strong secret, for example:
 
 ```bash
 openssl rand -base64 48
@@ -46,6 +50,9 @@ openssl rand -base64 48
 ## Example
 
 ```yaml
+# coordinator.yml
+coordinator:
+  internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
 security:
   enabled: true
   auth:

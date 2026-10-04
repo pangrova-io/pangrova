@@ -383,32 +383,25 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     @Override
     public void close() {
-        boolean wasRunning = running.compareAndSet(true, false);
-        if (wasRunning) {
-            ElectionScheduler sched = electionScheduler;
-            if (sched != null) {
-                sched.cancelScheduledTask();
-                sched.shutdown();
-            }
+        running.set(false);
+        ElectionScheduler sched = electionScheduler;
+        if (sched != null) {
+            sched.cancelScheduledTask();
+            sched.shutdown();
         }
         String nodeId = localNodeId.get();
         String incarnation = localIncarnation.get();
         if (nodeId != null && incarnation != null) {
-            try {
                 int yielded = yieldLocalExecutions();
                 LOG.info("event=execution_anchors_yielded coordinatorId={} "
                                 + "incarnation={} count={}",
                         nodeId, incarnation, yielded);
-            } catch (RuntimeException e) {
-                LOG.error("event=execution_anchor_yield_failed coordinatorId={} "
-                                + "incarnation={} error={}",
-                        nodeId, incarnation, e.getMessage(), e);
-            }
         }
         if (nodeId != null) {
-            LeaseEntry held = localLease.getAndSet(null);
+            LeaseEntry held = localLease.get();
             if (held != null && nodeId.equals(held.holderId())) {
                 leaseElection.release(nodeId, held.epoch());
+                localLease.compareAndSet(held, null);
             }
             unregisterFromRegistry(nodeId);
         }

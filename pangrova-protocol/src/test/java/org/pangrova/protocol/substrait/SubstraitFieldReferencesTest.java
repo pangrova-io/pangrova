@@ -66,8 +66,10 @@ class SubstraitFieldReferencesTest {
 
     @Test
     void rootLabelsRequireTheCompleteDeclaredNestedDfsShape() {
-        var nested = Type.newBuilder().setList(Type.List.newBuilder().setType(
-                Type.newBuilder().setStruct(Type.Struct.newBuilder().addTypes(I64)))).build();
+        var nested = Type.newBuilder().setList(Type.List.newBuilder()
+                .setNullability(Type.Nullability.NULLABILITY_NULLABLE).setType(
+                Type.newBuilder().setStruct(Type.Struct.newBuilder()
+                        .setNullability(Type.Nullability.NULLABILITY_NULLABLE).addTypes(I64)))).build();
         var input = Rel.newBuilder().setRead(ReadRel.newBuilder().setBaseSchema(
                 NamedStruct.newBuilder().setStruct(Type.Struct.newBuilder().addTypes(nested))
                         .addNames("input").addNames("nested"))).build();

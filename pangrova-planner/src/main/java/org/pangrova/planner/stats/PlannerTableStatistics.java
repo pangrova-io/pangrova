@@ -1,5 +1,7 @@
 package org.pangrova.planner.stats;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -12,7 +14,7 @@ import java.util.Objects;
  * @param lastUpdatedSnapshot  timestamp of the snapshot these stats were collected from
  */
 public record PlannerTableStatistics(
-        String tableName,
+        QualifiedTableName tableName,
         Map<String, ColumnStatistics> columns,
         Instant lastUpdatedSnapshot) {
 

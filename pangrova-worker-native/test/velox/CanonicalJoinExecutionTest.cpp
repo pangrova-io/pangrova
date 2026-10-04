@@ -1,8 +1,15 @@
 // Canonical proto -> production conversion -> actual Velox Task, not SQL/JNI E2E.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <memory>
 #include <optional>
+#include <stdexcept>
+#include <utility>
+#include <vector>
 
 #include "../TestMemoryHelper.h"
 #include "substrait/plan.pb.h"
@@ -85,15 +92,17 @@ class CanonicalJoinExecutionTest : public ::testing::Test {
   void SetUp() override { pool_ = pangrova::test::testLeafPool("canonical-join-oracle"); }
 
   Rows execute(const substrait::Plan& plan) {
-    const auto encoded = plan.SerializeAsString();
-    VeloxPlanConverter converter;
+    const auto encoded = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+    const auto converter_registry =
+        facebook::velox::exec::FunctionRegistrySnapshot::capture();
+    VeloxPlanConverter converter(converter_registry);
     auto node = converter.convert({encoded.begin(), encoded.end()}, {});
     EXPECT_EQ(converter.resultColumnLabels().size(), node->outputType()->size());
     for (size_t i = 0; i < node->outputType()->size(); ++i) {
       EXPECT_EQ(node->outputType()->nameOf(i), physicalFieldAlias(i));
       EXPECT_EQ(converter.resultColumnLabels()[i], "duplicate_label");
     }
-    const auto execution = executeCanonicalTask(node);
+    const auto execution = executeCanonicalTask(node, converter_registry);
     Rows result;
     for (const auto& batch : execution.batches) {
       for (vector_size_t row = 0; row < batch->size(); ++row) {
@@ -174,6 +183,27 @@ TEST_F(CanonicalJoinExecutionTest, MarkRetainsUnknownUnlessAnyPartnerIsTrueAndEm
   }
 }
 
+TEST_F(CanonicalJoinExecutionTest, NonEquiMarkPreservesUnknownOnEitherLogicalSide) {
+  for (bool rightMark : {false, true}) {
+    for (const auto& partners : {Rows{{std::nullopt}, {1}}, Rows{{2}, {3}}, Rows{}}) {
+      substrait::Rel relation;
+      auto* join = relation.mutable_nested_loop_join();
+      join->set_type(rightMark ? substrait::NestedLoopJoinRel::JOIN_TYPE_RIGHT_MARK
+          : substrait::NestedLoopJoinRel::JOIN_TYPE_LEFT_MARK);
+      const Rows preserved{{std::nullopt}, {1}, {2}};
+      join->mutable_left()->CopyFrom(values(rightMark ? partners : preserved));
+      join->mutable_right()->CopyFrom(values(rightMark ? preserved : partners));
+      join->mutable_expression()->CopyFrom(equality(rightMark ? 1 : 0, rightMark ? 0 : 1));
+      auto taskPlan = plan(relation, 2);
+      taskPlan.mutable_extensions(0)->mutable_extension_function()->set_name("gt");
+      const Rows expected = partners.empty() ? Rows{{std::nullopt, 0}, {1, 0}, {2, 0}}
+          : (partners.front().front() ? Rows{{std::nullopt, std::nullopt}, {1, 0}, {2, 0}}
+              : Rows{{std::nullopt, std::nullopt}, {1, std::nullopt}, {2, 1}});
+      EXPECT_EQ(execute(taskPlan), expected);
+    }
+  }
+}
+
 TEST_F(CanonicalJoinExecutionTest, NonEquiSemiAndAntiPreserveSideAndExcludeUnknownMatches) {
   for (bool right : {false, true}) {
     for (bool anti : {false, true}) {
@@ -229,8 +259,10 @@ TEST_F(CanonicalJoinExecutionTest, NonBooleanPostFilterIsRejectedWithoutExecutio
   join->mutable_right()->CopyFrom(values({{1}}));
   join->mutable_expression()->CopyFrom(equality());
   join->mutable_post_join_filter()->mutable_literal()->set_i64(1);
-  const auto encoded = plan(relation, 2).SerializeAsString();
-  VeloxPlanConverter converter;
+  const auto encoded = pangrova::test::canonicalTestPlan(plan(relation, 2)).SerializeAsString();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(converter.convert({encoded.begin(), encoded.end()}, {}), std::runtime_error);
 }
 

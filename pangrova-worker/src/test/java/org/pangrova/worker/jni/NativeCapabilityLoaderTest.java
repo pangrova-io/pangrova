@@ -2,7 +2,7 @@ package org.pangrova.worker.jni;
 
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
-import org.pangrova.protocol.CanonicalProtocolDescriptors;
+import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
 import org.pangrova.protocol.v2.CapabilityDescriptor;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.CapabilityKind;
@@ -12,6 +12,7 @@ import org.pangrova.protocol.v2.CapabilityResponse;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.ExecutionPlacement;
 import org.pangrova.protocol.v2.ProtocolVersion;
+import org.pangrova.testing.testkit.function.ActualNativeCatalogue;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,13 +26,14 @@ class NativeCapabilityLoaderTest {
                         response(baseInventory()
                                 .addSupportedSubstraitRelTypes("ReadRel")
                                 .addSupportedSubstraitExpressionTypes("Literal")
-                                .setNativeEngineVersion("test-native")
                                 .build()));
 
         assertThat(parsed.inventory().getProtocol().getMajor()).isEqualTo(2);
         assertThat(parsed.relTypes()).containsExactly("ReadRel");
         assertThat(parsed.exprTypes()).containsExactly("Literal");
-        assertThat(parsed.engineVersion()).isEqualTo("test-native");
+        assertThat(parsed.engineVersion()).isEqualTo(baseInventory().getNativeEngineVersion());
+        assertThat(parsed.functionCatalog()).isEqualTo(baseInventory().getFunctionCatalog());
+        assertThat(parsed.functions()).containsExactlyElementsOf(baseInventory().getFunctionsList());
     }
 
     @Test
@@ -105,10 +107,13 @@ class NativeCapabilityLoaderTest {
     }
 
     private static CapabilityInventory.Builder baseInventory() {
-        return CapabilityInventory.newBuilder()
-                .setProtocol(baseProtocol())
-                .setResultEnvelopeVersion(1)
-                .setNativeEngineVersion("test-native");
+        try {
+            return CapabilityInventory.parseFrom(ActualNativeCatalogue.bytes()).toBuilder()
+                    .clearCapabilities().clearModels().clearSupportedRelationTypeUrls()
+                    .clearSupportedSubstraitRelTypes().clearSupportedSubstraitExpressionTypes();
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new IllegalStateException("Actual Native catalogue exporter artifact is malformed", failure);
+        }
     }
 
     private static ProtocolVersion.Builder baseProtocol() {

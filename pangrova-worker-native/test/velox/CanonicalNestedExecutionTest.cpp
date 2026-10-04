@@ -1,6 +1,13 @@
 // Canonical Nested expressions -> production converter -> actual Velox Task value oracle.
 // This is not public SQL/JNI/provider end-to-end coverage.
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
+
+#include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <string>
 
 #include "../TestMemoryHelper.h"
 #include "substrait/plan.pb.h"
@@ -8,6 +15,8 @@
 #include "velox/core/QueryCtx.h"
 #include "velox/exec/Task.h"
 #include "velox/plan/VeloxPlanConverter.h"
+#include "velox/type/Type.h"
+#include "velox/vector/ComplexVector.h"
 #include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox::test {
@@ -60,8 +69,10 @@ substrait::Plan nestedRows() {
 TEST(CanonicalNestedExecutionTest, DynamicRowArrayPreservesOrdinalValuesDecimalAndTypedNull) {
   auto pool = pangrova::test::testLeafPool("canonical-nested-values");
   ASSERT_NE(pool, nullptr);
-  VeloxPlanConverter converter;
-  const auto bytes = nestedRows().SerializeAsString();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
+  const auto bytes = pangrova::test::canonicalTestPlan(nestedRows()).SerializeAsString();
   auto node = converter.convert({bytes.begin(), bytes.end()}, {});
   ASSERT_EQ(node->outputType()->size(), 1);
   const auto& rowType = node->outputType()->childAt(0)->asArray().elementType()->asRow();
@@ -69,7 +80,8 @@ TEST(CanonicalNestedExecutionTest, DynamicRowArrayPreservesOrdinalValuesDecimalA
   EXPECT_EQ(rowType.nameOf(1), "field_1");
   EXPECT_TRUE(rowType.childAt(1)->equivalent(*DECIMAL(12, 2)));
   auto task = exec::Task::create("canonical-nested-oracle", core::PlanFragment{node}, 0,
-      core::QueryCtx::create(pangrova::jni::globalExecutor().get()), exec::Task::ExecutionMode::kSerial);
+      core::QueryCtx::create(pangrova::jni::globalExecutor().get(),
+          core::QueryConfig({{"require_function_registry_snapshot", "true"}}, converter_registry)), exec::Task::ExecutionMode::kSerial);
   ASSERT_TRUE(task->supportSerialExecutionMode());
   int rows = 0;
   while (auto batch = task->next()) {
@@ -104,8 +116,10 @@ TEST(CanonicalNestedExecutionTest, HeterogeneousRuntimeElementsRequireAnExplicit
       ->mutable_expressions(0)->mutable_nested()->mutable_list()->mutable_values(1);
   value->Clear();
   value->mutable_literal()->set_i64(1);
-  const auto bytes = plan.SerializeAsString();
-  VeloxPlanConverter converter;
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(converter.convert({bytes.begin(), bytes.end()}, {}), std::invalid_argument);
 }
 

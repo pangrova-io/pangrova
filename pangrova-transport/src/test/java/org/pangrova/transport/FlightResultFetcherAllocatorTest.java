@@ -13,6 +13,8 @@
  */
 package org.pangrova.transport;
 
+import org.pangrova.transport.security.ResultTransportSecurity;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -36,14 +38,14 @@ class FlightResultFetcherAllocatorTest {
 
     @Test
     void configuredAllocatorLimitIsHonored() {
-        try (FlightResultFetcher fetcher = new FlightResultFetcher(false, null, 64 * MIB)) {
+        try (FlightResultFetcher fetcher = new FlightResultFetcher(ResultTransportSecurity.systemTrust(false), 64 * MIB)) {
             assertThat(fetcher.allocatorLimitBytes()).isEqualTo(64 * MIB);
         }
     }
 
     @Test
     void nonPositiveAllocatorLimitRejected() {
-        assertThatThrownBy(() -> new FlightResultFetcher(false, null, 0))
+        assertThatThrownBy(() -> new FlightResultFetcher(ResultTransportSecurity.systemTrust(false), 0))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("allocatorLimitBytes");
     }

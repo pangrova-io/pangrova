@@ -1,5 +1,8 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
+import org.pangrova.protocol.function.catalog.FunctionCatalogContracts;
+
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.v2.ArtifactFormatRef;
 import org.pangrova.protocol.v2.CapabilityDescriptor;
@@ -67,11 +70,16 @@ public final class CapabilityInventoryCodec {
     /** Validates protocol identity and every schedulable capability descriptor. */
     public static void validate(CapabilityInventory inventory) {
         Objects.requireNonNull(inventory, "inventory must not be null");
+        long encodedBytes = 4L * ((inventory.getSerializedSize() + 2L) / 3L);
+        if (encodedBytes > MAX_ENCODED_BYTES) {
+            throw new IllegalArgumentException("capabilityInventory exceeds maximum encoded size");
+        }
         validateProtocol(inventory);
         validateEnvelopeVersions(inventory);
         CapabilityValidation capabilities = validateCapabilities(inventory);
         validateRetrievalContract(inventory, capabilities.hasRetrieval());
         validateModels(inventory, capabilities.refs());
+        FunctionCatalogContracts.validate(inventory);
     }
 
     private static void validateProtocol(CapabilityInventory inventory) {

@@ -932,7 +932,7 @@ index 7fc11da..ae92663 100644
              IopsReservation {
                  value: Some(iops_avail.acquire().await.unwrap()),
 diff --git a/lance-0.20.0/src/dataset.rs b/lance-0.20.0/src/dataset.rs
-index 58c6d8d..cd8feb3 100644
+index 58c6d8d..3ab3a64 100644
 --- a/lance-0.20.0/src/dataset.rs
 +++ b/lance-0.20.0/src/dataset.rs
 @@ -85,6 +85,7 @@ pub use write::merge_insert::{
@@ -943,6 +943,15 @@ index 58c6d8d..cd8feb3 100644
  #[allow(deprecated)]
  pub use write::{
      write_fragments, CommitBuilder, InsertBuilder, WriteDestination, WriteMode, WriteParams,
+@@ -622,7 +623,7 @@ impl Dataset {
+         older_than: Duration,
+         delete_unverified: Option<bool>,
+         error_if_tagged_old_versions: Option<bool>,
+-    ) -> BoxFuture<Result<RemovalStats>> {
++    ) -> BoxFuture<'_, Result<RemovalStats>> {
+         let before = utc_now() - older_than;
+         cleanup::cleanup_old_versions(
+             self,
 diff --git a/lance-0.20.0/src/dataset/write.rs b/lance-0.20.0/src/dataset/write.rs
 index 600176f..10974c6 100644
 --- a/lance-0.20.0/src/dataset/write.rs
@@ -1489,3 +1498,27 @@ index bb51ec9..6174a8c 100644
      /// Return the id of the next batch to be written.
      pub fn next_batch_id(&self) -> i32 {
          self.batch_id
+diff --git a/lance-0.20.0/src/datafusion/logical_plan.rs b/lance-0.20.0/src/datafusion/logical_plan.rs
+index 6afb94e..6baca80 100644
+--- a/lance-0.20.0/src/datafusion/logical_plan.rs
++++ b/lance-0.20.0/src/datafusion/logical_plan.rs
+@@ -37,3 +37,3 @@ impl TableProvider for Dataset {
+-    fn get_logical_plan(&self) -> Option<Cow<LogicalPlan>> {
++    fn get_logical_plan(&self) -> Option<Cow<'_, LogicalPlan>> {
+         None
+     }
+@@ -63,3 +63,3 @@ impl TableProvider for Dataset {
+-        let scan_range = limit.map(|l| (0..l as u64));
++        let scan_range = limit.map(|l| 0..l as u64);
+         let plan: Arc<dyn ExecutionPlan> =
+             scanner.scan(false, false, false, scan_range, projections.into());
+diff --git a/lance-0.20.0/src/index/vector/ivf/v2.rs b/lance-0.20.0/src/index/vector/ivf/v2.rs
+index 727f50e..27dc360 100644
+--- a/lance-0.20.0/src/index/vector/ivf/v2.rs
++++ b/lance-0.20.0/src/index/vector/ivf/v2.rs
+@@ -207,4 +207,4 @@ impl<S: IvfSubIndex + 'static, Q: Quantization> IVFIndex<S, Q> {
+-    pub async fn load_partition(
++    async fn load_partition(
+         &self,
+         partition_id: usize,
+         write_cache: bool,

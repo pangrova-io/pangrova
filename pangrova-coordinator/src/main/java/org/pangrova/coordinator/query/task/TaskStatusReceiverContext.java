@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
+
 import org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink;
 
 import org.pangrova.coordinator.query.QueryManager;
@@ -71,7 +73,7 @@ public record TaskStatusReceiverContext(
         // speculativeLauncher is nullable — speculation disabled when null
         // duplicateResolver is nullable — speculation disabled when null
         // taskDispatcher is nullable — speculation disabled when null
-        // stateJournal is nullable — defaults to InMemoryQueryStateJournal
+        // stateJournal is nullable — defaults to the QueryManager's exact journal owner
         // catalogRegistry is nullable — native write commit disabled when null
         // writeCommitTracker is nullable — native write commit disabled when null
         // stageCompletionCallback is nullable — DAG bridge disabled when null
@@ -88,7 +90,7 @@ public record TaskStatusReceiverContext(
             WorkerManager workerManager) {
         return new TaskStatusReceiverContext(
                 queryManager, taskTracker, workerManager, null, null, null,
-                InMemoryQueryStateJournal.INSTANCE, null, null, null, null, null,
+                queryManager.getStateJournal(), null, null, null, null, null,
                 ArtifactWorkReportSink.rejecting());
     }
 }

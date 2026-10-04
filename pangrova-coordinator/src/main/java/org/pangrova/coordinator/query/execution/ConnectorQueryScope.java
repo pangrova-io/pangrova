@@ -1,8 +1,8 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.metadata.catalog.CatalogRegistry;
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
-import org.pangrova.coordinator.query.SessionContextConverter;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.planner.SplitSourceDescriptor;
 import org.pangrova.spi.connector.metadata.ConnectorMetadata;
 import java.util.List;

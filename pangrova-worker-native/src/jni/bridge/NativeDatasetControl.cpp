@@ -6,12 +6,12 @@
 #include <arrow/c/abi.h>
 
 #include "jni/RuntimeInitializer.h"
+#include "capability/CanonicalPhysicalTypes.h"
 #include "jni/command/WorkerLocalStorage.h"
 #include "lance/LanceStorageContext.h"
 #include "lance/LanceDatasetPublication.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
-#include "velox/plan/VeloxPlanConverter.h"
 #include "velox/vector/BaseVector.h"
 #include "velox/vector/arrow/Bridge.h"
 
@@ -66,8 +66,7 @@ proto::RuntimeCommandResponse NativeDatasetControl::schemaFingerprint(const prot
     auto* governor = globalVeloxMemoryGovernor();
     if (!governor) throw std::runtime_error("Dataset schema fingerprint requires an initialized Native runtime");
     auto pool = governor->veloxMemoryManager()->addLeafPool("dataset-schema-fingerprint");
-    velox::VeloxPlanConverter converter;
-    const auto type = converter.convertStorageSchema(request.schema());
+    const auto type = capability::canonicalPhysicalSchema(request.schema());
     const auto empty = facebook::velox::BaseVector::create(type, 0, pool.get());
     SchemaGuard schema;
     facebook::velox::exportToArrow(empty, schema.schema);

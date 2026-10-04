@@ -1,5 +1,10 @@
 #include "capability/LogicalTypeContract.h"
 
+#include <array>
+#include <cstdint>
+#include <stdexcept>
+#include <string>
+
 #include <arrow/type.h>
 #include <gtest/gtest.h>
 
@@ -77,6 +82,84 @@ TEST(StorageLogicalTypeContractTest, DecimalScaleAndTimestampPrecisionAreNotPhys
   EXPECT_NO_THROW(validateStorageLogicalType(timestamp, *arrow::field("created", arrow::timestamp(arrow::TimeUnit::MICRO), false)));
   EXPECT_THROW(validateStorageLogicalType(timestamp, *arrow::field("created", arrow::timestamp(arrow::TimeUnit::NANO), false)), std::invalid_argument);
   EXPECT_THROW(validateStorageLogicalType(timestamp, *arrow::field("created", arrow::timestamp(arrow::TimeUnit::MICRO, "UTC"), false)), std::invalid_argument);
+}
+
+struct TimestampStorageCase {
+  int32_t precision;
+  arrow::TimeUnit::type unit;
+};
+
+class TimestampStoragePrecisionTest : public testing::TestWithParam<TimestampStorageCase> {};
+
+TEST_P(TimestampStoragePrecisionTest, ExactSdkUnitNullabilityAndUnzonedDeclarationAreRequired) {
+  const auto& parameter = GetParam();
+  protocol::v2::LogicalType logical;
+  logical.set_canonical_sql("TIMESTAMP(" + std::to_string(parameter.precision) + ')');
+  auto* declaration = logical.mutable_substrait_type()->mutable_precision_timestamp();
+  declaration->set_precision(parameter.precision);
+  const std::array units{arrow::TimeUnit::SECOND, arrow::TimeUnit::MILLI,
+      arrow::TimeUnit::MICRO, arrow::TimeUnit::NANO};
+  for (const bool nullable : std::array{false, true}) {
+    SCOPED_TRACE(nullable ? "nullable timestamp" : "required timestamp");
+    declaration->set_nullability(nullable ? substrait::Type::NULLABILITY_NULLABLE
+                                         : substrait::Type::NULLABILITY_REQUIRED);
+    const auto physical = arrow::field("created", arrow::timestamp(parameter.unit), nullable);
+    EXPECT_NO_THROW(validateStorageLogicalType(logical, *physical));
+    EXPECT_THROW(validateStorageLogicalType(logical, *physical->WithNullable(!nullable)),
+        std::invalid_argument);
+    EXPECT_THROW(validateStorageLogicalType(logical, *arrow::field("created",
+        arrow::timestamp(parameter.unit, "UTC"), nullable)), std::invalid_argument);
+    for (const auto unit : units) {
+      if (unit == parameter.unit) continue;
+      SCOPED_TRACE(static_cast<int>(unit));
+      EXPECT_THROW(validateStorageLogicalType(logical,
+          *arrow::field("created", arrow::timestamp(unit), nullable)), std::invalid_argument);
+    }
+  }
+}
+
+// These expectations are the actual Paimon 1.4.1 ArrowFieldTypeConversion
+// timestamp precision boundaries, not the separate TIME storage unit rule.
+INSTANTIATE_TEST_SUITE_P(PaimonSdkStorageUnits, TimestampStoragePrecisionTest,
+    testing::Values(TimestampStorageCase{0, arrow::TimeUnit::SECOND},
+        TimestampStorageCase{1, arrow::TimeUnit::MILLI},
+        TimestampStorageCase{3, arrow::TimeUnit::MILLI},
+        TimestampStorageCase{4, arrow::TimeUnit::MICRO},
+        TimestampStorageCase{6, arrow::TimeUnit::MICRO},
+        TimestampStorageCase{7, arrow::TimeUnit::NANO},
+        TimestampStorageCase{9, arrow::TimeUnit::NANO}),
+    [](const testing::TestParamInfo<TimestampStorageCase>& information) {
+      return "Precision" + std::to_string(information.param.precision);
+    });
+
+TEST(StorageLogicalTypeContractTest, PrecisionZeroTimeRemainsMillisecondUnlikeTimestamp) {
+  protocol::v2::LogicalType logical;
+  logical.set_canonical_sql("TIME(0)");
+  auto* declaration = logical.mutable_substrait_type()->mutable_precision_time();
+  declaration->set_precision(0);
+  declaration->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  EXPECT_NO_THROW(validateStorageLogicalType(logical,
+      *arrow::field("clock", arrow::time32(arrow::TimeUnit::MILLI), false)));
+  EXPECT_THROW(validateStorageLogicalType(logical,
+      *arrow::field("clock", arrow::time32(arrow::TimeUnit::SECOND), false)), std::invalid_argument);
+}
+
+TEST(StorageLogicalTypeContractTest, PrecisionZeroZonedTimestampRequiresSecondAndAZone) {
+  protocol::v2::LogicalType logical;
+  logical.set_canonical_sql("TIMESTAMP_TZ(0)");
+  auto* declaration = logical.mutable_substrait_type()->mutable_precision_timestamp_tz();
+  declaration->set_precision(0);
+  declaration->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  EXPECT_NO_THROW(validateStorageLogicalType(logical,
+      *arrow::field("created", arrow::timestamp(arrow::TimeUnit::SECOND, "Asia/Shanghai"), false)));
+  EXPECT_THROW(validateStorageLogicalType(logical,
+      *arrow::field("created", arrow::timestamp(arrow::TimeUnit::MILLI, "Asia/Shanghai"), false)),
+      std::invalid_argument);
+  EXPECT_THROW(validateStorageLogicalType(logical,
+      *arrow::field("created", arrow::timestamp(arrow::TimeUnit::SECOND), false)), std::invalid_argument);
+  EXPECT_THROW(validateStorageLogicalType(logical,
+      *arrow::field("created", arrow::timestamp(arrow::TimeUnit::SECOND, "Asia/Shanghai"), true)),
+      std::invalid_argument);
 }
 
 TEST(StorageLogicalTypeContractTest, MapKeysRequireExplicitNullabilityAndUnknownVariationsAreRefused) {

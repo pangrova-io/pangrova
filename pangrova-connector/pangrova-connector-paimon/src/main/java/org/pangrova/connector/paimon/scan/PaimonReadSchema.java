@@ -27,6 +27,16 @@ public record PaimonReadSchema(RowType rowType, Map<String, String> options) {
 
     /** Resolves the schema and options belonging to the exact SDK snapshot. */
     public static PaimonReadSchema resolve(PaimonTableHandle handle, Table current) {
+        if ("true".equals(handle.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))) {
+            if (!(current instanceof FileStoreTable table)
+                    || !table.location().toString().equals(handle.tableLocation())) {
+                throw new IllegalArgumentException("Selected current schema belongs to a different table");
+            }
+            var properties = new java.util.LinkedHashMap<>(handle.properties());
+            properties.remove(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY);
+            properties.remove(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY);
+            return new PaimonReadSchema(PaimonTableHandleFactory.parseRowType(handle), Map.copyOf(properties));
+        }
         if (handle.snapshotId().isEmpty()) {
             var identity = PaimonTableHandleFactory.fromTable(handle.schemaName(), handle.tableName(), current);
             if (!identity.tableLocation().equals(handle.tableLocation())) {

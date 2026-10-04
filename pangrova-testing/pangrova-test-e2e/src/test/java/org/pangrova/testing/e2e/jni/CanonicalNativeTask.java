@@ -2,7 +2,7 @@ package org.pangrova.testing.e2e.jni;
 
 import com.google.protobuf.ByteString;
 import io.substrait.proto.Plan;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.StageResourceGrant;

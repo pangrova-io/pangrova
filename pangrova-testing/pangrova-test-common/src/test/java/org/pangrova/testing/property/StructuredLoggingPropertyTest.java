@@ -194,7 +194,7 @@ class StructuredLoggingPropertyTest {
     }
 
     // -----------------------------------------------------------------------
-    // File discovery (reused pattern from CleanCodeMetricsPropertyTest)
+    // Production source discovery
     // -----------------------------------------------------------------------
 
     private static List<Path> findAllMainJavaFiles() {

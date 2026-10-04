@@ -1,5 +1,7 @@
 package org.pangrova.worker.jni.write;
 
+import org.pangrova.worker.jni.write.catalog.CatalogResourceResolver;
+
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.protocol.batch.ColumnarBatch;
@@ -35,8 +37,10 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  *
  * <p>Thread safety: uses {@link ConcurrentHashMap} for active sessions and
  * {@link AtomicLong} for handle generation. Individual sessions are accessed
- * by a single native thread (the native operator thread that owns the handle),
- * so no per-session synchronization is needed.</p>
+ * by the native operator and cleanup threads. Short ownership claims exclude
+ * concurrent sink operations without holding a monitor during connector IO.
+ * Cleanup rejects in-flight operations and retains owners for retry; global
+ * shutdown seals new-session admission.</p>
  */
 @ThreadSafe
 public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
@@ -55,8 +59,6 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     private final ConcurrentHashMap<String, byte[]> pendingCommitMetadata =
             new ConcurrentHashMap<>();
 
-    private final ConcurrentHashMap<Long, String> handleToTaskId = new ConcurrentHashMap<>();
-
     /**
      * Aggregate INFO log interval for per-batch write progress.
      * Emits one INFO log every N batches to avoid log flooding while
@@ -68,19 +70,15 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     private static final long NANOS_PER_MILLI = 1_000_000;
 
     private final CatalogResourceResolver catalogLookup;
-    private final ConcurrentHashMap<Long, WriteSession> activeSessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, NativeWriteSession> activeSessions = new ConcurrentHashMap<>();
     private final AtomicLong handleCounter = new AtomicLong();
     /** Shared allocator for columnar IPC decoding, reused across batches to avoid
      *  per-batch RootAllocator creation/destruction overhead and GC pressure. */
     private final BufferAllocator sharedAllocator = new RootAllocator(64L * 1024 * 1024);
 
-    private record WriteSession(
-            ConnectorPageSink sink,
-            List<String> columnNames,
-            long startTimeNanos,
-            String catalogName,
-            AtomicLong rowsAppended,
-            AtomicLong batchCount) {}
+    private final NativeWriteAdmission admission = new NativeWriteAdmission();
+    private boolean allocatorClosed;
+    private boolean catalogClosed;
 
     /**
      * Creates a new adapter with the given catalog lookup function.
@@ -96,6 +94,15 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         checkNotNull(descriptor, "descriptor");
         String taskId = requireTaskId(descriptor);
         requireConnectorManagedWriteFormat(descriptor);
+        admission.enter(taskId);
+        try {
+            return openSession(descriptor, taskId);
+        } finally {
+            admission.leave(taskId);
+        }
+    }
+
+    private long openSession(WriteDescriptor descriptor, String taskId) {
         String catalogName = descriptor.catalogName();
         LOG.info("event=begin_write catalog={} schema={} table={} mode={}",
                 catalogName, descriptor.schemaName(), descriptor.tableName(),
@@ -108,13 +115,18 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         CatalogResourceResolver.CatalogResources resources =
                 catalogLookup.resolve(taskId, catalogName);
         List<String> columnNames = resolveWriteColumnNames(descriptor, resources);
-        ConnectorPageSink sink = createSinkForDescriptor(descriptor, resources);
-
         long handle = handleCounter.incrementAndGet();
-        handleToTaskId.put(handle, taskId);
-        activeSessions.put(handle, new WriteSession(
-                sink, columnNames, System.nanoTime(),
-                catalogName, new AtomicLong(0), new AtomicLong(0)));
+        if (handle <= 0) throw new IllegalStateException("Native write handles are exhausted");
+        NativeWriteSession session = new NativeWriteSession(taskId, columnNames, catalogName);
+        // Publication precedes allocation; close rejects the live admission until initialization exits.
+        activeSessions.put(handle, session);
+        try {
+            session.initialize(() -> createSinkForDescriptor(descriptor, resources));
+            admission.requireOpen();
+        } catch (RuntimeException | Error failure) {
+            failWrite(handle, session, failure);
+            throw failure;
+        }
 
         LOG.info("event=write_session_created handle={} catalog={} table={}.{} columns={}",
                 handle, catalogName, descriptor.schemaName(), descriptor.tableName(), columnNames);
@@ -154,12 +166,35 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
 
     /** Pre-binds the exact catalog deployment and output handle before Native starts. */
     public void bindTask(String taskId, org.pangrova.protocol.v2.TaskRequest request) {
-        catalogLookup.bindTask(taskId, request);
+        admission.enter(taskId);
+        boolean bound = false;
+        try {
+            catalogLookup.bindTask(taskId, request);
+            bound = true;
+            admission.requireOpen();
+        } catch (RuntimeException | Error failure) {
+            if (bound) {
+                try {
+                    catalogLookup.releaseTask(taskId);
+                } catch (RuntimeException | Error cleanup) {
+                    if (cleanup != failure) failure.addSuppressed(cleanup);
+                }
+            }
+            throw failure;
+        } finally {
+            admission.leave(taskId);
+        }
     }
 
     /** Releases all task-scoped connector bindings. */
     public void releaseTask(String taskId) {
-        catalogLookup.releaseTask(taskId);
+        admission.beginRelease(taskId);
+        try {
+            closeSessions(taskId);
+            catalogLookup.releaseTask(taskId);
+        } finally {
+            admission.endRelease(taskId);
+        }
     }
 
     /**
@@ -174,7 +209,25 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     }
 
     private void appendDecodedBatch(long writeHandle, ByteBuffer data, int rowCount, int columnCount) {
-        WriteSession ws = requireSession(writeHandle);
+        NativeWriteSession ws = requireSession(writeHandle);
+        ws.beginAppend();
+        try {
+            try {
+                appendDecodedBatch(writeHandle, data, rowCount, columnCount, ws);
+            } catch (RuntimeException | Error failure) {
+                ws.stop();
+                throw failure;
+            } finally {
+                ws.endOperation();
+            }
+        } catch (RuntimeException | Error failure) {
+            failWrite(writeHandle, ws, failure);
+            throw failure;
+        }
+    }
+
+    private void appendDecodedBatch(long writeHandle, ByteBuffer data, int rowCount,
+                                    int columnCount, NativeWriteSession ws) {
         try (BufferAllocator allocator = sharedAllocator.newChildAllocator(
             "batch-decode-" + writeHandle, 0, 16L * 1024 * 1024);
             ColumnarBatch decoded = ColumnarBatch.open(data, allocator, rowCount, columnCount);
@@ -185,10 +238,6 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
             NativeRuntimeException failure = new NativeRuntimeException(
                 PangrovaErrorCode.NATIVE_DATA_INTERFACE_ERROR,
                 "Failed to decode write batch: handle=" + writeHandle, e);
-            failWrite(writeHandle, ws, failure);
-            throw failure;
-        } catch (RuntimeException | Error failure) {
-            failWrite(writeHandle, ws, failure);
             throw failure;
         }
         long currentBatch = ws.batchCount().incrementAndGet();
@@ -218,47 +267,29 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         }
     }
 
-    private void failWrite(long handle, WriteSession session, Throwable failure) {
-        activeSessions.remove(handle, session);
-        handleToTaskId.remove(handle);
+    private void failWrite(long handle, NativeWriteSession session, Throwable failure) {
         try {
-            session.sink().abort();
+            session.abort();
+            activeSessions.remove(handle, session);
         } catch (RuntimeException | Error cleanup) {
-            failure.addSuppressed(cleanup);
-        }
-        try {
-            session.sink().close();
-        } catch (RuntimeException | Error cleanup) {
-            failure.addSuppressed(cleanup);
+            if (cleanup != failure) failure.addSuppressed(cleanup);
         }
     }
 
     @Override
     public WriteCommitResult commitWrite(long writeHandle) {
-        WriteSession ws = activeSessions.remove(writeHandle);
-        if (ws == null) {
-            throw new NativeRuntimeException(PangrovaErrorCode.NATIVE_INVALID_HANDLE,
-                    "No active write session for handle=" + writeHandle);
-        }
-
-        String taskId = handleToTaskId.remove(writeHandle);
-        if (taskId == null || taskId.isBlank()) {
-            try {
-                ws.sink().abort();
-            } finally {
-                ws.sink().close();
-            }
-            throw new NativeRuntimeException(PangrovaErrorCode.NATIVE_INVALID_HANDLE,
-                    "Write session has no canonical task identifier: handle=" + writeHandle);
-        }
-
-        byte[] commitMetadata;
+        NativeWriteSession ws = requireSession(writeHandle);
         try {
-            commitMetadata = ws.sink().finishWithMetadata();
-        } finally {
-            ws.sink().close();
+            return finishSession(writeHandle, ws);
+        } catch (RuntimeException | Error failure) {
+            failWrite(writeHandle, ws, failure);
+            throw failure;
         }
+    }
 
+    private WriteCommitResult finishSession(long writeHandle, NativeWriteSession ws) {
+        byte[] commitMetadata = ws.finish();
+        String taskId = ws.taskId();
         long elapsed = System.nanoTime() - ws.startTimeNanos();
         long totalRows = ws.rowsAppended().get();
         LOG.info("event=write_metadata_collected handle={} catalog={} rowsWritten={} metadataBytes={} elapsedMs={}",
@@ -277,27 +308,21 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
                     writeHandle, ws.catalogName());
         }
 
-        return new WriteCommitResult(totalRows, 0L, List.of(), commitMetadata);
+        var result = new WriteCommitResult(totalRows, 0L, List.of(), commitMetadata);
+        activeSessions.remove(writeHandle, ws);
+        return result;
     }
 
     @Override
     public void abortWrite(long writeHandle) {
-        WriteSession ws = activeSessions.remove(writeHandle);
-        handleToTaskId.remove(writeHandle);
+        NativeWriteSession ws = activeSessions.get(writeHandle);
         if (ws == null) {
             LOG.warn("event=abort_no_session handle={}", writeHandle);
             return;
         }
 
-        try {
-            ws.sink().abort();
-        } catch (RuntimeException e) {
-            LOG.warn("event=abort_failed handle={} catalog={} error={}",
-                    writeHandle, ws.catalogName(), e.getMessage(), e);
-        } finally {
-            ws.sink().close();
-        }
-
+        ws.abort();
+        activeSessions.remove(writeHandle, ws);
         LOG.info("event=write_aborted handle={} catalog={}", writeHandle, ws.catalogName());
     }
 
@@ -353,56 +378,67 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
     }
 
     /**
-     * Aborts and closes all active write sessions, then clears the session map.
+     * Aborts and closes all active write sessions, retaining each failed owner.
      *
      * <p>Intended for cleanup when the native side crashes or the executor is
-     * being shut down. Each session's sink is aborted (best-effort) and then
-     * closed to release resources. Failures on individual sessions are logged
-     * but do not prevent cleanup of remaining sessions.</p>
+     * being shut down. Each session is removed only after its actual abort and
+     * close return. Failures do not prevent trying remaining sessions, but are
+     * propagated to prevent early resource or catalog-lease release.</p>
      */
     public void closeAllSessions() {
-        int count = activeSessions.size();
-        if (count == 0) {
-            return;
+        admission.beginCleanup(false);
+        try {
+            closeSessions(null);
+        } finally {
+            admission.endCleanup();
         }
-        for (var entry : activeSessions.entrySet()) {
-            cleanupSession(entry.getKey(), entry.getValue());
-        }
-        activeSessions.clear();
-        LOG.info("event=leaked_sessions_cleaned count={}", count);
     }
 
-    private void cleanupSession(long handle, WriteSession ws) {
-        handleToTaskId.remove(handle);
-        try {
-            ws.sink().abort();
-        } catch (RuntimeException e) {
-            LOG.warn("event=session_abort_failed handle={} catalog={} error={}",
-                    handle, ws.catalogName(), e.getMessage(), e);
+    private void closeSessions(String taskId) {
+        Throwable failure = null;
+        for (var entry : activeSessions.entrySet()) {
+            NativeWriteSession ws = entry.getValue();
+            if (taskId != null && !taskId.equals(ws.taskId())) continue;
+            try {
+                ws.abort();
+                activeSessions.remove(entry.getKey(), ws);
+            } catch (RuntimeException | Error cleanup) {
+                if (failure == null) failure = cleanup;
+                else if (failure != cleanup) failure.addSuppressed(cleanup);
+            }
         }
-        try {
-            ws.sink().close();
-        } catch (RuntimeException e) {
-            LOG.warn("event=session_close_failed handle={} catalog={} error={}",
-                    handle, ws.catalogName(), e.getMessage(), e);
-        }
+        if (failure instanceof Error error) throw error;
+        if (failure instanceof RuntimeException runtime) throw runtime;
     }
 
     @Override
     public void close() {
-        closeAllSessions();
-        sharedAllocator.close();
-        if (catalogLookup instanceof AutoCloseable closeable) {
+        admission.beginCleanup(true);
+        try {
+            closeOwnedResources();
+        } finally {
+            admission.endCleanup();
+        }
+    }
+
+    private void closeOwnedResources() {
+        closeSessions(null);
+        if (!allocatorClosed) {
+            sharedAllocator.close();
+            allocatorClosed = true;
+        }
+        if (!catalogClosed && catalogLookup instanceof AutoCloseable closeable) {
             try {
                 closeable.close();
+                catalogClosed = true;
             } catch (Exception failure) {
                 throw new IllegalStateException("Failed to close Worker catalog runtime", failure);
             }
         }
     }
 
-    private WriteSession requireSession(long writeHandle) {
-        WriteSession ws = activeSessions.get(writeHandle);
+    private NativeWriteSession requireSession(long writeHandle) {
+        NativeWriteSession ws = activeSessions.get(writeHandle);
         if (ws == null) {
             throw new NativeRuntimeException(PangrovaErrorCode.NATIVE_INVALID_HANDLE,
                     "No active write session for handle=" + writeHandle);

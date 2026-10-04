@@ -1,64 +1,13 @@
 #include "capability/CanonicalPhysicalTypes.h"
+#include "CanonicalPhysicalTypeProjection.h"
 #include "StructuralContractIdentities.h"
 
 #include <stdexcept>
-#include <unordered_map>
 
 namespace pangrova::capability {
 namespace {
 
 using TypePtr = facebook::velox::TypePtr;
-using Factory = TypePtr (*)(const substrait::Type&);
-
-TypePtr positionalRow(const substrait::Type& type) {
-  std::vector<TypePtr> children;
-  for (int index = 0; index < type.struct_().types_size(); ++index) {
-    children.push_back(canonicalPhysicalType(type.struct_().types(index)));
-  }
-  return canonicalComputedRowType(std::move(children));
-}
-
-const std::unordered_map<int, Factory>& factories() {
-  using namespace facebook::velox;
-  static const std::unordered_map<int, Factory> values = {
-      {substrait::Type::kBool, [](const auto&) -> TypePtr { return BOOLEAN(); }},
-      {substrait::Type::kI8, [](const auto&) -> TypePtr { return TINYINT(); }},
-      {substrait::Type::kI16, [](const auto&) -> TypePtr { return SMALLINT(); }},
-      {substrait::Type::kI32, [](const auto&) -> TypePtr { return INTEGER(); }},
-      {substrait::Type::kI64, [](const auto&) -> TypePtr { return BIGINT(); }},
-      {substrait::Type::kFp32, [](const auto&) -> TypePtr { return REAL(); }},
-      {substrait::Type::kFp64, [](const auto&) -> TypePtr { return DOUBLE(); }},
-      {substrait::Type::kString, [](const auto&) -> TypePtr { return VARCHAR(); }},
-      {substrait::Type::kVarchar, [](const auto& type) -> TypePtr {
-         if (type.varchar().length() <= 0) throw std::runtime_error("VARCHAR length must be positive");
-         return VARCHAR();
-       }},
-      {substrait::Type::kFixedChar, [](const auto& type) -> TypePtr {
-         if (type.fixed_char().length() <= 0) throw std::runtime_error("CHAR length must be positive");
-         return VARCHAR();
-       }},
-      {substrait::Type::kBinary, [](const auto&) -> TypePtr { return VARBINARY(); }},
-      {substrait::Type::kDate, [](const auto&) -> TypePtr { return DATE(); }},
-      {substrait::Type::kPrecisionTimestamp, [](const auto&) -> TypePtr { return TIMESTAMP(); }},
-      {substrait::Type::kPrecisionTimestampTz, [](const auto&) -> TypePtr { return TIMESTAMP(); }},
-      {substrait::Type::kPrecisionTime, [](const auto& type) -> TypePtr {
-         return canonicalTimeType(type.precision_time().precision());
-       }},
-      {substrait::Type::kStruct, positionalRow},
-      {substrait::Type::kDecimal, [](const auto& type) -> TypePtr {
-         return canonicalDecimalType(type.decimal().precision(), type.decimal().scale());
-       }},
-      {substrait::Type::kList, [](const auto& type) -> TypePtr {
-         return ARRAY(canonicalPhysicalType(type.list().type()));
-       }},
-      {substrait::Type::kMap, [](const auto& type) -> TypePtr {
-         return MAP(canonicalPhysicalType(type.map().key()), canonicalPhysicalType(type.map().value()));
-       }},
-      {substrait::Type::kIntervalYear, [](const auto&) -> TypePtr { return INTERVAL_YEAR_MONTH(); }},
-      {substrait::Type::kIntervalDay, [](const auto&) -> TypePtr { return INTERVAL_DAY_TIME(); }}};
-  return values;
-}
-
 TypePtr consumingNames(
     const substrait::Type& type,
     const google::protobuf::RepeatedPtrField<std::string>& names, int& ordinal) {
@@ -88,12 +37,7 @@ TypePtr consumingNames(
 }  // namespace
 
 TypePtr canonicalPhysicalType(const substrait::Type& type) {
-  const auto factory = factories().find(type.kind_case());
-  if (factory == factories().end()) {
-    throw std::runtime_error("Unsupported canonical physical type kind: " +
-                             std::to_string(static_cast<int>(type.kind_case())));
-  }
-  return factory->second(type);
+  return generated::projectCanonicalPhysicalType(type, canonicalPhysicalType);
 }
 
 facebook::velox::RowTypePtr canonicalPhysicalSchema(const substrait::NamedStruct& schema) {
@@ -120,19 +64,16 @@ facebook::velox::RowTypePtr canonicalComputedRowType(std::vector<TypePtr> childr
 }
 
 TypePtr canonicalDecimalType(int32_t precision, int32_t scale) {
-  if (precision < 1 || precision > 38 || scale < 0 || scale > precision) {
-    throw std::runtime_error(
-        "Substrait DECIMAL requires precision in [1, 38] and scale in [0, precision]");
-  }
-  return facebook::velox::DECIMAL(static_cast<uint8_t>(precision), static_cast<uint8_t>(scale));
+  substrait::Type type;
+  type.mutable_decimal()->set_precision(precision);
+  type.mutable_decimal()->set_scale(scale);
+  return canonicalPhysicalType(type);
 }
 
 TypePtr canonicalTimeType(int32_t precision) {
-  if (precision < 0 || precision > 6) {
-    throw std::runtime_error("Substrait time precision must be in [0, 6]");
-  }
-  return precision <= 3 ? TypePtr(facebook::velox::TIME())
-                        : TypePtr(facebook::velox::TIME_MICRO_UTC());
+  substrait::Type type;
+  type.mutable_precision_time()->set_precision(precision);
+  return canonicalPhysicalType(type);
 }
 
 }  // namespace pangrova::capability

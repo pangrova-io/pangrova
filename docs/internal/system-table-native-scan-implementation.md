@@ -145,7 +145,7 @@ ambiguous response and verify no same-cycle retry or subsequent ref deletion.
 | Boundary | Current entry / required change |
 |---|---|
 | AST → Calcite | `pangrova-planner/.../parse/AstToSqlNodeConverter.java`: preserve `$kind` in `convertTableRef` |
-| Calcite catalog | `pangrova-coordinator/.../metadata/LazyMetadataSchema.java`: dynamic `Lookup` resolves supported `$kind` names after canonicalizing the base table without enumerating virtual names; `MetadataResolvedTable.java`: exact column types |
+| Calcite catalog | `pangrova-coordinator/.../metadata/read/LazyMetadataSchema.java`: dynamic `Lookup` resolves supported `$kind` names after canonicalizing the base table without enumerating virtual names; `MetadataResolvedTable.java`: exact column types |
 | Connector SPI | `pangrova-spi/.../metadata/ConnectorMetadata.java`, `ConnectorSystemTable.java`, `ConnectorSplitManager.java`: one read-only handle/schema/split contract |
 | Connector implementations | Iceberg/Paimon `*Metadata`, `*SplitManager`, `*SystemTables`: pin source metadata and enumerate disjoint system-table splits |
 | Split scheduling | `PlanSplitSourceExtractor`, `SplitFetcher`: keep logical `$kind` identity, authorize and schedule without fetching rows |

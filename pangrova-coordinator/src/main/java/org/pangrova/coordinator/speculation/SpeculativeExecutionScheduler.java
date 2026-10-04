@@ -62,7 +62,8 @@ public final class SpeculativeExecutionScheduler implements Closeable {
      */
     public void start() {
         scheduledTask = executor.scheduleAtFixedRate(
-                this::evaluateAllQueries, intervalMs, intervalMs, TimeUnit.MILLISECONDS);
+                () -> org.pangrova.common.concurrent.ExecutorDrain.runOwned(executor, this::evaluateAllQueries),
+                intervalMs, intervalMs, TimeUnit.MILLISECONDS);
         LOG.info("event=speculation_scheduler_started intervalMs={}", intervalMs);
     }
 
@@ -75,7 +76,7 @@ public final class SpeculativeExecutionScheduler implements Closeable {
         if (task != null) {
             task.cancel(false);
         }
-        executor.shutdown();
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, 5000);
         LOG.info("event=speculation_scheduler_stopped");
     }
 

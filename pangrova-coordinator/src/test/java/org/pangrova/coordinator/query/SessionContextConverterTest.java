@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.SessionContextConverter;
+
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.security.UserIdentity;
 import org.junit.jupiter.api.Test;
@@ -22,6 +25,15 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Validates: Requirements 3.4, 5.2
  */
 class SessionContextConverterTest {
+
+    @Test
+    void connectorQueryIdentityAndSnapshotSelectorsCannotBeSpoofedByClientProperties() {
+        var context = new CoordinatorSessionContext("admitted-query",
+                Map.of("queryId", "forged", "pangrova.source_snapshot.cat.db.table", "42"), null, "tenant");
+        var session = SessionContextConverter.toConnectorSession(context);
+        assertThat(session.getProperties()).containsEntry("queryId", "admitted-query")
+                .doesNotContainKey("pangrova.source_snapshot.cat.db.table");
+    }
 
     // ── SPI → Coordinator ──
 

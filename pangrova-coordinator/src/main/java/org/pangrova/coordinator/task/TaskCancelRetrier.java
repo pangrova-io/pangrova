@@ -67,9 +67,9 @@ public final class TaskCancelRetrier {
     public void cancelWithRetry(String queryId, String taskId,
                                 String workerHost, int httpPort) {
         try {
-            SchedulerCancelResult result = dispatcher.cancelTask(taskId, workerHost, httpPort);
+            SchedulerCancelResult result = dispatcher.cancelTask(requireIssuedRequest(taskId), workerHost, httpPort);
             if (result.isSuccess()) {
-                taskTracker.updateTaskState(queryId, taskId, "CANCELLED");
+                taskTracker.recordExecutionDrain(requireIssuedRequest(taskId), result.executionDrainReceipt());
                 pendingCancels.remove(taskId);
                 return;
             }
@@ -113,9 +113,9 @@ public final class TaskCancelRetrier {
     private boolean retrySingleCancel(String taskId, CancelTarget target) {
         try {
             SchedulerCancelResult result = dispatcher.cancelTask(
-                    taskId, target.workerHost(), target.httpPort());
+                    requireIssuedRequest(taskId), target.workerHost(), target.httpPort());
             if (result.isSuccess()) {
-                taskTracker.updateTaskState(target.queryId(), taskId, "CANCELLED");
+                taskTracker.recordExecutionDrain(requireIssuedRequest(taskId), result.executionDrainReceipt());
                 pendingCancels.remove(taskId);
                 LOG.info("event=cancel_retry_success queryId={} taskId={}", target.queryId(), taskId);
                 return true;
@@ -127,6 +127,12 @@ public final class TaskCancelRetrier {
                     target.queryId(), taskId, e.getMessage());
         }
         return false;
+    }
+
+    private org.pangrova.protocol.rest.task.SubmitTaskRequest requireIssuedRequest(String taskId) {
+        var request = taskTracker.getTaskRequest(taskId);
+        if (request == null) throw new IllegalStateException("Cannot seal an unissued exact task: " + taskId);
+        return request;
     }
 
     /**

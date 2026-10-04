@@ -31,25 +31,27 @@ import static org.junit.jupiter.api.Assertions.*;
  * grace window after failover.
  */
 class JournalRecoveryOwnerScopeTest {
+    private final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+    private final WorkerManager workers = new WorkerManager(5000, 15000, new InMemoryWorkerRegistry());
+    private final java.util.List<org.pangrova.coordinator.scheduler.RemoteTaskDispatcher> transports =
+            new java.util.ArrayList<>();
+
+    @org.junit.jupiter.api.AfterEach
+    void closeActualControlTransports() {
+        transports.forEach(org.pangrova.coordinator.scheduler.RemoteTaskDispatcher::close);
+    }
 
     @Test
     void ownerScopedRecoveryOnlyReplaysOwnedQueries() {
-        InMemoryReplayJournal journal = new InMemoryReplayJournal();
+        var journal = new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
         // Query owned by coord-1 (the failed leader)
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-owned", "SELECT 1", "{}", "RUNNING",
-                System.currentTimeMillis(), "coord-1"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-owned", "SELECT 1", "{}", "RUNNING"));
         // Query owned by coord-2 (a different coordinator, should NOT be replayed)
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-other", "SELECT 2", "{}", "RUNNING",
-                System.currentTimeMillis(), "coord-2"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "coord-2"), "q-other", "SELECT 2", "{}", "RUNNING"));
         // Query with no owner (legacy, should NOT be replayed when scoped)
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-legacy", "SELECT 3", "{}", "RUNNING",
-                System.currentTimeMillis()));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), null), "q-legacy", "SELECT 3", "{}", "RUNNING"));
 
         QueryManager qm = buildQueryManager(journal);
-        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         JournalRecoveryService recovery = new JournalRecoveryService(
                 journal, qm, tracker, null, "coord-1", 0);
 
@@ -65,17 +67,13 @@ class JournalRecoveryOwnerScopeTest {
 
     @Test
     void explicitQueryFenceDoesNotReplayLiveQueryFromReusedOwnerId() {
-        InMemoryReplayJournal journal = new InMemoryReplayJournal();
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-orphan", "SELECT 1", "{}", "RUNNING",
-                System.currentTimeMillis(), "coord-1"));
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-live", "SELECT 2", "{}", "RUNNING",
-                System.currentTimeMillis(), "coord-1"));
+        var journal = new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-orphan", "SELECT 1", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-live", "SELECT 2", "{}", "RUNNING"));
 
         QueryManager queryManager = buildQueryManager(journal);
         JournalRecoveryService recovery = new JournalRecoveryService(
-                journal, queryManager, new CoordinatorTaskTracker(),
+                journal, queryManager, tracker,
                 null, "coord-1", 0);
 
         int recovered = recovery.recover(Set.of("q-orphan"));
@@ -87,16 +85,11 @@ class JournalRecoveryOwnerScopeTest {
 
     @Test
     void unscopedRecoveryReplaysAllQueries() {
-        InMemoryReplayJournal journal = new InMemoryReplayJournal();
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-1", "SELECT 1", "{}", "RUNNING",
-                System.currentTimeMillis(), "coord-1"));
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-2", "SELECT 2", "{}", "SCHEDULING",
-                System.currentTimeMillis(), "coord-2"));
+        var journal = new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "coord-1"), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), "coord-2"), "q-2", "SELECT 2", "{}", "SCHEDULING"));
 
         QueryManager qm = buildQueryManager(journal);
-        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         // previousLeaderId = null → unscoped
         JournalRecoveryService recovery = new JournalRecoveryService(
                 journal, qm, tracker, null, null, 0);
@@ -110,22 +103,16 @@ class JournalRecoveryOwnerScopeTest {
 
     @Test
     void graceWindowDoesNotFailUnknownWorkers() {
-        InMemoryReplayJournal journal = new InMemoryReplayJournal();
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-1", "SELECT 1", "{}", "RUNNING",
-                System.currentTimeMillis()));
-        journal.taskEvents.add(new TaskStateEvent(
-                "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L,
-                System.currentTimeMillis()));
+        var journal = new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L));
 
         QueryManager qm = buildQueryManager(journal);
-        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         // WorkerManager with no registered workers — w-unknown evaluates to UNKNOWN
-        WorkerManager wm = new WorkerManager(5000, 15000, new InMemoryWorkerRegistry());
 
         // With grace window > 0, UNKNOWN workers should NOT cause query failure
         JournalRecoveryService recovery = new JournalRecoveryService(
-                journal, qm, tracker, wm, null, 60_000);
+                journal, qm, tracker, workers, null, 60_000);
 
         int recovered = recovery.recover();
 
@@ -136,21 +123,15 @@ class JournalRecoveryOwnerScopeTest {
 
     @Test
     void noGraceWindowFailsUnknownWorkers() {
-        InMemoryReplayJournal journal = new InMemoryReplayJournal();
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-1", "SELECT 1", "{}", "RUNNING",
-                System.currentTimeMillis()));
-        journal.taskEvents.add(new TaskStateEvent(
-                "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L,
-                System.currentTimeMillis()));
+        var journal = new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-unknown", "RUNNING", 0, 1L));
 
         QueryManager qm = buildQueryManager(journal);
-        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-        WorkerManager wm = new WorkerManager(5000, 15000, new InMemoryWorkerRegistry());
 
         // With grace window = 0, UNKNOWN workers cause query failure
         JournalRecoveryService recovery = new JournalRecoveryService(
-                journal, qm, tracker, wm, null, 0);
+                journal, qm, tracker, workers, null, 0);
 
         int recovered = recovery.recover();
 
@@ -159,17 +140,11 @@ class JournalRecoveryOwnerScopeTest {
 
     @Test
     void graceWindowStillFailsTrulyDeadWorkers() {
-        InMemoryReplayJournal journal = new InMemoryReplayJournal();
-        journal.queryEvents.add(new QueryStateEvent(
-                "q-1", "SELECT 1", "{}", "RUNNING",
-                System.currentTimeMillis()));
-        journal.taskEvents.add(new TaskStateEvent(
-                "q-1", "t-1", "w-dead", "RUNNING", 0, 1L,
-                System.currentTimeMillis()));
+        var journal = new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal();
+        journal.appendQueryEventSync(new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "SELECT 1", "{}", "RUNNING"));
+        journal.appendTaskEventSync(new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(System.currentTimeMillis(), null), "q-1", "t-1", "w-dead", "RUNNING", 0, 1L));
 
         QueryManager qm = buildQueryManager(journal);
-        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-        WorkerManager wm = new WorkerManager(5000, 15000, new InMemoryWorkerRegistry());
 
         // Register the worker with an ancient heartbeat (dead)
         WorkerInfo deadWorker = new WorkerInfo(
@@ -179,11 +154,11 @@ class JournalRecoveryOwnerScopeTest {
                 Instant.now().minusSeconds(120), // 2 minutes ago → DEAD
                 0.0, null, 2, null, java.util.List.of(), null,
                 org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory());
-        wm.registerWorker(deadWorker);
+        workers.registerWorker(deadWorker);
 
         // Even with grace window, truly DEAD workers (registered but stale) fail the query
         JournalRecoveryService recovery = new JournalRecoveryService(
-                journal, qm, tracker, wm, null, 60_000);
+                journal, qm, tracker, workers, null, 60_000);
 
         int recovered = recovery.recover();
 
@@ -192,81 +167,38 @@ class JournalRecoveryOwnerScopeTest {
 
     @Test
     void coordinatorIdFieldOnQueryStateEvent() {
-        QueryStateEvent withOwner = new QueryStateEvent(
-                "q-1", "sql", "{}", "RUNNING", 12345L, "coord-1");
-        assertEquals("coord-1", withOwner.coordinatorId());
+        QueryStateEvent withOwner = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(12345L, "coord-1"), "q-1", "sql", "{}", "RUNNING");
+        assertEquals("coord-1", withOwner.context().coordinatorId());
 
-        QueryStateEvent withoutOwner = new QueryStateEvent(
-                "q-2", "sql", "{}", "RUNNING", 12345L);
-        assertNull(withoutOwner.coordinatorId());
+        QueryStateEvent withoutOwner = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(12345L, null), "q-2", "sql", "{}", "RUNNING");
+        assertNull(withoutOwner.context().coordinatorId());
     }
 
     @Test
     void coordinatorIdFieldOnTaskStateEvent() {
-        TaskStateEvent withOwner = new TaskStateEvent(
-                "q-1", "t-1", "w-1", "RUNNING", 0, 1L, 12345L, "coord-1");
-        assertEquals("coord-1", withOwner.coordinatorId());
+        TaskStateEvent withOwner = new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(12345L, "coord-1"), "q-1", "t-1", "w-1", "RUNNING", 0, 1L);
+        assertEquals("coord-1", withOwner.context().coordinatorId());
 
-        TaskStateEvent withoutOwner = new TaskStateEvent(
-                "q-1", "t-1", "w-1", "RUNNING", 0, 1L, 12345L);
-        assertNull(withoutOwner.coordinatorId());
+        TaskStateEvent withoutOwner = new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(12345L, null), "q-1", "t-1", "w-1", "RUNNING", 0, 1L);
+        assertNull(withoutOwner.context().coordinatorId());
     }
 
     // ── Helpers ──
 
-    private static QueryManager buildQueryManager(QueryStateJournal journal) {
-        QueryDispatcher dispatcher = buildMinimalDispatcher();
-        QueryManagerContext deps = new QueryManagerContext(
-                dispatcher, new NoOpTracingProvider(),
-                null, null, null, null, null, null, null, null, journal, null);
-        return new QueryManager(deps);
-    }
-
-    private static QueryDispatcher buildMinimalDispatcher() {
-        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
-        WorkerManager wm = new WorkerManager(5000, 15000, new InMemoryWorkerRegistry());
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        QueryDispatcherContext deps = new QueryDispatcherContext(
-                new SqlCompiler(),
-                org.pangrova.coordinator.query.execution.SecurityContextBundle.none(),
-                new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
-                        (req, worker) -> null,
-                        scheduler, wm, tracker,
+    private QueryManager buildQueryManager(QueryStateJournal journal) {
+        var transport = new org.pangrova.coordinator.scheduler.RemoteTaskDispatcher(
+                org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
+                org.pangrova.testing.TestObservability.TRACING);
+        transports.add(transport);
+        var dispatcherContext = new QueryDispatcherContext(new SqlCompiler(),
+                org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.policies(),
+                new org.pangrova.coordinator.query.execution.SchedulingContextBundle(transport,
+                        new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker,
                         null, null, null, null),
-                null, null, 0, null, null, null, null, null, null, null, null, null);
-        return new QueryDispatcher(deps, null, null);
-    }
-
-    /** Journal that returns pre-configured events; supports owner-scoped replay. */
-    private static class InMemoryReplayJournal implements QueryStateJournal {
-        final java.util.ArrayList<QueryStateEvent> queryEvents = new java.util.ArrayList<>();
-        final java.util.ArrayList<TaskStateEvent> taskEvents = new java.util.ArrayList<>();
-
-        @Override public void appendQueryEvent(QueryStateEvent event) {}
-        @Override public void appendQueryEventSync(QueryStateEvent event) {}
-        @Override public void appendTaskEvent(TaskStateEvent event) {}
-        @Override public void appendTaskEventSync(TaskStateEvent event) {}
-
-        @Override public List<QueryStateEvent> replayActiveQueries() {
-            return List.copyOf(queryEvents);
-        }
-
-        @Override public List<TaskStateEvent> replayActiveTasks() {
-            return List.copyOf(taskEvents);
-        }
-
-        @Override public List<QueryStateEvent> replayActiveQueriesForOwner(String coordinatorId) {
-            return queryEvents.stream()
-                    .filter(e -> coordinatorId.equals(e.coordinatorId()))
-                    .toList();
-        }
-
-        @Override public List<TaskStateEvent> replayActiveTasksForOwner(String coordinatorId) {
-            return taskEvents.stream()
-                    .filter(e -> coordinatorId.equals(e.coordinatorId()))
-                    .toList();
-        }
-
-        @Override public void purgeQuery(String queryId) {}
+                null, null, 0, null, null, null, null, null, null, journal, null, null);
+        var dispatcher = new QueryDispatcher(dispatcherContext, null, null);
+        return new QueryManager(new QueryManagerContext(dispatcher,
+                org.pangrova.testing.TestObservability.TRACING, null, null, null, null, null,
+                null, null, null, journal, null));
     }
 }

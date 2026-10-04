@@ -8,6 +8,7 @@
 // metadata (feature_name, connector_type, split_id) and produces
 // NATIVE_FALLBACK_REQUIRED prefix in the error message.
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <chrono>
 #include <string>
@@ -42,6 +43,8 @@ bool waitForTerminal(TaskExecutor& exec, milliseconds timeout) {
 
 TaskExecutorConfig makeConfig() {
   TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
   config.task_id = "error-test-task-1";
   config.query_id = "error-test-query-1";
   config.trace_id = "trace-error-test-001";

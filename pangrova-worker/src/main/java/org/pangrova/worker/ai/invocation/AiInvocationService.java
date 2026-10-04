@@ -13,6 +13,10 @@
  */
 package org.pangrova.worker.ai.invocation;
 
+import org.pangrova.worker.ai.governance.AiInvocationObserver;
+
+import org.pangrova.worker.ai.governance.AiInvocationAuthorizer;
+
 import static org.pangrova.worker.ai.invocation.AiInvocationFailures.classify;
 import static org.pangrova.worker.ai.invocation.AiInvocationFailures.invalidInput;
 import static org.pangrova.worker.ai.invocation.AiInvocationFailures.modelNotFound;

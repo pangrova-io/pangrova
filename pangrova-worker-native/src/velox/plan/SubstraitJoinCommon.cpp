@@ -3,8 +3,43 @@
 
 #include "velox/plan/CanonicalJoinSemantics.h"
 
+#include <cstddef>
+#include <memory>
+#include <vector>
+
 namespace pangrova::velox {
 using namespace facebook::velox;
+
+namespace {
+bool hasExactMergeOrder(core::PlanNodePtr input,
+                       std::vector<core::FieldAccessTypedExprPtr> keys) {
+  while (const auto project = std::dynamic_pointer_cast<const core::ProjectNode>(input)) {
+    if (project->sources().size() != 1) return false;
+    const auto source = project->sources().front();
+    for (auto& key : keys) {
+      const auto ordinal = project->outputType()->getChildIdxIfExists(key->name());
+      if (!ordinal) return false;
+      const auto field = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
+          project->projections().at(*ordinal));
+      if (!field || !field->inputs().empty() || !field->type()->equivalent(*key->type())) return false;
+      const auto sourceOrdinal = source->outputType()->getChildIdxIfExists(field->name());
+      if (!sourceOrdinal || !field->type()->equivalent(*source->outputType()->childAt(*sourceOrdinal))) return false;
+      key = field;
+    }
+    input = source;
+  }
+  const auto sort = std::dynamic_pointer_cast<const core::OrderByNode>(input);
+  if (!sort || sort->isPartial() || sort->sortingKeys().size() < keys.size()) return false;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    const auto& field = sort->sortingKeys().at(i);
+    const auto& order = sort->sortingOrders().at(i);
+    if (!field->inputs().empty() || field->name() != keys[i]->name() ||
+        !field->type()->equivalent(*keys[i]->type()) ||
+        !order.isAscending() || !order.isNullsFirst()) return false;
+  }
+  return true;
+}
+}  // namespace
 
 std::shared_ptr<const core::PlanNode> VeloxPlanConverter::rebaseJoinInput(
     std::shared_ptr<const core::PlanNode> input, size_t offset) {
@@ -66,16 +101,10 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::buildNestedJoin(
     auto markerType = canonicalJoinOutput("JOIN_TYPE_LEFT_MARK",
         probe->outputType(), build->outputType());
     if (mark) {
-      // Null-aware HashProbe's actual nullable filter tracker implements MARK's
-      // TRUE > NULL > FALSE reduction. NestedLoopJoin's marker is two-valued.
-      const auto offset = left->outputType()->size() + right->outputType()->size();
-      std::vector<core::FieldAccessTypedExprPtr> probeKeys, buildKeys;
-      auto zero = std::make_shared<core::ConstantTypedExpr>(BIGINT(), variant(int64_t{0}));
-      probe = appendJoinKeys(probe, {zero}, offset + 1, probeKeys);
-      build = appendJoinKeys(build, {zero}, offset + 2, buildKeys);
-      return std::make_shared<core::HashJoinNode>(nextNodeId(),
-          core::JoinType::kLeftSemiProject, true, probeKeys, buildKeys,
-          condition, probe, build, output);
+      // MARK is a three-valued predicate reduction, not a WHERE filter over
+      // dummy hash keys. The sole SDK probe owns TRUE > UNKNOWN > FALSE state.
+      return std::make_shared<core::NestedLoopJoinNode>(nextNodeId(),
+          core::JoinType::kLeftSemiProject, condition, probe, build, output, true);
     }
     if (semi) {
       auto joined = std::make_shared<core::NestedLoopJoinNode>(nextNodeId(),
@@ -196,8 +225,14 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::buildKeyedJoin(
   std::shared_ptr<const core::PlanNode> joined;
   if (merge && keys.ordinaryEquality && core::MergeJoinNode::isSupported(type)) {
     const std::vector<core::SortOrder> orders(keys.leftKeys.size(), {true, true});
-    auto left = std::make_shared<core::OrderByNode>(nextNodeId(), keys.leftKeys, orders, false, keys.left);
-    auto right = std::make_shared<core::OrderByNode>(nextNodeId(), keys.rightKeys, orders, false, keys.right);
+    core::PlanNodePtr left = keys.left;
+    core::PlanNodePtr right = keys.right;
+    if (!hasExactMergeOrder(left, keys.leftKeys)) {
+      left = std::make_shared<core::OrderByNode>(nextNodeId(), keys.leftKeys, orders, false, left);
+    }
+    if (!hasExactMergeOrder(right, keys.rightKeys)) {
+      right = std::make_shared<core::OrderByNode>(nextNodeId(), keys.rightKeys, orders, false, right);
+    }
     joined = std::make_shared<core::MergeJoinNode>(nextNodeId(), type,
         keys.leftKeys, keys.rightKeys, keys.condition, left, right, actualOutput);
   } else {

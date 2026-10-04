@@ -126,7 +126,7 @@ public final class IndexAwareSplitFetcher {
      */
     public List<SplitFetcher.SplitWithPaths> fetchAndFilterSplits(
             PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            String queryId, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={}",
                 queryId, isIndexFilteringEnabled());
         if (!isIndexFilteringEnabled()) {
@@ -153,14 +153,14 @@ public final class IndexAwareSplitFetcher {
      */
     public List<SplitFetcher.SplitWithPaths> fetchAndFilterSplits(
             PlanFragment fragment, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            String queryId, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         return fetchAndFilterSplitsInternal(
                 fragment.relNode(), snapshotOverrides, queryId, session);
     }
 
     private List<SplitFetcher.SplitWithPaths> fetchAndFilterSplitsInternal(
             RelNode relNode, Map<String, Long> snapshotOverrides,
-            String queryId, org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            String queryId, org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         LOG.debug("event=index_aware_fetch_entry queryId={} filteringEnabled={} relNodeType={}",
                 queryId, isIndexFilteringEnabled(), relNode.getClass().getSimpleName());
         List<SplitSourceDescriptor> sources = PlanSplitSourceExtractor.extract(relNode);
@@ -183,7 +183,7 @@ public final class IndexAwareSplitFetcher {
     private List<ConnectorSplit> applyIndexFiltering(
             RelNode relNode, List<ConnectorSplit> splits,
             Map<String, Long> snapshotOverrides, String queryId,
-            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         try {
             Map<String, List<IndexHint>> tableHints =
                     IndexHintGenerator.generate(relNode, metadataStore, predicateAnalyzer,
@@ -207,7 +207,7 @@ public final class IndexAwareSplitFetcher {
             Map<String, List<IndexHint>> tableHints,
             Map<String, Long> snapshotOverrides,
             String queryId,
-            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         int before = splits.size();
         List<ConnectorSplit> result = new java.util.ArrayList<>(splits);
         for (var entry : tableHints.entrySet()) {
@@ -263,12 +263,12 @@ public final class IndexAwareSplitFetcher {
     private List<ConnectorSplit> filterSplitsForTable(
             List<ConnectorSplit> splits, String tableKey,
             List<IndexHint> hints, Map<String, Long> snapshotOverrides,
-            org.pangrova.coordinator.query.CoordinatorSessionContext session) {
+            org.pangrova.coordinator.query.session.CoordinatorSessionContext session) {
         String catalogName = extractCatalogFromKey(tableKey);
         String schemaName = extractSchemaFromKey(tableKey);
         String tableName = extractTableFromKey(tableKey);
         var queryAccessors = accessorResolver == null ? null : accessorResolver.forSession(
-                org.pangrova.coordinator.query.SessionContextConverter.toConnectorSession(
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                         session, catalogName, schemaName));
         String snapshotToken = resolveSnapshotToken(tableKey, snapshotOverrides);
         Map<String, List<FileColumnStatistics>> fileStats =

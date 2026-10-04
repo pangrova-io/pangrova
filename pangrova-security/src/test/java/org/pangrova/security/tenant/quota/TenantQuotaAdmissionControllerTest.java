@@ -18,8 +18,7 @@ import java.util.OptionalLong;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates G-RES-01 fix: TenantQuotaAdmissionController enforces tenant
- * resource quotas end-to-end at the coordinator admission gate.
+ * Checks tenant admission with real component state; this does not execute SQL or Native tasks.
  */
 class TenantQuotaAdmissionControllerTest {
 
@@ -40,7 +39,7 @@ class TenantQuotaAdmissionControllerTest {
     @BeforeEach
     void setUp() {
         tenantStore = new InMemoryTenantStore();
-        controller = new TenantQuotaAdmissionController(tenantStore, new QuotaChecker());
+        controller = new TenantQuotaAdmissionController(tenantStore);
 
         Tenant tenant = new Tenant("t1", "Test Tenant", TenantStatus.ACTIVE,
                 QUOTA, List.of(), List.of(), null, Map.of(), Instant.now(), "admin");

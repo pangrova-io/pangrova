@@ -1,7 +1,7 @@
 package org.pangrova.worker.ai.function;
 
-import org.pangrova.protocol.function.FunctionBindingDeclarations;
-import org.pangrova.protocol.function.GovernedArgumentLayout;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
+import org.pangrova.protocol.function.declaration.GovernedArgumentLayout;
 import org.pangrova.protocol.function.GovernedBindingProjection;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.spi.ai.AiCapabilityDescriptor;

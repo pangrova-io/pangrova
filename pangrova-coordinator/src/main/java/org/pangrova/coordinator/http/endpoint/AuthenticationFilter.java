@@ -15,6 +15,7 @@ import org.pangrova.security.authn.BruteForceGuard;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 
@@ -36,6 +37,9 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
 
     /** Request property key for the authenticated UserIdentity. */
     public static final String USER_IDENTITY_PROPERTY = "pangrova.userIdentity";
+    private static final String INTERNAL_IDENTITY_PROPERTY = "pangrova.internalServiceIdentity";
+
+    private enum InternalServiceIdentity { AUTHENTICATED }
 
     private static final String HEALTH_PATH = "v1/health";
     private static final String UNKNOWN_IP = "unknown";
@@ -92,6 +96,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
         // If valid on a user-facing route, reject with 403 (token isolation).
         if (isInternalToken(requestContext)) {
             if (isInternalRoute(requestContext)) {
+                requestContext.setProperty(INTERNAL_IDENTITY_PROPERTY, InternalServiceIdentity.AUTHENTICATED);
                 return;
             }
             rejectForbidden(requestContext, "internal service token not allowed on user-facing endpoints");
@@ -114,6 +119,20 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
 
         bruteForceGuard.recordSuccess(clientIp);
         requestContext.setProperty(USER_IDENTITY_PROPERTY, result.userIdentity());
+    }
+
+    /**
+     * Requires the internal identity produced by this filter, not an ordinary user
+     * identity or a caller-supplied HTTP header.
+     *
+     * @param context the actual server request context
+     * @throws jakarta.ws.rs.ForbiddenException when no internal service was authenticated
+     */
+    public static void requireInternalServiceIdentity(ContainerRequestContext context) {
+        if (context == null || context.getProperty(INTERNAL_IDENTITY_PROPERTY)
+                != InternalServiceIdentity.AUTHENTICATED) {
+            throw new jakarta.ws.rs.ForbiddenException("Authenticated internal service identity is required");
+        }
     }
 
     private boolean isInternalToken(ContainerRequestContext ctx) {
@@ -180,7 +199,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
 
     private static String[] decodeBasicAuth(String header) {
         String encoded = header.substring("Basic ".length()).trim();
-        String decoded = new String(Base64.getDecoder().decode(encoded));
+        String decoded = new String(Base64.getDecoder().decode(encoded), StandardCharsets.UTF_8);
         int colon = decoded.indexOf(':');
         if (colon < 0) {
             return new String[]{decoded, ""};

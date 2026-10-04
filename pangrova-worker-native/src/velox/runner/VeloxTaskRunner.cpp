@@ -15,9 +15,7 @@
 #include "shuffle/ShuffleBatchSerializer.h"
 
 #include "jni/command/StatusSerializer.h"
-#if PANGROVA_HAS_FLIGHT
 #include "result/FlightResultServer.h"
-#endif
 
 // Logging for dynamic filter injection warnings.
 #if __has_include(<glog/logging.h>)
@@ -30,6 +28,9 @@
 #include "velox/memory/VeloxMemoryGovernor.h"
 #include "velox/core/PlanFragment.h"
 #include "velox/core/QueryConfig.h"
+#include "velox/serde/CanonicalSerdeOptionsFactory.h"
+#include "velox/serde/CanonicalArrowSchema.h"
+#include "columnar/CanonicalBatchStream.h"
 #include "velox/core/QueryCtx.h"
 #include "velox/exec/Task.h"
 #include "velox/exec/Driver.h"
@@ -117,8 +118,14 @@ VeloxTaskRunner::VeloxTaskRunner(
       scan_split_overrides_(std::move(scan_split_overrides)),
       output_queue_(output_queue),
       shuffle_queue_(shuffle_queue) {
+  if (!config_.function_registry) {
+    throw std::invalid_argument("VeloxTaskRunner requires an admitted owned function registry");
+  }
   if (!plan_) {
     throw std::invalid_argument("VeloxTaskRunner: plan must not be null");
+  }
+  if (config_.is_result_task && !config_.canonical_output_schema) {
+    throw std::invalid_argument("Result task requires its admitted canonical output schema");
   }
   // Result tasks use Velox OutputBufferManager instead of OutputQueue,
   // so output_queue may be nullptr for result tasks.
@@ -156,6 +163,14 @@ void VeloxTaskRunner::start() {
 
   // Build QueryConfig map with spill settings and advanced features.
   std::unordered_map<std::string, std::string> query_config_values;
+  if (config_.is_result_task || config_.is_shuffle_task) {
+    if (config_.serialized_output_buffer_threshold_bytes <= 0) {
+      throw std::runtime_error("Serialized output requires a positive serialized-buffer grant");
+    }
+    const auto threshold = std::to_string(config_.serialized_output_buffer_threshold_bytes);
+    query_config_values[facebook::velox::core::QueryConfig::kMaxOutputBufferSize] = threshold;
+    query_config_values[facebook::velox::core::QueryConfig::kMaxPartitionedOutputBufferSize] = threshold;
+  }
   // The Flight shuffle writer and Velox Exchange deserializer must use the
   // same codec. Small pages may be emitted uncompressed, but larger pages
   // carry the configured codec and otherwise fail during Exchange::getOutput.
@@ -309,9 +324,13 @@ void VeloxTaskRunner::start() {
     }
   }
 
+  query_config_values["require_function_registry_snapshot"] = "true";
+  query_config_values["require_vector_serde_options_factory"] = "true";
+  auto serdeFactory = std::make_shared<const CanonicalSerdeOptionsFactory>(
+      config_.serde_schema_bindings, columnar::kMaximumBatchStreamBytes);
   queryCtx = facebook::velox::core::QueryCtx::create(
       executor.get(),
-      facebook::velox::core::QueryConfig{std::move(query_config_values)},
+      facebook::velox::core::QueryConfig{std::move(query_config_values), config_.function_registry, serdeFactory},
       std::move(connectorConfigs), asyncCache, std::move(taskPool));
 
   // Execution mode: always parallel. PlanExecutionDriver enforces
@@ -323,6 +342,7 @@ void VeloxTaskRunner::start() {
   // Create ShuffleBatchSerializer for shuffle tasks.
   if (config_.is_shuffle_task && shuffle_queue_) {
     shuffle::ShuffleBatchSerializer::Config writerConfig;
+    writerConfig.canonical_schema = config_.canonical_output_schema;
     writerConfig.compression_codec = config_.shuffle_compression_codec;
     writerConfig.batch_size = config_.preferred_output_batch_rows;
     // L4-1B: Propagate compression minimum threshold.
@@ -354,10 +374,10 @@ void VeloxTaskRunner::start() {
   // Velox calls this from Driver threads with output batches.
   //
   // RESULT TASK EXCEPTION: When is_result_task is true, the plan contains a
-  // PartitionedOutputNode that serializes output via PrestoVectorSerde and
+  // PartitionedOutputNode that serializes output via ArrowBatchVectorSerde and
   // routes it through Velox's OutputBufferManager automatically. No consumer
   // callback is needed — passing nullptr lets Velox use OutputBufferManager.
-  // FlightResultServer (task 1.5) will pull from OutputBufferManager.
+  // FlightResultServer pulls the canonical Arrow streams from OutputBufferManager.
   //
   // VELOX VERSION CONSTRAINT: This lambda captures `this` and relies on
   // velox_task_->requestCancel().wait() blocking until all Driver threads
@@ -684,7 +704,6 @@ void VeloxTaskRunner::start() {
   // Publish the result schema before the OutputBuffer becomes visible to
   // Flight DoGet. The cache carries exact logical column types with the
   // physical Velox row type as one atomic registration.
-#if PANGROVA_HAS_FLIGHT
   if (config_.is_result_task) {
     auto output_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
         plan_->outputType());
@@ -695,6 +714,10 @@ void VeloxTaskRunner::start() {
       info.column_labels = config_.result_column_labels;
       info.pool = std::make_shared<pangrova::memory::ColumnarMemoryPool>(
           velox_task_->pool()->addLeafChild("result-stream"));
+      info.wire_schema = canonicalArrowSchema(
+          *config_.canonical_output_schema, info.pool->source().get());
+      // Check exact nested types/names while permitting task-local ordinal aliases.
+      physicalArrowSchema(info.wire_schema, *config_.canonical_output_schema, output_type);
       result_ownership_ = std::make_shared<pangrova::result::ResultOwnershipState>();
       info.ownership = result_ownership_;
       if (!info.authority.ParseFromString(config_.callback_context)) {
@@ -703,7 +726,6 @@ void VeloxTaskRunner::start() {
       pangrova::result::FlightResultServer::registerTaskOutputType(config_.task_id, std::move(info));
     }
   }
-#endif
 
   std::vector<facebook::velox::core::PlanNodeId> exchangeNodeIds;
   collectExchangeNodes(plan_, exchangeNodeIds);
@@ -1079,7 +1101,6 @@ void VeloxTaskRunner::finalizeShuffleOutput() {
 }
 
 void VeloxTaskRunner::revokeResultOutput() {
-#if PANGROVA_HAS_FLIGHT
   if (config_.is_result_task) {
     pangrova::result::FlightResultServer::unregisterTaskOutputType(config_.task_id);
     const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
@@ -1088,7 +1109,6 @@ void VeloxTaskRunner::revokeResultOutput() {
       if (result_ownership_) result_ownership_->revokeAndClearQueue();
     }
   }
-#endif
 }
 
 void VeloxTaskRunner::cleanup() {

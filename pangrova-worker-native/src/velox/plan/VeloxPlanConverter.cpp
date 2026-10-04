@@ -15,6 +15,7 @@
 // chains. Unsupported Rel/Expression types throw std::runtime_error with
 // type name for diagnostics.
 #include "velox/plan/VeloxPlanConverter.h"
+#include "capability/FunctionPlanBindings.h"
 
 #include <cassert>
 #include <stdexcept>
@@ -30,114 +31,28 @@
 
 namespace pangrova::velox {
 
-namespace {
-
-// Extract the short function name from a Substrait extension function name.
-// Substrait names are like "add:i32_i32", "lt:fp64_fp64", "sum:i64" etc.
-// We strip everything after the first ':' to get just "add", "lt", "sum".
-std::string extractShortFunctionName(const std::string& substrait_name) {
-  auto colon_pos = substrait_name.find(':');
-  if (colon_pos != std::string::npos) {
-    return substrait_name.substr(0, colon_pos);
-  }
-  return substrait_name;
-}
-
-// Substrait → Velox function name mapping.
-// Substrait uses standard function names from the specification;
-// Velox uses Presto-compatible names. This table bridges the gap.
-const std::unordered_map<std::string, std::string>& substraitToVeloxFunctionMap() {
-  static const std::unordered_map<std::string, std::string> kMap = {
-      // Arithmetic
-      {"add", "plus"},
-      {"subtract", "minus"},
-      {"multiply", "multiply"},
-      {"divide", "divide"},
-      {"modulus", "mod"},
-      {"negate", "negate"},
-      {"abs", "abs"},
-      {"power", "power"},
-      {"sqrt", "sqrt"},
-      {"round", "round"},
-      {"ceil", "ceil"},
-      {"floor", "floor"},
-      // Comparison
-      {"equal", "eq"},
-      {"not_equal", "neq"},
-      {"lt", "lt"},
-      {"gt", "gt"},
-      {"lte", "lte"},
-      {"gte", "gte"},
-      {"is_not_null", "is_not_null"},
-      {"is_null", "is_null"},
-      {"is_not_distinct_from", "is_not_distinct_from"},
-      {"between", "between"},
-      // Boolean
-      {"and", "and"},
-      {"or", "or"},
-      {"not", "not"},
-      // String
-      {"concat", "concat"},
-      {"char_length", "length"},
-      {"upper", "upper"},
-      {"lower", "lower"},
-      {"substring", "substr"},
-      {"like", "like"},
-      {"trim", "trim"},
-      {"ltrim", "ltrim"},
-      {"rtrim", "rtrim"},
-      {"replace", "replace"},
-      {"starts_with", "starts_with"},
-      // Type coercion
-      {"cast", "cast"},
-      // Date/time
-      {"extract", "extract"},
-      {"year", "year"},
-      {"month", "month"},
-      {"day", "day"},
-      {"hour", "hour"},
-      {"minute", "minute"},
-      {"second", "second"},
-      // Aggregate (Velox uses same names)
-      {"sum", "sum"},
-      {"count", "count"},
-      {"min", "min"},
-      {"max", "max"},
-      {"avg", "avg"},
-      {"count_star", "count"},
-      // Substrait "collect" → Velox "array_agg"
-      {"collect", "array_agg"},
-      // Window
-      {"row_number", "row_number"},
-      {"rank", "rank"},
-      {"dense_rank", "dense_rank"},
-      {"ntile", "ntile"},
-      {"lag", "lag"},
-      {"lead", "lead"},
-      {"first_value", "first_value"},
-      {"last_value", "last_value"},
-      // Coalesce / conditional
-      {"coalesce", "coalesce"},
-      {"if_then", "if"},
-  };
-  return kMap;
-}
-
-// Resolve a Substrait function name to its Velox equivalent.
-std::string resolveVeloxFunctionName(const std::string& substrait_name) {
-  const auto& map = substraitToVeloxFunctionMap();
-  auto it = map.find(substrait_name);
-  if (it != map.end()) {
-    return it->second;
-  }
-  return substrait_name;
-}
-
-}  // namespace
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+VeloxPlanConverter::VeloxPlanConverter(
+    std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry)
+    : function_registry_(std::move(function_registry)) {
+  if (!function_registry_) throw std::invalid_argument("Plan conversion requires its admitted function registry owner");
+}
+
+void VeloxPlanConverter::requireFunctionKind(
+    uint32_t anchor, pangrova::protocol::v2::FunctionKind kind) const {
+  const auto found = function_declarations_.find(anchor);
+  if (found == function_declarations_.end()) {
+    throw std::runtime_error("Unbound canonical function anchor: " + std::to_string(anchor) +
+        " kind=" + pangrova::protocol::v2::FunctionKind_Name(kind));
+  }
+  if (found->second.ref().kind() != kind) {
+    throw std::runtime_error("Function reference does not match its canonical invocation kind");
+  }
+}
 
 std::shared_ptr<const facebook::velox::core::PlanNode>
 VeloxPlanConverter::convert(
@@ -184,8 +99,12 @@ VeloxPlanConverter::convert(
   shuffle_output_spec_.reset();
   relation_output_types_.clear();
   logical_node_types_.clear();
+  relation_output_schemas_.clear();
+  canonical_output_schema_.Clear();
+  serde_schema_bindings_.clear();
   result_column_labels_.clear();
   function_map_.clear();
+  function_declarations_ = capability::bindPlanFunctionDeclarations(substrait_plan);
   scan_node_output_types_.clear();
   retrieval_split_overrides_ = retrieval_split_overrides;
   scan_node_split_overrides_.clear();
@@ -193,29 +112,22 @@ VeloxPlanConverter::convert(
   consumed_operator_bindings_.clear();
   artifact_build_context_ = std::move(artifact_build_context);
 
-  // Build function_reference → function_name map from plan extensions.
-  for (int i = 0; i < substrait_plan.extensions_size(); ++i) {
-    const auto& ext = substrait_plan.extensions(i);
-    if (ext.has_extension_function()) {
-      uint32_t anchor = ext.extension_function().function_anchor();
-      std::string raw_name = ext.extension_function().name();
-      std::string short_name = extractShortFunctionName(raw_name);
-      std::string velox_name = resolveVeloxFunctionName(short_name);
-      function_map_[anchor] = velox_name;
-    }
+  for (const auto& [anchor, definition] : function_declarations_) {
+    function_map_.emplace(anchor, definition.implementation_name());
   }
 
   // Extract the root relation.
   const auto& plan_rel = substrait_plan.relations(0);
   if (plan_rel.has_root()) {
     auto node = convertRel(plan_rel.root().input(), splits);
+    canonical_output_schema_ = relation_output_schemas_.at(&plan_rel.root().input());
     if ((shuffle_partition_count_ > 0) != shuffle_output_spec_.has_value()) {
       throw std::runtime_error(
           "Shuffle task and producer ExchangeRel must be bound together");
     }
     bindResultColumnLabels(plan_rel.root(), node->outputType());
     // For result tasks, wrap the plan root with PartitionedOutputNode so that
-    // Velox serializes output via PrestoVectorSerde inside the operator pipeline
+    // Velox serializes output via the canonical serde inside the operator pipeline
     // and routes it through OutputBufferManager for native result serving.
     // Skip wrapping if the root is already a PartitionedOutputNode (e.g., from
     // an ExchangeRel that was converted to a partitioned output).
@@ -229,6 +141,7 @@ VeloxPlanConverter::convert(
   }
   if (plan_rel.has_rel()) {
     auto node = convertRel(plan_rel.rel(), splits);
+    canonical_output_schema_ = relation_output_schemas_.at(&plan_rel.rel());
     if ((shuffle_partition_count_ > 0) != shuffle_output_spec_.has_value()) {
       throw std::runtime_error(
           "Shuffle task and producer ExchangeRel must be bound together");
@@ -317,6 +230,9 @@ VeloxPlanConverter::wrapResultTaskOutput(
     std::shared_ptr<const facebook::velox::core::PlanNode> node,
     bool is_result_task,
     const std::string& serde_name) {
+  if (serde_name != "ArrowBatch") {
+    throw std::runtime_error("Result output requires canonical Arrow batch serde");
+  }
   if (!is_result_task || !node) {
     return node;
   }
@@ -329,7 +245,7 @@ VeloxPlanConverter::wrapResultTaskOutput(
   auto result_output_type =
       std::dynamic_pointer_cast<const facebook::velox::RowType>(
           node->outputType());
-  return std::make_shared<facebook::velox::core::PartitionedOutputNode>(
+  auto output = std::make_shared<facebook::velox::core::PartitionedOutputNode>(
       nextNodeId(),
       facebook::velox::core::PartitionedOutputNode::Kind::kArbitrary,
       /*keys=*/std::vector<std::shared_ptr<
@@ -340,6 +256,10 @@ VeloxPlanConverter::wrapResultTaskOutput(
       result_output_type,
       serde_name,
       node);
+  if (!serde_schema_bindings_.emplace(output->id(), canonical_output_schema_).second) {
+    throw std::runtime_error("Serialization node has duplicate canonical schema bindings");
+  }
+  return output;
 }
 
 // ---------------------------------------------------------------------------

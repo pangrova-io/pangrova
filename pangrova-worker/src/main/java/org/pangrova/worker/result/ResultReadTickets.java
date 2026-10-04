@@ -1,6 +1,6 @@
 package org.pangrova.worker.result;
 
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.ResultReadGrant;
 import org.pangrova.protocol.v2.ResultReadScope;
 import org.pangrova.protocol.v2.TaskRequest;

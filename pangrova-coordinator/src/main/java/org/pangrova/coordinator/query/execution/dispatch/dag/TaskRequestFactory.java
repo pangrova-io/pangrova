@@ -8,13 +8,13 @@ import java.util.UUID;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 
-import org.pangrova.coordinator.query.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskIdentity;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageTaskDeadline;
 import org.pangrova.coordinator.query.execution.dispatch.dag.split.CanonicalSplitParser;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.protocol.CanonicalTaskRequests;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.rest.config.WriteConfig;
 import org.pangrova.protocol.rest.filter.DynamicFilterPayload;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;

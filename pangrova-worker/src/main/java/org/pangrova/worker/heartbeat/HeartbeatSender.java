@@ -30,8 +30,9 @@ import org.pangrova.common.concurrent.ThreadSafe;
  *
  * <p>Concurrency strategy: {@code AtomicBoolean running} guards lifecycle
  * transitions (started→stopped). {@code volatile} for scheduled task reference;
- * self-rescheduling on ScheduledExecutorService thread. {@code stop()} is
- * idempotent via CAS on {@code running}.</p>
+ * self-rescheduling on ScheduledExecutorService thread. Stopping cancels future
+ * sends, but every stop attempt retries owned HTTP resource cleanup. The injected
+ * scheduler owner must separately join its actual callbacks.</p>
  *
  * <p>Memory reporting: the {@code payloadSupplier} is invoked at send time
  * on the scheduler thread. Because {@link org.pangrova.resource.memory.MemoryArbitrator}
@@ -88,14 +89,28 @@ public class HeartbeatSender {
                            Supplier<HeartbeatPayload> payloadSupplier,
                            ScheduledExecutorService scheduler,
                            String internalAuthSecret) {
-        org.pangrova.common.http.ManagedHttpClient managed = HttpClientFactory.createDefault();
+        this(config, payloadSupplier, scheduler, createManagedClient(config, payloadSupplier, scheduler),
+                internalAuthSecret);
+    }
+
+    HeartbeatSender(HeartbeatConfig config, Supplier<HeartbeatPayload> payloadSupplier,
+                    ScheduledExecutorService scheduler, org.pangrova.common.http.ManagedHttpClient managed,
+                    String internalAuthSecret) {
         this.config = checkNotNull(config, "config must not be null");
         this.payloadSupplier = checkNotNull(payloadSupplier, "payloadSupplier must not be null");
         this.scheduler = checkNotNull(scheduler, "scheduler must not be null");
-        this.managedClient = managed;
+        this.managedClient = checkNotNull(managed, "managed client must not be null");
         this.httpClient = managed.httpClient();
         this.mapper = JsonMapperFactory.shared();
         this.internalAuthSecret = internalAuthSecret;
+    }
+
+    private static org.pangrova.common.http.ManagedHttpClient createManagedClient(
+            HeartbeatConfig config, Supplier<HeartbeatPayload> payloadSupplier, ScheduledExecutorService scheduler) {
+        checkNotNull(config, "config must not be null");
+        checkNotNull(payloadSupplier, "payloadSupplier must not be null");
+        checkNotNull(scheduler, "scheduler must not be null");
+        return HttpClientFactory.createDefault();
     }
 
     public HeartbeatSender(HeartbeatConfig config,
@@ -134,29 +149,14 @@ public class HeartbeatSender {
 
     /** Stops heartbeat sending. */
     public void stop() {
-        if (!running.compareAndSet(true, false)) {
-            return;
-        }
-        ScheduledFuture<?> task = scheduledTask;
-        if (task != null) {
-            task.cancel(false);
-            // Wait briefly for any in-flight heartbeat to complete before
-            // closing resources, so the final heartbeat is not truncated.
-            try {
-                task.get(5, TimeUnit.SECONDS);
-            } catch (java.util.concurrent.CancellationException
-                     | java.util.concurrent.ExecutionException ignored) {
-                // Expected: task was cancelled or completed with error
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (java.util.concurrent.TimeoutException e) {
-                LOG.debug("event=heartbeat_stop_timeout workerId={}", config.workerId());
-            }
+        if (running.compareAndSet(true, false)) {
+            ScheduledFuture<?> task = scheduledTask;
+            if (task != null) task.cancel(false);
         }
         // BUG-W10: Do NOT call scheduler.shutdownNow() — the executor is injected
         // and may be shared with other components (health check, metrics).
-        // Cancelling our own task is sufficient; the executor owner is responsible
-        // for shutdown during worker lifecycle teardown.
+        // Cancellation is not callback-exit evidence. The executor owner must
+        // shutdown and await its actual threads during lifecycle teardown.
         if (managedClient != null) {
             managedClient.close();
         }
@@ -206,6 +206,7 @@ public class HeartbeatSender {
     }
 
     private void sendAndReschedule() {
+        if (!running.get()) return;
         sendHeartbeat();
         if (running.get()) {
             long nextMs = nextIntervalMs();

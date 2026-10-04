@@ -155,14 +155,12 @@ option(PANGROVA_WERROR "Treat warnings as errors for first-party sources" ON)
 # ==============================================================================
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-if(PANGROVA_ENABLE_OTEL)
-  set(OPENSSL_USE_STATIC_LIBS TRUE)
-  if(APPLE AND NOT OPENSSL_ROOT_DIR AND
-      EXISTS "${_PANGROVA_HOME}/homebrew/opt/openssl@3/include/openssl/ssl.h")
-    set(OPENSSL_ROOT_DIR "${_PANGROVA_HOME}/homebrew/opt/openssl@3")
-  endif()
-  find_package(OpenSSL REQUIRED)
+set(OPENSSL_USE_STATIC_LIBS TRUE)
+if(APPLE AND NOT OPENSSL_ROOT_DIR AND
+    EXISTS "${_PANGROVA_HOME}/homebrew/opt/openssl@3/include/openssl/ssl.h")
+  set(OPENSSL_ROOT_DIR "${_PANGROVA_HOME}/homebrew/opt/openssl@3")
 endif()
+find_package(OpenSSL REQUIRED)
 
 # FindJNI probes the JDK's shared JVM/AWT libraries to discover headers. They
 # are not link dependencies of Pangrova; only JNI_INCLUDE_DIRS is consumed.
@@ -174,6 +172,10 @@ if(PANGROVA_PRODUCTION_BUILD)
   set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 endif()
 find_package(Arrow REQUIRED)
+if(NOT ARROW_WITH_LZ4 OR NOT ARROW_WITH_ZSTD)
+  message(FATAL_ERROR
+    "Canonical Arrow IPC requires LZ4 and ZSTD support; rebuild Arrow with both codecs enabled")
+endif()
 find_package(Parquet QUIET)
 if(PANGROVA_PRODUCTION_BUILD)
   if(NOT TARGET Arrow::arrow_static OR NOT TARGET Parquet::parquet_static)
@@ -335,23 +337,8 @@ endif()
 file(GLOB_RECURSE PANGROVA_SOURCES CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-# Exclude Arrow Flight-dependent sources when Flight is not available.
-# These files #include <arrow/flight/server.h> or <arrow/flight/client.h> and
-# produce undefined symbols that dyld cannot resolve at runtime.
-if(NOT ARROW_FLIGHT_FOUND)
-  list(FILTER PANGROVA_SOURCES EXCLUDE REGEX "FlightShuffleServer\\.cpp|FlightResultServer\\.cpp|PangrovaExchangeSource\\.cpp|FlightServerRegistry\\.cpp")
-  message(STATUS "Arrow Flight not available — excluded FlightShuffleServer, FlightResultServer, PangrovaExchangeSource, FlightServerRegistry")
-elseif(ARROW_FLIGHT_HEADERS_ONLY)
-  # Headers available for compilation but no library to link.
-  # Exclude .cpp files that define Flight server implementations (they reference
-  # libarrow_flight symbols), but keep all other files that only #include Flight
-  # headers for type definitions.
-  list(FILTER PANGROVA_SOURCES EXCLUDE REGEX "FlightShuffleServer\\.cpp|FlightResultServer\\.cpp|PangrovaExchangeSource\\.cpp|FlightServerRegistry\\.cpp")
-  add_compile_definitions(PANGROVA_HAS_FLIGHT=0)
-  message(STATUS "Arrow Flight headers-only — excluded Flight server implementations, kept type definitions")
-else()
-  add_compile_definitions(PANGROVA_HAS_FLIGHT=1)
-endif()
+# Result streaming and remote exchange are mandatory execution dependencies.
+add_compile_definitions(PANGROVA_HAS_FLIGHT=1)
 
 if(PANGROVA_SOURCES)
   # OBJECT library: compiles sources once, shared by both SHARED lib and tests.
@@ -390,9 +377,7 @@ if(PANGROVA_SOURCES)
     roaring-headers-cpp
     simdjson
   )
-  if(ARROW_FLIGHT_FOUND)
-    target_link_libraries(pangrova_native_objects PUBLIC arrow_flight_imported)
-  endif()
+  target_link_libraries(pangrova_native_objects PUBLIC arrow_flight_imported)
   if(Parquet_FOUND)
     target_link_libraries(pangrova_native_objects PUBLIC ${PANGROVA_PARQUET_TARGET})
   endif()
@@ -532,22 +517,6 @@ if(PANGROVA_SOURCES)
   if(_DEPS_INSTALL AND EXISTS "${_DEPS_INSTALL}/lib")
     list(APPEND _RPATH_DIRS "${_DEPS_INSTALL}/lib")
   endif()
-  # Arrow Flight from ARROW_FLIGHT_HOME or system Arrow for Velox vtable resolution.
-  # Velox force-load pulls in FlightServerBase vtable refs that dlopen must resolve.
-  if(NOT ARROW_FLIGHT_FOUND AND _arrow_loc)
-    get_filename_component(_arrow_parent "${_arrow_dir}" DIRECTORY)
-    # Check if arrow_flight exists alongside arrow (common install layout)
-    find_library(_ARROW_FLIGHT_RPATH_LIB NAMES arrow_flight
-      PATHS "${_arrow_dir}" NO_DEFAULT_PATH)
-    if(_ARROW_FLIGHT_RPATH_LIB)
-      list(APPEND _RPATH_DIRS "${_arrow_dir}")
-      # Directly link arrow_flight so dlopen loads it (RPATH alone is insufficient
-      # for two-level namespace dynamic_lookup symbols on macOS).
-      target_link_libraries(pangrova_native PUBLIC "${_ARROW_FLIGHT_RPATH_LIB}")
-      message(STATUS "Arrow Flight linked for Velox vtable resolution: ${_ARROW_FLIGHT_RPATH_LIB}")
-    endif()
-  endif()
-
   if(APPLE)
     set_target_properties(pangrova_native PROPERTIES
       MACOSX_RPATH TRUE
@@ -661,7 +630,7 @@ if(PANGROVA_BUILD_TESTS)
   # patch_flight_types.py rewrites an Arrow header during dependency setup; a
   # silent regression there breaks the build long before any C++ test runs, so
   # its unit tests belong in the same `ctest` invocation as everything else.
-  find_package(Python3 COMPONENTS Interpreter QUIET)
+  find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
   if(Python3_Interpreter_FOUND)
     add_test(
       NAME patch_flight_types
@@ -669,8 +638,50 @@ if(PANGROVA_BUILD_TESTS)
               ${CMAKE_CURRENT_SOURCE_DIR}/test/PatchFlightTypesTest.py
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
-  else()
-    message(WARNING "Python3 not found — patch_flight_types test will not run")
+    add_test(
+      NAME canonical_function_provenance
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalFunctionProvenanceTest.py
+              --cmake ${CMAKE_COMMAND}
+              --python ${Python3_EXECUTABLE}
+              --source ${VELOX_HOME}
+              --include ${VELOX_INCLUDE_DIR}
+              --archive ${_VELOX_MONO_LIB}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+      NAME canonical_abseil_package
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalAbseilPackageTest.py
+              --cmake ${CMAKE_COMMAND}
+              --package ${absl_DIR}
+              --sdk-deps ${_DEPS_INSTALL}
+              --compiler ${CMAKE_CXX_COMPILER}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+      NAME canonical_flight_package
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalFlightPackageTest.py
+              --cmake ${CMAKE_COMMAND}
+              --deps-prefix ${PANGROVA_DEPS_PREFIX}
+              --flight-prefix ${ARROW_FLIGHT_HOME}
+              --compiler ${CMAKE_CXX_COMPILER}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+      NAME canonical_re2_package
+      COMMAND ${Python3_EXECUTABLE}
+              ${CMAKE_CURRENT_SOURCE_DIR}/test/CanonicalRe2PackageTest.py
+              --cmake ${CMAKE_COMMAND}
+              --deps-prefix ${PANGROVA_DEPS_PREFIX}
+              --absl-package ${absl_DIR}
+              "--cxx-flags=${CMAKE_CXX_FLAGS}"
+              "--linker-flags=${CMAKE_EXE_LINKER_FLAGS}"
+              --compiler ${CMAKE_CXX_COMPILER}
+              --ar ${CMAKE_AR}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
   endif()
 endif()
 

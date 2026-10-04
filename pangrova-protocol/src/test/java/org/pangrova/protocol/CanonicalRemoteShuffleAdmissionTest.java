@@ -1,5 +1,7 @@
 package org.pangrova.protocol;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -10,8 +12,60 @@ import org.pangrova.protocol.v2.ShuffleTaskOptions;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.junit.jupiter.api.Test;
+import java.util.List;
 
 class CanonicalRemoteShuffleAdmissionTest {
+
+    @Test
+    void rejectsUnspecifiedRemovedAndUnknownWireFormats() {
+        for (int value : List.of(0, 1, 3, -1, Integer.MAX_VALUE)) {
+            var request = requestBuilder();
+            var options = request.getExecutionOptions();
+            request.setExecutionOptions(options.toBuilder().setShuffle(
+                    options.getShuffle().toBuilder().setSerdeValue(value)));
+            assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(request.build()))
+                    .as("wire format %s", value).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("shuffle execution binding");
+        }
+    }
+
+    @Test
+    void onlyExactCanonicalCompressionNamesAreAdmitted() {
+        for (String value : List.of("none", "lz4", "zstd")) {
+            var request = requestBuilder();
+            var options = request.getExecutionOptions();
+            request.setExecutionOptions(options.toBuilder().setShuffle(
+                    options.getShuffle().toBuilder().setCompressionCodec(value)));
+            assertThatCode(() -> CanonicalTaskRequests.validateForAdmission(request.build()))
+                    .as("codec %s", value).doesNotThrowAnyException();
+        }
+        for (String value : List.of("", "NONE", "LZ4", "ZSTD", "gzip", " none")) {
+            var request = requestBuilder();
+            var options = request.getExecutionOptions();
+            request.setExecutionOptions(options.toBuilder().setShuffle(
+                    options.getShuffle().toBuilder().setCompressionCodec(value)));
+            assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(request.build()))
+                    .as("codec %s", value).isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("shuffle execution binding");
+        }
+    }
+
+    @Test
+    void batchRowsMustFitPositiveSignedExecutionDomain() {
+        for (int value : List.of(0, -1, Integer.MIN_VALUE)) {
+            var request = requestBuilder();
+            var options = request.getExecutionOptions();
+            request.setExecutionOptions(options.toBuilder().setShuffle(
+                    options.getShuffle().toBuilder().setBatchSize(value)));
+            assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(request.build()))
+                    .as("batch rows %s", value).isInstanceOf(IllegalArgumentException.class);
+        }
+        var request = requestBuilder();
+        var options = request.getExecutionOptions();
+        request.setExecutionOptions(options.toBuilder().setShuffle(
+                options.getShuffle().toBuilder().setBatchSize(Integer.MAX_VALUE)));
+        assertThatCode(() -> CanonicalTaskRequests.validateForAdmission(request.build())).doesNotThrowAnyException();
+    }
 
     @Test
     void acceptsOwnerAndEpochBoundRemoteShuffle() {
@@ -50,6 +104,7 @@ class CanonicalRemoteShuffleAdmissionTest {
         byte[] plan = new byte[] {1};
         var request = CanonicalTaskRequestTestFixture.builder(
                 "task-1", "query-1", TaskKind.TASK_KIND_SHUFFLE_WRITE, plan);
+        request.getResourceGrantBuilder().setShuffleBufferBytes(65_536);
         return request.setExecutionOptions(TaskExecutionOptions.newBuilder()
                 .setShuffle(shuffle().setExecutionBinding(binding()
                         .setExecutionOwner(request.getAttempt().getExecutionOwner()))));

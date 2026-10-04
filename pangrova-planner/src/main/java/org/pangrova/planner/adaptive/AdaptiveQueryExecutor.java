@@ -1,5 +1,7 @@
 package org.pangrova.planner.adaptive;
 
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
+
 import java.util.Optional;
 
 import org.pangrova.planner.stats.StatisticsCollector;
@@ -114,7 +116,7 @@ public class AdaptiveQueryExecutor {
      */
     public ReOptimizationResult processStageCompletion(
             ShuffleStageStats stats, JoinStrategy currentJoinStrategy,
-            long broadcastThreshold, String tableName) {
+            long broadcastThreshold, QualifiedTableName tableName) {
 
         ReOptimizationResult result = processStageCompletion(
                 stats, currentJoinStrategy, broadcastThreshold);

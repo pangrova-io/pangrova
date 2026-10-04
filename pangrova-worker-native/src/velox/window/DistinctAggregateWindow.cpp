@@ -9,6 +9,7 @@
 #include "velox/exec/DistinctAggregations.h"
 #include "velox/exec/RowContainer.h"
 #include "velox/exec/WindowFunction.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 namespace pangrova::velox {
 namespace {
@@ -25,7 +26,13 @@ class DistinctAggregateWindow final : public exec::WindowFunction {
       : WindowFunction(resultType, pool, allocator) {
     if (arguments.empty()) throw std::invalid_argument("DISTINCT aggregate window requires an argument");
     initializeArguments(arguments);
-    info_.intermediateType = exec::resolveIntermediateType(name, inputType_->children());
+    const auto registry = config.functionRegistrySnapshot();
+    if (!registry) throw std::invalid_argument("DISTINCT window requires its admitted function registry owner");
+    const auto binding = registry->bindAggregate(name, inputType_->children());
+    if (!binding || !resultType->equivalent(*binding->resultType)) {
+      throw std::invalid_argument("DISTINCT window does not match its owned aggregate signature: " + name);
+    }
+    info_.intermediateType = binding->intermediateType;
     info_.function = exec::Aggregate::create(name, core::AggregationNode::Step::kSingle,
         inputType_->children(), resultType, config);
     info_.function->setConstantInputs(info_.constantInputs);

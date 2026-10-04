@@ -134,21 +134,33 @@ struct CallbackSnapshot {
   jmethodID doubleValue = nullptr;
 };
 
-class CallbackRegistry {
+}  // namespace
+
+class JvmFunctionCallbacks {
  public:
-  static CallbackRegistry& instance() {
-    static CallbackRegistry registry;
-    return registry;
+  ~JvmFunctionCallbacks() {
+    // Runtime shutdown drains execution before the JVM is unloaded. Factories
+    // and in-flight batches may retain this generation beyond active publication.
+    if (pangrova::jni::globalJavaVM()) {
+      try {
+        ScopedJniEnv scopedEnv;
+        clearLocked(scopedEnv.get());
+      } catch (...) {
+        // Destruction cannot throw. If the VM can no longer attach, the VM owns
+        // its remaining reference reclamation; never invoke a dangling JNIEnv.
+      }
+    }
   }
 
   void install(JNIEnv* env, jobject callback) {
     if (!callback) {
       throw std::invalid_argument("JVM function callback must not be null");
     }
-    std::unique_lock lock(mutex_);
-    clearLocked(env);
     try {
       callback_ = env->NewGlobalRef(callback);
+      if (!callback_) {
+        throw std::runtime_error("Failed to retain JVM function callback");
+      }
       callbackClass_ = globalClass(env, "org/pangrova/worker/jni/NativeFunctionBridge");
       objectClass_ = globalClass(env, "java/lang/Object");
       objectArrayClass_ = globalClass(env, "[Ljava/lang/Object;");
@@ -186,13 +198,7 @@ class CallbackRegistry {
     }
   }
 
-  void clear(JNIEnv* env) {
-    std::unique_lock lock(mutex_);
-    clearLocked(env);
-  }
-
   CallbackSnapshot snapshot(JNIEnv* env) const {
-    std::shared_lock lock(mutex_);
     if (!callback_ || !evaluateBatch_) {
       throw std::runtime_error("JVM function callback is not installed");
     }
@@ -299,7 +305,6 @@ class CallbackRegistry {
     doubleValue_ = nullptr;
   }
 
-  mutable std::shared_mutex mutex_;
   jobject callback_ = nullptr;
   jclass callbackClass_ = nullptr;
   jclass objectClass_ = nullptr;
@@ -324,6 +329,11 @@ class CallbackRegistry {
   jmethodID floatValue_ = nullptr;
   jmethodID doubleValue_ = nullptr;
 };
+
+namespace {
+
+std::mutex callbackPublicationMutex;
+JvmFunctionCallbackOwner activeCallbacks;
 
 std::string consumeJavaException(JNIEnv* env) {
   jthrowable failure = env->ExceptionOccurred();
@@ -786,9 +796,11 @@ class JvmScalarFunction final : public exec::VectorFunction {
  public:
   JvmScalarFunction(
       std::string name,
-      TypePtr returnType)
+      TypePtr returnType,
+      JvmFunctionCallbackOwner callbacks)
       : name_(std::move(name)),
-        returnType_(std::move(returnType)) {}
+        returnType_(std::move(returnType)),
+        callbacks_(std::move(callbacks)) {}
 
   void apply(
       const SelectivityVector& rows,
@@ -796,13 +808,16 @@ class JvmScalarFunction final : public exec::VectorFunction {
       const TypePtr&,
       exec::EvalCtx& context,
       VectorPtr& result) const override {
+    if (!callbacks_) {
+      throw std::runtime_error("JVM scalar function has no bound callback generation");
+    }
     ScopedJniEnv scopedEnv;
     JNIEnv* env = scopedEnv.get();
     if (env->PushLocalFrame(256) < 0) {
       throw std::runtime_error("Failed to allocate JNI local frame");
     }
     try {
-      const auto callback = CallbackRegistry::instance().snapshot(env);
+      const auto callback = callbacks_->snapshot(env);
       exec::DecodedArgs decoded(rows, args, context);
       std::vector<vector_size_t> requestedRows;
       requestedRows.reserve(rows.countSelected());
@@ -1130,22 +1145,53 @@ class JvmScalarFunction final : public exec::VectorFunction {
 
   std::string name_;
   TypePtr returnType_;
+  JvmFunctionCallbackOwner callbacks_;
 };
 
 }  // namespace
 
-void installJvmFunctionCallbacks(JNIEnv* env, jobject callback) {
-  CallbackRegistry::instance().install(env, callback);
+JvmFunctionCallbackOwner prepareJvmFunctionCallbacks(JNIEnv* env, jobject callback) {
+  auto owner = std::make_shared<JvmFunctionCallbacks>();
+  owner->install(env, callback);
+  return owner;
 }
 
-void clearJvmFunctionCallbacks(JNIEnv* env) {
-  CallbackRegistry::instance().clear(env);
+void publishJvmFunctionCallbacks(JvmFunctionCallbackOwner owner) {
+  if (!owner) {
+    throw std::invalid_argument("Cannot publish an empty JVM callback generation");
+  }
+  // Reference release (which may attach to JNI) must happen outside the mutex.
+  JvmFunctionCallbackOwner previous;
+  {
+    std::lock_guard lock(callbackPublicationMutex);
+    previous = std::exchange(activeCallbacks, std::move(owner));
+  }
+}
+
+void clearJvmFunctionCallbacks(JNIEnv* /*env*/) {
+  JvmFunctionCallbackOwner previous;
+  {
+    std::lock_guard lock(callbackPublicationMutex);
+    previous = std::exchange(activeCallbacks, {});
+  }
+}
+
+void bindJvmFunctionCallbacks(ScalarUdfSpec& spec, JvmFunctionCallbackOwner owner) {
+  if (!owner) {
+    throw std::invalid_argument("Cannot bind an empty JVM callback generation");
+  }
+  spec.vectorFunctionFactory =
+      [name = spec.name, output = spec.outputType, owner = std::move(owner)](
+          const std::string&, const std::vector<exec::VectorFunctionArg>&) {
+        return std::make_unique<JvmScalarFunction>(name, output, owner);
+      };
 }
 
 ScalarUdfSpec makeJvmScalarFunctionSpec(
     const std::string& name,
     const std::vector<std::string>& argumentTypes,
-    const std::string& returnType) {
+    const std::string& returnType,
+    bool deterministic) {
   ScalarUdfSpec spec;
   spec.name = name;
   spec.inputTypes.reserve(argumentTypes.size());
@@ -1154,13 +1200,14 @@ ScalarUdfSpec makeJvmScalarFunctionSpec(
   }
   spec.outputType = parseType(returnType);
   spec.stateful = false;
+  spec.deterministic = deterministic;
   spec.vectorFunctionFactory =
       [functionName = spec.name,
        output = spec.outputType](
           const std::string&,
           const std::vector<exec::VectorFunctionArg>&) {
         return std::make_unique<JvmScalarFunction>(
-            functionName, output);
+            functionName, output, nullptr);
       };
   return spec;
 }

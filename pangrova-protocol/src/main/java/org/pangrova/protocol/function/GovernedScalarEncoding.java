@@ -20,7 +20,8 @@ final class GovernedScalarEncoding {
                 yield new GovernedScalarValue.Signature((ByteString) value);
             }
             case "UNSIGNED_DECIMAL" -> {
-                require(field.getType() == FieldDescriptor.Type.UINT32 || field.getType() == FieldDescriptor.Type.UINT64);
+                require(field.getType() == FieldDescriptor.Type.UINT32
+                        || field.getType() == FieldDescriptor.Type.UINT64);
                 yield new GovernedScalarValue.Unsigned(((Number) value).longValue());
             }
             case "BOOLEAN" -> {
@@ -42,17 +43,55 @@ final class GovernedScalarEncoding {
             case "BASE64" -> signature(value);
             case "UNSIGNED_DECIMAL" -> unsigned(value);
             case "BOOLEAN" -> {
-                if (!value.equals("true") && !value.equals("false")) throw new IllegalArgumentException("Invalid binding boolean");
+                if (!value.equals("true") && !value.equals("false")) {
+                    throw new IllegalArgumentException("Invalid binding boolean");
+                }
                 yield new GovernedScalarValue.Flag(Boolean.parseBoolean(value));
             }
             case "EXACT_FLOAT" -> {
-                if (!value.matches("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?")) {
+                if (!decimalFloating(value)) {
                     throw new IllegalArgumentException("Invalid decimal floating binding");
                 }
                 yield new GovernedScalarValue.Floating(Double.parseDouble(value));
             }
             default -> throw new IllegalArgumentException("Unknown governed encoding: " + encoding);
         };
+    }
+
+    private static boolean decimalFloating(String value) {
+        int position = value.startsWith("-") ? 1 : 0;
+        if (position == value.length()) return false;
+        char first = value.charAt(position);
+        if (first == '0') {
+            position++;
+        } else if (first >= '1' && first <= '9') {
+            position = digitsEnd(value, position);
+        } else {
+            return false;
+        }
+        if (position < value.length() && value.charAt(position) == '.') {
+            int start = ++position;
+            position = digitsEnd(value, position);
+            if (position == start) return false;
+        }
+        if (position < value.length() && (value.charAt(position) == 'e' || value.charAt(position) == 'E')) {
+            return decimalExponent(value, position + 1);
+        }
+        return position == value.length();
+    }
+
+    private static boolean decimalExponent(String value, int position) {
+        if (position < value.length() && (value.charAt(position) == '+' || value.charAt(position) == '-')) {
+            position++;
+        }
+        return position < value.length() && digitsEnd(value, position) == value.length();
+    }
+
+    private static int digitsEnd(String value, int position) {
+        while (position < value.length() && value.charAt(position) >= '0' && value.charAt(position) <= '9') {
+            position++;
+        }
+        return position;
     }
 
     private static GovernedScalarValue signature(String encoded) {

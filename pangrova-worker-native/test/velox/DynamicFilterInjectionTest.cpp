@@ -6,6 +6,7 @@
 // the Velox execution engine for partition pruning at scan level.
 
 #include <gtest/gtest.h>
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <memory>
 #include <string>
@@ -39,7 +40,9 @@ std::shared_ptr<facebook::velox::memory::MemoryPool> DynamicFilterInjectionTest:
 // ---------------------------------------------------------------------------
 
 TEST_F(DynamicFilterInjectionTest, PlanConverterTracksScanNodeOutputTypes) {
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
 
   // After converting a plan with a TableScan, the converter should
   // record the scan node's output type for dynamic filter column resolution.

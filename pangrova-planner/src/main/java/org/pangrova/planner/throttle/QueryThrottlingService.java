@@ -1,9 +1,14 @@
 package org.pangrova.planner.throttle;
 
 import com.google.common.util.concurrent.RateLimiter;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 
 import java.time.Instant;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
@@ -13,11 +18,14 @@ import java.util.concurrent.Semaphore;
  * Acquisition order: global → tenant → user.
  * On rejection: release all previously acquired permits in reverse order.
  */
+@ThreadSafe
 public class QueryThrottlingService {
 
     private final Semaphore globalConcurrency;
     private final ConcurrentMap<String, RateLimiter> tenantLimiters;
     private final ConcurrentMap<String, RateLimiter> userLimiters;
+    private final Map<ThrottlePermit, Boolean> issuedPermits =
+            Collections.synchronizedMap(new IdentityHashMap<>());
     private volatile double tenantRate;
     private volatile double userRate;
 
@@ -29,6 +37,9 @@ public class QueryThrottlingService {
      * @param userRate per-user queries per second
      */
     public QueryThrottlingService(int globalLimit, double tenantRate, double userRate) {
+        if (globalLimit < 0) throw new IllegalArgumentException("global concurrency limit must not be negative");
+        requireRate(tenantRate);
+        requireRate(userRate);
         this.globalConcurrency = new Semaphore(globalLimit);
         this.tenantLimiters = new ConcurrentHashMap<>();
         this.userLimiters = new ConcurrentHashMap<>();
@@ -43,26 +54,36 @@ public class QueryThrottlingService {
      * consumed tokens are non-refundable and regenerate over time.
      */
     public ThrottleResult tryAcquire(String tenantId, String userId) {
+        Objects.requireNonNull(tenantId, "tenantId");
+        Objects.requireNonNull(userId, "userId");
         if (!tryAcquireGlobal()) {
             return ThrottleResult.rejected(
                     PangrovaErrorCode.THROTTLE_GLOBAL_LIMIT.getDescription());
         }
-        if (!tryAcquireTenant(tenantId)) {
-            globalConcurrency.release();
-            return ThrottleResult.rejected(
-                    PangrovaErrorCode.THROTTLE_TENANT_LIMIT.getDescription());
+        boolean retained = false;
+        try {
+            if (!tryAcquireTenant(tenantId)) {
+                return ThrottleResult.rejected(
+                        PangrovaErrorCode.THROTTLE_TENANT_LIMIT.getDescription());
+            }
+            if (!tryAcquireUser(userId)) {
+                return ThrottleResult.rejected(
+                        PangrovaErrorCode.THROTTLE_USER_LIMIT.getDescription());
+            }
+            ThrottlePermit permit = new ThrottlePermit(userId, tenantId, Instant.now());
+            ThrottleResult result = ThrottleResult.success(permit);
+            issuedPermits.put(permit, Boolean.TRUE);
+            retained = true;
+            return result;
+        } finally {
+            if (!retained) globalConcurrency.release();
         }
-        if (!tryAcquireUser(userId)) {
-            globalConcurrency.release();
-            return ThrottleResult.rejected(
-                    PangrovaErrorCode.THROTTLE_USER_LIMIT.getDescription());
-        }
-        ThrottlePermit permit = new ThrottlePermit(userId, tenantId, Instant.now());
-        return ThrottleResult.success(permit);
     }
 
     /**
      * Release the global concurrency permit acquired during {@link #tryAcquire}.
+     * Only the exact object issued by this service can return a slot, once.
+     * Unknown, copied, null and already-returned permits do not change capacity.
      *
      * <p>Design note: Only the global Semaphore permit is released because tenant and user
      * layers use Guava {@link RateLimiter}, which is a rate-based (token bucket) limiter,
@@ -71,7 +92,7 @@ public class QueryThrottlingService {
      * configured rate. Therefore, only the Semaphore-based global layer needs explicit release.</p>
      */
     public void release(ThrottlePermit permit) {
-        globalConcurrency.release();
+        if (issuedPermits.remove(permit) != null) globalConcurrency.release();
     }
 
     public int availableGlobalPermits() {
@@ -108,6 +129,8 @@ public class QueryThrottlingService {
      * Used by {@link AdaptiveThrottlingController} for adaptive throttling.
      */
     public void adjustRates(double newTenantRate, double newUserRate) {
+        requireRate(newTenantRate);
+        requireRate(newUserRate);
         this.tenantRate = newTenantRate;
         this.userRate = newUserRate;
         tenantLimiters.values().forEach(l -> l.setRate(newTenantRate));
@@ -116,6 +139,12 @@ public class QueryThrottlingService {
 
     private boolean tryAcquireGlobal() {
         return globalConcurrency.tryAcquire();
+    }
+
+    private static void requireRate(double rate) {
+        if (!Double.isFinite(rate) || rate <= 0) {
+            throw new IllegalArgumentException("throttle rate must be finite and positive");
+        }
     }
 
     private boolean tryAcquireTenant(String tenantId) {

@@ -30,6 +30,7 @@ namespace pangrova::lance {
 class LanceBatchWriter;
 class LancePhysicalBatchWriter;
 }
+namespace pangrova::observability { class SpanScope; }
 
 namespace pangrova::executor {
 
@@ -117,6 +118,7 @@ class PlanExecutionDriver {
       const std::string& plan_node_id, const std::string& filter_proto);
 
  private:
+  struct Execution;
   struct PendingDynamicFilter {
     std::string requested_plan_node_id;
     std::string column_name;
@@ -129,6 +131,20 @@ class PlanExecutionDriver {
 
   // Core Velox execution logic — runs on the background thread.
   void executeVeloxPlan();
+  std::shared_ptr<Execution> prepareExecution(observability::SpanScope* span);
+  bool publishRunner(const std::shared_ptr<Execution>& execution);
+  void startOutputDrains(const std::shared_ptr<Execution>& execution);
+  void drainWriteOutput(const std::shared_ptr<Execution>& execution);
+  void completeExecution(const std::shared_ptr<Execution>& execution, bool success);
+  std::string validateProducer(const std::shared_ptr<Execution>& execution, bool& success);
+  void completeShuffleDrain(const std::shared_ptr<Execution>& execution, bool success);
+  bool completeWriteDrain(const std::shared_ptr<Execution>& execution, bool success);
+  void finishSuccessfulExecution(const std::shared_ptr<Execution>& execution);
+  std::string stopExecution(const std::shared_ptr<Execution>& execution);
+  void reportExecutionFailure(std::exception_ptr failure, const char* context,
+                              const std::string& cleanupErrors);
+  bool dispatchExecution(const std::shared_ptr<Execution>& execution);
+  void signalCompletion();
 
   // Close failure channels before publishing FAILED to terminal observers.
   void notifyFailure(const std::string& message);
@@ -149,6 +165,7 @@ class PlanExecutionDriver {
   // join() and ~PlanExecutionDriver() both wait on completion_future_.
   // Declared in this order so completion_future_ initializes after the promise.
   std::promise<void> completion_promise_;
+  std::atomic<bool> completion_signalled_{false};
   std::future<void> completion_future_;
   std::unique_ptr<std::thread> fallback_thread_;
 

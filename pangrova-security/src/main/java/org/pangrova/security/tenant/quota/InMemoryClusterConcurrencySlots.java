@@ -1,45 +1,53 @@
 package org.pangrova.security.tenant.quota;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import org.pangrova.common.concurrent.ThreadSafe;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
 /**
- * A-ADMISSION-01: single-JVM {@link ClusterConcurrencySlots} where this coordinator's process is
- * the sole authority (single-node deployments, or when all queries for a tenant are routed to one
- * coordinator). Reservation is a lock-free CAS on a per-tenant counter.
+ * Single-process exact query reservations. A short monitor publishes the owner and count together;
+ * there is no I/O or callback under this monitor. This is not a shared multi-process authority.
  */
+@ThreadSafe
 public final class InMemoryClusterConcurrencySlots implements ClusterConcurrencySlots {
 
-    private final ConcurrentHashMap<String, AtomicInteger> active = new ConcurrentHashMap<>();
+    private final Map<String, Integer> active = new HashMap<>();
+    private final Map<String, String> queries = new HashMap<>();
 
     @Override
-    public boolean tryReserve(String tenantId, int limit) {
-        if (limit <= 0) {
+    public synchronized boolean tryReserve(String tenantId, String queryId, int limit) {
+        requireIdentity(tenantId, queryId);
+        String existing = queries.get(queryId);
+        if (existing != null) {
+            return existing.equals(tenantId);
+        }
+        int current = active.getOrDefault(tenantId, 0);
+        if (limit <= 0 || current >= limit) {
             return false;
         }
-        AtomicInteger counter = active.computeIfAbsent(tenantId, k -> new AtomicInteger());
-        while (true) {
-            int current = counter.get();
-            if (current >= limit) {
-                return false;
-            }
-            if (counter.compareAndSet(current, current + 1)) {
-                return true;
-            }
+        queries.put(queryId, tenantId);
+        active.put(tenantId, current + 1);
+        return true;
+    }
+
+    @Override
+    public synchronized void release(String tenantId, String queryId) {
+        requireIdentity(tenantId, queryId);
+        if (queries.remove(queryId, tenantId)) {
+            active.compute(tenantId, (tenant, count) -> count == 1 ? null : count - 1);
         }
     }
 
     @Override
-    public void release(String tenantId) {
-        AtomicInteger counter = active.get(tenantId);
-        if (counter != null && counter.decrementAndGet() < 0) {
-            counter.set(0);
-        }
+    public synchronized int active(String tenantId) {
+        return active.getOrDefault(Objects.requireNonNull(tenantId, "tenantId"), 0);
     }
 
-    @Override
-    public int active(String tenantId) {
-        AtomicInteger counter = active.get(tenantId);
-        return counter != null ? Math.max(0, counter.get()) : 0;
+    static void requireIdentity(String tenantId, String queryId) {
+        if (Objects.requireNonNull(tenantId, "tenantId").isBlank()
+                || Objects.requireNonNull(queryId, "queryId").isBlank()) {
+            throw new IllegalArgumentException("tenant and query identities must not be blank");
+        }
     }
 }

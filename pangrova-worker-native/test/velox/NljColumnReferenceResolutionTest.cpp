@@ -11,6 +11,8 @@
 // **Validates: Requirements 4.4**
 
 #include <gtest/gtest.h>
+#include "../CanonicalTestPlan.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <memory>
 #include <string>
@@ -52,7 +54,8 @@ namespace {
 
 void addI64Column(substrait::NamedStruct* schema, const std::string& name) {
   schema->add_names(name);
-  schema->mutable_struct_()->add_types()->mutable_i64();
+  schema->mutable_struct_()->add_types()->mutable_i64()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
 }
 
 void setFieldRef(substrait::Expression* expr, int field_index) {
@@ -120,7 +123,8 @@ std::vector<uint8_t> buildNljPlan(
   auto* expr = join->mutable_expression();
   auto* func = expr->mutable_scalar_function();
   func->set_function_reference(0);  // anchor for "lt"
-  func->mutable_output_type()->mutable_bool_();
+  func->mutable_output_type()->mutable_bool_()
+      ->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
   // Arg 0: left column at combined index = condition_left_col.
   setFieldRef(func->add_arguments()->mutable_value(), condition_left_col);
   // Arg 1: right column at combined index = left_width + condition_right_col.
@@ -129,7 +133,7 @@ std::vector<uint8_t> buildNljPlan(
       left_width + condition_right_col);
 
   std::string bytes;
-  plan.SerializeToString(&bytes);
+  pangrova::test::canonicalTestPlan(plan).SerializeToString(&bytes);
   return {bytes.begin(), bytes.end()};
 }
 
@@ -168,7 +172,9 @@ TEST_P(NljColumnReferenceResolutionTest, FilterUsesCorrectFieldIndices) {
       param.condition_right_col);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
   EXPECT_EQ(result->name(), "NestedLoopJoin");
@@ -246,7 +252,9 @@ TEST_P(NljColumnReferenceResolutionTest, CombinedSchemaOrderIsLeftThenRight) {
       param.condition_right_col);
   ASSERT_FALSE(plan_bytes.empty());
 
-  VeloxPlanConverter converter;
+  const auto converter_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(plan_bytes, {});
   ASSERT_NE(result, nullptr);
 

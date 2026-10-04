@@ -6,9 +6,16 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <limits>
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <string>
 #include <unordered_set>
+#include <vector>
 
 #include <openssl/evp.h>
 
@@ -76,27 +83,79 @@ std::optional<int64_t> extractFetchInteger(
   return value;
 }
 
+struct FetchBounds {
+  int64_t offset{0};
+  std::optional<int64_t> count;
+};
+
+FetchBounds fetchBounds(const substrait::FetchRel& fetch) {
+  FetchBounds result;
+  switch (fetch.offset_mode_case()) {
+    case substrait::FetchRel::kOffsetExpr:
+      result.offset = extractFetchInteger(fetch.offset_expr(), "offset").value_or(0);
+      break;
+    case substrait::FetchRel::kOffset:
+      throw std::runtime_error("VeloxPlanConverter: deprecated FetchRel.offset is not accepted; use offset_expr");
+    case substrait::FetchRel::OFFSET_MODE_NOT_SET:
+      break;
+  }
+  switch (fetch.count_mode_case()) {
+    case substrait::FetchRel::kCountExpr:
+      result.count = extractFetchInteger(fetch.count_expr(), "count");
+      break;
+    case substrait::FetchRel::kCount:
+      throw std::runtime_error("VeloxPlanConverter: deprecated FetchRel.count is not accepted; use count_expr");
+    case substrait::FetchRel::COUNT_MODE_NOT_SET:
+      break;
+  }
+  return result;
+}
+
+struct RestoredSort {
+  std::shared_ptr<const facebook::velox::core::OrderByNode> node;
+  std::vector<std::shared_ptr<const facebook::velox::core::ProjectNode>> projections;
+};
+
+// Only exact prefix restoration: no arbitrary computation, column reordering,
+// duplication, join, exchange or function traversal is an ordering proof.
+RestoredSort restoredSort(facebook::velox::core::PlanNodePtr input) {
+  RestoredSort result;
+  while (const auto project = std::dynamic_pointer_cast<const facebook::velox::core::ProjectNode>(input)) {
+    if (project->sources().size() != 1) return {};
+    const auto source = project->sources().front();
+    if (project->projections().size() > source->outputType()->size()) return {};
+    for (size_t ordinal = 0; ordinal < project->projections().size(); ++ordinal) {
+      const auto field = std::dynamic_pointer_cast<const facebook::velox::core::FieldAccessTypedExpr>(
+          project->projections().at(ordinal));
+      if (!field || !field->inputs().empty() || field->name() != source->outputType()->nameOf(ordinal) ||
+          !field->type()->equivalent(*source->outputType()->childAt(ordinal))) return {};
+    }
+    result.projections.push_back(project);
+    input = source;
+  }
+  result.node = std::dynamic_pointer_cast<const facebook::velox::core::OrderByNode>(input);
+  return result;
+}
+
 }
 
 facebook::velox::core::SortOrder VeloxPlanConverter::convertSortOrder(
     const substrait::SortField& sort_field) {
-  bool ascending = true;
-  bool nulls_first = true;
-  if (sort_field.has_direction()) {
-    switch (sort_field.direction()) {
-      case substrait::SortField::SORT_DIRECTION_ASC_NULLS_FIRST:
-        ascending = true; nulls_first = true; break;
-      case substrait::SortField::SORT_DIRECTION_ASC_NULLS_LAST:
-        ascending = true; nulls_first = false; break;
-      case substrait::SortField::SORT_DIRECTION_DESC_NULLS_FIRST:
-        ascending = false; nulls_first = true; break;
-      case substrait::SortField::SORT_DIRECTION_DESC_NULLS_LAST:
-        ascending = false; nulls_first = false; break;
-      default:
-        break;
-    }
+  if (!sort_field.has_direction()) {
+    throw std::runtime_error("Sort requires an explicit ordinary direction; custom comparators are unsupported");
   }
-  return facebook::velox::core::SortOrder(ascending, nulls_first);
+  switch (sort_field.direction()) {
+      case substrait::SortField::SORT_DIRECTION_ASC_NULLS_FIRST:
+        return {true, true};
+      case substrait::SortField::SORT_DIRECTION_ASC_NULLS_LAST:
+        return {true, false};
+      case substrait::SortField::SORT_DIRECTION_DESC_NULLS_FIRST:
+        return {false, true};
+      case substrait::SortField::SORT_DIRECTION_DESC_NULLS_LAST:
+        return {false, false};
+      default:
+        throw std::runtime_error("Sort direction is missing, unknown or not an ordinary four-direction order");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -114,16 +173,25 @@ VeloxPlanConverter::convertSortRel(
   std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>
       sorting_keys;
   std::vector<facebook::velox::core::SortOrder> sorting_orders;
+  auto names = input_type->names();
+  std::vector<facebook::velox::core::TypedExprPtr> projections;
+  for (size_t ordinal = 0; ordinal < input_type->size(); ++ordinal) {
+    projections.push_back(std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(
+        input_type->childAt(ordinal), input_type->nameOf(ordinal)));
+  }
+  if (sort_rel.sorts_size() == 0) throw std::runtime_error("SortRel requires at least one ordering key");
 
   for (const auto& sort_field : sort_rel.sorts()) {
-    auto expr = convertExpression(sort_field.expr(), input_type);
-    auto field = std::dynamic_pointer_cast<
-        const facebook::velox::core::FieldAccessTypedExpr>(expr);
-    if (field) {
-      sorting_keys.push_back(field);
-      sorting_orders.push_back(convertSortOrder(sort_field));
-    }
+    if (!sort_field.has_expr()) throw std::runtime_error("SortField requires an expression");
+    sorting_orders.push_back(convertSortOrder(sort_field));
+    auto value = aggregateInputValue(sort_field.expr(), input_type, names, projections, false);
+    const auto field = std::dynamic_pointer_cast<const facebook::velox::core::FieldAccessTypedExpr>(value);
+    if (!field || !field->inputs().empty()) throw std::runtime_error("Prepared sorting key must be a direct typed field");
+    sorting_keys.push_back(field);
   }
+  const bool computed = names.size() != input_type->size();
+  if (computed) input = std::make_shared<facebook::velox::core::ProjectNode>(
+      nextNodeId(), std::move(names), std::move(projections), input);
 
   // Note: OrderByNode is NOT split into partial→final here because
   // SortRel is almost always followed by FetchRel (ORDER BY + LIMIT).
@@ -131,12 +199,20 @@ VeloxPlanConverter::convertSortRel(
   // TopNNode(partial=true) → TopNNode(partial=false), which handles
   // parallel-safe sorting with limit.  Splitting OrderBy here would
   // conflict with that optimization.
-  return std::make_shared<facebook::velox::core::OrderByNode>(
+  facebook::velox::core::PlanNodePtr ordered = std::make_shared<facebook::velox::core::OrderByNode>(
       nextNodeId(),
       sorting_keys,
       sorting_orders,
       /*isPartial=*/false,
       input);
+  if (!computed) return ordered;
+  std::vector<facebook::velox::core::TypedExprPtr> restored;
+  for (size_t ordinal = 0; ordinal < input_type->size(); ++ordinal) {
+    restored.push_back(std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(
+        input_type->childAt(ordinal), input_type->nameOf(ordinal)));
+  }
+  return std::make_shared<facebook::velox::core::ProjectNode>(
+      nextNodeId(), input_type->names(), std::move(restored), ordered);
 }
 
 // ---------------------------------------------------------------------------
@@ -149,32 +225,9 @@ VeloxPlanConverter::convertFetchRel(
     const std::vector<split::SplitConfig>& splits) {
   auto input = convertRel(fetch_rel.input(), splits);
 
-  int64_t offset = 0;
-  switch (fetch_rel.offset_mode_case()) {
-    case substrait::FetchRel::kOffsetExpr:
-      offset = extractFetchInteger(fetch_rel.offset_expr(), "offset")
-                   .value_or(0);
-      break;
-    case substrait::FetchRel::kOffset:
-      throw std::runtime_error(
-          "VeloxPlanConverter: deprecated FetchRel.offset is not accepted; "
-          "use offset_expr");
-    case substrait::FetchRel::OFFSET_MODE_NOT_SET:
-      break;
-  }
-
-  std::optional<int64_t> bounded_count;
-  switch (fetch_rel.count_mode_case()) {
-    case substrait::FetchRel::kCountExpr:
-      bounded_count = extractFetchInteger(fetch_rel.count_expr(), "count");
-      break;
-    case substrait::FetchRel::kCount:
-      throw std::runtime_error(
-          "VeloxPlanConverter: deprecated FetchRel.count is not accepted; "
-          "use count_expr");
-    case substrait::FetchRel::COUNT_MODE_NOT_SET:
-      break;
-  }
+  const auto bounds = fetchBounds(fetch_rel);
+  const auto offset = bounds.offset;
+  const auto& bounded_count = bounds.count;
 
   if (!bounded_count.has_value() && offset == 0) {
     return input;
@@ -191,15 +244,12 @@ VeloxPlanConverter::convertFetchRel(
 
   // If the input is an OrderByNode, optimize to TopNNode.
   // Parallel-safe TopN: split into isPartial=true → isPartial=false.
-  // In Velox parallel mode, each driver independently executes the plan.
-  // A single TopNNode(isPartial=false) produces per-driver top-N results
-  // that are concatenated without global merge — yielding N×max_drivers
-  // rows in arbitrary order.  Splitting into partial + final ensures each
-  // driver emits its local top-N (partial), then a single-threaded final
-  // TopNNode merges all partial results into the correct global top-N.
+  // A final TopN requires one driver for its entire pipeline. The real
+  // gather is the pipeline boundary: producers may run partial TopN in
+  // parallel, then exactly one consumer merges those local candidates.
   // This is the same pattern as kPartial→kFinal for AggregationNode.
-  auto order_by = std::dynamic_pointer_cast<
-      const facebook::velox::core::OrderByNode>(input);
+  const auto sorting = restoredSort(input);
+  const auto& order_by = sorting.node;
   constexpr int64_t kMaxTopN =
       static_cast<int64_t>(std::numeric_limits<int32_t>::max());
   if (order_by && offset == 0 && count <= kMaxTopN) {
@@ -210,13 +260,23 @@ VeloxPlanConverter::convertFetchRel(
         static_cast<int32_t>(count),
         /*isPartial=*/true,
         order_by->sources()[0]);
-    return std::make_shared<facebook::velox::core::TopNNode>(
+    const auto gathered = facebook::velox::core::LocalPartitionNode::gather(nextNodeId(), {partialTopN});
+    facebook::velox::core::PlanNodePtr result = std::make_shared<facebook::velox::core::TopNNode>(
         nextNodeId(),
         order_by->sortingKeys(),
         order_by->sortingOrders(),
         static_cast<int32_t>(count),
         /*isPartial=*/false,
-        partialTopN);
+        gathered);
+    for (auto it = sorting.projections.rbegin(); it != sorting.projections.rend(); ++it) {
+      result = std::make_shared<facebook::velox::core::ProjectNode>(nextNodeId(),
+          (*it)->outputType()->names(), (*it)->projections(), result);
+    }
+    if (result->outputType()->names() != input->outputType()->names() ||
+        !result->outputType()->equivalent(*input->outputType())) {
+      throw std::runtime_error("Fetch Top-N rewrite changed the declared sort output schema");
+    }
+    return result;
   }
 
   // Parallel-safe Limit: each driver may emit at most offset + count rows,
@@ -232,12 +292,13 @@ VeloxPlanConverter::convertFetchRel(
       partial_count,
       /*isPartial=*/true,
       input);
+  const auto gathered = facebook::velox::core::LocalPartitionNode::gather(nextNodeId(), {partialLimit});
   return std::make_shared<facebook::velox::core::LimitNode>(
       nextNodeId(),
       offset,
       count,
       /*isPartial=*/false,
-      partialLimit);
+      gathered);
 }
 
 // ---------------------------------------------------------------------------
@@ -246,4 +307,3 @@ VeloxPlanConverter::convertFetchRel(
 
 
 }  // namespace pangrova::velox
-

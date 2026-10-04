@@ -1,9 +1,25 @@
 # AI Native 通用函数契约单一真源实施规格
 
-状态：待主线完整审阅后授权生产实现；本文件不是已实现能力声明。
-源码复证日期：2026-10-02。范围：数据库内核函数与分布式准入，不含 Agent。
+状态：部分实施，正式 Planner → query cohort → TaskRequest → Native 需求消费尚未闭合；
+本文件不是已实现能力声明。历史审计日期：2026-10-02；状态更新：2026-10-04。
+范围：数据库内核函数与分布式准入，不含 Agent。
 
-## 1. 已复证事实与完成边界
+当前与历史断点应区分：Native 实际 catalogue 的发布、只读库存导出和 Java
+inventory codec 已有实现及局部复证；不能继续把“functions 未填”或“启动未接线”
+当作当前事实。SDK59 的实际 Release archive/provenance、Main build 已通过，但
+未筛选4009项CTest仍有6个失败。已复证的聚合元数据错误结果与复杂 MAP schema
+问题现由64-file sole SDK patch整改，实际 Release setup 与七项 linked archive
+provenance 已通过；Main Release 完整重建已通过且零 compiler warnings。
+该 cohort 未筛选4021项CTest首轮只有一个 tracked-pool fixture 失败，修复后的
+31项专项和完整4021项CTest均已全通过且零跳过；尚无该 cohort
+匹配 ASan、重新包装后的 JNI/E2E 通过证据。
+Planner 仍有静态 defaults；统一 `TaskRequest.function_requirements = 18` 尚无
+生产 writer/Native 比较者。后续须按实际 catalogue 冻结 query cohort，收集最终
+IR 的精确 typed requirements，并与同一 published Native owner 比较。固定版本
+字符串不是实际 packaged binary 身份，aggregate 中间状态还必须有真实来源。
+详细最新证据与 PASS/FAIL/UNRUN 边界见 `ai-native-roadmap.md` 第 0.47 节。
+
+## 1. 2026-10-02 历史审计事实与当时的完成边界
 
 最近同一 15 类 Java 专项运行 186 项：0 assertion failure、3 ROUND admission
 errors、0 skipped，15.554s。因此整体结果仍是 FAIL。普通 ARRAY/DECIMAL/BIGINT、
@@ -158,11 +174,14 @@ Native 生产执行仍使用自己的 exact SignatureBinder/resolver；导出型
 相同不够。默认不允许 `resolveFunctionWithCoercions`。
 
 反射签名不是执行优先级的完整反射：pinned `getFunctionSignatures()` 合并simple
-与vector，实际resolver先simple再vector；simple内部还检查physicalTypeMatches
-及metadata priority，这些细节不在公开签名API内。禁止把排序后first-match当作
-runtime结果。统一binder必须收集exact可绑定候选；结果不一致时fail-closed，
-canonical binding policy需以明确selector/SQL casts消除公开入口歧义，并由真实
-resolver差分验证。库存可以保留未公开签名，但不能据此自动宣称SQL支持。
+与vector；`FunctionRegistry.cpp::resolveFunction` 的类型解析先simple再vector，
+但 `ExprCompiler.cpp::compileCall` 实际执行编译先special-form、再vector、再simple。
+simple内部还检查physicalTypeMatches及metadata priority。类型resolver输出相同
+不证明执行选中同一entry、constantArguments或metadata；禁止把签名排序或类型
+resolver first-match当作runtime准入结果。统一binder必须消费与实际compiler共享
+的execution selection，并以真实执行差分验证，不能在Pangrova再写第二selector。
+库存可以保留未公开签名，但不能据此自动宣称SQL支持；当前没有同输入重叠实现
+产生错误值的实测证据，不将该接缝直接报告为已经发生的数据损坏。
 
 ### 4.3 参数化类型不复制具体类型 IDL
 
@@ -664,33 +683,62 @@ observed_provider_response_bytes 记录实际交付 bytes（含被限额拒绝�
 
 ### 15.1 实际选中签名与 constant-argument 准入的下一检查点
 
-pinned `FunctionRegistry.cpp::resolveFunctionOrCallableSpecialForm` 的实际顺序为
-callable special form → SimpleFunction → VectorFunction。库存中的签名排序、简单函数
-priority 或声明期望返回值都不能替代该选择过程。当前 scalar helper 尚未读取真实选中
-signature 的 constantArguments，因此实际 `empty_approx_set(Constant<double>)` 的
-非 Constant 表达式可能直到执行初始化才失败；不能将“exact output 已匹配”记为
-该调用已经完整准入。
+pinned `FunctionRegistry.cpp::resolveFunctionOrCallableSpecialForm` 的类型解析顺序为
+callable special form → SimpleFunction → VectorFunction，但
+`ExprCompiler.cpp::compileCall` 真正编译执行的顺序是special-form → VectorFunction
+factory → SimpleFunction。这是两个现有SDK入口的差异，不应把前者的类型结果或
+name-level metadata当成后者的实际选中实现。当前
+`RegisteredFunctionBinding.cpp::bindRegisteredScalar` 和
+`FunctionResolverOracle.cpp::resolveRegisteredScalarOracle` 仍使用前者；schema3
+库存与 `SCALAR_RUNTIME_PRIORITY` 标签尚未消除此断点。
+
+一个不依赖假注册的具体准入缺口是stock `in(T, Constant<array(T)>)`：
+`InPredicate.cpp` 声明第二参数必须常量，factory明确拒绝非constant IN list；当前
+scalar helper仅检查输入/输出类型，直接FieldAccess ARRAY仍可先通过helper，直到
+Task表达式编译时才失败。stock `empty_approx_set(Constant<double>)` 也有实际
+initialize常量要求，但没有因此宣称它已经接入public SQL。当前最近
+`RegisteredFunctionBindingTest` 的ROUND/SUM/LEAD三类断言没有覆盖该常量约束或
+执行选中entry。这里是源码确认的准入完整性缺口，不是已经实测的错误值。
+
+常量不能仅按原始 `ConstantTypedExpr` 判定：实际 `ExprCompiler::compileExpression`
+先调用 `expression::optimize`，`getConstantInputs`读取优化后的 `ConstantExpr`。
+因此直接把现有 `requireConstants` 接到scalar会误拒合法无损CAST/确定性常量，
+也不能证明Native最终优化产生的常量与准入一致。优化不得提前调用有副作用的
+callback，constant值的安全计算与限额仍须由同一真实优化/编译入口控制。
 
 下一 repo-owned SDK 补丁在当前 dependency checkpoint 完成后原子升级：
 
-- `ResolvedSimpleFunction::metadataSnapshot()` 只返回已有实际选中 entry 的 immutable
-  shared metadata，不重新匹配、不解析 debugString、不暴露 factory。
-- Vector 的只读 selected-signature API 应由现有 `resolveVectorFunctionWithMetadata`
-  的同一 first-match 实现产生 `type/signature/metadata`；原公开方法投影该结果。不得在
-  Pangrova 复制另一遍 vector selector，或搜寻恰好满足声明 output 的另一签名。
-- scalar helper 优先调用真实 special-form resolver；若不是 special form，再读取实际
-  simple/vector selection，校验其 exact output 和 constantArguments。special-form
-  执行规则仍须来自唯一声明，不借不存在的 registered signature 推断。
-- 真实注册回归使用 stock `empty_approx_set` 的 constant DOUBLE/非 constant DOUBLE、
-  vector `in` 的 constant ARRAY/field ARRAY、ROUND short/long Decimal 和未知调用；
-  不新增自制优先级表或为了测试登记虚构函数签名。
+- SDK提供immutable `ExecutionScalarSelection`，区分special-form/vector/simple，
+  保留actual signature、concrete return、metadata及entry生命周期。选择顺序由当前
+  `compileCall`抽取共享，不由Pangrova重演；runtime compiler必须消费同一结果。
+  已选vector的factory抛错或返回空实例不得再fallback到simple。已有simple
+  initialize用户错误/AlwaysFailingVectorFunction必须保留active-row与NULL/TRY
+  错误语义，不能为了准入检查改为全部提前抛错；runtime错误仍按真实SDK传播。
+- `ResolvedSimpleFunction::metadataSnapshot()`仅返回已有选中entry的immutable
+  shared metadata；vector signature/type/metadata从真实first-match entry投射。
+  entry的只读选择与factory使用共用authority，不解析debugString、不搜寻恰好符合
+  declared output的另一个overload；原类型resolver仅作类型诊断，不能冒充execution
+  selection。晚注册/overwrite必须受冻结catalog与entry生命周期围栏约束。
+- Native binder、export及differential oracle消费execution selection，校验exact
+  output、constantArguments与selected metadata；special-form来自唯一声明和真实
+  SDK规则。constant验收使用同一安全优化/编译结果，不另写常量表达式解释器。
+- 真实stock `in`以`[1,2,NULL]`对输入`1/3/NULL`执行，分别验证`TRUE/NULL/NULL`；
+  constant ARRAY及可无损优化的CAST通过，field ARRAY在执行准入拒绝。验证stock
+  `empty_approx_set`合法常量与FieldAccess拒绝，并保留实际初始化错误分类。
+- stock `regexp_replace(VARCHAR,VARCHAR,VARCHAR)`验证实际选中simple entry的
+  metadata；同名lambda vector注册`defaultNullBehavior=false`，name-level API会
+  合并各实现，不能当作此具体调用的metadata。另保留ROUND short/long Decimal真实
+  值/输出、未知签名、错误output与exact未隐式cast的负例。不登记虚构函数来凑覆盖。
+- 真实Task值/constant/selection验证之后，再逐层贯通唯一manifest、Planner需求、
+  eligible cohort与Worker admission；只通过导出或binding组件不算SQL/E2E闭环。
 
 升级时严格保留实际构建证据：先在上一补丁仍可精确校验时撤回该补丁，再替换仓库
 唯一 patch、严格 pre/post blobs 并重新 apply/rebuild；不在安装路径留下两版 fallback。
 若增加非 inline Vector API，archive provenance 必须证明两个 API 都具有实际 global
 定义（GNU/Darwin nm 的 T/W，不接受 U 引用），旧 snapshot archive 不能成为新版
-selected-signature API 的构建证据。当前新 selected-signature API 尚未实施、编译或
-执行，上述为可落地规格，不是验收通过。
+selected-signature API 的构建证据。2026-10-03此修订仅纠正内部规格，当前新
+execution-selection API尚未实施、编译或执行；冻结中的六文件SDK/Native源码不作
+此单元的实现或验收证据，上述均是下一原子单元规格，不是验收通过。
 
 ### 15.2 聚合生产入口的待落地精确语义
 
@@ -786,3 +834,355 @@ ExtensionMulti lowerer 又追加 input prefix。原9参数的 standalone/lateral
 新增 timestamp literal，不把官方默认 input+expressions 误作 expression-only。
 这些源码尚未编译或执行。Native RowType 仅证明 physical layout/嵌套名字，不表达完整
 wire nullability/字符长度等约束；不能将这一比较替代尚待完整接线的 semantic contract。
+
+2026-10-03 更新：既有源码已提交为 `e92532a`，保留该基线。主线五文件 ownership SDK
+整库重建实际1036/1036、0 warning/error，随后以 `bash apply-velox-patches.sh record`
+记录该真实检查点；首次直接执行脚本的 permission/126 失败保留，未修改机器权限。
+当前同一 repository-owned patch 已追加 RowContainer nullable destroy，严格校验六个
+pre/post blobs；完整源码、旧两文件 metadata 或旧五文件 ownership 检查点只能按
+精确 hash 升级，不接受任意 partial 状态。补丁 SHA256 为
+`fc8929f25c22fbef65ebfd461f1e9ec1d40921e3ffaad0b5602c301bcd821643`。
+
+record 同时严格读取既有 provenance 的三行：固定40位 commit、两个64位小写 hex，
+缺行、额外空行/partial第四行、格式漂移均拒绝。若 patch digest 改变而 archive digest
+仍等于上次记录，必须拒绝旧 archive，不得重新记账冒充新构建。该 known-archive
+barrier 只识别已记录的原样旧产物，不提供 source/archive 认证或执行行为兼容证明，
+不引入孤立 marker API、另一套函数注册表或 Window-local 特判。
+
+目前已通过的只是 `bash -n`、补丁 diff whitespace 校验和对实际 pinned RowContainer
+base 的 `git apply --check`；线 C 未修改外部 SDK、未运行 build/record。主线下一步
+必须实际 apply 六文件、证明旧五文件 archive record 被拒、同一 SDK target 增量重建，
+再 record 六文件并执行 DISTINCT constant tuple、Vector/Arrow lifetime 和完整 Native
+CTest/ASan。上述六文件行为验证尚未通过；五文件1036/1036不是新的六文件结果。
+
+### 15.4 真实 MARK 三值语义与 Arrow owner 粒度（2026-10-03）
+
+主线随后实际完成六文件apply，旧五文件archive record按预期拒绝，同SDK target
+增量4/4重建0 warning/error并record成功；Native完整Release r5也实际编译/链接成功，
+0 warning/error。最近真实Native142项为139 PASS / 3 FAIL（无skip），日志
+`/tmp/pangrova-production-native-abi12-six-nearest-r1.log`。Vector pool五项与DISTINCT
+窗口六项已经实际执行通过；不能由这些近端结果宣布完整CTest、ASan或公共SQL/E2E通过。
+
+其中两个失败已定位：
+
+- Arrow无自身bitmap的ROW导入递归为leaf单独创建C array/schema co-owner，root无
+  BufferView引用因而立即各释放一次。旧positive fixture误观察root，不是数据复制
+  证据。当前新增DOUBLE values/NULL bitmap pointer identity，并观察真实leaf在child
+  存活时0、最后释放后1，root始终各一次。Unsupported/OOM原each-once断言保留。
+- 任意predicate MARK经dummy constant-key null-aware HashJoin降低，真实HashProbe
+  把predicate当WHERE filter：其UNKNOWN跟踪针对join-key NULL，不能替代整个predicate
+  的TRUE > UNKNOWN > FALSE reduction。最近左右MARK四个UNKNOWN输出实测变FALSE。
+  不通过把UNKNOWN期望改FALSE、只提取等值key或拒绝合法非等值MARK修复。
+
+本次追加同一SDK patch的四个文件（六→十）：`core/PlanNode.h/.cpp`与
+`exec/NestedLoopJoinProbe.h/.cpp`。NestedLoopJoinNode显式nullAwareMarker，仅允许
+LeftSemiProject；普通SEMI/ANTI默认false。Builder/serialize/create完整保留同字段，
+create缺失字段必须拒绝，不增加旧JSON兼容分支。实际Probe逐probe row记录UNKNOWN，
+跨build vectors保持，任一TRUE照旧短路，无TRUE则输出NULL或FALSE；advanceProbe
+清状态。空build输出FALSE，包括NULL probe；没有新增operator、private IR或第二registry。
+Pangrova唯一buildNestedJoin MARK消费此节点，删除dummy hash keys，不做初始化fallback。
+
+新增真实Task最近oracle覆盖非等值、NULL probe、全部FALSE/UNKNOWN/empty、TRUE
+覆盖UNKNOWN不同顺序和多个实际build/probe batches、普通两值marker，以及Builder/
+serde重新执行相同值。原左右MARK及SEMI/ANTI全部断言保留，另补canonical左/右非等值
+转换后的值。任意predicate算法仍是O(P*B)，不把此正确性修复声称为大规模hash线性
+性能；纯等值MARK优化需要独立的真实值/NULL/资源与规模验证。
+
+十文件补丁SHA256为`393b242913ff5ffae1748e316200474be1e1828dcef8e8ac19612c945cb0eafd`。
+工具逐文件严格校验精确pre/post blobs，支持原base/metadata2/ownership5/destroy6到
+唯一十文件检查点的明确升级；新增hunks使用zero context，仅在完整source hash吻合后
+以`--unidiff-zero`正反apply核验。known unchanged-archive barrier与三行provenance
+严格语法保留，不把hash当认证/行为证明。线C只做syntax/diff/实际旧六文件source的
+四个新hunk apply-check，未修改安装SDK、未构建；仍需主线apply10→旧6 record拒绝→
+SDK同源重建/record10→Native最近/完整链。以上新MARK和owner观察源码尚未执行，
+旧r5二进制的完整CTest运行不能当新十文件源码通过。
+
+### 15.5 Full CTest后精确计划形状与实际Values验收（source-only，2026-10-03）
+
+实际日志`/tmp/pangrova-production-native-abi12-six-full-ctest-r1.log`中：timestamp
+precision投影12项、dynamic-filter shape6项、RowNumber shape81项、Expand shape81项
+及Merge shape48项不能仅更新节点数量期待。timestamp的canonical emit[1]在真实
+append-input Project之外添加ordinal projection，外层field不是constant；测试逐层
+校验精确field/type→内部timestamp常量，并对原12 precision边界×两timezone形态执行
+实际Task秒/纳秒值。dynamic-filter原Root只声明1名却真实输出3列；补完整Root，
+检查原logical labels、join key materialization/rebase的每列ordinal/type和真实scan，
+仍只算组件结构/外部filter reception，不算真实推送/E2E。
+
+RowNumber保留原135参数测试，唯一lowerer的真实结构为末尾ordinal Project→RowNumber
+→LocalPartition→输入准备Project→scan；新27个Values测试真正消费10/100/1000行及
+uniform/skew/all-same分布，逐payload验证输入键和每组1..N编号。无ORDER BY时不声称
+payload到编号的确定顺序。Expand保留原486参数测试，原single-node期待不符合真实
+partial→exchange→final；两者须共同证明唯一GroupId、实际sum的raw/intermediate
+类型、final只读state而不重新raw聚合，global-empty声明由partial真实globalGroupingSets
+和groupId持有。新增81个Values测试各验证非空及空输入的全列sum/NULL/set-index结果，
+全局空组不丢失/凭空增加，不能把Aggregation数量2单独当正确性证明。
+
+两个已确认生产根因同批修复：`convertFilterRel`只识别直接RowNumber，但唯一window
+lowerer始终产生末尾投影，合法rn<=K失去TopN；`extractTopNLimit`对strict INT64_MIN
+先减1存在signed overflow。只沿精确typed FieldAccess、无重复的一对一映射追真实
+marker，替换同RowNumber并完整重建原所有输出投影；只消除逐key/type/order证实为窗口
+准备的直接排序，不越其它算子。先检查整数下界再减1。原216参数保持，新增36实际
+Values TopK全列值测试与计算marker/重复marker/strict-min三个负向值测试，不能以
+任意Project搜索假定列身份。
+
+Merge旧fixture的sorted布尔与真实SortRel恰反，且只排序首key/NULLS_LAST；生产又
+无条件重复排序。修fixture以全部keys的真实ASC_NULLS_FIRST SortRel作为唯一证据；
+生产只沿typed field lineage抵达实际非partial OrderBy，required完整key prefix/type/
+ASC/NULLS_FIRST全等才复用，其它必须新sort。原120参数测试保持、全部48 shape失败
+方向保留；新增24组实际Values重复/NULL/INNER/LEFT/RIGHT/FULL多key值测试和wrong
+direction/null-order/incomplete-prefix负向验证。树中恰2个排序还需证明来自原输入或
+新插入的正确位置，不靠Read标签或布尔值猜有序。
+
+当前上述源码仅diff/header/API静态检查，**未编译/运行**；SDK10和旧Native full CTest
+通过/失败均不能替代本批行为。Root统一重编译后须原完整范围与新增值测试一并执行。
+另`convertSortRel`当前对非FieldAccess排序项静默丢弃是独立未修生产缺陷：后续最小
+设计应按原expression context唯一准备Project物化每个排序表达式，全部ASC/DESC及
+NULL方向保留，Sort后精确还原原输出schema，不能丢项或转为任意列；须有computed
+primary+field secondary/NULL/多driver值oracle。此项本批只记录设计，未实现/未验收。
+
+### 15.6 唯一Sort计算键与真实partial/consumer边界（source-only，2026-10-03）
+
+紧接§15.5独立小单元，`convertSortRel`现在复用已有`aggregateInputValue`唯一typed
+表达式准备：原字段精确passthrough，computed/nested/constant key在真实Project每项
+求值一次，OrderBy只读已物化typed field；后置前缀ordinal Project精确还原原schema。
+四种普通direction明确支持；missing kind、UNSPECIFIED、CLUSTERED、未知enum/custom
+comparator拒绝，不默认为ASC/NULLS_FIRST。Java普通/Window producer统一
+`SortDirectionMapper`只输出这四种，NULL默认由Calcite已解析方向确定，Native不猜。
+
+Fetch只穿过已证明为typed direct FieldAccess的前缀ordinal恢复投影，替换实际OrderBy
+并重建所有原恢复层；computed/reordered/duplicate列或其它算子不作为排序身份。新增
+四参数实际Values（各有无Fetch）保全computed primary+secondary、真实NULL、全部
+原输出字段、精确有序值及LIMIT前缀；另有方向/comparator/缺expr/空keys负向与computed
+输出投影不能误优化的真实结果。未削减已有参数和测试。
+
+Pinned SDK `TopNNode/LimitNode::requiresSingleThread()`均为`!isPartial`；LocalPlanner
+在整个pipeline检查此标志。因此原无exchange的partial→final虽然值可正确，却把
+producer整条pipeline压为单driver，并不是注释所称的并行merge。普通Fetch TopN/Limit
+现在为partial→真实LocalPartition gather→final；Root同根因修retrieval-source，线C
+只在rerank同位置接gather，保实际detail.plan_node_id。全部四TypedRetrieval shape
+oracle保原keys/count/score/callback声明，增加真实gather及上下游requiresSingleThread
+合同。Root单独维护普通Fetch原fixture的offset/count/order完整断言。
+
+新Task Values测试证明实际值和真实pipeline topology，不证明scan多driver吞吐：Values
+默认不parallelizable，其producer依然单driver。真实scan/typed exchange多driver、分布式
+汇总和目标集群性能/内存实测仍是后续验收，不能以这组测试声称大规模部署SLO通过。
+本小单元仅源码及diff/pinned API核查，**未编译/运行**；§15.5“computedSort未实现”是
+前检查点历史记录，不能作当前运行证明，须由Root同源Native重编译及完整回归复证。
+
+### 15.7 Callback确定性字段的无损wiring（已验证的有限检查点，2026-10-03）
+
+已定位完整生产链：唯一`runtimeSignature.deterministic`已被Java
+`callbackMetadata`/`NativeFunctionBridge`写入canonical `NativeFunctionDescriptor`，
+但JNI注册此前只取name/arguments/return；`makeJvmScalarFunctionSpec`和
+`NativeUdfRegistry`未带metadata，Velox两个注册入口均使用默认deterministic=true。
+实际`ExprOptimizer`→`ExprSet`→`Expr::isConstantExpr`消费这个默认值，因此不能以Java
+描述符false证明Native不会折叠callback。尚未测出模型成功调用或错误值，不作该声称。
+
+当前有限源码修复使用已有字段：`ScalarUdfSpec.deterministic`默认true保留显式Native
+函数行为；JVM spec构造必须显式第四bool参数，JNI原样传descriptor值，不保留旧重载。
+两个真实Velox注册入口均消费`VectorFunctionMetadataBuilder.deterministic`。SDK每name
+只有一个metadata，注册时拒绝不同determinism的overloads，拒绝不污染原集合、不能取
+首项或合并flags。默认NULL行为不在本批扩张，仍保留原注册语义。
+
+`RuntimeCallbackSignature.deterministic`由同一必填JSON字段生成，既有两个Native
+fixture caller消费该字段，不手写callback名单/false，不手改生成header。新增实际
+生产JvmScalarFunction spec的stateful/stateless × true/false metadata验证；混合
+overload拒绝后仍可注册合法overload；真实FILE_FROM_URL常量表达式以constant folding
+启用构造ExprSet，必须保持非确定性call/非constant，同时原constant input保持constant。
+该检查不安装Java callback、不调用模型或文件I/O；它证明真实编译不提前执行callback，
+不是JNI成功执行或SQL E2E。另补canonical descriptor的true/false精确parse往返，以及
+生成器的bool生成/缺字段/非法类型拒绝。
+
+Root统一执行后的真实证据：Release构建PASS且零compiler warning/error；生成器
+54/54 PASS；Java Descriptor12＋Bridge25＋Bootstrap10＝47/47 PASS、0 skip、23.643s；
+Native最近85/85 PASS、31.19s，包含全部六个metadata/编译oracle；未过滤CTest
+3846/3846 PASS、284.30s。日志分别为
+`/tmp/pangrova-production-determinism-generator-r1.log`、
+`/tmp/pangrova-production-determinism-java-nearest-r1.log`、
+`/tmp/pangrova-production-native-determinism-release-r1.log`、
+`/tmp/pangrova-production-native-determinism-nearest-r1.log`和
+`/tmp/pangrova-production-native-determinism-full-ctest-r1.log`。
+该检查点没有最新matching-ASan、package、JNI/provider E2E证明，也不覆盖后续Arrow
+迁移。完整execution-selected manifest/cohort仍按§15.1待闭合，不因本字段修复宣称完成。
+
+#### 函数契约生成环境（2026-10-03）
+
+唯一生成器最低要求Python 3.10，不能依赖macOS系统`python3`必然满足要求。Root实际
+系统3.9.6在最近完整脚本范围失败；使用本机已存在3.12.14后67/67 PASS、0 skip。
+同源生成到临时目录后第二次四文件逐字节一致；生成Java使用JDK17
+`-Xlint:all -Werror`、C++20 selection模板使用`-Wall -Wextra -Werror`均通过。这些检查
+不证明实际Native factory、execution-selected目录或Planner/Worker闭环。
+
+Maven通过`-Dpangrova.function-contract.python=<Python可执行文件>`选择解释器，CMake通过
+`-DPython3_EXECUTABLE=<Python可执行文件>`选择解释器；两者仍由同一声明/生成器输出，
+不提交机器绝对路径、生成文件或第二生成流程。干净checkout须先generate-sources再编译。
+生产Linux builder源码固定Ubuntu22.04并安装其发行版`python3`，最低版本属于构建
+入口条件而非业务回退；macOS/自托管CI不能据此推断自己的默认解释器，必须显式配置
+符合最低版本的解释器。生成器拒绝旧解释器且传播失败，不降级语法或忽略generation失败。
+CI实际Native/Maven构建job和nightly集群构建/测试job显式用官方
+[`actions/setup-python@v6`](https://github.com/actions/setup-python/blob/v6/README.md)
+将3.12加入PATH，保留原job/平台矩阵；自托管runner须满足该action要求的runner
+版本（v2.327.1或更高）。CI源码配置不是其远程执行PASS，也不能把本地3.12检查写成
+所有CI runner已运行成功。
+
+### 15.8 Arrow stage边界的唯一canonical schema（源码检查点，尚未验证）
+
+旧batch enum数值1与名字`BATCH_SERDE_NATIVE_ROW`均reserved；唯一可执行值为2
+`BATCH_SERDE_ARROW_BATCH`，不保留`PRESTO_PAGES`或`NATIVE_ROW`别名。Java fragment、
+StageTransfer/StageEdge、REST config、任务准入和持久化graph均消费Arrow；REST省略项
+仍可取显式canonical默认，传入未知/大小写别名拒绝。任务compression必须精确为
+`none/lz4/zstd`，batch行数必须为正且在signed-int32执行域内。LeafStageDispatcher
+从真实StageEdge选择格式，不用独立默认掩盖两端差异。IPC自身压缩与opaque外层
+transport codec不是同一层；Worker relay的精确透传由Root/B单元完成，不在本节宣称通过。
+
+原根因不是physical alias本身：实际SDK Project/Aggregate输出使用canonical computed
+名字，而consumer此前按Calcite SQL alias重新构造NamedStruct。`Root.names`仅用于结果
+展示，不是wire authority。AuthorizedStageGraph.compile在拓扑冻结中从实际producer
+完整canonical关系（包括emit）通过唯一SubstraitRelationLayout获取NamedStruct，并只在
+该编译入口把typed ExchangeInput leaf绑定到源快照。类型Struct必须先完全一致，包括
+precision、nullability、variation和嵌套shape；不允许靠rename修复类型错配。随后constructor
+及replay只验证两端完整NamedStruct严格相等，不再修补计划。完整DFS名字、源交换
+distribution/key ordinal和partitionCount必须保留；Root展示标签保持原样。
+
+DurableStageRuntime原先绕过AuthorizedStageGraph constructor，从opaque metadata bytes
+直接创建stage。现在所有含exchange的持久化graph在dag发布前调用同一个
+`AuthorizedStageGraph.validateExchangeContracts`，由execution边界读取实际plan bytes，
+不跨入metadata模块放SQL parser/schema decoder、不重新编译、不以checksum代替schema
+比较；旧wire或错schema必须显式rebuild。模板/模型/bindings/authorization仍走原冻结入口。
+
+新增完整canonical graph测试覆盖ROW/LIST/MAP/DECIMAL38/TIMESTAMP6的DFS名字、
+nullability/precision/scale/variation漂移、producer emit顺序、Root展示标签不覆盖wire、
+missing/stray/duplicate inputs、真正零列三行Values，以及64次固定seed名字扰动。
+实际SQL computed/aggregate alias经public compiler→fragment→serialized graph证明源schema
+绑定，持久化encode/decode后的错schema即使重新计算正确checksum仍拒绝；这些是计划/
+控制契约oracle，不是Native值、JNI或分布式传输E2E。新增源码尚未编译/运行，descriptor
+golden须在Java/Native双端冻结后由官方脚本统一生成；不能拿先前adapter CTest PASS
+宣称actual PartitionedOutput→Arrow exchange链路或大规模部署SLO已通过。
+
+### 15.9 实际签名模板与schema所有权（源码检查点，尚未验证）
+
+`RegisteredFunctionSignature`从真实owned registry entry保留type变量、digit-only输入整数
+约束、实际calculator AST、variadic/constant掩码及中间态。整数Native参数路径从既有
+`physicalTypeBridge.nativeArgument`生成，不能把timestamp的SQL precision误当Native
+参数；未知注册扩展保留完整opaque AST作诊断，不伪造可执行SQL类型或删掉目录项。
+实际ANY是独立marker，不会给type变量赋值。Java精确模板解释器只绑定同一manifest
+声明，不扩大数值类型、不按调用者期望输出搜索其它entry；selected输出不可表示仍失败。
+这些解释器和Native projection尚未接成GET_CAPABILITIES→Planner→cohort→task-owned
+factory全链，本节不把新组件或注册目录等同SQL可用。
+
+命名ROW约束从唯一SubstraitRelationLayout读取完整DFS名字，不读取Root结果展示标签。
+匿名computed ROW命名规则仍来自同一sql-bindings.json的physicalTypeBridge，现在由现有
+structural生成器输出到schema producer-owned `substrait.generated`包，schema producer和
+函数声明reader均消费这一输出，避免function与substrait双向包依赖。Maven在generate-sources
+使用同一可配置Python解释器与generated sourceRoot，禁止手改生成类。新增ordinal负值/
+MAX边界、同声明生成、实际声明变更传播、精确签名绑定及FanOut score准入回归；最近
+正式执行结果由Root统一记录，源码检查点与完整生产验收分开。
+
+#### 实际注册目录的集合路径修复（2026-10-03有限验证）
+
+首次实际Native最近范围59项中58 PASS/1 FAIL；唯一失败为完整owned注册目录投影。
+根因是`FunctionTypeProjectionChildPath`声明ROW的`Type.struct_.types`集合时没有ordinal，
+`RegisteredTypeTemplate`却把它当作已经索引的`FunctionTypeSlot`检查repeated cardinality，
+在真实child ordinal写入之前拒绝合法ROW。实际`map_entries`的
+`map(K,V) -> array(row(K,V))`和`variance`的`row(bigint,double,double)`中间态均受影响。
+修复直接读取有类型的集合声明路径：中间仅允许singular message，terminal允许完整
+child集合，随后每个真实child的最终slot仍写准确repeated ordinal，未放宽decoder。
+原全部真实scalar/aggregate/window注册遍历保留；新增上述两个真实注册的精确正测，
+并保留name/signature异常上下文。Root同全目标Release构建r3零warning/error通过，
+增强最近61/61 PASS、0 skip、195ms，日志为
+`/tmp/pangrova-production-main-native-release-build-r3.log`及
+`/tmp/pangrova-production-native-owned-signatures-nearest-r2.log`。这不证明GETCAP/SQL闭环。
+
+### 15.10 唯一启动期发布与实际catalogue接线（待实施规格）
+
+本单元不引入生产hot-UDF/hot-reload API，也不以CAS generation兼容共享测试生命周期。
+当前真实NativeUdfRegistry完成注册后finalized；正式Worker每个incarnation仅在启动期
+发布一次。SDK正常future注册不被永久seal，但已发布的Pangrova owner不会二读live
+registry；后续合法产品热更新须另有完整creation/admission fence设计。
+
+统一v2 RuntimeCommand增加显式`FINALIZE_FUNCTION_CATALOG`及有类型的空marker request，
+不增加另一JNI/proto通道。现有enum21为RECOVER_EXECUTOR_CREATION，新增ordinal在实施前
+与owner核对；未知request字段、非startup生命周期、重复发布均fail-closed。response为
+typed publication receipt，仅包含发布manifest身份和构建身份；完整目录仍由GETCAP读取。
+receipt/hash是同源兼容与一致性证据，不是认证、factory行为或SQL成功证明。
+
+真实调用顺序必须为NativeRuntimeBootstrap初始化所有stock/custom/aggregate/window/
+special注册，然后NativeFunctionBootstrap发现并安装实际callback，最后显式finalize，
+之后才NativeCapabilityAdvertisement、TaskManager、HTTP/heartbeat及Coordinator READY。
+`autoRegister=false`也执行finalize；发现零descriptor时不调用拒绝empty batch的
+`nativeRegisterFunctions`，但仍发布真实builtin目录。非空JNI batch保留完整预检、实际
+candidate登记、callback owner保活与失败不清除active callback语义。
+
+publication只在独立准备完成后单次提交：capture SDK immutable owner，投影全部实际
+entries及唯一声明语义，校验完整typed manifest和实际transport大小，构造完整immutable
+publication，再提交其shared owner。准备过程不调用factory、不执行values、不持注册锁
+进入JNI；失败不发布空目录、不READY、不在GETCAP重试capture。GETCAP只读取该owner
+内冻结的目录/能力，不再用globalUdfRegistry/live scalar/signature读取补齐能力。
+
+Task creation固定同一publication，严格对照canonical function requirements及实际
+selected implementation，再传给VeloxPlanConverter、所有registered binding helper、
+VeloxTaskRunner的QueryConfig。`require_function_registry_snapshot`由内核写入且session
+不能覆盖。实际Scalar/Aggregate/Window compile/create及DISTINCT window intermediate
+均消费同owner；metadata-only schema投影不创建执行factory。缺owner不能沿stock fallback。
+
+精确迁移入口为WorkerBootstrap.startPhases、NativeFunctionBootstrap、
+NativeCapabilityAdvertisement/NativeCapabilityLoader、NativeCommandBuilder及dispatcher、
+JNI注册publication门、Native task creation/config、PlanExecutionDriver.prepareExecution、
+VeloxPlanConverter及RegisteredFunctionBinding、VeloxTaskRunner创建QueryConfig。
+Planner的SqlCompiler两个defaults constructor和SubstraitPlanValidator须替换为同一实际
+immutable catalogue view；Coordinator从已认证Worker注册库存冻结eligible cohort，不取
+全局最弱intersection或每函数/每Worker RPC，不以预期output另挑implementation。
+
+真实fixture也需遵循startup边界。SqlE2ETestBase现先DISABLED GETCAP、执行普通SQL，后
+enableAuthenticatedAiFunctions在同Native进程安装callback并重登记，这是待清除的fixture
+生命周期债务，不是需要保留的生产hot-reload能力。AI E2E应使用正式独立startup/owned
+fixture，provider配置先于READY；保留全部原真实SQL/治理/故障oracle，不加测试解封。
+Native direct组件fixture可显式capture真实SDK owner验证值，但不能冒充Task startup准入。
+
+Root实际schemaVersion4 registration export为3,454,762 JSON bytes，973个kind/name分组：
+scalar481/1466 overloads、aggregate327/1833、window165/1543，另9 special forms。
+原始JSON大小不是wire protobuf大小。完整投影后须分别实测serializedSize与Base64尺寸，
+保留现4MiB encoded hard bound，不截断目录、抬阈值或假空。若真实库存超过transport界限，
+须先批准统一v2有界transport迁移；目前没有该超限的实测结论。
+
+SDK特殊表单尚缺同源typed program以及ROW companion factory owner，whole unit需要
+实际resolveType/Java规则来自同一声明后才能执行；未知special/custom只可diagnostic，不
+伪EXECUTABLE、不省略正常3VL能力。本节规格与前述纯解释器/61项近测分开，完整目录、
+public SQL、JNI/package、matching-ASan及分布式SLO尚未验收。
+
+### 15.11 实际生成输入与archive证明（2026-10-03源码检查点）
+
+旧三行provenance只覆盖pin commit、SDK patch和archive，唯一execution-selection声明或
+其Python导入闭包变更并不会改变patch SHA，因而不能证明archive执行的programme来自
+当前生成输入。本轮改为严格五行：`pangrova-function-provenance-v2`、pin commit、
+patch SHA256、generation-input SHA256、archive SHA256；旧三行必须显式重建迁移，
+没有版本兼容解析。输入digest对声明原始bytes和实际repository-local Python递归导入
+闭包作有长度的确定性编码，不仅hash语义JSON；Python最低3.10约束不放宽。
+
+实际SDK `FunctionRegistryIdentity.cpp`独立TU返回其编译时生成的input digest。record
+调用链接到指定mono archive的只读inspector，比较该out-of-line函数返回值及实际archive
+SHA，不读取当前header就给旧archive盖章，不访问factory/registry或执行values。
+已有proof若patch或inputs变而archive不变仍拒绝；proof是同源一致性证据，不是认证、
+任意函数语义兼容证明或性能实测。Root负责真实编译/链接inspector、SDK rebuild和record。
+
+SDK54首次source upgrade已apply，但verify因并行blob表错位失败，未开始SDK构建。
+修复从固定pin导出的独立tree实际apply唯一patch，54个最终blob与已升级source逐个
+一致，再修expected表，并增加所有checkpoint表cardinality相等的先验门槛；没有用
+installed tree反向创造期望值。该SOURCE_READY不代表archive已匹配或目录已经发布。
+Root最近Python3.12完整85/85 PASS、0 skip、0.193s，日志
+`/tmp/pangrova-production-function-generator-input-provenance-nearest-r1.log`；这只是
+生成输入/解释器测试，不是SDK54、Native factory、Planner或SQL闭环证据。
+
+### 15.12 nullable authority与结果边界（待接通）
+
+Native default-null metadata保留实际事实，不猜成SQL ANY_INPUT公式；IF/COALESCE/TRY、
+aggregate空输入/空frame的具体nullable由唯一Calcite semantic validator推导，并保存
+在canonical表达式与关系Type中。物理Type等价会擦除SQL nullability，不能因此允许
+required字段包含实际NULL。Native需在现有IR decoder中并列保留逻辑NamedStruct，
+再把同快照交输出stream边界，不新增TaskRequest第二份schema authority。
+
+新增通用值验证器源码按actual DecodedVector index、有效父row及ARRAY/MAP实际offset
+遍历；nullable父ROW为NULL时不误拒其required子字段，未引用的NULL元素不误拒，MAP
+真实NULL key拒绝。无null metadata的scalar快路径不能推断嵌套子节点无NULL。新增六个
+真实vector正反oracle尚未编译，且验证器尚未接完整输出schema-owner；不能以新枚举、
+组件测试或typed inventory证明nullable已闭环。结果边界检查成本需实测，不声称免费。

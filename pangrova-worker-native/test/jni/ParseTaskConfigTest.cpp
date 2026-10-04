@@ -183,6 +183,19 @@ proto::TaskRequest validRequest() {
   return request;
 }
 
+TEST(ParseTaskConfigTest, DirectResultRequiresPositiveExactSerializedBufferGrant) {
+  auto request = validRequest();
+  request.mutable_execution_options()->set_direct_result_output(true);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  request.mutable_resource_grant()->set_shuffle_buffer_bytes(1'048'576);
+  const auto config = parseTaskConfig(serializeRaw(request));
+  EXPECT_TRUE(config.is_result_task);
+  EXPECT_EQ(config.resource_limit.max_shuffle_buffer_bytes, 1'048'576);
+  request.mutable_execution_options()->set_direct_result_output(false);
+  request.mutable_resource_grant()->set_shuffle_buffer_bytes(0);
+  EXPECT_FALSE(parseTaskConfig(serializeRaw(request)).is_result_task);
+}
+
 proto::TaskRequest remoteShuffleRequest() {
   auto request = validRequest();
   request.mutable_resource_grant()->set_grant_id("remote-shuffle-grant");
@@ -190,7 +203,7 @@ proto::TaskRequest remoteShuffleRequest() {
   request.mutable_resource_grant()->set_shuffle_buffer_bytes(16ULL * 1024 * 1024);
   auto* shuffle = request.mutable_execution_options()->mutable_shuffle();
   shuffle->set_serde(proto::BATCH_SERDE_ARROW_BATCH);
-  shuffle->set_compression_codec("NONE");
+  shuffle->set_compression_codec("none");
   shuffle->set_batch_size(1024);
   shuffle->set_persistence_mode(
       proto::SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_REMOTE);
@@ -549,6 +562,7 @@ TEST(ParseTaskConfigTest, OrdinaryReadRequiresAnExplicitCpuAndNativeGrantWithout
 TEST(ParseTaskConfigTest, ParsesIndexedResultVectorDimensions) {
   auto request = validRequest();
   request.mutable_execution_options()->set_direct_result_output(true);
+  request.mutable_resource_grant()->set_shuffle_buffer_bytes(8 * 1024 * 1024);
   proto::OperatorBinding first;
   proto::OperatorBinding second;
   setEmbeddingOutputType(&first, 3);
@@ -579,6 +593,7 @@ TEST(ParseTaskConfigTest, RejectsResultTypesWithoutDirectOutputOrUniqueIndex) {
 
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
   request.mutable_execution_options()->set_direct_result_output(true);
+  request.mutable_resource_grant()->set_shuffle_buffer_bytes(8 * 1024 * 1024);
   auto duplicate = *column;
   *request.add_result_column_types() = duplicate;
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
@@ -873,7 +888,7 @@ TEST(ParseTaskConfigTest, ParsesResourceWriteShuffleAndResultOptions) {
   write->add_partition_spec("region=cn");
   addConnectorWriteBinding(write);
   auto* shuffle = options->mutable_shuffle();
-  shuffle->set_serde(proto::BATCH_SERDE_NATIVE_ROW);
+  shuffle->set_serde(proto::BATCH_SERDE_ARROW_BATCH);
   shuffle->set_compression_codec("zstd");
   shuffle->set_batch_size(1024);
   shuffle->set_persistence_mode(
@@ -896,6 +911,9 @@ TEST(ParseTaskConfigTest, ParsesResourceWriteShuffleAndResultOptions) {
             split::FileFormatType::PARQUET);
   EXPECT_EQ(config.write_config.target_file_size, 128LL * 1024 * 1024);
   EXPECT_EQ(config.num_shuffle_partitions, 16);
+  EXPECT_EQ(config.shuffle_batch_serde, proto::BATCH_SERDE_ARROW_BATCH);
+  EXPECT_EQ(config.shuffle_compression_codec, "zstd");
+  EXPECT_EQ(config.shuffle_batch_size, 1024);
   EXPECT_EQ(config.shuffle_persistence_mode,
             proto::SHUFFLE_PERSISTENCE_MODE_MEMORY_AND_DISK);
   EXPECT_FALSE(config.shuffle_execution.has_value());
@@ -1170,7 +1188,7 @@ TEST(ParseTaskConfigTest, RejectsNonRemoteShuffleExecutionBinding) {
   auto request = validRequest();
   auto* shuffle =
       request.mutable_execution_options()->mutable_shuffle();
-  shuffle->set_serde(proto::BATCH_SERDE_NATIVE_ROW);
+  shuffle->set_serde(proto::BATCH_SERDE_ARROW_BATCH);
   shuffle->set_compression_codec("zstd");
   shuffle->set_batch_size(1024);
   shuffle->set_persistence_mode(
@@ -1185,6 +1203,35 @@ TEST(ParseTaskConfigTest, RejectsNonRemoteShuffleExecutionBinding) {
   endpoint->set_port(9400);
 
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
+TEST(ParseTaskConfigTest, CanonicalShuffleCodecsAndSignedRowLimitAreAdmittedExactly) {
+  for (const auto* codec : {"none", "lz4", "zstd"}) {
+    auto request = remoteShuffleRequest();
+    request.mutable_execution_options()->mutable_shuffle()->set_compression_codec(codec);
+    const auto config = parseTaskConfig(serializeRaw(request));
+    EXPECT_EQ(config.shuffle_compression_codec, codec);
+    EXPECT_EQ(config.shuffle_batch_serde, proto::BATCH_SERDE_ARROW_BATCH);
+    EXPECT_EQ(config.shuffle_batch_size, 1024);
+  }
+  for (const auto* codec : {"NONE", "LZ4", "ZSTD", "snappy", "", " none"}) {
+    auto request = remoteShuffleRequest();
+    request.mutable_execution_options()->mutable_shuffle()->set_compression_codec(codec);
+    EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  }
+  for (const auto rows : {0U, 2147483648U, 4294967295U}) {
+    auto request = remoteShuffleRequest();
+    request.mutable_execution_options()->mutable_shuffle()->set_batch_size(rows);
+    EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  }
+  for (const auto serde : {0, 1, 99}) {
+    auto request = remoteShuffleRequest();
+    request.mutable_execution_options()->mutable_shuffle()->set_serde(static_cast<proto::BatchSerde>(serde));
+    EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+  }
+  auto request = remoteShuffleRequest();
+  request.mutable_execution_options()->mutable_shuffle()->set_batch_size(2147483647U);
+  EXPECT_EQ(parseTaskConfig(serializeRaw(request)).shuffle_batch_size, 2147483647);
 }
 
 TEST(ParseTaskConfigTest, PreservesCanonicalOperatorBindingAndBudgets) {

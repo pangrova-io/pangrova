@@ -4,12 +4,13 @@
 #include <stdexcept>
 #include <unordered_set>
 #include <arrow/c/bridge.h>
-#include <arrow/io/memory.h>
-#include <arrow/ipc/writer.h>
+#include <folly/ScopeGuard.h>
 #include <arrow/record_batch.h>
+#include <arrow/type.h>
 #include <velox/vector/LazyVector.h>
 #include <velox/vector/arrow/Bridge.h>
 
+#include "columnar/CanonicalBatchStream.h"
 #include "executor/driver/PlanExecutionDriver.h"
 #include "executor/driver/TaskExecutor.h"
 #include "executor/NativeUnsupportedFeatureException.h"
@@ -23,6 +24,7 @@
 #include "shuffle/ShuffleEgressPump.h"
 #include "write/NativeWriteExecutor.h"
 #include "write/WriteArrowExport.h"
+#include "write/WriteBatchStream.h"
 
 namespace pangrova::executor {
 namespace {
@@ -165,232 +167,175 @@ void closeSinkAfterOperation(Writer& writer, std::exception_ptr operationFailure
 //   - State changes (start/commit/finish) → INFO
 constexpr int kDrainLogBatchInterval = 1000;
 
+write::WriteDescriptor makeWriteDescriptor(const WriteConfigInfo& config,
+                                           const std::string& taskId) {
+  const auto parts = parseTableName(config.target_table);
+  write::WriteDescriptor descriptor;
+  descriptor.catalogName = parts.catalog;
+  descriptor.schemaName = parts.schema;
+  descriptor.tableName = parts.table;
+  descriptor.writeMode = mapWriteMode(config.write_mode);
+  descriptor.properties.emplace_back("taskId", taskId);
+  addStaticPartitionProperties(config.partition_spec, descriptor);
+  addWriteFormatProperties(config, descriptor);
+  return descriptor;
+}
+
+std::shared_ptr<arrow::RecordBatch> exportWriteBatch(
+    const facebook::velox::RowVectorPtr& batch,
+    facebook::velox::memory::MemoryPool* pool) {
+  facebook::velox::LazyVector::ensureLoadedRows(
+      batch, facebook::velox::SelectivityVector(batch->size()));
+  auto normalized = write::prepareWriteArrowExport(batch);
+  ArrowArray array{};
+  ArrowSchema schema{};
+  auto release = folly::makeGuard([&] {
+    if (array.release) array.release(&array);
+    if (schema.release) schema.release(&schema);
+  });
+  ArrowOptions options;
+  options.flattenDictionary = true;
+  options.flattenConstant = true;
+  facebook::velox::exportToArrow(normalized, array, pool, options);
+  facebook::velox::exportToArrow(normalized, schema, options);
+  auto imported = arrow::ImportRecordBatch(&array, &schema);
+  if (!imported.ok()) {
+    throw std::runtime_error("Write Arrow import failed: " + imported.status().ToString());
+  }
+  return *imported;
+}
+
+// One Java session consumes the same canonical Arrow stream codec as results and
+// shuffle. Allocations are owned by the actual task pool throughout the upcall.
+class JavaWriteSession {
+ public:
+  JavaWriteSession(JNIEnv* env, jobject writer, const WriteConfigInfo& config,
+                   std::string taskId,
+                   std::shared_ptr<facebook::velox::memory::MemoryPool> pool)
+      : executor_(env, writer), task_id_(std::move(taskId)),
+        descriptor_(makeWriteDescriptor(config, task_id_)),
+        pool_(std::make_shared<memory::ColumnarMemoryPool>(std::move(pool))) {
+    PANGROVA_LOG_INFO << "drain_output_start task_id=" << task_id_
+                     << " target=" << config.target_table << " pool=valid";
+  }
+
+  void append(const facebook::velox::RowVectorPtr& batch) {
+    if (!batch || batch->size() == 0) {
+      PANGROVA_LOG_DEBUG << "drain_output_empty_batch task_id=" << task_id_;
+      return;
+    }
+    PANGROVA_LOG_DEBUG << "drain_output_batch task_id=" << task_id_
+                      << " rows=" << batch->size() << " batch=" << batches_;
+    PANGROVA_LOG_DEBUG << "drain_output_schema task_id=" << task_id_
+                      << " columns=" << batch->type()->size();
+    if (handle_ < 0) begin(batch->type()->asRow());
+    PANGROVA_LOG_DEBUG << "drain_output_export task_id=" << task_id_;
+    auto record = exportWriteBatch(batch, pool_->source().get());
+    if (!schema_) schema_ = record->schema();
+    if (!schema_->Equals(*record->schema(), true)) {
+      throw std::runtime_error("Write batch changed its declared Arrow schema");
+    }
+    auto encoded = write::encodeWriteBatch(*record, pool_);
+    if (!encoded.ok()) {
+      throw std::runtime_error("Write stream encoding failed: " + encoded.status().ToString());
+    }
+    const auto& bytes = *encoded;
+    PANGROVA_LOG_DEBUG << "drain_output_append task_id=" << task_id_
+                      << " bytes=" << bytes->size() << " rows=" << record->num_rows();
+    executor_.appendBatchData(handle_, bytes->data(), bytes->size(),
+        static_cast<int32_t>(record->num_rows()), static_cast<int32_t>(record->num_columns()));
+    rows_ += record->num_rows();
+    bytes_ += bytes->size();
+    ++batches_;
+    if (batches_ % kDrainLogBatchInterval == 0) {
+      PANGROVA_LOG_INFO << "drain_output_progress task_id=" << task_id_
+                       << " batches=" << batches_ << " total_rows=" << rows_
+                       << " total_bytes=" << bytes_;
+    }
+  }
+
+  void commit() {
+    PANGROVA_LOG_INFO << "drain_output_complete task_id=" << task_id_
+                     << " batches=" << batches_ << " total_rows=" << rows_
+                     << " total_bytes=" << bytes_;
+    if (handle_ < 0) return;
+    PANGROVA_LOG_INFO << "drain_output_commit task_id=" << task_id_;
+    executor_.commitWrite(handle_);
+    committed_ = true;
+    PANGROVA_LOG_INFO << "drain_output_commit_done task_id=" << task_id_;
+  }
+
+  void abort() {
+    if (handle_ < 0 || committed_) return;
+    PANGROVA_LOG_WARN << "drain_output_abort task_id=" << task_id_ << " handle=" << handle_;
+    executor_.abortWrite(handle_);
+    handle_ = -1;
+  }
+
+ private:
+  void begin(const facebook::velox::RowType& rowType) {
+    for (size_t i = 0; i < rowType.size(); ++i) {
+      descriptor_.columns.emplace_back(rowType.nameOf(i), rowType.childAt(i)->toString());
+    }
+    PANGROVA_LOG_INFO << "drain_output_begin_write task_id=" << task_id_
+                     << " columns=" << rowType.size();
+    handle_ = executor_.beginWrite(descriptor_);
+    PANGROVA_LOG_DEBUG << "drain_output_begin_write_done task_id=" << task_id_
+                      << " handle=" << handle_;
+  }
+
+  write::NativeWriteExecutor executor_;
+  std::string task_id_;
+  write::WriteDescriptor descriptor_;
+  std::shared_ptr<memory::ColumnarMemoryPool> pool_;
+  std::shared_ptr<arrow::Schema> schema_;
+  int64_t handle_{-1};
+  int64_t rows_{0}, bytes_{0};
+  int batches_{0};
+  bool committed_{false};
+};
+
 }  // namespace
 
 void drainOutputToWriter(
     OutputQueue* output_queue,
     const WriteConfigInfo& write_config,
     const std::string& task_id,
-    facebook::velox::memory::MemoryPool* pool,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> pool,
     const WriteProducerOutcomeRef& producer_outcome) {
-  if (task_id.empty()) {
-    throw std::invalid_argument("Write task requires a non-empty canonical task_id");
+  if (task_id.empty() || !pool) {
+    throw std::invalid_argument("Write task requires its canonical task identity and actual pool");
   }
-  auto writer_lease = jni::GlobalWriterRegistry::instance().writerForTask(task_id);
-  if (!writer_lease) {
-    throw std::runtime_error(
-        "Write task requires registered NativeWriter. "
-        "Call NativeBridge.nativeRegisterWriter() during bootstrap. "
-        "task_id=" + task_id);
-  }
-  jobject writer_ref = writer_lease.get();
-
-  PANGROVA_LOG_INFO << "drain_output_start task_id=" << task_id
-                  << " target=" << write_config.target_table
-                  << " pool=" << (pool ? "valid" : "NULL");
-
-  auto [env, should_detach] = acquireJniEnv();
-  JavaVM* vm = nullptr;
-  env->GetJavaVM(&vm);
-  JniDetachGuard detach_guard{vm, should_detach};
-
-  write::NativeWriteExecutor write_executor(env, writer_ref);
-
-  auto tp = parseTableName(write_config.target_table);
-  write::WriteDescriptor descriptor;
-  descriptor.catalogName = tp.catalog;
-  descriptor.schemaName = tp.schema;
-  descriptor.tableName = tp.table;
-  descriptor.writeMode = mapWriteMode(write_config.write_mode);
-  descriptor.properties.emplace_back("taskId", task_id);
-  addStaticPartitionProperties(write_config.partition_spec, descriptor);
-  addWriteFormatProperties(write_config, descriptor);
-
-  int64_t write_handle = -1;
-  facebook::velox::RowVectorPtr row_vector;
-  int batch_count = 0;
-  int64_t total_rows = 0;
-  int64_t total_bytes = 0;
-
-  // Cached IPC serialization state for reuse across batches (Task 27.2 /
-  // Requirement I.1). The Java sink consumes one self-contained IPC stream
-  // per appendBatchData() call, so the BufferOutputStream cannot be
-  // reused (arrow::io::BufferOutputStream::Finish() consumes the sink).
-  // However the schema object and IpcWriteOptions can be shared across
-  // batches — both are cheap to reference but expensive to (re)construct
-  // (schema cloning + compression codec init). Caching them eliminates the
-  // dominant per-batch overhead measured in profiling.
-  std::shared_ptr<arrow::Schema> stream_schema;
-  arrow::ipc::IpcWriteOptions ipc_write_options =
-      arrow::ipc::IpcWriteOptions::Defaults();
-
-  // F-NATIVE-EXEC-02: RAII abort guard — if an exception escapes before
-  // commitWrite, abort the Java write session to release the PageSink and
-  // delete partial files immediately (instead of leaking until shutdown).
-  bool committed = false;
-  auto abortGuard = [&]() noexcept {
-    if (write_handle >= 0 && !committed) {
-      PANGROVA_LOG_WARN << "drain_output_abort task_id=" << task_id
-                      << " handle=" << write_handle;
-      write_executor.abortWrite(write_handle);
-    }
-  };
-
+  auto lease = jni::GlobalWriterRegistry::instance().writerForTask(task_id);
+  if (!lease) throw std::runtime_error("Write task requires registered NativeWriter: task_id=" + task_id);
+  auto [env, detach] = acquireJniEnv();
+  JniDetachGuard guard{jni::globalJavaVM(), detach};
+  JavaWriteSession session(env, lease.get(), write_config, task_id, std::move(pool));
+  std::exception_ptr operationFailure;
+  bool finalized = false;
   try {
-
-  const bool finalized = drainWriteOutput(
-      output_queue, producer_outcome, std::chrono::milliseconds(100),
-      [&](const facebook::velox::RowVectorPtr& next) {
-    row_vector = next;
-    if (!row_vector || row_vector->size() == 0) {
-      PANGROVA_LOG_DEBUG << "drain_output_empty_batch task_id=" << task_id;
-      return;
-    }
-
-    PANGROVA_LOG_DEBUG << "drain_output_batch task_id=" << task_id
-                     << " rows=" << row_vector->size()
-                     << " batch=" << batch_count;
-
-    // Schema diagnostic at DEBUG level — column names and types only, no row data.
-    PANGROVA_LOG_DEBUG << "drain_output_schema task_id=" << task_id
-                     << " columns=" << row_vector->type()->size();
-
-    if (write_handle < 0) {
-      auto row_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
-          row_vector->type());
-      for (size_t i = 0; i < row_type->size(); ++i) {
-        descriptor.columns.emplace_back(
-            std::string(row_type->nameOf(i)),
-            row_type->childAt(i)->toString());
-      }
-      PANGROVA_LOG_INFO << "drain_output_begin_write task_id=" << task_id
-                      << " columns=" << row_type->size();
-      write_handle = write_executor.beginWrite(descriptor);
-      PANGROVA_LOG_DEBUG << "drain_output_begin_write_done task_id=" << task_id
-                       << " handle=" << write_handle;
-    }
-
-    PANGROVA_LOG_DEBUG << "drain_output_export task_id=" << task_id;
-    // Serialize RowVector to Arrow IPC bytes directly in C++ to avoid
-    // nested JNI callback (C++ → Java appendBatch → C++ nativeSerializeBatchFromPointers)
-    // which deadlocks on Velox memory pool during arrow::ImportRecordBatch release callback.
-    ArrowArray arrow_array;
-    ArrowSchema arrow_schema;
-    // Flatten dictionary and constant encodings before Arrow IPC serialization.
-    // Without this, Velox Project nodes may produce dictionary-encoded columns
-    // (e.g., computed field references) that Arrow IPC preserves as dictionary
-    // encoding. Java's ArrowStreamReader then returns index vectors (IntVector)
-    // whose getObject() yields dictionary indices (0, 1, ...) instead of actual
-    // values ("bob_updated", 999). Flattening ensures Java sees plain vectors.
-    ArrowOptions arrow_opts;
-    arrow_opts.flattenDictionary = true;
-    arrow_opts.flattenConstant = true;
-    // Load any LazyVector columns before Arrow export. The drain thread
-    // consumes raw RowVectors outside the Velox operator pipeline, so
-    // identity-projected columns (e.g. a FILE ROW column untouched by
-    // Filter/Project in an UPDATE) may still be unloaded LazyVectors.
-    // Bridge.cpp's schema export does NOT handle LAZY encoding — it
-    // asUnchecked-casts to RowVector and reads garbage childrenSize(),
-    // causing SIGSEGV or an unbounded allocation (OOM SIGKILL).
-    facebook::velox::LazyVector::ensureLoadedRows(
-        row_vector,
-        facebook::velox::SelectivityVector(row_vector->size()));
-    auto export_vector = pangrova::write::prepareWriteArrowExport(row_vector);
-    facebook::velox::exportToArrow(export_vector, arrow_array, pool, arrow_opts);
-    facebook::velox::exportToArrow(export_vector, arrow_schema, arrow_opts);
-
-    auto import_result = arrow::ImportRecordBatch(&arrow_array, &arrow_schema);
-    if (!import_result.ok()) {
-      throw std::runtime_error(
-          "drain_output: Arrow import failed: " + import_result.status().ToString());
-    }
-    auto record_batch = *import_result;
-
-    // Reuse schema across batches: cache on first batch, reuse for all
-    // subsequent batches. Avoids per-batch schema/dictionary reconstruction
-    // in the IPC stream writer (Requirement I.1).
-    if (!stream_schema) {
-      stream_schema = record_batch->schema();
-    }
-
-    auto sink_result = arrow::io::BufferOutputStream::Create();
-    if (!sink_result.ok()) {
-      throw std::runtime_error("drain_output: buffer creation failed");
-    }
-    auto sink = *sink_result;
-    // Reuses cached stream_schema + ipc_write_options across batches —
-    // only the sink and writer wrapper are recreated (cheap allocations).
-    auto writer_result =
-        arrow::ipc::MakeStreamWriter(sink, stream_schema, ipc_write_options);
-    if (!writer_result.ok()) {
-      throw std::runtime_error(
-          "drain_output: writer creation failed: " + writer_result.status().ToString());
-    }
-    auto writer = *writer_result;
-    auto write_status = writer->WriteRecordBatch(*record_batch);
-    if (!write_status.ok()) {
-      throw std::runtime_error(
-          "drain_output: write failed: " + write_status.ToString());
-    }
-    auto close_status = writer->Close();
-    if (!close_status.ok()) {
-      throw std::runtime_error(
-          "drain_output: close failed: " + close_status.ToString());
-    }
-    auto finish_result = sink->Finish();
-    if (!finish_result.ok()) {
-      throw std::runtime_error(
-          "drain_output: finish failed: " + finish_result.status().ToString());
-    }
-    auto buffer = *finish_result;
-
-    PANGROVA_LOG_DEBUG << "drain_output_append task_id=" << task_id
-                     << " bytes=" << buffer->size()
-                     << " rows=" << record_batch->num_rows();
-
-    // The bridge borrows the Arrow buffer for this synchronous JNI call and
-    // converts Java exceptions before the buffer or local JNI reference dies.
-    write_executor.appendBatchData(
-        write_handle, buffer->data(), buffer->size(),
-        static_cast<int32_t>(record_batch->num_rows()),
-        static_cast<int32_t>(record_batch->num_columns()));
-
-    total_rows += record_batch->num_rows();
-    total_bytes += buffer->size();
-    ++batch_count;
-
-    // Periodic aggregate INFO log every kDrainLogBatchInterval batches.
-    if (batch_count % kDrainLogBatchInterval == 0) {
-      PANGROVA_LOG_INFO << "drain_output_progress task_id=" << task_id
-                      << " batches=" << batch_count
-                      << " total_rows=" << total_rows
-                      << " total_bytes=" << total_bytes;
-    }
-  }, [&] {
-    PANGROVA_LOG_INFO << "drain_output_complete task_id=" << task_id
-                    << " batches=" << batch_count
-                    << " total_rows=" << total_rows
-                    << " total_bytes=" << total_bytes;
-
-    if (write_handle >= 0) {
-      PANGROVA_LOG_INFO << "drain_output_commit task_id=" << task_id;
-      write_executor.commitWrite(write_handle);
-      committed = true;
-      PANGROVA_LOG_INFO << "drain_output_commit_done task_id=" << task_id;
-    }
-  });
-  if (!finalized) {
-    // Queue closure after a failed or cancelled producer is not a successful
-    // end-of-stream. Release the Java PageSink and its staged files now.
-    abortGuard();
-  }
-
+    finalized = drainWriteOutput(output_queue, producer_outcome, std::chrono::milliseconds(100),
+        [&](const facebook::velox::RowVectorPtr& batch) { session.append(batch); },
+        [&] { session.commit(); });
   } catch (...) {
-    // F-NATIVE-EXEC-02: Abort the write session on any failure to release
-    // the Java PageSink, delete partial files, and free resources.
-    abortGuard();
-    throw;
+    operationFailure = std::current_exception();
   }
+  if (!finalized) {
+    try {
+      session.abort();
+    } catch (const std::exception& cleanup) {
+      if (operationFailure) {
+        try {
+          std::rethrow_exception(operationFailure);
+        } catch (const std::exception& original) {
+          throw std::runtime_error(std::string(original.what()) +
+                                   "; Java write cleanup: " + cleanup.what());
+        }
+      }
+      throw;
+    }
+  }
+  if (operationFailure) std::rethrow_exception(operationFailure);
 }
 
 void drainOutputToLance(

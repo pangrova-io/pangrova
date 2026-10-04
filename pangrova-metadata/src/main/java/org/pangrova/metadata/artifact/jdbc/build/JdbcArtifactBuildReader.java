@@ -1,6 +1,8 @@
 package org.pangrova.metadata.artifact.jdbc.build;
 
 import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
+import org.pangrova.metadata.artifact.build.ArtifactBuildJobKey;
+import org.pangrova.metadata.artifact.jdbc.ArtifactExecutionFence;
 import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
 import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
 import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
@@ -23,6 +25,15 @@ final class JdbcArtifactBuildReader extends JdbcArtifactBuildStoreSupport {
 
     JdbcArtifactBuildReader(DataSource dataSource) {
         super(dataSource);
+    }
+
+    Optional<ArtifactBuildJobKey> findExecutionJob(String executionId) {
+        Objects.requireNonNull(executionId, "executionId");
+        try (var connection = dataSource.getConnection()) {
+            return ArtifactExecutionFence.findRoute(connection, executionId);
+        } catch (SQLException failure) {
+            throw failure("resolve artifact execution association", failure);
+        }
     }
 
     Optional<ArtifactBuildJob> findJob(String tenantId, String jobId) {
