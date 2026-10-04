@@ -25,7 +25,7 @@ public final class PaimonOptionsSystemTable implements ConnectorSystemTable {
 
     @Override
     public List<String> columns() {
-        return COLUMNS;
+        return List.copyOf(COLUMNS);
     }
 
     @Override

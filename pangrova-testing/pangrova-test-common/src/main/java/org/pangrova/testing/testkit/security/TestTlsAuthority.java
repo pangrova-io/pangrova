@@ -50,7 +50,7 @@ public final class TestTlsAuthority implements AutoCloseable {
     }
 
     public Identity issue(String name, String hostname, boolean expired) throws Exception {
-        if (!name.matches("[a-z0-9-]+") || !hostname.matches("[A-Za-z0-9.-]+")) {
+        if (!name.matches("[a-z0-9][a-z0-9-]*") || !hostname.matches("[A-Za-z0-9.-]+")) {
             throw new IllegalArgumentException("Invalid test certificate identity");
         }
         generateKey(name, "CN=" + name, List.of("-validity", "30"));

@@ -72,7 +72,6 @@ final class QuerySchedulingEngine {
     private final RetrievalIntentCollector retrievalIntents;
     private volatile NativeWriteCommitTracker writeCommitTracker;
     private volatile GeneratedWriteAuthoritySupplier generatedWriteAuthoritySupplier;
-    private java.util.function.BiConsumer<String, ConnectorMetadata> connectorRegistrar;
 
     /**
      * Groups scheduling dependencies into a single parameter object.
@@ -101,9 +100,6 @@ final class QuerySchedulingEngine {
         this.generatedWriteAuthoritySupplier = java.util.Objects.requireNonNull(supplier);
     }
 
-    void setConnectorRegistrar(java.util.function.BiConsumer<String, ConnectorMetadata> registrar) {
-        this.connectorRegistrar = java.util.Objects.requireNonNull(registrar);
-    }
 
     DAGDispatchEngine dagEngine() {
         return deps.dagEngine();
@@ -138,7 +134,7 @@ final class QuerySchedulingEngine {
                 session.sessionProperties());
         properties.put(POLICY_CONTEXT_PROPERTY, signature);
         return new CoordinatorSessionContext(
-                session.queryId(), properties, session.userIdentity(), session.tenantId());
+                session.queryId(), properties, session.userIdentity(), session.tenantId(), session.queryAuthority());
     }
 
     // ── Worker dispatch ──
@@ -150,9 +146,7 @@ final class QuerySchedulingEngine {
         if (!sm.tryTransition(QueryStateMachine.State.SCHEDULING)) {
             return null;
         }
-        try (var connectorScope = new ConnectorQueryScope(
-                session, deps.catalogRegistry(), plannedQuery.splitSources(),
-                metadata -> connectorRegistrar.accept(session.queryId(), metadata))) {
+        try {
             if (ctx.dmlWriteContext().isPresent()) {
                 ensureWriteContextRegistered(session, ctx.dmlWriteContext().get());
             }

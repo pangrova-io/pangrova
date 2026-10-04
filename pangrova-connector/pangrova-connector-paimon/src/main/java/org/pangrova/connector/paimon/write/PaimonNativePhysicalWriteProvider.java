@@ -24,6 +24,7 @@ import java.util.List;
 
 /** Connector SDK metadata authority for Native physical files, with one SDK publication path. */
 public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWriteProvider {
+    private static final int MINIMUM_LANCE_FILE_BYTES = 40;
     private final Catalog catalog;
     private final String catalogName;
 
@@ -99,8 +100,10 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
             if (!output.hasPhysical() || !physical.equals(expected)
                     || !physical.getCatalog().getCatalogName().equals(catalogName)
                     || !physical.getCatalog().getConnectorProvider().equals("paimon")
-                    || !Arrays.equals(codec.serialize(handle), physical.getOutputHandle().getPayload().toByteArray())) {
-                throw new IllegalArgumentException("Physical publication differs from its exact persisted output binding");
+                    || !Arrays.equals(codec.serialize(handle),
+                            physical.getOutputHandle().getPayload().toByteArray())) {
+                throw new IllegalArgumentException(
+                        "Physical publication differs from its exact persisted output binding");
             }
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException("Malformed durable physical output binding", failure);
@@ -116,7 +119,8 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
             if (!attempt.getQueryOrJobId().equals(executionId)
                     || !expected.getFilesList().contains(PhysicalFileWriteBindings.fileAllocation(receipt.allocation()))
                     || metrics.schemaId() != allocation.schema().schemaId()
-                    || metrics.sizeBytes() < 40 || metrics.encodingMajor() != 0 || metrics.encodingMinor() != 3
+                    || metrics.sizeBytes() < MINIMUM_LANCE_FILE_BYTES
+                    || metrics.encodingMajor() != 0 || metrics.encodingMinor() != 3
                     || metrics.minSequence() != Math.addExact(receipt.allocation().restoredMaxSequence(), 1)
                     || metrics.maxSequence() != Math.addExact(metrics.minSequence(), metrics.physicalRows() - 1)) {
                 throw new IllegalArgumentException("Physical receipt differs from its exact winning allocation");
@@ -127,15 +131,18 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
         }
     }
 
-    private static void validateStatistics(NativePhysicalWriteAllocation allocation, NativePhysicalFileReceipt receipt) {
+    private static void validateStatistics(NativePhysicalWriteAllocation allocation,
+                                           NativePhysicalFileReceipt receipt) {
         var fields = new HashSet<Integer>();
         for (var statistics : receipt.columns()) {
-            var declared = allocation.schema().columns().stream().filter(column -> column.fieldId() == statistics.fieldId())
-                    .findFirst().orElseThrow(() -> new IllegalArgumentException("Receipt statistics field is not allocated"));
+            var declared = allocation.schema().columns().stream()
+                    .filter(column -> column.fieldId() == statistics.fieldId()).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Receipt statistics field is not allocated"));
             if (!fields.add(statistics.fieldId()) || !declared.name().equals(statistics.name())
                     || !statistics.collectionPolicy().equals("SDK_DISABLED")
                     || statistics.minimum().isPresent() || statistics.maximum().isPresent()
-                    || (statistics.nullCount().isPresent() && statistics.nullCount().getAsLong() > receipt.metrics().physicalRows())) {
+                    || (statistics.nullCount().isPresent()
+                        && statistics.nullCount().getAsLong() > receipt.metrics().physicalRows())) {
                 throw new IllegalArgumentException("Physical receipt statistics differ from actual SDK policy");
             }
         }
@@ -150,14 +157,16 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
         var primary = schema.primaryKeys().stream().map(name -> schema.fields().stream()
                 .filter(field -> field.name().equals(name)).findFirst().orElseThrow().id()).toList();
         return new NativePhysicalWriteAllocation.Policy("INSERT", partitions, primary, buckets,
-                schema.numBuckets(), PaimonPhysicalWriteAllocations.writerBufferHint(schema.options()), schema.options());
+                schema.numBuckets(), PaimonPhysicalWriteAllocations.writerBufferHint(schema.options()),
+                schema.options());
     }
 
     private void requireSession(ConnectorSession session) {
         if (session == null || session.getUser() == null || session.getUser().isBlank()
                 || !session.getCatalog().equals(java.util.Optional.of(catalogName))
                 || session.getProperties().getOrDefault("tenant_id", "").isBlank()) {
-            throw new IllegalArgumentException("Physical metadata access requires its authorized catalog/tenant session");
+            throw new IllegalArgumentException(
+                    "Physical metadata access requires its authorized catalog/tenant session");
         }
     }
 

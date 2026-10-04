@@ -9,7 +9,8 @@ import java.util.Optional;
 /** Immutable authenticated identity with the catalog/schema of the actual lookup. */
 record PlanningConnectorSession(
         String user, Optional<String> catalog, Optional<String> schema,
-        Map<String, String> properties) implements ConnectorSession {
+        Map<String, String> properties,
+        Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
 
     PlanningConnectorSession {
         if (user == null || user.isBlank()) {
@@ -34,11 +35,14 @@ record PlanningConnectorSession(
             properties.put("schema", schema);
         }
         return new PlanningConnectorSession(source.getUser(), Optional.ofNullable(catalog),
-                Optional.ofNullable(schema), properties);
+                Optional.ofNullable(schema), properties, source.getQueryAuthority());
     }
 
     @Override public String getUser() { return user; }
     @Override public Optional<String> getCatalog() { return catalog; }
     @Override public Optional<String> getSchema() { return schema; }
     @Override public Map<String, String> getProperties() { return properties; }
+    @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        return queryAuthority;
+    }
 }

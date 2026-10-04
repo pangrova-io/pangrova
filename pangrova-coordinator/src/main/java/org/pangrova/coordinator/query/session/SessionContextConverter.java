@@ -59,7 +59,7 @@ public final class SessionContextConverter {
         if (ctx.tenantId() != null && !ctx.tenantId().isBlank()) {
             props.put("tenant_id", ctx.tenantId());
         }
-        return new ConnectorSessionAdapter(user, catalog, schema, props);
+        return new ConnectorSessionAdapter(user, catalog, schema, props, ctx.queryAuthority());
     }
 
     /**
@@ -75,7 +75,7 @@ public final class SessionContextConverter {
         Map<String, String> connectorProps = ctx.sessionProperties();
         return new MetadataSessionContext(
                 user, catalog, schema, timezone, locale,
-                connectorProps, ctx.tenantId(), null, ctx.queryId());
+                connectorProps, ctx.tenantId(), null, ctx.queryId(), ctx.queryAuthority());
     }
 
     /**
@@ -110,7 +110,8 @@ public final class SessionContextConverter {
             String user,
             Optional<String> catalog,
             Optional<String> schema,
-            Map<String, String> properties
+            Map<String, String> properties,
+            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority
     ) implements ConnectorSession {
 
         ConnectorSessionAdapter {
@@ -135,6 +136,11 @@ public final class SessionContextConverter {
         @Override
         public Map<String, String> getProperties() {
             return properties;
+        }
+
+        @Override
+        public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return queryAuthority;
         }
     }
 }

@@ -293,6 +293,11 @@ final class WriteBatchFixtures {
     }
 
     private static final class WriteSession implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test-user"; }
         @Override public Optional<String> getCatalog() { return Optional.of("catalog"); }
         @Override public Optional<String> getSchema() { return Optional.of("schema"); }

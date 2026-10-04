@@ -9,6 +9,11 @@ import java.util.Optional;
  * Minimal ConnectorSession for internal coordinator operations (split fetching, DDL routing).
  */
 public record StatementConnectorSession(String catalog, String schema) implements ConnectorSession {
+    @Override
+    public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        return java.util.Optional.empty();
+    }
+
 
     StatementConnectorSession(String catalog) {
         this(catalog, "default");

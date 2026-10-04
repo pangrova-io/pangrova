@@ -123,6 +123,7 @@ public class QueryManager {
         checkNotNull(queryId, "queryId must not be null");
         checkNotNull(sql, "sql must not be null");
         checkNotNull(session, "session must not be null");
+        CoordinatorSessionContext submittedSession;
         QueryStateMachine stateMachine;
         org.pangrova.coordinator.task.QueryIssuanceOperation submission;
         queryLifecycleLock.readLock().lock();
@@ -130,7 +131,8 @@ public class QueryManager {
             if (draining) {
                 throw new QueryRejectedException(DRAIN_REJECTION_MESSAGE);
             }
-            stateMachine = resolveOrCreateStateMachine(queryId, session);
+            submittedSession = session.withQueryId(queryId);
+            stateMachine = resolveOrCreateStateMachine(queryId, submittedSession);
             submission = queryDispatcher.enterQueryOperation(queryId);
         } finally {
             queryLifecycleLock.readLock().unlock();
@@ -144,8 +146,8 @@ public class QueryManager {
             try {
                 incrementCounter(querySubmitCounter);
                 LOG.info("event=query_submitted queryId={}", queryId);
-                auditBridge.emitAuditSubmitted(queryId, sql, session);
-                return executeQuery(queryId, sql, session, stateMachine);
+                auditBridge.emitAuditSubmitted(queryId, sql, submittedSession);
+                return executeQuery(queryId, sql, submittedSession, stateMachine);
             } finally {
                 LogContext.clear();
                 span.end();
@@ -180,7 +182,7 @@ public class QueryManager {
         try {
             registerJournalListener(queryId, sm);
 
-            enriched = enrichTenant(session, sm);
+            enriched = enrichTenant(session.withQueryAuthority(sm.connectorAuthority()), sm);
             admission.checkThrottle(queryId, enriched);
 
             admission.checkCluster(queryId, enriched.tenantId(), sm);
@@ -251,7 +253,7 @@ public class QueryManager {
                     + " state=" + existing.getState());
         }
         try {
-            queryDispatcher.openQueryIssuance(queryId);
+            queryDispatcher.bindConnectorAuthority(sm, queryId);
         } catch (RuntimeException | Error failure) {
             queries.remove(queryId, sm);
             throw failure;
@@ -280,7 +282,7 @@ public class QueryManager {
                         ? session.tenantId() : "default");
         return new CoordinatorSessionContext(
                 session.queryId(), session.sessionProperties(),
-                session.userIdentity(), tenantId);
+                session.userIdentity(), tenantId, session.queryAuthority());
     }
 
     public void setClusterAdmissionController(
@@ -333,7 +335,10 @@ public class QueryManager {
                 sm.setTransitionOperations(() -> queryDispatcher.enterQueryMetadataOperation(queryId));
                 sm.setBeforeTerminalTransition(() -> shuffleCleanupPending.accept(queryId));
                 if (queries.putIfAbsent(queryId, sm) != null) return;
-                try { queryDispatcher.openQueryIssuance(queryId); }
+                try {
+                    if (sm.isTerminal()) queryDispatcher.openQueryIssuance(queryId);
+                    else queryDispatcher.bindConnectorAuthority(sm, queryId);
+                }
                 catch (RuntimeException | Error failure) { queries.remove(queryId, sm); throw failure; }
                 activeQueryCount.incrementAndGet();
             }

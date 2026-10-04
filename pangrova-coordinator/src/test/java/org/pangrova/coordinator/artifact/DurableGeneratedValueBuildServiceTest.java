@@ -375,6 +375,11 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.Contain
     private static ConnectorSession session() {
         return new ConnectorSession() {
             @Override
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+                return java.util.Optional.empty();
+            }
+
+            @Override
             public String getUser() {
                 return "alice";
             }

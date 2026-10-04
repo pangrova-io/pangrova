@@ -15,6 +15,48 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class RetryPolicyTest {
 
+    @Test
+    void rejectsInitialDelayThatCannotBeRepresentedByTheActualMillisecondSleeper() {
+        Duration overflow = Duration.ofMillis(Long.MAX_VALUE).plusMillis(1);
+        assertThatThrownBy(() -> new RetryPolicy(1, overflow, overflow, 1.0))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("initialDelay");
+    }
+
+    @Test
+    void rejectsMaxDelayThatCannotBeRepresentedByTheActualMillisecondSleeper() {
+        Duration overflow = Duration.ofMillis(Long.MAX_VALUE).plusMillis(1);
+        assertThatThrownBy(() -> new RetryPolicy(1, Duration.ofMillis(1), overflow, 1.0))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maxDelay");
+    }
+
+    @Test
+    void jitterAcceptsTheLargestRepresentableMillisecondDelayWithoutOverflow() {
+        var maximum = Duration.ofMillis(Long.MAX_VALUE);
+        var policy = new RetryPolicy(1, maximum, maximum, 1.0);
+        for (int sample = 0; sample < 100; sample++) {
+            assertThat(policy.delayForAttemptWithJitter(0).toMillis()).isBetween(1L, Long.MAX_VALUE);
+        }
+    }
+
+    @Test
+    void rejectsNonFiniteBackoffMultipliers() {
+        for (double multiplier : new double[] {Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY}) {
+            assertThatThrownBy(() -> new RetryPolicy(1, Duration.ofMillis(1), Duration.ofSeconds(1), multiplier))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("backoffMultiplier");
+        }
+    }
+
+    @Test
+    void initialDelayAlsoRespectsTheConfiguredCap() {
+        var policy = new RetryPolicy(1, Duration.ofSeconds(2), Duration.ofSeconds(1), 2.0);
+        assertThat(policy.delayForAttempt(0)).isEqualTo(Duration.ofSeconds(1));
+    }
+
+    @Test
+    void zeroDelayDoesNotInventAnExtraMillisecond() {
+        assertThat(RetryPolicy.NONE.delayForAttemptWithJitter(0)).isEqualTo(Duration.ZERO);
+    }
+
     // ── delayForAttempt (deterministic) ──
 
     @Test

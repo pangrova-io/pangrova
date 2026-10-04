@@ -21,6 +21,13 @@ import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
 public final class PaimonPhysicalWriteAllocations {
     private PaimonPhysicalWriteAllocations() {}
 
+    /**
+     * Allocates an append object against an exact SDK source snapshot.
+     *
+     * @param table the SDK table authority
+     * @param baseSnapshotId the selected source snapshot, or -1 for the initial empty state
+     * @return the immutable physical output allocation
+     */
     public static NativePhysicalWriteAllocation append(FileStoreTable table, long baseSnapshotId) {
         requireAppendLayout(table);
         var files = restoredFiles(table, baseSnapshotId, false);
@@ -45,16 +52,20 @@ public final class PaimonPhysicalWriteAllocations {
     public static void validateSource(FileStoreTable table, NativePhysicalWriteAllocation allocation) {
         requireAppendLayout(table);
         var files = restoredFiles(table, allocation.baseSnapshotId(), true);
-        if (allocation.files().size() != 1) throw new IllegalArgumentException("Unexpected append file allocation count");
+        if (allocation.files().size() != 1) {
+            throw new IllegalArgumentException("Unexpected append file allocation count");
+        }
         var file = allocation.files().get(0);
         var pathFactory = table.store().pathFactory().createDataFilePathFactory(BinaryRow.EMPTY_ROW, file.bucketId());
         if (file.bucketId() != 0 || file.fileOrdinal() != 0 || file.partition().length != 0
                 || !FileSource.APPEND.name().equals(file.location().fileSource())
                 || !pathFactory.parent().toString().equals(allocation.allocationPrefix())
-                || !file.location().opaqueLocation().equals(allocation.allocationPrefix() + "/" + file.location().fileName())
+                || !file.location().opaqueLocation().equals(
+                        allocation.allocationPrefix() + "/" + file.location().fileName())
                 || file.restoredMaxSequence() != DataFileMeta.getMaxSequenceNumber(files)
                 || !MessageDigest.isEqual(file.restoredFileSetSha256(), fileSetDigest(files))) {
-            throw new IllegalArgumentException("Physical allocation differs from exact SDK source files or bucket path");
+            throw new IllegalArgumentException(
+                    "Physical allocation differs from exact SDK source files or bucket path");
         }
     }
 
@@ -62,7 +73,8 @@ public final class PaimonPhysicalWriteAllocations {
     public static long writerBufferHint(java.util.Map<String, String> options) {
         String value = options.get("lance.native.encoder-cache-bytes");
         if (value == null || !value.matches("[1-9][0-9]*")) {
-            throw new IllegalArgumentException("Native Lance physical writes require lance.native.encoder-cache-bytes as positive bytes");
+            throw new IllegalArgumentException(
+                    "Native Lance physical writes require lance.native.encoder-cache-bytes as positive bytes");
         }
         try {
             return Long.parseLong(value);
@@ -81,21 +93,8 @@ public final class PaimonPhysicalWriteAllocations {
     }
 
     private static List<DataFileMeta> restoredFiles(FileStoreTable table, long baseSnapshotId, boolean replay) {
-        Long latest = table.snapshotManager().latestSnapshotId();
-        if (baseSnapshotId < -1 || (latest == null && baseSnapshotId != -1)
-                || (latest != null && baseSnapshotId == -1 && !replay)) {
-            throw new IllegalArgumentException("Physical allocation has no matching source snapshot");
-        }
-        if (baseSnapshotId == -1) {
-            Long earliest = table.snapshotManager().earliestSnapshotId();
-            if (earliest != null && earliest > 1) {
-                throw new IllegalArgumentException("Physical allocation initial source history expired");
-            }
-            return List.of();
-        }
-        if (!table.snapshotManager().snapshotExists(baseSnapshotId)) {
-            throw new IllegalArgumentException("Physical allocation source snapshot no longer exists");
-        }
+        requireSourceSnapshot(table, baseSnapshotId, replay);
+        if (baseSnapshotId == -1) return List.of();
         var pinned = table.copyWithoutTimeTravel(java.util.Map.of(
                 CoreOptions.SCAN_SNAPSHOT_ID.key(), Long.toString(baseSnapshotId)));
         var files = new TreeMap<String, DataFileMeta>();
@@ -112,6 +111,24 @@ public final class PaimonPhysicalWriteAllocations {
             }
         }
         return List.copyOf(files.values());
+    }
+
+    private static void requireSourceSnapshot(FileStoreTable table, long baseSnapshotId, boolean replay) {
+        Long latest = table.snapshotManager().latestSnapshotId();
+        if (baseSnapshotId < -1 || (latest == null && baseSnapshotId != -1)
+                || (latest != null && baseSnapshotId == -1 && !replay)) {
+            throw new IllegalArgumentException("Physical allocation has no matching source snapshot");
+        }
+        if (baseSnapshotId == -1) {
+            Long earliest = table.snapshotManager().earliestSnapshotId();
+            if (earliest != null && earliest > 1) {
+                throw new IllegalArgumentException("Physical allocation initial source history expired");
+            }
+            return;
+        }
+        if (!table.snapshotManager().snapshotExists(baseSnapshotId)) {
+            throw new IllegalArgumentException("Physical allocation source snapshot no longer exists");
+        }
     }
 
     private static byte[] fileSetDigest(List<DataFileMeta> files) {

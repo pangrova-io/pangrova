@@ -262,6 +262,8 @@ jobs:
     name: Production image and full regression (JDK 17)
     runs-on: ubuntu-latest
     needs: [native-build, native-sanitizers]
+    env:
+      PANGROVA_E2E_IMAGE: pangrova/pangrova:ci-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
 
@@ -279,11 +281,14 @@ jobs:
       - name: Build the canonical same-source Linux production image
         run: |
           docker buildx version
-          docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
+          IMAGE="$PANGROVA_E2E_IMAGE" docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
+          image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "PANGROVA_E2E_IMAGE_ID=$image_id" >> "$GITHUB_ENV"
 
       - name: Stage the production classifier and matching host JNI
         run: |
-          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh pangrova/pangrova:latest)
+          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh "$PANGROVA_E2E_IMAGE_ID")
           mvn -B install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
             -Dclassifier=linux-x86_64
 
@@ -291,14 +296,18 @@ jobs:
         run: mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
 
       - name: Run full regression with real coverage
-        run: mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle'
+        run: |
+          mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle' \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
 
       - name: Run full E2E and real activation smoke
         run: |
           mvn -B -Pnative-runtime,full-regression \
-            -pl pangrova-testing/pangrova-test-e2e -am test
+            -pl pangrova-testing/pangrova-test-e2e -am test \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
           mvn -B -Pnative-runtime -pl pangrova-testing/pangrova-test-e2e \
-            -Dtest=ActivationSmokeE2ETest test
+            -Dtest=ActivationSmokeE2ETest test \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
 
       - name: Diff Coverage Gate
         if: github.event_name == 'pull_request'
@@ -436,7 +445,7 @@ jobs:
       - name: Setup native build environment
         run: ./pangrova-worker-native/bin/setup-native-build-env.sh
 
-      - name: Build instrumented Velox, Protobuf and Abseil
+      - name: Build instrumented Velox, Protobuf, Abseil, RE2, gRPC and Flight
         if: matrix.sanitizer.name == 'asan'
         run: |
           PANGROVA_ASAN_CI_PRUNE_RELEASE=1 \
@@ -451,8 +460,15 @@ jobs:
           if [[ "${{ matrix.sanitizer.name }}" == "asan" ]]; then
             source ~/.pangrova/asan-env.sh
             cmake --preset ${{ matrix.sanitizer.preset }} \
+              -DPANGROVA_DEPS_PREFIX="$PANGROVA_DEPS_PREFIX" \
+              -DCMAKE_PREFIX_PATH="$PANGROVA_DEPS_PREFIX" \
+              -DVELOX_BUILD_DIR="$VELOX_BUILD_DIR" \
+              -DArrow_DIR="$Arrow_DIR" \
+              -DARROW_FLIGHT_HOME="$ARROW_FLIGHT_HOME" -UARROW_FLIGHT_LIB \
+              -Dre2_DIR="$re2_DIR" -DgRPC_DIR="$gRPC_DIR" \
+              -DProtobuf_DIR="$Protobuf_DIR" \
               -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB" \
-              -Dabsl_DIR="$PANGROVA_ASAN_ABSL_DIR"
+              -Dabsl_DIR="$absl_DIR"
           else
             cmake --preset ${{ matrix.sanitizer.preset }}
           fi

@@ -42,7 +42,7 @@ public final class PaimonAuditLogSystemTable implements ConnectorSystemTable {
 
     @Override
     public List<String> columns() {
-        return columnNames;
+        return List.copyOf(columnNames);
     }
 
     @Override

@@ -34,7 +34,14 @@ snapshot用例同因失败。日志
   主查询入口并未使用 Calcite parser。这与 root architecture 的 Calcite dialect
   extensions 和目标“Calcite 唯一前端”不一致。
 - `SqlCompiler` 还暴露 parseToAst/compileStatementToPlannedQuery，Coordinator
-  依赖旧 AST 分派、写模式、重试、视图、时光读取、审计和表引用。
+  依赖旧 AST 分派、写模式、重试、视图、时光读取和表引用。
+- 公开关系 SQL 的 `CompilationPhase` 在 Planner 编译前调用 TimeTravelExtractor，
+  后者无条件运行 `TimeTravelSqlClauses.extract` 的严格 ANTLR grammar；没有
+  time-travel clause 的 SQL 也经过这一边界。只替换 Planner parser 仍不能贯通入口。
+- `FilterExpressionParser`、`MaskExpressionParser` 则直接调用默认 Calcite parser，
+  是当前独立的 policy expression 入口；迁移后必须消费同一生成 factory 和方言配置。
+- `QueryLineageCapture` 已从 `PlannedQuery.tableReferences()` 与 dmlWriteTarget
+  获取 sources/targets，不是旧 parser-AST consumer；应保留实际计划来源和原 SQL 审计文本。
 - `QueryPipelineExecutor.executeDmlStatement` 为 MERGE 与 retry 用 AstPrinter
   重建 SQL；源码明确写出 Calcite unparser 的 VALUES ROW 与旧 grammar 不兼容。
 - `DynamicTableSqlRewriter` 会重复解析和 regex 替换表引用，失败时原样跳过；
@@ -42,6 +49,13 @@ snapshot用例同因失败。日志
 
 只让 pure SqlCompiler 改用 Calcite parser，仍会在 Coordinator 的 AST consumer
 失败或丢掉授权/写入语义，因此必须迁移完整公开入口。
+
+另有已复证的源码缺口，尚未修复：`PangrovaSql.g4` 的 setQuery 只能由 SELECT
+query 组成，derivedTableRef 只接受 `(setQuery)`，且不接受 `AS t(text)` 的列别名
+列表。因此派生 VALUES/VALUES ROW 和派生列别名是两个独立缺口。
+`AstToSqlNodeConverter.convertCteQuery` 构造 SqlWithItem 时传入空列别名，也未传递
+已有 CteQuery/CteDefinition 的 recursive、search、cycle 信息；AST 字段存在不能证明
+规划语义保真。这些为源码证据，不是新增实测通过或已完成修复的声明。
 
 ## 2. 一手调研与裁决
 
@@ -64,9 +78,11 @@ extensions。不能用词首 regex 区分语法，不先尝试另一 parser，�
 
 ## 3. 唯一对象与模块边界
 
-`pangrova-parser` 拥有锁版本 parser templates、扩展 grammar 和 metadata command
-descriptor。只有生成器写 generated sources。移除旧 ANTLR plugin/runtime、grammar
-及其无生产 caller 的 visitors，不能保留两个可选 factory 或手改 generated Java。
+`pangrova-planner` 拥有锁版本 Calcite parser templates、扩展 grammar、生成前端
+和 SqlCall adapter。Calcite 类型只能留在该模块；`pangrova-parser` 仅保留框架中立
+的 metadata command descriptor，不能增加 Calcite 依赖或生成 SqlNode 子类。
+只有生成器写 generated sources。移除旧 ANTLR plugin/runtime、grammar 及其
+无生产 caller 的 visitors，不能保留两个可选 factory 或手改 generated Java。
 
 `pangrova-planner` 拥有查询局部 opaque `ParsedSqlStatement`，内部保留一个准确
 SqlNode；对 Coordinator 仅暴露明确 kind、读写属性、源引用、目标、typed metadata
@@ -83,7 +99,8 @@ SQL 原文与 source spans 只用于诊断/审计，不是授权或 retry 的第
 
 1. `PangrovaParserFactory` 成为真实 factory；PangrovaPlanner 的 query parse 使用
    它产生的同一 SqlNode。所有 custom types/functions/operator references 消费唯一
-   canonical declaration，不在 grammar 中复制函数签名。
+   canonical declaration，不在 grammar 中复制函数签名。FilterExpressionParser 与
+   MaskExpressionParser 使用同一 factory/方言配置，不能保留默认 parser 的第二方言入口。
 2. `SqlCompiler.parseToAst/compileStatement*` 及各真实 caller 原子迁移至 opaque
    parsed input。DDL metadata commands 必须保留 tenant/catalog/branch target 和
    exact option/type 字段；不为方便使数据 DML 落回 Java row execution。
@@ -91,8 +108,10 @@ SQL 原文与 source spans 只用于诊断/审计，不是授权或 retry 的第
    QueryPipelineExecutor 共用 parsed input；删除吞 parseFailure 后继续的旧注释/分支。
    SHOW/metadata 可以分派 control plane，SELECT 和所有数据 DML 始终发 Native DAG。
 4. `ViewExpander`、TimeTravelExtractor、DispatchContextEnricher、WritePolicyObservation、
-   QueryLineageCapture、dynamic table 与 CTE analysis 使用节点级引用/改写。禁止替换
-   SQL 字符串中的第一处同名文本；CTE shadowing、嵌套引用和带引号 identifiers 必须正确。
+   dynamic table 与 CTE analysis 使用节点级引用/改写；TimeTravelSqlClauses 的严格
+   预解析同时迁移，不得在公开入口遗留 ANTLR grammar。禁止替换 SQL 字符串中的第一处
+   同名文本；CTE shadowing、嵌套引用和带引号 identifiers 必须正确。QueryLineageCapture
+   保持已存在的 PlannedQuery sources/targets 来源，不增加一次 AST 解析。
 5. MERGE/INSERT OVERWRITE/static partition 的真实 typed 写模式保留；整个 MERGE
    一次 Native write/一次 publication。不能拿 ASTPrinter 重解析绕过当前语义限制。
 6. snapshot/version/权限 policy 绑定前后都来自同 query authority。replay/failover

@@ -18,11 +18,13 @@ import org.pangrova.resource.memory.NodeMemoryPool;
 import org.pangrova.resource.memory.RootMemoryPool;
 import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
 import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
 import org.pangrova.worker.bootstrap.phase.NativeRuntimeBootstrap;
 import org.pangrova.worker.cache.NativeCacheConfig;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.worker.jni.NativeCommandBuilder;
+import org.pangrova.worker.jni.NativeFunctionConfig;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.result.ResultReadTickets;
@@ -43,6 +45,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     private final MemoryArbitrator arbitrator = new MemoryArbitrator(TOTAL_MEMORY_BYTES, 0);
     private final NodeMemoryPool nodePool = new RootMemoryPool("jni-fixture-root", TOTAL_MEMORY_BYTES)
             .createNodePool("jni-fixture-node", TOTAL_MEMORY_BYTES);
+    private final WorkerComponentRefs nativeRefs = new WorkerComponentRefs();
     private final NativeTaskExecutor executor;
     private final NativeResultTransport results;
     private final NativeExchangeTransport exchange;
@@ -67,10 +70,11 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
         NativeResultTransport startingResults = null;
         NativeExchangeTransport startingExchange = null;
         try {
-            var refs = new WorkerComponentRefs();
-            refs.setMemoryArbitrator(arbitrator);
-            refs.setNodeMemoryPool(nodePool);
-            NativeRuntimeBootstrap.initialize(config, refs, NativeCacheConfig.DISABLED);
+            nativeRefs.setMemoryArbitrator(arbitrator);
+            nativeRefs.setNodeMemoryPool(nodePool);
+            NativeRuntimeBootstrap.initialize(config, nativeRefs, NativeCacheConfig.DISABLED);
+            // This fixture owns core functions only, but still performs the real startup publication.
+            NativeFunctionBootstrap.initialize(nativeRefs, NativeFunctionConfig.DISABLED);
             startingExecutor = new NativeTaskExecutor();
             var resultTickets = initializeTickets();
             startingResults = new NativeResultTransport(startingExecutor, "127.0.0.1");
@@ -81,6 +85,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
             closeAfterFailure(startingResults, failure);
             closeAfterFailure(startingExchange, failure);
             closeAfterFailure(startingExecutor, failure);
+            closeAfterFailure(() -> NativeFunctionBootstrap.close(nativeRefs), failure);
             try {
                 NativeRuntime.shutdownNativeRuntime();
             } catch (RuntimeException | Error cleanupFailure) {
@@ -195,6 +200,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
         // release must remain retryable rather than shutting down its runtime.
         stopTransports();
         executor.close();
+        NativeFunctionBootstrap.close(nativeRefs);
         NativeRuntime.shutdownNativeRuntime();
         if (nodePool.getUsedBytes() != 0
                 || arbitrator.getUsedMemory() != 0) {

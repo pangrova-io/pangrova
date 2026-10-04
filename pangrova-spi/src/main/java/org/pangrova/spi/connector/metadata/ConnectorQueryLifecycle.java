@@ -1,6 +1,7 @@
 package org.pangrova.spi.connector.metadata;
 
 import org.pangrova.spi.annotation.Experimental;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
 
 /**
  * Query lifecycle hooks for a connector.
@@ -19,22 +20,22 @@ public interface ConnectorQueryLifecycle {
      * metadata reads within the same query see a consistent view.
      * This method is idempotent.</p>
      *
-     * @param queryId the unique identifier of the query
+     * @param authority the actual engine-issued lifetime of the query
      */
-    default void beginQuery(String queryId) {
+    default void beginQuery(ConnectorQueryAuthority authority) {
         // Intentional no-op: connectors that need snapshot pinning override this
     }
 
     /**
      * Signals the end of a query, releasing any resources pinned by
-     * {@link #beginQuery(String)}.
+     * {@link #beginQuery(ConnectorQueryAuthority)}.
      *
-     * <p>The engine guarantees this method is called exactly once per query
-     * regardless of outcome. This method is idempotent.</p>
+     * <p>The engine closes admission before cleanup. Failed cleanup retains the same owner
+     * for retry; successful cleanup is idempotent.</p>
      *
-     * @param queryId the unique identifier of the query
+     * @param authority the same closed lifetime supplied to begin
      */
-    default void cleanupQuery(String queryId) {
+    default void cleanupQuery(ConnectorQueryAuthority authority) {
         // Intentional no-op: connectors that need resource cleanup override this
     }
 }

@@ -77,7 +77,50 @@ cd pangrova-worker-native/build && ctest
 ./bin/start-local-cluster.sh
 ```
 
-### 1.3 IDE Configuration
+### 1.3 Matching AddressSanitizer Dependencies
+
+ASan must use one compiler and a matching instrumented dependency cohort. Using
+Release RE2/gRPC/Flight with ASan Abseil can change inline hash-table layouts even
+when the headers and dependency versions match. A successful link is insufficient;
+the native configure executes the canonical RE2 template/regex admission check.
+
+After the regular bootstrap has fetched the pinned sources, build the separate
+sanitizer dependencies and explicitly select them. Run from the repository root:
+
+```bash
+source "$HOME/.pangrova/env.sh"
+./pangrova-worker-native/bin/setup-native-asan-env.sh
+source "$HOME/.pangrova/asan-env.sh"
+cmake --preset dev-asan -S pangrova-worker-native \
+  -DPANGROVA_DEPS_PREFIX="$PANGROVA_DEPS_PREFIX" \
+  -DCMAKE_PREFIX_PATH="$PANGROVA_DEPS_PREFIX" \
+  -DVELOX_BUILD_DIR="$VELOX_BUILD_DIR" \
+  -DArrow_DIR="$Arrow_DIR" \
+  -DARROW_FLIGHT_HOME="$ARROW_FLIGHT_HOME" -UARROW_FLIGHT_LIB \
+  -Dre2_DIR="$re2_DIR" -DgRPC_DIR="$gRPC_DIR" \
+  -DProtobuf_DIR="$Protobuf_DIR" -Dabsl_DIR="$absl_DIR" \
+  -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB"
+cmake --build pangrova-worker-native/build-asan --parallel 2
+ctest --test-dir pangrova-worker-native/build-asan --output-on-failure
+```
+
+The bootstrap reconfigures and incrementally builds the actual pinned sources;
+cached package presence is not provenance. An existing CMake cache retains package
+paths, so the explicit arguments above matter when changing cohorts. Flight
+admission rejects a cached library outside the selected package prefix. Cross-built
+RE2 admission requires a real target emulator. A bootstrap/configure pass is not an
+ASan test pass; retain the original leak/error checks and report platform/runtime
+failures accurately.
+
+If an upstream source download is unavailable, Arrow's official `ARROW_LZ4_URL`
+and `ARROW_ZSTD_URL` environment variables may select an existing source archive
+(including a `file://` URL). Verify its SHA-256 against the matching SDK Arrow
+source's `cpp/thirdparty/versions.txt` first; Arrow's ExternalProject also retains
+its mandatory hash check. Rebuild the codec from this source with ASan. A cached
+Release codec library is not an acceptable replacement. Do not change codec
+versions, disable compression, or edit generated download scripts to pass setup.
+
+### 1.4 IDE Configuration
 
 ```xml
 

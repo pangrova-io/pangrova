@@ -9,6 +9,11 @@ import java.util.Optional;
  * Minimal ConnectorSession for branch/tag DDL operations.
  */
 record BranchConnectorSession(String catalog) implements ConnectorSession {
+    @Override
+    public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        return java.util.Optional.empty();
+    }
+
 
     @Override
     public String getUser() {

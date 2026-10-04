@@ -55,8 +55,9 @@ final class ResultBatchDecoder {
             return DecodedResult.EMPTY;
         }
         List<String> columnNames = batch.columnNames();
-        List<List<String>> rows = new ArrayList<>(batch.rows().size());
-        for (Object[] row : batch.rows()) {
+        List<Object[]> decodedRows = batch.rows();
+        List<List<String>> rows = new ArrayList<>(decodedRows.size());
+        for (Object[] row : decodedRows) {
             List<String> formatted = new ArrayList<>(row.length);
             for (Object value : row) {
                 formatted.add(formatCell(value));

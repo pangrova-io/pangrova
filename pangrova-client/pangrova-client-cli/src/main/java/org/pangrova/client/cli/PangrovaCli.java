@@ -88,14 +88,16 @@ public final class PangrovaCli {
     }
 
     private static ResultTransportSecurity parseResultSecurity(java.util.Map<String, String> params) {
-        var allowed = java.util.Set.of("--result-tls-root-ca", "--result-tls-certificate-chain", "--result-tls-private-key");
+        var allowed = java.util.Set.of(
+                "--result-tls-root-ca", "--result-tls-certificate-chain", "--result-tls-private-key");
         for (String option : params.keySet()) {
             if (option.startsWith("--result-tls-") && !allowed.contains(option)) {
                 throw new IllegalArgumentException("Unknown result transport security option: " + option);
             }
         }
         return new ResultTransportSecurity(false, materialPath(params.get("--result-tls-root-ca")),
-                materialPath(params.get("--result-tls-certificate-chain")), materialPath(params.get("--result-tls-private-key")));
+                materialPath(params.get("--result-tls-certificate-chain")),
+                materialPath(params.get("--result-tls-private-key")));
     }
 
     private static java.nio.file.Path materialPath(String value) {

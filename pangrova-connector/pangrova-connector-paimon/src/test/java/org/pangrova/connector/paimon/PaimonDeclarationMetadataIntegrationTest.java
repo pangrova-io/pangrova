@@ -36,6 +36,11 @@ class PaimonDeclarationMetadataIntegrationTest {
     Path warehouse;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("paimon"); }
         @Override public Optional<String> getSchema() { return Optional.of("db"); }
@@ -57,7 +62,7 @@ class PaimonDeclarationMetadataIntegrationTest {
                     .option("pangrova.vector.dimension.embedding", "3");
             properties.forEach(schema::option);
             catalog.createTable(id, schema.build(), false);
-            var metadata = new PaimonMetadata(catalog, "paimon");
+            var metadata = new PaimonMetadata(catalog, "paimon", new org.pangrova.connector.paimon.PaimonSplitRegistry());
             var original = (PaimonTableHandle) metadata.getTableHandle(SESSION, new SchemaTableName("db", "declared"));
             assertThat(GeneratedColumnMetadataCodec.decode(metadata.getTableMetadata(SESSION, original).properties()))
                     .isEqualTo(definitions);

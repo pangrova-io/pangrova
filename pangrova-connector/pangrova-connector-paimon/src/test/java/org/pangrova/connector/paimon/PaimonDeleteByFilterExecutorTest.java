@@ -141,7 +141,7 @@ class PaimonDeleteByFilterExecutorTest extends PaimonDeleteTestSupport {
     void metadataWiringUsesFreshTableAfterHandleCreation() throws Exception {
         createTable(true, false);
         writeRows(EAST_ONE, WEST_ONE);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var handle = metadata.getTableHandle(SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
         assertThat(handle).isNotNull();
         StoredRow updatedWest = new StoredRow(3, "west", "one", "latest-west");
@@ -158,7 +158,7 @@ class PaimonDeleteByFilterExecutorTest extends PaimonDeleteTestSupport {
     void metadataPropagatesUnsupportedPredicateWithoutMutating() throws Exception {
         createTable(true, false);
         writeRows(EAST_ONE, WEST_ONE);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var handle = metadata.getTableHandle(SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
         long before = snapshotId();
 
@@ -174,7 +174,7 @@ class PaimonDeleteByFilterExecutorTest extends PaimonDeleteTestSupport {
     @ValueSource(booleans = {false, true})
     void metadataPropagatesMissingTableBeforeCapabilityDecision(boolean unsupportedFilter) throws Exception {
         createTable(true, false);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var handle = metadata.getTableHandle(SESSION, new SchemaTableName(DATABASE, TABLE_NAME));
         assertThat(handle).isNotNull();
         catalog.dropTable(IDENTIFIER, false);

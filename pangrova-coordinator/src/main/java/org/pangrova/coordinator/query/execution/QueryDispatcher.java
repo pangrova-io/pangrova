@@ -111,7 +111,6 @@ public class QueryDispatcher {
                 deps.catalogRegistry(), splitMgr, cancelRetrier);
         this.ownershipTracker.initFromContext(
                 deps.haService(), deps.coordinatorId());
-        this.schedulingEngine.setConnectorRegistrar(ownershipTracker::registerConnectorMetadata);
     }
 
     // ── Public API ──
@@ -122,7 +121,7 @@ public class QueryDispatcher {
         checkNotNull(sm, "state machine must not be null");
         checkNotNull(sql, "sql must not be null");
         checkNotNull(session, "session must not be null");
-        taskTracker.openQueryIssuance(session.queryId());
+        session = bindConnectorAuthority(sm, session);
         try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
             DispatchResult result = pipelineExecutor.doExecute(
                     sm, sql, session);
@@ -155,7 +154,7 @@ public class QueryDispatcher {
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
                                         CoordinatorSessionContext session,
                                         String writeModeOverride) {
-        taskTracker.openQueryIssuance(session.queryId());
+        session = bindConnectorAuthority(sm, session);
         try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
             return pipelineExecutor.executeDmlSql(sm, sql, session, writeModeOverride);
         }
@@ -165,7 +164,7 @@ public class QueryDispatcher {
             QueryStateMachine sm,
             org.pangrova.parser.ast.Statement stmt,
             CoordinatorSessionContext session) {
-        taskTracker.openQueryIssuance(session.queryId());
+        session = bindConnectorAuthority(sm, session);
         try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
             return pipelineExecutor.executeDmlStatement(sm, stmt, session);
         }
@@ -173,6 +172,20 @@ public class QueryDispatcher {
 
     public QueryLineageInfo removeLineageInfo(String queryId) {
         return lineageCapture.removeLineageInfo(queryId);
+    }
+
+    private CoordinatorSessionContext bindConnectorAuthority(QueryStateMachine state,
+            CoordinatorSessionContext session) {
+        var authority = bindConnectorAuthority(state, session.queryId());
+        return session.withQueryAuthority(authority);
+    }
+
+    /** Registers the exact public state-bound lifetime before planning can perform connector I/O. */
+    public org.pangrova.spi.connector.ConnectorQueryAuthority bindConnectorAuthority(
+            QueryStateMachine state, String queryId) {
+        var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));
+        ownershipTracker.registerConnectorAuthority(authority);
+        return authority;
     }
 
     public List<String> removeColumnNames(String queryId) {
@@ -216,7 +229,9 @@ public class QueryDispatcher {
         return ownershipTracker.acquireQueryOwnership(queryId);
     }
 
-    public void openQueryIssuance(String queryId) { taskTracker.openQueryIssuance(queryId); }
+    public org.pangrova.spi.connector.ConnectorQueryAuthority openQueryIssuance(String queryId) {
+        return taskTracker.openQueryIssuance(queryId);
+    }
 
     public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryOperation(String queryId) { return taskTracker.enterQueryOperation(queryId); }
 
@@ -234,6 +249,12 @@ public class QueryDispatcher {
 
     public void cleanupQuery(String queryId) {
         ownershipTracker.cleanupQuery(queryId);
+        schedulingEngine.dagEngine().clearQuery(queryId);
+    }
+
+    /** Cleans the actual local creation scope without touching foreign execution ownership. */
+    public void cleanupUnadmittedQuery(String queryId) {
+        ownershipTracker.cleanupLocalQuery(queryId);
         schedulingEngine.dagEngine().clearQuery(queryId);
     }
 

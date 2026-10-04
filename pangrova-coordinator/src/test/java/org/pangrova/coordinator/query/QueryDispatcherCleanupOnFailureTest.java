@@ -134,13 +134,18 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
     @Test
     void executeFailure_releasesOnlyActuallyRegisteredConnectorSnapshot() {
         var session = session("q-cleanup-1");
+        var state = new QueryStateMachine();
+        var authority = dispatcher.bindConnectorAuthority(state, session.queryId());
+        session = session.withQueryAuthority(authority);
         var registered = connectorMetadata(CATALOG, session);
         var unrelated = connectorMetadata(UNREFERENCED_CATALOG, session);
-        beginAndPin(registered, session.queryId());
-        beginAndPin(unrelated, session.queryId());
-        var state = new QueryStateMachine();
+        authority.beginMetadata(CATALOG, () -> registered);
+        pin(registered, session.queryId());
+        var unrelatedOwner = new org.pangrova.coordinator.task.TestConnectorQuery(session.queryId());
+        beginAndPin(unrelated, unrelatedOwner.authority());
+        var admittedSession = session;
 
-        assertThrows(NoAvailableWorkerException.class, () -> dispatcher.execute(state, SQL, session));
+        assertThrows(NoAvailableWorkerException.class, () -> dispatcher.execute(state, SQL, admittedSession));
 
         // Direct dispatch releases its resources; QueryManager owns durable terminalization.
         assertThat(state.getState()).isEqualTo(QueryStateMachine.State.SCHEDULING);
@@ -148,19 +153,27 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         assertThat(unrelated.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         dispatcher.cleanupQuery(session.queryId());
         assertThat(unrelated.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
-        unrelated.cleanupQuery(session.queryId());
+        unrelatedOwner.seal();
+        unrelated.cleanupQuery(unrelatedOwner.authority());
+        unrelatedOwner.retire();
     }
 
     @Test
     void dispatchFailure_closesPinScopeWithoutCleaningAnotherQuery() {
         var failing = session("q-cleanup-2");
         var other = session("q-independent");
+        var state = new QueryStateMachine();
+        var authority = dispatcher.bindConnectorAuthority(state, failing.queryId());
+        failing = failing.withQueryAuthority(authority);
         var connector = connectorMetadata(CATALOG, failing);
-        beginAndPin(connector, failing.queryId());
-        beginAndPin(connector, other.queryId());
+        authority.beginMetadata(CATALOG, () -> connector);
+        pin(connector, failing.queryId());
+        var otherOwner = new org.pangrova.coordinator.task.TestConnectorQuery(other.queryId());
+        beginAndPin(connector, otherOwner.authority());
+        var admittedSession = failing;
 
         assertThrows(NoAvailableWorkerException.class,
-                () -> dispatcher.execute(new QueryStateMachine(), SQL, failing));
+                () -> dispatcher.execute(state, SQL, admittedSession));
 
         assertThat(connector.getPinnedSnapshot(failing.queryId(), SCHEMA, TABLE)).isEmpty();
         connector.pinSnapshotForQuery(failing.queryId(), SCHEMA, TABLE, snapshotId);
@@ -168,7 +181,9 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         assertThat(connector.getPinnedSnapshot(other.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         dispatcher.cleanupQuery(failing.queryId());
         assertThat(connector.getPinnedSnapshot(other.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
-        connector.cleanupQuery(other.queryId());
+        otherOwner.seal();
+        connector.cleanupQuery(otherOwner.authority());
+        otherOwner.retire();
     }
 
     @Test
@@ -177,8 +192,9 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         var first = connectorMetadata(CATALOG, session);
         var second = connectorMetadata(UNREFERENCED_CATALOG, session);
         // These scopes belong to another owner; invalid SQL registers neither with this dispatcher.
-        beginAndPin(first, session.queryId());
-        beginAndPin(second, session.queryId());
+        var externalOwner = new org.pangrova.coordinator.task.TestConnectorQuery(session.queryId());
+        beginAndPin(first, externalOwner.authority());
+        beginAndPin(second, externalOwner.authority());
         var state = new QueryStateMachine();
 
         assertThrows(ParseException.class,
@@ -190,8 +206,10 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         dispatcher.cleanupQuery(session.queryId());
         assertThat(first.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         assertThat(second.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
-        first.cleanupQuery(session.queryId());
-        second.cleanupQuery(session.queryId());
+        externalOwner.seal();
+        first.cleanupQuery(externalOwner.authority());
+        second.cleanupQuery(externalOwner.authority());
+        externalOwner.retire();
     }
 
     private void createSdkTable() throws Exception {
@@ -231,8 +249,13 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         return (IcebergMetadata) metadata.catalogRegistry().getCatalog(catalog).getMetadata(scope);
     }
 
-    private void beginAndPin(IcebergMetadata connector, String queryId) {
-        connector.beginQuery(queryId);
+    private void beginAndPin(IcebergMetadata connector,
+            org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        connector.beginQuery(authority);
+        pin(connector, authority.queryId());
+    }
+
+    private void pin(IcebergMetadata connector, String queryId) {
         connector.pinSnapshotForQuery(queryId, SCHEMA, TABLE, snapshotId);
         assertThat(connector.getPinnedSnapshot(queryId, SCHEMA, TABLE)).hasValue(snapshotId);
     }

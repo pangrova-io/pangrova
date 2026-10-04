@@ -13,7 +13,7 @@ OPTIONS = None
 
 
 class CanonicalFlightPackageTest(unittest.TestCase):
-    def configure(self, flight_prefix):
+    def configure(self, flight_prefix, cached_library=None):
         with tempfile.TemporaryDirectory(prefix="pangrova-flight-package-") as directory:
             root = Path(directory)
             (root / "CMakeLists.txt").write_text(
@@ -23,13 +23,31 @@ class CanonicalFlightPackageTest(unittest.TestCase):
                 'if(NOT closure STREQUAL "gRPC::grpc++;gRPC::grpc")\n'
                 '  message(FATAL_ERROR "Direct server API dependency is absent")\nendif()\n',
                 encoding="utf-8")
-            return subprocess.run([
+            arguments = [
                 OPTIONS.cmake, "-S", str(root), "-B", str(root / "build"),
                 f"-DCMAKE_CXX_COMPILER={OPTIONS.compiler}",
                 f"-DPANGROVA_DEPS_PREFIX={OPTIONS.deps_prefix}",
                 f"-DCMAKE_PREFIX_PATH={OPTIONS.deps_prefix}",
                 f"-DARROW_FLIGHT_HOME={flight_prefix}",
-            ], capture_output=True, text=True)
+            ]
+            if cached_library is not None:
+                arguments.append(f"-DARROW_FLIGHT_LIB={cached_library}")
+            return subprocess.run(arguments, capture_output=True, text=True)
+
+    def real_library(self):
+        libraries = sorted((OPTIONS.flight_prefix / "lib").glob("libarrow_flight.*"))
+        self.assertTrue(libraries, "The selected Flight package has no actual library")
+        return libraries[0]
+
+    def test_cached_library_from_selected_package_is_admitted(self):
+        result = self.configure(OPTIONS.flight_prefix, self.real_library())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_cached_library_cannot_admit_a_different_package_prefix(self):
+        with tempfile.TemporaryDirectory(prefix="pangrova-stale-flight-prefix-") as directory:
+            result = self.configure(Path(directory), self.real_library())
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Flight library differs from the selected package", result.stdout + result.stderr)
 
     def test_real_package_declares_direct_grpc_dependency_without_telemetry(self):
         result = self.configure(OPTIONS.flight_prefix)

@@ -204,9 +204,9 @@ class CatalogRestResourceTest {
         public void alterTable(MetadataSessionContext session, QualifiedTableRef tableRef, List<SchemaChange> changes) {}
 
         @Override
-        public void beginQuery(String queryId) {}
+        public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) {}
 
         @Override
-        public void cleanupQuery(String queryId) {}
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {}
     }
 }

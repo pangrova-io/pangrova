@@ -38,36 +38,28 @@ public class PaimonMetadata implements ConnectorMetadata {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonMetadata.class);
 
     private final Catalog catalog;
+    private final PaimonSplitRegistry splitRegistry;
     private final String catalogName;
     private final PaimonProcedureExecutor procedures;
-    private final PaimonSnapshotPins snapshotPins;
     private final PaimonCommitNotifier commitNotifier;
     private final PaimonWriteLifecycle writes;
     private final org.pangrova.connector.paimon.index.PaimonNativeIndexEvaluator nativeIndexEvaluator =
             new org.pangrova.connector.paimon.index.PaimonNativeIndexEvaluator();
 
     /** Creates a metadata instance bound to the given Paimon catalog. */
-    public PaimonMetadata(Catalog catalog, String catalogName) {
+    public PaimonMetadata(Catalog catalog, String catalogName, PaimonSplitRegistry splitRegistry) {
         this.catalog = catalog;
+        this.splitRegistry = java.util.Objects.requireNonNull(splitRegistry, "splitRegistry");
         this.catalogName = catalogName;
         this.procedures = new PaimonProcedureExecutor(catalog);
-        this.snapshotPins = new PaimonSnapshotPins(catalogName);
         this.commitNotifier = new PaimonCommitNotifier(catalogName);
         this.writes = new PaimonWriteLifecycle(catalog, catalogName, commitNotifier);
     }
 
-    /** Pins the current snapshot for the duration of a query. */
+    /** Opens the actual query scope; snapshots are selected separately for each accessed table. */
     @Override
-    public void beginQuery(String queryId) {
-        snapshotPins.beginQuery(queryId);
-    }
-
-    /**
-     * Pins the real snapshot ID for a query on first table access, preserving
-     * the first-access snapshot consistency guarantee. Package-private for tests.
-     */
-    void pinSnapshotForQuery(String queryId, long snapshotId) {
-        snapshotPins.pin(queryId, snapshotId);
+    public synchronized void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        splitRegistry.beginQuery(authority);
     }
 
     /**
@@ -75,19 +67,11 @@ public class PaimonMetadata implements ConnectorMetadata {
      * to release memory held for file-level statistics.
      */
     @Override
-    public void cleanupQuery(String queryId) {
-        Long removed = snapshotPins.remove(queryId);
+    public synchronized void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        splitRegistry.releaseQuery(authority);
+        String queryId = authority.queryId();
         nativeIndexEvaluator.clearCache();
-        LOG.debug("event=cleanup_query queryId={} catalog={} hadPinnedSnapshot={}",
-                queryId, catalogName, removed != null);
-    }
-
-    /**
-     * Returns the pinned snapshot ID for the given query, or empty if none pinned.
-     * Package-private for testability.
-     */
-    Optional<Long> getPinnedSnapshot(String queryId) {
-        return snapshotPins.getPinned(queryId);
+        LOG.debug("event=cleanup_query queryId={} catalog={}", queryId, catalogName);
     }
 
     @Override
@@ -146,7 +130,10 @@ public class PaimonMetadata implements ConnectorMetadata {
 
     @Override
     public ConnectorReadBinding bindRead(ConnectorSession session, ConnectorTableHandle table) {
-        return PaimonReadBindings.bind(catalog, (PaimonTableHandle) table);
+        var selector = (PaimonTableHandle) table;
+        return session.getQueryAuthority().map(authority -> splitRegistry.bindRead(authority, selector,
+                () -> PaimonReadBindings.bind(catalog, selector)))
+                .orElseGet(() -> PaimonReadBindings.bind(catalog, selector));
     }
 
     @Override
@@ -212,7 +199,9 @@ public class PaimonMetadata implements ConnectorMetadata {
         return writes.reconstruct(tableName, writeMode, baseSnapshotId);
     }
 
-    org.pangrova.spi.connector.metadata.NativePhysicalWriteProvider physicalWriteProvider() { return writes.physical(); }
+    org.pangrova.spi.connector.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
+        return writes.physical();
+    }
 
     @Override
     public void dropTable(ConnectorSession session, ConnectorTableHandle table) {

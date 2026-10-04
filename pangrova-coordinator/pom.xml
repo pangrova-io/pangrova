@@ -233,6 +233,21 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-paimon</artifactId>
+            <type>test-jar</type>
+            <version>${project.version}</version>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+        <!-- Real Paimon Parquet SDK component tests; dependency is test-only in the connector. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>

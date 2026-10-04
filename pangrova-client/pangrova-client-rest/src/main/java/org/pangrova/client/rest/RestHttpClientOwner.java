@@ -13,8 +13,10 @@ import java.util.concurrent.TimeUnit;
 final class RestHttpClientOwner implements AutoCloseable {
     private final HttpClient client;
     private final ExecutorService executor;
-    @GuardedBy("this") private boolean sealed;
-    @GuardedBy("this") private int requests;
+    @GuardedBy("this")
+    private boolean sealed;
+    @GuardedBy("this")
+    private int requests;
 
     private RestHttpClientOwner(HttpClient client, ExecutorService executor) {
         this.client = client;
@@ -41,8 +43,11 @@ final class RestHttpClientOwner implements AutoCloseable {
             if (executor != null) builder.executor(executor);
             return new RestHttpClientOwner(builder.build(), executor);
         } catch (RuntimeException | Error failure) {
-            try { closeExecutor(executor); }
-            catch (RuntimeException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+            try {
+                closeExecutor(executor);
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
             throw failure;
         }
     }
@@ -65,26 +70,33 @@ final class RestHttpClientOwner implements AutoCloseable {
             try (var input = java.nio.file.Files.newInputStream(java.nio.file.Path.of(config.trustStorePath()))) {
                 store.load(input, password);
             }
-            var trust = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+            var trust = javax.net.ssl.TrustManagerFactory.getInstance(
+                    javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
             trust.init(store);
             var context = javax.net.ssl.SSLContext.getInstance("TLS");
             context.init(null, trust.getTrustManagers(), null);
             return context;
         } catch (Exception failure) {
             throw new IllegalStateException("Configured HTTPS trust store could not be loaded", failure);
-        } finally { if (password != null) java.util.Arrays.fill(password, '\0'); }
+        } finally {
+            if (password != null) java.util.Arrays.fill(password, '\0');
+        }
     }
 
     @Override public void close() {
         synchronized (this) {
             sealed = true;
-            if (requests != 0) throw new IllegalStateException("HTTP requests are still owned; retry close after they exit");
+            if (requests != 0) {
+                throw new IllegalStateException("HTTP requests are still owned; retry close after they exit");
+            }
         }
         closeExecutor(executor);
     }
 
     final class RequestOperation implements AutoCloseable {
-        @GuardedBy("RestHttpClientOwner.this") private boolean returned;
+        @GuardedBy("RestHttpClientOwner.this")
+        private boolean returned;
+
         @Override public void close() {
             synchronized (RestHttpClientOwner.this) {
                 if (returned) return;

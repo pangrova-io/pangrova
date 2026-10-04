@@ -232,7 +232,8 @@ final class MetadataResultSets {
         return table.namespace().get(1);
     }
 
-    private static List<PangrovaRestClient.MetadataTableIdentifier> tablesInCatalog(PangrovaRestClient client, String catalog) {
+    private static List<PangrovaRestClient.MetadataTableIdentifier> tablesInCatalog(
+            PangrovaRestClient client, String catalog) {
         var tables = client.listTables(catalog);
         for (var table : tables) {
             if (table.namespace().size() != 2 || !catalog.equals(table.namespace().get(0))) {
@@ -249,11 +250,18 @@ final class MetadataResultSets {
         boolean escaped = false;
         for (int codePoint : pattern.codePoints().toArray()) {
             String literal = new String(Character.toChars(codePoint));
-            if (escaped) { expression.append(Pattern.quote(literal)); escaped = false; }
-            else if (codePoint == '\\') escaped = true;
-            else if (codePoint == '%') expression.append("(?s:.*)");
-            else if (codePoint == '_') expression.append("(?s:.)");
-            else expression.append(Pattern.quote(literal));
+            if (escaped) {
+                expression.append(Pattern.quote(literal));
+                escaped = false;
+            } else if (codePoint == '\\') {
+                escaped = true;
+            } else if (codePoint == '%') {
+                expression.append("(?s:.*)");
+            } else if (codePoint == '_') {
+                expression.append("(?s:.)");
+            } else {
+                expression.append(Pattern.quote(literal));
+            }
         }
         if (escaped) expression.append(Pattern.quote("\\"));
         return value.matches(expression.toString());
@@ -291,7 +299,7 @@ final class MetadataResultSets {
             case Types.TINYINT -> 3;
             case Types.SMALLINT -> 5;
             case Types.INTEGER -> 10;
-            case Types.BIGINT -> 19;
+            case Types.BIGINT -> BIGINT_PRECISION;
             case Types.BOOLEAN -> 1;
             default -> null;
         };

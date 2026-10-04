@@ -1,6 +1,6 @@
 package org.pangrova.connector.paimon.read;
 
-import org.pangrova.common.lifecycle.ResourceCloser;
+import org.pangrova.connector.paimon.PaimonSplitRegistry.ReadLease;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.connector.paimon.handle.PaimonColumnHandle;
@@ -25,8 +25,7 @@ import java.util.Map;
  * Paimon SDK handles LSM merge semantics transparently.
  *
  * <p>Preferred output is columnar {@link NativePage} via {@link #getNextNativePage()}.
- * The row-based {@link #getNextPage()} is retained as fallback for
- * coordinator-local DML operations.</p>
+ * Both page formats consume the same selected SDK reader.</p>
  */
 public class PaimonPageSource implements ConnectorPageSource {
 
@@ -34,6 +33,7 @@ public class PaimonPageSource implements ConnectorPageSource {
     public static final int DEFAULT_BATCH_SIZE = 1024;
 
     private final RecordReader<InternalRow> reader;
+    private final ReadLease lease;
     private final List<PaimonColumnHandle> projectedColumns;
     private final RowType rowType;
     private final Map<Integer, Integer> fieldIdToOrdinal;
@@ -46,8 +46,10 @@ public class PaimonPageSource implements ConnectorPageSource {
             RecordReader<InternalRow> reader,
             List<PaimonColumnHandle> projectedColumns,
             RowType rowType,
-            int batchSize) {
+            int batchSize,
+            ReadLease lease) {
         this.reader = reader;
+        this.lease = java.util.Objects.requireNonNull(lease, "lease");
         this.projectedColumns = List.copyOf(projectedColumns);
         this.rowType = rowType;
         this.batchSize = batchSize > 0 ? batchSize : DEFAULT_BATCH_SIZE;
@@ -58,6 +60,11 @@ public class PaimonPageSource implements ConnectorPageSource {
             ordinalMap.put(fields.get(i).id(), i);
         }
         this.fieldIdToOrdinal = Map.copyOf(ordinalMap);
+        for (PaimonColumnHandle column : projectedColumns) {
+            if (!fieldIdToOrdinal.containsKey(column.fieldId())) {
+                throw new IllegalArgumentException("Field ID not found: " + column.fieldId());
+            }
+        }
     }
 
     @Override
@@ -107,7 +114,12 @@ public class PaimonPageSource implements ConnectorPageSource {
     public void close() {
         finished = true;
         releaseBatch();
-        ResourceCloser.closeQuietly(reader);
+        try {
+            lease.close();
+        } catch (IOException failure) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_READ_ERROR,
+                    "Failed to close Paimon reader", failure);
+        }
     }
 
     private List<TypedRow> readBatch() {

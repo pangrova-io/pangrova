@@ -60,6 +60,11 @@ final class QueryTerminalCleanup {
     }
 
     private void cleanup(Context context) {
+        if (!context.state().awaitOwnership()) {
+            dispatcher.cleanupUnadmittedQuery(context.queryId());
+            physicalRelease.accept(context);
+            return;
+        }
         if (context.state().getState() != QueryStateMachine.State.FINISHED) {
             dispatcher.cancelDispatchedTasks(context.queryId());
         }

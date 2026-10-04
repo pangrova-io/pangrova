@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
@@ -69,6 +71,11 @@ class PaimonCommitSnapshotAndOrphanTest {
     private static final ConnectorTransactionHandle TX = ConnectorTransactionHandle.EMPTY;
 
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }
@@ -85,7 +92,7 @@ class PaimonCommitSnapshotAndOrphanTest {
         options.setString("warehouse", warehouse.toString());
         catalog = CatalogFactory.createCatalog(CatalogContext.create(options));
         catalog.createDatabase(DATABASE, false);
-        metadata = new PaimonMetadata(catalog, CATALOG_NAME);
+        metadata = new PaimonMetadata(catalog, CATALOG_NAME, new org.pangrova.connector.paimon.PaimonSplitRegistry());
         pageSinkProvider = new PaimonPageSinkProvider(catalog);
     }
 

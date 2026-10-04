@@ -9,6 +9,11 @@ import java.time.Duration;
  * Immutable configuration for {@link PangrovaRestClient}.
  * All fields are final; no setters. Construct via {@link PangrovaRestClient.Builder}.
  *
+ * <p>Connect and request timeouts must not exceed {@code Long.MAX_VALUE / 2}
+ * milliseconds. This supported JDK HTTP timer window reserves signed-long
+ * millisecond arithmetic headroom; it is not a guarantee against arbitrary
+ * wall-clock jumps. Timeout durations need not fit signed-long nanoseconds.</p>
+ *
  * @param coordinatorHost Coordinator hostname or IP
  * @param coordinatorPort Coordinator HTTP port (1-65535)
  * @param connectTimeout  TCP connect timeout
@@ -39,6 +44,7 @@ public record PangrovaRestClientConfig(
 
     public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(30);
+    private static final Duration MAX_HTTP_TIMEOUT = Duration.ofMillis(Long.MAX_VALUE / 2);
     /** Minimum valid TCP port. */
     public static final int MIN_PORT = 1;
     /** Maximum valid TCP port. */
@@ -63,7 +69,8 @@ public record PangrovaRestClientConfig(
                 tls != null && tls.enabled(),
                 tls != null ? tls.storePath() : null,
                 tls != null ? tls.storePassword() : null,
-                authentication, RetryPolicy.DEFAULT, null, null, ResultTransportSecurity.systemTrust(tls != null && tls.enabled()));
+                authentication, RetryPolicy.DEFAULT, null, null,
+                ResultTransportSecurity.systemTrust(tls != null && tls.enabled()));
     }
 
     public PangrovaRestClientConfig {
@@ -115,6 +122,10 @@ public record PangrovaRestClientConfig(
     private static void requirePositiveDuration(Duration timeout, String name) {
         if (timeout == null || timeout.isNegative() || timeout.isZero()) {
             throw new IllegalArgumentException(name + " must be a positive duration");
+        }
+        if (timeout.compareTo(MAX_HTTP_TIMEOUT) > 0) {
+            throw new IllegalArgumentException(name + " must not exceed "
+                    + (Long.MAX_VALUE / 2) + " milliseconds");
         }
     }
 

@@ -137,6 +137,53 @@ Filter API 验证该新增 Match 的1正例与8个类型/方法/字段/类/规�
 这不消除原 filter 的 protocol 包级 `EI_EXPOSE_REP` 排除局限，也不等于实际
 可变性漏洞已被修复；后续须单独复核这些既有广域排除。
 
+同轮keytool告警先经过真实输入边界复证：`ProcessBuilder(List)` 没有shell，
+但keytool自身仍会把以 `-` 开头的alias识别为操作选项。首字符约束修复前，实际
+拒绝测试失败；修复后4项真实证书/路径边界测试通过，CA/store/key权限和容器
+owner测试也通过。随后仅分类private `TestTlsAuthority.run(List):void` 的
+COMMAND_INJECTION，固定JDK绝对工具路径和操作flags，所有参数作为独立argv。
+真实pinned Filter API的1正例和7个类/方法/签名/bug变更负例均通过；所属模块89项
+测试和完整Checkstyle/SpotBugs通过。不存在新增包级command豁免。依据
+[JDK17 ProcessBuilder的参数契约](https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/lang/ProcessBuilder.html)
+与[FindSecBugs1.13.0实际command sinks](https://github.com/find-sec-bugs/find-sec-bugs/blob/version-1.13.0/findsecbugs-plugin/src/main/resources/injection-sinks/command.txt)，
+区分真实选项注入和只有参数污点传播的提示；这些源码依据不替代实际边界测试。
+ResultBatch的4项mutable representation告警没有新增排除，按真实所有权缺陷修复。
+
+REST后续9项发现中，6项metadata null边界和2项广域catch按真实契约修正。
+唯一PREDICTABLE_RANDOM精确分类是`RetryPolicy.delayForAttemptWithJitter(int):Duration`：
+actual caller仅将其用作重试等待，不生成认证token/nonce/identifier。先复现并修复
+zero-delay、max cap、非有限multiplier和Long.MAX_VALUE上界溢出，再保留有界jitter；
+不以SecureRandom性能开销或改调用形式绕过检测器。真实pinned Filter API验证该
+新增Match的1正例和7个owner/method/signature/bug变更负例通过，其他随机数使用
+仍接受完整安全检查。实际REST owning/consumer门禁仍须另行通过。
+
+Paimon19个借用Catalog/Table/FileIO/registry服务句柄的告警只按完整构造/getter签名、
+字段名/服务类型及单个EI规则分类，不把借用服务称为不可变DTO。真实pinned Filter API
+对每项验证1正例、9个签名/字段/类型/bug变更负例。实际mutable split列表、schema
+映射和evolution列表按所有权缺陷修复，没有DTO数组/集合豁免；45项最近回归及
+Paimon369项严格回归均通过。此结果不证明Connector退出或Coordinator执行路由闭合。
+
+JDBC11个原样SQL重载委托仅分类完整Class/Method参数/返回签名与SQL_INJECTION_JDBC，
+不以SQL parser能够解析为安全依据。每条Match的1正例与7个变更负例已由同一pinned
+Filter API复验；完整filter仍不排除PreparedStatement.executeQuery拼接告警或Boolean-null
+告警。新增真实HTTP原文转交和模板绑定11项已通过；peer验证真实原文和拒绝响应，
+不冒充Coordinator或Native SQL执行，不能由filter测试推导端到端通过。
+Prepared任意Number/BigDecimal及时间子类的SQL注入已用公开setObject实测5项失败；
+修复采用封闭数值类型与标准类型化时间值，不新增该真实漏洞的排除规则。
+日志 `/tmp/pangrova-production-sdk64-jdbc-forward-filter-boundaries-r1.log`、
+`/tmp/pangrova-production-sdk64-jdbc-prepared-literal-red-r1.log`。
+
+PreparedStatement共享唯一实际执行owner后，原六项身份告警中的两项已因删除
+重复字段消失，而不是排除失效代码。剩余四个JDBC getter按准确Class、完整方法
+签名、字段名/类型及单个EI_EXPOSE_REP分类；返回的是生产该句柄的真实connection、
+statement和当前ResultSet，不可复制为另一资源owner。pinned Filter API的isolated及
+完整filter每项1正例/12负例通过，完整filter仍拒绝已删除的Prepared getter告警。
+日志 `/tmp/pangrova-production-sdk64-jdbc-identity-filter-boundaries-r1.log`。
+新增真实HTTP/Flight身份和关闭4项及完整client r13门禁通过：2437项测试，零失败、
+错误和跳过，完整Checkstyle/SpotBugs0，4分06秒，日志
+`/tmp/pangrova-production-sdk64-client-full-gates-r13.log`。不含正在整改的Paimon，
+也不证明线程安全、远端任务drain或全链路端到端验收。
+
 1. 导出 `git ls-tree -r --name-only <ref>` 中各模块的生产 Java 源码，用 `git cat-file --batch` 读取 blob；工作区集合使用 `rg --files -g '*.java'` 后筛选 `/src/main/java/`。
 2. 建立隔离 Maven 工程，使用父 POM 锁定的 Checkstyle plugin 和 engine。把每个模块 source root 配为 sourceDirectories，只启用 FileLength、MethodLength、ParameterNumber、CyclomaticComplexity、NestedIfDepth、NestedTryDepth。
 3. 在完全相同源文件集合上分别运行原始 500/50/8/7 与拟议 800/100/15/10；保留 switch 计数和嵌套参数。依次加入或移除相同 SuppressionFilter，解析 checkstyle-result.xml，确认 parsed_files 与输入文件数一致。

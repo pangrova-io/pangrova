@@ -7,7 +7,9 @@ public record PaimonDeletionVector(String path, long offset, long length, Long c
             throw new IllegalArgumentException("Invalid Paimon deletion vector range");
         }
         requireCardinality(cardinality, physicalRows);
-        Math.addExact(offset, length);
+        if (offset > Long.MAX_VALUE - length) {
+            throw new ArithmeticException("long overflow");
+        }
     }
 
     private static void requireCardinality(Long cardinality, long physicalRows) {

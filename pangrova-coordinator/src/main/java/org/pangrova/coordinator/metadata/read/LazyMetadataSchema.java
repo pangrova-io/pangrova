@@ -332,4 +332,5 @@ final class LazyMetadataSchema extends AbstractSchema {
         return new MetadataResolvedTable(metadata, () -> readBindings.resolve(catalog, schema,
                 metadata.table().table()).orElseThrow(() -> new IllegalStateException("Selected table disappeared")));
     }
+
 }

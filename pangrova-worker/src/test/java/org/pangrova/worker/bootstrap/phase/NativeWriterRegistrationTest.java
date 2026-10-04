@@ -185,6 +185,11 @@ class NativeWriterRegistrationTest {
     }
 
     private static final class StubSession implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test-user"; }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of("test-catalog"); }
         @Override public java.util.Optional<String> getSchema() { return java.util.Optional.of("test-schema"); }

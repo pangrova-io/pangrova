@@ -47,6 +47,18 @@ find_library(ARROW_FLIGHT_LIB
 )
 
 if(ARROW_FLIGHT_LIB)
+  # find_library retains an earlier cached library when the package prefix
+  # changes. Never admit a Release library under a new sanitizer package.
+  if(NOT EXISTS "${ARROW_FLIGHT_LIB}")
+    message(FATAL_ERROR "Selected Arrow Flight library does not exist: ${ARROW_FLIGHT_LIB}")
+  endif()
+  file(REAL_PATH "${ARROW_FLIGHT_HOME}/lib" _FLIGHT_PACKAGE_LIB_DIR)
+  file(REAL_PATH "${ARROW_FLIGHT_LIB}" _FLIGHT_LIBRARY_REAL)
+  get_filename_component(_FLIGHT_LIBRARY_DIR "${_FLIGHT_LIBRARY_REAL}" DIRECTORY)
+  if(NOT _FLIGHT_LIBRARY_DIR STREQUAL _FLIGHT_PACKAGE_LIB_DIR)
+    message(FATAL_ERROR
+      "Flight library differs from the selected package; clear ARROW_FLIGHT_LIB and reconfigure: ${ARROW_FLIGHT_LIB}")
+  endif()
   # Detect static vs shared library
   string(REGEX MATCH "\\.(a|lib)$" _IS_STATIC "${ARROW_FLIGHT_LIB}")
   if(PANGROVA_PRODUCTION_BUILD AND NOT _IS_STATIC)

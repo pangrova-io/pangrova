@@ -19,6 +19,13 @@ import org.pangrova.spi.connector.data.type.primitive.VarcharType;
 public final class PaimonDeclaredTypes {
     private PaimonDeclaredTypes() {}
 
+    /**
+     * Converts a complete declaration using the table's selected vector representation.
+     *
+     * @param type the complete declared type
+     * @param nativeVector whether the table uses the SDK native vector type
+     * @return the exact SDK type, including nested parameters
+     */
     public static DataType toPaimonType(Type type, boolean nativeVector) {
         if (type instanceof ArrayType array) {
             return new org.apache.paimon.types.ArrayType(toPaimonType(array.elementType(), nativeVector));

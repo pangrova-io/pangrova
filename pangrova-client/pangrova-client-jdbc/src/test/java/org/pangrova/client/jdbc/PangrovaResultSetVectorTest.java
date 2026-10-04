@@ -35,7 +35,7 @@ class PangrovaResultSetVectorTest {
 
         try (PangrovaResultSet result = new PangrovaResultSet(batch, null)) {
             assertThat(result.next()).isTrue();
-            assertThat(result.getObject(1)).isSameAs(vector);
+            assertThat(result.getObject(1)).isNotSameAs(vector).isEqualTo(vector);
             assertThat(result.getString(1)).isEqualTo("[0.25, -0.5]");
             assertThat(result.getMetaData().getColumnTypeName(1)).isEqualTo("VECTOR(2)");
             assertThat(result.getMetaData().getColumnClassName(1))
@@ -49,6 +49,36 @@ class PangrovaResultSetVectorTest {
             array.free();
             assertThatThrownBy(array::getArray)
                     .isInstanceOf(java.sql.SQLException.class);
+        }
+    }
+
+    @Test
+    void mutableCoordinatesRemainOwnedByTheirConsumerSnapshot() throws Exception {
+        float[] vector = {0.25f, -0.5f};
+        ResultBatch batch = new ResultBatch(
+                List.of(new ColumnDescriptor("embedding", Types.ARRAY, "VECTOR(2)", 2, 0)),
+                List.<Object[]>of(new Object[] {vector}));
+        vector[0] = 100;
+
+        try (PangrovaResultSet first = new PangrovaResultSet(batch, null);
+                PangrovaResultSet second = new PangrovaResultSet(batch, null)) {
+            assertThat(first.next()).isTrue();
+            assertThat(second.next()).isTrue();
+            assertThat(first.getObject(1)).isEqualTo(new float[] {0.25f, -0.5f});
+            Array array = first.getArray(1);
+            try {
+                ((float[]) first.getObject(1))[0] = 200;
+                ((float[]) batch.rows().get(0)[0])[1] = 300;
+                assertThat(second.getObject(1)).isEqualTo(new float[] {0.25f, -0.5f});
+                assertThat(second.getString(1)).isEqualTo("[0.25, -0.5]");
+                assertThat(batch.rows().get(0)[0]).isEqualTo(new float[] {0.25f, -0.5f});
+                assertThat(array.getArray()).isEqualTo(new float[] {0.25f, -0.5f});
+                ((float[]) array.getArray())[0] = 400;
+                assertThat(array.getArray()).isEqualTo(new float[] {0.25f, -0.5f});
+            } finally {
+                array.free();
+            }
+            assertThatThrownBy(array::getArray).isInstanceOf(java.sql.SQLException.class);
         }
     }
 }

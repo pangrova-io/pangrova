@@ -16,6 +16,12 @@ public final class ClientAuthentication {
         this.authorizationHeader = authorizationHeader;
     }
 
+    /**
+     * Creates an authorization policy for an HTTP bearer token.
+     *
+     * @param token token satisfying the HTTP bearer-token syntax
+     * @return the redacted credential policy
+     */
     public static ClientAuthentication bearer(String token) {
         Objects.requireNonNull(token, "bearer token");
         if (!token.matches("[A-Za-z0-9._~+/-]+=*")) {
@@ -24,6 +30,13 @@ public final class ClientAuthentication {
         return new ClientAuthentication(Scheme.BEARER, "Bearer " + token);
     }
 
+    /**
+     * Creates a UTF-8 HTTP Basic authorization policy.
+     *
+     * @param username nonblank username without colons or control characters
+     * @param password password without control characters
+     * @return the redacted credential policy
+     */
     public static ClientAuthentication basic(String username, String password) {
         Objects.requireNonNull(username, "username");
         Objects.requireNonNull(password, "password");

@@ -359,6 +359,26 @@
          §8 FINDSECBUGS FALSE POSITIVES
          ================================================================ -->
 
+    <!-- RetryableHttpExecutor uses this value only as a bounded wait to spread
+         retry load. It never produces a credential, token, identifier or nonce.
+         Retain security checks for every other method and random-number use. -->
+    <Match>
+        <Class name="org.pangrova.client.rest.RetryPolicy"/>
+        <Method name="delayForAttemptWithJitter" params="int" returns="java.time.Duration"/>
+        <Bug pattern="PREDICTABLE_RANDOM"/>
+    </Match>
+
+    <!-- TestTlsAuthority.run is private and executes the current JDK's absolute keytool path,
+         fixed operation flags and separate argv values without a shell. The public identity
+         boundary rejects leading option characters and extension separators before execution.
+         TestTlsAuthorityPermissionsTest proves option rejection and literal shell-syntax paths.
+         Limit this classification to the exact private runner, not other command execution. -->
+    <Match>
+        <Class name="org.pangrova.testing.testkit.security.TestTlsAuthority"/>
+        <Method name="run" params="java.util.List" returns="void"/>
+        <Bug pattern="COMMAND_INJECTION"/>
+    </Match>
+
     <!--
         SQL_INJECTION_JDBC: Pangrova's SQL execution always goes through the
         parser (ANTLR4) and planner (Calcite). Raw JDBC calls in the metadata
@@ -844,5 +864,221 @@
         <Class name="org.pangrova.planner.stability.PlanCaptureRegistry"/>
         <Method name="record"/>
         <Bug pattern="UNSAFE_HASH_EQUALS"/>
+    </Match>
+    <!-- PaimonConnector lends its actual connector-owned metadata service through the SPI.
+         Copies would disconnect snapshot pins and commit notifications. This classification
+         covers borrowed DI identity only, not thread safety or completed resource drain. -->
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonConnector"/>
+        <Method name="getMetadata" params="org.pangrova.spi.connector.ConnectorSession" returns="org.pangrova.spi.connector.metadata.ConnectorMetadata"/>
+        <Field name="metadata" type="org.pangrova.connector.paimon.PaimonMetadata"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <!-- These exact constructors borrow the actual Catalog assembled by PaimonConnector.
+         Catalog is a live SDK service, not a DTO to copy. This classification makes no
+         claim that connector shutdown joins readers/writers or that adapters are thread safe. -->
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonIncrementalScanCapability"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog" returns="void"/>
+        <Field name="catalog" type="org.apache.paimon.catalog.Catalog"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonMetadata"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,java.lang.String" returns="void"/>
+        <Field name="catalog" type="org.apache.paimon.catalog.Catalog"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonPageSourceProvider"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
+        <Field name="catalog" type="org.apache.paimon.catalog.Catalog"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonSplitManager"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
+        <Field name="catalog" type="org.apache.paimon.catalog.Catalog"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.write.PaimonPageSinkProvider"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,java.lang.String" returns="void"/>
+        <Field name="catalog" type="org.apache.paimon.catalog.Catalog"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- The manager registers SDK Splits in the same registry consumed by the page source.
+         A defensive copy would sever that producer/consumer identity. Only the two exact
+         borrowed registry fields are classified, not mutable split DTOs or lifecycle behavior. -->
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonPageSourceProvider"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
+        <Field name="splitRegistry" type="org.pangrova.connector.paimon.PaimonSplitRegistry"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.PaimonSplitManager"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.catalog.Catalog,org.pangrova.connector.paimon.PaimonSplitRegistry" returns="void"/>
+        <Field name="splitRegistry" type="org.pangrova.connector.paimon.PaimonSplitRegistry"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- Index adapters borrow the actual SDK backend or table; they do not own SDK copies.
+         These exact DI fields say nothing about stream/reader termination or error handling. -->
+    <Match>
+        <Class name="org.pangrova.connector.paimon.fs.PaimonFileSystemAccessor"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.fs.FileIO" returns="void"/>
+        <Field name="fileIO" type="org.apache.paimon.fs.FileIO"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.fs.PaimonColumnValueReader"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!-- PaimonSystemTables supplies the actual fresh SDK Table to these exact adapters.
+         Table is a borrowed SDK service, not immutable DTO data. This DI classification
+         does not validate system-table execution routing, failure semantics or resource drain. -->
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonAuditLogSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonBranchesSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonConsumersSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonFilesSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonManifestsSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonOptionsSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonSchemasSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonSnapshotsSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.connector.paimon.system.PaimonTagsSystemTable"/>
+        <Method name="&lt;init&gt;" params="org.apache.paimon.table.Table" returns="void"/>
+        <Field name="table" type="org.apache.paimon.table.Table"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <!-- These JDBC overloads forward the caller's complete SQL unchanged.
+         This classification does not cover parameter substitution or SQL construction. -->
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaConnection"/>
+        <Method name="prepareStatement" params="java.lang.String,int" returns="java.sql.PreparedStatement"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaConnection"/>
+        <Method name="prepareStatement" params="java.lang.String,int,int" returns="java.sql.PreparedStatement"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaConnection"/>
+        <Method name="prepareStatement" params="java.lang.String,int,int,int" returns="java.sql.PreparedStatement"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaConnection"/>
+        <Method name="prepareStatement" params="java.lang.String,int[]" returns="java.sql.PreparedStatement"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaConnection"/>
+        <Method name="prepareStatement" params="java.lang.String,java.lang.String[]" returns="java.sql.PreparedStatement"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="execute" params="java.lang.String,int" returns="boolean"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="execute" params="java.lang.String,int[]" returns="boolean"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="execute" params="java.lang.String,java.lang.String[]" returns="boolean"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="executeUpdate" params="java.lang.String,int" returns="int"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="executeUpdate" params="java.lang.String,int[]" returns="int"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="executeUpdate" params="java.lang.String,java.lang.String[]" returns="int"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
+    </Match>
+    <!-- JDBC identity getters return the producing connection/statement or current result,
+         not detached DTO data. Copies would violate the Java 17 java.sql handle contract.
+         These exact classifications do not establish thread safety or resource drain. -->
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaDatabaseMetaData"/>
+        <Method name="getConnection" params="" returns="java.sql.Connection"/>
+        <Field name="connection" type="org.pangrova.client.jdbc.PangrovaConnection"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaResultSet"/>
+        <Method name="getStatement" params="" returns="java.sql.Statement"/>
+        <Field name="owningStatement" type="java.sql.Statement"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="getConnection" params="" returns="java.sql.Connection"/>
+        <Field name="connection" type="org.pangrova.client.jdbc.PangrovaConnection"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.client.jdbc.PangrovaStatement"/>
+        <Method name="getResultSet" params="" returns="java.sql.ResultSet"/>
+        <Field name="currentResultSet" type="java.sql.ResultSet"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
 </FindBugsFilter>

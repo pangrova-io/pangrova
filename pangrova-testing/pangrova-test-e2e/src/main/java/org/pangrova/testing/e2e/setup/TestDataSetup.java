@@ -277,6 +277,11 @@ public final class TestDataSetup {
 
     /** Minimal ConnectorSession for test data setup operations. */
     private static final class TestConnectorSession implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test-setup"; }
         @Override public Optional<String> getCatalog() { return Optional.empty(); }
         @Override public Optional<String> getSchema() { return Optional.of(DEFAULT_SCHEMA); }

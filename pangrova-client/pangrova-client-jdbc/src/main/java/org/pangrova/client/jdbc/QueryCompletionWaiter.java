@@ -37,7 +37,7 @@ final class QueryCompletionWaiter {
      *
      * @param queryTimeoutSeconds JDBC query timeout; {@code 0} or less means no timeout
      * @return the endpoint and whether the query was already terminal
-     * @throws SQLTimeoutException if the timeout elapses first (the query is cancelled)
+     * @throws SQLTimeoutException if the timeout elapses first; the execution owner cancels the query
      * @throws SQLException        if the query fails or is cancelled server-side
      */
     static ReadyEndpoint awaitReadableEndpoint(PangrovaRestClient client, String queryId,
@@ -50,7 +50,7 @@ final class QueryCompletionWaiter {
         }
         long pollMs = POLL_INTERVAL_MS;
         while (true) {
-            checkTimeout(client, queryId, deadlineMs, queryTimeoutSeconds);
+            checkTimeout(queryId, deadlineMs, queryTimeoutSeconds);
             QueryStatusResponse status = client.getQueryStatus(queryId);
             ReadyEndpoint result = handleReadableState(status, queryId);
             if (result != null) {
@@ -72,7 +72,7 @@ final class QueryCompletionWaiter {
             throws SQLException {
         long pollMs = POLL_INTERVAL_MS;
         while (true) {
-            checkTimeout(client, queryId, deadlineMs, queryTimeoutSeconds);
+            checkTimeout(queryId, deadlineMs, queryTimeoutSeconds);
             QueryStatusResponse status = client.getQueryStatus(queryId);
             if (STATE_FAILED.equals(status.state())) {
                 throw failedQueryException(status, queryId);
@@ -101,14 +101,10 @@ final class QueryCompletionWaiter {
         return null;
     }
 
-    static void checkTimeout(PangrovaRestClient client, String queryId, long deadlineMs,
-                                     int queryTimeoutSeconds) throws SQLException {
+    static void checkTimeout(String queryId, long deadlineMs, int queryTimeoutSeconds) throws SQLTimeoutException {
         if (System.currentTimeMillis() >= deadlineMs) {
-            try {
-                client.cancelQuery(queryId);
-            } catch (Exception ignored) {
-                // Best-effort cancel: the timeout is reported regardless.
-            }
+            // Only PangrovaStatement.runQuery owns automatic cancellation and its acknowledgement.
+            // A second cancellation here could overwrite a real ACK with a later NOT_FOUND.
             throw new SQLTimeoutException(
                     "Query timed out after " + queryTimeoutSeconds + "s, queryId=" + queryId);
         }

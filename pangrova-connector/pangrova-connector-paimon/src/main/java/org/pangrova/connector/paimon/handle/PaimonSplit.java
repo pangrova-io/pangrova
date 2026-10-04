@@ -75,12 +75,12 @@ public record PaimonSplit(
 
     public PaimonSplit {
         java.util.Objects.requireNonNull(mergePolicy, "mergePolicy");
-        primaryKeys = copyOf(primaryKeys);
-        lsmLevels = copyOf(lsmLevels);
-        aggregationSpecs = copyOf(aggregationSpecs);
-        partitionValues = copyOf(partitionValues);
-        columnMappings = copyOf(columnMappings);
-        typePromotions = copyOf(typePromotions);
+        primaryKeys = primaryKeys == null ? List.of() : List.copyOf(primaryKeys);
+        lsmLevels = lsmLevels == null ? List.of() : List.copyOf(lsmLevels);
+        aggregationSpecs = aggregationSpecs == null ? Map.of() : Map.copyOf(aggregationSpecs);
+        partitionValues = partitionValues == null ? Map.of() : Map.copyOf(partitionValues);
+        columnMappings = columnMappings == null ? List.of() : List.copyOf(columnMappings);
+        typePromotions = typePromotions == null ? List.of() : List.copyOf(typePromotions);
         java.util.Objects.requireNonNull(primaryFile, "Paimon physical file metadata");
         if (snapshotId <= 0 || rowCount < 0) {
             throw new IllegalArgumentException("Paimon physical scan requires a pinned snapshot and valid row count");
@@ -92,14 +92,6 @@ public record PaimonSplit(
 
     public String primaryFilePath() {
         return primaryFile.path();
-    }
-
-    private static <T> List<T> copyOf(List<T> values) {
-        return values == null ? List.of() : List.copyOf(values);
-    }
-
-    private static <K, V> Map<K, V> copyOf(Map<K, V> values) {
-        return values == null ? Map.of() : Map.copyOf(values);
     }
 
     private static String emptyIfNull(String value) {

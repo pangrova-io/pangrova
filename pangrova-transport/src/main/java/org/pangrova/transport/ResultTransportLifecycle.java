@@ -60,20 +60,26 @@ final class ResultTransportLifecycle {
         }
     }
 
-    private void build(String key, CompletableFuture<ClientOwner> result, Supplier<ResultTransportClientOwner> factory) {
+    private void build(String key, CompletableFuture<ClientOwner> result,
+            Supplier<ResultTransportClientOwner> factory) {
         try {
             ResultTransportClientOwner client = factory.get();
-            synchronized (this) { result.complete(java.util.Objects.requireNonNull(clients.get(client))); }
+            synchronized (this) {
+                result.complete(java.util.Objects.requireNonNull(clients.get(client)));
+            }
         } catch (RuntimeException | Error error) {
-            synchronized (this) { cached.remove(key, result); }
+            synchronized (this) {
+                cached.remove(key, result);
+            }
             result.completeExceptionally(error);
             throw error;
         }
     }
 
     private static ClientOwner join(CompletableFuture<ClientOwner> selected) {
-        try { return selected.join(); }
-        catch (CompletionException failure) {
+        try {
+            return selected.join();
+        } catch (CompletionException failure) {
             if (failure.getCause() instanceof RuntimeException runtime) throw runtime;
             if (failure.getCause() instanceof Error error) throw error;
             throw failure;
@@ -86,11 +92,14 @@ final class ResultTransportLifecycle {
 
     FutureTask<Boolean> read(ExecutorService executor, FlightStream stream) {
         StreamOwner owner;
-        synchronized (this) { owner = java.util.Objects.requireNonNull(streams.get(stream), "Unowned stream"); }
+        synchronized (this) {
+            owner = java.util.Objects.requireNonNull(streams.get(stream), "Unowned stream");
+        }
         return read(executor, stream::next, false, owner);
     }
 
-    private FutureTask<Boolean> read(ExecutorService executor, Callable<Boolean> action, boolean cleanup, StreamOwner owner) {
+    private FutureTask<Boolean> read(ExecutorService executor, Callable<Boolean> action,
+            boolean cleanup, StreamOwner owner) {
         var task = claimRead(action, cleanup, owner);
         submit(executor, task);
         return task;
@@ -111,8 +120,12 @@ final class ResultTransportLifecycle {
     }
 
     private static void submit(ExecutorService executor, ReadTask task) {
-        try { executor.execute(task); }
-        catch (RuntimeException | Error failure) { task.cancel(false); throw failure; }
+        try {
+            executor.execute(task);
+        } catch (RuntimeException | Error failure) {
+            task.cancel(false);
+            throw failure;
+        }
     }
 
     synchronized StreamOwner stream(FlightStream stream, ExecutorService executor) {
@@ -123,11 +136,14 @@ final class ResultTransportLifecycle {
 
     void closeStreams() {
         ArrayList<StreamOwner> snapshot;
-        synchronized (this) { snapshot = new ArrayList<>(streams.values()); }
+        synchronized (this) {
+            snapshot = new ArrayList<>(streams.values());
+        }
         TransportConnectionException failure = null;
         for (StreamOwner owner : snapshot) {
-            try { owner.close(); }
-            catch (TransportConnectionException cleanupFailure) {
+            try {
+                owner.close();
+            } catch (TransportConnectionException cleanupFailure) {
                 if (failure == null) failure = cleanupFailure;
                 else failure.addSuppressed(cleanupFailure);
             }
@@ -140,8 +156,14 @@ final class ResultTransportLifecycle {
         private final ExecutorService executor;
         private ReadTask cleanup;
         private int readers;
-        StreamOwner(FlightStream stream, ExecutorService executor) { this.stream = stream; this.executor = executor; }
+
+        StreamOwner(FlightStream stream, ExecutorService executor) {
+            this.stream = stream;
+            this.executor = executor;
+        }
+
         FlightStream stream() { return stream; }
+
         @Override public void close() {
             ReadTask selected;
             boolean launch = false;
@@ -150,7 +172,9 @@ final class ResultTransportLifecycle {
                 if (cleanup == null && readers == 0) {
                     cleanup = claimRead(() -> {
                         stream.close();
-                        synchronized (ResultTransportLifecycle.this) { streams.remove(stream); }
+                        synchronized (ResultTransportLifecycle.this) {
+                            streams.remove(stream);
+                        }
                         return true;
                     }, true, null);
                     launch = true;
@@ -158,8 +182,9 @@ final class ResultTransportLifecycle {
                 selected = cleanup;
             }
             if (launch) {
-                try { submit(executor, selected); }
-                catch (RuntimeException | Error error) {
+                try {
+                    submit(executor, selected);
+                } catch (RuntimeException | Error error) {
                     resetFailedCleanup(selected);
                     throw error;
                 }
@@ -172,8 +197,9 @@ final class ResultTransportLifecycle {
         }
 
         private void awaitCleanup(ReadTask selected) {
-            try { selected.get(5, TimeUnit.SECONDS); }
-            catch (InterruptedException interrupted) {
+            try {
+                selected.get(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw failure("Result stream close was interrupted; ownership is retained", interrupted);
             } catch (TimeoutException timeout) {
@@ -188,7 +214,9 @@ final class ResultTransportLifecycle {
         }
 
         private void resetFailedCleanup(ReadTask selected) {
-            synchronized (ResultTransportLifecycle.this) { if (cleanup == selected) cleanup = null; }
+            synchronized (ResultTransportLifecycle.this) {
+                if (cleanup == selected) cleanup = null;
+            }
         }
     }
 
@@ -204,11 +232,14 @@ final class ResultTransportLifecycle {
 
     void closeClients() {
         ArrayList<ClientOwner> snapshot;
-        synchronized (this) { snapshot = new ArrayList<>(clients.values()); }
+        synchronized (this) {
+            snapshot = new ArrayList<>(clients.values());
+        }
         TransportConnectionException failure = null;
         for (ClientOwner owner : snapshot) {
-            try { closeClient(owner); }
-            catch (TransportConnectionException cleanupFailure) {
+            try {
+                closeClient(owner);
+            } catch (TransportConnectionException cleanupFailure) {
                 if (failure == null) failure = cleanupFailure;
                 else failure.addSuppressed(cleanupFailure);
             }
@@ -226,14 +257,17 @@ final class ResultTransportLifecycle {
         synchronized (this) {
             if (!streams.isEmpty()) throw failure("Result streams are still owned; client ownership is retained", null);
         }
-        try { owner.client.close(); }
-        catch (InterruptedException interrupted) {
+        try {
+            owner.client.close();
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw failure("Result client close was interrupted; ownership is retained", interrupted);
         } catch (RuntimeException error) {
             throw failure("Result client close failed; ownership is retained", error);
         }
-        synchronized (this) { clients.remove(owner.client); }
+        synchronized (this) {
+            clients.remove(owner.client);
+        }
     }
 
     private static TransportConnectionException failure(String message, Throwable cause) {
@@ -242,9 +276,12 @@ final class ResultTransportLifecycle {
 
     final class Operation implements AutoCloseable {
         private final AtomicBoolean released = new AtomicBoolean();
+
         @Override public void close() {
             if (released.compareAndSet(false, true)) {
-                synchronized (ResultTransportLifecycle.this) { operations--; }
+                synchronized (ResultTransportLifecycle.this) {
+                    operations--;
+                }
             }
         }
     }
@@ -253,8 +290,14 @@ final class ResultTransportLifecycle {
         private final String key;
         private final ClientOwner owner;
         private final AtomicBoolean released = new AtomicBoolean();
-        ClientLease(String key, ClientOwner owner) { this.key = key; this.owner = owner; }
+
+        ClientLease(String key, ClientOwner owner) {
+            this.key = key;
+            this.owner = owner;
+        }
+
         FlightClient client() { return owner.client.client(); }
+
         void retire() {
             synchronized (ResultTransportLifecycle.this) {
                 owner.retired = true;
@@ -276,6 +319,7 @@ final class ResultTransportLifecycle {
         private final ResultTransportClientOwner client;
         private int leases;
         private boolean retired;
+
         ClientOwner(ResultTransportClientOwner client) { this.client = client; }
     }
 
@@ -283,18 +327,23 @@ final class ResultTransportLifecycle {
         private final AtomicInteger ownership = new AtomicInteger();
         private final AtomicBoolean returned;
         private final StreamOwner owner;
+
         ReadTask(Callable<Boolean> action, AtomicBoolean returned, StreamOwner owner) {
             super(() -> {
-                try { return action.call(); }
-                finally { readExited(returned, owner); }
+                try {
+                    return action.call();
+                } finally {
+                    readExited(returned, owner);
+                }
             });
             this.returned = returned;
             this.owner = owner;
         }
         @Override public void run() {
             if (!ownership.compareAndSet(0, 1)) return;
-            try { super.run(); }
-            finally {
+            try {
+                super.run();
+            } finally {
                 ownership.set(2);
                 readExited(returned, owner);
             }

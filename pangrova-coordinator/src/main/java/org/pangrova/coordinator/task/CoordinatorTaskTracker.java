@@ -325,7 +325,9 @@ public class CoordinatorTaskTracker {
     }
 
     /** Opens the sole issuance authority before planning. */
-    public void openQueryIssuance(String queryId) { taskIdentityStore.openQuery(queryId); }
+    public org.pangrova.spi.connector.ConnectorQueryAuthority openQueryIssuance(String queryId) {
+        return taskIdentityStore.openQuery(queryId);
+    }
 
     public void markRecoveredIssuanceUnresolved(String queryId) { taskIdentityStore.markRecoveryUnresolved(queryId); }
 
@@ -348,7 +350,9 @@ public class CoordinatorTaskTracker {
     /** Registers the required publication before retaining a report's drain evidence. */
     public TaskReportPublication enterReportPublication(SubmitTaskRequest request,
             org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly) {
-        return taskIdentityStore.enterReport(request, report, resourceOnly, () -> notifyExecutionDrain(report.taskId()));
+        // The publication exit owns the notification claim and still holds its query-operation lease.
+        // Rechecking completed notifications here would block the very callback that completes them.
+        return taskIdentityStore.enterReport(request, report, resourceOnly, () -> publishExecutionDrain(report.taskId()));
     }
 
     /** Captures the actual target before transport admission, never a later WorkerId lookup. */
@@ -431,10 +435,18 @@ public class CoordinatorTaskTracker {
 
     private void notifyExecutionDrain(String taskId) {
         if (taskIdentityStore.drainNotificationReady(taskId)) {
-            taskIdentityStore.executionDrainReceipt(taskId).ifPresent(executionDrainListeners::publish);
+            publishExecutionDrain(taskId);
         }
     }
 
+    private void publishExecutionDrain(String taskId) {
+        taskIdentityStore.executionDrainReceipt(taskId).ifPresent(executionDrainListeners::publish);
+    }
+
+    /**
+     * Registers an observer of exact retained drain evidence. Observers must tolerate exact-fact replay:
+     * rejection by any observer retries the whole fanout, including observers that already succeeded.
+     */
     public void addExecutionDrainListener(java.util.function.Consumer<org.pangrova.protocol.v2.TaskReport> listener) {
         executionDrainListeners.add(java.util.Objects.requireNonNull(listener));
     }

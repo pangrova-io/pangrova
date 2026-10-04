@@ -166,6 +166,11 @@ public final class GeneratedValueMaterializationCoordinator implements CommitLis
 
     private record MaterializationSession(QualifiedTableName table, String principal, String tenant)
             implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return principal; }
         @Override public java.util.Optional<String> getCatalog() {
             return java.util.Optional.of(table.catalog());

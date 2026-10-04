@@ -50,6 +50,11 @@ class LanceSplitManagerTest {
 
     static ConnectorSession session(String tenant) {
         return new ConnectorSession() {
+            @Override
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+                return java.util.Optional.empty();
+            }
+
             @Override public String getUser() { return "test-user"; }
             @Override public Optional<String> getCatalog() { return Optional.of("lance_catalog"); }
             @Override public Optional<String> getSchema() { return Optional.of("db"); }

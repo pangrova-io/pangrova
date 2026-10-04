@@ -29,6 +29,11 @@ class IcebergMinioIntegrationTest {
 
     private static final ConnectorSession TEST_SESSION = new ConnectorSession() {
         @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
+        @Override
         public String getUser() { return "test-user"; }
 
         @Override

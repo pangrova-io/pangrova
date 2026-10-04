@@ -555,6 +555,11 @@ class WriteCommitJournalIdempotencyTest {
     }
 
     static final class TestConnectorSession implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test-user"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG_NAME); }
         @Override public Optional<String> getSchema() { return Optional.of("default"); }

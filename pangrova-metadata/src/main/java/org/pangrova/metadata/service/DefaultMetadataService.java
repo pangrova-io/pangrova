@@ -31,13 +31,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -49,13 +45,13 @@ import java.util.concurrent.atomic.AtomicLong;
  * (CREATE/ALTER/DROP TABLE) and on catalog lifecycle events.</p>
  *
  * <p>Query-level transactions ensure that all metadata reads within a single
- * query see a consistent snapshot. {@link #beginQuery(String)} delegates to
- * each registered connector's {@code beginQuery}, and {@link #cleanupQuery(String)}
- * releases pinned resources. Both operations are idempotent.</p>
+ * query see a consistent snapshot. {@link #beginQuery(MetadataSessionContext)} delegates to
+ * each authenticated connector instance, which is retained with the exact issued lifetime
+ * until cleanup succeeds. Completed begin and cleanup operations are idempotent.</p>
  *
  * <p>Partial catalog failures are aggregated into {@link QueryLifecycleReport}
  * and exposed via metrics counters. {@code beginQuery} throws on partial failure;
- * {@code cleanupQuery} logs but does not throw (best-effort cleanup).</p>
+ * failed cleanup remains owned and throws so the actual lifecycle owner can retry.</p>
  */
 public class DefaultMetadataService implements MetadataService, QueryLifecycleListener {
 
@@ -72,7 +68,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     private final MetadataEventDispatcher eventDispatcher;
     private final SchemaEvolutionValidator schemaValidator;
     private final Cache<MetadataResolutionCacheKey, ResolvedTable> resolvedTableCache;
-    private final Set<String> activeQueries = ConcurrentHashMap.newKeySet();
+    private final MetadataQueryLifecycles queryLifecycles;
     private final MetadataTagOperations tagOperations = new MetadataTagOperations();
 
     /** Guards alterTable against concurrent schema modifications on the same table. */
@@ -101,6 +97,7 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
             long resolutionCacheMaxSize,
             Duration resolutionCacheTtl) {
         this.catalogRegistry = catalogRegistry;
+        this.queryLifecycles = new MetadataQueryLifecycles(catalogRegistry);
         this.cache = cache;
         this.eventDispatcher = eventDispatcher;
         this.schemaValidator = schemaValidator;
@@ -303,34 +300,23 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     @Override
-    public void beginQuery(String queryId) {
-        if (!activeQueries.add(queryId)) {
-            LOG.debug("beginQuery already called for queryId={}, idempotent no-op", queryId);
-            return;
-        }
-        QueryLifecycleReport report = executeLifecycleAcrossCatalogs(
-                queryId, QueryLifecycleReport.Operation.BEGIN);
+    public void beginQuery(MetadataSessionContext session) {
+        QueryLifecycleReport report = queryLifecycles.begin(session);
         recordBeginQueryMetrics(report);
         if (report.hasFailures()) {
-            throw new MetadataResolutionException(queryId, "beginQuery", report.failedCatalogs());
+            throw new MetadataResolutionException(session.queryId(), "beginQuery", report.failedCatalogs());
         }
-        LOG.debug("beginQuery completed for queryId={}", queryId);
+        LOG.debug("beginQuery completed for queryId={}", session.queryId());
     }
 
     @Override
-    public void cleanupQuery(String queryId) {
-        if (!activeQueries.remove(queryId)) {
-            LOG.debug("cleanupQuery called for unknown/already-cleaned queryId={}, idempotent no-op", queryId);
-            return;
-        }
-        QueryLifecycleReport report = executeLifecycleAcrossCatalogs(
-                queryId, QueryLifecycleReport.Operation.CLEANUP);
+    public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        QueryLifecycleReport report = queryLifecycles.cleanup(authority);
         recordCleanupQueryMetrics(report);
         if (report.hasFailures()) {
-            LOG.warn("cleanupQuery partial failure, queryId={}, failedCatalogs={}, succeededCatalogs={}",
-                    queryId, report.failedCatalogs().keySet(), report.succeededCatalogs());
+            throw new MetadataResolutionException(authority.queryId(), "cleanupQuery", report.failedCatalogs());
         }
-        LOG.debug("cleanupQuery completed for queryId={}", queryId);
+        LOG.debug("cleanupQuery completed for queryId={}", authority.queryId());
     }
 
     public long beginQuerySuccessTotal() {
@@ -367,16 +353,12 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
     }
 
     /**
-     * Removes the query from activeQueries on any termination path (success, failure,
-     * or abnormal termination). This prevents the Set from growing unboundedly when
-     * queries terminate without calling {@link #cleanupQuery(String)}.
+     * Looks up the actual retained lifetime; a listener cannot issue a new query authority.
      */
     @Override
     public void onQueryEnd(String queryId) {
-        if (activeQueries.remove(queryId)) {
-            LOG.debug("event=active_query_removed_on_end queryId={}", queryId);
-            executeLifecycleAcrossCatalogs(queryId, QueryLifecycleReport.Operation.CLEANUP);
-        }
+        var authority = queryLifecycles.retainedAuthority(queryId);
+        if (authority != null) cleanupQuery(authority);
     }
 
     /**
@@ -384,40 +366,9 @@ public class DefaultMetadataService implements MetadataService, QueryLifecycleLi
      * Exposed for monitoring and testing purposes.
      */
     public int activeQueryCount() {
-        return activeQueries.size();
+        return queryLifecycles.size();
     }
 
-    private QueryLifecycleReport executeLifecycleAcrossCatalogs(String queryId, QueryLifecycleReport.Operation op) {
-        ConnectorSession session = DefaultConnectorSession.forQueryLifecycle(queryId);
-        List<String> succeeded = new ArrayList<>();
-        Map<String, Exception> failed = new LinkedHashMap<>();
-        for (String catalogName : catalogRegistry.listCatalogNames()) {
-            Optional<Exception> error = executeForCatalog(catalogName, queryId, session, op);
-            if (error.isPresent()) {
-                failed.put(catalogName, error.get());
-            } else {
-                succeeded.add(catalogName);
-            }
-        }
-        return new QueryLifecycleReport(queryId, op, succeeded, failed);
-    }
-
-    private Optional<Exception> executeForCatalog(
-            String catalogName, String queryId, ConnectorSession session, QueryLifecycleReport.Operation op) {
-        try {
-            CatalogHandle handle = catalogRegistry.getCatalog(catalogName);
-            ConnectorMetadata metadata = handle.getMetadata(session);
-            if (op == QueryLifecycleReport.Operation.BEGIN) {
-                metadata.beginQuery(queryId);
-            } else {
-                metadata.cleanupQuery(queryId);
-            }
-            return Optional.empty();
-        } catch (Exception e) {
-            LOG.warn("{} failed for catalog={}, queryId={}", op, catalogName, queryId, e);
-            return Optional.of(e);
-        }
-    }
 
     private void recordBeginQueryMetrics(QueryLifecycleReport report) {
         beginQuerySuccessTotal.addAndGet(report.succeededCount());

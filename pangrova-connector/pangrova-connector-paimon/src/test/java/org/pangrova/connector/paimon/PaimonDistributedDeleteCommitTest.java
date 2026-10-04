@@ -1,5 +1,7 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.testfixtures.tableformat.PaimonCommitTestSupport;
+
 import org.pangrova.connector.paimon.write.PaimonPageSinkProvider;
 import org.pangrova.spi.connector.ConnectorTransactionHandle;
 import org.pangrova.spi.connector.data.ConnectorPageSink;
@@ -33,7 +35,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
             throws Exception {
         createTable(partitioned, appendOnly);
         writeRows(DELETED, SURVIVOR, OTHER_SURVIVOR);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginOverwrite(SESSION, handle(metadata));
         byte[] firstWorker = prepare(output, SURVIVOR);
         byte[] secondWorker = prepare(output, OTHER_SURVIVOR);
@@ -55,7 +57,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     void emptySurvivorFragmentsRemoveAllRows(boolean partitioned, boolean appendOnly) throws Exception {
         createTable(partitioned, appendOnly);
         writeRows(DELETED, SURVIVOR);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginOverwrite(SESSION, handle(metadata));
         byte[] emptyWorker = prepare(output);
         assertThat(emptyWorker).isNotEmpty();
@@ -77,7 +79,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     void emptyStaticPartitionCommitKeepsUnselectedPartitions(boolean appendOnly) throws Exception {
         createTable(true, appendOnly);
         writeRows(DELETED, SURVIVOR);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginOverwrite(SESSION, handle(metadata), Map.of("region", "east"));
 
         PaimonCommitTestSupport.finish(metadata, SESSION, output, List.of(prepare(output)));
@@ -90,7 +92,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     void appendCommitDoesNotAcquireOverwriteSemantics(boolean partitioned) throws Exception {
         createTable(partitioned, false);
         writeRows(DELETED);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginInsert(SESSION, handle(metadata));
         ConnectorPageSink sink = provider().createPageSink(ConnectorTransactionHandle.EMPTY, SESSION, output);
         byte[] fragment = finish(sink, SURVIVOR);
@@ -103,7 +105,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     @Test
     void durableCommitReplayDoesNotPublishDuplicateRowsOrSnapshots() throws Exception {
         createTable(false, false);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginInsert(SESSION, handle(metadata));
         ConnectorPageSink sink = provider().createPageSink(
                 ConnectorTransactionHandle.EMPTY, SESSION, output);
@@ -124,7 +126,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     @Test
     void unjournaledCommitAndUnrecoverablePartitionOverwriteFailClosed() throws Exception {
         createTable(true, false);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginOverwrite(
                 SESSION, handle(metadata), Map.of("region", "east"));
         assertThat(output.writeMode()).isEqualTo("OVERWRITE_PARTITIONED");
@@ -140,7 +142,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     @Test
     void mixedShardOperationsFailBeforeCatalogCommit() throws Exception {
         createTable(false, false);
-        var metadata = new PaimonMetadata(catalog, "delete_catalog");
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var insert = metadata.beginInsert(SESSION, handle(metadata));
         var overwrite = metadata.beginOverwrite(SESSION, handle(metadata));
         ConnectorPageSink insertSink = provider().createPageSink(

@@ -104,10 +104,10 @@ class MetadataSchemaBuilderTest {
 
         /** Intentional no-op: test only exercises listCatalogs/listSchemas. */
         @Override
-        public void beginQuery(String queryId) { }
+        public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) { }
 
         /** Intentional no-op: test only exercises listCatalogs/listSchemas. */
         @Override
-        public void cleanupQuery(String queryId) { }
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
     }
 }

@@ -9,8 +9,6 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Executes HTTP requests with retry, exponential backoff, and endpoint failover.
@@ -22,21 +20,14 @@ final class RetryableHttpExecutor {
 
     private final RestHttpClientOwner httpOwner;
     private final RetryPolicy retryPolicy;
-    private final ConnectionPoolConfig connectionPoolConfig;
-    private final List<String> endpoints;
-    private final AtomicInteger endpointIndex;
-    private final String scheme;
+    private final EndpointRouting routing;
     private final Duration requestTimeout;
 
     RetryableHttpExecutor(RestHttpClientOwner httpOwner, RetryPolicy retryPolicy,
-                          ConnectionPoolConfig connectionPoolConfig, List<String> endpoints,
-                          AtomicInteger endpointIndex, String scheme, Duration requestTimeout) {
+                          EndpointRouting routing, Duration requestTimeout) {
         this.httpOwner = httpOwner;
         this.retryPolicy = retryPolicy;
-        this.connectionPoolConfig = connectionPoolConfig;
-        this.endpoints = endpoints;
-        this.endpointIndex = endpointIndex;
-        this.scheme = scheme;
+        this.routing = routing;
         this.requestTimeout = requestTimeout;
     }
 
@@ -47,26 +38,27 @@ final class RetryableHttpExecutor {
      * After exhausting retries, returns the last response for normal error handling
      * (connection failures are thrown directly).
      */
-    HttpResponse<String> executeWithRetry(HttpRequest request) {
+    HttpResponse<String> executeWithRetry(EndpointRouting.SelectedRequest selectedRequest) {
+        routing.validate(selectedRequest);
+        HttpRequest request = selectedRequest.request();
         PangrovaConnectionException lastConnectionException = null;
         HttpResponse<String> lastRetryableResponse = null;
-        int maxAttempts = retryPolicy.maxRetries() + 1;
-        int localIndex = endpointIndex.get();
+        long maxAttempts = (long) retryPolicy.maxRetries() + 1;
+        EndpointRouting.Selection selection = selectedRequest.selection();
 
-        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        for (long attempt = 0; attempt < maxAttempts; attempt++) {
             if (attempt > 0) {
-                Duration delay = retryPolicy.delayForAttemptWithJitter(attempt - 1);
+                Duration delay = retryPolicy.delayForAttemptWithJitter(Math.toIntExact(attempt - 1));
                 sleepForRetry(delay);
-                localIndex++;
-                request = rebuildRequestForEndpoint(request, localIndex);
+                request = rebuildRequestForEndpoint(request, selection);
             }
             try {
-                HttpResponse<String> response = execute(request);
+                HttpResponse<String> response = executeOnce(request);
                 int statusCode = response.statusCode();
                 if (HttpStatusCodes.isRetryable(statusCode)) {
                     lastRetryableResponse = response;
                     lastConnectionException = null;
-                    advanceSharedEndpoint(localIndex);
+                    selection = routing.failed(selection);
                     LOG.warn("event=retryable_server_error status={} attempt={} maxAttempts={}",
                             statusCode, attempt + 1, maxAttempts);
                     continue;
@@ -75,7 +67,7 @@ final class RetryableHttpExecutor {
             } catch (PangrovaConnectionException e) {
                 lastConnectionException = e;
                 lastRetryableResponse = null;
-                advanceSharedEndpoint(localIndex);
+                selection = routing.failed(selection);
                 LOG.warn("event=retryable_connection_error errorCode={} attempt={} maxAttempts={}",
                         e.errorCode(), attempt + 1, maxAttempts);
             }
@@ -90,7 +82,12 @@ final class RetryableHttpExecutor {
      * Executes a single HTTP request without retry, mapping I/O failures
      * to {@link PangrovaConnectionException}.
      */
-    HttpResponse<String> execute(HttpRequest request) {
+    HttpResponse<String> execute(EndpointRouting.SelectedRequest selectedRequest) {
+        routing.validate(selectedRequest);
+        return executeOnce(selectedRequest.request());
+    }
+
+    private HttpResponse<String> executeOnce(HttpRequest request) {
         try (var operation = httpOwner.enter()) {
             return httpOwner.client().send(request, HttpResponse.BodyHandlers.ofString());
         } catch (java.net.http.HttpConnectTimeoutException e) {
@@ -115,9 +112,8 @@ final class RetryableHttpExecutor {
         }
     }
 
-    private HttpRequest rebuildRequestForEndpoint(HttpRequest original, int index) {
-        String endpoint = endpoints.get(Math.floorMod(index, endpoints.size()));
-        String newBaseUrl = scheme + "://" + endpoint;
+    private HttpRequest rebuildRequestForEndpoint(HttpRequest original, EndpointRouting.Selection selection) {
+        String newBaseUrl = selection.baseUrl();
         URI originalUri = original.uri();
         String path = originalUri.getRawPath();
         String query = originalUri.getRawQuery();
@@ -131,16 +127,6 @@ final class RetryableHttpExecutor {
         builder.method(original.method(),
                 original.bodyPublisher().orElse(HttpRequest.BodyPublishers.noBody()));
         return builder.build();
-    }
-
-    private void advanceSharedEndpoint(int localIndex) {
-        if (connectionPoolConfig != null && connectionPoolConfig.failoverEnabled()
-                && endpoints.size() > 1) {
-            int nextIndex = localIndex + 1;
-            endpointIndex.updateAndGet(current -> Math.max(current, nextIndex));
-            LOG.info("event=endpoint_failover newEndpoint={}",
-                    endpoints.get(Math.floorMod(nextIndex, endpoints.size())));
-        }
     }
 
     private void sleepForRetry(Duration delay) {

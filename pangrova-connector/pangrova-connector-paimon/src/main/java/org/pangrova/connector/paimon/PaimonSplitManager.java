@@ -66,6 +66,14 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             DynamicFilter dynamicFilter,
             Constraint constraint) {
         PaimonTableHandle paimonTable = (PaimonTableHandle) table;
+        org.pangrova.spi.connector.ConnectorQueryAuthority authority = PaimonSplitRegistry.authority(session);
+        try (var permit = authority.enterOperation()) {
+            return getActiveSplits(paimonTable, constraint, authority);
+        }
+    }
+
+    private ConnectorSplitSource getActiveSplits(PaimonTableHandle paimonTable, Constraint constraint,
+            org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         Table freshTable = loadFreshTable(paimonTable);
         FileStoreTable selectedTable = PaimonReadBindings.requireSelectedTable(freshTable, paimonTable);
         PaimonReadBindings.validateSelected(selectedTable, paimonTable);
@@ -79,7 +87,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         }
         String changelogProducer = resolveChangelogProducer(freshTable);
         TableSplitContext ctx = buildTableContext(freshTable, changelogProducer);
-        List<ConnectorSplit> splits = planSplits(freshTable, paimonTable.tableName(), ctx, constraint);
+        List<ConnectorSplit> splits = planSplits(freshTable, paimonTable.tableName(), ctx, constraint, authority);
         PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         LOG.debug("event=splits_planned count={} table={}.{} changelog_producer={} partitioned={} snapshotId={}",
                 splits.size(), paimonTable.schemaName(), paimonTable.tableName(),
@@ -105,36 +113,25 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             long toSnapshotId,
             Constraint constraint) {
         PaimonTableHandle paimonTable = (PaimonTableHandle) table;
+        org.pangrova.spi.connector.ConnectorQueryAuthority authority = PaimonSplitRegistry.authority(session);
+        try (var permit = authority.enterOperation()) {
+            return getActiveIncrementalSplits(paimonTable, fromSnapshotId, toSnapshotId, constraint, authority);
+        }
+    }
+
+    private ConnectorSplitSource getActiveIncrementalSplits(PaimonTableHandle paimonTable,
+            long fromSnapshotId, long toSnapshotId, Constraint constraint,
+            org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         Table freshTable = loadFreshTable(paimonTable);
         String tableName = paimonTable.tableName();
         LOG.debug("event=incremental_splits_start table={}.{} from_snapshot={} to_snapshot={}",
                 paimonTable.schemaName(), tableName, fromSnapshotId, toSnapshotId);
 
         List<ConnectorSplit> splits = planIncrementalSplits(
-                freshTable, tableName, fromSnapshotId, toSnapshotId, constraint);
+                freshTable, tableName, fromSnapshotId, toSnapshotId, constraint, authority);
         LOG.debug("event=incremental_splits_complete table={}.{} split_count={}",
                 paimonTable.schemaName(), tableName, splits.size());
         return new FixedSplitSource(splits);
-    }
-
-    /**
-     * Cleans up resources associated with a completed or cancelled query.
-     * Releases SDK Split objects from the registry to prevent memory leaks.
-     *
-     * <p>Note: For this to be effective, split registration must use
-     * {@code splitRegistry.register(split, queryId)}. Currently, the SPI
-     * {@code getSplits()} does not propagate queryId to connectors; once
-     * the coordinator passes queryId through {@code ConnectorSession} or
-     * a dedicated context, the registration path should be updated.</p>
-     *
-     * @param queryId the query identifier whose resources should be released
-     */
-    @Override
-    public void cleanup(String queryId) {
-        if (queryId != null) {
-            splitRegistry.releaseAll(queryId);
-            LOG.debug("event=paimon_splits_cleanup queryId={}", queryId);
-        }
     }
 
     private Table loadFreshTable(PaimonTableHandle handle) {
@@ -236,7 +233,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
     }
 
     private List<ConnectorSplit> planSplits(
-            Table table, String tableName, TableSplitContext ctx, Constraint constraint) {
+            Table table, String tableName, TableSplitContext ctx, Constraint constraint, org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         ReadBuilder readBuilder = table.newReadBuilder();
 
         Predicate paimonFilter = PaimonFilterBuilder.build(table.rowType(), constraint);
@@ -265,20 +262,20 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
         if (ctx.needsMerge) {
             return paimonSplits.stream()
-                    .map(split -> buildSplit(tableName, split, ctx, table, tableLocation, readMode))
+                    .map(split -> buildSplit(tableName, split, ctx, table, tableLocation, readMode, authority))
                     .toList();
         }
         // Append-only: expand each DataSplit into one ConnectorSplit per data file
         // so the native reader (one file per split) reads all files.
-        return expandPhysicalSplits(tableName, ctx, table, tableLocation, readMode, paimonSplits);
+        return expandPhysicalSplits(tableName, ctx, table, tableLocation, readMode, paimonSplits, authority);
     }
 
     private List<ConnectorSplit> expandPhysicalSplits(String tableName, TableSplitContext ctx,
-            Table table, String tableLocation, String readMode, List<Split> paimonSplits) {
+            Table table, String tableLocation, String readMode, List<Split> paimonSplits, org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         List<ConnectorSplit> result = new ArrayList<>();
         for (Split split : paimonSplits) {
             result.addAll(expandAppendOnlySplit(
-                    tableName, split, ctx, table, tableLocation, readMode));
+                    tableName, split, ctx, table, tableLocation, readMode, authority));
         }
         return List.copyOf(result);
     }
@@ -295,7 +292,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
      */
     private List<ConnectorSplit> planIncrementalSplits(
             Table table, String tableName,
-            long fromSnapshotId, long toSnapshotId, Constraint constraint) {
+            long fromSnapshotId, long toSnapshotId, Constraint constraint, org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         FileStoreTable fileStoreTable = (FileStoreTable) table;
         Table incrementalView = fileStoreTable.copy(Map.of(
                 "incremental-between", fromSnapshotId + "," + toSnapshotId));
@@ -315,17 +312,17 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         List<ConnectorSplit> result = new ArrayList<>();
         for (Split split : paimonSplits) {
             result.addAll(expandAppendOnlySplit(
-                    tableName, split, ctx, table, tableLocation, "INCREMENTAL"));
+                    tableName, split, ctx, incrementalView, tableLocation, "INCREMENTAL", authority));
         }
         return List.copyOf(result);
     }
 
     private List<ConnectorSplit> expandAppendOnlySplit(
             String tableName, Split paimonSplit,
-            TableSplitContext ctx, Table table, String tableLocation, String readMode) {
+            TableSplitContext ctx, Table table, String tableLocation, String readMode, org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         if (!(paimonSplit instanceof DataSplit dataSplit)) {
             return List.of(buildSplit(
-                    tableName, paimonSplit, ctx, table, tableLocation, readMode));
+                    tableName, paimonSplit, ctx, table, tableLocation, readMode, authority));
         }
         List<DataFileMeta> dataFiles = dataSplit.dataFiles();
         if (dataFiles == null || dataFiles.isEmpty()) {
@@ -334,14 +331,18 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         requireDataSplit(dataSplit);
         if (dataFiles.size() == 1) {
             return List.of(buildSplit(
-                    tableName, paimonSplit, ctx, table, tableLocation, readMode));
+                    tableName, paimonSplit, ctx, table, tableLocation, readMode, authority));
         }
         int bucketId = dataSplit.bucket();
         Map<String, String> partitionValues =
                 PaimonPartitionExtractor.extractPartitionValues(paimonSplit, table);
         List<ConnectorSplit> splits = new ArrayList<>(dataFiles.size());
-        long registryId = splitRegistry.register(paimonSplit);
         for (DataFileMeta file : dataFiles) {
+            DataSplit fileSplit = dataSplit.filterDataFile(file::equals).orElseThrow();
+            if (fileSplit.dataFiles().size() != 1) {
+                throw new IllegalStateException("SDK split contains duplicate data file identities: " + file.fileName());
+            }
+            long registryId = splitRegistry.register(authority, table, fileSplit);
             String filePath = PaimonDataFileExtractor.buildFilePath(dataSplit, file);
             var schemaEvolution = PaimonPartitionExtractor.extractSchemaEvolution(file, table);
             PaimonLsmLevel singleLevel = new PaimonLsmLevel(
@@ -363,7 +364,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
     private ConnectorSplit buildSplit(
             String tableName, Split paimonSplit,
-            TableSplitContext ctx, Table table, String tableLocation, String readMode) {
+            TableSplitContext ctx, Table table, String tableLocation, String readMode, org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
         int bucketId = extractBucketId(paimonSplit);
         Map<String, String> partitionValues =
                 PaimonPartitionExtractor.extractPartitionValues(paimonSplit, table);
@@ -380,7 +381,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         List<PaimonLsmLevel> lsmLevels =
                 PaimonDataFileExtractor.extractLsmLevels(table, paimonSplit);
 
-        long registryId = splitRegistry.register(paimonSplit);
+        long registryId = splitRegistry.register(authority, table, paimonSplit);
         return new PaimonSplit(
                 tableName, registryId, paimonSplit.rowCount(),
                 bucketId, ctx.primaryKeys, ctx.mergeEngine, ctx.changelogProducer,

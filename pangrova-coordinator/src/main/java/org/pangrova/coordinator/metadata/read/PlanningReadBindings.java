@@ -53,7 +53,18 @@ public final class PlanningReadBindings {
 
     private Optional<ConnectorReadBinding> load(TableKey key) {
         var session = PlanningConnectorSession.bind(authenticatedSession, key.catalog(), key.schema());
-        var metadata = catalogs.getCatalog(key.catalog()).getMetadata(session);
+        if (session.getQueryAuthority().isPresent()) {
+            try (var operation = session.getQueryAuthority().orElseThrow().enterOperation()) {
+                return loadAdmitted(key, session);
+            }
+        }
+        return loadAdmitted(key, session);
+    }
+
+    private Optional<ConnectorReadBinding> loadAdmitted(TableKey key, ConnectorSession session) {
+        var metadata = session.getQueryAuthority().map(authority -> authority.beginMetadata(key.catalog(),
+                () -> catalogs.getCatalog(key.catalog()).getMetadata(session)))
+                .orElseGet(() -> catalogs.getCatalog(key.catalog()).getMetadata(session));
         var handle = metadata.getTableHandle(session, new SchemaTableName(key.schema(), key.table()));
         if (handle == null) return Optional.empty();
         var snapshot = PlanningSnapshotSelectors.snapshot(session, key.catalog(), key.schema(), key.table());

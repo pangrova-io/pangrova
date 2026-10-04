@@ -59,7 +59,7 @@ class PaimonExpireSnapshotsTest {
                 .build();
         tableId = Identifier.create("db", "test_expire");
         catalog.createTable(tableId, schema, false);
-        metadata = new PaimonMetadata(catalog, "test_catalog");
+        metadata = new PaimonMetadata(catalog, "test_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
     }
 
     @Test

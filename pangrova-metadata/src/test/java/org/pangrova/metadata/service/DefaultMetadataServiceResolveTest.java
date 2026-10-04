@@ -110,10 +110,10 @@ class DefaultMetadataServiceResolveTest {
     static final class NullReturningConnectorMetadata implements ConnectorMetadata {
 
         @Override
-        public void beginQuery(String queryId) { }
+        public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
 
         @Override
-        public void cleanupQuery(String queryId) { }
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) { }
 
         @Override
         public List<String> listSchemaNames(ConnectorSession session) {

@@ -38,15 +38,23 @@ public class PaimonConnector implements Connector {
         this.catalogName = catalogName;
         this.catalog = catalog;
         this.splitRegistry = new PaimonSplitRegistry();
-        this.metadata = new PaimonMetadata(catalog, catalogName);
+        this.metadata = new PaimonMetadata(catalog, catalogName, splitRegistry);
         this.splitManager = new PaimonSplitManager(catalog, splitRegistry);
-        this.pageSourceProvider = new PaimonPageSourceProvider(catalog, splitRegistry);
+        this.pageSourceProvider = new PaimonPageSourceProvider(splitRegistry);
         this.pageSinkProvider = new PaimonPageSinkProvider(catalog, tempDir);
     }
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return metadata;
+    }
+
+    /** Immutable lifecycle counters only; this observation never issues an SDK read or admission authority. */
+    public record LifecycleDiagnostics(int pendingSplitRegistrations, int activeReaders) { }
+
+    /** Samples both counters under the actual registry's ownership lock. */
+    public LifecycleDiagnostics lifecycleDiagnostics() {
+        return splitRegistry.lifecycleDiagnostics();
     }
 
     @Override
@@ -96,8 +104,8 @@ public class PaimonConnector implements Connector {
         }
         try {
             if (catalogClosed) return;
+            splitRegistry.close();
             catalog.close();
-            splitRegistry.clear();
             catalogClosed = true;
         } catch (Exception failure) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TRANSIENT_ERROR,

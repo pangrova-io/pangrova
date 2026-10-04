@@ -14,7 +14,6 @@ import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
-import org.pangrova.spi.connector.metadata.table.TableStatistics;
 
 import java.util.LinkedHashMap;
 import java.util.Optional;
@@ -75,9 +74,11 @@ final class PaimonReadBindings {
             var options = new LinkedHashMap<>(handle.properties());
             options.remove(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY);
             options.remove(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY);
-            if (!org.apache.paimon.utils.JsonSerdeUtil.toFlatJson(table.rowType()).equals(handle.rowTypeJson())
+            if (!org.apache.paimon.utils.JsonSerdeUtil.toFlatJson(table.rowType())
+                    .equals(handle.rowTypeJson())
                     || !table.options().equals(options)) {
-                throw new IllegalStateException("Selected current schema or read options changed before split planning");
+                throw new IllegalStateException(
+                        "Selected current schema or read options changed before split planning");
             }
         }
         return fileStore;

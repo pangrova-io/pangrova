@@ -16,6 +16,11 @@ public record TaskConnectorSession(
         TaskAttemptId attempt,
         String catalog,
         Map<String, String> properties) implements ConnectorSession {
+    @Override
+    public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        return java.util.Optional.empty();
+    }
+
 
     public TaskConnectorSession {
         if (tenantId == null || tenantId.isBlank() || principal == null || principal.isBlank()) {

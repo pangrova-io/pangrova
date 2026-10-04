@@ -6,6 +6,8 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * Immutable retry policy for transient failure handling in the REST client.
  * Implements exponential backoff with configurable max retries and delays.
+ * Both delays must be representable as signed-long milliseconds, the actual
+ * jitter and retry-sleep unit; fitting signed-long nanoseconds is not required.
  *
  * @param maxRetries       maximum number of retry attempts (0 = no retries)
  * @param initialDelay     initial delay before first retry
@@ -31,14 +33,23 @@ public record RetryPolicy(
         if (maxRetries < 0) {
             throw new IllegalArgumentException("maxRetries must be >= 0, got " + maxRetries);
         }
-        if (initialDelay == null || initialDelay.isNegative()) {
-            throw new IllegalArgumentException("initialDelay must be non-negative");
+        requireMillisecondDelay(initialDelay, "initialDelay");
+        requireMillisecondDelay(maxDelay, "maxDelay");
+        if (!Double.isFinite(backoffMultiplier) || backoffMultiplier < 1.0) {
+            throw new IllegalArgumentException("backoffMultiplier must be finite and >= 1.0, got " + backoffMultiplier);
         }
-        if (maxDelay == null || maxDelay.isNegative()) {
-            throw new IllegalArgumentException("maxDelay must be non-negative");
+    }
+
+    private static void requireMillisecondDelay(Duration delay, String name) {
+        if (delay == null || delay.isNegative()) {
+            throw new IllegalArgumentException(name + " must be non-negative");
         }
-        if (backoffMultiplier < 1.0) {
-            throw new IllegalArgumentException("backoffMultiplier must be >= 1.0, got " + backoffMultiplier);
+        try {
+            if (delay.toMillis() < 0) {
+                throw new IllegalArgumentException(name + " must have non-negative milliseconds");
+            }
+        } catch (ArithmeticException overflow) {
+            throw new IllegalArgumentException(name + " must be representable in signed-long milliseconds", overflow);
         }
     }
 
@@ -49,29 +60,33 @@ public record RetryPolicy(
      * @return the delay duration for this attempt
      */
     public Duration delayForAttempt(int attempt) {
-        if (attempt <= 0) {
-            return initialDelay;
-        }
+        if (initialDelay.compareTo(maxDelay) >= 0) return maxDelay;
+        if (attempt <= 0) return initialDelay;
         long delayMs = initialDelay.toMillis();
+        long capMs = maxDelay.toMillis();
         for (int i = 0; i < attempt; i++) {
-            delayMs = (long) (delayMs * backoffMultiplier);
-            if (delayMs >= maxDelay.toMillis()) {
-                return maxDelay;
-            }
+            double next = delayMs * backoffMultiplier;
+            if (next >= capMs) return maxDelay;
+            long nextMs = (long) next;
+            if (nextMs == delayMs) break;
+            delayMs = nextMs;
         }
         return Duration.ofMillis(delayMs);
     }
 
     /**
      * Computes the delay with full jitter for the given attempt number.
-     * Returns a random duration in [1ms, delayForAttempt(attempt)].
+     * Returns a random duration in [1ms, delayForAttempt(attempt)] for positive
+     * millisecond delays, or zero if no millisecond delay is configured.
+     * This randomness spreads retry load; it is not a security primitive.
+     *
+     * @param attempt the retry attempt number (0 = first retry)
+     * @return the jittered delay
      */
     public Duration delayForAttemptWithJitter(int attempt) {
         long baseMs = delayForAttempt(attempt).toMillis();
-        if (baseMs <= 1) {
-            return Duration.ofMillis(1);
-        }
-        long jitteredMs = ThreadLocalRandom.current().nextLong(1, baseMs + 1);
+        if (baseMs <= 1) return Duration.ofMillis(baseMs);
+        long jitteredMs = ThreadLocalRandom.current().nextLong(baseMs) + 1;
         return Duration.ofMillis(jitteredMs);
     }
 

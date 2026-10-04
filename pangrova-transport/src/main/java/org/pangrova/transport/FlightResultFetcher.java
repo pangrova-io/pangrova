@@ -160,7 +160,8 @@ public final class FlightResultFetcher implements AutoCloseable {
         String poolKey = poolKey(endpoint);
         Location location = resolveLocation(endpoint);
         try (var lease = lifecycle.client(poolKey, () -> buildClient(location))) {
-            try (var streamOwner = lifecycle.stream(openStream(lease.client(), endpoint, deadlineEpochMs), batchReadExecutor)) {
+            try (var streamOwner = lifecycle.stream(
+                    openStream(lease.client(), endpoint, deadlineEpochMs), batchReadExecutor)) {
                 FlightStream stream = streamOwner.stream();
                 return serializeStream(stream, endpoint, deadlineEpochMs);
             } catch (TransportException e) {
@@ -425,24 +426,28 @@ public final class FlightResultFetcher implements AutoCloseable {
         return Location.forGrpcInsecure(endpoint.host(), endpoint.port());
     }
 
-    /** Seals admission and releases owners only after all actual streams and reader jobs exit; failures permit retry. */
+    /** Seals admission; releases owners after actual streams and readers exit; failures retain owners for retry. */
     @Override
     public void close() {
         if (!lifecycle.beginClose()) return;
         boolean completed = false;
         try {
-            if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Interrupted before result cleanup");
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Interrupted before result cleanup");
+            }
             lifecycle.closeStreams();
             lifecycle.closeClients();
             batchReadExecutor.shutdown();
             if (!batchReadExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                throw connectionError("TRANSPORT_LIFECYCLE_FAILED", "Result read executor has not exited; retry close", null);
+                throw connectionError("TRANSPORT_LIFECYCLE_FAILED",
+                        "Result read executor has not exited; retry close", null);
             }
             allocator.close();
             completed = true;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            throw connectionError("TRANSPORT_LIFECYCLE_FAILED", "Result close was interrupted; retry close", interrupted);
+            throw connectionError("TRANSPORT_LIFECYCLE_FAILED",
+                    "Result close was interrupted; retry close", interrupted);
         } finally {
             lifecycle.endClose(completed);
         }

@@ -24,15 +24,16 @@ final class TaskIdentityRegistry {
     TaskIdentityRegistry() { this(System::nanoTime); }
     TaskIdentityRegistry(java.util.function.LongSupplier clock) { this.clock = java.util.Objects.requireNonNull(clock); }
 
-    synchronized void openQuery(String queryId) {
+    synchronized org.pangrova.spi.connector.ConnectorQueryAuthority openQuery(String queryId) {
         if (queryId == null || queryId.isBlank()) throw new IllegalArgumentException("queryId must not be blank");
         purgeRetiredQueries();
         if (!scopes.containsKey(queryId) && scopes.size()
                 >= org.pangrova.protocol.task.TerminalReportDeliveryPolicy.MAX_RETAINED_IDENTITIES) {
             throw new IllegalStateException("Query issuance identity capacity exhausted");
         }
-        Scope scope = scopes.computeIfAbsent(queryId, ignored -> new Scope());
+        Scope scope = scopes.computeIfAbsent(queryId, Scope::new);
         if (scope.sealed) throw new IllegalStateException("Query issuance is sealed: " + queryId);
+        return scope.connectorAuthority;
     }
 
     synchronized void requireOpenQuery(String queryId) {
@@ -106,7 +107,7 @@ final class TaskIdentityRegistry {
         boolean notify;
         synchronized (this) {
             if (--fact.operations < 0) throw new IllegalStateException("Report operation exited twice");
-            notify = fact.completed && fact.operations == 0 && !fact.notifying;
+            notify = fact.completed && fact.operations == 0 && !fact.notifying && !fact.notificationsCompleted;
             if (notify) fact.notifying = true;
             else exitQueryOperation(scope);
         }
@@ -448,7 +449,8 @@ final class TaskIdentityRegistry {
         }
     }
 
-    private static final class Scope {
+    private final class Scope {
+        private final org.pangrova.spi.connector.ConnectorQueryAuthority connectorAuthority;
         private final Set<String> tasks = new HashSet<>();
         private final HashMap<String, org.pangrova.spi.coordination.TaskStateEvent> scheduled = new HashMap<>();
         private boolean sealed;
@@ -458,6 +460,63 @@ final class TaskIdentityRegistry {
         private int operations;
         private boolean cleanupClaimed;
         private final HashMap<String, Fact> publications = new HashMap<>();
+
+        private Scope(String queryId) {
+            connectorAuthority = new IssuedConnectorAuthority(queryId, this);
+        }
+    }
+
+    private final class IssuedConnectorAuthority implements org.pangrova.spi.connector.ConnectorQueryAuthority {
+        private final String queryId;
+        private final Scope scope;
+
+        private IssuedConnectorAuthority(String queryId, Scope scope) {
+            this.queryId = queryId;
+            this.scope = scope;
+        }
+
+        @Override public String queryId() { return queryId; }
+
+        @Override
+        public boolean isClosed() {
+            synchronized (TaskIdentityRegistry.this) {
+                return scope.sealed || scope.retired || scope.cleanupClaimed || scopes.get(queryId) != scope;
+            }
+        }
+
+        @Override
+        public void requireDrained() {
+            synchronized (TaskIdentityRegistry.this) {
+                if (scopes.get(queryId) != scope) {
+                    if (scope.cleanupClaimed && scope.retired && scope.operations == 0) return;
+                    throw new IllegalStateException("Connector cleanup does not own the issued query scope: " + queryId);
+                }
+                requireQueryDrained(queryId);
+            }
+        }
+
+        @Override
+        public org.pangrova.spi.connector.metadata.ConnectorMetadata beginMetadata(String resolvedCatalog,
+                java.util.function.Supplier<org.pangrova.spi.connector.metadata.ConnectorMetadata> lookup) {
+            throw new IllegalStateException("Connector metadata requires the public query state authority");
+        }
+
+        @Override
+        public org.pangrova.spi.connector.metadata.ConnectorQueryCleanupResult cleanupMetadata() {
+            throw new IllegalStateException("Connector metadata requires the public query state authority");
+        }
+
+        @Override
+        public org.pangrova.spi.connector.ConnectorQueryOperation enterOperation() {
+            synchronized (TaskIdentityRegistry.this) {
+                if (scope.sealed || scope.retired || scope.cleanupClaimed || scopes.get(queryId) != scope) {
+                    throw new IllegalStateException("Connector query admission is closed: " + queryId);
+                }
+                QueryIssuanceOperation operation = new QueryIssuanceOperation(() -> exitQueryOperation(scope));
+                scope.operations++;
+                return operation;
+            }
+        }
     }
 
 }

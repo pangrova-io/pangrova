@@ -58,6 +58,11 @@ final class DeferredIndexAuthorityResolver {
     private record DeferredIndexSession(String principal, String tenantId, QualifiedTableName table)
             implements ConnectorSession {
         @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
+        @Override
         public String getUser() { return principal; }
 
         @Override

@@ -16,7 +16,8 @@ public record ResultTransportSecurity(
     /** Rejects incomplete certificate pairs and prevents configured material on plaintext. */
     public ResultTransportSecurity {
         if ((certificateChainPath == null) != (privateKeyPath == null)) {
-            throw new IllegalArgumentException("Result client certificate chain and private key must be supplied together");
+            throw new IllegalArgumentException(
+                    "Result client certificate chain and private key must be supplied together");
         }
         if (certificateChainPath != null && rootCaPath == null) {
             throw new IllegalArgumentException("Result mutual TLS requires explicit trust roots");

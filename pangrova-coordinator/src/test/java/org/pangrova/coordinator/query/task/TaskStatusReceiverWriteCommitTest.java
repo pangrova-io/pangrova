@@ -542,6 +542,11 @@ class TaskStatusReceiverWriteCommitTest {
 
     /** Minimal session for test wiring. */
     static final class TestConnectorSession implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
 
         @Override
         public String getUser() {

@@ -90,11 +90,21 @@ class RegressionSelectionTest {
         var production = workflow.substring(start, end);
         assertThat(production).contains("needs: [native-build, native-sanitizers]")
                 .contains("docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova")
-                .contains("stage-production-regression-native.sh pangrova/pangrova:latest")
+                .contains("IMAGE=\"$PANGROVA_E2E_IMAGE\" docker buildx bake")
+                .contains("image_id=$(docker image inspect --format '{{.Id}}' \"$PANGROVA_E2E_IMAGE\")")
+                .contains("\"PANGROVA_E2E_IMAGE_ID=$image_id\" >> \"$GITHUB_ENV\"")
+                .contains("stage-production-regression-native.sh \"$PANGROVA_E2E_IMAGE_ID\"")
                 .contains("-Pnative-runtime,full-regression,coverage verify")
                 .contains("-Dtest=ActivationSmokeE2ETest test")
-                .contains("diff-coverage-check.sh --threshold 60");
+                .contains("diff-coverage-check.sh --threshold 60")
+                .doesNotContain("pangrova/pangrova:latest");
         assertThat(production.indexOf("docker buildx bake")).isLessThan(production.indexOf("full-regression,coverage verify"));
+        assertThat(production.indexOf("docker image inspect")).isLessThan(production.indexOf("stage-production-regression-native"));
+        assertThat(production.indexOf("stage-production-regression-native")).isLessThan(production.indexOf("full-regression,coverage verify"));
+        for (var property : List.of("-Dpangrova.e2e.image=\"$PANGROVA_E2E_IMAGE\"",
+                "-Dpangrova.e2e.image-id=\"$PANGROVA_E2E_IMAGE_ID\"")) {
+            assertThat(production.split(java.util.regex.Pattern.quote(property), -1).length - 1).isEqualTo(3);
+        }
     }
 
     private static Element read(Path file) throws Exception {

@@ -88,6 +88,7 @@
 
         <!-- Connector dependencies -->
         <iceberg.version>1.11.0</iceberg.version>
+        <avro.version>1.12.1</avro.version>
         <paimon.version>1.4.1</paimon.version>
         <hadoop.version>3.3.6</hadoop.version>
         <yetus.audience.version>0.12.0</yetus.audience.version>
@@ -506,6 +507,12 @@
                 <groupId>org.apache.iceberg</groupId>
                 <artifactId>iceberg-arrow</artifactId>
                 <version>${iceberg.version}</version>
+            </dependency>
+            <!-- Iceberg manifest APIs require modern Avro; Hadoop's shorter path must not select 1.7.7. -->
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro</artifactId>
+                <version>${avro.version}</version>
             </dependency>
 
             <!-- Apache Parquet (compile-time access for Iceberg Parquet reader API) -->

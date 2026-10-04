@@ -52,6 +52,11 @@ class IcebergStaticOverwriteScopeTest {
             Types.NestedField.required(3, "region", Types.StringType.get()),
             Types.NestedField.optional(4, "payload", Types.StringType.get()));
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "scope-user"; }
         @Override public Optional<String> getCatalog() { return Optional.of(CATALOG); }
         @Override public Optional<String> getSchema() { return Optional.of("db"); }

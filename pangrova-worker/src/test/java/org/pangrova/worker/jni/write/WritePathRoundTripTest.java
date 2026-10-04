@@ -276,6 +276,11 @@ class WritePathRoundTripTest {
     }
 
     private static final class StubSession implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test-user"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test-catalog"); }
         @Override public Optional<String> getSchema() { return Optional.of("test-schema"); }

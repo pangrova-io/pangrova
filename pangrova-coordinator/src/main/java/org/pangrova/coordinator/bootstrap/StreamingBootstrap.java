@@ -188,6 +188,11 @@ final class StreamingBootstrap implements AutoCloseable {
     /** Carries the persisted stream tenant into connector write and commit authorization. */
     private record StreamConnectorSession(
             String catalog, String schema, String tenantId) implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
 
         @Override
         public String getUser() {

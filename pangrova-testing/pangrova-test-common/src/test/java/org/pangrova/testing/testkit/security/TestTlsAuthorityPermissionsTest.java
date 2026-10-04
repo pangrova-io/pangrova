@@ -48,4 +48,30 @@ class TestTlsAuthorityPermissionsTest {
             }
         }
     }
+
+    @Test
+    void certificatePathsWithShellSyntaxRemainLiteralArguments() throws Exception {
+        Path literal = Files.createDirectory(workspace.resolve("spaces ; $(touch injected)"));
+        try (var authority = new TestTlsAuthority(literal)) {
+            var identity = authority.issue("worker-1", "localhost", false);
+            assertThat(identity.privateKey()).exists();
+            assertThat(identity.certificateChain()).exists();
+            assertThat(identity.privateKey()).startsWith(literal);
+            assertThat(literal.resolve("injected")).doesNotExist();
+            assertThat(workspace.resolve("injected")).doesNotExist();
+        }
+        try (var files = Files.list(literal)) {
+            assertThat(files.toList()).isEmpty();
+        }
+    }
+
+    @Test
+    void optionLookingAliasIsRejectedBeforeLaunchingKeytool() throws Exception {
+        try (var authority = new TestTlsAuthority(workspace)) {
+            for (String name : new String[] {"-importcert", "-genkeypair", "-storepass", "-"}) {
+                assertThatThrownBy(() -> authority.issue(name, "localhost", false))
+                        .isInstanceOf(IllegalArgumentException.class);
+            }
+        }
+    }
 }

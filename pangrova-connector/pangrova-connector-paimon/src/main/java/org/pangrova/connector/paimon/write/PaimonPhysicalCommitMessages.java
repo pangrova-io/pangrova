@@ -21,6 +21,13 @@ import java.util.List;
 public final class PaimonPhysicalCommitMessages {
     private PaimonPhysicalCommitMessages() {}
 
+    /**
+     * Encodes verified physical receipts for the SDK append publication.
+     *
+     * @param handle the bound append output
+     * @param receipts the winning closed-file receipts
+     * @return SDK commit metadata without business row payloads
+     */
     public static byte[] append(PaimonOutputTableHandle handle, List<NativePhysicalFileReceipt> receipts) {
         int buckets = handle.nativePhysicalWriteAllocation().orElseThrow().policy().bucketCount();
         List<CommitMessage> messages = receipts.stream().map(receipt -> message(receipt, buckets)).toList();

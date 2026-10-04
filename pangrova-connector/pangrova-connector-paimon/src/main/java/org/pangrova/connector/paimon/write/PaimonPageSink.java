@@ -16,8 +16,7 @@ public class PaimonPageSink extends AbstractPaimonPageSink {
         super(new PaimonPageSinkContext(resolveWriteBuilder(table),
                 new PaimonRowConverter(table.rowType()),
                 schemaName, tableName, tempDir,
-                isDynamicBucket(table) || isPostponeBucket(table),
-                false));
+                isDynamicBucket(table) || isPostponeBucket(table)));
     }
 
     private static BatchWriteBuilder resolveWriteBuilder(Table table) {

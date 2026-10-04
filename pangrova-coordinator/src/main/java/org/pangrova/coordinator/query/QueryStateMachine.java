@@ -81,6 +81,46 @@ public class QueryStateMachine {
     /** A reserved terminal transition; waiters join only after leaving this monitor. */
     @javax.annotation.concurrent.GuardedBy("this")
     private CompletableFuture<Void> terminalTransitionPending;
+    @javax.annotation.concurrent.GuardedBy("this")
+    private State pendingTransitionTarget;
+    @javax.annotation.concurrent.GuardedBy("this")
+    private QueryConnectorAuthority connectorAuthority;
+
+    /** Binds exactly once to this query's real issued scope, never to a later query-ID lookup. */
+    public synchronized org.pangrova.spi.connector.ConnectorQueryAuthority bindConnectorAuthority(
+            org.pangrova.spi.connector.ConnectorQueryAuthority issued) {
+        java.util.Objects.requireNonNull(issued, "issued");
+        if (connectorAdmissionClosed() || issued.isClosed()) {
+            throw new IllegalStateException("Connector query admission is closed: " + issued.queryId());
+        }
+        if (connectorAuthority == null) connectorAuthority = new QueryConnectorAuthority(this, issued);
+        if (!connectorAuthority.matches(issued)) {
+            throw new IllegalStateException("Query issued connector authority changed");
+        }
+        return connectorAuthority;
+    }
+
+    synchronized boolean connectorAdmissionClosed() {
+        return isTerminal() || pendingTransitionTarget != null
+                && TRANSITIONS.get(pendingTransitionTarget).isEmpty();
+    }
+
+    /** Returns the exact connector lifetime bound during engine query creation. */
+    public synchronized org.pangrova.spi.connector.ConnectorQueryAuthority connectorAuthority() {
+        if (connectorAuthority == null) {
+            throw new IllegalStateException("Query has no issued connector authority");
+        }
+        return connectorAuthority;
+    }
+
+    synchronized org.pangrova.spi.connector.ConnectorQueryOperation enterConnectorOperation(
+            org.pangrova.spi.connector.ConnectorQueryAuthority issued) {
+        if (connectorAdmissionClosed()) {
+            throw new IllegalStateException("Connector query admission is closed: " + issued.queryId());
+        }
+        // Lock order is query state, then issued scope. Neither boundary performs I/O.
+        return issued.enterOperation();
+    }
 
     /** Creates a state machine whose ownership has already been established externally. */
     public QueryStateMachine() {
@@ -140,7 +180,8 @@ public class QueryStateMachine {
     private boolean tryTransition(State target, ErrorDetail failureError) {
         if (!TRANSITIONS.getOrDefault(state.get(), Set.of()).contains(target)) return false;
         boolean terminal = TRANSITIONS.getOrDefault(target, Set.of()).isEmpty();
-        if (terminal && !awaitOwnership() && target != State.FAILED) return false;
+        boolean executionOwned = !terminal || awaitOwnership();
+        if (!executionOwned && target != State.FAILED) return false;
         org.pangrova.coordinator.task.QueryIssuanceOperation operation;
         try {
             operation = transitionOperations == null ? null : transitionOperations.get();
@@ -153,7 +194,7 @@ public class QueryStateMachine {
                 Transition decision = reserveTransition(target);
                 if (decision == null) return false;
                 if (decision.previous() == null) { decision.pending().join(); continue; }
-                publishTransition(decision, target, failureError);
+                publishTransition(decision, target, failureError, executionOwned);
                 completeResultEndpointReadiness();
                 notifyListeners(decision.previous(), target);
                 return true;
@@ -170,16 +211,23 @@ public class QueryStateMachine {
         var pending = new CompletableFuture<Void>();
         Transition decision = new Transition(previous, pending);
         terminalTransitionPending = pending;
+        pendingTransitionTarget = target;
         return decision;
     }
 
-    private void publishTransition(Transition decision, State target, ErrorDetail failureError) {
+    private void publishTransition(Transition decision, State target, ErrorDetail failureError,
+            boolean executionOwned) {
         try {
-            if (TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) beforeTerminalTransition.run();
+            if (executionOwned && TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
+                beforeTerminalTransition.run();
+            }
             java.util.function.BiConsumer<State, State> recorder = transitionRecorder;
             if (recorder != null) recorder.accept(decision.previous(), target);
         } catch (RuntimeException | Error failure) {
-            synchronized (this) { terminalTransitionPending = null; }
+            synchronized (this) {
+                terminalTransitionPending = null;
+                pendingTransitionTarget = null;
+            }
             decision.pending().complete(null);
             throw failure;
         }
@@ -187,6 +235,7 @@ public class QueryStateMachine {
             if (target == State.FAILED && failureError != null) error.compareAndSet(null, failureError);
             state.set(target);
             terminalTransitionPending = null;
+            pendingTransitionTarget = null;
         }
         decision.pending().complete(null);
     }

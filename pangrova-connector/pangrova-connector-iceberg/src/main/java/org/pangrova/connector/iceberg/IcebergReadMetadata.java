@@ -53,8 +53,10 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     /** Registers a query so that subsequent snapshot pinning applies to it. */
     @Override
-    public void beginQuery(String queryId) {
-        pinManager.beginQuery(queryId);
+    public void beginQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        try (var operation = authority.enterOperation()) {
+            pinManager.beginQuery(authority.queryId());
+        }
     }
 
     @Override
@@ -70,8 +72,10 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
 
     /** Unpins the snapshot for the query and releases index evaluator caches. */
     @Override
-    public void cleanupQuery(String queryId) {
-        pinManager.cleanupQuery(queryId);
+    public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        if (!authority.isClosed()) throw new IllegalStateException("Iceberg cleanup requires closed query admission");
+        authority.requireDrained();
+        pinManager.cleanupQuery(authority.queryId());
     }
 
     /** Returns the pinned snapshot ID for the given query, or empty if none pinned. */

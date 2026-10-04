@@ -58,6 +58,17 @@ try (Connection conn = DriverManager.getConnection(url, props);
 }
 ```
 
+### Prepared Parameter Admission
+
+Supported prepared-statement setters accept only the actual one-based parameter
+markers in the SQL text. Question marks in quoted strings, quoted identifiers,
+and comments are not markers. An invalid index fails immediately with SQLState
+`07009` without changing existing bindings. Setters and `clearParameters()` reject
+a closed statement, as required by the
+[JDK 17 PreparedStatement contract](https://docs.oracle.com/en/java/javase/17/docs/api/java.sql/java/sql/PreparedStatement.html).
+These checks do not add server-side prepared statements or implement unsupported
+typed conversion, batching, or calendar-specific temporal behavior.
+
 ### Connection Properties
 
 | Property | Default | Description |
@@ -74,6 +85,21 @@ try (Connection conn = DriverManager.getConnection(url, props);
 | `retries` | — | Request retry count |
 | `failover` | — | Failover coordinator endpoints |
 | `poolSize` | `4` | Positive HTTP executor thread count, independent of failover endpoints |
+
+Both HTTP timeout properties must be positive and at most `Long.MAX_VALUE / 2`
+milliseconds (`4611686018427387903`). The REST configuration validates this
+supported JDK timer window before allocating its HTTP owner. The bound leaves
+signed-long millisecond arithmetic headroom; it does not guarantee correctness
+under arbitrary wall-clock jumps. Java REST timeout durations need not fit
+signed-long nanoseconds. Retry delay durations must fit signed-long milliseconds,
+the actual jitter/sleep unit, and a retry count of `Integer.MAX_VALUE` still sends
+the initial request without overflowing the attempt count.
+
+Failover retries retain the endpoint selection captured when their HTTP request
+was built and visit the configured endpoints in order. Concurrent failures only
+advance the matching current selection; revisiting an endpoint cannot let an old
+failure rewind routing. SQL submissions remain non-idempotent single-send requests,
+including when an endpoint returns HTTP 503 and healthy alternatives are configured.
 
 Standard `DriverManager.getConnection(url, user, password)` now uses the same Basic
 authentication contract. Use TLS for credentials. Prefer `Properties` to embedding

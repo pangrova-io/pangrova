@@ -110,6 +110,11 @@ class GeneratedColumnWriteGuardTest {
     private record Handle() implements ConnectorTableHandle {}
 
     private record Session(Map<String, String> properties) implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         private Session() { this(Map.of("tenant_id", "tenant-a")); }
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test_cat"); }

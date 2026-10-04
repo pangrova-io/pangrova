@@ -316,6 +316,23 @@ class QueryManagerDrainConcurrencyTest {
         }
     }
 
+    @Test
+    void admittedSessionCannotRetargetOrCreateAnotherQueryOwner() {
+        var query = new org.pangrova.coordinator.task.TestConnectorQuery("existing-owner");
+        try {
+            var session = org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("existing-owner")
+                    .withQueryAuthority(query.authority());
+            assertThatThrownBy(() -> queryManager.submitQuery("another-owner", "SELECT 1", session))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("cannot change its query identity");
+            assertThat(queryManager.getQueryState("another-owner")).isEmpty();
+            assertThat(queryManager.getActiveQueryCount()).isZero();
+        } finally {
+            query.seal();
+            query.retire();
+        }
+    }
+
     private static CoordinatorSessionContext testSession() {
         return org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session("test-query");
     }

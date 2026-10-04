@@ -438,6 +438,11 @@ public final class DurableGeneratedValueBuildService {
     }
 
     private record GeneratedInputSession(QualifiedTableName table, UserIdentity user) implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return user.principal(); }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of(table.catalog()); }
         @Override public java.util.Optional<String> getSchema() { return java.util.Optional.of(table.schema()); }

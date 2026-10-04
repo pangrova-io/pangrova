@@ -29,7 +29,8 @@ final class PaimonPhysicalAllocationCodec {
                                     .addAllPartitionValues(file.getPartitionList()).build()),
                     file.getBucketId(), file.getFileOrdinal(), file.getRestoredMaxSequence(),
                     file.getRestoredFileSetChecksum().getDigest().toByteArray(),
-                    file.hasTaskAttempt() ? PhysicalFileWriteBindings.bytes(file.getTaskAttempt()) : new byte[0])).toList();
+                    file.hasTaskAttempt()
+                            ? PhysicalFileWriteBindings.bytes(file.getTaskAttempt()) : new byte[0])).toList();
             var allocation = new NativePhysicalWriteAllocation(new NativePhysicalWriteAllocation.Identity(
                     value.getWriteId(), value.getGeneration()), schema,
                     new NativePhysicalWriteAllocation.Policy(policy.getWriteMode(), policy.getPartitionFieldIdsList(),
@@ -37,7 +38,8 @@ final class PaimonPhysicalAllocationCodec {
                             policy.getBucketCount(), policy.getWriterBufferHintBytes(), policy.getOptionsMap()),
                     value.getAllocationPrefix(), value.getBaseSnapshotId(), files);
             if (!value.equals(PhysicalFileWriteBindings.template(allocation))) {
-                throw new IllegalArgumentException("Persisted physical allocation differs from its exact SDK declaration");
+                throw new IllegalArgumentException(
+                        "Persisted physical allocation differs from its exact SDK declaration");
             }
             return allocation;
         } catch (InvalidProtocolBufferException failure) {

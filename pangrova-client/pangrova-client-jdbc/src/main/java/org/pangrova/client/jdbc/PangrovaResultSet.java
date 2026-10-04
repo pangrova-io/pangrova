@@ -54,8 +54,8 @@ import java.util.Map;
  */
 public final class PangrovaResultSet implements ResultSet {
 
-    private final List<Object[]> rows;
-    private final List<ColumnDescriptor> columns;
+    private List<Object[]> rows;
+    private List<ColumnDescriptor> columns;
     private final Statement owningStatement;
     private PangrovaResultSetMetaData metaData;
     // PERF-T19: Lazy-built column name index for O(1) findColumn() lookups.
@@ -80,6 +80,10 @@ public final class PangrovaResultSet implements ResultSet {
     @Override
     public void close() {
         closed = true;
+        rows = List.of();
+        columns = List.of();
+        metaData = null;
+        columnIndexCache = null;
     }
 
     @Override
@@ -300,7 +304,10 @@ public final class PangrovaResultSet implements ResultSet {
     @Override public void cancelRowUpdates() throws SQLException { throw unsupported(); }
     @Override public void moveToInsertRow() throws SQLException { throw unsupported(); }
     @Override public void moveToCurrentRow() throws SQLException { throw unsupported(); }
-    @Override public Statement getStatement() { return owningStatement; }
+    @Override public Statement getStatement() throws SQLException {
+        checkOpen();
+        return owningStatement;
+    }
     @Override public Object getObject(int columnIndex, Map<String, Class<?>> map) throws SQLException { throw unsupported(); }
     @Override public Ref getRef(int columnIndex) throws SQLException { throw unsupported(); }
     @Override public Blob getBlob(int columnIndex) throws SQLException { throw unsupported(); }

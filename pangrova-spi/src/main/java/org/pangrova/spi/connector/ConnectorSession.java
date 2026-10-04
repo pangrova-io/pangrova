@@ -41,4 +41,12 @@ public interface ConnectorSession {
      * @return session properties, never null
      */
     Map<String, String> getProperties();
+
+    /**
+     * Returns the actual engine-issued query lifetime, when this is an admitted query session.
+     * Query-free metadata discovery sessions have no authority; properties cannot substitute for one.
+     *
+     * @return the query creation owner's authority, preserved by session copies
+     */
+    Optional<ConnectorQueryAuthority> getQueryAuthority();
 }

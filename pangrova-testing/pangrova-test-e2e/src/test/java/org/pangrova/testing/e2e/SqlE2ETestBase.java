@@ -746,6 +746,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private record E2eCatalogSession(String catalogName) implements org.pangrova.spi.connector.ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
         @Override public String getUser() { return E2E_USER_PRINCIPAL; }
         @Override public java.util.Optional<String> getCatalog() { return java.util.Optional.of(catalogName); }
         @Override public java.util.Optional<String> getSchema() { return java.util.Optional.empty(); }

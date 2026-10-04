@@ -45,6 +45,11 @@ class IcebergJdbcConditionalBranchDropIntegrationTest extends ContainerTestBase 
     private static final Schema SCHEMA = new Schema(Types.NestedField.required(1, "id", Types.LongType.get()));
     private static final TableIdentifier IDENTIFIER = TableIdentifier.of("db", "events");
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("jdbc_catalog"); }
         @Override public Optional<String> getSchema() { return Optional.of("db"); }

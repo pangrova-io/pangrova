@@ -47,7 +47,6 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
     private final String schemaName;
     private final String tableName;
     private final boolean dynamicBucket;
-    private final boolean postponeBucket;
     private boolean finished;
     private boolean aborted;
     private boolean stopped;
@@ -65,7 +64,6 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
         this.schemaName = context.schemaName();
         this.tableName = context.tableName();
         this.dynamicBucket = context.dynamicBucket();
-        this.postponeBucket = context.postponeBucket();
     }
 
     @Override
@@ -153,10 +151,8 @@ abstract class AbstractPaimonPageSink implements ColumnarPageSink {
     private void writeConvertedRow(GenericRow row) throws Exception {
         if (dynamicBucket) {
             tableWrite.write(row, 0);
-        } else if (postponeBucket) {
-            // Let Paimon's PostponeBucketRowKeyExtractor assign bucket=-2.
-            tableWrite.write(row);
         } else {
+            // The SDK extractor assigns fixed or postponed buckets from table options.
             tableWrite.write(row);
         }
     }

@@ -51,6 +51,11 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
             Types.NestedField.optional(3, "embedding", Types.ListType.ofRequired(4, Types.FloatType.get())));
     private static final TableIdentifier ID = TableIdentifier.of("db", "events");
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "writer"; }
         @Override public Optional<String> getCatalog() { return Optional.of("jdbc"); }
         @Override public Optional<String> getSchema() { return Optional.of("db"); }

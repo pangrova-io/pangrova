@@ -13,7 +13,8 @@ OPTIONS = None
 
 
 class CanonicalRe2PackageTest(unittest.TestCase):
-    def configure(self, cache_option, deps_prefix=None, cxx_flags=None, linker_flags=None):
+    def configure(self, cache_option, deps_prefix=None, cxx_flags=None, linker_flags=None,
+                  seed_cached_re2=False):
         deps_prefix = deps_prefix or OPTIONS.deps_prefix
         with tempfile.TemporaryDirectory(prefix="pangrova-re2-contract-") as directory:
             root = Path(directory)
@@ -35,8 +36,23 @@ class CanonicalRe2PackageTest(unittest.TestCase):
                 "project(CanonicalDependencyConsumer CXX)\n"
                 f'include("{(ROOT / "cmake/PangrovaRe2.cmake").as_posix()}")\n',
                 encoding="utf-8")
-            return subprocess.run([
-                OPTIONS.cmake, "-S", str(main), "-B", str(root / "main-build"),
+            main_build = root / "main-build"
+            if seed_cached_re2:
+                previous = root / "previous-deps"
+                (previous / "lib/cmake").mkdir(parents=True)
+                shutil.copytree(deps_prefix / "lib/cmake/re2", previous / "lib/cmake/re2")
+                (previous / "include").symlink_to(deps_prefix / "include", target_is_directory=True)
+                (previous / "lib/libre2.a").symlink_to(deps_prefix / "lib/libre2.a")
+                seeded = subprocess.run([
+                    OPTIONS.cmake, "-S", str(ROOT / "cmake/dependency-checks/re2"),
+                    "-B", str(main_build / "re2-contract-check"),
+                    f"-DCMAKE_CXX_COMPILER={OPTIONS.compiler}",
+                    f"-DPANGROVA_DEPS_PREFIX={previous}",
+                    f"-Dabsl_DIR:PATH={OPTIONS.absl_package or deps_prefix / 'lib/cmake/absl'}",
+                ], capture_output=True, text=True)
+                self.assertEqual(seeded.returncode, 0, seeded.stdout + seeded.stderr)
+            result = subprocess.run([
+                OPTIONS.cmake, "-S", str(main), "-B", str(main_build),
                 f"-DCMAKE_CXX_COMPILER={OPTIONS.compiler}",
                 f"-DPANGROVA_DEPS_PREFIX={deps_prefix}",
                 f"-Dabsl_DIR:PATH={OPTIONS.absl_package or OPTIONS.deps_prefix / 'lib/cmake/absl'}",
@@ -44,6 +60,18 @@ class CanonicalRe2PackageTest(unittest.TestCase):
                 f"-DCMAKE_EXE_LINKER_FLAGS={OPTIONS.linker_flags if linker_flags is None else linker_flags}",
                 f"-DVELOX_BUILD_DIR={sdk_build}",
             ], capture_output=True, text=True)
+            if seed_cached_re2:
+                cache = (main_build / "re2-contract-check/CMakeCache.txt").read_text(encoding="utf-8")
+                selected = [line.split("=", 1)[1] for line in cache.splitlines()
+                            if line.startswith("re2_DIR:PATH=")]
+                self.assertEqual(selected, [str(deps_prefix / "lib/cmake/re2")],
+                                 "The nested ABI probe reused a previous dependency package")
+            return result
+
+    def test_cached_probe_reselects_the_current_canonical_package(self):
+        result = self.configure(f"-Dre2_DIR:PATH={OPTIONS.deps_prefix}/lib/cmake/re2",
+                                seed_cached_re2=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_explicit_path_cache_accepts_the_real_package_and_abi(self):
         result = self.configure(f"-Dre2_DIR:PATH={OPTIONS.deps_prefix}/lib/cmake/re2")

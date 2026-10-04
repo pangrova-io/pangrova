@@ -18,7 +18,7 @@ class PaimonIndexAccessorTest extends PaimonDeleteTestSupport {
     @Test
     void registeredFileSystemAccessorReadsWritesAndDeletesIndexFiles() throws Exception {
         createTable(false, true);
-        var metadata = new PaimonMetadata(catalog, "index_catalog");
+        var metadata = new PaimonMetadata(catalog, "index_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var support = metadata.getIndexSupport().orElseThrow();
         var accessor = support.getFileSystemAccessor().orElseThrow();
         String path = warehouse.resolve("accessor-index.bin").toUri().toString();
@@ -43,7 +43,7 @@ class PaimonIndexAccessorTest extends PaimonDeleteTestSupport {
         writeRows(new StoredRow(1, "east", "first", "one"),
                 new StoredRow(2, "west", "first", "two"));
         writeRows(new StoredRow(3, "east", "second", "three"));
-        var support = new PaimonMetadata(catalog, "index_catalog")
+        var support = new PaimonMetadata(catalog, "index_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry())
                 .getIndexSupport().orElseThrow();
         var snapshot = support.getSnapshotAwareMetadata(DATABASE, TABLE_NAME).orElseThrow();
         List<SnapshotDataFile> files = snapshot.listFilesAtSnapshot(
@@ -68,7 +68,7 @@ class PaimonIndexAccessorTest extends PaimonDeleteTestSupport {
     void missingFileFailsInsteadOfReadingOtherRows() throws Exception {
         createTable(false, true);
         writeRows(new StoredRow(1, "east", "first", "one"));
-        var metadata = new PaimonMetadata(catalog, "index_catalog");
+        var metadata = new PaimonMetadata(catalog, "index_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var snapshot = metadata.getSnapshotAwareMetadata(DATABASE, TABLE_NAME).orElseThrow();
         String realFile = snapshot.listFilesAtSnapshot(
                 snapshot.currentSnapshotId().orElseThrow()).get(0).path();

@@ -261,6 +261,11 @@ class IcebergIdempotentCommitTest {
 
     private static ConnectorSession stubSession(Map<String, String> properties) {
         return new ConnectorSession() {
+            @Override
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+                return java.util.Optional.empty();
+            }
+
             @Override public String getUser() { return "test"; }
             @Override public Optional<String> getCatalog() { return Optional.of("iceberg_catalog"); }
             @Override public Optional<String> getSchema() { return Optional.empty(); }

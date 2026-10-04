@@ -42,26 +42,33 @@ final class PaimonWriteLifecycle {
         var id = Identifier.create(metadata.table().schema(), metadata.table().table());
         try {
             catalog.createTable(id, schema, false);
-            return PaimonTableHandleFactory.outputFromTable(metadata.table().schema(), metadata.table().table(), catalog.getTable(id));
+            return PaimonTableHandleFactory.outputFromTable(
+                    metadata.table().schema(), metadata.table().table(), catalog.getTable(id));
         } catch (Catalog.TableAlreadyExistException failure) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_ALREADY_EXISTS, "Table already exists: " + id, failure);
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_ALREADY_EXISTS,
+                    "Table already exists: " + id, failure);
         } catch (Catalog.DatabaseNotExistException failure) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_SCHEMA_NOT_FOUND, "Database not found: " + id.getDatabaseName(), failure);
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_SCHEMA_NOT_FOUND,
+                    "Database not found: " + id.getDatabaseName(), failure);
         } catch (Catalog.TableNotExistException failure) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND, "Failed to load created table: " + id, failure);
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
+                    "Failed to load created table: " + id, failure);
         }
     }
 
     void deleteByFilter(PaimonTableHandle handle, org.pangrova.spi.connector.metadata.DeleteFilter filter) {
-        PaimonDeleteByFilterExecutor.execute(load(handle.schemaName(), handle.tableName()), filter, handle.schemaName(), handle.tableName());
+        PaimonDeleteByFilterExecutor.execute(load(handle.schemaName(), handle.tableName()),
+                filter, handle.schemaName(), handle.tableName());
     }
 
     PaimonOutputTableHandle insert(PaimonTableHandle handle) {
         Table table = load(handle.schemaName(), handle.tableName());
         PaimonDdlOperations.warnCrossPartitionUpdateIfNeeded(table, handle);
         var output = PaimonTableHandleFactory.outputFromTable(handle.schemaName(), handle.tableName(), table, "INSERT");
-        if (table instanceof FileStoreTable fileStore && "lance".equalsIgnoreCase(fileStore.options().get("file.format"))) {
-            return output.withPhysicalAllocation(PaimonPhysicalWriteAllocations.append(fileStore, output.baseSnapshotId()));
+        if (table instanceof FileStoreTable fileStore
+                && "lance".equalsIgnoreCase(fileStore.options().get("file.format"))) {
+            return output.withPhysicalAllocation(
+                    PaimonPhysicalWriteAllocations.append(fileStore, output.baseSnapshotId()));
         }
         return output;
     }
@@ -116,7 +123,8 @@ final class PaimonWriteLifecycle {
         }
         String expected = org.pangrova.spi.coordination.WriteCommitFingerprint.compute(
                 new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(context.executionId(),
-                        context.tenantId(), catalogName, new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
+                        context.tenantId(), catalogName,
+                        new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
                         handle.writeMode(), handle.baseSnapshotId(), context.writeOutputBinding(),
                         context.principal(), context.authorizationReceipt()), fragments);
         if (!expected.equals(context.commitFingerprint())) {
@@ -125,10 +133,13 @@ final class PaimonWriteLifecycle {
         }
     }
 
-    private static org.pangrova.protocol.v2.PhysicalFileWriteBinding physicalBinding(DistributedWriteCommitContext context) {
+    private static org.pangrova.protocol.v2.PhysicalFileWriteBinding physicalBinding(
+            DistributedWriteCommitContext context) {
         try {
             var binding = WriteOutputBinding.parseFrom(context.writeOutputBinding());
-            if (!binding.hasPhysical()) throw new IllegalArgumentException("Durable physical output binding is missing");
+            if (!binding.hasPhysical()) {
+                throw new IllegalArgumentException("Durable physical output binding is missing");
+            }
             return binding.getPhysical();
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException("Malformed durable physical output binding", failure);
@@ -138,7 +149,9 @@ final class PaimonWriteLifecycle {
     private static String tenantId(ConnectorSession session) {
         java.util.Objects.requireNonNull(session, "session must not be null");
         String tenant = session.getProperties().get("tenant_id");
-        if (tenant == null || tenant.isBlank()) throw new IllegalArgumentException("tenant_id connector session property is required");
+        if (tenant == null || tenant.isBlank()) {
+            throw new IllegalArgumentException("tenant_id connector session property is required");
+        }
         return tenant;
     }
 
@@ -147,7 +160,8 @@ final class PaimonWriteLifecycle {
         try {
             return catalog.getTable(id);
         } catch (Catalog.TableNotExistException failure) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND, "Table not found: " + id, failure);
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND,
+                    "Table not found: " + id, failure);
         }
     }
 }

@@ -117,12 +117,14 @@ class PlanExecutionFactoryDeleteCompilationTest {
         }
 
         @Override
-        public void beginQuery(String queryId) {
+        public void beginQuery(org.pangrova.metadata.service.MetadataSessionContext context) {
+            String queryId = context.queryId();
             throw new AssertionError("Compilation must not begin a metadata transaction");
         }
 
         @Override
-        public void cleanupQuery(String queryId) {
+        public void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+            String queryId = authority.queryId();
             throw new AssertionError("Compilation must not end a metadata transaction");
         }
     }

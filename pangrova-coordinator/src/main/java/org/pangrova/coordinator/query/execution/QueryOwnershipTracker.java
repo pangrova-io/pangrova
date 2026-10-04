@@ -5,10 +5,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.spi.connector.metadata.ConnectorMetadata;
-import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
 import org.pangrova.coordinator.worker.WorkerInfo;
@@ -36,7 +33,8 @@ public final class QueryOwnershipTracker {
     private final SplitAssignmentManager splitAssignmentManager;
     private final TaskCancelRetrier cancelRetrier;
     private final AtomicReference<OwnershipSnapshot> ownershipSnapshot = new AtomicReference<>();
-    private final ConcurrentHashMap<String, List<ConnectorMetadata>> queryMetadata = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthorities =
+            new ConcurrentHashMap<>();
     private volatile JdbcShuffleCleanupIntentStore shuffleCleanupIntents;
     private volatile ShuffleLifecycleManager shuffleLifecycleManager;
 
@@ -110,9 +108,21 @@ public final class QueryOwnershipTracker {
 
     /** Cleans up split assignment state, releases ownership, and notifies connectors. */
     public void cleanupQuery(String queryId) {
+        cleanupLocalQuery(queryId);
+        cleanupExecutionOwnership(queryId);
+    }
+
+    /** Drains only this process's creation owner; no execution anchor grant is implied. */
+    public void cleanupLocalQuery(String queryId) {
         taskTracker.sealQueryIssuance(queryId);
         taskTracker.requireQueryExecutionDrained(queryId);
         notifyConnectorsCleanupQuery(queryId);
+        if (splitAssignmentManager != null) {
+            splitAssignmentManager.cleanup(queryId);
+        }
+    }
+
+    private void cleanupExecutionOwnership(String queryId) {
         JdbcShuffleCleanupIntentStore intents = shuffleCleanupIntents;
         if (intents != null) {
             // QueryStateMachine writes the durable intent before its terminal
@@ -137,9 +147,6 @@ public final class QueryOwnershipTracker {
         if (snapshot != null) {
             snapshot.service().releaseQueryOwnership(queryId, snapshot.coordinatorId());
         }
-        if (splitAssignmentManager != null) {
-            splitAssignmentManager.cleanup(queryId);
-        }
     }
 
     /** Cancels all dispatched tasks for a query. */
@@ -156,27 +163,17 @@ public final class QueryOwnershipTracker {
         return cancelRetrier;
     }
 
-    void registerConnectorMetadata(String queryId, ConnectorMetadata metadata) {
-        queryMetadata.computeIfAbsent(queryId, ignored -> new CopyOnWriteArrayList<>()).add(metadata);
+    void registerConnectorAuthority(org.pangrova.spi.connector.ConnectorQueryAuthority authority) {
+        var previous = queryAuthorities.putIfAbsent(authority.queryId(), authority);
+        if (previous != null && previous != authority) {
+            throw new IllegalStateException("Query cleanup already belongs to another connector lifetime");
+        }
     }
 
     private void notifyConnectorsCleanupQuery(String queryId) {
-        List<ConnectorMetadata> metadata = queryMetadata.get(queryId);
-        if (metadata == null) {
-            return;
-        }
-        Throwable failure = null;
-        for (var connector : metadata) {
-            try {
-                connector.cleanupQuery(queryId);
-                metadata.remove(connector);
-            } catch (RuntimeException | Error rejected) {
-                if (failure == null) failure = rejected;
-                else if (failure != rejected) failure.addSuppressed(rejected);
-            }
-        }
-        if (metadata.isEmpty()) queryMetadata.remove(queryId, metadata);
-        if (failure instanceof Error error) throw error;
-        if (failure != null) throw (RuntimeException) failure;
+        var authority = queryAuthorities.get(queryId);
+        if (authority == null) return;
+        authority.cleanupMetadata().requireSuccess();
+        queryAuthorities.remove(queryId, authority);
     }
 }

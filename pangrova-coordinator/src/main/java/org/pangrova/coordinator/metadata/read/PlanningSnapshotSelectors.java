@@ -29,7 +29,8 @@ public final class PlanningSnapshotSelectors {
                 throw new IllegalArgumentException("Conflicting resolved source snapshots for " + table);
             }
         });
-        return new SelectedSession(session.getUser(), session.getCatalog(), session.getSchema(), Map.copyOf(properties));
+        return new SelectedSession(session.getUser(), session.getCatalog(), session.getSchema(),
+                Map.copyOf(properties), session.getQueryAuthority());
     }
 
     static OptionalLong snapshot(ConnectorSession session, String catalog, String schema, String table) {
@@ -57,10 +58,14 @@ public final class PlanningSnapshotSelectors {
     }
 
     private record SelectedSession(String user, Optional<String> catalog, Optional<String> schema,
-            Map<String, String> properties) implements ConnectorSession {
+            Map<String, String> properties,
+            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority) implements ConnectorSession {
         @Override public String getUser() { return user; }
         @Override public Optional<String> getCatalog() { return catalog; }
         @Override public Optional<String> getSchema() { return schema; }
         @Override public Map<String, String> getProperties() { return properties; }
+        @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return queryAuthority;
+        }
     }
 }

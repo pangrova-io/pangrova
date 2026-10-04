@@ -10,8 +10,9 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
-#include <unordered_map>
+#include <vector>
 
 #include "velox/common/memory/Memory.h"
 
@@ -94,7 +95,9 @@ class VeloxMemoryGovernor {
       facebook::velox::cache::AsyncDataCache* cache,
       double usage_percent);
 
-  // Collect memory stats for heartbeat observability reporting.
+  // Collect memory stats for heartbeat observability reporting. Active pools
+  // reflect actual strong ownership, including roots retained by child pools;
+  // this metric is not a task drain or destruction-completion receipt.
   MemorySnapshot getMemorySnapshot() const;
 
   // Set the AsyncDataCache pointer for cache stats reporting.
@@ -110,6 +113,10 @@ class VeloxMemoryGovernor {
   static bool isAvailable() { return true; }
 
  private:
+  // Requires task_pools_mutex_. Weak observations never retain a task pool.
+  void pruneExpiredTaskPoolsLocked() const;
+  int32_t activeTaskPoolCount() const;
+
   const int64_t total_memory_bytes_;
   VeloxMemoryGovernorConfig config_;
   pangrova::memory::BlockAllocationListener* listener_;  // Non-owning
@@ -121,8 +128,10 @@ class VeloxMemoryGovernor {
   mutable std::atomic<int64_t> peak_used_bytes_{0};
   // Cumulative spill bytes across all completed tasks.
   mutable std::atomic<int64_t> cumulative_spill_bytes_{0};
-  // Active task pool count (incremented on createTaskPool, decremented on release).
-  mutable std::atomic<int32_t> active_pool_count_{0};
+  // Only roots created by this governor are observed. The SDK owns destruction;
+  // leaf pools and exported buffers may retain their root after task completion.
+  mutable std::mutex task_pools_mutex_;
+  mutable std::vector<std::weak_ptr<facebook::velox::memory::MemoryPool>> task_pools_;
   // Non-owning pointer to the global AsyncDataCache for cache stats.
   std::atomic<facebook::velox::cache::AsyncDataCache*> async_data_cache_{nullptr};
 };

@@ -11,6 +11,8 @@ import org.pangrova.protocol.v2.PaimonReadMode;
 import org.pangrova.spi.connector.metadata.table.ColumnMapping;
 import org.pangrova.spi.connector.metadata.table.TypePromotion;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -167,6 +169,70 @@ class PaimonSplitProtoSerializationTest {
         assertThatThrownBy(() -> fullSplit("DEDUPLICATE", "NONE", "FULL"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unsupported Paimon read mode");
+    }
+
+    @Test
+    void allSixInputCollectionsAreOwnedAndCanonicalProtoDoesNotChange() throws Exception {
+        var level = new PaimonLsmLevel(0, List.of(lsmFile("/f1.parquet", 1000)), 1000);
+        var mapping = new ColumnMapping(1, 2, "old", "new");
+        var promotion = new TypePromotion(2, "INTEGER", "BIGINT", "new");
+        var primaryKeys = new ArrayList<>(List.of("id"));
+        var levels = new ArrayList<>(List.of(level));
+        var aggregations = new LinkedHashMap<>(Map.of("amount", "SUM"));
+        var partitions = new LinkedHashMap<>(Map.of("dt", "2024-06-01"));
+        var mappings = new ArrayList<>(List.of(mapping));
+        var promotions = new ArrayList<>(List.of(promotion));
+        var split = splitWithCollections(primaryKeys, levels, aggregations, partitions, mappings, promotions);
+        byte[] originalBytes = split.toSplitInfoProto();
+        var originalDetail = DataSplitProtoCodec.fileDetail(DataSplit.parseFrom(originalBytes));
+        assertThat(originalDetail.getPaimon().getPrimaryKeysList()).containsExactly("id");
+        assertThat(originalDetail.getSchemaEvolution().getColumnMappings(0).getTargetName()).isEqualTo("new");
+        assertThat(originalDetail.getSchemaEvolution().getTypePromotions(0).getTargetType()).isEqualTo("BIGINT");
+
+        primaryKeys.clear();
+        levels.clear();
+        aggregations.clear();
+        partitions.clear();
+        mappings.clear();
+        promotions.clear();
+
+        assertThat(split.primaryKeys()).containsExactly("id");
+        assertThat(split.lsmLevels()).containsExactly(level);
+        assertThat(split.aggregationSpecs()).containsExactlyEntriesOf(Map.of("amount", "SUM"));
+        assertThat(split.partitionValues()).containsExactlyEntriesOf(Map.of("dt", "2024-06-01"));
+        assertThat(split.columnMappings()).containsExactly(mapping);
+        assertThat(split.typePromotions()).containsExactly(promotion);
+        assertThat(split.toSplitInfoProto()).isEqualTo(originalBytes);
+    }
+
+    @Test
+    void allSixCollectionAccessorsRejectMutationAndCanonicalProtoDoesNotChange() {
+        var split = splitWithCollections(List.of("id"),
+                List.of(new PaimonLsmLevel(0, List.of(lsmFile("/f1.parquet", 1000)), 1000)),
+                Map.of("amount", "SUM"), Map.of("dt", "2024-06-01"),
+                List.of(new ColumnMapping(1, 2, "old", "new")),
+                List.of(new TypePromotion(2, "INTEGER", "BIGINT", "new")));
+        byte[] originalBytes = split.toSplitInfoProto();
+
+        assertThatThrownBy(() -> split.primaryKeys().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.lsmLevels().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.aggregationSpecs().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.partitionValues().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.columnMappings().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> split.typePromotions().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThat(split.toSplitInfoProto()).isEqualTo(originalBytes);
+    }
+
+    private static PaimonSplit splitWithCollections(List<String> primaryKeys, List<PaimonLsmLevel> levels,
+            Map<String, String> aggregations, Map<String, String> partitions,
+            List<ColumnMapping> mappings, List<TypePromotion> promotions) {
+        var original = fullSplit("AGGREGATION", "NONE", "PRIMARY_KEY");
+        return new PaimonSplit(original.tableName(), original.splitRegistryId(), original.rowCount(),
+                original.bucketId(), primaryKeys, original.mergeEngine(), original.changelogProducer(),
+                original.snapshotId(), original.fromSnapshotId(), original.toSnapshotId(), original.readMode(),
+                levels, original.needsMerge(), original.deletionVectorsEnabled(), aggregations,
+                original.changelogMode(), partitions, mappings, promotions,
+                original.primaryFile(), original.mergePolicy());
     }
 
     private static PaimonSplit fullSplit(String merge, String producer, String readMode) {

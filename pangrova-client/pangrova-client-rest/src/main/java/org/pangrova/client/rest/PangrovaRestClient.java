@@ -20,7 +20,6 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Pangrova REST API client SDK.
@@ -51,8 +50,7 @@ public final class PangrovaRestClient implements AutoCloseable {
     private final RestHttpClientOwner httpOwner;
     private final ObjectMapper objectMapper;
     private final ResultStreamFetcher resultFetcher;
-    private final List<String> endpoints;
-    private final AtomicInteger endpointIndex;
+    private final EndpointRouting routing;
     private final RestResponseHandler responseHandler;
     private final RetryableHttpExecutor executor;
 
@@ -66,19 +64,20 @@ public final class PangrovaRestClient implements AutoCloseable {
         this.connectionPoolConfig = config.connectionPoolConfig();
         this.objectMapper = JsonMapperFactory.create();
         this.responseHandler = new RestResponseHandler(objectMapper);
+        this.routing = new EndpointRouting(resolveEndpoints(), config.scheme());
 
         this.httpOwner = RestHttpClientOwner.create(config, sharedClient);
         try {
             this.resultFetcher = new ResultStreamFetcher(config.resultTransportSecurity());
         } catch (RuntimeException | Error failure) {
-            try { httpOwner.close(); }
-            catch (RuntimeException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
+            try {
+                httpOwner.close();
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
             throw failure;
         }
-        this.endpoints = resolveEndpoints();
-        this.endpointIndex = new AtomicInteger(0);
-        this.executor = new RetryableHttpExecutor(httpOwner, retryPolicy, connectionPoolConfig,
-                endpoints, endpointIndex, config.scheme(), config.requestTimeout());
+        this.executor = new RetryableHttpExecutor(httpOwner, retryPolicy, routing, config.requestTimeout());
     }
 
     private List<String> resolveEndpoints() {
@@ -86,11 +85,6 @@ public final class PangrovaRestClient implements AutoCloseable {
             return connectionPoolConfig.endpoints();
         }
         return List.of(config.coordinatorHost() + ":" + config.coordinatorPort());
-    }
-
-    private String currentBaseUrl() {
-        String endpoint = endpoints.get(endpointIndex.get() % endpoints.size());
-        return config.scheme() + "://" + endpoint;
     }
 
     /**
@@ -113,15 +107,18 @@ public final class PangrovaRestClient implements AutoCloseable {
      * Cancels a running query.
      */
     public CancelOutcome cancelQuery(String queryId) {
-        if (queryId == null || queryId.isBlank()) throw new IllegalArgumentException("Query cancellation requires its query identity");
+        if (queryId == null || queryId.isBlank()) {
+            throw new IllegalArgumentException("Query cancellation requires its query identity");
+        }
+        var selection = routing.current();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(currentBaseUrl() + "/v1/query/" + queryId + "/cancel"))
+                .uri(URI.create(selection.baseUrl() + "/v1/query/" + queryId + "/cancel"))
                 .timeout(config.requestTimeout())
                 .POST(HttpRequest.BodyPublishers.noBody())
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json");
         injectAuthHeader(builder);
-        HttpResponse<String> response = executor.executeWithRetry(builder.build());
+        HttpResponse<String> response = executor.executeWithRetry(routing.bind(selection, builder.build()));
         return parseCancelOutcome(response, queryId);
     }
 
@@ -193,7 +190,8 @@ public final class PangrovaRestClient implements AutoCloseable {
             throw new IllegalArgumentException("Namespace requires nonempty components without the reserved separator");
         }
         String encodedNamespace = metadataPathComponent(String.join("\u001f", namespace));
-        var node = get("/v1/namespaces/" + encodedNamespace + "/tables/" + metadataPathComponent(table), JsonNode.class);
+        var node = get("/v1/namespaces/" + encodedNamespace + "/tables/" + metadataPathComponent(table),
+                JsonNode.class);
         return new MetadataTableInfo(namespace, table, CatalogMetadataParser.parseColumns(node));
     }
 
@@ -212,7 +210,10 @@ public final class PangrovaRestClient implements AutoCloseable {
 
     /** Table metadata including columns from the catalog REST API. */
     public record MetadataTableInfo(List<String> namespace, String table, List<MetadataColumnInfo> columns) {
-        public MetadataTableInfo { namespace = List.copyOf(namespace); columns = List.copyOf(columns); }
+        public MetadataTableInfo {
+            namespace = List.copyOf(namespace);
+            columns = List.copyOf(columns);
+        }
     }
 
     /**
@@ -223,12 +224,13 @@ public final class PangrovaRestClient implements AutoCloseable {
      * @throws PangrovaConnectionException if the server is unreachable
      */
     public void ping(int timeoutSeconds) {
+        var selection = routing.current();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(currentBaseUrl() + "/v1/health"))
+                .uri(URI.create(selection.baseUrl() + "/v1/health"))
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .GET();
         injectAuthHeader(builder);
-        HttpResponse<String> response = executor.execute(builder.build());
+        HttpResponse<String> response = executor.execute(routing.bind(selection, builder.build()));
         if (response.statusCode() != HttpStatusCodes.OK) {
             throw new PangrovaConnectionException(
                     "HEALTH_CHECK_FAILED",
@@ -276,14 +278,15 @@ public final class PangrovaRestClient implements AutoCloseable {
 
     private <T> T post(String path, Object body, Class<T> responseType) {
         byte[] bodyBytes = serializeBody(body, path);
+        var selection = routing.current();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(currentBaseUrl() + path))
+                .uri(URI.create(selection.baseUrl() + path))
                 .timeout(config.requestTimeout())
                 .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json");
         injectAuthHeader(builder);
-        HttpResponse<String> response = executor.executeWithRetry(builder.build());
+        HttpResponse<String> response = executor.executeWithRetry(routing.bind(selection, builder.build()));
         responseHandler.check(response);
         return responseHandler.deserialize(response.body(), responseType, "POST " + path);
     }
@@ -291,8 +294,9 @@ public final class PangrovaRestClient implements AutoCloseable {
     private <T> T postNonIdempotent(String path, Object body, Class<T> responseType) {
         byte[] bodyBytes = serializeBody(body, path);
         String requestId = java.util.UUID.randomUUID().toString();
+        var selection = routing.current();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(currentBaseUrl() + path))
+                .uri(URI.create(selection.baseUrl() + path))
                 .timeout(config.requestTimeout())
                 .POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes))
                 .header("Content-Type", "application/json")
@@ -300,7 +304,7 @@ public final class PangrovaRestClient implements AutoCloseable {
                 .header("Idempotency-Key", requestId)
                 .header("X-Pangrova-Request-Id", requestId);
         injectAuthHeader(builder);
-        HttpResponse<String> response = executor.execute(builder.build());
+        HttpResponse<String> response = executor.execute(routing.bind(selection, builder.build()));
         responseHandler.check(response);
         return responseHandler.deserialize(response.body(), responseType, "POST " + path);
     }
@@ -315,13 +319,14 @@ public final class PangrovaRestClient implements AutoCloseable {
     }
 
     private <T> T get(String path, Class<T> responseType) {
+        var selection = routing.current();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(currentBaseUrl() + path))
+                .uri(URI.create(selection.baseUrl() + path))
                 .timeout(config.requestTimeout())
                 .GET()
                 .header("Accept", "application/json");
         injectAuthHeader(builder);
-        HttpResponse<String> response = executor.executeWithRetry(builder.build());
+        HttpResponse<String> response = executor.executeWithRetry(routing.bind(selection, builder.build()));
         responseHandler.check(response);
         return responseHandler.deserialize(response.body(), responseType, "GET " + path);
     }
@@ -395,6 +400,12 @@ public final class PangrovaRestClient implements AutoCloseable {
             return authentication(ClientAuthentication.bearer(token));
         }
 
+        /**
+         * Sets the sole REST authentication policy without replacing previously configured credentials.
+         *
+         * @param value immutable authentication policy
+         * @return this builder
+         */
         public Builder authentication(ClientAuthentication value) {
             java.util.Objects.requireNonNull(value, "authentication");
             if (authentication != null) {

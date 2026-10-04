@@ -3,6 +3,7 @@
 #include "velox/memory/VeloxMemoryGovernor.h"
 
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 
 #include "memory/PangrovaArbitrator.h"
@@ -76,8 +77,26 @@ VeloxMemoryGovernor::createTaskPool(
     int64_t max_bytes) {
   auto pool_name = query_id + "." + task_id;
   auto pool = velox_mgr_->addRootPool(pool_name, max_bytes);
-  active_pool_count_.fetch_add(1, std::memory_order_relaxed);
+  {
+    std::lock_guard lock(task_pools_mutex_);
+    pruneExpiredTaskPoolsLocked();
+    if (task_pools_.size() >=
+        static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+      throw std::overflow_error("Active task pool count exceeds snapshot capacity");
+    }
+    task_pools_.emplace_back(pool);
+  }
   return pool;
+}
+
+void VeloxMemoryGovernor::pruneExpiredTaskPoolsLocked() const {
+  std::erase_if(task_pools_, [](const auto& pool) { return pool.expired(); });
+}
+
+int32_t VeloxMemoryGovernor::activeTaskPoolCount() const {
+  std::lock_guard lock(task_pools_mutex_);
+  pruneExpiredTaskPoolsLocked();
+  return static_cast<int32_t>(task_pools_.size());
 }
 
 int64_t VeloxMemoryGovernor::usedMemory() const {
@@ -134,8 +153,7 @@ MemorySnapshot VeloxMemoryGovernor::getMemorySnapshot() const {
   (void)cache;
 #endif
 
-  // G.2: Populate active_pool_count from tracked task pools.
-  snapshot.active_pool_count = active_pool_count_.load(std::memory_order_relaxed);
+  snapshot.active_pool_count = activeTaskPoolCount();
 
   return snapshot;
 }
@@ -177,8 +195,6 @@ void VeloxMemoryGovernor::reportSpillBytes(int64_t bytes) {
   if (bytes > 0) {
     cumulative_spill_bytes_.fetch_add(bytes, std::memory_order_relaxed);
   }
-  // Decrement active pool count — called once per task at completion.
-  active_pool_count_.fetch_sub(1, std::memory_order_relaxed);
 }
 
 }  // namespace pangrova::velox

@@ -35,7 +35,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.sql.Types;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -93,8 +92,7 @@ public final class ArrowBatchDecoder {
         while (reader.loadNextBatch()) {
             appendRows(root, rows);
         }
-        return new ResultBatch(Collections.unmodifiableList(columns),
-                Collections.unmodifiableList(rows));
+        return new ResultBatch(columns, rows);
     }
 
     private static void appendRows(VectorSchemaRoot root, List<Object[]> rows) {

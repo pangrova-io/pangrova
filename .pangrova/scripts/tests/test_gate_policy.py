@@ -184,6 +184,23 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('--threshold 60', workflow)
         self.assertEqual(workflow.count('verify -Pstatic-analysis'), 1)
 
+    def test_production_regression_retains_same_source_image_identity(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        production = workflow.split('  production-regression:\n', 1)[1].split(
+            '\n  tpch-performance:', 1)[0]
+        self.assertIn('IMAGE="$PANGROVA_E2E_IMAGE" docker buildx bake --load', production)
+        self.assertIn('docker image inspect --format', production)
+        self.assertIn('"PANGROVA_E2E_IMAGE_ID=$image_id"', production)
+        self.assertIn('stage-production-regression-native.sh "$PANGROVA_E2E_IMAGE_ID"', production)
+        self.assertNotIn('pangrova/pangrova:latest', production)
+        consumer = (ROOT / 'pangrova-testing/pangrova-test-e2e/src/test/java/'
+                    'org/pangrova/testing/e2e/speculation/IndependentSpeculationProcesses.java').read_text()
+        for property_name, variable in [('pangrova.e2e.image', 'PANGROVA_E2E_IMAGE'),
+                                        ('pangrova.e2e.image-id', 'PANGROVA_E2E_IMAGE_ID')]:
+            self.assertIn(f'requiredProperty("{property_name}")', consumer)
+            # verify executes the E2E leaf too; all three test commands require the identity.
+            self.assertEqual(production.count(f'-D{property_name}="${variable}"'), 3)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -116,13 +116,18 @@ TEST(ColumnarImportOwnershipTest, ActualTaskCapFailureDuringListSizesReleasesEac
   pangrova::test::testMemoryManager();
   auto* governor = pangrova::jni::globalVeloxMemoryGovernor();
   ASSERT_NE(governor, nullptr);
+  const auto activeBefore = governor->getMemorySnapshot().active_pool_count;
+  const auto allocatorBefore = governor->usedMemory();
+  const auto poolsBefore = governor->veloxMemoryManager()->numPools();
   auto root = governor->createTaskPool("import-owner-cap", "task-0", kTaskBytes);
   auto pool = root->addLeafChild("columnar-import");
+  std::weak_ptr<facebook::velox::memory::MemoryPool> rootOwner = root;
+  std::weak_ptr<facebook::velox::memory::MemoryPool> leafOwner = pool;
   auto task = folly::makeGuard([&] {
     pool.reset();
     root.reset();
-    governor->reportSpillBytes(0);
   });
+  EXPECT_EQ(governor->getMemorySnapshot().active_pool_count, activeBefore + 1);
   arrow::Int32Builder offsets;
   ASSERT_TRUE(offsets.AppendValues(std::vector<int32_t>(kRows + 1, 0)).ok());
   arrow::DoubleBuilder values;
@@ -143,6 +148,18 @@ TEST(ColumnarImportOwnershipTest, ActualTaskCapFailureDuringListSizesReleasesEac
   EXPECT_EQ(exported.arrays->load(), 1);
   EXPECT_EQ(exported.schemas->load(), 1);
   EXPECT_EQ(pool->usedBytes(), 0);
+  root.reset();
+  EXPECT_FALSE(rootOwner.expired());
+  EXPECT_FALSE(leafOwner.expired());
+  EXPECT_EQ(governor->getMemorySnapshot().active_pool_count, activeBefore + 1);
+  pool.reset();
+  EXPECT_TRUE(leafOwner.expired());
+  EXPECT_TRUE(rootOwner.expired());
+  EXPECT_EQ(governor->getMemorySnapshot().active_pool_count, activeBefore);
+  EXPECT_EQ(governor->usedMemory(), allocatorBefore);
+  EXPECT_EQ(governor->veloxMemoryManager()->numPools(), poolsBefore);
+  EXPECT_EQ(exported.arrays->load(), 1);
+  EXPECT_EQ(exported.schemas->load(), 1);
 }
 }  // namespace
 }  // namespace pangrova::columnar

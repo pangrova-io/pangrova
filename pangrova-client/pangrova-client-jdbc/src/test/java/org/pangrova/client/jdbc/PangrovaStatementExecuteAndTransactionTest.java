@@ -20,6 +20,7 @@ import java.sql.SQLTimeoutException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -57,6 +58,7 @@ class PangrovaStatementExecuteAndTransactionTest {
             AtomicReference<String> capturedSql = new AtomicReference<>();
             registerFinishedQueryEndpoint(capturedSql, "q-exec-select");
             registerStatusWithoutStats("q-exec-select");
+            AtomicInteger cancellations = registerCancelEndpoint("q-exec-select", false);
             server.start();
 
             try (PangrovaConnection conn = createConnection();
@@ -67,6 +69,7 @@ class PangrovaStatementExecuteAndTransactionTest {
                 assertThat(stmt.getResultSet()).isNull();
                 assertThat(capturedSql.get()).contains("SELECT 1");
             }
+            assertThat(cancellations.get()).isEqualTo(1);
         }
 
         @Test
@@ -197,6 +200,7 @@ class PangrovaStatementExecuteAndTransactionTest {
         @DisplayName("executeUpdate() preserves the JDBC timeout exception")
         void executeUpdatePreservesTimeout() throws Exception {
             registerFinishedQueryEndpoint(new AtomicReference<>(), "q-upd-timeout");
+            AtomicInteger cancellations = registerCancelEndpoint("q-upd-timeout", true);
             server.createContext("/v1/query/q-upd-timeout/state", exchange ->
                     sendJson(exchange, 200,
                             "{\"query_id\":\"q-upd-timeout\",\"state\":\"RUNNING\"}"));
@@ -209,6 +213,7 @@ class PangrovaStatementExecuteAndTransactionTest {
                         .isInstanceOf(SQLTimeoutException.class)
                         .hasMessageContaining("q-upd-timeout");
             }
+            assertThat(cancellations.get()).isEqualTo(1);
         }
 
         @Test
@@ -427,6 +432,18 @@ class PangrovaStatementExecuteAndTransactionTest {
                 .requestTimeout(Duration.ofSeconds(2))
                 .build();
         return new PangrovaConnection(restClient, null);
+    }
+
+    /** Complete protocol acknowledgement; it does not assert a remote resource-drain receipt. */
+    private AtomicInteger registerCancelEndpoint(String queryId, boolean accepted) {
+        AtomicInteger requests = new AtomicInteger();
+        server.createContext("/v1/query/" + queryId + "/cancel", exchange -> {
+            requests.incrementAndGet();
+            String response = "{\"query_id\":\"%s\",\"cancelled\":%s,\"outcome\":\"%s\"}"
+                    .formatted(queryId, accepted, accepted ? "CANCEL_ACCEPTED" : "ALREADY_TERMINAL");
+            sendJson(exchange, accepted ? 202 : 200, response);
+        });
+        return requests;
     }
 
     /**

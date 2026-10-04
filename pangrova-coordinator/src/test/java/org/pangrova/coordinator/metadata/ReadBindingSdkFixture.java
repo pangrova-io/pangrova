@@ -83,9 +83,22 @@ public final class ReadBindingSdkFixture implements AutoCloseable {
         var descriptor = new org.pangrova.planner.SplitSourceDescriptor("bound", "db",
                 binding.declaration().metadata().table().table(), org.pangrova.spi.connector.metadata.Constraint.EMPTY,
                 binding.declaration().metadata().columns(), Optional.of(binding));
-        return org.pangrova.coordinator.query.execution.split.SplitFetcher.fetchRawConnectorSplits(
-                List.of(descriptor), bootstrap.catalogRegistry(), overrides,
-                binding.declaration().metadata().columns(), context);
+        var tracker = new org.pangrova.coordinator.task.CoordinatorTaskTracker();
+        var state = new org.pangrova.coordinator.query.QueryStateMachine();
+        var authority = state.bindConnectorAuthority(tracker.openQueryIssuance(context.queryId()));
+        var admitted = context.withQueryAuthority(authority);
+        var actor = SessionContextConverter.toConnectorSession(admitted, "bound", "db");
+        try {
+            authority.beginMetadata("bound", () -> bootstrap.catalogRegistry().getCatalog("bound").getMetadata(actor));
+            return org.pangrova.coordinator.query.execution.split.SplitFetcher.fetchRawConnectorSplits(
+                    List.of(descriptor), bootstrap.catalogRegistry(), overrides,
+                    binding.declaration().metadata().columns(), admitted);
+        } finally {
+            state.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.CANCELLED);
+            tracker.sealQueryIssuance(context.queryId());
+            authority.cleanupMetadata().requireSuccess();
+            tracker.retireQueryIssuance(context.queryId());
+        }
     }
 
     @Override public void close() throws Exception {

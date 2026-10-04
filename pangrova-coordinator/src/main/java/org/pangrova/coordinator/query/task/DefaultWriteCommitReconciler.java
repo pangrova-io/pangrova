@@ -185,6 +185,11 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
     /** Recovery session whose tenant is the immutable identity persisted before the first commit. */
     private record RecoveryConnectorSession(
             String catalog, String schema, String tenantId, String principal) implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
 
         @Override
         public String getUser() {

@@ -19,6 +19,9 @@ if(NOT _PANGROVA_RE2_REAL STREQUAL _VELOX_RE2_REAL)
 endif()
 find_package(absl CONFIG REQUIRED
   PATHS "${PANGROVA_DEPS_PREFIX}/lib/cmake/absl" NO_DEFAULT_PATH)
+# find_package still honors a previous *_DIR cache entry with NO_DEFAULT_PATH.
+# Rebind both this consumer and the nested ABI probe to the verified SDK package.
+set(re2_DIR "${_PANGROVA_RE2_DIR}" CACHE PATH "Canonical SDK RE2 package" FORCE)
 find_package(re2 CONFIG REQUIRED PATHS "${_PANGROVA_RE2_DIR}" NO_DEFAULT_PATH)
 get_target_property(_PANGROVA_RE2_CONFIGURATIONS re2::re2 IMPORTED_CONFIGURATIONS)
 foreach(_PANGROVA_RE2_CONFIGURATION ${_PANGROVA_RE2_CONFIGURATIONS})
@@ -49,6 +52,7 @@ try_compile(_PANGROVA_RE2_ABI_MATCHES
   PangrovaRe2Contract pangrova_re2_contract
   CMAKE_FLAGS "-DPANGROVA_DEPS_PREFIX=${PANGROVA_DEPS_PREFIX}"
               "-Dabsl_DIR:PATH=${absl_DIR}"
+              "-Dre2_DIR:PATH=${_PANGROVA_RE2_DIR}"
               "-DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS}"
               "-DCMAKE_EXE_LINKER_FLAGS=${CMAKE_EXE_LINKER_FLAGS}"
   OUTPUT_VARIABLE _PANGROVA_RE2_CHECK_OUTPUT)

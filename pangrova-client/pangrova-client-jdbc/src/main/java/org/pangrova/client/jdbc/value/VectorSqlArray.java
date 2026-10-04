@@ -30,6 +30,7 @@ public final class VectorSqlArray implements Array {
         this.coordinates = coordinates.clone();
     }
 
+    /** Creates an independently owned array of VECTOR coordinates, preserving SQL NULL. */
     public static Array fromValue(Object value) throws SQLException {
         if (value == null) {
             return null;

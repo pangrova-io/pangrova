@@ -52,7 +52,9 @@ public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec
             out.writeBoolean(allocation.isPresent());
             if (allocation.isPresent()) {
                 byte[] physical = PaimonPhysicalAllocationCodec.encode(allocation.orElseThrow());
-                if (physical.length > MAX_ALLOCATION_BYTES) throw new IllegalArgumentException("Physical allocation exceeds limit");
+                if (physical.length > MAX_ALLOCATION_BYTES) {
+                    throw new IllegalArgumentException("Physical allocation exceeds limit");
+                }
                 out.writeInt(physical.length);
                 out.write(physical);
             }
@@ -73,13 +75,15 @@ public final class PaimonOutputHandleCodec implements ConnectorOutputHandleCodec
             PaimonOutputTableHandle handle = new PaimonOutputTableHandle(
                     readString(in), readString(in), readString(in), readString(in),
                     new PaimonOutputTableHandle.Layout(readList(in), readList(in)),
-                    new PaimonOutputTableHandle.WriteSemantics(readMap(in), readString(in), in.readLong(), Optional.empty()));
+                    new PaimonOutputTableHandle.WriteSemantics(
+                            readMap(in), readString(in), in.readLong(), Optional.empty()));
             if (in.readBoolean()) {
                 int length = in.readInt();
                 if (length < 1 || length > MAX_ALLOCATION_BYTES || length > in.available()) {
                     throw new IllegalArgumentException("Invalid persisted physical allocation length");
                 }
-                handle = handle.withPhysicalAllocation(PaimonPhysicalAllocationCodec.decode(in.readNBytes(length), handle));
+                handle = handle.withPhysicalAllocation(
+                        PaimonPhysicalAllocationCodec.decode(in.readNBytes(length), handle));
             }
             if (in.available() != 0) {
                 throw new IllegalArgumentException("Trailing bytes in Paimon output handle");

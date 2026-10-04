@@ -175,6 +175,11 @@ class GeneratedWriteAuthorityAdmissionTest {
     }
 
     private record TestSession(String getUser) implements ConnectorSession {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public Optional<String> getCatalog() { return Optional.of(TABLE.catalog()); }
         @Override public Optional<String> getSchema() { return Optional.of(TABLE.schema()); }
         @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "tenant"); }

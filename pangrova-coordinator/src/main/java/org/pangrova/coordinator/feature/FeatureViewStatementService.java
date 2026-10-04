@@ -224,7 +224,7 @@ public final class FeatureViewStatementService {
         properties.put("catalog", source.catalog());
         properties.put("schema", source.schema());
         return new CoordinatorSessionContext(session.queryId(), properties,
-                session.userIdentity(), session.tenantId());
+                session.userIdentity(), session.tenantId(), session.queryAuthority());
     }
 
     private Actor requireActor(CoordinatorSessionContext session) {

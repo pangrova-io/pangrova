@@ -79,7 +79,8 @@ final class JdbcUrlParser {
             int eq = pair.indexOf('=');
             if (eq > 0) {
                 String key = java.net.URLDecoder.decode(pair.substring(0, eq), java.nio.charset.StandardCharsets.UTF_8);
-                String value = java.net.URLDecoder.decode(pair.substring(eq + 1), java.nio.charset.StandardCharsets.UTF_8);
+                String value = java.net.URLDecoder.decode(pair.substring(eq + 1),
+                        java.nio.charset.StandardCharsets.UTF_8);
                 params.put(key, value);
             }
         }

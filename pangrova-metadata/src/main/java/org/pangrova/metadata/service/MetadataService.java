@@ -58,17 +58,17 @@ public interface MetadataService {
      * Begins a query-level metadata transaction across all catalogs.
      * Delegates to each registered connector's {@code beginQuery}.
      *
-     * @param queryId the unique query identifier
+     * @param session the real authenticated session carrying its issued query lifetime
      */
-    void beginQuery(String queryId);
+    void beginQuery(MetadataSessionContext session);
 
     /**
      * Cleans up query-level metadata resources across all catalogs.
      * Delegates to each registered connector's {@code cleanupQuery}.
      *
-     * @param queryId the unique query identifier
+     * @param authority the same closed query lifetime retained during begin
      */
-    void cleanupQuery(String queryId);
+    void cleanupQuery(org.pangrova.spi.connector.ConnectorQueryAuthority authority);
 
     // ── Column governance tags (delegated to ColumnTagService) ──
 

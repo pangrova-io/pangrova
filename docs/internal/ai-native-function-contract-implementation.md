@@ -4,20 +4,19 @@
 本文件不是已实现能力声明。历史审计日期：2026-10-02；状态更新：2026-10-04。
 范围：数据库内核函数与分布式准入，不含 Agent。
 
-当前与历史断点应区分：Native 实际 catalogue 的发布、只读库存导出和 Java
-inventory codec 已有实现及局部复证；不能继续把“functions 未填”或“启动未接线”
-当作当前事实。SDK59 的实际 Release archive/provenance、Main build 已通过，但
-未筛选4009项CTest仍有6个失败。已复证的聚合元数据错误结果与复杂 MAP schema
-问题现由64-file sole SDK patch整改，实际 Release setup 与七项 linked archive
-provenance 已通过；Main Release 完整重建已通过且零 compiler warnings。
-该 cohort 未筛选4021项CTest首轮只有一个 tracked-pool fixture 失败，修复后的
-31项专项和完整4021项CTest均已全通过且零跳过；尚无该 cohort
-匹配 ASan、重新包装后的 JNI/E2E 通过证据。
+当前与历史断点应区分：Native 实际 catalogue 的发布、只读库存导出、Java
+inventory codec 和同 owner 的精确 Native binding 已有实现；不能继续把
+“functions 未填”或“启动未接线”当作当前事实。下文保留 SDK59、4021 项及各次
+source-only 检查点的历史，不由旧标题推断当前状态。最新同源 Release 未过滤
+CTest 为 **4041 PASS / 0 FAIL / 0 SKIPPED**；完整匹配依赖 cohort 的 Main ASan
+构建通过，但未过滤 CTest 为 **4036 PASS / 5 FAIL / 0 SKIPPED**，整个 ASan
+门禁仍为 FAIL。这不是重新包装后的 JNI/E2E 或生产规模通过证据。
 Planner 仍有静态 defaults；统一 `TaskRequest.function_requirements = 18` 尚无
 生产 writer/Native 比较者。后续须按实际 catalogue 冻结 query cohort，收集最终
 IR 的精确 typed requirements，并与同一 published Native owner 比较。固定版本
 字符串不是实际 packaged binary 身份，aggregate 中间状态还必须有真实来源。
-详细最新证据与 PASS/FAIL/UNRUN 边界见 `ai-native-roadmap.md` 第 0.47 节。
+详细最新证据与 PASS/FAIL/UNRUN 边界见 `ai-native-roadmap.md` 第 0.53 节；
+当前生产消费审计及下一原子单元见本文件第 16 节。IDL 消息已经存在不代表消费已实现。
 
 ## 1. 2026-10-02 历史审计事实与当时的完成边界
 
@@ -1186,3 +1185,151 @@ required字段包含实际NULL。Native需在现有IR decoder中并列保留逻�
 真实NULL key拒绝。无null metadata的scalar快路径不能推断嵌套子节点无NULL。新增六个
 真实vector正反oracle尚未编译，且验证器尚未接完整输出schema-owner；不能以新枚举、
 组件测试或typed inventory证明nullable已闭环。结果边界检查成本需实测，不声称免费。
+
+## 16. 2026-10-04 当前消费断点复审与下一原子单元（尚未实施）
+
+本节是当前源码的只读审计，纠正前文历史检查点的适用时间，不删除其失败记录或
+原设计。**已实现 publication/binding 不等于已实现 query cohort、Planner 或 field18。**
+完整路径相对于仓库根，同一单元内省略共同前缀；行号为本次审计检查点，
+不是生成源码中的位置。
+
+### 16.1 实际生产链与断点
+
+| 环节 | 实际生产证据 | 当前判定 |
+|---|---|---|
+| Native publication | `pangrova-worker-native/src/capability/FunctionCatalogAssembler.cpp:149–165` 从真实 owned snapshot 投影、封存 manifest；`src/jni/command/NativeCommandDispatcher.cpp:532–542` 返回同一 publication | 已实现，不能再称 functions 未发布 |
+| Worker 库存 | `pangrova-worker/src/main/java/org/pangrova/worker/jni/NativeCapabilityLoader.java:20–78` finalize→GET_CAPABILITIES→严格解析；`bootstrap/WorkerBootstrap.java:140–159` 保存编码库存，`bootstrap/phase/WorkerHeartbeatBootstrap.java:100` 写入注册请求 | 已实现，不是静态名字表 |
+| 认证注册与持久保留 | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/http/endpoint/WorkerResource.java:103–152,288–295` 校验 internal identity、解码库存；`worker/WorkerInfo.java:36,53–55` 与 `worker/WorkerManager.java:398,429` 保留/编码完整 inventory | 已实现；内容 SHA 不是认证或 Worker incarnation |
+| Query frozen cohort | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/DefaultWorkerSelector.java` 的 select/selectForBindings/selectExcluding 动态读取 active workers；binding matcher 只覆盖现有 operator/model/artifact 契约 | **UNIMPLEMENTED**：没有 query-frozen function view 或全 fragment 函数交集 |
+| Planner 消费 | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/bootstrap/PlannerWiring.java:51–59` 使用三参 compiler；`pangrova-planner/src/main/java/org/pangrova/planner/SqlCompiler.java:40–49,203–224` 安装静态 defaults 并据此拒绝计划 | **UNIMPLEMENTED**：`FunctionCatalogView` 无 Planner/Coordinator 生产 consumer |
+| 最终 fragment 需求 | `pangrova-coordinator/src/main/java/org/pangrova/coordinator/query/execution/dispatch/dag/binding/DAGStagePlanBinder.java:48–76` 在序列化后执行 overlay/retrieval/AI binding；`dispatch/dag/TaskRequestFactory.java:238–268` 写最终 bytes/checksum 等，却不写 function_requirements | **UNIMPLEMENTED**：必须在最后 rewrite 后收集，而非复制早期需求 |
+| Native field18 准入 | `pangrova-worker-native/src/jni/command/TaskRequestParser.cpp:1556–1690` 未读取 field18；`src/jni/bridge/JniBridge.cpp:72–85` 已注入 published registry，但没有需求集合比较 | **UNIMPLEMENTED**：无 path/coverage/checksum/view/selected identity 比较 |
+| Native 实际调用 | `pangrova-worker-native/src/capability/RegisteredFunctionBinding.cpp:54–86`；`src/velox/plan/SubstraitFunctionConversion.cpp:57–61,144–168`；`SubstraitAggregateConversion.cpp:49–76`；`SubstraitWindowConversion.cpp:125–145` | 已消费 actual snapshot 精确绑定；不能退回 global registry 或按 output 换 overload |
+
+可复核缺口的只读检索：
+
+```sh
+rg -n 'FunctionCatalogView' pangrova-planner/src/main/java pangrova-coordinator/src/main/java
+rg -n 'function_requirements|getFunctionRequirements|setFunctionRequirements|FunctionRequirementCollector' \
+  pangrova-protocol/src/main pangrova-planner/src/main pangrova-coordinator/src/main \
+  pangrova-worker/src/main pangrova-worker-native/src \
+  --glob '*.{java,cpp,h,proto}'
+```
+
+本次检索第一项没有生产 consumer，第二项只有 `task.proto:98` 的 field18 声明。
+`capability.proto:494–523` 的 FunctionRequirement/FunctionRequirements 已存在；
+本单元应消费这些字段，不因消息已定义而宣布 writer/validator 已实施。
+
+### 16.2 ROUND 与 nested ROW/ARRAY 的真实失败
+
+`/tmp/pangrova-production-sdk64-reviewed-golden-planner-unfiltered-r2.log:23419–23445`
+保留 `CanonicalExpressionSqlProtocolTest` 的四个真实 admission errors：三个 ROUND
+被静态名称表拒绝，一个 runtime ARRAY<ROW> 被当成不支持的 NestedList。
+其他 VALUES/public parser 错误属于唯一 Calcite 前端迁移，不与本根因混合。
+
+- `pangrova-planner/src/main/java/org/pangrova/planner/substrait/ExpressionConverter.java:275–316`
+  已输出 canonical NestedList/NestedStruct，保留 context type、显式 CAST 和 typed NULL；
+  不是缺少 constructor producer。
+- `validation/SubstraitPlanValidator.java:61–67,117–170,217–237` 未覆盖 nested 节点及
+  children，aggregate measure 调用/参数也未完整遍历；scalar/window 仅按名称准入。
+- `validation/RoundSqlFunction.java:31–47` 仍有独立 DECIMAL 返回公式；当前测试期望与
+  已核实际 Native 示例一致，但没有消费 actual catalogue。不能以新增 whitelist 条目
+  或复制一份签名/公式作为修复。
+- `pangrova-protocol/src/main/java/org/pangrova/protocol/function/catalog/FunctionCatalogView.java:38–56,90–140`
+  已提供 immutable view、scalar actual runtime selection、raw aggregate/window ordered
+  first-match；`FunctionCatalogViewTest` 保留 ROUND 精确参数、kind、constants、named ROW
+  相等性和 immutable snapshot 的组件 oracle。这不是 SQL/任务链已经接线的证明。
+
+### 16.3 同一原子单元的必要前置契约
+
+1. **Intrinsic 需求不能漏检。** Native `SubstraitNestedExpressionConversion.cpp:10–40`
+   对无 function anchor 的 Nested.Struct/List 实际调用 row_constructor/array_constructor。
+   sole `pangrova-protocol/src/main/resources/function-contracts/sql-bindings.json:132`
+   已声明 ROW→row_constructor，但当前没有 array_constructor 的 SQL definition。
+   collector 必须覆盖 intrinsic；在同一声明 authority 内定义其精确身份及 lowering
+   对应，不临时伪造 ref、不把 ARRAY 类型桥当函数可用性、不新建 private 名字表。
+2. **Selected identity 须双端统一。** `RegisteredFunctionCatalog.cpp:64` 已为实际 scalar
+   implementation 设置 contract_sha256；aggregate/window 保留 ordered signatures 和
+   registration identity，但 field13 的选中 ordinal 身份规范/helper 尚未接通。
+   同一 canonical authority 必须定义并验证该身份；不能 Java/C++ 各自拼 digest，
+   也不能以同名字、同返回类型或 name-level registration hash 代替选中 entry。
+3. **最终 IR path 必须稳定且完整。** 以 checksum-pinned generated Plan 为根，采用经
+   descriptor 验证的 protobuf field-number/repeated-index 路径，不用 Native plan ID、
+   Calcite 类名或输出名字。由唯一 layout tree 提供各表达式的作用域、完整 DFS names，
+   覆盖 nested、measure args/filter/order、window 和全部合法表达式位置。
+4. **原始聚合来源不能猜。** field12 保存 Planner 实际 raw provenance；Native 当前
+   `SubstraitAggregateConversion.cpp:68–72` 明确拒绝缺来源的 state phase。接通后按
+   same owner 验证真实 state/intermediate/result，不能从 FINAL 的 VARBINARY 重建 p/s。
+5. **Manifest 身份明确。** definition_view_sha256 使用实际 manifest.manifest_sha256，
+   不是不存在的 manifest.contract_sha256，也不是 binary attestation。NamedStruct names、
+   constants/options/invocation/phase/window process 均不能在物理类型投影时丢弃。
+
+### 16.4 可实施最小原子范围（代码尚未落地）
+
+1. Coordinator 从 authenticated WorkerInfo 捕获 query-local immutable definition/
+   availability view 和 eligible 集合；PlannerWiring→SqlCompiler query scope→PangrovaPlanner
+   operator inference/validator 消费同一 view。替换静态 registry 准入和普通函数独立公式，
+   保留 sole SQL CAST policy；不修改共享 compiler 的全局可变 registry。
+2. Protocol 新 collector 复用 SubstraitRelationLayout.describeTree/typeOf/nameAtTypePath、
+   FunctionCatalogView、实际 selection/binder/physical projector。完整拒绝 missing/stray/
+   duplicate path，不另建类型 decoder 或 availability table；统一 intrinsic/selected identity。
+3. DAGStagePlanBinder/BoundExecutionPlan→TaskRequestFactory 在所有 overlay、retrieval、
+   governed binding、AQE rewrite 后收集最终 requirements/checksum。write/artifact、
+   intermediate/root、durable prepare/replay 和 retry 同迁；持久恢复不能换成当下动态库存。
+4. Worker admission 与 Native TaskRequestParser/config/converter 对照同 publication 的
+   manifest 和 registry；完整重算 path/call coverage，逐调用保持 actual exact binding。
+   零函数计划也要显式完整空 calls envelope，字段缺失不能默认通过。Native 隐藏 governed
+   args 和 structural lowering 需依原精确 binding 校验，不泛化函数名字豁免。
+5. Scheduler 所有真实 select/retry 入口只在冻结集合内筛选满足完整 fragment 的 Worker；
+   无候选明确失败。query cache/plan 及 durable bytes 保留契约身份，不用固定版本字符串
+   代替内容一致性；不得添加 fallback 或未被调用的第二 planner registry。
+
+上述是一个共同 SOURCE_READY 的原子范围，不发布只有 Native 拒绝而 Java writer
+仍缺失的半单元。现有 IDL 能表达需求，不预先增加协议。Worker incarnation/HA
+fencing、durable issued/outbox 和唯一 Calcite frontend 仍是独立缺口，不能由本单元
+的 immutable WorkerInfo 或动态 active list 冒充已解决。
+
+### 16.5 可执行验收与当前结果边界
+
+以下命令由 Root 在同源完整单元冻结后运行；本次文档更新未执行它们。先最近，
+再 owning suite/full chain；所有已有 SQL、值、型、NULL、cleanup/EOF oracle 保留。
+
+```sh
+mvn -B -Pfull-regression -pl pangrova-protocol -am \
+  -Dtest=FunctionCatalogViewTest,FunctionImplementationSelectorTest,FunctionSignatureBinderTest,FunctionPhysicalTypeProjectorTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+mvn -B -Pfull-regression -pl pangrova-planner -am \
+  -Dtest=CanonicalExpressionSqlProtocolTest,SubstraitPlanValidatorTest,NativeCapabilityRegistryTest \
+  -Dsurefire.failIfNoSpecifiedTests=false test
+ctest --test-dir pangrova-worker-native/build --output-on-failure \
+  -R 'RegisteredFunctionBindingTest|FunctionRegistryOwnedSnapshotTest|CanonicalNestedExecutionTest|NativeCommandGetCapabilitiesTest|ParseTaskConfigTest'
+```
+
+| 必须验收 | 真实 oracle / 新增边界 |
+|---|---|
+| ROUND | 原三条公开 SQL 类型断言不变；actual short/long DECIMAL unary/binary 值、NULL；错误声明 output 和未显式 CAST 的参数准确拒绝 |
+| Nested | 动态 ARRAY<ROW> 的精确 DECIMAL/NULL/ordinal 值及 EOF；named-row mismatch、异构元素需显式 CAST；intrinsic 和 child calls 都有完整需求 |
+| Requirements | 最后 rewrite 后正确 checksum/path；漏 call、多 call、重复 path、错 kind/URN/ref/hash/view/selected entry、constants/options 篡改准确拒绝；零 call envelope 正例 |
+| Aggregate/window | 原 single/partial/final 及 DISTINCT/filter/order 值 oracle；原 raw 来源、中间类型和 state phase 严格对称，不由 state schema 猜 raw |
+| 认证/cohort | 实际 GETCAP→认证注册→query frozen view→final fragment→field18→真实 Native Task；库存漂移、每 Worker 只有半套函数、失效/retry 不可偷偷换 authority |
+| 全链 | 上述 owning suites、同源 Step0–8、完整 Release/ASan、重新打包 JNI、独立进程 SQL E2E；组件 snapshot/codec 通过不能代替这些证据 |
+
+保留旧摘要中的历史检查点：SDK59 实际 Release archive/provenance 和 Main build
+通过时，未筛选4009项CTest仍有6个失败。随后聚合元数据与复杂 MAP schema 问题由
+64-file sole SDK patch整改，Release setup、七项 linked archive provenance 和 Main
+完整重建通过且零 compiler warnings；该 cohort 的4021项首轮有一个 tracked-pool
+fixture 失败，修复后的31项专项和完整4021项均通过且零跳过。该时点尚无匹配 ASan
+或重新包装 JNI/E2E 的通过证据；不能用后来的结果回写这些历史失败。
+
+依 `ai-native-roadmap.md` 第 0.52–0.53 节，当前实际结果分别为：
+
+- Release 未过滤 **4041/4041 PASS，0 skip，636.46s**：
+  `/tmp/pangrova-production-sdk64-pool-re2-release-unfiltered-r1.log`。
+- 完整匹配依赖 cohort 的 ASan 未过滤 **4036 PASS / 5 FAIL / 0 skip，1841.98s，exit8**：
+  `/tmp/pangrova-production-sdk64-main-asan-complete-cohort-unfiltered-r1.log`。
+  五项进程退出各报告256字节；独立 oracle 与真实 Lance 的 LLDB 证据定位到 Darwin
+  dyld TLS 分配。没有改线程、关闭 leaks 或增加 suppression；原 ASan FAIL 保留，
+  Linux 同源结果仍缺失，不能记成跨平台泄漏验收通过。
+
+以上 Native 回归不关闭本节明列的 UNIMPLEMENTED 消费链，也不等于新 packaged
+JNI/E2E、HA 或大规模性能通过。

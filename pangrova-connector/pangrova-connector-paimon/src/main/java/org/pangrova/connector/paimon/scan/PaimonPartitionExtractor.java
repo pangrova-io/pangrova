@@ -114,7 +114,7 @@ public final class PaimonPartitionExtractor {
                     physical == null ? field.name() : physical.name(), field.name()));
             addTypePromotion(physical, field, promotions);
         }
-        return new SchemaEvolutionResult(List.copyOf(mappings), List.copyOf(promotions));
+        return new SchemaEvolutionResult(mappings, promotions);
     }
 
     private static void requireRepresentedMissingColumn(DataField physical, DataField target,
@@ -157,6 +157,11 @@ public final class PaimonPartitionExtractor {
     public record SchemaEvolutionResult(
             List<ColumnMapping> columnMappings,
             List<TypePromotion> typePromotions) {
+
+        public SchemaEvolutionResult {
+            columnMappings = List.copyOf(columnMappings);
+            typePromotions = List.copyOf(typePromotions);
+        }
 
         static final SchemaEvolutionResult EMPTY =
                 new SchemaEvolutionResult(List.of(), List.of());

@@ -55,7 +55,7 @@ public final class ConnectorAccessorResolver {
         }
         return new ConnectorAccessorResolver(catalogRegistry, new ScopedSession(
                 session.getUser(), session.getCatalog(), session.getSchema(),
-                Map.copyOf(session.getProperties())));
+                Map.copyOf(session.getProperties()), session.getQueryAuthority()));
     }
 
     /**
@@ -291,10 +291,15 @@ public final class ConnectorAccessorResolver {
     }
 
     private record ScopedSession(String user, Optional<String> catalog, Optional<String> schema,
-                                 Map<String, String> properties) implements ConnectorSession {
+                                 Map<String, String> properties,
+                                 Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority)
+            implements ConnectorSession {
         @Override public String getUser() { return user; }
         @Override public Optional<String> getCatalog() { return catalog; }
         @Override public Optional<String> getSchema() { return schema; }
         @Override public Map<String, String> getProperties() { return properties; }
+        @Override public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return queryAuthority;
+        }
     }
 }

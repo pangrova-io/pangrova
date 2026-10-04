@@ -36,36 +36,45 @@ interface QueryClient {
      * Adapter that delegates to a real {@link PangrovaRestClient}.
      */
     static QueryClient wrap(PangrovaRestClient client) {
-        return new QueryClient() {
-            @Override
-            public SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties) {
-                return client.submitQuery(sql, sessionProperties);
-            }
+        return new RestClientAdapter(client);
+    }
 
-            @Override
-            public QueryStatusResponse getQueryStatus(String queryId) {
-                return client.getQueryStatus(queryId);
-            }
+    /** Delegates the shell's query operations to its borrowed REST client. */
+    final class RestClientAdapter implements QueryClient {
+        private final PangrovaRestClient client;
 
-            @Override
-            public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
-                return client.cancelQuery(queryId);
-            }
+        private RestClientAdapter(PangrovaRestClient client) {
+            this.client = client;
+        }
 
-            @Override
-            public void fetchResultStream(ResultEndpoint endpoint, ResultBatchConsumer consumer) {
-                client.fetchResultStream(endpoint, consumer);
-            }
+        @Override
+        public SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties) {
+            return client.submitQuery(sql, sessionProperties);
+        }
 
-            @Override
-            public byte[] fetchResult(ResultEndpoint endpoint) {
-                return client.fetchResult(endpoint);
-            }
+        @Override
+        public QueryStatusResponse getQueryStatus(String queryId) {
+            return client.getQueryStatus(queryId);
+        }
 
-            @Override
-            public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
-                return client.fetchResult(endpoint, deadlineEpochMs);
-            }
-        };
+        @Override
+        public PangrovaRestClient.CancelOutcome cancelQuery(String queryId) {
+            return client.cancelQuery(queryId);
+        }
+
+        @Override
+        public void fetchResultStream(ResultEndpoint endpoint, ResultBatchConsumer consumer) {
+            client.fetchResultStream(endpoint, consumer);
+        }
+
+        @Override
+        public byte[] fetchResult(ResultEndpoint endpoint) {
+            return client.fetchResult(endpoint);
+        }
+
+        @Override
+        public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+            return client.fetchResult(endpoint, deadlineEpochMs);
+        }
     }
 }

@@ -18,10 +18,24 @@ import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation;
 public final class PaimonPhysicalSchemas {
     private PaimonPhysicalSchemas() {}
 
+    /**
+     * Obtains the physical append schema from the exact SDK table declaration.
+     *
+     * @param schema the selected SDK table schema
+     * @return complete physical and declared column metadata
+     */
     public static NativePhysicalWriteAllocation.Schema forAppend(TableSchema schema) {
         return fromRowType(schema.id(), schema.logicalRowType(), schema.options());
     }
 
+    /**
+     * Converts a persisted SDK row declaration without changing physical units.
+     *
+     * @param schemaId the selected SDK schema identity
+     * @param rowType the complete SDK row declaration
+     * @param options the selected SDK table options
+     * @return the physical schema and exact column declarations
+     */
     public static NativePhysicalWriteAllocation.Schema fromRowType(
             long schemaId, RowType rowType, Map<String, String> options) {
         var fields = rowType.getFields().stream()

@@ -60,6 +60,11 @@ class IcebergPageSourceProviderTest {
     private static final ConnectorTransactionHandle TX = new ConnectorTransactionHandle() {};
     private static final DynamicFilter NO_FILTER = DynamicFilter.ALL;
     private static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("test"); }
         @Override public Optional<String> getSchema() { return Optional.empty(); }

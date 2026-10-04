@@ -31,6 +31,7 @@ final class StatementCancellationPeer implements AutoCloseable {
     private final ExecutorService consumers = ManagedExecutorFactory.newFixedThreadPool("jdbc-cancel-consumer", 2);
     private final ConcurrentHashMap<String, Query> queries = new ConcurrentHashMap<>();
     private final ConcurrentLinkedQueue<Query> submissions = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<PangrovaPreparedStatement> preparedStatements = new ConcurrentLinkedQueue<>();
     private final AtomicInteger submits = new AtomicInteger();
     private final AtomicInteger requests = new AtomicInteger();
     private HttpServer server;
@@ -64,6 +65,19 @@ final class StatementCancellationPeer implements AutoCloseable {
     PangrovaStatement statement() { return statement; }
     int submissions() { return submits.get(); }
     int requests() { return requests.get(); }
+
+    PangrovaPreparedStatement prepare(String sql) throws SQLException {
+        var prepared = (PangrovaPreparedStatement) connection.prepareStatement(sql);
+        preparedStatements.add(prepared);
+        return prepared;
+    }
+
+    Future<SQLException> executePreparedAsync(PangrovaPreparedStatement prepared) {
+        return consumers.submit(() -> {
+            try (var result = prepared.executeQuery()) { return null; }
+            catch (SQLException failure) { return failure; }
+        });
+    }
 
     Future<SQLException> executeAsync() {
         return consumers.submit(() -> {
@@ -131,7 +145,14 @@ final class StatementCancellationPeer implements AutoCloseable {
         // A completed/cancelled Future alone is not evidence that its callback exited.
         ExecutorDrain.shutdownAndAwait(consumers, 5_000);
         Exception failure = null;
-        try { if (statement != null) statement.close(); } catch (Exception cleanup) { failure = cleanup; }
+        for (var prepared : preparedStatements) {
+            try { prepared.close(); } catch (Exception cleanup) {
+                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+            }
+        }
+        try { if (statement != null) statement.close(); } catch (Exception cleanup) {
+            if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+        }
         try { if (connection != null) connection.close(); } catch (Exception cleanup) {
             if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
         }

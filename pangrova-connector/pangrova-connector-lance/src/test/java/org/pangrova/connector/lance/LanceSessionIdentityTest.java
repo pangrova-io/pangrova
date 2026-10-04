@@ -35,6 +35,11 @@ class LanceSessionIdentityTest {
 
     private static ConnectorSession session(Map<String, String> properties) {
         return new ConnectorSession() {
+            @Override
+            public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+                return java.util.Optional.empty();
+            }
+
             @Override public String getUser() { return "authenticated-user"; }
             @Override public Optional<String> getCatalog() { return Optional.of("lance_catalog"); }
             @Override public Optional<String> getSchema() { return Optional.of("db"); }

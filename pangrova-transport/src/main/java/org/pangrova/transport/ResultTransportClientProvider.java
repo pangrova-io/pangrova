@@ -15,7 +15,8 @@ import java.util.function.Consumer;
 final class ResultTransportClientProvider {
     private ResultTransportClientProvider() {}
 
-    static ResultTransportClientOwner open(BufferAllocator allocator, Location location, ResultTransportSecurity security,
+    static ResultTransportClientOwner open(BufferAllocator allocator, Location location,
+            ResultTransportSecurity security,
             Consumer<ResultTransportClientOwner> registerOwner) {
         try (InputStream roots = openMaterial(security.rootCaPath());
              InputStream certificate = openMaterial(security.certificateChainPath());

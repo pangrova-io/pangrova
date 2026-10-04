@@ -16,12 +16,15 @@ public final class DefaultConnectorSession implements ConnectorSession {
     private final String catalog;
     private final String schema;
     private final Map<String, String> properties;
+    private final Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority;
 
-    private DefaultConnectorSession(String user, String catalog, String schema, Map<String, String> properties) {
+    private DefaultConnectorSession(String user, String catalog, String schema, Map<String, String> properties,
+            Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> queryAuthority) {
         this.user = user;
         this.catalog = catalog;
         this.schema = schema;
         this.properties = Map.copyOf(properties);
+        this.queryAuthority = queryAuthority;
     }
 
     public static ConnectorSession fromSessionContext(MetadataSessionContext ctx) {
@@ -35,18 +38,7 @@ public final class DefaultConnectorSession implements ConnectorSession {
         props.remove("schema");
         if (catalog != null) props.put("catalog", catalog);
         if (schema != null) props.put("schema", schema);
-        return new DefaultConnectorSession(ctx.user(), catalog, schema, props);
-    }
-
-    /**
-     * Creates a minimal ConnectorSession for query lifecycle operations
-     * (beginQuery / cleanupQuery) that do not require full user context.
-     *
-     * @param queryId the query identifier (used as the user identity placeholder)
-     * @return a lightweight session suitable for lifecycle callbacks
-     */
-    public static ConnectorSession forQueryLifecycle(String queryId) {
-        return new DefaultConnectorSession("system", null, null, Map.of("queryId", queryId));
+        return new DefaultConnectorSession(ctx.user(), catalog, schema, props, ctx.queryAuthority());
     }
 
     @Override
@@ -67,6 +59,11 @@ public final class DefaultConnectorSession implements ConnectorSession {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    @Override
+    public Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+        return queryAuthority;
     }
 
     private static Map<String, String> buildProperties(MetadataSessionContext ctx) {

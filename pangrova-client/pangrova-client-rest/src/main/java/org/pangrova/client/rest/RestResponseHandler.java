@@ -1,5 +1,6 @@
 package org.pangrova.client.rest;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 
@@ -29,7 +30,7 @@ final class RestResponseHandler {
     <T> T deserialize(String body, Class<T> responseType, String context) {
         try {
             return objectMapper.readValue(body, responseType);
-        } catch (Exception e) {
+        } catch (JsonProcessingException | IllegalArgumentException e) {
             throw new PangrovaProtocolException(
                     "DESERIALIZATION_FAILED",
                     "Failed to deserialize response for " + context, HttpStatusCodes.OK, e);
@@ -58,21 +59,29 @@ final class RestResponseHandler {
 
     private PangrovaServerException parseServerError(HttpResponse<String> response) {
         try {
-            ErrorDetail error = objectMapper.readValue(response.body(), ErrorDetail.class);
+            ErrorDetail error = readError(response.body());
             return new PangrovaServerException(error.errorCode(), error.message(), response.statusCode());
-        } catch (Exception e) {
+        } catch (JsonProcessingException | IllegalArgumentException e) {
             return new PangrovaServerException("SERVER_ERROR",
-                    "HTTP " + response.statusCode() + ": " + response.body(), response.statusCode());
+                    "HTTP " + response.statusCode() + ": " + response.body(), response.statusCode(), e);
         }
     }
 
     private PangrovaClientException parseClientHttpError(HttpResponse<String> response) {
         try {
-            ErrorDetail error = objectMapper.readValue(response.body(), ErrorDetail.class);
+            ErrorDetail error = readError(response.body());
             return new PangrovaClientException(error.errorCode(), error.message());
-        } catch (Exception e) {
+        } catch (JsonProcessingException | IllegalArgumentException e) {
             return new PangrovaProtocolException("HTTP_" + response.statusCode(),
-                    "HTTP " + response.statusCode() + ": " + response.body(), response.statusCode());
+                    "HTTP " + response.statusCode() + ": " + response.body(), response.statusCode(), e);
         }
+    }
+
+    private ErrorDetail readError(String body) throws JsonProcessingException {
+        ErrorDetail error = objectMapper.readValue(body, ErrorDetail.class);
+        if (error == null || error.errorCode() == null || error.errorCode().isBlank() || error.message() == null) {
+            throw new IllegalArgumentException("Error response must contain an error code and message");
+        }
+        return error;
     }
 }

@@ -30,6 +30,11 @@ abstract class PaimonDeleteTestSupport {
     static final String TABLE_NAME = "events";
     static final Identifier IDENTIFIER = Identifier.create(DATABASE, TABLE_NAME);
     static final ConnectorSession SESSION = new ConnectorSession() {
+        @Override
+        public java.util.Optional<org.pangrova.spi.connector.ConnectorQueryAuthority> getQueryAuthority() {
+            return java.util.Optional.empty();
+        }
+
         @Override public String getUser() { return "delete_test"; }
         @Override public Optional<String> getCatalog() { return Optional.of("delete_catalog"); }
         @Override public Optional<String> getSchema() { return Optional.of(DATABASE); }

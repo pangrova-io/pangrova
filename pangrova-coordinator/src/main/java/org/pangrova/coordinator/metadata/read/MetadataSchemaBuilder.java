@@ -55,7 +55,8 @@ public final class MetadataSchemaBuilder {
         MetadataSessionContext metadataSession = new MetadataSessionContext(
                 session.getUser(), session.getCatalog().orElse(null), session.getSchema().orElse(null),
                 null, null, session.getProperties(), session.getProperties().get("tenant_id"), null,
-                session.getProperties().get("queryId"));
+                session.getQueryAuthority().map(org.pangrova.spi.connector.ConnectorQueryAuthority::queryId)
+                        .orElseGet(() -> session.getProperties().get("queryId")), session.getQueryAuthority());
         Map<String, org.apache.calcite.schema.Schema> catalogSchemas = new ConcurrentHashMap<>();
         AbstractSchema root = new AbstractSchema() {
             @Override

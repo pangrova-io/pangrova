@@ -1,12 +1,42 @@
 #include "LancePhysicalWriteFixture.h"
 
-#include <folly/ScopeGuard.h>
+#include <memory>
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
 
 namespace pangrova::lance::test {
 namespace {
+
+void expectExplicitFailureDrain(LancePhysicalBatchWriter& writer, bool cleanupReportsFailure) {
+  if (cleanupReportsFailure) {
+    try {
+      writer.close();
+      FAIL() << "The actual SDK staging failure must remain visible after drain";
+    } catch (const std::runtime_error& error) {
+      EXPECT_NE(std::string(error.what()).find("Physical staging byte grant exhausted"), std::string::npos);
+    }
+  } else {
+    ASSERT_NO_THROW(writer.close());
+  }
+  // This value is populated by the actual C ABI drain, not destructor entry.
+  ASSERT_TRUE(writer.isDrainedAndCleaned());
+  ASSERT_NO_THROW(writer.releaseDrained());
+  EXPECT_NO_THROW(writer.close());
+  EXPECT_THROW(writer.finish(), std::runtime_error);
+}
+
+void expectStagingGrantFailure(LancePhysicalBatchWriter& writer, const RowVectorPtr& input) {
+  bool rejected = false;
+  try {
+    writer.writeBatch(input);
+    (void)writer.finish();
+  } catch (const std::exception& error) {
+    rejected = true;
+    EXPECT_NE(std::string(error.what()).find("Physical staging byte grant exhausted"), std::string::npos);
+  }
+  ASSERT_TRUE(rejected);
+}
 
 TEST_F(LancePhysicalWriteFixture, RealPhysicalFileRoundTripPreservesDoubleAndBothNullKinds) {
   auto allocation = config();
@@ -75,6 +105,7 @@ TEST_F(LancePhysicalWriteFixture, RealPhysicalFileRoundTripPreservesDoubleAndBot
 TEST_F(LancePhysicalWriteFixture, ConditionalCreateCannotOverwriteExistingActualFile) {
   auto allocation = config();
   const auto original = batch();
+  const auto baseline = pool_->usedBytes();
   std::vector<uint8_t> first_receipt;
   {
     LancePhysicalBatchWriter writer(pool_, output_type_, allocation);
@@ -89,7 +120,10 @@ TEST_F(LancePhysicalWriteFixture, ConditionalCreateCannotOverwriteExistingActual
     collision.writeBatch(original);
     EXPECT_THROW(collision.finish(), std::runtime_error);
     EXPECT_THROW(collision.finish(), std::runtime_error);
+    ASSERT_NO_FATAL_FAILURE(expectExplicitFailureDrain(collision, false));
+    EXPECT_EQ(pool_->usedBytes(), baseline);
   }
+  EXPECT_EQ(pool_->usedBytes(), baseline);
   EXPECT_EQ(std::filesystem::file_size(uri), original_size);
   EXPECT_EQ(actualFileBytes(uri), original_object);
   EXPECT_TRUE(std::filesystem::is_empty(directory_ / "stage"));
@@ -100,6 +134,7 @@ TEST_F(LancePhysicalWriteFixture, StagingGrantRejectsBeforePublicationAndFailure
   auto allocation = config();
   allocation.maxSpillBytes = 1;
   const auto original = batch();
+  const auto baseline = pool_->usedBytes();
   const auto uri = allocation.binding.files(0).opaque_location();
   proto::ResourceUsage observed;
   allocation.resourceUsagePublisher = [&observed](const proto::ResourceUsage& usage) { observed = usage; };
@@ -120,10 +155,86 @@ TEST_F(LancePhysicalWriteFixture, StagingGrantRejectsBeforePublicationAndFailure
     EXPECT_EQ(observed.columnar_conversion_copied_bytes(),
         writer.resourceUsage().columnar_conversion_copied_bytes());
     EXPECT_THROW(writer.finish(), std::runtime_error);
+    ASSERT_NO_FATAL_FAILURE(expectExplicitFailureDrain(writer, true));
+    EXPECT_EQ(pool_->usedBytes(), baseline);
   }
+  EXPECT_EQ(pool_->usedBytes(), baseline);
   EXPECT_FALSE(std::filesystem::exists(uri));
   EXPECT_GT(observed.columnar_conversion_copied_bytes(), 0);
   EXPECT_TRUE(std::filesystem::is_empty(directory_ / "stage"));
+}
+
+TEST_F(LancePhysicalWriteFixture, RepeatedConditionalCreateFailuresReleaseActualTaskPools) {
+  const auto allocation = config();
+  const auto original = batch();
+  {
+    LancePhysicalBatchWriter writer(pool_, output_type_, allocation);
+    writer.writeBatch(original);
+    ASSERT_FALSE(writer.finish().empty());
+  }
+  const auto uri = allocation.binding.files(0).opaque_location();
+  const auto published = actualFileBytes(uri);
+  auto* manager = pangrova::test::testMemoryManager();
+  const auto baseline_bytes = manager->getTotalBytes();
+  const auto baseline_pools = manager->numPools();
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    SCOPED_TRACE(attempt);
+    auto root = manager->addRootPool("physical-create-retry-" + std::to_string(attempt), 1024 * 1024);
+    auto leaf = root->addLeafChild("write-drain");
+    std::weak_ptr<facebook::velox::memory::MemoryPool> root_owner = root;
+    std::weak_ptr<facebook::velox::memory::MemoryPool> leaf_owner = leaf;
+    const auto baseline = leaf->usedBytes();
+    {
+      LancePhysicalBatchWriter writer(leaf, output_type_, allocation);
+      writer.writeBatch(original);
+      EXPECT_THROW(writer.finish(), std::runtime_error);
+      EXPECT_THROW(writer.finish(), std::runtime_error);
+      ASSERT_NO_FATAL_FAILURE(expectExplicitFailureDrain(writer, false));
+      EXPECT_EQ(leaf->usedBytes(), baseline);
+    }
+    leaf.reset();
+    root.reset();
+    EXPECT_TRUE(leaf_owner.expired());
+    EXPECT_TRUE(root_owner.expired());
+    EXPECT_EQ(manager->getTotalBytes(), baseline_bytes);
+    EXPECT_EQ(manager->numPools(), baseline_pools);
+    EXPECT_EQ(actualFileBytes(uri), published);
+    EXPECT_TRUE(std::filesystem::is_empty(directory_ / "stage"));
+  }
+}
+
+TEST_F(LancePhysicalWriteFixture, RepeatedStagingGrantFailuresReleaseActualTaskPools) {
+  auto allocation = config();
+  allocation.maxSpillBytes = 1;
+  const auto original = batch();
+  const auto uri = allocation.binding.files(0).opaque_location();
+  auto* manager = pangrova::test::testMemoryManager();
+  const auto baseline_bytes = manager->getTotalBytes();
+  const auto baseline_pools = manager->numPools();
+  for (int attempt = 0; attempt < 32; ++attempt) {
+    SCOPED_TRACE(attempt);
+    auto root = manager->addRootPool("physical-stage-retry-" + std::to_string(attempt), 1024 * 1024);
+    auto leaf = root->addLeafChild("write-drain");
+    std::weak_ptr<facebook::velox::memory::MemoryPool> root_owner = root;
+    std::weak_ptr<facebook::velox::memory::MemoryPool> leaf_owner = leaf;
+    const auto baseline = leaf->usedBytes();
+    {
+      LancePhysicalBatchWriter writer(leaf, output_type_, allocation);
+      ASSERT_NO_FATAL_FAILURE(expectStagingGrantFailure(writer, original));
+      EXPECT_GT(writer.resourceUsage().columnar_conversion_copied_bytes(), 0);
+      EXPECT_THROW(writer.finish(), std::runtime_error);
+      ASSERT_NO_FATAL_FAILURE(expectExplicitFailureDrain(writer, true));
+      EXPECT_EQ(leaf->usedBytes(), baseline);
+    }
+    leaf.reset();
+    root.reset();
+    EXPECT_TRUE(leaf_owner.expired());
+    EXPECT_TRUE(root_owner.expired());
+    EXPECT_EQ(manager->getTotalBytes(), baseline_bytes);
+    EXPECT_EQ(manager->numPools(), baseline_pools);
+    EXPECT_FALSE(std::filesystem::exists(uri));
+    EXPECT_TRUE(std::filesystem::is_empty(directory_ / "stage"));
+  }
 }
 
 TEST_F(LancePhysicalWriteFixture, GenuineZeroInputEmitsNoPhysicalFile) {
@@ -159,15 +270,14 @@ TEST_F(LancePhysicalWriteFixture, ActualTaskPoolCapRejectsClosedSdkPayloadBefore
   auto* governor = pangrova::jni::globalVeloxMemoryGovernor();
   ASSERT_NE(governor, nullptr);
   const auto active_before = governor->getMemorySnapshot().active_pool_count;
+  std::weak_ptr<facebook::velox::memory::MemoryPool> task_root_owner;
+  std::weak_ptr<facebook::velox::memory::MemoryPool> task_leaf_owner;
   {
     auto task_root = governor->createTaskPool("physical-payload-cap", "task-0", kTaskBytes);
     auto task_leaf = task_root->addLeafChild("write-drain");
-    auto task_completion = folly::makeGuard([&] {
-      task_leaf.reset();
-      task_root.reset();
-      // Private physical staging is not a Velox operator spill metric.
-      governor->reportSpillBytes(0);
-    });
+    task_root_owner = task_root;
+    task_leaf_owner = task_leaf;
+    EXPECT_EQ(governor->getMemorySnapshot().active_pool_count, active_before + 1);
     ASSERT_EQ(task_leaf->maxCapacity(), kTaskBytes);
     const auto baseline = task_leaf->usedBytes();
     {
@@ -197,7 +307,12 @@ TEST_F(LancePhysicalWriteFixture, ActualTaskPoolCapRejectsClosedSdkPayloadBefore
     EXPECT_EQ(task_leaf->usedBytes(), baseline);
     EXPECT_FALSE(std::filesystem::exists(uri));
     EXPECT_TRUE(std::filesystem::is_empty(directory_ / "stage"));
+    task_root.reset();
+    EXPECT_FALSE(task_root_owner.expired());
+    EXPECT_EQ(governor->getMemorySnapshot().active_pool_count, active_before + 1);
   }
+  EXPECT_TRUE(task_leaf_owner.expired());
+  EXPECT_TRUE(task_root_owner.expired());
   EXPECT_EQ(governor->getMemorySnapshot().active_pool_count, active_before);
 }
 

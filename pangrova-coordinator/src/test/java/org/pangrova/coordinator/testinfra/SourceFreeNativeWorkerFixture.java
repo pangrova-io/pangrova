@@ -24,6 +24,8 @@ import org.pangrova.resource.spill.SpillManager;
 import org.pangrova.resource.thread.ThreadBudgetTracker;
 import org.pangrova.testing.TestObservability;
 import org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement;
+import org.pangrova.worker.bootstrap.WorkerComponentRefs;
+import org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap;
 import org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease;
 import org.pangrova.worker.exchange.NativeExchangeTransport;
 import org.pangrova.worker.execution.NativeTaskExecutor;
@@ -32,6 +34,7 @@ import org.pangrova.worker.jni.NativeFunctionConfig;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.memory.NativeMemoryCoordinator;
 import org.pangrova.worker.result.NativeResultTransport;
+import org.pangrova.worker.result.ResultReadTickets;
 import org.pangrova.worker.shuffle.NativeShuffleTransport;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TaskManagerContext;
@@ -69,9 +72,11 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
     private final java.util.concurrent.ConcurrentHashMap<String, List<List<Object>>> rows =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final AtomicReference<Throwable> reportFailure = new AtomicReference<>();
+    private final WorkerComponentRefs nativeRefs = new WorkerComponentRefs();
     private ShuffleServiceMemoryLease serviceLease;
     private NativeTaskExecutor executor;
     private NativeResultTransport results;
+    private ResultReadTickets resultTickets;
     private TaskManager manager;
     private WorkerHttpServer server;
     private MemoryRefs memory;
@@ -105,9 +110,14 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
                 .setShuffleSpillBytes(MEMORY_BYTES).setShuffleSpillFiles(256)
                 .setShuffleSpillDirectory(directory.toAbsolutePath().toString()).build();
         NativeRuntime.initNativeRuntime(config.toByteArray(), new NativeMemoryCoordinator(MEMORY_BYTES, arbitrator));
+        nativeRefs.setNativeAvailable(true);
+        // Match the advertised core-only configuration and publish the actual runtime-owned catalogue
+        // before any capability read, transport server or task admission.
+        NativeFunctionBootstrap.initialize(nativeRefs, NativeFunctionConfig.DISABLED);
         byte[] key = new byte[32];
         new java.security.SecureRandom().nextBytes(key);
         NativeRuntime.nativeSetHmacKey(key, new byte[0]);
+        resultTickets = new ResultReadTickets(key);
         executor = new NativeTaskExecutor();
         results = new NativeResultTransport(executor, "localhost");
         results.startServer(0);
@@ -129,7 +139,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         tasks.requireControlEpochHandshake();
         tasks.observeControlEpoch(1L);
         var http = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, "localhost", results.boundPort()),
-                tasks, exchange);
+                tasks, exchange, null, null, resultTickets);
         var worker = new WorkerNode(id, tasks, http);
         workers.add(worker);
         http.start();
@@ -273,6 +283,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
             });
             cleanup(failures, this::stopOrchestrationThreads);
         } finally {
+            cleanup(failures, () -> NativeFunctionBootstrap.close(nativeRefs));
             cleanup(failures, NativeRuntime::shutdownNativeRuntime);
             cleanup(failures, () -> { if (serviceLease != null) serviceLease.close(); });
             cleanup(failures, threads::shutdown);

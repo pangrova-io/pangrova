@@ -101,8 +101,16 @@ public record PaimonOutputTableHandle(
         return write.physicalAllocation();
     }
 
+    /**
+     * Binds the single immutable physical allocation to this output handle.
+     *
+     * @param allocation the exact SDK output allocation
+     * @return an allocated output handle
+     */
     public PaimonOutputTableHandle withPhysicalAllocation(NativePhysicalWriteAllocation allocation) {
-        if (write.physicalAllocation().isPresent()) throw new IllegalStateException("Physical output is already allocated");
+        if (write.physicalAllocation().isPresent()) {
+            throw new IllegalStateException("Physical output is already allocated");
+        }
         return new PaimonOutputTableHandle(schemaName, tableName, tableLocation, rowTypeJson, layout,
                 new WriteSemantics(overwritePartition(), mode(), baseSnapshotId(), Optional.of(allocation)));
     }
