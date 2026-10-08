@@ -468,6 +468,12 @@ interface AlertChannelRegistry {
 
 ### 5.2 Tag Management SQL
 
+The following SQL describes the target design, not completed production wiring.
+Column `SET TAG` / `UNSET TAG` is parsed but currently rejected before mutation:
+durable tag storage and the query enforcement policy authority are not yet wired
+as one fail-closed chain. A metadata API or an in-memory tag event does not prove
+this SQL path is implemented.
+
 ```sql
 -- Create a tag
 CREATE TAG sensitivity_level WITH VALUES ('PUBLIC', 'INTERNAL', 'CONFIDENTIAL', 'RESTRICTED');
@@ -506,7 +512,10 @@ CALL system.auto_classify(
 
 ### 5.3 Tag and Security Policy Integration
 
-**Event-driven mechanism**: Tag changes automatically trigger security policy updates via events, rather than relying on manual invocation or scheduled scans.
+**Target event-driven mechanism (not production-wired)**: Tag changes must trigger
+durable, idempotent updates to the same policy authority used by query enforcement.
+The current governance bootstrap's in-memory mask store is not that authority;
+the flow below is a design requirement, not an implemented guarantee.
 
 ```
 Tag Change Event Flow:

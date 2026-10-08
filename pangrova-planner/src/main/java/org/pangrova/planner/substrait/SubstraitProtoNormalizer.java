@@ -2,6 +2,7 @@ package org.pangrova.planner.substrait;
 
 import com.google.protobuf.Descriptors;
 import com.google.protobuf.Message;
+import io.substrait.proto.ComparisonJoinKey;
 import io.substrait.proto.Plan;
 
 import java.util.ArrayList;
@@ -12,6 +13,8 @@ import java.util.Map;
 final class SubstraitProtoNormalizer {
 
     private static final String FETCH_REL = "substrait.FetchRel";
+    private static final String HASH_JOIN_REL = "substrait.HashJoinRel";
+    private static final String MERGE_JOIN_REL = "substrait.MergeJoinRel";
 
     private SubstraitProtoNormalizer() {}
 
@@ -28,7 +31,39 @@ final class SubstraitProtoNormalizer {
                 : message.getAllFields().entrySet()) {
             normalizeField(builder, entry.getKey(), entry.getValue());
         }
+        String relationType = message.getDescriptorForType().getFullName();
+        if (HASH_JOIN_REL.equals(relationType) || MERGE_JOIN_REL.equals(relationType)) {
+            normalizeJoinKeys(builder);
+        }
         return builder.build();
+    }
+
+    /** Removes only the official SDK's verified redundant EQ key copies, never translates old plans. */
+    private static void normalizeJoinKeys(Message.Builder join) {
+        Descriptors.Descriptor descriptor = join.getDescriptorForType();
+        var left = descriptor.findFieldByName("left_keys");
+        var right = descriptor.findFieldByName("right_keys");
+        var keys = descriptor.findFieldByName("keys");
+        int leftCount = join.getRepeatedFieldCount(left);
+        int rightCount = join.getRepeatedFieldCount(right);
+        if (leftCount == 0 && rightCount == 0) {
+            return;
+        }
+        int keyCount = join.getRepeatedFieldCount(keys);
+        if (keyCount == 0 || leftCount != keyCount || rightCount != keyCount) {
+            throw new IllegalArgumentException("Join contains non-canonical or conflicting deprecated keys");
+        }
+        for (int index = 0; index < keyCount; index++) {
+            var key = (ComparisonJoinKey) join.getRepeatedField(keys, index);
+            if (key.getComparison().getSimple()
+                    != ComparisonJoinKey.SimpleComparisonType.SIMPLE_COMPARISON_TYPE_EQ
+                    || !key.getLeft().equals(join.getRepeatedField(left, index))
+                    || !key.getRight().equals(join.getRepeatedField(right, index))) {
+                throw new IllegalArgumentException("Join contains non-canonical or conflicting deprecated keys");
+            }
+        }
+        join.clearField(left);
+        join.clearField(right);
     }
 
     private static void normalizeField(

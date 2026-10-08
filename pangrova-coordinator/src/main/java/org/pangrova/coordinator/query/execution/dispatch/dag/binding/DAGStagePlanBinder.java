@@ -76,13 +76,27 @@ public final class DAGStagePlanBinder {
                 retrievalPlan.planBytes(), operators, resultTypes);
     }
 
-    /** Binds output dimensions from exact model contracts rather than classifying arbitrary arrays. */
+    /** Retains declared storage vectors and binds only exact-model vector output intents. */
     public static List<ResultColumnLogicalType> bindResultColumnTypes(
             org.pangrova.planner.StagePlanAccess fragment,
             Map<String, LogicalType> modelOutputTypes) {
-        return fragment.resultColumnModels().stream()
-                .map(column -> resultColumnType(column, modelOutputTypes))
-                .toList();
+        Map<Integer, ResultColumnLogicalType> columns = new java.util.TreeMap<>();
+        for (var column : fragment.resultColumnTypes()) {
+            VectorLogicalType.requireStorageDimension(column.getLogicalType());
+            addResultColumn(columns, column, fragment.fieldNames().size());
+        }
+        for (var column : fragment.resultColumnModels()) {
+            addResultColumn(columns, resultColumnType(column, modelOutputTypes), fragment.fieldNames().size());
+        }
+        return List.copyOf(columns.values());
+    }
+
+    private static void addResultColumn(Map<Integer, ResultColumnLogicalType> columns,
+            ResultColumnLogicalType column, int width) {
+        if (column.getColumnIndex() < 0 || column.getColumnIndex() >= width
+                || columns.putIfAbsent(column.getColumnIndex(), column) != null) {
+            throw new IllegalArgumentException("Result logical types have an invalid or duplicate output ordinal");
+        }
     }
 
     private static ResultColumnLogicalType resultColumnType(

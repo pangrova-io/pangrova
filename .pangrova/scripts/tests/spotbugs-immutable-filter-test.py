@@ -89,10 +89,13 @@ public final class ImmutableFilterBoundary {
             check(borrowed, owner, method, params, result, field, type, "HARD_CODE_KEY", false);
         }
         verifyJdbcForwards(args[5], args[6]);
-        verifyJdbcIdentities(args[7], args[6]);
+        verifyReferenceBoundaries(args[7], args[6], "EI_EXPOSE_REP");
+        verifyReferenceBoundaries(args[8], args[6], "EI_EXPOSE_REP");
+        verifyReferenceBoundaries(args[9], args[6], "EI_EXPOSE_REP2");
+        verifyMetadataDecisions(args[10], args[6]);
     }
 
-    private static void verifyJdbcIdentities(String manifest, String fullFilterPath) throws Exception {
+    private static void verifyReferenceBoundaries(String manifest, String fullFilterPath, String bug) throws Exception {
         Filter full = Filter.parseFilter(fullFilterPath);
         for (String line : java.nio.file.Files.readAllLines(java.nio.file.Path.of(manifest))) {
             String[] part = line.split(java.util.regex.Pattern.quote("|"), -1);
@@ -103,17 +106,19 @@ public final class ImmutableFilterBoundary {
             String params = signature.substring(1, end), result = signature.substring(end + 1);
             String type = SignatureUtil.createFieldSignature(part[6]);
             for (Filter filter : new Filter[]{isolated, full}) {
-                check(filter, owner, method, params, result, field, type, "EI_EXPOSE_REP", true);
-                check(filter, owner + "Other", method, params, result, field, type, "EI_EXPOSE_REP", false);
-                check(filter, owner, method + "Other", params, result, field, type, "EI_EXPOSE_REP", false);
-                check(filter, owner, method, "I", result, field, type, "EI_EXPOSE_REP", false);
-                check(filter, owner, method, "Ljava/lang/Object;", result, field, type, "EI_EXPOSE_REP", false);
-                check(filter, owner, method, params, "[B", field, type, "EI_EXPOSE_REP", false);
-                check(filter, owner, method, params, "Ljava/lang/Object;", field, type, "EI_EXPOSE_REP", false);
-                check(filter, owner, method, params, result, field + "Other", type, "EI_EXPOSE_REP", false);
-                check(filter, owner, method, params, result, field, "[B", "EI_EXPOSE_REP", false);
-                check(filter, owner, method, params, result, field, "Ljava/lang/Object;", "EI_EXPOSE_REP", false);
-                check(filter, owner, method, params, result, field, type, "EI_EXPOSE_REP2", false);
+                check(filter, owner, method, params, result, field, type, bug, true);
+                check(filter, owner + "Other", method, params, result, field, type, bug, false);
+                check(filter, owner, method + "Other", params, result, field, type, bug, false);
+                check(filter, owner, method, params + "I", result, field, type, bug, false);
+                check(filter, owner, method, "Ljava/lang/Object;", result, field, type, bug, false);
+                check(filter, owner, method, params, "[B", field, type, bug, false);
+                check(filter, owner, method, params, "Ljava/lang/Object;", field, type, bug, false);
+                check(filter, owner, method, params, result, field + "Other", type, bug, false);
+                check(filter, owner, method, params, result, field, "[B", bug, false);
+                check(filter, owner, method, params, result, field, "Ljava/lang/Object;", bug, false);
+                check(filter, owner, method, params, "[B", field, "[B", bug, false);
+                check(filter, owner, method, params, result, field, type,
+                        bug.equals("EI_EXPOSE_REP") ? "EI_EXPOSE_REP2" : "EI_EXPOSE_REP", false);
                 check(filter, owner, method, params, result, field, type, "MS_EXPOSE_REP", false);
                 check(filter, owner, method, params, result, field, type, "NP_BOOLEAN_RETURN_NULL", false);
             }
@@ -123,6 +128,58 @@ public final class ImmutableFilterBoundary {
                 "Lorg/pangrova/client/jdbc/PangrovaConnection;", "EI_EXPOSE_REP", false);
         check(full, prepared, "getResultSet", "", "Ljava/sql/ResultSet;", "currentResultSet",
                 "Ljava/sql/ResultSet;", "EI_EXPOSE_REP", false);
+    }
+
+    private static void verifyMetadataDecisions(String manifest, String fullFilterPath) throws Exception {
+        Filter full = Filter.parseFilter(fullFilterPath);
+        for (String line : java.nio.file.Files.readAllLines(java.nio.file.Path.of(manifest))) {
+            String[] part = line.split(java.util.regex.Pattern.quote("|"), -1);
+            Filter isolated = Filter.parseFilter(part[0]);
+            String owner = part[1], method = part[2], params = part[3], result = part[4], bug = part[5];
+            String signature = SignatureUtil.createMethodSignature(params, result);
+            for (Filter filter : new Filter[]{isolated, full}) {
+                command(filter, owner, method, signature, bug, true);
+                command(filter, owner + "Other", method, signature, bug, false);
+                command(filter, owner, method + "Other", signature, bug, false);
+                command(filter, owner, method, SignatureUtil.createMethodSignature(params + ",int", result),
+                        bug, false);
+                command(filter, owner, method, SignatureUtil.createMethodSignature("java.lang.Object", result),
+                        bug, false);
+                command(filter, owner, method, SignatureUtil.createMethodSignature(params, "java.lang.Object"),
+                        bug, false);
+                command(filter, owner, method, signature,
+                        bug.equals("UNSAFE_HASH_EQUALS") ? "PREDICTABLE_RANDOM" : "UNSAFE_HASH_EQUALS", false);
+                command(filter, owner, method, signature, "HARD_CODE_KEY", false);
+                command(filter, owner, "verifySensitiveBytes", "([BLjava/lang/String;)V",
+                        "UNSAFE_HASH_EQUALS", false);
+                command(filter, owner, "issueAuthenticationToken", "()Ljava/lang/String;",
+                        "PREDICTABLE_RANDOM", false);
+            }
+        }
+        String owner = "org.pangrova.metadata.service.DefaultMetadataService";
+        String params = SignatureUtil.createMethodSignature(
+                "org.pangrova.metadata.catalog.CatalogRegistry,org.pangrova.metadata.cache.MetadataCache,"
+                + "org.pangrova.metadata.event.MetadataEventDispatcher,"
+                + "org.pangrova.metadata.schema.SchemaEvolutionValidator,long,java.time.Duration", "void");
+        check(full, owner, "<init>", params.substring(1, params.indexOf(')')), "V", "eventDispatcher",
+                "Lorg/pangrova/metadata/event/MetadataEventDispatcher;", "EI_EXPOSE_REP2", true);
+        String forwardingParams = SignatureUtil.createMethodSignature(
+                "org.pangrova.metadata.catalog.CatalogRegistry,org.pangrova.metadata.cache.MetadataCache,"
+                + "org.pangrova.metadata.event.MetadataEventDispatcher,"
+                + "org.pangrova.metadata.schema.SchemaEvolutionValidator", "void");
+        check(full, owner, "<init>", forwardingParams.substring(1, forwardingParams.indexOf(')')), "V",
+                "eventDispatcher", "Lorg/pangrova/metadata/event/MetadataEventDispatcher;", "EI_EXPOSE_REP2", false);
+        command(full, "org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore",
+                "requireProducerWinner", "(Ljava/sql/ResultSet;I)V", "UNSAFE_HASH_EQUALS", false);
+        check(full, "org.pangrova.metadata.index.IndexSchemaEvolutionHandler", "<init>",
+                "Lorg/pangrova/metadata/index/IndexMetadataStore;", "V", "metadataStore",
+                "Lorg/pangrova/metadata/index/IndexMetadataStore;", "EI_EXPOSE_REP2", false);
+        check(full, "org.pangrova.metadata.mv.JdbcMaterializedViewPersistenceHook", "<init>",
+                "Ljavax/sql/DataSource;", "V", "dataSource", "Ljavax/sql/DataSource;", "EI_EXPOSE_REP2", false);
+        check(full, "org.pangrova.metadata.cache.DdlPropagationWaiter", "<init>",
+                "Lorg/pangrova/spi/coordination/CoordinatorRegistry;"
+                + "Lorg/pangrova/metadata/cache/JdbcInvalidationPoller;Ljava/time/Duration;", "V", "localPoller",
+                "Lorg/pangrova/metadata/cache/JdbcInvalidationPoller;", "EI_EXPOSE_REP2", false);
     }
 
     private static void verifyJdbcForwards(String manifest, String fullFilterPath) throws Exception {
@@ -142,7 +199,8 @@ public final class ImmutableFilterBoundary {
                     "SQL_INJECTION_JDBC", false);
             command(isolated, owner, method, SignatureUtil.createMethodSignature(params, "java.lang.Object"),
                     "SQL_INJECTION_JDBC", false);
-            command(isolated, owner, method, signature, "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING", false);
+            command(isolated, owner, method, signature,
+                    "SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING", false);
             command(isolated, owner, method, signature, "NP_BOOLEAN_RETURN_NULL", false);
         }
         String prepared = "org.pangrova.client.jdbc.PangrovaPreparedStatement";
@@ -161,6 +219,42 @@ public final class ImmutableFilterBoundary {
     }
 }
 '''
+
+
+def exact_case_manifest(full_filter, expected, temporary, name, with_fields):
+    owners = {case[0] for case in expected}
+    bugs = {case[-1] for case in expected}
+    matches = [match for match in full_filter.getroot()
+               if any(child.tag.endswith('Class') and child.get('name') in owners for child in match)
+               and any(child.tag.endswith('Bug') and child.get('pattern') in bugs for child in match)]
+    if len(matches) != len(expected):
+        raise RuntimeError(f'Expected {len(expected)} exact {name} classifications, found {len(matches)}')
+    cases = []
+    actual = set()
+    required = {'Class', 'Method', 'Bug'} | ({'Field'} if with_fields else set())
+    for index, match in enumerate(matches):
+        elements = {child.tag.rsplit('}', 1)[-1]: child for child in match}
+        if len(match) != len(required) or set(elements) != required:
+            raise RuntimeError(f'{name} classification is not a flat exact Match')
+        owner, method, bug = (elements[key] for key in ('Class', 'Method', 'Bug'))
+        case = (owner.attrib['name'], method.attrib['name'], method.attrib['params'], method.attrib['returns'])
+        if with_fields:
+            field = elements['Field']
+            case += (field.attrib['name'], field.attrib['type'])
+        case += (bug.attrib['pattern'],)
+        if case not in expected or case in actual:
+            raise RuntimeError(f'Unexpected or duplicate {name} classification: {case}')
+        actual.add(case)
+        isolated = ET.Element('FindBugsFilter')
+        isolated.append(deepcopy(match))
+        for element in isolated.iter():
+            element.tag = element.tag.rsplit('}', 1)[-1]
+        path = temporary / f'{name}-{index}.xml'
+        ET.ElementTree(isolated).write(path, encoding='utf-8', xml_declaration=True)
+        cases.append('|'.join([str(path), *case]))
+    manifest = temporary / f'{name}-cases.txt'
+    manifest.write_text('\n'.join(cases), encoding='utf-8')
+    return manifest
 
 
 def main():
@@ -354,6 +448,93 @@ def main():
             identity_cases.append('|'.join([str(classification_file), *case]))
         identity_manifest = temporary / 'jdbc-identity-cases.txt'
         identity_manifest.write_text('\n'.join(identity_cases), encoding='utf-8')
+        expected_metadata = {
+            ('org.pangrova.metadata.artifact.build.ArtifactExchangeFinalization', 'partitions', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactExchangeRegistration', 'endpoints', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'stages', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'exchanges', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'modelSnapshots', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate',
+             'publicationReads', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.contract.ArtifactDependencySet', 'dependencies', 'java.util.List'),
+            ('org.pangrova.metadata.model.TableMetadata', 'columns', 'java.util.List'),
+            ('org.pangrova.metadata.model.TableMetadata', 'partitionSpec', 'java.util.Map'),
+            ('org.pangrova.metadata.model.TableMetadata', 'sortOrder', 'java.util.List'),
+            ('org.pangrova.metadata.model.TableMetadata', 'properties', 'java.util.Map'),
+        }
+        metadata_owners = {owner for owner, _, _ in expected_metadata}
+        metadata_matches = [match for match in full_filter.getroot()
+                            if any(child.tag.endswith('Class') and child.get('name') in metadata_owners
+                                   for child in match)
+                            and any(child.tag.endswith('Bug') and child.get('pattern') == 'EI_EXPOSE_REP'
+                                    for child in match)]
+        if len(metadata_matches) != len(expected_metadata):
+            raise RuntimeError('Expected 11 exact immutable metadata collection classifications')
+        metadata_cases = []
+        actual_metadata = set()
+        for index, match in enumerate(metadata_matches):
+            elements = {child.tag.rsplit('}', 1)[-1]: child for child in match}
+            if len(match) != 4 or set(elements) != {'Class', 'Method', 'Field', 'Bug'}:
+                raise RuntimeError('Metadata collection classification is not a flat exact Match')
+            owner, method, field = (elements[key] for key in ('Class', 'Method', 'Field'))
+            case = (owner.attrib['name'], method.attrib['name'], method.attrib['returns'])
+            if (case not in expected_metadata or case in actual_metadata or method.attrib['params'] != ''
+                    or field.attrib['name'] != method.attrib['name']
+                    or field.attrib['type'] != method.attrib['returns']):
+                raise RuntimeError(f'Unexpected or duplicate metadata collection classification: {case}')
+            actual_metadata.add(case)
+            isolated_metadata = ET.Element('FindBugsFilter')
+            isolated_metadata.append(deepcopy(match))
+            for element in isolated_metadata.iter():
+                element.tag = element.tag.rsplit('}', 1)[-1]
+            classification_file = temporary / f'metadata-collection-{index}.xml'
+            ET.ElementTree(isolated_metadata).write(classification_file, encoding='utf-8', xml_declaration=True)
+            metadata_cases.append('|'.join([str(classification_file), case[0], case[1], '', case[2],
+                                           field.attrib['name'], field.attrib['type']]))
+        metadata_manifest = temporary / 'metadata-collection-cases.txt'
+        metadata_manifest.write_text('\n'.join(metadata_cases), encoding='utf-8')
+        metadata = 'org.pangrova.metadata.'
+        store = metadata + 'store.MetadataStore'
+        cache = metadata + 'cache.MetadataCache'
+        dispatcher = metadata + 'event.MetadataEventDispatcher'
+        registry = metadata + 'catalog.CatalogRegistry'
+        registry_params = ','.join([store, metadata + 'catalog.ConnectorHandleFactory',
+                                   metadata + 'catalog.FederationHandleFactory', dispatcher])
+        service_params = ','.join([registry, cache, dispatcher, metadata + 'schema.SchemaEvolutionValidator',
+                                  'long', 'java.time.Duration'])
+        sync_params = ','.join([store, cache, dispatcher])
+        expected_borrowed = {
+            (metadata + 'cache.TieredMetadataCache', '<init>',
+             'long,long,long,' + metadata + 'cache.L2CacheStore', 'void',
+             'l2Adapter', metadata + 'cache.L2CacheStore', 'EI_EXPOSE_REP2'),
+            (metadata + 'catalog.CatalogHealthMonitor', '<init>', 'java.util.Map', 'void',
+             'catalogs', 'java.util.Map', 'EI_EXPOSE_REP2'),
+            (registry, '<init>', registry_params, 'void', 'store', store, 'EI_EXPOSE_REP2'),
+            (registry, '<init>', registry_params, 'void', 'eventDispatcher', dispatcher, 'EI_EXPOSE_REP2'),
+            (metadata + 'service.DefaultMetadataService', '<init>', service_params, 'void',
+             'catalogRegistry', registry, 'EI_EXPOSE_REP2'),
+            (metadata + 'service.DefaultMetadataService', '<init>', service_params, 'void',
+             'cache', cache, 'EI_EXPOSE_REP2'),
+            (metadata + 'service.DefaultMetadataService', '<init>', service_params, 'void',
+             'eventDispatcher', dispatcher, 'EI_EXPOSE_REP2'),
+            (metadata + 'store.JdbcMetadataStore', '<init>', 'javax.sql.DataSource', 'void',
+             'dataSource', 'javax.sql.DataSource', 'EI_EXPOSE_REP2'),
+        } | {
+            (metadata + 'sync.MetadataSyncService', '<init>', sync_params, 'void', field, field_type, 'EI_EXPOSE_REP2')
+            for field, field_type in [('store', store), ('cache', cache), ('eventDispatcher', dispatcher)]
+        }
+        metadata_borrowed_manifest = exact_case_manifest(full_filter, expected_borrowed, temporary,
+                                                        'metadata-borrowed', True)
+        expected_decisions = {
+            (metadata + 'artifact.jdbc.JdbcArtifactStageExchangeStore', 'requireGraphEdges',
+             'java.sql.Connection,' + metadata + 'artifact.jdbc.CurrentDeferredExecutionContext',
+             'void', 'UNSAFE_HASH_EQUALS'),
+            (metadata + 'sync.MetadataSyncService', 'validateSyncedSample',
+             'java.lang.String,' + metadata + 'adapter.FederatedCatalog,java.util.List',
+             'void', 'PREDICTABLE_RANDOM'),
+        }
+        metadata_decisions_manifest = exact_case_manifest(full_filter, expected_decisions, temporary,
+                                                         'metadata-decisions', False)
         source = temporary / 'ImmutableFilterBoundary.java'
         source.write_text(SOURCE, encoding='utf-8')
         subprocess.run([javac, '-Xlint:all', '-Werror', '-cp', classpath,
@@ -362,15 +543,20 @@ def main():
                         'ImmutableFilterBoundary', str(classification), str(runner_classification),
                         str(security_plugin), str(jitter_classification), str(borrowed_manifest),
                         str(jdbc_manifest), str(ROOT / 'config/spotbugs/exclude-filter.xml'),
-                        str(identity_manifest)], check=True)
+                        str(identity_manifest), str(metadata_manifest), str(metadata_borrowed_manifest),
+                        str(metadata_decisions_manifest)], check=True)
     print('PASS: exact immutable hash classified; this Match rejects 8 changed-type/method/field/class/bug cases.')
     print('PASS: exact keytool runner classified; this Match rejects 7 class/method/signature/bug changes.')
     print('PASS: exact non-security retry jitter classified; this Match rejects 7 owner/method/signature/bug changes.')
     print('PASS: 19 exact borrowed Paimon services classified; each Match rejects 9 signature/field/type/bug changes.')
     print('PASS: 11 exact JDBC overloads classified; each Match rejects 7 owner/method/signature/bug changes.')
     print('PASS: complete filter does not exclude PreparedStatement SQL construction or Boolean-null finding.')
-    print('PASS: four JDBC identity getters classified; isolated/full filters each reject 12 changed boundaries.')
+    print('PASS: four JDBC identity getters classified; isolated/full filters each reject 13 changed boundaries.')
     print('PASS: complete filter does not exclude obsolete PreparedStatement identity getter findings.')
+    print('PASS: 11 immutable metadata collection getters classified; isolated/full filters reject changed boundaries.')
+    print('PASS: 11 borrowed metadata constructors classified; isolated/full filters reject 13 changed boundaries.')
+    print('PASS: public graph identity and non-security sampling classified with isolated/full negative controls.')
+    print('PASS: forwarding Default constructor, three unwired constructors and sensitive bytes/tokens remain visible.')
 
 
 if __name__ == '__main__':

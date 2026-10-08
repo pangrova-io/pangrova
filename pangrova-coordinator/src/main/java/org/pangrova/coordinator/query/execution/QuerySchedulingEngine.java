@@ -134,7 +134,8 @@ final class QuerySchedulingEngine {
                 session.sessionProperties());
         properties.put(POLICY_CONTEXT_PROPERTY, signature);
         return new CoordinatorSessionContext(
-                session.queryId(), properties, session.userIdentity(), session.tenantId(), session.queryAuthority());
+                session.queryId(), properties, session.userIdentity(), session.tenantId(), session.queryAuthority(),
+                session.traceContext());
     }
 
     // ── Worker dispatch ──

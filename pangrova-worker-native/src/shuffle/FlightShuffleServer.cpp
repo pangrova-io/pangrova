@@ -390,6 +390,7 @@ FlightShuffleServer::FlightShuffleServer(FlightShuffleServerConfig config)
   }
   buffer_store_ = std::make_shared<ShuffleBufferStore>(config_.buffer_limits);
   if (!config_.hmac_current_key.empty()) {
+    ticket_signing_key_ = config_.hmac_current_key;
     ticket_verifier_ = std::make_shared<TicketVerifier>(
         config_.hmac_current_key, config_.hmac_previous_key);
     PANGROVA_LOG(INFO) << "event=ticket_verifier_enabled"
@@ -413,9 +414,15 @@ void FlightShuffleServer::setHmacKeys(std::string current_key,
   {
     std::lock_guard<std::mutex> lock(ticket_verifier_mutex_);
     ticket_verifier_ = std::move(replacement);
+    ticket_signing_key_ = std::move(current_key);
   }
   PANGROVA_LOG(INFO) << "event=flight_shuffle_hmac_keys_updated"
                     << " has_previous_key=" << has_previous_key;
+}
+
+std::string FlightShuffleServer::signingKey() const {
+  std::lock_guard<std::mutex> lock(ticket_verifier_mutex_);
+  return ticket_signing_key_;
 }
 
 FlightShuffleServer::~FlightShuffleServer() {
@@ -436,6 +443,7 @@ FlightShuffleServer::~FlightShuffleServer() {
 static constexpr std::chrono::seconds kLingeringEvictInterval{10};
 
 int FlightShuffleServer::start() {
+  if (control_gate_.isSealed()) throw std::logic_error("FlightShuffleServer is closed");
   if (running_.load()) {
     throw std::logic_error("FlightShuffleServer already running");
   }
@@ -528,7 +536,7 @@ int FlightShuffleServer::start() {
       if (!running_.load()) {
         break;
       }
-      // evictFullyConsumedLingering() takes lingering_mutex_ internally; drop
+      // Eviction snapshots the canonical route owners; drop
       // evictor_mutex_ across the call to keep lock scopes minimal.
       lock.unlock();
       size_t evicted = evictFullyConsumedLingering();
@@ -545,10 +553,31 @@ int FlightShuffleServer::start() {
 }
 
 void FlightShuffleServer::stop() {
+  {
+    std::unique_lock<std::mutex> lock(stop_mutex_);
+    stop_cv_.wait(lock, [this] { return !stopping_; });
+    if (stopped_) return;
+    stopping_ = true;
+  }
+  try {
+    stopInternal();
+    std::lock_guard<std::mutex> lock(stop_mutex_);
+    stopped_ = true;
+    stopping_ = false;
+    stop_cv_.notify_all();
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(stop_mutex_);
+    stopping_ = false;
+    stop_cv_.notify_all();
+    throw;
+  }
+}
+
+void FlightShuffleServer::stopInternal() {
+  control_gate_.sealAndWait();
   running_.store(false);
 
-  // F-SHUF-LINGER: wake and join the background evictor before tearing down
-  // demuxers so it never touches lingering_demuxers_ concurrently with cleanup.
+  // Wake and join the evictor before closing the canonical route owners.
   {
     std::lock_guard<std::mutex> lock(evictor_mutex_);
     evictor_cv_.notify_all();
@@ -559,29 +588,15 @@ void FlightShuffleServer::stop() {
 
   // Drop routing under the maps' locks, then stop demuxers outside the locks.
   // stop() joins the drain thread and must never serialize unrelated routing.
-  std::vector<std::shared_ptr<PartitionDemuxer>> demuxers_to_stop;
+  std::vector<std::shared_ptr<ShuffleProducerRegistration>> registrations;
   {
     std::lock_guard<std::mutex> lock(handles_mutex_);
-    for (auto& [handle, route] : handle_routes_) {
-      demuxers_to_stop.push_back(route.demuxer);
-    }
-    handle_routes_.clear();
+    for (const auto& [handle, owner] : handle_routes_) registrations.push_back(owner);
   }
-
-  // Clean up lingering demuxers to prevent resource leaks on shutdown.
+  for (const auto& owner : registrations) owner->close(true);
   {
-    std::lock_guard<std::mutex> lock(lingering_mutex_);
-    for (auto& [handle, entry] : lingering_demuxers_) {
-      demuxers_to_stop.push_back(entry.route.demuxer);
-    }
-    size_t count = lingering_demuxers_.size();
-    lingering_demuxers_.clear();
-    if (count > 0) {
-      PANGROVA_LOG(INFO) << "event=lingering_demuxers_cleaned count=" << count;
-    }
-  }
-  for (const auto& demuxer : demuxers_to_stop) {
-    demuxer->stop();
+    std::lock_guard<std::mutex> lock(handles_mutex_);
+    handle_routes_.clear();
   }
 
   arrow::Status shutdown_status = arrow::Status::OK();
@@ -600,172 +615,6 @@ void FlightShuffleServer::stop() {
   }
 
   PANGROVA_LOG(INFO) << "event=flight_shuffle_server_stopped port=" << bound_port_;
-}
-
-size_t FlightShuffleServer::evictFullyConsumedLingering(
-    std::chrono::steady_clock::time_point now) {
-  std::vector<std::shared_ptr<PartitionDemuxer>> evicted_demuxers;
-  size_t evicted = 0;
-  {
-    std::lock_guard<std::mutex> lock(lingering_mutex_);
-    for (auto it = lingering_demuxers_.begin();
-         it != lingering_demuxers_.end();) {
-      bool fully_consumed = it->second.route.demuxer->isFullyConsumed() &&
-          it->second.route.demuxer->allPartitionsReadComplete();
-      bool ttl_expired = config_.lingering_ttl_ms > 0 &&
-          std::chrono::duration_cast<std::chrono::milliseconds>(
-              now - it->second.entered_at).count() >=
-              config_.lingering_ttl_ms;
-      if (fully_consumed || ttl_expired) {
-        if (ttl_expired && !fully_consumed) {
-          PANGROVA_LOG(WARNING)
-              << "event=lingering_demuxer_ttl_evicted handle=" << it->first;
-        } else {
-          PANGROVA_LOG(INFO)
-              << "event=lingering_demuxer_evicted handle=" << it->first;
-        }
-        evicted_demuxers.push_back(it->second.route.demuxer);
-        it = lingering_demuxers_.erase(it);
-        ++evicted;
-      } else {
-        ++it;
-      }
-    }
-  }
-  for (const auto& demuxer : evicted_demuxers) {
-    demuxer->stop();
-  }
-  return evicted;
-}
-
-void FlightShuffleServer::registerHandle(int64_t handle,
-                                         SerializedShuffleQueue* queue,
-                                         const std::string& query_id,
-                                         int32_t stage_id,
-                                         int32_t num_partitions,
-                                         uint64_t plan_epoch,
-                                         uint32_t attempt_id,
-                                         uint64_t fencing_token) {
-  if (handle <= 0 || queue == nullptr || query_id.empty() || stage_id < 0 ||
-      num_partitions <= 0 || plan_epoch == 0 || fencing_token == 0) {
-    throw std::invalid_argument(
-        "shuffle registration requires exact fenced producer identity");
-  }
-  evictFullyConsumedLingering();
-  auto demuxer = std::make_shared<PartitionDemuxer>(queue, buffer_store_);
-  demuxer->setMaxPartitions(num_partitions);
-
-  {
-    std::scoped_lock lock(handles_mutex_, lingering_mutex_);
-    if (handle_routes_.contains(handle) ||
-        lingering_demuxers_.contains(handle)) {
-      throw std::logic_error(
-          "shuffle handle is already registered: " +
-          std::to_string(handle));
-    }
-    handle_routes_.emplace(
-        handle, HandleRoute{
-            demuxer, query_id, stage_id, plan_epoch, attempt_id,
-            fencing_token});
-  }
-  try {
-    demuxer->start();
-  } catch (...) {
-    std::lock_guard<std::mutex> lock(handles_mutex_);
-    handle_routes_.erase(handle);
-    throw;
-  }
-  PANGROVA_LOG(INFO) << "event=shuffle_handle_registered handle=" << handle
-                    << " query_id=" << query_id
-                    << " stage_id=" << stage_id
-                    << " plan_epoch=" << plan_epoch
-                    << " attempt_id=" << attempt_id
-                    << " fencing_token=" << fencing_token
-                    << " num_partitions=" << num_partitions
-                    << " total_handles=" << handleCount();
-}
-
-void FlightShuffleServer::unregisterHandle(int64_t handle) {
-  HandleRoute route;
-  bool already_lingering = false;
-  {
-    std::lock_guard<std::mutex> lock(handles_mutex_);
-    auto it = handle_routes_.find(handle);
-    if (it == handle_routes_.end()) {
-      // Check lingering set — reap if fully consumed.
-      std::lock_guard<std::mutex> ling_lock(lingering_mutex_);
-      auto lit = lingering_demuxers_.find(handle);
-      if (lit != lingering_demuxers_.end() &&
-          lit->second.route.demuxer->isFullyConsumed() &&
-          lit->second.route.demuxer->allPartitionsReadComplete()) {
-        route = std::move(lit->second.route);
-        lingering_demuxers_.erase(lit);
-      }
-      already_lingering = true;
-    } else {
-      route = std::move(it->second);
-      handle_routes_.erase(it);
-    }
-  }
-  if (!route.demuxer) return;
-  if (already_lingering) {
-    route.demuxer->stop();
-    return;
-  }
-
-  // Quiesce outside the lock: bounded wait for clean producer close.
-  bool clean = route.demuxer->quiesce(std::chrono::milliseconds(500));
-  if (clean && !(route.demuxer->isFullyConsumed() &&
-                 route.demuxer->allPartitionsReadComplete())) {
-    // A clean producer must remain routable until every partition, including
-    // zero-row partitions, has delivered EOF to its downstream reader.
-    std::lock_guard<std::mutex> ling_lock(lingering_mutex_);
-    lingering_demuxers_[handle] = LingeringEntry{
-        std::move(route), std::chrono::steady_clock::now()};
-    PANGROVA_LOG(INFO) << "event=shuffle_handle_lingering handle=" << handle;
-  } else {
-    // Un-clean or already consumed — drop.
-    route.demuxer->stop();
-    PANGROVA_LOG(INFO) << "event=shuffle_handle_unregistered handle=" << handle;
-  }
-}
-
-size_t FlightShuffleServer::handleCount() const {
-  std::lock_guard<std::mutex> lock(handles_mutex_);
-  return handle_routes_.size();
-}
-
-size_t FlightShuffleServer::lingeringHandleCount() const {
-  std::lock_guard<std::mutex> lock(lingering_mutex_);
-  return lingering_demuxers_.size();
-}
-
-bool FlightShuffleServer::popForHandle(int64_t handle, int32_t partition_id,
-                                       ShuffleBatch& batch,
-                                       std::chrono::milliseconds timeout) {
-  std::shared_ptr<PartitionDemuxer> demuxer;
-  // Check active handles first.
-  {
-    std::lock_guard<std::mutex> lock(handles_mutex_);
-    auto it = handle_routes_.find(handle);
-    if (it != handle_routes_.end()) {
-      demuxer = it->second.demuxer;
-    }
-  }
-  // Check lingering handles.
-  if (!demuxer) {
-    std::lock_guard<std::mutex> lock(lingering_mutex_);
-    auto it = lingering_demuxers_.find(handle);
-    if (it != lingering_demuxers_.end()) {
-      demuxer = it->second.route.demuxer;
-    }
-  }
-  if (!demuxer) return false;
-  if (demuxer->pop(partition_id, batch, timeout)) return true;
-  if (demuxer->isComplete() && demuxer->isPartitionDrained(partition_id)) {
-    demuxer->markPartitionReadComplete(partition_id);
-  }
-  return false;
 }
 
 arrow::Status FlightShuffleServer::DoGet(
@@ -806,40 +655,35 @@ arrow::Status FlightShuffleServer::DoGet(
         "Invalid fenced shuffle ticket format");
   }
 
-  HandleRoute route;
+  std::shared_ptr<ShuffleProducerRegistration> owner;
   {
     std::lock_guard<std::mutex> lock(handles_mutex_);
     auto it = handle_routes_.find(handle);
     if (it != handle_routes_.end()) {
-      route = it->second;
+      owner = it->second;
     }
   }
-  if (!route.demuxer) {
-    std::lock_guard<std::mutex> lock(lingering_mutex_);
-    auto it = lingering_demuxers_.find(handle);
-    if (it != lingering_demuxers_.end()) {
-      route = it->second.route;
-    }
-  }
-  if (!route.demuxer) {
+  if (!owner) {
     return arrow::Status::KeyError(
         "Unknown executor handle in ticket: " + std::to_string(handle));
   }
+  auto route = owner->snapshot();
+  if (!route.demuxer) return arrow::Status::KeyError("Shuffle producer is not serving");
   if (!detail::ticketOwnershipValid(
-          query_id, stage_id, route.query_id, route.stage_id)) {
+          query_id, stage_id, route.identity.query_id, route.identity.stage_id)) {
     PANGROVA_LOG(WARNING) << "event=ticket_ownership_rejected"
                         << " handle=" << handle
                         << " ticket_query_id=" << query_id
                         << " ticket_stage_id=" << stage_id
-                        << " registered_query_id=" << route.query_id
-                        << " registered_stage_id=" << route.stage_id
+                        << " registered_query_id=" << route.identity.query_id
+                        << " registered_stage_id=" << route.identity.stage_id
                         << " peer=" << context.peer();
     return arrow::flight::MakeFlightError(
         arrow::flight::FlightStatusCode::Unauthorized,
         "Ticket query/stage identity does not match handle owner");
   }
-  if (route.plan_epoch != plan_epoch || route.attempt_id != attempt_id ||
-      route.fencing_token != fencing_token) {
+  if (route.identity.plan_epoch != plan_epoch || route.identity.attempt_id != attempt_id ||
+      route.identity.fencing_token != fencing_token) {
     PANGROVA_LOG(WARNING) << "event=ticket_attempt_rejected"
                         << " handle=" << handle
                         << " ticket_plan_epoch=" << plan_epoch

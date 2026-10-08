@@ -157,6 +157,8 @@ class TaskRequestEpochStampingTest {
         StageResourceGrant resourceGrant = request.taskRequest().getResourceGrant();
         assertThat(resourceGrant.getProviderItems()).isEqualTo(5);
         assertThat(resourceGrant.getProviderConcurrency()).isEqualTo(2);
+        assertThat(request.taskRequest().getTraceContext().getTraceId()).isEqualTo(session.traceContext().traceId());
+        assertThat(request.taskRequest().getTraceContext().getSpanId()).isEqualTo(session.traceContext().spanId());
     }
 
     private static SubmitTaskRequest request(

@@ -14,6 +14,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rel.type.StructKind;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.pangrova.protocol.type.VectorLogicalType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +36,15 @@ public final class ConnectorColumnTypeMapper {
     private static RelDataType mapToSqlType(PangrovaType type,
                                             Type parameterizedType,
                                             RelDataTypeFactory factory) {
-        if (type == PangrovaType.ARRAY || type == PangrovaType.VECTOR) {
+        requireConcreteDeclaration(type, parameterizedType);
+        if (type == PangrovaType.VECTOR) {
+            var vector = (VectorType) parameterizedType;
+            var logical = VectorLogicalType.create(vector.dimension(),
+                    vector.elementType() == VectorType.ElementType.FLOAT
+                            ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64, true, false);
+            return StorageVectorRelDataType.create(logical, factory);
+        }
+        if (type == PangrovaType.ARRAY) {
             RelDataType elementType = resolveArrayElementType(parameterizedType, factory);
             return factory.createTypeWithNullability(
                     factory.createArrayType(elementType, -1), true);
@@ -106,7 +115,7 @@ public final class ConnectorColumnTypeMapper {
             case MAP -> SqlTypeName.MAP;
             case INTERVAL_YEAR_MONTH -> SqlTypeName.INTERVAL_YEAR_MONTH;
             case INTERVAL_DAY_TIME -> SqlTypeName.INTERVAL_DAY_SECOND;
-            case UNKNOWN -> SqlTypeName.VARCHAR;
+            case UNKNOWN -> throw new IllegalArgumentException("UNKNOWN has no concrete SQL storage type");
             default -> throw new IllegalArgumentException("Unmapped PangrovaType: " + type);
         };
     }
@@ -114,17 +123,26 @@ public final class ConnectorColumnTypeMapper {
     private static RelDataType resolveArrayElementType(
             Type parameterizedType,
             RelDataTypeFactory factory) {
-        if (parameterizedType instanceof VectorType vectorType) {
-            return factory.createSqlType(vectorType.elementType()
-                    == VectorType.ElementType.FLOAT
-                    ? SqlTypeName.REAL : SqlTypeName.DOUBLE);
-        }
         if (parameterizedType instanceof ArrayType arrayType) {
             Type elemType = arrayType.elementType();
             PangrovaType elemPangrovaType = PangrovaTypeMapping.toPangrovaType(elemType);
             return mapToSqlType(elemPangrovaType, elemType, factory);
         }
-        // Fallback for VECTOR or when parameterized type is unavailable
-        return factory.createSqlType(SqlTypeName.DOUBLE);
+        throw new IllegalArgumentException("ARRAY or VECTOR requires its complete element declaration");
+    }
+
+    private static void requireConcreteDeclaration(PangrovaType type, Type parameters) {
+        boolean complete = switch (type) {
+            case UNKNOWN -> false;
+            case ARRAY -> parameters instanceof ArrayType;
+            case VECTOR -> parameters instanceof VectorType;
+            case MAP -> parameters instanceof MapType;
+            case STRUCT -> parameters instanceof RowType;
+            case DECIMAL -> parameters instanceof DecimalType;
+            default -> true;
+        };
+        if (!complete) {
+            throw new IllegalArgumentException(type + " requires a concrete matching storage type declaration");
+        }
     }
 }

@@ -11,7 +11,7 @@ import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -67,9 +67,12 @@ final class GeneratedColumnDefinitionCompiler {
             CreateTableStatement.ColumnDefinition column,
             AutoEmbeddingColumnSpec embedding,
             Map<String, CreateTableStatement.ColumnDefinition> columnsByName) {
-        if (!(column.type() instanceof DataTypeSpec.VectorType)) {
+        if (!(column.type() instanceof DataTypeSpec.VectorType vector)) {
             throw validation(
                     "auto-embedding target '" + column.name() + "' must have VECTOR type");
+        }
+        if (vector.elementType() != org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT) {
+            throw validation("auto-embedding target '" + column.name() + "' must have FLOAT32 VECTOR storage");
         }
         if (column.defaultValue().isPresent()) {
             throw validation(
@@ -140,8 +143,7 @@ final class GeneratedColumnDefinitionCompiler {
                 .setLogicalModelName(embedding.modelName())
                 .addAllSourceColumns(embedding.sourceColumns())
                 .setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
-                .setOutputType(LogicalType.newBuilder()
-                        .setCanonicalSql(column.type().toCanonicalString()))
+                .setOutputType(VectorLogicalType.create(((DataTypeSpec.VectorType) column.type()).dimension()))
                 .build();
     }
 

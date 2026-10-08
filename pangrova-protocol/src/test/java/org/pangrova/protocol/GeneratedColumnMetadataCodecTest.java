@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -79,8 +79,7 @@ class GeneratedColumnMetadataCodecTest {
                 .addSourceColumns("title")
                 .addSourceColumns("body")
                 .setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
-                .setOutputType(LogicalType.newBuilder()
-                        .setCanonicalSql("VECTOR(768, COSINE)"))
+                .setOutputType(VectorLogicalType.create(768))
                 .build();
     }
 }

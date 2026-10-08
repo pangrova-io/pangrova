@@ -55,7 +55,7 @@ class CoordinatorDataProducerNotFoundPropertyTest {
         DataTicket ticket = resultTicket(queryId);
 
         DataProducerException ex = catchThrowableOfType(
-                () -> producer.doGet(ticket),
+                () -> producer.openStream(ticket),
                 DataProducerException.class);
 
         assertThat(ex).isNotNull();
@@ -70,7 +70,7 @@ class CoordinatorDataProducerNotFoundPropertyTest {
         buffer.put(queryId, payload);
         DataTicket ticket = resultTicket(queryId);
 
-        byte[] result = producer.doGet(ticket);
+        byte[] result = producer.openStream(ticket).next();
 
         assertThat(result).isEqualTo(payload);
     }
@@ -84,7 +84,7 @@ class CoordinatorDataProducerNotFoundPropertyTest {
         DataTicket ticket = resultTicket(queryId);
 
         DataProducerException ex = catchThrowableOfType(
-                () -> producer.doGet(ticket),
+                () -> producer.openStream(ticket),
                 DataProducerException.class);
 
         assertThat(ex).isNotNull();

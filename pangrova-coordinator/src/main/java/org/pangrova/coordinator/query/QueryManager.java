@@ -31,6 +31,7 @@ import org.pangrova.spi.observability.LongCounter;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.pangrova.spi.observability.Span;
 import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.Scope;
 import org.pangrova.spi.observability.TracingProvider;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -140,17 +141,23 @@ public class QueryManager {
         Throwable submissionFailure = null;
         try {
             admission.checkDegradation();
-            Span span = tracingProvider.startSpan("query.submit", SpanKind.SERVER);
-            span.setAttribute("query.id", queryId);
-            LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
-            try {
-                incrementCounter(querySubmitCounter);
-                LOG.info("event=query_submitted queryId={}", queryId);
-                auditBridge.emitAuditSubmitted(queryId, sql, submittedSession);
-                return executeQuery(queryId, sql, submittedSession, stateMachine);
-            } finally {
-                LogContext.clear();
-                span.end();
+            try (Scope parent = submittedSession.traceContext().makeCurrent()) {
+                Span span = tracingProvider.startSpan("query.submit", SpanKind.SERVER);
+                span.setAttribute("query.id", queryId);
+                Map<String, String> previousLogContext = LogContext.snapshot();
+                try (Scope current = span.makeCurrent()) {
+                    submittedSession = submittedSession.withTraceContext(
+                            org.pangrova.observability.tracing.ExecutionTraceContext.capture());
+                    LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
+                    LogContext.setQueryId(queryId);
+                    incrementCounter(querySubmitCounter);
+                    LOG.info("event=query_submitted queryId={}", queryId);
+                    auditBridge.emitAuditSubmitted(queryId, sql, submittedSession);
+                    return executeQuery(queryId, sql, submittedSession, stateMachine);
+                } finally {
+                    LogContext.restore(previousLogContext);
+                    span.end();
+                }
             }
         } catch (RuntimeException | Error failure) {
             submissionFailure = failure;
@@ -282,7 +289,7 @@ public class QueryManager {
                         ? session.tenantId() : "default");
         return new CoordinatorSessionContext(
                 session.queryId(), session.sessionProperties(),
-                session.userIdentity(), tenantId, session.queryAuthority());
+                session.userIdentity(), tenantId, session.queryAuthority(), session.traceContext());
     }
 
     public void setClusterAdmissionController(

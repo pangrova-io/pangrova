@@ -8,6 +8,7 @@ import java.io.Closeable;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -31,6 +32,7 @@ public final class CoordinatorResultBuffer implements Closeable {
 
     private static final class ResultEntry {
         private final byte[] serializedBytes;
+        private ScheduledFuture<?> expiration;
         private ResultEntry(byte[] serializedBytes) {
             this.serializedBytes = serializedBytes;
         }
@@ -48,7 +50,9 @@ public final class CoordinatorResultBuffer implements Closeable {
         }
 
         void release() {
-            // Heap byte arrays are reclaimed by the GC after removal.
+            if (expiration != null) {
+                expiration.cancel(false);
+            }
         }
     }
 
@@ -58,6 +62,7 @@ public final class CoordinatorResultBuffer implements Closeable {
     private final int maxEntries;
     private final long maxOffHeapBytes;
     private final AtomicLong currentOffHeapBytes = new AtomicLong(0);
+    private boolean expirationSealed;
 
     public CoordinatorResultBuffer(
             ScheduledExecutorService expirationExecutor, long retentionMs) {
@@ -93,12 +98,25 @@ public final class CoordinatorResultBuffer implements Closeable {
     }
 
     /** Buffers serialized result bytes for later client fetch, subject to capacity limits. */
-    public void put(String queryId, byte[] resultBytes) {
+    public synchronized void put(String queryId, byte[] resultBytes) {
         Objects.requireNonNull(queryId, "queryId");
         Objects.requireNonNull(resultBytes, "resultBytes");
-        ResultEntry entry = ResultEntry.fromBytes(resultBytes);
-        if (!tryInsert(queryId, entry)) {
+        if (expirationSealed) {
+            throw new IllegalStateException("Control response buffer admission is closed");
+        }
+        if (results.containsKey(queryId)) {
             return;
+        }
+        ResultEntry entry = ResultEntry.fromBytes(resultBytes);
+        checkBufferQuota(queryId, entry.estimatedBytes());
+        results.put(queryId, entry);
+        currentOffHeapBytes.addAndGet(entry.estimatedBytes());
+        try {
+            entry.expiration = expirationExecutor.schedule(
+                    () -> expireEntry(queryId, entry), retentionMs, TimeUnit.MILLISECONDS);
+        } catch (RuntimeException failure) {
+            releaseEntry(queryId);
+            throw failure;
         }
         LOG.debug("event=result_buffered queryId={} sizeBytes={}", queryId, resultBytes.length);
     }
@@ -108,7 +126,7 @@ public final class CoordinatorResultBuffer implements Closeable {
         return entry != null ? entry.toSerializedBytes() : null;
     }
 
-    public void remove(String queryId) {
+    public synchronized void remove(String queryId) {
         releaseEntry(queryId);
     }
 
@@ -126,7 +144,8 @@ public final class CoordinatorResultBuffer implements Closeable {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
+        stopExpirationScheduling();
         for (String queryId : results.keySet()) {
             releaseEntry(queryId);
         }
@@ -135,39 +154,28 @@ public final class CoordinatorResultBuffer implements Closeable {
 
     // ── Internal ──
 
-    private boolean tryInsert(String queryId, ResultEntry entry) {
-        long entryBytes = entry.estimatedBytes();
-        if (!checkBufferQuota(queryId, entryBytes)) {
-            return false;
-        }
-        ResultEntry prev = results.putIfAbsent(queryId, entry);
-        if (prev != null) {
-            return false; // idempotent — already buffered
-        }
-        currentOffHeapBytes.addAndGet(entryBytes);
-        scheduleExpiration(queryId);
-        return true;
+    /** Seals writes and cancels this buffer's timers; retained bytes remain readable until close. */
+    public synchronized void stopExpirationScheduling() {
+        expirationSealed = true;
+        results.values().forEach(ResultEntry::release);
     }
 
     /**
      * Checks whether the buffer has capacity for a new entry.
-     * Returns false and logs a warning if the buffer is full, instead of
-     * throwing an unchecked exception that callers may not anticipate.
+     * Rejects admission before publication; a missing acknowledgement must not become FINISHED.
      */
-    private boolean checkBufferQuota(String queryId, long entryBytes) {
+    private void checkBufferQuota(String queryId, long entryBytes) {
         if (results.size() >= maxEntries) {
             LOG.warn("event=result_buffer_full reason=entry_count maxEntries={} queryId={}",
                     maxEntries, queryId);
-            return false;
+            throw new IllegalStateException("Control response entry quota exceeded");
         }
-        long projectedTotal = currentOffHeapBytes.get() + entryBytes;
-        if (projectedTotal > maxOffHeapBytes) {
+        if (entryBytes > maxOffHeapBytes - currentOffHeapBytes.get()) {
             LOG.warn("event=result_buffer_full reason=off_heap_quota "
                     + "offHeapBytes={} maxOffHeapBytes={} queryId={}",
-                    projectedTotal, maxOffHeapBytes, queryId);
-            return false;
+                    currentOffHeapBytes.get(), maxOffHeapBytes, queryId);
+            throw new IllegalStateException("Control response byte quota exceeded");
         }
-        return true;
     }
 
     private void releaseEntry(String queryId) {
@@ -179,9 +187,9 @@ public final class CoordinatorResultBuffer implements Closeable {
         }
     }
 
-    private void scheduleExpiration(String queryId) {
-        expirationExecutor.schedule(
-                () -> releaseEntry(queryId),
-                retentionMs, TimeUnit.MILLISECONDS);
+    private synchronized void expireEntry(String queryId, ResultEntry expected) {
+        if (!expirationSealed && results.get(queryId) == expected) {
+            releaseEntry(queryId);
+        }
     }
 }

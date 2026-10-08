@@ -35,8 +35,9 @@ final class LanceSnapshotResolver {
             throw new IllegalStateException("Lance snapshot table incarnation is no longer visible");
         }
         if (selector.version() == 0) {
-            if (current.version() != 0) throw new IllegalStateException("Unpublished Lance table handle is stale");
-            return current;
+            // EMPTY is a selected snapshot, not a request to refresh to the latest publication.
+            // The incarnation check above still rejects a dropped or replaced table.
+            return selector;
         }
         var evidence = store.get().loadSnapshot(selector);
         var historical = evidence.table();

@@ -41,8 +41,8 @@ import org.junit.jupiter.api.Test;
  * even invoking the AuthenticationManager. Also verifies per-IP independence and that a
  * successful authentication immediately clears the failure counter.
  *
- * <p>Each test uses a unique X-Forwarded-For value so per-IP buckets in the shared guard
- * do not interfere across tests.
+ * <p>Forwarding headers below are deliberately untrusted caller input; all requests
+ * use the same actual loopback transport peer. Rotating a header cannot evade lockout.
  *
  * <p>No mocks: a real Jetty + Jersey server with a real {@link BruteForceGuard}.
  * Each test gets a fresh server to avoid cross-test state leakage between the
@@ -120,7 +120,7 @@ class AuthenticationFilterBruteForceIntegrationTest {
     }
 
     @Test
-    void differentIpsAreIndependent() throws Exception {
+    void forgedForwardedAddressCannotEvadeLockout() throws Exception {
         String attackerIp = "10.50.0.3";
         String legitIp = "10.50.0.4";
 
@@ -130,10 +130,9 @@ class AuthenticationFilterBruteForceIntegrationTest {
         }
         assertThat(sendBadAuth(attackerIp).statusCode()).isEqualTo(429);
 
-        // Different IP is unaffected: bad credentials still produce 401, not 429.
-        assertThat(sendBadAuth(legitIp).statusCode()).isEqualTo(401);
-        // Different IP can still authenticate successfully.
-        assertThat(sendGoodAuth(legitIp).statusCode()).isEqualTo(200);
+        // Both requests are from the SAME TCP peer; a different header is not a different client.
+        assertThat(sendBadAuth(legitIp).statusCode()).isEqualTo(429);
+        assertThat(sendGoodAuth(legitIp).statusCode()).isEqualTo(429);
     }
 
     @Test

@@ -98,15 +98,53 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
 
     void releaseActualWorkerOwners() {
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
-            worker.taskManager().cleanupTerminalTasks(Duration.ofHours(1));
-            assertThat(worker.reports()).filteredOn(report -> report.queryId().equals(queryId)
-                    && report.canonicalTaskReport() != null).anySatisfy(report -> {
-                assertThat(report.queryId()).isEqualTo(queryId);
-                var canonical = canonical(report);
-                assertThat(canonical.getExecutionDrainState())
-                        .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
-                assertThat(tracker.executionDrainReceipt(report.taskId())).isPresent();
-            });
+            cleanupActualWorkerOwners();
+            requireActualNativeOwnersReleased(ignored -> { });
+        });
+    }
+
+    void cleanupActualWorkerOwners() {
+        worker.taskManager().cleanupTerminalTasks(Duration.ofHours(1));
+    }
+
+    void requireUnacknowledgedExecutionTerminalRetries() {
+        var actual = worker.reports().stream().filter(report -> report.queryId().equals(queryId)
+                && report.canonicalTaskReport() != null).toList();
+        assertThat(actual).isNotEmpty();
+        var original = actual.get(0);
+        assertThat(actual).allSatisfy(report -> {
+            assertThat(report.state()).isEqualTo("FINISHED");
+            assertThat(canonical(report).getState())
+                    .isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
+            assertThat(canonical(report).getExecutionDrainState())
+                    .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED);
+            assertThat(report).usingRecursiveComparison().isEqualTo(original);
+            assertThat(tracker.executionDrainReceipt(report.taskId())).isEmpty();
+            assertThat(tracker.acknowledgesReportPublication(report)).isFalse();
+        });
+    }
+
+    org.pangrova.protocol.rest.task.TaskStatusReport awaitActualNativeOwnersReleased() {
+        var actual = new java.util.concurrent.atomic.AtomicReference<org.pangrova.protocol.rest.task.TaskStatusReport>();
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> requireActualNativeOwnersReleased(actual::set));
+        return java.util.Objects.requireNonNull(actual.get());
+    }
+
+    private void requireActualNativeOwnersReleased(
+            java.util.function.Consumer<org.pangrova.protocol.rest.task.TaskStatusReport> observed) {
+        assertThat(worker.reports()).filteredOn(report -> report.queryId().equals(queryId)
+                && report.canonicalTaskReport() != null).anySatisfy(report -> {
+            assertThat(report.queryId()).isEqualTo(queryId);
+            var canonical = canonical(report);
+            assertThat(canonical.getExecutionDrainState())
+                    .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+            assertThat(tracker.executionDrainReceipt(report.taskId())).isPresent();
+            assertThat(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(
+                    tracker.executionDrainReceipt(report.taskId()).orElseThrow()))
+                    .isEqualTo(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                            .compactExecutionDrainReceipt(canonical));
+            observed.accept(report);
         });
     }
 
@@ -154,6 +192,7 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
     }
 
     private void drainOwners() throws Exception {
+        store.allowFinishedQueryInsert();
         store.allowQueryInsert();
         store.allowQueryDelete();
         if (operation != null) operation.close();

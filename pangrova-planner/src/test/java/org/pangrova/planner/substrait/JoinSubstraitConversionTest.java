@@ -18,6 +18,10 @@ import org.pangrova.planner.cost.join.NestedLoopJoinConfig;
 import org.pangrova.planner.cost.join.SortMergeJoinConfig;
 import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
+import org.pangrova.planner.validation.NativeCapabilityRegistry;
+import org.pangrova.planner.validation.SubstraitPlanValidator;
+import org.pangrova.planner.validation.UnsupportedNode;
+import org.pangrova.planner.validation.ValidationStatus;
 import org.apache.calcite.plan.ConventionTraitDef;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
@@ -81,6 +85,7 @@ class JoinSubstraitConversionTest {
         assertThat(join.getKeys()).hasSize(1);
         assertThat(keyOffset(join.getKeys().get(0).getLeft())).isZero();
         assertThat(keyOffset(join.getKeys().get(0).getRight())).isZero();
+        assertCanonicalJoinSerialization(hashJoin, "hash_join");
     }
 
     @ParameterizedTest
@@ -98,6 +103,7 @@ class JoinSubstraitConversionTest {
         assertThat(join.getRight()).isInstanceOf(BroadcastExchange.class);
         assertThat(((BroadcastExchange) join.getRight()).getPartitionCount())
                 .isEqualTo(PhysicalJoinConverter.UNBOUND_PARTITION_COUNT);
+        assertCanonicalJoinSerialization(broadcastJoin, "hash_join");
     }
 
     @ParameterizedTest
@@ -115,6 +121,8 @@ class JoinSubstraitConversionTest {
         assertThat(join.getKeys()).hasSize(1);
         assertThat(join.getLeft()).isInstanceOf(Sort.class);
         assertThat(join.getRight()).isInstanceOf(Sort.class);
+        assertNativeValidation(mergeJoin);
+        assertCanonicalJoinSerialization(mergeJoin, "merge_join");
     }
 
     @Test
@@ -147,6 +155,99 @@ class JoinSubstraitConversionTest {
         NestedLoopJoin join = (NestedLoopJoin) result;
         assertThat(join.getJoinType()).isEqualTo(expectedNestedLoopJoinType(joinType));
         assertThat(join.getCondition()).isNotNull();
+        assertNativeValidation(nestedLoopJoin);
+    }
+
+    @Test
+    void mergeJoinRequiresItsCanonicalCapability() {
+        NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
+        registry.update(Set.of("ReadRel", "SortRel"), Set.of("FieldReference"), Set.of());
+        Plan plan = new SubstraitConverter().convert(buildSortMergeJoin(JoinRelType.INNER));
+
+        var result = new SubstraitPlanValidator(registry).validate(plan);
+
+        assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
+            assertThat(node.nodeType()).isEqualTo("MergeJoinRel");
+            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.RELATION);
+        });
+    }
+
+    @Test
+    void mergeJoinKeysAreValidatedAtJoinDepth() {
+        NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
+        registry.update(Set.of("ReadRel", "SortRel", "MergeJoinRel"), Set.of(), Set.of());
+        Plan plan = new SubstraitConverter().convert(buildSortMergeJoin(JoinRelType.INNER));
+
+        var result = new SubstraitPlanValidator(registry).validate(plan);
+
+        assertThat(result.unsupportedNodes()).filteredOn(node -> node.depth() == 0)
+                .hasSize(2).allSatisfy(node -> {
+                    assertThat(node.nodeType()).isEqualTo("FieldReference");
+                    assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.EXPRESSION);
+                });
+    }
+
+    @Test
+    void nestedLoopJoinConditionCannotBypassFunctionValidation() {
+        NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
+        registry.update(Set.of("ReadRel", "NestedLoopJoinRel"),
+                Set.of("FieldReference", "ScalarFunction"), Set.of());
+        Plan plan = new SubstraitConverter().convert(buildNestedLoopJoin(JoinRelType.INNER));
+
+        var result = new SubstraitPlanValidator(registry).validate(plan);
+
+        assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
+            assertThat(node.nodeType()).isEqualTo("equal");
+            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.FUNCTION);
+        });
+    }
+
+    @Test
+    void mergeJoinResidualCannotBypassFunctionValidation() {
+        RelNode left = buildInput(3);
+        RelNode right = buildInput(3);
+        RexNode residual = rexBuilder.makeCall(SqlStdOperatorTable.GREATER_THAN,
+                rexBuilder.makeInputRef(left.getRowType().getFieldList().get(1).getType(), 1),
+                rexBuilder.makeInputRef(right.getRowType().getFieldList().get(1).getType(), 4));
+        RexNode condition = rexBuilder.makeCall(SqlStdOperatorTable.AND,
+                buildEquiCondition(left, right, 0, 0), residual);
+        var join = new PangrovaSortMergeJoin(new SortMergeJoinConfig(
+                cluster, left.getTraitSet(), left, right, condition, Set.of(), JoinRelType.INNER));
+        NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
+        registry.update(Set.of("ReadRel", "SortRel", "MergeJoinRel"),
+                Set.of("FieldReference", "ScalarFunction"), Set.of("equal"));
+        Plan plan = new SubstraitConverter().convert(join);
+
+        var result = new SubstraitPlanValidator(registry).validate(plan);
+
+        assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
+            assertThat(node.nodeType()).isEqualTo("gt");
+            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.FUNCTION);
+        });
+    }
+
+    private static void assertNativeValidation(RelNode join) {
+        Plan plan = new SubstraitConverter().convert(join);
+        var result = new SubstraitPlanValidator(NativeCapabilityRegistry.defaults()).validate(plan);
+        assertThat(result.status()).isEqualTo(ValidationStatus.FULLY_NATIVE);
+        assertThat(result.unsupportedNodes()).isEmpty();
+    }
+
+    private static void assertCanonicalJoinSerialization(RelNode join, String relationField) {
+        Plan plan = new SubstraitConverter().convert(join);
+        try {
+            var wire = io.substrait.proto.Plan.parseFrom(new SubstraitPlanSerializer().serialize(plan));
+            var relation = wire.getRelations(0).getRoot().getInput();
+            var field = relation.getDescriptorForType().findFieldByName(relationField);
+            assertThat(relation.hasField(field)).isTrue();
+            var physicalJoin = (com.google.protobuf.Message) relation.getField(field);
+            var descriptor = physicalJoin.getDescriptorForType();
+            assertThat(physicalJoin.getRepeatedFieldCount(descriptor.findFieldByName("keys"))).isOne();
+            assertThat(physicalJoin.getRepeatedFieldCount(descriptor.findFieldByName("left_keys"))).isZero();
+            assertThat(physicalJoin.getRepeatedFieldCount(descriptor.findFieldByName("right_keys"))).isZero();
+        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
+            throw new AssertionError("Canonical Join plan cannot reparse", failure);
+        }
     }
 
     @Test

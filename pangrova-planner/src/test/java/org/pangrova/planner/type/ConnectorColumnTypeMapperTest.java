@@ -1,0 +1,81 @@
+package org.pangrova.planner.type;
+
+import org.apache.calcite.sql.type.SqlTypeName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
+import org.pangrova.protocol.type.VectorLogicalType;
+import org.pangrova.spi.connector.data.type.ArrayType;
+import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.spi.connector.data.type.Type;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.data.type.primitive.BigIntType;
+import org.pangrova.spi.connector.data.type.primitive.DecimalType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+
+import java.util.List;
+import java.util.OptionalInt;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/** Exercises the same metadata adapter used by SQL validation and Native schema compilation. */
+class ConnectorColumnTypeMapperTest {
+    @ParameterizedTest
+    @EnumSource(value = PangrovaType.class, names = {"UNKNOWN", "ARRAY", "VECTOR", "MAP", "STRUCT", "DECIMAL"})
+    void incompleteMetadataNeverInventsAStorageType(PangrovaType type) {
+        assertThatThrownBy(() -> ConnectorColumnTypeMapper.rowType(
+                List.of(new ConnectorTableMetadata.Column("value", type)), new PlannerTypeFactory()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(type.name());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PangrovaType.class, names = {"ARRAY", "VECTOR", "MAP", "STRUCT", "DECIMAL"})
+    void mismatchedMetadataNeverAcquiresTheDeclaredTypeIdentity(PangrovaType type) {
+        assertThatThrownBy(() -> ConnectorColumnTypeMapper.rowType(
+                List.of(column(type, BigIntType.INSTANCE)), new PlannerTypeFactory()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(type.name());
+    }
+
+    @Test
+    void completeNestedTypesPreserveParametersAndOrderedNames() {
+        var columns = List.of(column(PangrovaType.ARRAY, new ArrayType(new DecimalType(28, 9))),
+                new ConnectorTableMetadata.Column("map", PangrovaType.MAP, OptionalInt.empty(),
+                        new MapType(VarcharType.UNBOUNDED, new RowType(List.of(
+                                new RowField("amount", new DecimalType(38, 14)),
+                                new RowField("id", BigIntType.INSTANCE))))));
+        var compiled = NativeDatasetSchemaCompiler.compile(columns);
+        assertThat(compiled.schema().getNamesList()).containsExactly("value", "map", "amount", "id");
+        assertThat(compiled.schema().getStruct().getTypes(0).getList().getType().getDecimal().getScale())
+                .isEqualTo(9);
+        var row = compiled.schema().getStruct().getTypes(1).getMap().getValue().getStruct();
+        assertThat(row.getTypes(0).getDecimal().getPrecision()).isEqualTo(38);
+        assertThat(row.getTypes(0).getDecimal().getScale()).isEqualTo(14);
+        assertThat(row.getTypes(1).hasI64()).isTrue();
+    }
+
+    @ParameterizedTest
+    @EnumSource(VectorType.ElementType.class)
+    void vectorSchemaAndLogicalContractHaveTheSameElementPrecisionAndNullability(VectorType.ElementType element) {
+        var columns = List.of(column(PangrovaType.VECTOR, new VectorType(65535, element)));
+        var sql = ConnectorColumnTypeMapper.rowType(columns, new PlannerTypeFactory()).getFieldList().get(0).getType();
+        assertThat(sql.getComponentType().getSqlTypeName()).isEqualTo(
+                element == VectorType.ElementType.FLOAT ? SqlTypeName.REAL : SqlTypeName.DOUBLE);
+        var compiled = NativeDatasetSchemaCompiler.compile(columns);
+        var logical = compiled.columnTypes().get(0);
+        assertThat(logical).isEqualTo(VectorLogicalType.create(65535,
+                element == VectorType.ElementType.FLOAT ? VectorLogicalType.FLOAT32 : VectorLogicalType.FLOAT64,
+                true, false));
+        assertThat(logical.getSubstraitType()).isEqualTo(compiled.schema().getStruct().getTypes(0));
+        assertThat(VectorLogicalType.requireStorageDimension(logical)).isEqualTo(65535);
+    }
+
+    private static ConnectorTableMetadata.Column column(PangrovaType type, Type parameters) {
+        return new ConnectorTableMetadata.Column("value", type, OptionalInt.empty(), parameters);
+    }
+}

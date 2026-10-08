@@ -35,7 +35,7 @@ import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
 import org.pangrova.spi.connector.ConnectorSession;
@@ -367,8 +367,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.Contain
                         .addSourceColumns("title")
                         .addSourceColumns("body")
                         .setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
-                        .setOutputType(LogicalType.newBuilder()
-                                .setCanonicalSql("VECTOR(768, COSINE)")))
+                        .setOutputType(VectorLogicalType.create(768)))
                 .build();
     }
 

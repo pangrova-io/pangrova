@@ -115,7 +115,7 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
         String expression = validateCheckExpression(rule.checkExpression());
         return String.format(Locale.ROOT,
                 "SELECT COUNT(*) AS total_rows, "
-                        + "COUNT(CASE WHEN NOT (%s) THEN 1 END) AS failed_rows "
+                        + "COUNT(CASE WHEN (%s) IS NOT TRUE THEN 1 END) AS failed_rows "
                         + "FROM %s",
                 expression, fqn);
     }
@@ -127,7 +127,7 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
         String fqn = safeQualifiedTableName(rule);
         String expression = validateCheckExpression(rule.checkExpression());
         return String.format(Locale.ROOT,
-                "SELECT * FROM %s WHERE NOT (%s) LIMIT %d",
+                "SELECT * FROM %s WHERE (%s) IS NOT TRUE LIMIT %d",
                 fqn, expression, QualityQueryResult.MAX_SAMPLES);
     }
 

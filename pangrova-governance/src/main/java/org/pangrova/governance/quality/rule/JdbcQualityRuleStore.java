@@ -1,6 +1,8 @@
 package org.pangrova.governance.quality.rule;
 
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.governance.quality.QualityCheckResult;
 import org.pangrova.governance.quality.alert.Severity;
 import org.slf4j.Logger;
@@ -11,6 +13,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,9 +65,20 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
             )""";
 
     private static final String UPSERT_RULE = """
-            MERGE INTO cdc_quality_rules (rule_id, rule_name, catalog_name, schema_name,
+            INSERT INTO cdc_quality_rules (rule_id, rule_name, catalog_name, schema_name,
             table_name, check_expression, severity, message, enabled, schedule, created_at, updated_at)
-            KEY (rule_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""";
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (rule_id) DO UPDATE SET
+                rule_name = EXCLUDED.rule_name,
+                catalog_name = EXCLUDED.catalog_name,
+                schema_name = EXCLUDED.schema_name,
+                table_name = EXCLUDED.table_name,
+                check_expression = EXCLUDED.check_expression,
+                severity = EXCLUDED.severity,
+                message = EXCLUDED.message,
+                enabled = EXCLUDED.enabled,
+                schedule = EXCLUDED.schedule,
+                updated_at = EXCLUDED.updated_at""";
 
     private static final String SELECT_RULE = "SELECT * FROM cdc_quality_rules WHERE rule_id = ?";
     private static final String SELECT_RULES_FOR_TABLE =
@@ -90,12 +104,13 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
     }
 
     private void initSchema() {
-        try (Connection conn = dataSource.getConnection()) {
-            conn.createStatement().execute(CREATE_RULES_TABLE);
-            conn.createStatement().execute(CREATE_RESULTS_TABLE);
+        try (Connection conn = dataSource.getConnection();
+             Statement statement = conn.createStatement()) {
+            statement.execute(CREATE_RULES_TABLE);
+            statement.execute(CREATE_RESULTS_TABLE);
             LOG.info("event=jdbc_quality_rule_store_initialized");
         } catch (SQLException e) {
-            LOG.warn("event=jdbc_quality_rule_store_init_failed error={}", e.getMessage(), e);
+            throw qualityStoreFailure("initialize quality rule store", e);
         }
     }
 
@@ -117,8 +132,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
             ps.setTimestamp(RULE_UPDATED_AT_INDEX, Timestamp.from(rule.updatedAt()));
             ps.executeUpdate();
         } catch (SQLException e) {
-            LOG.error("event=save_rule_failed ruleId={} error={}", rule.ruleId(), e.getMessage(), e);
-            throw new RuntimeException("Failed to save quality rule", e);
+            throw qualityStoreFailure("save quality rule " + rule.ruleId(), e);
         }
     }
 
@@ -133,7 +147,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 }
             }
         } catch (SQLException e) {
-            LOG.error("event=get_rule_failed ruleId={} error={}", ruleId, e.getMessage(), e);
+            throw qualityStoreFailure("read quality rule " + ruleId, e);
         }
         return Optional.empty();
     }
@@ -152,7 +166,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 }
             }
         } catch (SQLException e) {
-            LOG.error("event=get_rules_for_table_failed error={}", e.getMessage(), e);
+            throw qualityStoreFailure("read quality rules for table", e);
         }
         return result;
     }
@@ -167,7 +181,7 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
                 result.add(mapRule(rs));
             }
         } catch (SQLException e) {
-            LOG.error("event=get_enabled_rules_failed error={}", e.getMessage(), e);
+            throw qualityStoreFailure("read enabled quality rules", e);
         }
         return result;
     }
@@ -189,8 +203,13 @@ public final class JdbcQualityRuleStore implements QualityRuleStore {
             ps.setString(RESULT_ERROR_MESSAGE_INDEX, result.errorMessage());
             ps.executeUpdate();
         } catch (SQLException e) {
-            LOG.error("event=save_result_failed ruleId={} error={}", result.ruleId(), e.getMessage(), e);
+            throw qualityStoreFailure("save quality check result " + result.resultId(), e);
         }
+    }
+
+    private static PangrovaException qualityStoreFailure(String operation, SQLException cause) {
+        return new PangrovaException(PangrovaErrorCode.GOVERNANCE_QUALITY_CHECK_FAILED,
+                "Failed to " + operation, cause);
     }
 
     private static DataQualityRule mapRule(ResultSet rs) throws SQLException {

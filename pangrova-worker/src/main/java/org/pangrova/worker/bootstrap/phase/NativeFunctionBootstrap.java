@@ -84,7 +84,9 @@ public final class NativeFunctionBootstrap {
 
             List<NativeFunctionDescriptor> descriptors = bridge.buildDescriptors();
             if (refs.nativeAvailable()) {
-                NativeRuntime.nativeRegisterFunctions(bridge, descriptors);
+                if (!descriptors.isEmpty()) {
+                    NativeRuntime.nativeRegisterFunctions(bridge, descriptors);
+                }
                 NativeCapabilityLoader.finalizeStartup();
             }
             LOG.info("event=native_functions_registered factories={} scalars={} aggregates={} descriptors={}",

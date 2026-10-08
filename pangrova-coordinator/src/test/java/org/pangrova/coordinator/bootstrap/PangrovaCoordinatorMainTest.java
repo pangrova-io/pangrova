@@ -120,6 +120,34 @@ class PangrovaCoordinatorMainTest {
     }
 
     @Test
+    void buildBootstrapConfigConsumesTransportAddressPortAndBudgetWithoutTls() {
+        var configured = PangrovaConfiguration.fromYaml(Map.of(
+                "coordinator.transport.port", "19091",
+                "coordinator.transport.advertised-host", "coordinator.example.test",
+                "coordinator.transport.allocator-limit-bytes", "16777216"));
+        var result = PangrovaCoordinatorMain.buildBootstrapConfig(configured);
+        assertThat(result.coordinatorTransportPort()).isEqualTo(19091);
+        assertThat(result.coordinatorTransportAdvertisedHost()).isEqualTo("coordinator.example.test");
+        assertThat(result.coordinatorTransportAllocatorLimitBytes()).isEqualTo(16777216);
+        assertThat(result.shuffleTlsConfig()).isNull();
+    }
+
+    @Test
+    void buildBootstrapConfigRejectsUnroutableAddressOrInvalidTransportBudget() {
+        for (String value : java.util.List.of("0.0.0.0", "::", "*", " ")) {
+            assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(
+                    PangrovaConfiguration.fromYaml(Map.of("coordinator.transport.advertised-host", value))))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(
+                Map.of("coordinator.transport.allocator-limit-bytes", "0"))))
+                .hasMessageContaining("must be positive");
+        assertThatThrownBy(() -> PangrovaCoordinatorMain.buildBootstrapConfig(PangrovaConfiguration.fromYaml(
+                Map.of("coordinator.transport.port", "65536"))))
+                .hasMessageContaining("0..65535");
+    }
+
+    @Test
     void buildBootstrapConfigLoadsCompleteShuffleTlsMaterial() throws Exception {
         Path certificate = Path.of(getClass()
                 .getResource("/tls/localhost-cert.pem").toURI());

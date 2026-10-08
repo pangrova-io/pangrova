@@ -17,7 +17,7 @@ import org.pangrova.spi.coordination.QueryStateJournal;
 import org.pangrova.spi.coordination.StateJournalConfig;
 import org.pangrova.spi.coordination.TaskStateEvent;
 
-/** PostgreSQL journal with one ordered commit owner and retryable actual SQL drain. */
+/** PostgreSQL journal with one query-fair, per-query ordered commit owner and retryable actual SQL drain. */
 @ThreadSafe
 public final class JdbcQueryStateJournal implements QueryStateJournal {
     private static final long DRAIN_MS = 5000;
@@ -36,21 +36,22 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
     }
 
     @Override public void appendQueryEvent(QueryStateEvent event) {
-        pending.admit(pending.new Write(event), false);
+        pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }
     @Override public void appendTaskEvent(TaskStateEvent event) {
-        pending.admit(pending.new Write(event), false);
+        pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }
     @Override public void appendQueryEventSync(QueryStateEvent event) {
-        await(pending.admit(pending.new Write(event), true));
+        await(pending.admit(new JournalPendingWrites.Write(pending, event), true));
     }
     @Override public void appendTaskEventSync(TaskStateEvent event) {
-        await(pending.admit(pending.new Write(event), true));
+        await(pending.admit(new JournalPendingWrites.Write(pending, event), true));
     }
 
     private void await(CompletableFuture<Void> attempt) {
-        try { flushOwner.awaitCommit(attempt); }
-        catch (InterruptedException interrupted) {
+        try {
+            flushOwner.awaitCommit(attempt);
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw JournalPendingWrites.failure("Interrupted awaiting journal commit; event remains owned", interrupted);
         } catch (ExecutionException failure) {
@@ -69,7 +70,9 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
                 }
                 return List.copyOf(events);
             });
-        } catch (SQLException failure) { throw JournalPendingWrites.failure("Failed to replay active queries", failure); }
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to replay active queries", failure);
+        }
     }
 
     @Override public List<TaskStateEvent> replayActiveTasks() {
@@ -83,7 +86,9 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
                 }
                 return List.copyOf(events);
             });
-        } catch (SQLException failure) { throw JournalPendingWrites.failure("Failed to replay active tasks", failure); }
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to replay active tasks", failure);
+        }
     }
 
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
@@ -98,7 +103,9 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
                     }
                 }
             });
-        } catch (SQLException failure) { throw JournalPendingWrites.failure("Failed to read latest query event", failure); }
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to read latest query event", failure);
+        }
     }
 
     @Override public void purgeQuery(String queryId) {
@@ -115,7 +122,10 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
             throw failure;
         }
         try {
-            operation.perform(dataSource, connection -> { purgeCommitted(connection, queryId); return null; });
+            operation.perform(dataSource, connection -> {
+                purgeCommitted(connection, queryId);
+                return null;
+            });
         } catch (SQLException failure) {
             throw JournalPendingWrites.failure("Failed to atomically purge query journal: " + queryId, failure);
         }
@@ -128,14 +138,18 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
             delete(connection, "query_state_journal", queryId);
             connection.commit();
         } catch (SQLException failure) {
-            try { connection.rollback(); }
-            catch (SQLException rollback) { if (rollback != failure) failure.addSuppressed(rollback); }
+            try {
+                connection.rollback();
+            } catch (SQLException rollback) {
+                if (rollback != failure) failure.addSuppressed(rollback);
+            }
             throw failure;
         }
     }
 
     private static void delete(Connection connection, String table, String queryId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE query_id = ?")) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "DELETE FROM " + table + " WHERE query_id = ?")) {
             statement.setString(1, queryId);
             statement.executeUpdate();
         }

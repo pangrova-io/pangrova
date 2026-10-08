@@ -228,6 +228,12 @@ public final class PangrovaSqlOperatorTable implements SqlOperatorTable {
             String name,
             SqlReturnTypeInference returnTypeInference,
             SqlOperandTypeChecker operandTypeChecker) {
+        var callback = org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
+                .callbackMetadataForSqlName(name);
+        if (callback.isPresent()) {
+            return new DeclaredCallbackSqlFunction(name, returnTypeInference,
+                    operandTypeChecker, callback.orElseThrow());
+        }
         return new SqlFunction(
                 name,
                 SqlKind.OTHER_FUNCTION,

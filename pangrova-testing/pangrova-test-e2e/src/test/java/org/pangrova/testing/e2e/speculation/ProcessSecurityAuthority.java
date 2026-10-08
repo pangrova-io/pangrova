@@ -65,6 +65,9 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     }
 
     PGSimpleDataSource dataSource() { return dataSource; }
+    String hostLdapUrl() {
+        return "ldap://" + ldap.getHost() + ":" + ldap.getMappedPort(389);
+    }
     String hostJdbcUrl() {
         String url = SharedTestContainers.POSTGRES.getJdbcUrl();
         return url + (url.contains("?") ? "&" : "?") + "currentSchema=" + schema;
@@ -106,7 +109,7 @@ final class ProcessSecurityAuthority implements AutoCloseable {
 
     private void verifyDirectory() {
         try (var authenticator = new LdapAuthenticator()) {
-            authenticator.init(Map.of("ldapUrl", "ldap://" + ldap.getHost() + ":" + ldap.getMappedPort(389),
+            authenticator.init(Map.of("ldapUrl", hostLdapUrl(),
                     "baseDn", "dc=pangrova,dc=org", "userDnPattern", "uid={0},dc=pangrova,dc=org"));
             await("actual directory user bind").pollDelay(Duration.ZERO).atMost(Duration.ofSeconds(30)).until(() -> {
                 try (var request = new AuthenticationRequest(USER, PASSWORD.toCharArray(), null, null, Map.of(), "127.0.0.1")) {

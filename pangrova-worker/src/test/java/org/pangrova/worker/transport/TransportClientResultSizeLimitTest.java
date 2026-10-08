@@ -42,7 +42,7 @@ class TransportClientResultSizeLimitTest {
         allocator = new RootAllocator(Long.MAX_VALUE);
         // First call returns data, subsequent calls return empty (EOF)
         ConcurrentHashMap<String, Boolean> consumed = new ConcurrentHashMap<>();
-        DataProducer producer = ticket -> {
+        DataProducer producer = ticket -> () -> {
             String qid = ticket.queryId();
             if (consumed.putIfAbsent(qid, Boolean.TRUE) != null) {
                 return new byte[0]; // EOF after first delivery

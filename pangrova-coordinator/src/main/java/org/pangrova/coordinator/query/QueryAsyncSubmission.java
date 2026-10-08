@@ -52,14 +52,23 @@ final class QueryAsyncSubmission {
     private Future<?> submit(Context context) {
         try {
             return executor.submit(() -> {
-                try { resultHandler.accept(context.queryId(), context.state(),
-                        dispatcher.execute(context.state(), context.sql(), context.session())); }
+                var previousLogContext = org.pangrova.observability.logging.LogContext.snapshot();
+                try (var scope = context.session().traceContext().makeCurrent()) {
+                    org.pangrova.observability.logging.LogContext.set(
+                            context.session().traceContext().traceId(), context.session().traceContext().spanId());
+                    org.pangrova.observability.logging.LogContext.setQueryId(context.queryId());
+                    resultHandler.accept(context.queryId(), context.state(),
+                            dispatcher.execute(context.state(), context.sql(), context.session()));
+                }
                 catch (RuntimeException | Error failure) {
                     context.failure().set(failure);
                     LOG.error("event=async_query_execution_failed queryId={}", context.queryId(), failure);
                     fail(context, "INTERNAL_ERROR", failure.getClass().getSimpleName(),
                             String.valueOf(failure.getMessage()), "async_dispatch_failed");
-                } finally { context.ready().countDown(); }
+                } finally {
+                    org.pangrova.observability.logging.LogContext.restore(previousLogContext);
+                    context.ready().countDown();
+                }
             });
         } catch (RejectedExecutionException overloaded) {
             fail(context, "RESOURCE_EXHAUSTED", "ASYNC_SUBMIT_QUEUE_FULL",

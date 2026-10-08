@@ -2,10 +2,18 @@
 title: "AI Native Distributed Architecture Research Source"
 audience: "Pangrova maintainers and architecture reviewers"
 date: "2026-09-04"
-status: "primary-source research baseline"
+status: "historical primary-source baseline; current decisions reconciled 2026-10-07"
 ---
 
 # AI Native Distributed Architecture Research Source
+
+The 2026-10-07 correction is maintained in
+[Kernel architecture reconciliation](kernel-current-audit.md), with the current
+[Lance](lance-current-audit.md), [type/function](type-function-current-audit.md)
+and [performance](performance-current-audit.md) audits. Database model invocation
+is retained through an independent inference service; Agent orchestration and
+cumulative Usage Ledger accounting are excluded. This historical review does
+not establish that the current implementation passes those decisions.
 
 ## Scope and direct answer
 
@@ -37,15 +45,16 @@ in [AI Native Snowflake and Gluten Distributed Architecture Review](../ai-native
 | Spark AQE changes physical topology using runtime statistics at shuffle barriers. | [Spark SQL performance tuning](https://spark.apache.org/docs/latest/sql-performance-tuning.html) | High | Permit epoch-fenced partition coalescing/splitting and reducer fan-in changes, never semantic/snapshot/model changes. | Exact tuning policy must be benchmarked in Pangrova. |
 | Executor removal is safe only when shuffle state is preserved by an external service, tracking, decommissioning or reliable plugin. | [Spark dynamic allocation and decommissioning](https://spark.apache.org/docs/latest/job-scheduling) | High | Scale-in must drain or transfer shuffle obligations; fetch loss recomputes the producing stage rather than returning partial data. | Current Pangrova remote shuffle durability still needs implementation and chaos proof. |
 | Gluten reuses Spark control flow, converts physical regions to Substrait, executes in Native backends and uses Arrow-compatible columnar batches. | [Apache Gluten architecture](https://github.com/apache/gluten), [Apache Gluten site source](https://github.com/apache/gluten-site/blob/main/index.md) | High | Build maximal typed Native regions and keep retrieval columnar through exchange/result. | Gluten compatibility fallback is deliberately not adopted for AI/retrieval correctness. |
-| Native stages need explicit off-heap isolation, spill and stage-sensitive resource profiles. | [Gluten configuration](https://gluten.apache.org/docs/v1.5.0/Configuration.html), [Gluten stage resource adjustment](https://gluten.apache.org/docs/v1.5.0/get-started/VeloxStageResourceAdj.html), [Gluten Velox backend](https://gluten.apache.org/docs/v1.5.0/get-started/Velox.html) | High | One immutable stage grant covers JVM, Native, shuffle, object-store, candidate, provider-token and media budgets. | Stage profile coefficients require production-shaped measurements. |
+| Native stages need explicit off-heap isolation, spill and stage-sensitive resource profiles. | [Gluten configuration](https://gluten.apache.org/docs/v1.5.0/Configuration.html), [Gluten stage resource adjustment](https://gluten.apache.org/docs/v1.5.0/get-started/VeloxStageResourceAdj.html), [Gluten Velox backend](https://gluten.apache.org/docs/v1.5.0/get-started/Velox.html) | High | One immutable stage grant covers JVM, Native, shuffle, object-store, candidate, bounded provider concurrency/bytes and media resources; per-request model length limits remain distinct from cumulative Usage Ledger accounting. | Stage profile coefficients require production-shaped measurements. |
 
 ## Contradictions and bounded conclusions
 
 - Gluten permits explicit row/column transitions and fallback for unsupported
   general SQL operators. That mechanism improves compatibility but is unsafe as
   an implicit AI/retrieval recovery path because it changes placement, memory,
-  scoring and failure semantics. Pangrova therefore fails admission or uses a
-  typed Native exact fallback recorded in the result envelope.
+  scoring and failure semantics. Pangrova therefore fails admission for an
+  unsupported execution contract. The current decision forbids fallback,
+  including an implicit typed Native exact substitute for ANN.
 - Snowflake Cloud Services coordinates query execution, but the official
   architecture assigns query processing to MPP compute. This is not evidence
   for candidate fusion or final Top-K in Pangrova Coordinator JVM.
@@ -63,10 +72,11 @@ Follow-up resolved the consequential questions about who owns data processing,
 how concurrency differs from single-query scale, how Native offload retains JVM
 control flow, and why shuffle durability is required for elastic scale-in.
 
-Research stops here because every architecture decision needed for the current
-implementation has direct primary evidence and another broad search is unlikely
-to change it. Undocumented vendor internals, vendor API imitation and performance
-equivalence claims remain intentionally excluded.
+This was a bounded research baseline as of 2026-09-04. It does not close the
+current implementation audit. Fixed SDK behavior, model execution, all supported
+types, failure recovery and scale measurements still require the linked current
+reconciliation. Undocumented vendor internals and performance equivalence are
+not implementation evidence.
 
 ## Source ledger
 

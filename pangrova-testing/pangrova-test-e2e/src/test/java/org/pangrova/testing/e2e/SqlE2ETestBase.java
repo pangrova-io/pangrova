@@ -16,7 +16,6 @@ import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.result.CoordinatorResultWriter;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.spi.transport.DataTicket;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.HealthState;
@@ -37,6 +36,7 @@ import org.pangrova.planner.SqlCompiler;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.query.SubmitQueryRequest;
 import org.pangrova.protocol.rest.query.SubmitQueryResponse;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.resource.ResourceManager;
 import org.pangrova.resource.memory.MemoryArbitrator;
@@ -67,7 +67,6 @@ import org.pangrova.worker.task.TransportRefs;
 import org.pangrova.worker.task.RemoteTaskStatusReporter;
 import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TaskManagerContext;
-import org.pangrova.worker.transport.TransportClient;
 import org.pangrova.worker.transport.TransportServer;
 import org.apache.calcite.jdbc.CalciteSchema;
 import net.jqwik.api.lifecycle.AfterContainer;
@@ -153,6 +152,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static final String E2E_USER_PRINCIPAL = "e2e-user";
     private static final String E2E_TENANT_ID = "e2e-tenant";
     private static final long WORKER_MEMORY_BYTES = 2L * 1024 * 1024 * 1024; // 2GB — balances Velox memory needs vs OS process limits
+    // Finite deployment limits for the authenticated shared fixture, not production defaults.
+    private static final org.pangrova.security.tenant.model.ResourceQuota E2E_TENANT_QUOTA =
+            new org.pangrova.security.tenant.model.ResourceQuota(
+                    WORKER_MEMORY_BYTES, 16, 128, 600_000, 1024L * 1024 * 1024,
+                    100_000, 64L * 1024 * 1024 * 1024, 4L * 1024 * 1024 * 1024);
     // A small explicit fixture ceiling, not a production sizing recommendation.
     // This is separate from the shuffle disk service budget and directory.
     private static final long NATIVE_WRITE_STAGE_BYTES = 16L * 1024 * 1024;
@@ -229,6 +233,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static volatile boolean cdcAvailableFlag = false;
 
     private static volatile boolean infrastructureInitialized;
+    private static volatile Throwable infrastructureStartupFailure;
+    private static Thread infrastructureShutdownHook;
 
     // Worker-side resources that must be explicitly closed in teardown.
     // Without tracking these, each test class leaks thread pools and native handles.
@@ -275,13 +281,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static volatile NodeMemoryPool sharedWorkerNodePool;
     private static volatile org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease
             sharedShuffleServiceLease;
+    private static volatile org.pangrova.worker.result.ResultReadTickets sharedResultReadTickets;
     private static volatile org.pangrova.coordinator.query.statement.DdlExecutor sharedDdlExecutor;
     protected static volatile int sharedResultServerPort;
-    private static volatile boolean aiFunctionsEnabled;
+    private static final SharedNativeFunctionStartup SHARED_NATIVE_FUNCTION_STARTUP =
+            new SharedNativeFunctionStartup();
     private static volatile org.pangrova.security.authn.AuthenticationManager
             e2eAuthenticationManager;
-    private static volatile org.pangrova.worker.bootstrap.WorkerComponentRefs
-            e2eNativeFunctionRefs;
     private static volatile org.pangrova.worker.bootstrap.NativeCapabilityAdvertisement.Advertisement
             e2eCapabilityAdvertisement;
 
@@ -339,6 +345,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     @BeforeAll
     @BeforeContainer
     static void bootstrapTestEnvironment() {
+        Throwable retainedFailure = infrastructureStartupFailure;
+        if (retainedFailure != null) {
+            throw new IllegalStateException("Shared E2E infrastructure startup previously failed", retainedFailure);
+        }
+        try {
+            bootstrapSharedTestEnvironment();
+        } catch (RuntimeException | Error failure) {
+            if (!infrastructureInitialized) infrastructureStartupFailure = failure;
+            throw failure;
+        }
+    }
+
+    private static void bootstrapSharedTestEnvironment() {
         System.setProperty("pangrova.http.max-requests-per-minute", "100000");
 
         if (infrastructureInitialized) {
@@ -406,60 +425,18 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     "Native library is required for pangrova-test-e2e; run `cmake --build` "
                             + "and `mvn process-test-resources -pl pangrova-testing/pangrova-test-e2e`");
         }
-        if (!NativeRuntime.isInitialized()) {
-            Path shuffleSpillDirectory = tempDir.resolve("native-shuffle-spill");
-            try {
-                java.nio.file.Files.createDirectories(shuffleSpillDirectory);
-            } catch (java.io.IOException e) {
-                throw new IllegalStateException("Failed to create explicit E2E Native shuffle spill directory", e);
-            }
-            Path writeStageDirectory = prepareNativeWriteStage();
-            MemoryArbitrator arbitrator = new MemoryArbitrator(
-                    WORKER_MEMORY_BYTES, 128L * 1024 * 1024);
-            NodeMemoryPool nodePool = new RootMemoryPool(
-                    "root-" + WORKER_ID, WORKER_MEMORY_BYTES)
-                    .createNodePool("node-" + WORKER_ID, WORKER_MEMORY_BYTES);
-            var serviceLease = org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease.reserve(
-                    WORKER_ID, 16L * 1024 * 1024, 16L * 1024 * 1024, nodePool, arbitrator);
-            sharedWorkerMemoryArbitrator = arbitrator;
-            sharedWorkerNodePool = nodePool;
-            sharedShuffleServiceLease = serviceLease;
-            byte[] configBytes = org.pangrova.protocol.v2.RuntimeInitConfig.newBuilder()
-                    .setMaxMemoryBytes(WORKER_MEMORY_BYTES)
-                    .setIoThreadCount(4)
-                    .setSpillEnabled(true)
-                    .setSpillDirectory(writeStageDirectory.toString())
-                    .setShuffleRetentionBytes(16L * 1024 * 1024)
-                    .setShuffleTransitBytes(16L * 1024 * 1024)
-                    .setShuffleSpillBytes(1024L * 1024 * 1024)
-                    .setShuffleSpillFiles(256)
-                    .setShuffleSpillDirectory(shuffleSpillDirectory.toString())
-                    .build()
-                    .toByteArray();
-            try {
-                var coordinator = new org.pangrova.worker.memory.NativeMemoryCoordinator(
-                        WORKER_MEMORY_BYTES, arbitrator);
-                nativeMemoryCoordinatorRef = coordinator;
-                NativeRuntime.initNativeRuntime(configBytes, coordinator);
-                // This in-process Worker does not run WorkerTaskBootstrap, which
-                // installs a process-local signing key before exposing Native
-                // Flight shuffle tickets. Mirror that production security step.
-                byte[] shuffleKey = new byte[32];
-                new java.security.SecureRandom().nextBytes(shuffleKey);
-                NativeRuntime.nativeSetHmacKey(shuffleKey, new byte[0]);
-            } catch (UnsatisfiedLinkError e) {
-                org.pangrova.worker.jni.NativeLibraryLoader.markUnsupported();
-                throw new IllegalStateException(
-                        "Native library ABI mismatch; rebuild the native library and test resources",
-                        e);
-            }
+        if (NativeRuntime.isInitialized()) {
+            throw new IllegalStateException("Shared E2E startup cannot borrow a foreign initialized Native runtime");
         }
-        if (e2eCapabilityAdvertisement == null) {
-            e2eCapabilityAdvertisement = org.pangrova.worker.bootstrap
-                    .NativeCapabilityAdvertisement.load(
-                            org.pangrova.worker.jni.NativeFunctionConfig.DISABLED);
+        SHARED_NATIVE_FUNCTION_STARTUP.prepare();
+        try {
+            initializeSharedNativeRuntime();
+            e2eCapabilityAdvertisement = SHARED_NATIVE_FUNCTION_STARTUP.initialize();
+            registerSharedInfrastructureShutdown();
+        } catch (RuntimeException | Error failure) {
+            closeFailedNativeStartup(failure);
+            throw failure;
         }
-
         POSTGRES = SharedTestContainers.POSTGRES;
         sharedNetwork = SharedTestContainers.NETWORK;
 
@@ -477,9 +454,77 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         rebuildQueryPipeline();
 
         infrastructureInitialized = true;
-        Runtime.getRuntime().addShutdownHook(new Thread(
-                SqlE2ETestBase::shutdownSharedInfrastructure,
-                "e2e-infra-cleanup"));
+    }
+
+    private static synchronized void registerSharedInfrastructureShutdown() {
+        if (infrastructureShutdownHook != null) return;
+        Thread hook = new Thread(SqlE2ETestBase::shutdownSharedInfrastructure, "e2e-infra-cleanup");
+        Runtime.getRuntime().addShutdownHook(hook);
+        infrastructureShutdownHook = hook;
+    }
+
+    private static void initializeSharedNativeRuntime() {
+        Path shuffleSpillDirectory = tempDir.resolve("native-shuffle-spill");
+        try {
+            java.nio.file.Files.createDirectories(shuffleSpillDirectory);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException("Failed to create explicit E2E Native shuffle spill directory", e);
+        }
+        Path writeStageDirectory = prepareNativeWriteStage();
+        MemoryArbitrator arbitrator = new MemoryArbitrator(
+                WORKER_MEMORY_BYTES, 128L * 1024 * 1024);
+        NodeMemoryPool nodePool = new RootMemoryPool(
+                "root-" + WORKER_ID, WORKER_MEMORY_BYTES)
+                .createNodePool("node-" + WORKER_ID, WORKER_MEMORY_BYTES);
+        var serviceLease = org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease.reserve(
+                WORKER_ID, 16L * 1024 * 1024, 16L * 1024 * 1024, nodePool, arbitrator);
+        sharedWorkerMemoryArbitrator = arbitrator;
+        sharedWorkerNodePool = nodePool;
+        sharedShuffleServiceLease = serviceLease;
+        byte[] configBytes = org.pangrova.protocol.v2.RuntimeInitConfig.newBuilder()
+                .setMaxMemoryBytes(WORKER_MEMORY_BYTES)
+                .setIoThreadCount(4)
+                .setSpillEnabled(true)
+                .setSpillDirectory(writeStageDirectory.toString())
+                .setShuffleRetentionBytes(16L * 1024 * 1024)
+                .setShuffleTransitBytes(16L * 1024 * 1024)
+                .setShuffleSpillBytes(1024L * 1024 * 1024)
+                .setShuffleSpillFiles(256)
+                .setShuffleSpillDirectory(shuffleSpillDirectory.toString())
+                .build()
+                .toByteArray();
+        try {
+            var coordinator = new org.pangrova.worker.memory.NativeMemoryCoordinator(
+                    WORKER_MEMORY_BYTES, arbitrator);
+            nativeMemoryCoordinatorRef = coordinator;
+            NativeRuntime.initNativeRuntime(configBytes, coordinator);
+            // This in-process Worker does not run WorkerTaskBootstrap, which
+            // installs a process-local signing key before exposing Native
+            // Flight shuffle tickets. Mirror that production security step.
+            byte[] shuffleKey = new byte[32];
+            new java.security.SecureRandom().nextBytes(shuffleKey);
+            NativeRuntime.nativeSetHmacKey(shuffleKey, new byte[0]);
+            sharedResultReadTickets = new org.pangrova.worker.result.ResultReadTickets(shuffleKey);
+        } catch (UnsatisfiedLinkError e) {
+            org.pangrova.worker.jni.NativeLibraryLoader.markUnsupported();
+            throw new IllegalStateException(
+                    "Native library ABI mismatch; rebuild the native library and test resources",
+                    e);
+        }
+    }
+
+    private static void closeFailedNativeStartup(Throwable failure) {
+        try {
+            NativeRuntime.shutdownNativeRuntime();
+            sharedResultReadTickets = null;
+            if (sharedShuffleServiceLease != null) {
+                sharedShuffleServiceLease.close();
+                sharedShuffleServiceLease = null;
+            }
+            SHARED_NATIVE_FUNCTION_STARTUP.close();
+        } catch (RuntimeException | Error cleanupFailure) {
+            if (cleanupFailure != failure) failure.addSuppressed(cleanupFailure);
+        }
     }
 
     private static Path prepareNativeWriteStage() {
@@ -547,21 +592,19 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
         closeQuietly(sharedStatusReporter, "status_reporter");
         closeQuietly(sharedTaskDispatcher, "task_dispatcher");
-        if (e2eNativeFunctionRefs != null) {
-            org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.close(
-                    e2eNativeFunctionRefs);
-        }
         closeQuietly(e2eAuthenticationManager, "authentication_manager");
         if (queryManager != null) queryManager.stopPeriodicCleanup();
         // Flight may retain IPC batches after a task exits. Only release its
         // process-lifetime NodePool/arbitrator lease after Native confirms stop.
         NativeRuntime.shutdownNativeRuntime();
+        sharedResultReadTickets = null;
+        SHARED_NATIVE_FUNCTION_STARTUP.close();
         if (sharedShuffleServiceLease != null) {
             sharedShuffleServiceLease.close();
             sharedShuffleServiceLease = null;
         }
-        if (SharedTestContainers.POSTGRES != null) SharedTestContainers.POSTGRES.stop();
-        if (SharedTestContainers.NETWORK != null) SharedTestContainers.NETWORK.close();
+        if (POSTGRES != null) POSTGRES.stop();
+        if (sharedNetwork != null) sharedNetwork.close();
     }
 
     private static void resetPerClassState() {
@@ -651,53 +694,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 sqlRunner != null);
     }
 
-    /**
-     * Installs the production AI function bootstrap against the already running
-     * Native runtime, publishes its exact capability inventory, and rebuilds the
-     * Coordinator HTTP path with an authenticated user and tenant context.
-     *
-     * <p>The Native UDF registry is process-scoped and finalizes after its first
-     * registration, so this method is intentionally one-shot for the shared E2E
-     * JVM.</p>
-     */
-    protected static synchronized void enableAuthenticatedAiFunctions(
-            org.pangrova.worker.jni.NativeFunctionConfig functionConfig) {
-        if (!infrastructureInitialized || !NativeRuntime.isInitialized()) {
-            throw new IllegalStateException(
-                    "E2E Coordinator/Worker and Native runtime must be initialized first");
-        }
-        if (e2eNativeFunctionRefs != null) {
-            throw new IllegalStateException(
-                    "AI Native functions are already configured in this E2E JVM");
-        }
-
-        var refs = new org.pangrova.worker.bootstrap.WorkerComponentRefs();
-        refs.setNativeAvailable(true);
-        try {
-            org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.initialize(
-                    refs, functionConfig);
-            e2eCapabilityAdvertisement = org.pangrova.worker.bootstrap
-                    .NativeCapabilityAdvertisement.load(functionConfig);
-            e2eNativeFunctionRefs = refs;
-            aiFunctionsEnabled = true;
-            rebuildQueryPipeline();
-            registerWorker(workerHttpServer.getPort(),
-                    sharedResultServerPort > 0
-                            ? sharedResultServerPort
-                            : coordinatorTransportServer.getPort());
-        } catch (RuntimeException failure) {
-            org.pangrova.worker.bootstrap.phase.NativeFunctionBootstrap.close(refs);
-            throw failure;
-        }
-    }
-
-    /** Ends the AI-specific E2E phase; Native callbacks close at shared teardown. */
-    protected static synchronized void disableAuthenticatedAiMode() {
-        if (!aiFunctionsEnabled) {
-            return;
-        }
-        aiFunctionsEnabled = false;
-        rebuildQueryPipeline();
+    /** Borrows the real deployment retained by the shared Native callback owner. */
+    protected static org.pangrova.testing.e2e.ai.SharedAiProvider sharedAiProvider() {
+        return SHARED_NATIVE_FUNCTION_STARTUP.provider();
     }
 
     /**
@@ -732,10 +731,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         var registry = metadataBootstrap.catalogRegistry();
         for (ConnectorTestConfig config : configs) {
-            try {
+            if (registry.listCatalogNames().contains(config.catalogName())) {
                 registry.unregister(config.catalogName());
-            } catch (Exception e) {
-                // Catalog may not exist yet — that's fine
             }
         }
         TestCatalogRegistrar.registerAll(registry, configs, E2eCatalogSession::new);
@@ -819,7 +816,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static QueryManagerContext queryManagerContext(QueryDispatcher dispatcher) {
         // Every SQL E2E request traverses the same authenticated tenant path;
         // enabling AI functions changes Native callbacks, not HTTP identity.
-        var store = E2eCurrentAuthority.tenants(stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL);
+        var store = E2eCurrentAuthority.tenants(
+                stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL, E2E_TENANT_QUOTA);
         return new QueryManagerContext(
                 dispatcher,
                 TRACING_PROVIDER,
@@ -1039,7 +1037,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             throws Exception {
         String queryId = submitResponse.queryId();
         ResultEndpoint endpoint = awaitResultEndpoint(queryId, submitResponse.resultEndpoint());
-        String canonicalTaskId = endpoint.ticket();
+        String canonicalTaskId = hasControlPlaneResult(queryId) ? null
+                : requireNativeResultTaskId(endpoint, queryId, taskTracker);
         String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
         List<TypedRow> rows;
         try {
@@ -1274,28 +1273,23 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         // The terminal task may run on any physical Worker. Resolve the
         // actual task placement and require the returned endpoint to match
         // that Worker's registered Native result server.
-        String nativeTaskId = queryId.equals(endpoint.ticket())
-                ? null : requireNativeResultTaskId(endpoint, queryId, taskTracker);
-        if (nativeTaskId != null) {
-            String workerId = taskTracker.getWorkerForTask(nativeTaskId);
-            var worker = workerId == null ? null : workerManager.getWorker(workerId);
-            if (worker == null || worker.resultServerPort() <= 0
-                    || !worker.host().equals(endpoint.host())
-                    || worker.resultServerPort() != endpoint.port()) {
-                throw new IllegalStateException(
-                        "Native result endpoint does not match task placement: queryId="
-                                + queryId + " taskId=" + nativeTaskId);
-            }
-            return fetchResultsViaFlight(endpoint, queryId, taskTracker);
+        String nativeTaskId = requireNativeResultTaskId(endpoint, queryId, taskTracker);
+        String workerId = taskTracker.getWorkerForTask(nativeTaskId);
+        var worker = workerId == null ? null : workerManager.getWorker(workerId);
+        if (worker == null || worker.resultServerPort() <= 0
+                || !worker.host().equals(endpoint.host())
+                || worker.resultServerPort() != endpoint.port()) {
+            throw new IllegalStateException(
+                    "Native result endpoint does not match task placement: queryId="
+                            + queryId + " taskId=" + nativeTaskId);
         }
-        // Control-plane results use their separately registered transport.
-        System.err.println("[E2E-DIAG] fetchResults: using TransportClient queryId=" + queryId);
-        DataTicket ticket = new DataTicket(
-                queryId, "result", 0, DataTicket.TicketType.RESULT);
-        try (TransportClient client = new TransportClient(endpoint.host(), endpoint.port())) {
-            byte[] resultBytes = client.doGet(ticket);
-            return decodeResultBytes(resultBytes);
-        }
+        return fetchResultsViaFlight(endpoint, queryId, taskTracker);
+    }
+
+    /** Only an actual published control-plane acknowledgement may bypass Native result transport. */
+    protected static boolean hasControlPlaneResult(String queryId) {
+        byte[] buffered = coordinatorResultBuffer == null ? null : coordinatorResultBuffer.get(queryId);
+        return buffered != null && buffered.length > 0;
     }
 
     private static final int FLIGHT_FETCH_MAX_RETRIES = 3;
@@ -1329,7 +1323,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     /**
      * Fetches results directly from the C++ FlightResultServer via Arrow Flight DoGet.
-     * The ticket is the native task ID registered in Velox OutputBufferManager.
+     * The opaque producer-issued ticket authorizes the exact Native result stream.
+     * The separately retained canonical task ID is used only for control-plane cleanup.
      *
      * <h4>Timeout strategy (production-standard per-batch idle detection)</h4>
      * <p>Instead of setting a gRPC call-level deadline (which would kill long-running
@@ -1386,7 +1381,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             try (var allocator = new org.apache.arrow.memory.RootAllocator(64L * 1024 * 1024);
                  var client = org.apache.arrow.flight.FlightClient.builder(allocator, location).build();
                  var stream = client.getStream(
-                         new org.apache.arrow.flight.Ticket(nativeTaskId.getBytes(
+                         new org.apache.arrow.flight.Ticket(endpoint.ticket().getBytes(
                                  java.nio.charset.StandardCharsets.UTF_8)))) {
                 List<TypedRow> rows = new java.util.ArrayList<>();
                 while (awaitNextBatch(stream)) {
@@ -1501,23 +1496,37 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     /**
-     * Resolves the exact result task from the canonical endpoint ticket.
-     * The coordinator tracks its own dispatch UUID, but the C++
-     * OutputBufferManager registers under the coordinator dispatch UUID
-     * (the taskId from the SubmitTaskRequest proto, which the C++ native
-     * executor receives and passes to Velox Task::create). This is NOT
-     * the worker-generated queryId-NNN format — the worker ID is only
-     * used for Java-side task management.
+     * Resolves the sole direct-result task from the Coordinator's original issued contract.
+     * The producer-issued endpoint ticket is opaque authority, never a task identity.
+     * Ambiguous, absent, or foreign canonical bindings fail closed without unsigned fallback.
      */
     protected static String requireNativeResultTaskId(
             ResultEndpoint endpoint, String queryId, CoordinatorTaskTracker tracker) {
-        if (endpoint == null || endpoint.ticket() == null
-                || tracker == null || !tracker.getTaskIds(queryId).contains(endpoint.ticket())) {
+        if (endpoint == null || endpoint.ticket() == null || endpoint.ticket().isBlank()
+                || tracker == null) {
             throw new IllegalStateException(
-                    "Missing Native task ID for finished query: queryId=" + queryId
-                            + " ticket=" + (endpoint == null ? null : endpoint.ticket()));
+                    "Missing Native task ID for finished query: queryId=" + queryId);
         }
-        return endpoint.ticket();
+        String resultTaskId = null;
+        for (String taskId : tracker.getTaskIds(queryId)) {
+            SubmitTaskRequest issued = tracker.getTaskRequest(taskId);
+            if (issued == null || !issued.taskRequest().getExecutionOptions().getDirectResultOutput()) {
+                continue;
+            }
+            var attempt = issued.taskRequest().getAttempt();
+            if (!queryId.equals(attempt.getQueryOrJobId()) || !taskId.equals(attempt.getTaskId())) {
+                throw new IllegalStateException("Foreign Native result task identity: queryId=" + queryId);
+            }
+            if (resultTaskId != null) {
+                throw new IllegalStateException("Ambiguous Native result task identity: queryId=" + queryId);
+            }
+            resultTaskId = taskId;
+        }
+        if (resultTaskId == null) {
+            throw new IllegalStateException(
+                    "Missing Native task ID for finished query: queryId=" + queryId);
+        }
+        return resultTaskId;
     }
 
     /**
@@ -1921,22 +1930,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * Worker-side result serving is handled by the C++ FlightResultServer via NativeResultTransport.
      */
     private static TransportServer startCoordinatorTransportServer() {
-        // Track consumed queries to ensure single-delivery semantics.
-        // coordinatorResultBuffer.get() is non-destructive (returns same data on every call),
-        // but the DataProducer SPI contract requires: data bytes → byte[0] (EOF).
-        // Without this, streamRemainingBatches loops forever re-delivering the same batch.
-        var consumed = java.util.concurrent.ConcurrentHashMap.<String>newKeySet();
-        org.pangrova.spi.transport.DataProducer coordinatorProducer = ticket -> {
-            if (coordinatorResultBuffer != null) {
-                if (consumed.add(ticket.queryId())) {
-                    byte[] buffered = coordinatorResultBuffer.get(ticket.queryId());
-                    if (buffered != null) {
-                        return buffered;
-                    }
-                }
-            }
-            return new byte[0];
-        };
+        var coordinatorProducer = new org.pangrova.coordinator.result.CoordinatorDataProducer(
+                java.util.Objects.requireNonNull(coordinatorResultBuffer));
         TransportServer server = new TransportServer(
                 coordinatorProducer, new org.pangrova.spi.transport.TransportServerConfig(0));
         server.start();
@@ -1953,7 +1948,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         WorkerHttpServer server = new WorkerHttpServer(
                 httpConfig, taskManager, exchangeTransport, healthEndpoint,
                 new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager,
-                        java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")));
+                        java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
+                java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -1983,7 +1979,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         if (workerManager == null) {
             workerManager = new WorkerManager();
         }
-        E2eCurrentAuthority.tenants(stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL);
+        E2eCurrentAuthority.tenants(stateStoreDataSource, E2E_TENANT_ID, E2E_USER_PRINCIPAL, E2E_TENANT_QUOTA);
         E2eCurrentAuthority.provisionModels(stateStoreDataSource, E2E_USER_PRINCIPAL);
         currentAccessControl = featureAccessControl == null
                 ? E2eCurrentAuthority.provisionDefault(stateStoreDataSource, E2E_USER_PRINCIPAL) : featureAccessControl;

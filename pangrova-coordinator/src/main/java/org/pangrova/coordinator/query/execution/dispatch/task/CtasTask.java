@@ -54,11 +54,9 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
         PlannedQuery plannedQuery = context.compiler().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(context.session()))
                 .compileToPlannedQuery(innerSql);
-        List<String> columnNames = plannedQuery.queryOutputColumns();
-        List<String> typeNames = plannedQuery.queryOutputColumnTypeNames();
 
         // 2. Build column definitions from derived schema
-        List<CreateTableStatement.ColumnDefinition> columns = buildColumnDefinitions(columnNames, typeNames);
+        List<CreateTableStatement.ColumnDefinition> columns = deriveColumnDefinitions(plannedQuery);
 
         // 3. Create the target table
         CreateTableStatement createStmt = new CreateTableStatement(
@@ -83,8 +81,10 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
         return new StatementResult(List.of(), List.of(), mutatedTable, StatementCategory.DDL);
     }
 
-    private static List<CreateTableStatement.ColumnDefinition> buildColumnDefinitions(
-            List<String> names, List<String> types) {
+    /** Derives the actual CTAS declaration from the planned output, preserving parameterized storage types. */
+    public static List<CreateTableStatement.ColumnDefinition> deriveColumnDefinitions(PlannedQuery plan) {
+        List<String> names = plan.queryOutputColumns();
+        List<String> types = plan.queryOutputColumnTypeNames();
         if (names.size() != types.size()) {
             throw new IllegalStateException(
                     "Column name/type count mismatch: " + names.size() + " names vs " + types.size() + " types");

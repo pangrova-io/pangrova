@@ -38,6 +38,11 @@ public final class TaskReportPublication implements AutoCloseable {
         final long sequence;
         final long timestamp;
         final byte[] canonicalDigest;
+        final org.pangrova.protocol.rest.task.TaskStats stats;
+        final org.pangrova.protocol.rest.error.ErrorDetail error;
+        final org.pangrova.protocol.rest.data.WriteResultDescriptor writeResult;
+        final String errorCode;
+        final java.util.Map<String, String> errorMetadata;
         boolean completed;
         boolean notificationsCompleted;
         boolean notifying;
@@ -60,7 +65,11 @@ public final class TaskReportPublication implements AutoCloseable {
             taskId = report.taskId(); queryId = report.queryId(); workerId = report.workerId();
             state = report.state(); taskType = report.taskType(); stageId = report.stageId();
             partitionId = report.partitionId(); attempt = report.attempt();
-            canonicalDigest = org.pangrova.common.util.DigestUtils.sha256().digest(report.canonicalTaskReport());
+            stats = report.stats(); error = report.error(); writeResult = report.writeResult();
+            errorCode = report.errorCode(); errorMetadata = report.errorMetadata();
+            byte[] canonical = report.canonicalTaskReport();
+            canonicalDigest = canonical == null ? null
+                    : org.pangrova.common.util.DigestUtils.sha256().digest(canonical);
         }
         boolean matches(org.pangrova.protocol.rest.task.TaskStatusReport retry) {
             return sequence == retry.reportSequence() && timestamp == retry.timestampMs()
@@ -68,9 +77,17 @@ public final class TaskReportPublication implements AutoCloseable {
                     && workerId.equals(retry.workerId()) && state.equals(retry.state())
                     && java.util.Objects.equals(taskType, retry.taskType()) && stageId == retry.stageId()
                     && partitionId == retry.partitionId() && attempt.equals(retry.attempt())
-                    && retry.canonicalTaskReport() != null
-                    && java.security.MessageDigest.isEqual(canonicalDigest,
-                            org.pangrova.common.util.DigestUtils.sha256().digest(retry.canonicalTaskReport()));
+                    && java.util.Objects.equals(stats, retry.stats())
+                    && java.util.Objects.equals(error, retry.error())
+                    && java.util.Objects.equals(writeResult, retry.writeResult())
+                    && java.util.Objects.equals(errorCode, retry.errorCode())
+                    && java.util.Objects.equals(errorMetadata, retry.errorMetadata())
+                    && matchesCanonical(retry.canonicalTaskReport());
+        }
+        private boolean matchesCanonical(byte[] canonical) {
+            if (canonicalDigest == null || canonical == null) return canonicalDigest == null && canonical == null;
+            return java.security.MessageDigest.isEqual(canonicalDigest,
+                    org.pangrova.common.util.DigestUtils.sha256().digest(canonical));
         }
     }
 }

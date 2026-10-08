@@ -47,115 +47,43 @@ FlightServerRegistry& FlightServerRegistry::instance() {
   return registry;
 }
 
-pangrova::result::FlightResultServer* FlightServerRegistry::resultServer() {
+std::shared_ptr<pangrova::result::FlightResultServer> FlightServerRegistry::resultServer() {
   std::lock_guard<std::mutex> lock(result_mutex_);
-  return result_server_.get();
-}
-
-void FlightServerRegistry::setResultServer(
-    std::unique_ptr<pangrova::result::FlightResultServer> server) {
-  std::lock_guard<std::mutex> lock(result_mutex_);
-  result_server_ = std::move(server);
+  return result_server_;
 }
 
 void FlightServerRegistry::shutdownResultServer() {
-  std::lock_guard<std::mutex> lock(result_mutex_);
-  if (result_server_) {
-    result_server_->stop();
-    result_server_.reset();
-  }
-}
-
-pangrova::shuffle::FlightShuffleServer* FlightServerRegistry::shuffleServer() {
-  std::lock_guard<std::mutex> lock(shuffle_mutex_);
-  return shuffle_server_.get();
-}
-
-int FlightServerRegistry::ensureShuffleServerRunning() {
-  std::lock_guard<std::mutex> lock(shuffle_mutex_);
-  if (shuffle_server_ && shuffle_server_->isRunning()) {
-    return shuffle_server_->boundPort();
-  }
-  return startShuffleServerLocked();
-}
-
-int FlightServerRegistry::startShuffleServerLocked() {
-  if (hmac_current_key_.empty()) {
-    throw std::runtime_error(
-        "Refusing to start Native shuffle without an HMAC ticket key");
-  }
-  if (!shuffle_limits_) {
-    throw std::runtime_error(
-        "Refusing to start Native shuffle without a prebooked service budget");
-  }
-  pangrova::shuffle::FlightShuffleServerConfig config;
-  config.reuse_port = true;
-  config.buffer_limits = *shuffle_limits_;
-  config.hmac_current_key = hmac_current_key_;
-  config.hmac_previous_key = hmac_previous_key_;
+  std::shared_ptr<pangrova::result::FlightResultServer> server;
   {
-    std::lock_guard<std::mutex> security_lock(security_mutex_);
-    if (transport_tls_enabled_) {
-      config.tls_cert_chain_path = transport_tls_certificate_chain_path_;
-      config.tls_private_key_path = transport_tls_private_key_path_;
-      config.tls_root_ca_path = transport_tls_root_ca_path_;
-    }
+    std::unique_lock<std::mutex> lock(result_mutex_);
+    result_cv_.wait(lock, [this] {
+      return result_state_ != ResultServiceState::STARTING && result_state_ != ResultServiceState::CLOSING;
+    });
+    if (!result_server_) return;
+    server = result_server_;
+    result_state_ = ResultServiceState::CLOSING;
   }
-  shuffle_server_ = std::make_unique<pangrova::shuffle::FlightShuffleServer>(config);
-  return shuffle_server_->start();
-}
-
-void FlightServerRegistry::registerShuffleHandle(
-    int64_t handle,
-    pangrova::shuffle::SerializedShuffleQueue* queue,
-    const std::string& query_id,
-    int32_t stage_id,
-    int32_t partition_count,
-    uint64_t plan_epoch,
-    uint32_t attempt_id,
-    uint64_t fencing_token) {
-  std::lock_guard<std::mutex> lock(shuffle_mutex_);
-  if (!shuffle_server_ || !shuffle_server_->isRunning()) {
-    startShuffleServerLocked();
-  }
-  shuffle_server_->registerHandle(
-      handle, queue, query_id, stage_id, partition_count,
-      plan_epoch, attempt_id, fencing_token);
-}
-
-void FlightServerRegistry::unregisterShuffleHandle(int64_t handle) {
-  std::lock_guard<std::mutex> lock(shuffle_mutex_);
-  if (shuffle_server_) {
-    shuffle_server_->unregisterHandle(handle);
-  }
-}
-
-void FlightServerRegistry::shutdownShuffleServer() {
-  std::lock_guard<std::mutex> lock(shuffle_mutex_);
-  if (shuffle_server_) {
-    shuffle_server_->stop();
-    shuffle_server_.reset();
+  try {
+    server->stop();
+    std::lock_guard<std::mutex> lock(result_mutex_);
+    result_server_.reset();
+    result_state_ = ResultServiceState::STOPPED;
+    result_cv_.notify_all();
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(result_mutex_);
+    result_state_ = ResultServiceState::READY;
+    result_cv_.notify_all();
+    throw;
   }
 }
 
 void FlightServerRegistry::shutdownAll() {
-  std::scoped_lock lock(result_mutex_, shuffle_mutex_);
-  if (result_server_) {
-    result_server_->stop();
-    result_server_.reset();
-  }
-  if (shuffle_server_) {
-    shuffle_server_->stop();
-    shuffle_server_.reset();
-  }
+  shutdownShuffleServer();
+  shutdownResultServer();
 }
 
 void FlightServerRegistry::configureShuffleResources(
     const NativeRuntimeConfig& config) {
-  std::lock_guard<std::mutex> lock(shuffle_mutex_);
-  if (shuffle_server_) {
-    throw std::logic_error("Native shuffle limits cannot change while the server exists");
-  }
   // An incomplete RuntimeInitConfig may initialize non-shuffle Native APIs,
   // but it cannot advertise or start the shuffle service.
   const bool complete = config.shuffle_retention_bytes > 0 &&
@@ -166,6 +94,10 @@ void FlightServerRegistry::configureShuffleResources(
       config.shuffle_spill_files > 0 || !config.shuffle_spill_directory.empty();
   if (!complete) {
     if (any) throw std::invalid_argument("Native shuffle service budget is incomplete");
+    std::lock_guard<std::mutex> lock(shuffle_mutex_);
+    if (shuffle_state_ != ShuffleServiceState::STOPPED || shuffle_server_) {
+      throw std::logic_error("Native shuffle limits cannot change while the server exists");
+    }
     shuffle_limits_.reset();
     return;
   }
@@ -189,12 +121,15 @@ void FlightServerRegistry::configureShuffleResources(
   limits.spill_bytes = config.shuffle_spill_bytes;
   limits.spill_files = config.shuffle_spill_files;
   limits.spill_directory = path.string();
+  std::lock_guard<std::mutex> lock(shuffle_mutex_);
+  if (shuffle_state_ != ShuffleServiceState::STOPPED || shuffle_server_) {
+    throw std::logic_error("Native shuffle limits cannot change while the server exists");
+  }
   shuffle_limits_ = std::move(limits);
 }
 
 void FlightServerRegistry::setHmacKey(std::string currentKey,
                                        std::string previousKey) {
-  std::lock_guard<std::mutex> lock(shuffle_mutex_);
   if (currentKey.size() < 32) {
     throw std::invalid_argument(
         "shuffle HMAC key must contain at least 32 bytes");
@@ -203,12 +138,16 @@ void FlightServerRegistry::setHmacKey(std::string currentKey,
     throw std::invalid_argument(
         "previous shuffle HMAC key must contain at least 32 bytes");
   }
-  hmac_current_key_ = std::move(currentKey);
-  hmac_previous_key_ = std::move(previousKey);
-  if (shuffle_server_ && shuffle_server_->isRunning()) {
-    shuffle_server_->setHmacKeys(
-        hmac_current_key_, hmac_previous_key_);
+  std::lock_guard<std::mutex> update(hmac_update_mutex_);
+  std::shared_ptr<pangrova::shuffle::FlightShuffleServer> server;
+  {
+    std::lock_guard<std::mutex> lock(shuffle_mutex_);
+    hmac_current_key_ = currentKey;
+    hmac_previous_key_ = previousKey;
+    ++hmac_revision_;
+    server = shuffle_server_;
   }
+  if (server && server->isRunning()) server->setHmacKeys(std::move(currentKey), std::move(previousKey));
 }
 
 void FlightServerRegistry::configureTransportSecurity(
@@ -219,7 +158,10 @@ void FlightServerRegistry::configureTransportSecurity(
     std::string tlsIdentity) {
   requireTransportSecurityInvariant(
       enabled, certificateChainPath, privateKeyPath, rootCaPath, tlsIdentity);
-  std::lock_guard<std::mutex> lock(security_mutex_);
+  std::scoped_lock lock(shuffle_mutex_, security_mutex_);
+  if (shuffle_state_ != ShuffleServiceState::STOPPED || shuffle_server_) {
+    throw std::logic_error("Transport security cannot change while shuffle service exists");
+  }
   transport_tls_enabled_ = enabled;
   transport_tls_certificate_chain_path_ = std::move(certificateChainPath);
   transport_tls_private_key_path_ = std::move(privateKeyPath);

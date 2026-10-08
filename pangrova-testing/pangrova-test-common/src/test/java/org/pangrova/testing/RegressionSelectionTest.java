@@ -87,13 +87,15 @@ class RegressionSelectionTest {
         var end = workflow.indexOf("  tpch-performance:", start);
         assertThat(start).isGreaterThanOrEqualTo(0);
         assertThat(end).isGreaterThan(start);
-        var production = workflow.substring(start, end);
+        var production = workflow.substring(start, end).replaceAll("[ \\t]*\\\\[ \\t]*\\R[ \\t]*", " ");
         assertThat(production).contains("needs: [native-build, native-sanitizers]")
                 .contains("docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova")
-                .contains("IMAGE=\"$PANGROVA_E2E_IMAGE\" docker buildx bake")
+                .contains("IMAGE=\"$PANGROVA_E2E_IMAGE\" SOURCE_COMMIT=\"$GITHUB_SHA\" docker buildx bake")
+                .contains("org.opencontainers.image.revision\" }}' \"$image_id\")\" == \"$GITHUB_SHA\"")
                 .contains("image_id=$(docker image inspect --format '{{.Id}}' \"$PANGROVA_E2E_IMAGE\")")
                 .contains("\"PANGROVA_E2E_IMAGE_ID=$image_id\" >> \"$GITHUB_ENV\"")
                 .contains("stage-production-regression-native.sh \"$PANGROVA_E2E_IMAGE_ID\"")
+                .contains("\"$PANGROVA_E2E_IMAGE_ID\" \"$stage\" \"$GITHUB_SHA\"")
                 .contains("-Pnative-runtime,full-regression,coverage verify")
                 .contains("-Dtest=ActivationSmokeE2ETest test")
                 .contains("diff-coverage-check.sh --threshold 60")

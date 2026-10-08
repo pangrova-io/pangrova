@@ -3,25 +3,25 @@ package org.pangrova.protocol.type;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.pangrova.spi.connector.data.type.TypeSignature;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation.DeclaredType;
+import org.pangrova.spi.connector.data.type.DeclaredType;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class PhysicalWriteTypesTest {
+class DeclaredLogicalTypesTest {
     @Test
     void rejectsEveryCompositeSignatureChildMismatch() {
         var integer = scalar("INTEGER", false);
         var string = scalar("VARCHAR", true);
         var array = new TypeSignature("ARRAY", List.of(TypeSignature.TypeParameter.ofType(integer.signature())));
-        assertThatThrownBy(() -> PhysicalWriteTypes.logicalType(new DeclaredType(array, true, List.of(string))))
+        assertThatThrownBy(() -> DeclaredLogicalTypes.logicalType(new DeclaredType(array, true, List.of(string))))
                 .isInstanceOf(IllegalArgumentException.class);
         var map = new TypeSignature("MAP", List.of(TypeSignature.TypeParameter.ofType(integer.signature()),
                 TypeSignature.TypeParameter.ofType(string.signature())));
-        assertThatThrownBy(() -> PhysicalWriteTypes.logicalType(new DeclaredType(map, true, List.of(string, integer))))
+        assertThatThrownBy(() -> DeclaredLogicalTypes.logicalType(new DeclaredType(map, true, List.of(string, integer))))
                 .isInstanceOf(IllegalArgumentException.class);
         var row = new TypeSignature("ROW", List.of(TypeSignature.TypeParameter.ofNamedType("id", integer.signature())));
-        assertThatThrownBy(() -> PhysicalWriteTypes.logicalType(new DeclaredType(row, true, List.of(string))))
+        assertThatThrownBy(() -> DeclaredLogicalTypes.logicalType(new DeclaredType(row, true, List.of(string))))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -32,7 +32,7 @@ class PhysicalWriteTypesTest {
                 TypeSignature.TypeParameter.ofType(element.signature()))), false, List.of(element));
         var row = new DeclaredType(new TypeSignature("ROW", List.of(TypeSignature.TypeParameter.ofNamedType(
                 "quoted\"field", vector.signature()))), true, List.of(vector));
-        var logical = PhysicalWriteTypes.logicalType(row);
+        var logical = DeclaredLogicalTypes.logicalType(row);
         assertThat(logical.getCanonicalSql()).isEqualTo("ROW(\"quoted\"\"field\" VECTOR(3,DOUBLE))");
         assertThat(logical.getConstraintsList()).anySatisfy(constraint -> {
             assertThat(constraint.getName()).isEqualTo("field_name@0");
@@ -60,7 +60,7 @@ class PhysicalWriteTypesTest {
                 new TypeSignature("CHAR", List.of(TypeSignature.TypeParameter.ofLong(0))),
                 new TypeSignature("VARCHAR", List.of(new TypeSignature.TypeParameter(27L,
                         new TypeSignature("INTEGER"), null))))) {
-            assertThatThrownBy(() -> PhysicalWriteTypes.logicalType(new DeclaredType(signature, true, List.of())))
+            assertThatThrownBy(() -> DeclaredLogicalTypes.logicalType(new DeclaredType(signature, true, List.of())))
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }
@@ -72,8 +72,8 @@ class PhysicalWriteTypesTest {
                 TypeSignature.TypeParameter.ofType(element.signature()))), true, List.of(element));
         var array = new DeclaredType(new TypeSignature("ARRAY",
                 List.of(TypeSignature.TypeParameter.ofType(vector.signature()))), true, List.of(vector));
-        assertThat(PhysicalWriteTypes.logicalType(vector).getCanonicalSql()).isEqualTo("VECTOR(3)");
-        assertThat(PhysicalWriteTypes.logicalType(array).getCanonicalSql()).isEqualTo("ARRAY(VECTOR(3))");
+        assertThat(DeclaredLogicalTypes.logicalType(vector).getCanonicalSql()).isEqualTo("VECTOR(3)");
+        assertThat(DeclaredLogicalTypes.logicalType(array).getCanonicalSql()).isEqualTo("ARRAY(VECTOR(3))");
     }
 
     private static DeclaredType scalar(String base, boolean nullable) {

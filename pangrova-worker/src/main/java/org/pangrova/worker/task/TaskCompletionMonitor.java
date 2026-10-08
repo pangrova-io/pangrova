@@ -67,13 +67,13 @@ public final class TaskCompletionMonitor {
                 pollUntilFinished(taskId, info, handle);
                 metadataCaptureAttempted = true;
                 captureTerminalMetadata(info, handle);
-                onCompleted.accept(taskId);
             } catch (InterruptedException e) {
                 // Normal shutdown signal — TaskManager.close() interrupts
                 // completion monitor threads. Not a task failure.
                 Thread.currentThread().interrupt();
                 LOG.debug("event=completion_monitor_shutdown taskId={} queryId={}",
                         taskId, info.queryId());
+                return;
             } catch (Exception e) {
                 if (!metadataCaptureAttempted) {
                     try {
@@ -85,6 +85,15 @@ public final class TaskCompletionMonitor {
                     }
                 }
                 onError.accept(e);
+                return;
+            }
+            try {
+                onCompleted.accept(taskId);
+            } catch (RuntimeException | Error failure) {
+                // Execution already succeeded. The completion callback retains the real cleanup/publication retry.
+                LOG.error("event=task_completion_publication_pending taskId={} queryId={} error={}",
+                        taskId, info.queryId(), failure.getMessage(), failure);
+                throw failure;
             }
         });
     }

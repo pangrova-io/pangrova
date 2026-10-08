@@ -3,11 +3,13 @@ package org.pangrova.coordinator.result;
 import org.pangrova.spi.transport.DataProducer;
 import org.pangrova.spi.transport.DataProducerException;
 import org.pangrova.spi.transport.DataTicket;
+import org.pangrova.spi.transport.DataStream;
 import org.pangrova.spi.transport.TransportStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Data producer serving bounded coordinator control-plane statement results.
@@ -28,7 +30,7 @@ public final class CoordinatorDataProducer implements DataProducer {
     }
 
     @Override
-    public byte[] doGet(DataTicket ticket) {
+    public DataStream openStream(DataTicket ticket) {
         String queryId = ticket.queryId();
         byte[] data = buffer.get(queryId);
         if (data == null) {
@@ -38,6 +40,10 @@ public final class CoordinatorDataProducer implements DataProducer {
                     "Result not found for queryId=" + queryId);
         }
         LOG.debug("event=result_served queryId={} sizeBytes={}", queryId, data.length);
-        return data;
+        var pending = new AtomicReference<>(data);
+        return () -> {
+            byte[] next = pending.getAndSet(null);
+            return next != null ? next : new byte[0];
+        };
     }
 }

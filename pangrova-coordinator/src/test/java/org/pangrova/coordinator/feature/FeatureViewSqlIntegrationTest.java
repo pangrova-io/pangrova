@@ -9,6 +9,9 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.artifact.SnapshotArtifactSplitPlanner;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
+import org.pangrova.coordinator.query.QueryManager;
+import org.pangrova.coordinator.query.QueryManagerContext;
+import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.query.execution.AuthorizedRelation;
@@ -52,6 +55,7 @@ import org.pangrova.security.store.PersistentGrantStore;
 import org.pangrova.security.store.PersistentRoleStore;
 import org.pangrova.security.store.PersistentRowPolicyStore;
 import org.pangrova.spi.connector.ConnectorFactory;
+import org.pangrova.spi.connector.ConnectorQueryAuthority;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
@@ -83,12 +87,15 @@ class FeatureViewSqlIntegrationTest {
     private SqlCompiler compiler;
     private RemoteTaskDispatcher transport;
     private QueryDispatcher queryDispatcher;
-    private StatementDispatcher statements;
+    private QueryManager queryManager;
+    private CoordinatorTaskTracker taskTracker;
+    private int statementNumber;
     private AiInfrastructureStores infrastructure;
     private PersistentRowPolicyStore policies;
     private PersistentColumnMaskStore masks;
     private final AtomicReference<StatementResult> completed = new AtomicReference<>();
     private final AtomicReference<AuthorizedRelation> observedCompile = new AtomicReference<>();
+    private final AtomicReference<ConnectorQueryAuthority> observedLifetime = new AtomicReference<>();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -115,15 +122,17 @@ class FeatureViewSqlIntegrationTest {
                 metadata.buildCalciteSchema(scope), List.of(scope.getCatalog().orElseThrow(), scope.getSchema().orElseThrow())));
         transport = new RemoteTaskDispatcher(org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                 org.pangrova.testing.TestObservability.TRACING);
-        queryDispatcher = new QueryDispatcher(QueryDispatcherContext.withDefaults(compiler,
+        taskTracker = new CoordinatorTaskTracker();
+        var dispatcherContext = QueryDispatcherContext.withDefaults(compiler,
                 new AccessControlEnforcer(access), new ColumnMaskApplier(access), new RowFilterApplier(access),
                 transport, new TaskScheduler(new WorkerPerformanceScorer()),
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
-                new CoordinatorTaskTracker(), metadata.catalogRegistry(), null, null, 0), null);
+                taskTracker, metadata.catalogRegistry(), null, null, 0);
         var exports = new DurableFeatureExportService(new JdbcArtifactBuildStore(dataSource),
                 new SnapshotArtifactSplitPlanner(metadata.catalogRegistry()), warehouse.resolve("exports").toString(),
                 metadata.catalogRegistry());
         var service = new FeatureViewStatementService(infrastructure.features(), exports, access, (sql, actor) -> {
+            observedLifetime.set(actor.queryAuthority().orElseThrow());
             AuthorizedRelation compiled = queryDispatcher.compileAuthorizedRelation(sql, actor);
             observedCompile.set(compiled);
             return compiled;
@@ -131,8 +140,11 @@ class FeatureViewSqlIntegrationTest {
         var tasks = new HashMap<Class<? extends Statement>, org.pangrova.coordinator.query.execution.dispatch.MetadataTask<?>>();
         var factory = new MetadataExecutionFactory(tasks);
         FeatureViewMetadataTasks.register(factory, service);
-        statements = new StatementDispatcher(new StatementDispatcherContext(compiler, null, List.of(factory),
+        var statements = new StatementDispatcher(new StatementDispatcherContext(compiler, null, List.of(factory),
                 List.of(event -> completed.set(event.result())), access));
+        queryDispatcher = new QueryDispatcher(dispatcherContext, statements);
+        queryManager = new QueryManager(QueryManagerContext.minimal(
+                queryDispatcher, org.pangrova.testing.TestObservability.TRACING));
     }
 
     private void initializeSourceCatalog(JdbcMetadataStore store) {
@@ -153,10 +165,23 @@ class FeatureViewSqlIntegrationTest {
 
     @AfterEach
     void close() throws Exception {
-        if (transport != null) transport.close();
-        if (compiler != null && compiler.queryResultCache() != null) compiler.queryResultCache().close();
-        if (metadata != null) metadata.shutdown();
-        if (connectorFactory != null) connectorFactory.shutdown();
+        Throwable failure = null;
+        for (var owner : new AutoCloseable[]{
+                queryManager == null ? null : () -> assertThat(queryManager.awaitAllQueries(5000)).isTrue(),
+                transport,
+                compiler == null || compiler.queryResultCache() == null ? null : compiler.queryResultCache(),
+                metadata == null ? null : metadata::shutdown,
+                connectorFactory == null ? null : connectorFactory::shutdown}) {
+            if (owner == null) continue;
+            try {
+                owner.close();
+            } catch (Exception | Error cleanup) {
+                if (failure == null) failure = cleanup;
+                else if (failure != cleanup) failure.addSuppressed(cleanup);
+            }
+        }
+        if (failure instanceof Error error) throw error;
+        if (failure instanceof Exception exception) throw exception;
     }
 
     @Test
@@ -322,9 +347,7 @@ class FeatureViewSqlIntegrationTest {
     }
 
     private void assertPinnedPageCoverage(String jobId, long snapshot) throws Exception {
-        var pinned = new SnapshotArtifactSplitPlanner(metadata.catalogRegistry()).enumerate(
-                new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "raw", "customers"),
-                Long.toString(snapshot), SessionContextConverter.toConnectorSession(session(), "lake", "raw"));
+        var pinned = enumeratePinnedCoverage(snapshot);
         assertThat(pinned).isNotEmpty();
         try (var connection = dataSource.getConnection(); var query = connection.prepareStatement(
                 "SELECT source_object_id FROM artifact_build_page_sources WHERE tenant_id=? AND job_id=?")) {
@@ -339,7 +362,43 @@ class FeatureViewSqlIntegrationTest {
         }
     }
 
-    private void dispatch(String sql) { statements.tryDispatch(null, sql, "feature-statement", session()); }
+    /** Independent component oracle with a real engine-issued, state-bound and explicitly closed lifetime. */
+    private List<org.pangrova.metadata.artifact.build.ArtifactBuildSplit> enumeratePinnedCoverage(long snapshot) {
+        String queryId = "feature-coverage";
+        var state = new QueryStateMachine();
+        var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));
+        var actor = SessionContextConverter.toConnectorSession(
+                session().withQueryId(queryId).withQueryAuthority(authority), "lake", "raw");
+        try {
+            authority.beginMetadata("lake", () -> metadata.catalogRegistry().getCatalog("lake").getMetadata(actor));
+            return new SnapshotArtifactSplitPlanner(metadata.catalogRegistry()).enumerate(
+                    new org.pangrova.spi.connector.metadata.table.QualifiedTableName("lake", "raw", "customers"),
+                    Long.toString(snapshot), actor);
+        } finally {
+            state.tryTransition(QueryStateMachine.State.CANCELLED);
+            taskTracker.sealQueryIssuance(queryId);
+            authority.requireDrained();
+            authority.cleanupMetadata().requireSuccess();
+            taskTracker.retireQueryIssuance(queryId);
+            assertThat(authority.isClosed()).isTrue();
+        }
+    }
+
+    private void dispatch(String sql) {
+        String queryId = "feature-statement-" + ++statementNumber;
+        try {
+            queryManager.submitQuery(queryId, sql, session());
+            assertThat(queryManager.getQueryState(queryId)).contains(QueryStateMachine.State.FINISHED);
+        } finally {
+            assertThat(queryManager.getActiveQueryCount()).isZero();
+            assertThat(queryManager.getActiveQueryIds()).isEmpty();
+            var lifetime = observedLifetime.get();
+            if (lifetime != null && queryId.equals(lifetime.queryId())) {
+                assertThat(lifetime.isClosed()).isTrue();
+                lifetime.requireDrained();
+            }
+        }
+    }
     private static FeatureViewId id(String name) { return new FeatureViewId(TENANT, "lake", "sales", name); }
     private static CoordinatorSessionContext session() {
         return new CoordinatorSessionContext("feature-query", Map.of("catalog", "lake", "schema", "sales"), USER, TENANT);

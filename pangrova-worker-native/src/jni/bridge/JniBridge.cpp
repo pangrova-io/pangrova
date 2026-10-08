@@ -550,10 +550,8 @@ JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeReleaseExecutor0(
     JNIEnv* env, jclass, jlong executorHandle) {
   try {
-    // The demuxer borrows the executor's shuffle queue. Quiesce it before
-    // release drains/destroys that queue; otherwise the two consumers can
-    // steal batches from one another and turn a partial stream into EOF.
-    pangrova::jni::cleanupShuffleServerForHandle(executorHandle);
+    // TaskExecutor's actual shuffle owner seals START and quiesces its borrowed
+    // queue before driver/output release. The receipt follows that same exit.
     jbyteArray receipt = nullptr;
     pangrova::jni::HandleRegistry::instance().release(
         executorHandle, [&](pangrova::executor::TaskExecutor& executor) {

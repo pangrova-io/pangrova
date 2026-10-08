@@ -1,6 +1,7 @@
 package org.pangrova.spi.connector.metadata;
 
 import org.pangrova.spi.annotation.Experimental;
+import org.pangrova.spi.connector.data.type.DeclaredType;
 import org.pangrova.spi.connector.data.type.TypeSignature;
 
 import java.util.List;
@@ -13,7 +14,6 @@ public record NativePhysicalWriteAllocation(
         Identity identity, Schema schema, Policy policy, String allocationPrefix,
         long baseSnapshotId, List<NativePhysicalFileAllocation> files) {
     private static final int MAX_ALLOCATED_FILES = 4096;
-    private static final int MAX_NESTED_TYPES = 4096;
     private static final int MAX_SCHEMA_COLUMNS = 4096;
     private static final int MAX_TEXT_LENGTH = 16_384;
 
@@ -45,17 +45,6 @@ public record NativePhysicalWriteAllocation(
         }
         public TypeSignature logicalType() { return declaredType.signature(); }
         public boolean nullable() { return declaredType.nullable(); }
-    }
-
-    /** Complete SDK-declared nullability tree; children follow the ordered signature types. */
-    public record DeclaredType(TypeSignature signature, boolean nullable, List<DeclaredType> children) {
-        public DeclaredType {
-            Objects.requireNonNull(signature, "signature");
-            children = List.copyOf(children);
-            if (children.size() > MAX_NESTED_TYPES) {
-                throw new IllegalArgumentException("Too many nested physical types");
-            }
-        }
     }
 
     /** Schema-only typed IPC metadata from the connector SDK; not a row payload. */

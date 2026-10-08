@@ -281,14 +281,19 @@ jobs:
       - name: Build the canonical same-source Linux production image
         run: |
           docker buildx version
-          IMAGE="$PANGROVA_E2E_IMAGE" docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
+          IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA" \
+            docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
           image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
           [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")" == "$GITHUB_SHA" ]]
           echo "PANGROVA_E2E_IMAGE_ID=$image_id" >> "$GITHUB_ENV"
 
       - name: Stage the production classifier and matching host JNI
         run: |
-          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh "$PANGROVA_E2E_IMAGE_ID")
+          stage=$(mktemp -d "$RUNNER_TEMP/pangrova-local-runtime.XXXXXXXX")
+          echo "PANGROVA_LOCAL_STAGE=$stage" >> "$GITHUB_ENV"
+          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh \
+            "$PANGROVA_E2E_IMAGE_ID" "$stage" "$GITHUB_SHA")
           mvn -B install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
             -Dclassifier=linux-x86_64
 
@@ -298,13 +303,23 @@ jobs:
       - name: Run full regression with real coverage
         run: |
           mvn -B -Pnative-runtime,full-regression,coverage verify -pl '!pangrova-native-bundle' \
-            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
+            -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
+            -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
+            -Dpangrova.e2e.local.jar-manifest="$PANGROVA_LOCAL_STAGE/runtime.sha256" \
+            -Dpangrova.e2e.local.image-provenance="$PANGROVA_LOCAL_STAGE/image-provenance.properties" \
+            -Dpangrova.e2e.local.source-commit="$GITHUB_SHA"
 
       - name: Run full E2E and real activation smoke
         run: |
           mvn -B -Pnative-runtime,full-regression \
             -pl pangrova-testing/pangrova-test-e2e -am test \
-            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
+            -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
+            -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
+            -Dpangrova.e2e.local.jar-manifest="$PANGROVA_LOCAL_STAGE/runtime.sha256" \
+            -Dpangrova.e2e.local.image-provenance="$PANGROVA_LOCAL_STAGE/image-provenance.properties" \
+            -Dpangrova.e2e.local.source-commit="$GITHUB_SHA"
           mvn -B -Pnative-runtime -pl pangrova-testing/pangrova-test-e2e \
             -Dtest=ActivationSmokeE2ETest test \
             -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
@@ -323,6 +338,17 @@ jobs:
           path: |
             **/target/surefire-reports/
             **/target/site/jacoco/
+
+      - name: Upload production runtime provenance and process diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-runtime-provenance
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/pangrova-local-runtime.*/runtime.sha256
+            ${{ runner.temp }}/pangrova-local-runtime.*/image-provenance.properties
+            /tmp/pangrova-local-process-*/*.log
 
   tpch-performance:
     name: TPC-H Performance Regression

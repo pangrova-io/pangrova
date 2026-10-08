@@ -2,22 +2,34 @@ package org.pangrova.testing.e2e.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.dockerjava.api.exception.NotFoundException;
 import org.pangrova.worker.jni.NativeFunctionConfig;
+import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Owns the real model deployment for the lifetime of the shared Native callbacks. */
 public final class SharedAiProvider implements AutoCloseable {
-    public static final String PROVIDER_MODEL = "tinyllama";
+    public static final String PROVIDER_MODEL = "tinyllama:latest";
     public static final String LOGICAL_MODEL = "local-tinyllama";
     public static final String EMBEDDING_PROVIDER_MODEL = "all-minilm:latest";
     public static final String EMBEDDING_LOGICAL_MODEL = "local-all-minilm";
@@ -26,10 +38,35 @@ public final class SharedAiProvider implements AutoCloseable {
     public static final String DOCUMENT_PREFIX = "Pangrova stored document: ";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Duration DEPLOYMENT_TIMEOUT = Duration.ofMinutes(3);
+    private static final int MAX_RESPONSE_BYTES = 64 * 1024;
+    private static final int MAX_DIAGNOSTIC_CHARACTERS = 16 * 1024;
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
+    private final GenericContainer<?> deployment;
+    private final Duration deploymentTimeout;
+    private final StringBuilder diagnosticTail = new StringBuilder();
     private GenericContainer<?> container;
     private NativeFunctionConfig config;
+
+    /** Creates one isolated deployment with a single three-minute setup budget. */
+    public SharedAiProvider() {
+        this(new GenericContainer<>(DockerImageName.parse("ollama/ollama:0.6.2"))
+                .withExposedPorts(11434)
+                .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200)), DEPLOYMENT_TIMEOUT);
+    }
+
+    /** Owns the actual test deployment; fault tests may shorten, but never enlarge, the budget. */
+    SharedAiProvider(GenericContainer<?> deployment, Duration timeout) {
+        this.deployment = Objects.requireNonNull(deployment, "deployment");
+        this.deploymentTimeout = Objects.requireNonNull(timeout, "timeout");
+        if (deployment.getContainerId() != null) {
+            throw new IllegalArgumentException("Model deployment must not borrow an already-created container");
+        }
+        if (timeout.isNegative() || timeout.isZero() || timeout.compareTo(DEPLOYMENT_TIMEOUT) > 0) {
+            throw new IllegalArgumentException("Model deployment budget must be positive and at most three minutes");
+        }
+    }
 
     /** Starts actual models and freezes their deployment identities before Native initialization. */
     public NativeFunctionConfig prepare() throws Exception {
@@ -39,18 +76,26 @@ public final class SharedAiProvider implements AutoCloseable {
         if (container != null) {
             throw new IllegalStateException("A previous model deployment still requires cleanup");
         }
-        container = new GenericContainer<>(DockerImageName.parse("ollama/ollama:0.6.2"))
-                .withExposedPorts(11434)
-                .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200)
-                        .withStartupTimeout(Duration.ofMinutes(3)));
+        long deadline = System.nanoTime() + deploymentTimeout.toNanos();
+        container = deployment;
+        String phase = "container startup";
         try {
+            container.withStartupTimeout(remaining(deadline));
+            container.withLogConsumer(frame -> retainDiagnostic(frame.getUtf8String()));
             container.start();
-            pull(PROVIDER_MODEL);
-            pull(EMBEDDING_PROVIDER_MODEL);
-            config = configuration(loadedModelDigest(PROVIDER_MODEL),
-                    loadedModelDigest(EMBEDDING_PROVIDER_MODEL));
+            phase = "pull " + PROVIDER_MODEL;
+            pull(PROVIDER_MODEL, deadline);
+            phase = "pull " + EMBEDDING_PROVIDER_MODEL;
+            pull(EMBEDDING_PROVIDER_MODEL, deadline);
+            phase = "immutable model inventory";
+            String digest = loadedModelDigest(PROVIDER_MODEL, deadline);
+            String embeddingDigest = loadedModelDigest(EMBEDDING_PROVIDER_MODEL, deadline);
+            remaining(deadline);
+            config = configuration(digest, embeddingDigest);
             return config;
         } catch (Exception | Error failure) {
+            failure.addSuppressed(new IllegalStateException(
+                    "Actual Ollama deployment failed during " + phase + "; container diagnostics: " + diagnostics()));
             try {
                 close();
             } catch (Exception | Error cleanupFailure) {
@@ -60,19 +105,38 @@ public final class SharedAiProvider implements AutoCloseable {
         }
     }
 
-    private void pull(String model) throws Exception {
-        var pull = container.execInContainer("ollama", "pull", model);
-        if (pull.getExitCode() != 0) {
-            throw new IllegalStateException("Ollama model pull failed for " + model + ": " + pull.getStderr());
+    private void pull(String model, long deadline) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint("/api/pull")))
+                .timeout(remaining(deadline))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(
+                        MAPPER.writeValueAsBytes(Map.of("model", model, "stream", false))))
+                .build();
+        HttpResponse<byte[]> response = send(request, deadline);
+        String body = new String(response.body(), StandardCharsets.UTF_8);
+        if (response.statusCode() != 200) {
+            throw new IllegalStateException("Ollama model pull failed for " + model
+                    + ": HTTP " + response.statusCode() + ": " + body);
+        }
+        JsonNode result;
+        try {
+            result = MAPPER.readTree(body);
+        } catch (IOException failure) {
+            failure.addSuppressed(new IllegalStateException("Actual Ollama pull response: " + body));
+            throw failure;
+        }
+        if (result == null || result.hasNonNull("error") || !"success".equals(result.path("status").asText())) {
+            throw new IllegalStateException("Ollama model pull did not complete for " + model + ": " + body);
         }
     }
 
-    private String loadedModelDigest(String providerModel) throws Exception {
+    private String loadedModelDigest(String providerModel, long deadline) throws Exception {
         HttpRequest request = HttpRequest.newBuilder().uri(URI.create(endpoint("/api/tags")))
-                .timeout(Duration.ofSeconds(10)).GET().build();
-        HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                .timeout(remaining(deadline)).GET().build();
+        HttpResponse<byte[]> response = send(request, deadline);
         if (response.statusCode() != 200) {
-            throw new IllegalStateException("Ollama model inventory returned HTTP " + response.statusCode());
+            throw new IllegalStateException("Ollama model inventory returned HTTP " + response.statusCode()
+                    + ": " + new String(response.body(), StandardCharsets.UTF_8));
         }
         JsonNode models = MAPPER.readTree(response.body()).path("models");
         for (JsonNode model : models) {
@@ -86,6 +150,90 @@ public final class SharedAiProvider implements AutoCloseable {
             }
         }
         throw new IllegalStateException("Ollama did not list pulled model " + providerModel);
+    }
+
+    private HttpResponse<byte[]> send(HttpRequest request, long deadline) throws Exception {
+        var response = http.sendAsync(request, info -> new BoundedResponse());
+        try {
+            return response.get(remaining(deadline).toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException failure) {
+            response.cancel(true);
+            throw failure;
+        } catch (InterruptedException failure) {
+            response.cancel(true);
+            Thread.currentThread().interrupt();
+            throw failure;
+        } catch (ExecutionException failure) {
+            if (failure.getCause() instanceof Exception cause) throw cause;
+            if (failure.getCause() instanceof Error cause) throw cause;
+            throw failure;
+        }
+    }
+
+    private static Duration remaining(long deadline) throws TimeoutException {
+        long nanos = deadline - System.nanoTime();
+        if (nanos <= 0) throw new TimeoutException("The shared Ollama deployment deadline expired");
+        return Duration.ofNanos(nanos);
+    }
+
+    private synchronized void retainDiagnostic(String message) {
+        diagnosticTail.append(message);
+        if (diagnosticTail.length() > MAX_DIAGNOSTIC_CHARACTERS) {
+            diagnosticTail.delete(0, diagnosticTail.length() - MAX_DIAGNOSTIC_CHARACTERS);
+        }
+    }
+
+    private synchronized String diagnostics() {
+        return diagnosticTail.toString();
+    }
+
+    /** Bounds the complete HTTP entity before retaining it, including error responses. */
+    private static final class BoundedResponse implements HttpResponse.BodySubscriber<byte[]> {
+        private final HttpResponse.BodySubscriber<byte[]> delegate = HttpResponse.BodySubscribers.ofByteArray();
+        private Flow.Subscription subscription;
+        private int received;
+        private boolean terminal;
+
+        @Override
+        public CompletionStage<byte[]> getBody() { return delegate.getBody(); }
+
+        @Override
+        public void onSubscribe(Flow.Subscription subscribed) {
+            subscription = subscribed;
+            delegate.onSubscribe(subscribed);
+        }
+
+        @Override
+        public void onNext(List<ByteBuffer> buffers) {
+            if (terminal) return;
+            for (ByteBuffer buffer : buffers) {
+                if (buffer.remaining() > MAX_RESPONSE_BYTES - received) {
+                    terminal = true;
+                    subscription.cancel();
+                    delegate.onError(new IOException("Ollama deployment response exceeds " + MAX_RESPONSE_BYTES
+                            + " bytes after receiving " + received + " bytes"));
+                    return;
+                }
+                received += buffer.remaining();
+            }
+            delegate.onNext(buffers);
+        }
+
+        @Override
+        public void onError(Throwable failure) {
+            if (!terminal) {
+                terminal = true;
+                delegate.onError(failure);
+            }
+        }
+
+        @Override
+        public void onComplete() {
+            if (!terminal) {
+                terminal = true;
+                delegate.onComplete();
+            }
+        }
     }
 
     private NativeFunctionConfig configuration(String digest, String embeddingDigest) {
@@ -150,10 +298,34 @@ public final class SharedAiProvider implements AutoCloseable {
     /** Stops only after the caller has retired all Native and Java callback owners. */
     @Override
     public void close() {
-        if (container != null) {
-            container.stop();
-            container = null;
-            config = null;
+        boolean interrupted = Thread.interrupted();
+        try {
+            if (container != null) {
+                String ownedId = container.getContainerId();
+                if (ownedId != null) {
+                    removeOwnedContainer(ownedId);
+                }
+                container.stop();
+                container = null;
+                config = null;
+            }
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void removeOwnedContainer(String ownedId) {
+        var docker = DockerClientFactory.instance().client();
+        try {
+            docker.removeContainerCmd(ownedId).withForce(true).withRemoveVolumes(true).exec();
+        } catch (NotFoundException alreadyRemoved) {
+            // Absence of the exact owned container is the same terminal cleanup state.
+        }
+        try {
+            docker.inspectContainerCmd(ownedId).exec();
+            throw new IllegalStateException("Owned Ollama container still exists after deletion: " + ownedId);
+        } catch (NotFoundException removed) {
+            // Confirm actual deletion before retiring the handle or clearing its configuration.
         }
     }
 }

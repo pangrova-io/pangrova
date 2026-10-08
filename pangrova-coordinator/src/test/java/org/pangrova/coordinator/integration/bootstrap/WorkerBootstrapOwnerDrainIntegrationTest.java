@@ -1,4 +1,4 @@
-package org.pangrova.worker.bootstrap;
+package org.pangrova.coordinator.integration.bootstrap;
 
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
@@ -8,9 +8,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.pangrova.worker.bootstrap.WorkerBootstrap;
+import org.pangrova.worker.bootstrap.WorkerBootstrapConfig;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.testing.nativefixture.TestShuffleServiceConfig;
 import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.jni.NativeFunctionConfig;
@@ -21,7 +24,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Actual Bootstrap/JNI with controlled local owner exit; not SQL/provider E2E. */
 @Tag("native-required")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
-class WorkerBootstrapOwnerDrainTest {
+class WorkerBootstrapOwnerDrainIntegrationTest {
+    private WorkerBootstrapControlFixture control;
+
+    @BeforeEach void startControl() throws Exception {
+        control = new WorkerBootstrapControlFixture();
+    }
+
+    @AfterEach void closeControl() throws Exception {
+        if (control != null) {
+            control.close();
+        }
+    }
     @Test void failedCloseRetainsNativeRuntimeUntilTheActualOwnerClosesOnRetry() throws Exception {
         var bootstrap = bootstrap("native-owner-retry");
         var blocked = new AtomicBoolean(true);
@@ -46,17 +60,25 @@ class WorkerBootstrapOwnerDrainTest {
 
     @Test void successfulShutdownIsOneShotAndCannotExposeAnOldCompletedLatchToNewStartup() throws Exception {
         var bootstrap = bootstrap("one-shot-worker");
-        try { bootstrap.start(); }
+        try {
+            bootstrap.start();
+            var registered = control.registration("one-shot-worker");
+            assertThat(registered).isNotNull();
+            assertThat(registered.httpPort()).isEqualTo(bootstrap.getHttpPort()).isPositive();
+            assertThat(registered.resultServerPort()).isEqualTo(bootstrap.getTransportPort()).isPositive();
+            assertThat(registered.capabilityInventory().getCapabilitiesCount()).isPositive();
+        }
         finally { bootstrap.shutdown(); }
         bootstrap.awaitShutdown();
         bootstrap.shutdown();
         assertThatThrownBy(bootstrap::start).hasMessageContaining("STOPPED");
         assertThatThrownBy(() -> bootstrap.setCdcConsumer(() -> {})).hasMessageContaining("STOPPED");
         assertThat(bootstrap.getNodeMemoryPool().getUsedBytes()).isZero();
+        assertThat(control.registration("one-shot-worker")).isNull();
     }
 
     @Test void actualFunctionConfigurationFailureKeepsFailedRollbackOwnersForShutdownRetry() throws Exception {
-        var source = TestShuffleServiceConfig.config(WorkerBootstrapConfig.withDefaults("failed-start-owner"));
+        var source = control.config("failed-start-owner");
         var functions = new NativeFunctionConfig(true, java.util.Map.of("ai-inference",
                 java.util.Map.of("file.storage-backend", "s3")));
         var config = new WorkerBootstrapConfig(source.workerId(), source.httpPort(), source.transportPort(),
@@ -90,20 +112,29 @@ class WorkerBootstrapOwnerDrainTest {
             entered.countDown();
             if (!resume.await(5, TimeUnit.SECONDS)) throw new IOException("close owner was not released");
         });
-        bootstrap.start();
-        var close = CompletableFuture.runAsync(bootstrap::shutdown);
+        CompletableFuture<Void> close = null;
         try {
+            bootstrap.start();
+            close = CompletableFuture.runAsync(bootstrap::shutdown);
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(bootstrap::start).hasMessageContaining("STOPPING");
             assertThatThrownBy(bootstrap::shutdown).hasMessageContaining("STOPPING");
             assertThat(close.isDone()).isFalse();
-        } finally { resume.countDown(); }
-        close.get(5, TimeUnit.SECONDS);
+        } finally {
+            resume.countDown();
+            try {
+                if (close != null) {
+                    close.get(5, TimeUnit.SECONDS);
+                }
+            } finally {
+                bootstrap.shutdown();
+            }
+        }
         bootstrap.awaitShutdown();
         assertThat(bootstrap.getNodeMemoryPool().getUsedBytes()).isZero();
     }
 
-    private static WorkerBootstrap bootstrap(String workerId) {
-        return new WorkerBootstrap(TestShuffleServiceConfig.config(WorkerBootstrapConfig.withDefaults(workerId)));
+    private WorkerBootstrap bootstrap(String workerId) {
+        return control.bootstrap(workerId);
     }
 }

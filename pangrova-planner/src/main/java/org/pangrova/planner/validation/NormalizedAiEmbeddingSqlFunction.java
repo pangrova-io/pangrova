@@ -1,9 +1,6 @@
 package org.pangrova.planner.validation;
 
 import org.apache.calcite.sql.SqlCallBinding;
-import org.apache.calcite.sql.SqlFunction;
-import org.apache.calcite.sql.SqlFunctionCategory;
-import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.OperandTypes;
 import org.apache.calcite.sql.type.SqlOperandTypeChecker;
 import org.apache.calcite.sql.type.SqlReturnTypeInference;
@@ -14,10 +11,10 @@ import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import static org.apache.calcite.util.Static.RESOURCE;
 
 /** The optional enum constraint and default come from the canonical declaration. */
-final class NormalizedAiEmbeddingSqlFunction extends SqlFunction {
+final class NormalizedAiEmbeddingSqlFunction extends DeclaredCallbackSqlFunction {
     NormalizedAiEmbeddingSqlFunction(SqlReturnTypeInference returnType) {
-        super("AI_EMBED", SqlKind.OTHER_FUNCTION, returnType, null,
-                operands(), SqlFunctionCategory.USER_DEFINED_FUNCTION);
+        super("AI_EMBED", returnType, operands(), FunctionBindingDeclarations
+                .callbackMetadataForSqlName("AI_EMBED").orElseThrow());
     }
 
     @Override

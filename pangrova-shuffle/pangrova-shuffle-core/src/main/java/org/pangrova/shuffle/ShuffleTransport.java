@@ -19,6 +19,11 @@ public interface ShuffleTransport extends AutoCloseable {
 
     /**
      * Start serving shuffle output for a task. Called after task creation.
+     * Repeating this operation for the same active executor and partition count
+     * returns its existing producer endpoint without another resource admission.
+     * Conflicting identity or partition count is rejected. Once producer serving
+     * is closing, cancelled, lingering or released, it cannot be started again;
+     * previously authorized readers may still drain clean lingering output.
      *
      * @param executorHandle native executor handle from {@code TaskExecutor.createTask}
      * @param numPartitions  number of output partitions (must be positive)

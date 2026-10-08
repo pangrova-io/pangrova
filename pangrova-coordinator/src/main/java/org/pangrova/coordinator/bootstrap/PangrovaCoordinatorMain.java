@@ -46,6 +46,12 @@ public final class PangrovaCoordinatorMain {
             Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdown, "coordinator-shutdown"));
             bootstrap.start();
             LOG.info("event=coordinator_process_started coordinatorId={}", config.coordinatorId());
+            try {
+                bootstrap.awaitShutdown();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                bootstrap.shutdown();
+            }
         } catch (Exception e) {
             LOG.error("event=coordinator_startup_failed error={}", e.getMessage(), e);
             System.exit(1);
@@ -140,7 +146,10 @@ public final class PangrovaCoordinatorMain {
 
     private static CoordinatorBootstrapConfig.TransportConfig loadTransportConfig(
             PangrovaConfiguration config) {
-        var defaults = CoordinatorBootstrapConfig.TransportConfig.defaults();
+        var transport = new CoordinatorBootstrapConfig.TransportConfig(
+                config.getInt(CoordinatorOptions.TRANSPORT_PORT),
+                config.getLong(CoordinatorOptions.TRANSPORT_ALLOCATOR_LIMIT_BYTES),
+                config.getString(CoordinatorOptions.TRANSPORT_ADVERTISED_HOST), null);
         boolean enabled = config.getBoolean(CoordinatorOptions.TRANSPORT_TLS_ENABLED);
         String certificate = config.getString(
                 CoordinatorOptions.TRANSPORT_TLS_CERTIFICATE_CHAIN_PATH);
@@ -158,7 +167,7 @@ public final class PangrovaCoordinatorMain {
                         PangrovaErrorCode.CONFIG_INVALID_VALUE,
                         "coordinator transport TLS material requires tls.enabled=true");
             }
-            return defaults;
+            return transport;
         }
         if (certificate.isBlank() || privateKey.isBlank()
                 || rootCa.isBlank() || serverIdentity.isBlank()) {
@@ -171,8 +180,8 @@ public final class PangrovaCoordinatorMain {
                 Path.of(certificate), Path.of(privateKey), Path.of(rootCa),
                 serverIdentity);
         return new CoordinatorBootstrapConfig.TransportConfig(
-                defaults.port(), defaults.allocatorLimitBytes(),
-                defaults.advertisedHost(), tls);
+                transport.port(), transport.allocatorLimitBytes(),
+                transport.advertisedHost(), tls);
     }
 
     private static CoordinatorBootstrapConfig.FeatureFlags buildFeatureFlags(PangrovaConfiguration config) {

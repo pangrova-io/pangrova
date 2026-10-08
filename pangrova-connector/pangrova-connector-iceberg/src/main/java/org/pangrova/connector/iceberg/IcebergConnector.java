@@ -29,6 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class IcebergConnector implements Connector {
 
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 30;
+
     private final String catalogName;
     private final Catalog catalog;
     private final IcebergMetadata metadata;
@@ -120,7 +122,7 @@ public class IcebergConnector implements Connector {
         try {
             if (catalogClosed) return;
             pinEvictionScheduler.shutdownNow();
-            if (!pinEvictionScheduler.awaitTermination(30, TimeUnit.SECONDS)) {
+            if (!pinEvictionScheduler.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("Iceberg pin eviction has not terminated");
             }
             if (catalog instanceof AutoCloseable closeable) closeable.close();

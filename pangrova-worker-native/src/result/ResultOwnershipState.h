@@ -6,6 +6,7 @@
 #include <arrow/record_batch.h>
 
 namespace pangrova::result {
+class ResultPendingRead;
 // Tracks actual producer, RPC reader and exported buffer lifetimes independently.
 class ResultOwnershipState {
  public:
@@ -18,7 +19,11 @@ class ResultOwnershipState {
     bool drained() const;
   };
   void stopProducer();
+  void revokeAuthority();
   void revokeAndClearQueue();
+  arrow::Status attachPendingRead(const std::shared_ptr<ResultPendingRead>& pending);
+  void detachPendingRead(const std::shared_ptr<ResultPendingRead>& pending);
+  bool hasPendingRead() const;
   void acquireReader();
   void releaseReader() noexcept;
   void acquireBatch();
@@ -28,6 +33,7 @@ class ResultOwnershipState {
  private:
   mutable std::mutex mutex_;
   Evidence evidence_{false, false, false, 0, 0};
+  std::weak_ptr<ResultPendingRead> pending_read_;
 };
 
 // The root lease covers zero-column batches; recursive buffer leases cover

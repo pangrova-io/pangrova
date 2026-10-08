@@ -5,13 +5,15 @@
 #include <algorithm>
 #include <cstring>
 #include <deque>
-#include <folly/futures/Future.h>
-#include <folly/futures/Promise.h>
+#include <stdexcept>
 #include <folly/io/IOBuf.h>
 #include <velox/exec/OutputBufferManager.h>
 #include "columnar/CanonicalBatchStream.h"
 #include "columnar/CanonicalArrowValidation.h"
+#include "capability/LogicalTypeContract.h"
 #include "result/ResultReadAuthority.h"
+#include "result/ResultPendingRead.h"
+#include "observability/PangrovaLog.h"
 
 namespace pangrova::result {
 namespace {
@@ -68,11 +70,6 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ownPage(std::unique_ptr<folly::IOB
   return std::shared_ptr<arrow::Buffer>(owner, &owner->buffer);
 }
 
-struct FetchedPages {
-  std::vector<std::unique_ptr<folly::IOBuf>> pages;
-  int64_t sequence;
-};
-
 struct ReaderLease {
   std::shared_ptr<ResultOwnershipState> state;
   explicit ReaderLease(std::shared_ptr<ResultOwnershipState> value) : state(std::move(value)) {
@@ -85,18 +82,24 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
  public:
   ResultBatchReader(FlightResultServer::TaskOutputInfo info, protocol::v2::ResultReadGrant grant,
       std::shared_ptr<arrow::Schema> storage, std::shared_ptr<arrow::Schema> result,
-      int64_t maximumBytes, int64_t timeoutSeconds)
+      int64_t maximumBytes, int64_t timeoutSeconds,
+      const arrow::flight::ServerCallContext* context)
       : info_(std::move(info)), lease_(std::make_shared<ReaderLease>(info_.ownership)),
         grant_(std::move(grant)), storage_(std::move(storage)),
-        result_(std::move(result)), maximumBytes_(maximumBytes), timeoutSeconds_(timeoutSeconds) {}
+        result_(std::move(result)), maximumBytes_(maximumBytes), timeoutSeconds_(timeoutSeconds),
+        context_(context) {}
 
   ~ResultBatchReader() override {
-    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-    if (buffers) {
-      buffers->deleteResults(taskId(), 0);
+    info_.ownership->revokeAuthority();
+    try {
+      info_.buffers->deleteResults(taskId(), 0);
       info_.ownership->revokeAndClearQueue();
+    } catch (const std::exception& error) {
+      // A destructor cannot throw across Arrow/gRPC. Do not claim queue drain
+      // on failure; the retained task owner must retry the actual cleanup.
+      PANGROVA_LOG(ERROR) << "event=result_reader_cleanup_failed task_id=" << taskId()
+                         << " error=" << error.what();
     }
-    FlightResultServer::unregisterTaskOutputType(taskId());
   }
 
   std::shared_ptr<arrow::Schema> schema() const override { return result_; }
@@ -123,30 +126,36 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
   const std::string& taskId() const { return grant_.attempt().task_id(); }
 
   arrow::Status validateLiveAuthority() const {
-    const auto live = FlightResultServer::lookupTaskOutputInfo(taskId());
-    if (!live || grant_.expires_at_epoch_ms() <= static_cast<uint64_t>(nowMillis())) {
+    if ((context_ && context_->is_cancelled()) || info_.ownership->evidence().authority_revoked ||
+        grant_.expires_at_epoch_ms() <= static_cast<uint64_t>(nowMillis())) {
       return arrow::Status::Cancelled("Result authority was revoked or expired");
     }
-    return validateResultRead(grant_, live->authority);
+    return validateResultRead(grant_, info_.authority);
   }
 
-  arrow::Result<FetchedPages> fetch() {
-    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-    if (!buffers) return arrow::Status::Invalid("Result producer buffer is unavailable");
-    auto promise = std::make_shared<folly::Promise<FetchedPages>>();
-    auto future = promise->getSemiFuture();
-    const bool found = buffers->getData(taskId(), 0, static_cast<uint64_t>(maximumBytes_), sequence_,
-        [promise](std::vector<std::unique_ptr<folly::IOBuf>> pages, int64_t sequence,
-            std::vector<int64_t>) { promise->setValue(FetchedPages{std::move(pages), sequence}); });
-    if (!found) return arrow::Status::IOError("Result producer disappeared before its committed EOF");
+  arrow::Result<ResultPages> fetch() {
     const int64_t deadlineMillis = static_cast<int64_t>(grant_.expires_at_epoch_ms()) - nowMillis();
     const auto waitMillis = timeoutSeconds_ > 0
         ? std::min(deadlineMillis, timeoutSeconds_ * 1000) : deadlineMillis;
     if (waitMillis <= 0) return arrow::Status::Cancelled("Result authority expired");
+    auto pending = std::make_shared<ResultPendingRead>();
+    ARROW_RETURN_NOT_OK(info_.ownership->attachPendingRead(pending));
+    struct Subscription {
+      std::shared_ptr<ResultOwnershipState> ownership;
+      std::shared_ptr<ResultPendingRead> pending;
+      ~Subscription() { ownership->detachPendingRead(pending); }
+    } subscription{info_.ownership, pending};
     try {
-      return std::move(future).within(std::chrono::milliseconds(waitMillis)).get();
-    } catch (const std::exception&) {
-      return arrow::Status::IOError("Result producer failed or timed out before its committed EOF");
+      // SDK Task::terminate can erase the route without notifying getData.
+      // Revocation wakes this exact subscription even after that route is gone.
+      const bool found = info_.buffers->getData(taskId(), 0,
+          static_cast<uint64_t>(maximumBytes_), sequence_,
+          [pending](std::vector<std::unique_ptr<folly::IOBuf>> pages, int64_t sequence,
+              std::vector<int64_t>) { pending->complete(ResultPages{std::move(pages), sequence}); });
+      if (!found) pending->cancel(arrow::Status::IOError("Result producer disappeared before its committed EOF"));
+      return pending->waitUntil(std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMillis), context_);
+    } catch (const std::exception& error) {
+      return arrow::Status::IOError("Result producer failed before its committed EOF: ", error.what());
     }
   }
 
@@ -168,13 +177,21 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
       ARROW_ASSIGN_OR_RAISE(auto buffer, ownPage(std::move(page), info_.pool));
       ARROW_ASSIGN_OR_RAISE(auto batches, decodePage(std::move(buffer), storage_, info_.pool));
       for (const auto& batch : batches) {
+        for (const auto& column : info_.result_column_types) {
+          if (column.column_index >= static_cast<uint32_t>(batch->num_columns())) {
+            return arrow::Status::Invalid("VECTOR result column is outside its batch schema");
+          }
+          try {
+            capability::validateVectorResultArray(column.logical_type, *batch->column(column.column_index));
+          } catch (const std::invalid_argument& error) {
+            return arrow::Status::Invalid("Invalid VECTOR result values: ", error.what());
+          }
+        }
         staged.push_back(retainResultBatch(arrow::RecordBatch::Make(
             result_, batch->num_rows(), batch->columns()), info_.ownership));
       }
       ++nextSequence;
     }
-    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-    if (!buffers) return arrow::Status::IOError("Result producer was revoked");
     // Fetching and decoding can outlive the authority checked at ReadNext entry.
     ARROW_RETURN_NOT_OK(validateLiveAuthority());
     // No page, cursor, EOF or ACK is committed until the entire fetched group
@@ -182,8 +199,8 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
     pending_.swap(staged);
     sequence_ = nextSequence;
     finished_ = nextFinished;
-    buffers->acknowledge(taskId(), 0, sequence_);
-    if (finished_) buffers->deleteResults(taskId(), 0);
+    info_.buffers->acknowledge(taskId(), 0, sequence_);
+    if (finished_) info_.buffers->deleteResults(taskId(), 0);
     return arrow::Status::OK();
   }
 
@@ -195,6 +212,9 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
   bool finished_ = false;
   arrow::Status failure_ = arrow::Status::OK();
   std::deque<std::shared_ptr<arrow::RecordBatch>> pending_;
+  // Arrow retains ServerCallContext for the full synchronous DoGet transport,
+  // including streaming and destruction of its RecordBatchStream.
+  const arrow::flight::ServerCallContext* context_;
 };
 }  // namespace
 
@@ -209,8 +229,9 @@ arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> parseArrowBatchF
 
 arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> resultBatchStreamReader(
     FlightResultServer::TaskOutputInfo info, protocol::v2::ResultReadGrant grant,
-    int64_t maximumResponseBytes, int64_t timeoutSeconds) {
-  if (!info.pool || !info.output_type || !info.wire_schema || !info.ownership || maximumResponseBytes <= 0 ||
+    int64_t maximumResponseBytes, int64_t timeoutSeconds,
+    const arrow::flight::ServerCallContext* context) {
+  if (!info.pool || !info.buffers || !info.output_type || !info.wire_schema || !info.ownership || maximumResponseBytes <= 0 ||
       maximumResponseBytes > columnar::kMaximumBatchStreamBytes ||
       static_cast<size_t>(info.wire_schema->num_fields()) != info.output_type->size() ||
       info.column_labels.size() != info.output_type->size()) {
@@ -225,7 +246,16 @@ arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> resultBatchStreamReader
     fields[i] = fields[i]->WithMetadata(metadata)->WithName(info.column_labels[i]);
   }
   auto result = arrow::schema(std::move(fields), typed->metadata());
-  return std::shared_ptr<arrow::RecordBatchReader>(std::make_shared<ResultBatchReader>(
-      std::move(info), std::move(grant), std::move(storage), std::move(result), maximumResponseBytes, timeoutSeconds));
+  const auto ownership = info.ownership;
+  try {
+    return std::shared_ptr<arrow::RecordBatchReader>(std::make_shared<ResultBatchReader>(
+        std::move(info), std::move(grant), std::move(storage), std::move(result),
+        maximumResponseBytes, timeoutSeconds, context));
+  } catch (const std::runtime_error& error) {
+    if (ownership->evidence().authority_revoked) {
+      return arrow::Status::Cancelled("Result reader admission failed: ", error.what());
+    }
+    return arrow::Status::Invalid("Result reader admission failed: ", error.what());
+  }
 }
 }  // namespace pangrova::result

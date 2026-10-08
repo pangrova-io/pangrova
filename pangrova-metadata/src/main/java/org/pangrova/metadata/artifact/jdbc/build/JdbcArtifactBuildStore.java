@@ -192,7 +192,8 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
 
     @Override
     public Optional<ArtifactBuildLease> claimNextPage(
-            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            String tenantId, String jobId,
+            org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now) {
         String leaseOwner = Objects.requireNonNull(executionAnchor, "executionAnchor").ownerId();
         if (!new ArtifactBuildJobKey(tenantId, jobId).executionId().equals(executionAnchor.executionId())) {
@@ -352,7 +353,8 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
 
     @Override
     public Optional<ArtifactBuildJob> claimReadyForPublication(
-            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            String tenantId, String jobId,
+            org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now) {
         String owner = Objects.requireNonNull(executionAnchor, "executionAnchor").ownerId();
         requireLeaseRequest(tenantId, jobId, owner, ownerEpoch, leaseDuration, now);
@@ -377,17 +379,18 @@ public final class JdbcArtifactBuildStore extends JdbcArtifactBuildStoreSupport 
                             + "publication_execution_owner_token=? "
                             + "WHERE tenant_id=? AND job_id=? AND state='READY_TO_PUBLISH' "
                             + "AND publication_fencing_token=?")) {
-                statement.setString(1, owner);
-                statement.setLong(2, ownerEpoch);
-                statement.setLong(3, nextFence);
-                setInstant(statement, 4, now.plus(leaseDuration));
-                setInstant(statement, 5, now);
-                statement.setString(6, executionAnchor.ownerId());
-                statement.setString(7, executionAnchor.ownerIncarnation());
-                statement.setLong(8, executionAnchor.fencingToken());
-                statement.setString(9, tenantId);
-                statement.setString(10, jobId);
-                statement.setLong(11, job.publicationFencingToken());
+                int parameter = 1;
+                statement.setString(parameter++, owner);
+                statement.setLong(parameter++, ownerEpoch);
+                statement.setLong(parameter++, nextFence);
+                setInstant(statement, parameter++, now.plus(leaseDuration));
+                setInstant(statement, parameter++, now);
+                statement.setString(parameter++, executionAnchor.ownerId());
+                statement.setString(parameter++, executionAnchor.ownerIncarnation());
+                statement.setLong(parameter++, executionAnchor.fencingToken());
+                statement.setString(parameter++, tenantId);
+                statement.setString(parameter++, jobId);
+                statement.setLong(parameter, job.publicationFencingToken());
                 if (statement.executeUpdate() != 1) {
                     throw new IllegalStateException("artifact publication fence was lost");
                 }

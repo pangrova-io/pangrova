@@ -6,10 +6,12 @@
 
 #include "executor/driver/TaskExecutor.h"
 #include "jni/RuntimeInitializer.h"
+#include "jni/command/StatusSerializer.h"
 #include "lance/LanceBatchWriter.h"
 #include "lance/LancePhysicalBatchWriter.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/filter/DynamicFilterConverter.h"
+#include "velox/exec/Task.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
 #include "velox/runner/VeloxTaskRunner.h"
 #include "velox/runtime/NativeEngineLifecycle.h"
@@ -109,7 +111,7 @@ void PlanExecutionDriver::release() {
   if (runner->hasResultOutput() && !runner->resultDrainEvidence().drained()) {
     throw std::runtime_error("Result RPC readers or exported buffers still own task resources");
   }
-  auto stats = runner->collectTaskStats();
+  auto stats = collectTaskStats();
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);
     if (!stats.empty()) final_task_stats_ = std::move(stats);
@@ -142,13 +144,15 @@ void PlanExecutionDriver::closeDatasetWriter() {
 }
 
 std::vector<uint8_t> PlanExecutionDriver::collectTaskStats() const {
-  std::shared_ptr<velox::VeloxTaskRunner> runner;
-  {
-    std::lock_guard<std::mutex> lock(runner_mutex_);
-    if (!final_task_stats_.empty()) return final_task_stats_;
-    runner = active_runner_;
-  }
-  return runner ? runner->collectTaskStats() : std::vector<uint8_t>{};
+  // Hold the runner fence until this actual snapshot is observed/serialized;
+  // release publishes final_task_stats_ under the same fence before deletion.
+  std::lock_guard<std::mutex> lock(runner_mutex_);
+  if (!final_task_stats_.empty()) return final_task_stats_;
+  auto* task = active_runner_ ? active_runner_->veloxTask() : nullptr;
+  if (!task) return {};
+  const auto stats = task->taskStats();
+  metrics_.observeColumnarReadTaskStats(stats);
+  return pangrova::jni::serializeNativeTaskStats(stats);
 }
 
 bool PlanExecutionDriver::hasFinalTaskStats() const {

@@ -5,8 +5,16 @@
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <atomic>
+#include <thread>
 #include <unordered_map>
 
+#include <arrow/c/bridge.h>
+#include <folly/ScopeGuard.h>
+#include "columnar/ColumnarImportLayout.h"
+#include "executor/driver/TaskExecutor.h"
+#include "jni/command/StatusSerializer.h"
+#include "observability/ColumnarReadMetrics.h"
+#include "velox/runner/VeloxTaskRunner.h"
 #include "velox/plan/VeloxPlanConverter.h"
 #include "substrait/plan.pb.h"
 #include "velox/core/PlanFragment.h"
@@ -74,6 +82,9 @@ substrait::Plan filterPlan(
       case TypeKind::DOUBLE:
         type->mutable_fp64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
         break;
+      case TypeKind::BOOLEAN:
+        type->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+        break;
       default: throw std::invalid_argument("Unsupported Lance oracle schema");
     }
   }
@@ -90,6 +101,112 @@ substrait::Plan filterPlan(
 
 class LanceFilterExecutionTest : public LanceDatasetTestFixture {
  protected:
+  std::string writeBitmapDataset() {
+    const auto path = (tmpDir_ / "bitmap.lance").string();
+    const auto type = ROW({"id", "flag"}, {BIGINT(), BOOLEAN()});
+    std::vector<std::vector<uint8_t>> fragments;
+    std::vector<std::string> staging;
+    auto config = createConfig(path, "bitmap-write", type);
+    for (int partition = 0; partition < 2; ++partition) {
+      auto allocation = createConfig(path, "bitmap-write", type,
+          LanceWriteOperation::kCreate, 0, partition);
+      LanceBatchWriter writer(pool_, type, allocation);
+      auto ids = BaseVector::create(BIGINT(), 16, pool_.get());
+      auto flags = BaseVector::create(BOOLEAN(), 16, pool_.get());
+      for (int row = 0; row < 16; ++row) {
+        ids->asFlatVector<int64_t>()->set(row, partition * 16 + row + 1);
+        flags->asFlatVector<bool>()->set(row, row % 2 == 0);
+        if (row % 3 == 0) flags->setNull(row, true);
+      }
+      writer.writeBatch(std::make_shared<RowVector>(pool_.get(), type, nullptr,
+          16, std::vector<VectorPtr>{ids, flags}));
+      fragments.push_back(writer.finish());
+      staging.push_back(allocation.transactionStagingPrefix);
+    }
+    EXPECT_EQ(commitFragments(config, fragments, false, 0, staging), 1);
+    return path;
+  }
+
+  // Oracle independently imports actual C ABI batches and measures the
+  // normalization usage, without a fabricated runtime counter/stat writer.
+  uint64_t actualCopyBytes(const std::string& path) {
+    uint64_t total = 0;
+    const auto splits = partitions(path);
+    EXPECT_EQ(splits.size(), 2);
+    auto allocator = std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool_);
+    for (const auto& split : splits) {
+      LanceStorageContext storage(split.storage_binding);
+      std::unique_ptr<LanceCReader, decltype(&lance_ffi_reader_close)> reader(
+          lance_ffi_reader_open(storage.get(), path.c_str(), 1,
+              reinterpret_cast<const uint8_t*>(split.file_scan_detail.data()),
+              split.file_scan_detail.size(), 0), lance_ffi_reader_close);
+      if (!reader) throw std::runtime_error(lance_ffi_last_error());
+      uint64_t split_bytes = 0;
+      while (true) {
+        ArrowArray array{};
+        ArrowSchema schema{};
+        const int rc = lance_ffi_reader_next(reader.get(), &array, &schema, 2);
+        if (rc == 0) break;
+        if (rc != 1) throw std::runtime_error(lance_ffi_last_error());
+        auto imported = arrow::ImportRecordBatch(&array, &schema).ValueOrDie();
+        pangrova::columnar::ColumnarImportUsage usage;
+        auto normalized = pangrova::columnar::normalizeImportLayout(*imported, allocator, usage).ValueOrDie();
+        EXPECT_EQ(normalized->num_rows(), 2);
+        EXPECT_EQ(usage.allocatedOffsetBytes, 0);
+        split_bytes += usage.copiedBytes;
+      }
+      EXPECT_GT(split_bytes, 0);
+      total += split_bytes;
+    }
+    return total;
+  }
+
+  pangrova::executor::TaskExecutorConfig copyTaskConfig(const std::string& path) {
+    static std::atomic<uint64_t> sequence{0};
+    pangrova::executor::TaskExecutorConfig config;
+    config.task_id = "lance-copy-task-" + std::to_string(sequence.fetch_add(1));
+    config.query_id = "lance-copy-query";
+    config.function_registry = exec::FunctionRegistrySnapshot::capture();
+    auto plan = filterPlan(ROW({"id", "flag"}, {BIGINT(), BOOLEAN()}),
+        predicate(0, field(0), integer(0)), {"gt"});
+    const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+    config.substrait_plan.assign(bytes.begin(), bytes.end());
+    config.splits = partitions(path);
+    config.shuffle_batch_size = 2;
+    config.resource_limit.max_threads = 1;
+    config.session_properties["velox.max_drivers"] = "1";
+    config.queue_poll_timeout = std::chrono::milliseconds(10);
+    return config;
+  }
+
+  protocol::v2::TaskReport report(pangrova::executor::TaskExecutor& executor) {
+    const auto bytes = pangrova::jni::serializeTaskStatus(executor);
+    protocol::v2::TaskReport result;
+    if (!result.ParseFromArray(bytes.data(), static_cast<int>(bytes.size()))) {
+      throw std::runtime_error("Actual scan report cannot be decoded");
+    }
+    return result;
+  }
+
+  void drain(pangrova::executor::TaskExecutor& executor) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    uint64_t rows = 0;
+    while (std::chrono::steady_clock::now() < deadline) {
+      RowVectorPtr batch;
+      const auto rc = executor.getNextBatch(batch);
+      if (rc == pangrova::executor::kDataAvailable) {
+        EXPECT_NE(batch, nullptr);
+        rows += batch->size();
+      } else if (rc == pangrova::executor::kEof) {
+        EXPECT_EQ(rows, 32);
+        return;
+      } else if (rc == pangrova::executor::kError) {
+        throw std::runtime_error(executor.errorMessage());
+      }
+    }
+    throw std::runtime_error("Actual Lance copy scan did not drain");
+  }
+
   std::vector<pangrova::split::SplitConfig> partitions(const std::string& path) {
     const auto version = datasetVersion(path);
     const auto storage = pangrova::test::testStorageBinding(path);
@@ -201,6 +318,167 @@ class LanceFilterExecutionTest : public LanceDatasetTestFixture {
     EXPECT_NE(std::string(error).find("after scanning starts"), std::string::npos);
   }
 };
+
+TEST_F(LanceFilterExecutionTest, ActualCopiesReachTaskReportAcrossSplitsAndRelease) {
+  const auto path = writeBitmapDataset();
+  const auto expected = actualCopyBytes(path);
+  ASSERT_GT(expected, 0);
+  pangrova::executor::TaskExecutor executor(copyTaskConfig(path));
+  executor.start();
+  drain(executor);
+  auto* runner = executor.veloxTaskRunner();
+  ASSERT_NE(runner, nullptr);
+  ASSERT_NE(runner->veloxTask(), nullptr);
+  const auto actual_stats = runner->veloxTask()->taskStats();
+  uint64_t runtime_bytes = 0;
+  for (const auto& pipeline : actual_stats.pipelineStats) {
+    for (const auto& op : pipeline.operatorStats) {
+      const auto metric = op.runtimeStats.find(std::string(pangrova::observability::kColumnarReadCopiedBytes));
+      if (metric == op.runtimeStats.end()) continue;
+      EXPECT_EQ(metric->second.unit, RuntimeCounter::Unit::kBytes);
+      runtime_bytes += metric->second.sum;
+    }
+  }
+  EXPECT_EQ(runtime_bytes, expected);
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+  EXPECT_EQ(executor.metricsCollector().snapshot().columnar_conversion_copied_bytes, expected);
+  executor.release();
+  EXPECT_TRUE(executor.hasFinalTaskStats());
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+}
+
+TEST_F(LanceFilterExecutionTest, ActualCopiesSurviveCancelledScanAndReaderRelease) {
+  const auto path = writeBitmapDataset();
+  auto config = copyTaskConfig(path);
+  config.output_queue_capacity = 1;
+  config.queue_poll_timeout = std::chrono::seconds(30);
+  pangrova::executor::TaskExecutor executor(config);
+  executor.start();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  uint64_t before = 0;
+  while (before == 0 && std::chrono::steady_clock::now() < deadline) {
+    before = report(executor).usage().columnar_conversion_copied_bytes();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_GT(before, 0);
+  executor.cancel();
+  executor.release();
+  ASSERT_EQ(executor.state(), pangrova::executor::ExecutorState::CANCELLED);
+  ASSERT_TRUE(executor.hasFinalTaskStats());
+  const auto final = report(executor).usage().columnar_conversion_copied_bytes();
+  EXPECT_GE(final, before);
+  EXPECT_LE(final, actualCopyBytes(path));
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), final);
+}
+
+TEST_F(LanceFilterExecutionTest, ActualCopiesSurviveSubsequentSplitFailure) {
+  const auto path = writeBitmapDataset();
+  const auto expected = actualCopyBytes(path);
+  auto config = copyTaskConfig(path);
+  pangrova::velox::VeloxPlanConverter converter(config.function_registry);
+  auto converted = converter.convert(config.substrait_plan, config.splits);
+  const auto& scans = converter.scanNodeOutputTypes();
+  ASSERT_EQ(scans.size(), 1);
+  std::unordered_map<std::string, std::string> properties{
+      {"require_function_registry_snapshot", "true"},
+      {core::QueryConfig::kPreferredOutputBatchRows, "2"},
+      {core::QueryConfig::kMaxOutputBatchRows, "2"}};
+  auto rows = std::make_shared<std::atomic<uint64_t>>(0);
+  exec::Consumer consumer = [rows](RowVectorPtr output, bool, ContinueFuture*) {
+    if (output) rows->fetch_add(output->size());
+    return exec::BlockingReason::kNotBlocked;
+  };
+  auto task = exec::Task::create("lance-phased-split-failure", core::PlanFragment{converted}, 0,
+      core::QueryCtx::create(pangrova::jni::globalExecutor().get(),
+          core::QueryConfig{std::move(properties), config.function_registry}), exec::Task::ExecutionMode::kParallel, std::move(consumer));
+  auto cancel_task = folly::makeGuard([&task] { if (task) task->requestCancel().wait(); });
+  for (const auto& split : config.splits) {
+    task->addSplit(scans.begin()->first, exec::Split{
+        std::make_shared<pangrova::velox::PangrovaConnectorSplit>(
+            pangrova::velox::PangrovaVeloxConnector::kConnectorId, split)});
+  }
+  // Keep the real split queue open until both fragments have produced all rows.
+  task->start(2);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while (rows->load() < 32 && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(rows->load(), 32);
+  ASSERT_EQ(task->state(), exec::TaskState::kRunning);
+  pangrova::observability::NativeMetricsCollector collector;
+  collector.observeColumnarReadTaskStats(task->taskStats());
+  ASSERT_EQ(collector.snapshot().columnar_conversion_copied_bytes, expected);
+  auto missing = config.splits.back();
+  missing.split_id = "missing-after-real-scan";
+  missing.file_path = (tmpDir_ / "missing.lance").string();
+  task->addSplit(scans.begin()->first, exec::Split{
+      std::make_shared<pangrova::velox::PangrovaConnectorSplit>(
+          pangrova::velox::PangrovaVeloxConnector::kConnectorId, std::move(missing))});
+  task->noMoreSplits(scans.begin()->first);
+  ASSERT_NO_THROW(task->taskCompletionFuture().within(std::chrono::seconds(20)).get());
+  ASSERT_NO_THROW(task->requestCancel().wait());
+  ASSERT_EQ(task->state(), exec::TaskState::kFailed);
+  EXPECT_NE(task->errorMessage().find("missing.lance"), std::string::npos);
+  const auto final_stats = task->taskStats();
+  collector.observeColumnarReadTaskStats(final_stats);
+  EXPECT_EQ(collector.snapshot().columnar_conversion_copied_bytes, expected);
+  task.reset();
+  collector.observeColumnarReadTaskStats(final_stats);
+  EXPECT_EQ(collector.snapshot().columnar_conversion_copied_bytes, expected);
+}
+
+TEST_F(LanceFilterExecutionTest, ActualCopiesReachFailedTaskReportAfterBlockingSort) {
+  const auto path = writeBitmapDataset();
+  const auto expected = actualCopyBytes(path);
+  auto config = copyTaskConfig(path);
+  auto plan = filterPlan(ROW({"id", "flag"}, {BIGINT(), BOOLEAN()}),
+      predicate(0, field(0), integer(0)), {"gt", "divide"});
+  auto* root = plan.mutable_relations(0)->mutable_root();
+  const auto original = root->input();
+  root->clear_names();
+  root->add_names("invalid_quotient");
+  auto* project = root->mutable_input()->mutable_project();
+  auto* sort = project->mutable_input()->mutable_sort();
+  *sort->mutable_input() = original;
+  auto* order = sort->add_sorts();
+  order->set_direction(substrait::SortField::SORT_DIRECTION_ASC_NULLS_FIRST);
+  *order->mutable_expr() = field(0);
+  auto* quotient = project->add_expressions()->mutable_scalar_function();
+  quotient->set_function_reference(1);
+  quotient->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  *quotient->add_arguments()->mutable_value() = field(0);
+  *quotient->add_arguments()->mutable_value() = integer(0);
+  project->mutable_common()->mutable_emit()->add_output_mapping(2);
+  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+  config.substrait_plan.assign(bytes.begin(), bytes.end());
+  pangrova::executor::TaskExecutor executor(config);
+  executor.start();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while (executor.state() == pangrova::executor::ExecutorState::RUNNING &&
+      std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(executor.state(), pangrova::executor::ExecutorState::FAILED) << executor.errorMessage();
+  EXPECT_NE(executor.errorMessage().find("division by zero"), std::string::npos);
+  auto* runner = executor.veloxTaskRunner();
+  ASSERT_NE(runner, nullptr);
+  ASSERT_NE(runner->veloxTask(), nullptr);
+  uint64_t scanned_rows = 0;
+  for (const auto& pipeline : runner->veloxTask()->taskStats().pipelineStats) {
+    for (const auto& op : pipeline.operatorStats) {
+      if (op.operatorType == "TableScan") scanned_rows += op.rawInputPositions;
+    }
+  }
+  ASSERT_EQ(scanned_rows, 32);
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+  executor.release();
+  ASSERT_TRUE(executor.hasFinalTaskStats());
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+  EXPECT_EQ(report(executor).usage().columnar_conversion_copied_bytes(), expected);
+}
 
 TEST_F(LanceFilterExecutionTest, FilterReducesOutputRows) {
   const auto path = writeFilterableDataset();

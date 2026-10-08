@@ -70,28 +70,15 @@ async fn enumerate_page(storage: &StorageContext, request: Request) -> Result<Ve
     require_checksum(request.physical_schema_sha256.as_ref(), &schema)?;
     let manifest =
         committed_manifest_digest(storage, &request.dataset_uri, request.version).await?;
-    let mut fragments: Vec<&Fragment> = dataset.manifest().fragments.iter().collect();
-    fragments.sort_unstable_by_key(|fragment| fragment.id);
-    if fragments.windows(2).any(|pair| pair[0].id == pair[1].id) {
-        return Err("Pinned manifest contains duplicate physical partition IDs".into());
-    }
-    if request.has_cursor
-        && !fragments
-            .iter()
-            .any(|fragment| fragment.id == request.after_partition_id)
-    {
-        return Err("Dataset partition cursor is absent from the exact manifest".into());
-    }
+    let fragments = dataset.manifest().fragments.as_slice();
     let total_partitions = fragments.len() as u64;
-    let selected: Vec<_> = fragments
-        .into_iter()
-        .filter(|fragment| !request.has_cursor || fragment.id > request.after_partition_id)
-        .take(request.page_size as usize + 1)
-        .collect();
-    let has_more = selected.len() > request.page_size as usize;
+    let (selected, has_more) = fragment_page(
+        fragments,
+        request.has_cursor.then_some(request.after_partition_id),
+        request.page_size as usize,
+    )?;
     let partitions: Result<Vec<_>, String> = selected
-        .into_iter()
-        .take(request.page_size as usize)
+        .iter()
         .map(|fragment| {
             Ok(Partition {
                 partition_id: fragment.id,
@@ -123,6 +110,34 @@ async fn enumerate_page(storage: &StorageContext, request: Request) -> Result<Ve
         next_partition_id,
     }
     .encode_to_vec())
+}
+
+/// The SDK manifest stores fragments in ID order, with gaps allowed. Borrow its
+/// bounded page directly; sorting a second full manifest on every RPC is redundant
+/// and would conceal a malformed manifest order. Validate once before searching.
+fn fragment_page(
+    fragments: &[Fragment],
+    after: Option<u64>,
+    page_size: usize,
+) -> Result<(&[Fragment], bool), String> {
+    if page_size == 0 || page_size > 256 {
+        return Err("Dataset partition page size violates its bound".into());
+    }
+    if fragments.windows(2).any(|pair| pair[0].id >= pair[1].id) {
+        return Err("Pinned manifest partition IDs are duplicated or not strictly ordered".into());
+    }
+    let start = match after {
+        Some(id) => fragments
+            .binary_search_by_key(&id, |fragment| fragment.id)
+            .map(|index| index + 1)
+            .map_err(|_| "Dataset partition cursor is absent from the exact manifest")?,
+        None => 0,
+    };
+    let end = start
+        .checked_add(page_size)
+        .ok_or("Dataset partition page offset overflow")?
+        .min(fragments.len());
+    Ok((&fragments[start..end], end < fragments.len()))
 }
 
 pub(crate) async fn select(
@@ -158,3 +173,6 @@ pub(crate) async fn select(
     }
     Ok(fragment.clone())
 }
+
+#[cfg(test)]
+mod tests;

@@ -176,6 +176,11 @@ public final class CoordinatorBootstrap {
         lifecycle.close(() -> closeResources(null));
     }
 
+    /** Keeps the production process owner alive until its actual shutdown has completed. */
+    public void awaitShutdown() throws InterruptedException {
+        lifecycle.awaitShutdown();
+    }
+
     private void closeResources(Throwable primary) {
         try { closeOwnedResources(); }
         catch (RuntimeException | Error failure) {

@@ -98,7 +98,7 @@ class SqlQualityRuleExecutorTest {
         String sql = executor.buildCountSql(rule);
 
         assertThat(sql).contains("COUNT(*)");
-        assertThat(sql).contains("COUNT(CASE WHEN NOT (amount > 100) THEN 1 END)");
+        assertThat(sql).contains("COUNT(CASE WHEN (amount > 100) IS NOT TRUE THEN 1 END)");
         assertThat(sql).contains("\"catalog\".\"schema\".\"test_table\"");
     }
 
@@ -113,7 +113,7 @@ class SqlQualityRuleExecutorTest {
         String sql = executor.buildSampleSql(rule);
 
         assertThat(sql).contains("SELECT * FROM \"catalog\".\"schema\".\"test_table\"");
-        assertThat(sql).contains("WHERE NOT (status = 'active')");
+        assertThat(sql).contains("WHERE (status = 'active') IS NOT TRUE");
         assertThat(sql).contains("LIMIT " + QualityQueryResult.MAX_SAMPLES);
     }
 

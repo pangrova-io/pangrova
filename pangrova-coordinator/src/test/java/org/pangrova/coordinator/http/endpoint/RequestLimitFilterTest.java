@@ -36,7 +36,7 @@ class RequestLimitFilterTest {
         StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
         ctx.setContentLength(512);
         ctx.setEntityStream(new ByteArrayInputStream(new byte[512]));
-        ctx.addHeader("X-Forwarded-For", "10.0.0.1");
+        ctx.setProperty(RequestPeerAddressFilter.PEER_PROPERTY, "10.0.0.1");
 
         filter.filter(ctx);
 
@@ -48,7 +48,7 @@ class RequestLimitFilterTest {
         StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
         ctx.setContentLength(MAX_SIZE + 1);
         ctx.setEntityStream(new ByteArrayInputStream(new byte[MAX_SIZE + 1]));
-        ctx.addHeader("X-Forwarded-For", "10.0.0.2");
+        ctx.setProperty(RequestPeerAddressFilter.PEER_PROPERTY, "10.0.0.2");
 
         filter.filter(ctx);
 
@@ -64,7 +64,7 @@ class RequestLimitFilterTest {
             StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
             ctx.setContentLength(10);
             ctx.setEntityStream(new ByteArrayInputStream(new byte[10]));
-            ctx.addHeader("X-Forwarded-For", clientIp);
+            ctx.setProperty(RequestPeerAddressFilter.PEER_PROPERTY, clientIp);
             filter.filter(ctx);
             assertThat(ctx.isAborted()).isFalse();
         }
@@ -73,7 +73,7 @@ class RequestLimitFilterTest {
         StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
         ctx.setContentLength(10);
         ctx.setEntityStream(new ByteArrayInputStream(new byte[10]));
-        ctx.addHeader("X-Forwarded-For", clientIp);
+        ctx.setProperty(RequestPeerAddressFilter.PEER_PROPERTY, clientIp);
         filter.filter(ctx);
 
         assertThat(ctx.isAborted()).isTrue();
@@ -90,7 +90,7 @@ class RequestLimitFilterTest {
             StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
             ctx.setContentLength(10);
             ctx.setEntityStream(new ByteArrayInputStream(new byte[10]));
-            ctx.addHeader("X-Forwarded-For", ip1);
+            ctx.setProperty(RequestPeerAddressFilter.PEER_PROPERTY, ip1);
             filter.filter(ctx);
         }
 
@@ -98,7 +98,7 @@ class RequestLimitFilterTest {
         StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
         ctx.setContentLength(10);
         ctx.setEntityStream(new ByteArrayInputStream(new byte[10]));
-        ctx.addHeader("X-Forwarded-For", ip2);
+        ctx.setProperty(RequestPeerAddressFilter.PEER_PROPERTY, ip2);
         filter.filter(ctx);
 
         assertThat(ctx.isAborted()).isFalse();
@@ -152,12 +152,22 @@ class RequestLimitFilterTest {
         assertThat(totalRead).isEqualTo(MAX_SIZE);
 
         // Next read should throw
-        try {
-            limited.read(buf, totalRead, 1);
-            assertThat(false).as("Expected IOException").isTrue();
-        } catch (IOException e) {
-            assertThat(e.getMessage()).contains("exceeds maximum size");
-        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> limited.read(buf, MAX_SIZE, 1))
+                .isInstanceOf(jakarta.ws.rs.WebApplicationException.class)
+                .hasMessageContaining("exceeds maximum size")
+                .satisfies(failure -> assertThat(((jakarta.ws.rs.WebApplicationException) failure)
+                        .getResponse().getStatus()).isEqualTo(413));
+        org.assertj.core.api.Assertions.assertThatThrownBy(limited::read)
+                .isInstanceOf(jakarta.ws.rs.WebApplicationException.class);
+    }
+
+    @Test
+    void exactSizeEofAndZeroLengthReadRespectInputStreamContract() throws IOException {
+        var limited = new RequestLimitFilter.SizeLimitedInputStream(new ByteArrayInputStream(new byte[MAX_SIZE]), MAX_SIZE);
+        assertThat(limited.readNBytes(MAX_SIZE)).hasSize(MAX_SIZE);
+        assertThat(limited.read(new byte[1], 0, 0)).isZero();
+        assertThat(limited.read(new byte[1], 0, 1)).isEqualTo(-1);
+        assertThat(limited.read()).isEqualTo(-1);
     }
 
     @Test
@@ -171,7 +181,7 @@ class RequestLimitFilterTest {
         StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
         ctx.setContentLength(10);
         ctx.setEntityStream(new ByteArrayInputStream(new byte[10]));
-        ctx.addHeader("X-Forwarded-For", ip);
+        ctx.setProperty(RequestPeerAddressFilter.PEER_PROPERTY, ip);
 
         filter.filter(ctx);
 
@@ -189,6 +199,7 @@ class RequestLimitFilterTest {
         private int contentLength = -1;
         private InputStream entityStream;
         private Response abortResponse;
+        private final java.util.Map<String, Object> properties = new java.util.HashMap<>();
 
         StubRequestContext(String path) {
             this.path = path;
@@ -248,10 +259,10 @@ class RequestLimitFilterTest {
         }
 
         // Unused interface methods — required by ContainerRequestContext contract
-        @Override public Object getProperty(String name) { return null; }
-        @Override public java.util.Collection<String> getPropertyNames() { return java.util.List.of(); }
-        @Override public void setProperty(String name, Object object) {}
-        @Override public void removeProperty(String name) {}
+        @Override public Object getProperty(String name) { return properties.get(name); }
+        @Override public java.util.Collection<String> getPropertyNames() { return properties.keySet(); }
+        @Override public void setProperty(String name, Object object) { properties.put(name, object); }
+        @Override public void removeProperty(String name) { properties.remove(name); }
         @Override public void setRequestUri(URI requestUri) {}
         @Override public void setRequestUri(URI baseUri, URI requestUri) {}
         @Override public jakarta.ws.rs.core.Request getRequest() { return null; }

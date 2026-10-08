@@ -1081,4 +1081,167 @@
         <Field name="currentResultSet" type="java.sql.ResultSet"/>
         <Bug pattern="EI_EXPOSE_REP"/>
     </Match>
+    <!-- MetadataCollectionOwnershipTest proves constructor-input detachment, rejected getter
+         mutations, immutable nested values and unchanged canonical bytes/digests. The exact
+         accessors below return List.copyOf/Map.copyOf or sorted Stream.toList snapshots, never
+         live collections. Only these method/field/type tuples are classified; mutable arrays,
+         borrowed services, other overloads and security findings remain checked. -->
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.build.ArtifactExchangeFinalization"/>
+        <Method name="partitions" params="" returns="java.util.List"/>
+        <Field name="partitions" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.build.ArtifactExchangeRegistration"/>
+        <Method name="endpoints" params="" returns="java.util.List"/>
+        <Field name="endpoints" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.build.ArtifactStageGraph"/>
+        <Method name="stages" params="" returns="java.util.List"/>
+        <Field name="stages" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.build.ArtifactStageGraph"/>
+        <Method name="exchanges" params="" returns="java.util.List"/>
+        <Field name="exchanges" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.build.ArtifactStageGraph"/>
+        <Method name="modelSnapshots" params="" returns="java.util.List"/>
+        <Field name="modelSnapshots" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate"/>
+        <Method name="publicationReads" params="" returns="java.util.List"/>
+        <Field name="publicationReads" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.contract.ArtifactDependencySet"/>
+        <Method name="dependencies" params="" returns="java.util.List"/>
+        <Field name="dependencies" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.model.TableMetadata"/>
+        <Method name="columns" params="" returns="java.util.List"/>
+        <Field name="columns" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.model.TableMetadata"/>
+        <Method name="partitionSpec" params="" returns="java.util.Map"/>
+        <Field name="partitionSpec" type="java.util.Map"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.model.TableMetadata"/>
+        <Method name="sortOrder" params="" returns="java.util.List"/>
+        <Field name="sortOrder" type="java.util.List"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.model.TableMetadata"/>
+        <Method name="properties" params="" returns="java.util.Map"/>
+        <Field name="properties" type="java.util.Map"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <!-- MetadataBorrowedOwnershipIntegrationTest exercises the original PostgreSQL pool,
+         directory, dispatcher, cache and actual component inventory. These constructors borrow
+         live collaborator identity; copying those objects creates a detached authority. The
+         health-map proof covers reference identity, not connector health or scheduler drain.
+         The three unwired components remain visible. -->
+    <Match>
+        <Class name="org.pangrova.metadata.cache.TieredMetadataCache"/>
+        <Method name="&lt;init&gt;" params="long,long,long,org.pangrova.metadata.cache.L2CacheStore" returns="void"/>
+        <Field name="l2Adapter" type="org.pangrova.metadata.cache.L2CacheStore"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.catalog.CatalogHealthMonitor"/>
+        <Method name="&lt;init&gt;" params="java.util.Map" returns="void"/>
+        <Field name="catalogs" type="java.util.Map"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.catalog.CatalogRegistry"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.store.MetadataStore,org.pangrova.metadata.catalog.ConnectorHandleFactory,org.pangrova.metadata.catalog.FederationHandleFactory,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
+        <Field name="store" type="org.pangrova.metadata.store.MetadataStore"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.catalog.CatalogRegistry"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.store.MetadataStore,org.pangrova.metadata.catalog.ConnectorHandleFactory,org.pangrova.metadata.catalog.FederationHandleFactory,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
+        <Field name="eventDispatcher" type="org.pangrova.metadata.event.MetadataEventDispatcher"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.service.DefaultMetadataService"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.catalog.CatalogRegistry,org.pangrova.metadata.cache.MetadataCache,org.pangrova.metadata.event.MetadataEventDispatcher,org.pangrova.metadata.schema.SchemaEvolutionValidator,long,java.time.Duration" returns="void"/>
+        <Field name="catalogRegistry" type="org.pangrova.metadata.catalog.CatalogRegistry"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.service.DefaultMetadataService"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.catalog.CatalogRegistry,org.pangrova.metadata.cache.MetadataCache,org.pangrova.metadata.event.MetadataEventDispatcher,org.pangrova.metadata.schema.SchemaEvolutionValidator,long,java.time.Duration" returns="void"/>
+        <Field name="cache" type="org.pangrova.metadata.cache.MetadataCache"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <!-- MetadataSharedDispatcherSdkIntegrationTest uses actual PostgreSQL, PluginFactory and
+         Paimon SDK DROP through this service. The provided dispatcher alone invalidates an
+         independently registered observer cache; the primary cache is also invalidated. This
+         proves borrowed dispatcher identity, not bootstrap wiring, distributed consumers or drain. -->
+    <Match>
+        <Class name="org.pangrova.metadata.service.DefaultMetadataService"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.catalog.CatalogRegistry,org.pangrova.metadata.cache.MetadataCache,org.pangrova.metadata.event.MetadataEventDispatcher,org.pangrova.metadata.schema.SchemaEvolutionValidator,long,java.time.Duration" returns="void"/>
+        <Field name="eventDispatcher" type="org.pangrova.metadata.event.MetadataEventDispatcher"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.store.JdbcMetadataStore"/>
+        <Method name="&lt;init&gt;" params="javax.sql.DataSource" returns="void"/>
+        <Field name="dataSource" type="javax.sql.DataSource"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.sync.MetadataSyncService"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.store.MetadataStore,org.pangrova.metadata.cache.MetadataCache,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
+        <Field name="store" type="org.pangrova.metadata.store.MetadataStore"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.sync.MetadataSyncService"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.store.MetadataStore,org.pangrova.metadata.cache.MetadataCache,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
+        <Field name="cache" type="org.pangrova.metadata.cache.MetadataCache"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.metadata.sync.MetadataSyncService"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.metadata.store.MetadataStore,org.pangrova.metadata.cache.MetadataCache,org.pangrova.metadata.event.MetadataEventDispatcher" returns="void"/>
+        <Field name="eventDispatcher" type="org.pangrova.metadata.event.MetadataEventDispatcher"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <!-- requireGraphEdges compares a public immutable graph identity with derived SQL edge rows.
+         The persisted graph bytes are already validated by ArtifactStageGraph.decode using
+         DigestUtils.matchesSha256. JdbcArtifactStageExchangeStoreTest retains actual PG exact
+         identity rejection. Binary report/evidence integrity checks are not classified here. -->
+    <Match>
+        <Class name="org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore"/>
+        <Method name="requireGraphEdges" params="java.sql.Connection,org.pangrova.metadata.artifact.jdbc.CurrentDeferredExecutionContext" returns="void"/>
+        <Bug pattern="UNSAFE_HASH_EQUALS"/>
+    </Match>
+    <!-- Only the 10% schema-drift sampling decision is non-security randomness. The real PG
+         detector tests cover repair/noop/DELETE/SQL42501 without changing the sampling rate.
+         Randomness used for identity, authentication or tokens remains checked. -->
+    <Match>
+        <Class name="org.pangrova.metadata.sync.MetadataSyncService"/>
+        <Method name="validateSyncedSample" params="java.lang.String,org.pangrova.metadata.adapter.FederatedCatalog,java.util.List" returns="void"/>
+        <Bug pattern="PREDICTABLE_RANDOM"/>
+    </Match>
 </FindBugsFilter>

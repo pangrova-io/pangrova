@@ -280,6 +280,7 @@ final class QueryBootstrap {
     private void joinCallbacks() {
         durableRecovery.close();
         if (queryManager != null) queryManager.stopPeriodicCleanup();
+        if (controlPlaneResultService != null) controlPlaneResultService.stopExpirationScheduling();
         CoordinatorResourceRelease.close(null,
                 () -> { if (speculationScheduler != null) speculationScheduler.close(); },
                 () -> CoordinatorShutdownSequence.stopTimeoutEnforcer(queryTimeoutEnforcer),
@@ -295,6 +296,9 @@ final class QueryBootstrap {
     private void closeQueryResources(org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission progress) {
         progress.step("audit", () -> CoordinatorShutdownSequence.closeAuditEmitter(auditEmitter));
         progress.step("control-transport", () -> CoordinatorShutdownSequence.stopCoordinatorTransport(controlPlaneResultServer));
+        progress.step("control-responses", () -> {
+            if (controlPlaneResultService != null) controlPlaneResultService.close();
+        });
         progress.step("transport-allocator", () -> CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
         progress.step("result-cache", () -> CoordinatorShutdownSequence.closeQueryResultCache(queryResultCache));
     }

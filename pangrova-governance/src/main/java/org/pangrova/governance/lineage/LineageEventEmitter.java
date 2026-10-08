@@ -32,7 +32,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * </p>
  */
 @ThreadSafe
-public class LineageEventEmitter implements AutoCloseable {
+public final class LineageEventEmitter implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(LineageEventEmitter.class);
     private static final int QUEUE_CAPACITY = 1000;

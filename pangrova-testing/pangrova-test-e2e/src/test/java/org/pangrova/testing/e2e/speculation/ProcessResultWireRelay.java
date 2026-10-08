@@ -13,15 +13,25 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 /** Opaque duplex TCP forwarding; TLS, tickets and result bytes are never decoded or rewritten. */
 @ThreadSafe
 final class ProcessResultWireRelay implements AutoCloseable {
+    // One thread is permanently reserved for accept; each admitted connection owns one forward thread.
+    private static final int MAX_CONNECTIONS = 31;
+    private static final long CLOSE_TIMEOUT_SECONDS = 40;
     private final ServerSocket listener = new ServerSocket();
-    private final ExecutorService threads = ManagedExecutorFactory.newBoundedThreadPool("process-result-wire", 32, 64);
+    private final ExecutorService threads = ManagedExecutorFactory.newBoundedThreadPool(
+            "process-result-wire", MAX_CONNECTIONS + 1, MAX_CONNECTIONS);
+    private final ExecutorService reverseThreads = ManagedExecutorFactory.newBoundedThreadPool(
+            "process-result-wire-reverse", MAX_CONNECTIONS, MAX_CONNECTIONS);
+    private final Semaphore connectionSlots = new Semaphore(MAX_CONNECTIONS);
     private final CopyOnWriteArrayList<Socket> connections = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Throwable> failures = new CopyOnWriteArrayList<>();
     private final AtomicBoolean closing = new AtomicBoolean();
@@ -41,11 +51,21 @@ final class ProcessResultWireRelay implements AutoCloseable {
         try {
             while (!closing.get()) {
                 Socket source = listener.accept();
+                if (closing.get()) {
+                    source.close();
+                    break;
+                }
+                if (!connectionSlots.tryAcquire()) {
+                    source.close();
+                    failures.add(new RejectedExecutionException("Result relay connection limit reached"));
+                    continue;
+                }
                 connections.add(source);
                 try { threads.execute(() -> connect(source)); }
                 catch (RuntimeException rejected) {
                     try { source.close(); } catch (IOException cleanupFailure) { rejected.addSuppressed(cleanupFailure); }
                     connections.remove(source);
+                    connectionSlots.release();
                     throw rejected;
                 }
             }
@@ -63,16 +83,25 @@ final class ProcessResultWireRelay implements AutoCloseable {
     }
 
     private void connect(Socket source) {
-        try (source; Socket destination = new Socket()) {
-            connections.add(destination);
+        Socket destination = new Socket();
+        CompletableFuture<Void> returning = null;
+        connections.add(destination);
+        try (source; destination) {
             destination.connect(Objects.requireNonNull(target.get()), 5_000);
-            CompletableFuture<Void> returning = CompletableFuture.runAsync(() -> copy(destination, source), threads);
+            returning = CompletableFuture.runAsync(() -> copy(destination, source), reverseThreads);
             copy(source, destination);
             returning.join();
         } catch (IOException | RuntimeException failure) {
             if (!closing.get()) failures.add(failure);
         } finally {
-            connections.removeIf(Socket::isClosed);
+            // A failed forward copy closes both sockets above; wait for the reverse owner before releasing capacity.
+            if (returning != null && !returning.isDone()) {
+                try { returning.join(); }
+                catch (RuntimeException failure) { if (!closing.get()) failures.add(failure); }
+            }
+            connections.remove(source);
+            connections.remove(destination);
+            connectionSlots.release();
         }
     }
 
@@ -89,31 +118,62 @@ final class ProcessResultWireRelay implements AutoCloseable {
     }
 
     @Override public void close() throws Exception {
-        closing.set(true);
-        Exception failure = null;
-        try { listener.close(); } catch (IOException closeFailure) { failure = closeFailure; }
-        for (Socket connection : connections) {
-            try { connection.close(); }
-            catch (IOException closeFailure) {
-                if (failure == null) failure = closeFailure;
-                else failure.addSuppressed(closeFailure);
+        boolean[] interrupted = {Thread.interrupted()};
+        try {
+            closing.set(true);
+            Exception failure = null;
+            try { listener.close(); } catch (IOException closeFailure) { failure = closeFailure; }
+            try { awaitAccept(interrupted); }
+            catch (Exception cleanupFailure) { failure = addFailure(failure, cleanupFailure); }
+            for (Socket connection : connections) {
+                try { connection.close(); }
+                catch (IOException closeFailure) { failure = addFailure(failure, closeFailure); }
+            }
+            threads.shutdown();
+            reverseThreads.shutdown();
+            if (!awaitTermination(threads, interrupted)) {
+                failure = addFailure(failure, new IllegalStateException("Result relay forward owner is still live"));
+            }
+            if (!awaitTermination(reverseThreads, interrupted)) {
+                failure = addFailure(failure, new IllegalStateException("Result relay reverse owner is still live"));
+            }
+            if (!connections.isEmpty() || connectionSlots.availablePermits() != MAX_CONNECTIONS) {
+                failure = addFailure(failure, new IllegalStateException("Result relay sockets or slots remain owned"));
+            }
+            if (failure != null) throw failure;
+        } finally {
+            if (interrupted[0]) Thread.currentThread().interrupt();
+        }
+    }
+
+    private void awaitAccept(boolean[] interrupted) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(CLOSE_TIMEOUT_SECONDS);
+        while (true) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) throw new TimeoutException("Result relay accept owner is still live");
+            try {
+                acceptExited.get(remaining, TimeUnit.NANOSECONDS);
+                return;
+            } catch (InterruptedException failure) {
+                interrupted[0] = true;
             }
         }
-        threads.shutdown();
-        try {
-            acceptExited.get(40, TimeUnit.SECONDS);
-        } catch (Exception cleanupFailure) {
-            if (cleanupFailure instanceof InterruptedException) Thread.currentThread().interrupt();
-            if (failure == null) failure = cleanupFailure;
-            else failure.addSuppressed(cleanupFailure);
+    }
+
+    private static boolean awaitTermination(ExecutorService owner, boolean[] interrupted) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(CLOSE_TIMEOUT_SECONDS);
+        while (!owner.isTerminated()) {
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) return false;
+            try { owner.awaitTermination(remaining, TimeUnit.NANOSECONDS); }
+            catch (InterruptedException failure) { interrupted[0] = true; }
         }
-        try {
-            if (!threads.awaitTermination(40, TimeUnit.SECONDS)) throw new IllegalStateException("Actual result wire forwarding is still live");
-        } catch (Exception cleanupFailure) {
-            if (cleanupFailure instanceof InterruptedException) Thread.currentThread().interrupt();
-            if (failure == null) failure = cleanupFailure;
-            else failure.addSuppressed(cleanupFailure);
-        }
-        if (failure != null) throw failure;
+        return true;
+    }
+
+    private static Exception addFailure(Exception accumulated, Exception failure) {
+        if (accumulated == null) return failure;
+        accumulated.addSuppressed(failure);
+        return accumulated;
     }
 }

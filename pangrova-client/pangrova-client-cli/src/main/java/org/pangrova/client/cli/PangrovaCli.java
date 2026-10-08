@@ -9,6 +9,9 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,6 +52,18 @@ public final class PangrovaCli {
     /** Runs the same shell over caller-owned console streams, without replacing global process streams. */
     public static void run(String[] args, BufferedReader reader, java.io.PrintStream out) {
         CliArgs parsed = parseArgs(args);
+        if (parsed.batch.file() != null) {
+            runFile(parsed, reader, out);
+            return;
+        }
+        try (PangrovaRestClient client = createClient(parsed)) {
+            if (parsed.catalog != null) out.println("Catalog: " + parsed.catalog);
+            new SqlShell(QueryClient.wrap(client), reader, out, parsed.queryTimeout,
+                    parsed.catalog, parsed.schema).run();
+        }
+    }
+
+    private static PangrovaRestClient createClient(CliArgs parsed) {
         var builder = PangrovaRestClient.builder()
                 .coordinatorHost(parsed.host)
                 .coordinatorPort(parsed.port)
@@ -57,23 +72,54 @@ public final class PangrovaCli {
                 .trustStorePassword(parsed.tls.storePassword())
                 .resultTransportSecurity(parsed.resultTransportSecurity);
         if (parsed.authentication != null) builder.authentication(parsed.authentication);
-        try (PangrovaRestClient client = builder.build()) {
+        return builder.build();
+    }
 
-            if (parsed.catalog != null) {
-                out.println("Catalog: " + parsed.catalog);
+    private static void runFile(CliArgs parsed, BufferedReader reader, java.io.PrintStream out) {
+        try {
+            String sql = Files.readString(parsed.batch.file(), StandardCharsets.UTF_8);
+            if (sql.isBlank()) throw new IllegalArgumentException("SQL file must not be blank");
+            if (parsed.batch.receipt() != null && Files.exists(parsed.batch.receipt())) {
+                throw new IllegalArgumentException("Execution receipt already exists");
             }
-
-            SqlShell repl = new SqlShell(
-                    QueryClient.wrap(client), reader, out, parsed.queryTimeout,
-                    parsed.catalog);
-            repl.run();
+            String queryId;
+            try (PangrovaRestClient client = createClient(parsed)) {
+                if (parsed.batch.output() == null) {
+                    queryId = new SqlShell(QueryClient.wrap(client), reader, out, parsed.queryTimeout,
+                            parsed.catalog, parsed.schema).execute(sql);
+                } else {
+                    queryId = executeToFile(parsed, client, reader, sql);
+                }
+            }
+            if (parsed.batch.receipt() != null) {
+                String receipt = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(
+                        java.util.Map.of("queryId", queryId, "state", "FINISHED", "sqlSha256",
+                                org.pangrova.common.util.DigestUtils.sha256Hex(sql), "resultConsumed", true));
+                Files.writeString(parsed.batch.receipt(), receipt, StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            }
+        } catch (IOException failure) {
+            throw new java.io.UncheckedIOException("Batch SQL file or result output failed", failure);
         }
+    }
+
+    private static String executeToFile(CliArgs parsed, PangrovaRestClient client,
+                                       BufferedReader reader, String sql) throws IOException {
+        var result = new java.io.PrintStream(Files.newOutputStream(parsed.batch.output(),
+                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE), false, StandardCharsets.UTF_8);
+        String queryId;
+        try (result) {
+            queryId = new SqlShell(QueryClient.wrap(client), reader, result, parsed.queryTimeout,
+                    parsed.catalog, parsed.schema).execute(sql);
+        }
+        if (result.checkError()) throw new IOException("Failed to close query result output");
+        return queryId;
     }
 
     /**
      * Parses command-line arguments: {@code --host}, {@code --port}, {@code --catalog},
      * {@code --query-timeout}.
-     * Unknown flags are silently ignored.
+     * Unknown, duplicate and incomplete options are rejected before submitting SQL.
      */
     static CliArgs parseArgs(String[] args) {
         java.util.Map<String, String> params = extractParams(args);
@@ -84,7 +130,8 @@ public final class PangrovaCli {
                 ? parseTimeout(params.get("--query-timeout"))
                 : DEFAULT_QUERY_TIMEOUT;
         return new CliArgs(host, port, catalog, queryTimeout, parseAuthentication(params), parseTls(params),
-                parseResultSecurity(params));
+                parseResultSecurity(params), params.get("--schema"), new BatchFiles(materialPath(params.get("--file")),
+                materialPath(params.get("--output")), materialPath(params.get("--execution-receipt"))));
     }
 
     private static ResultTransportSecurity parseResultSecurity(java.util.Map<String, String> params) {
@@ -115,11 +162,27 @@ public final class PangrovaCli {
 
     private static ClientAuthentication parseAuthentication(java.util.Map<String, String> params) {
         boolean basic = params.containsKey("--user") || params.containsKey("--password");
-        if (basic && params.containsKey("--token")) {
+        boolean token = params.containsKey("--token");
+        boolean tokenEnvironment = params.containsKey("--token-env");
+        if (token && tokenEnvironment) {
+            throw new IllegalArgumentException("Bearer token sources are mutually exclusive");
+        }
+        if (basic && (token || tokenEnvironment)) {
             throw new IllegalArgumentException("Bearer token and Basic credentials are mutually exclusive");
         }
         if (basic) return ClientAuthentication.basic(params.get("--user"), params.get("--password"));
-        return params.containsKey("--token") ? ClientAuthentication.bearer(params.get("--token")) : null;
+        if (tokenEnvironment) {
+            String name = params.get("--token-env");
+            if (!name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                throw new IllegalArgumentException("Bearer token environment variable name is invalid");
+            }
+            String value = System.getenv(name);
+            if (value == null || value.isBlank()) {
+                throw new IllegalArgumentException("Bearer token environment variable is unset or blank");
+            }
+            return ClientAuthentication.bearer(value);
+        }
+        return token ? ClientAuthentication.bearer(params.get("--token")) : null;
     }
 
     /**
@@ -185,11 +248,28 @@ public final class PangrovaCli {
 
     private static java.util.Map<String, String> extractParams(String[] args) {
         java.util.Map<String, String> params = new java.util.HashMap<>();
+        var allowed = java.util.Set.of("--host", "--port", "--catalog", "--schema", "--query-timeout",
+                "--token", "--token-env", "--user", "--password", "--ssl", "--ssl-trust-store",
+                "--ssl-trust-store-password",
+                "--result-tls-root-ca", "--result-tls-certificate-chain", "--result-tls-private-key",
+                "--file", "--output", "--execution-receipt");
         for (int i = 0; i < args.length; i++) {
-            if (args[i].startsWith("--")) {
-                if (i + 1 >= args.length) throw new IllegalArgumentException("Missing value for CLI option " + args[i]);
-                params.put(args[i], args[i + 1]);
-                i++;
+            String option = args[i];
+            if (!allowed.contains(option)) throw new IllegalArgumentException("Unknown CLI option: " + option);
+            if (i + 1 >= args.length || args[i + 1].startsWith("--")) {
+                throw new IllegalArgumentException("Missing value for CLI option " + option);
+            }
+            if (params.putIfAbsent(option, args[++i]) != null) {
+                throw new IllegalArgumentException("Duplicate CLI option: " + option);
+            }
+        }
+        if (!params.containsKey("--file") && (params.containsKey("--output")
+                || params.containsKey("--execution-receipt"))) {
+            throw new IllegalArgumentException("Batch output and receipt require --file");
+        }
+        for (String option : java.util.List.of("--file", "--output", "--execution-receipt", "--schema", "--catalog")) {
+            if (params.containsKey(option) && params.get(option).isBlank()) {
+                throw new IllegalArgumentException("CLI option must not be blank: " + option);
             }
         }
         return params;
@@ -219,9 +299,12 @@ public final class PangrovaCli {
         final ClientAuthentication authentication;
         final TlsSettings tls;
         final ResultTransportSecurity resultTransportSecurity;
+        final String schema;
+        final BatchFiles batch;
 
         CliArgs(String host, int port, String catalog, Duration queryTimeout,
-                ClientAuthentication authentication, TlsSettings tls, ResultTransportSecurity resultTransportSecurity) {
+                ClientAuthentication authentication, TlsSettings tls, ResultTransportSecurity resultTransportSecurity,
+                String schema, BatchFiles batch) {
             this.host = host;
             this.port = port;
             this.catalog = catalog;
@@ -229,6 +312,20 @@ public final class PangrovaCli {
             this.authentication = authentication;
             this.tls = tls;
             this.resultTransportSecurity = resultTransportSecurity;
+            this.schema = schema;
+            this.batch = batch;
+        }
+    }
+
+    /** File identities are checked before any SQL submission can have side effects. */
+    record BatchFiles(Path file, Path output, Path receipt) {
+        BatchFiles {
+            var paths = new java.util.HashSet<Path>();
+            for (Path path : new Path[]{file, output, receipt}) {
+                if (path != null && !paths.add(path.toAbsolutePath().normalize())) {
+                    throw new IllegalArgumentException("SQL input, output and receipt must use distinct paths");
+                }
+            }
         }
     }
 }

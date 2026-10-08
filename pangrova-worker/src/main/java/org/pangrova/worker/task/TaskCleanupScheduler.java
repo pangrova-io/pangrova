@@ -24,6 +24,8 @@ import java.util.concurrent.TimeUnit;
 public final class TaskCleanupScheduler {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskCleanupScheduler.class);
+    private static final long CONSUMED_RESULT_POLL_MILLIS = 100;
+    static final int MAX_CONSUMED_RESULT_PROBES = 64;
 
     private TaskCleanupScheduler() {}
 
@@ -51,8 +53,7 @@ public final class TaskCleanupScheduler {
             try {
                 // This action exists only after a real release failed. It
                 // carries the original FSM continuation, never inferred success.
-                info.retryCleanup();
-                if (cleanupTask(entry, tasks, cutoff, resourceRelease, consumedResultProbe)) removed++;
+                if (cleanupTrackedTask(entry, tasks, cutoff, resourceRelease, consumedResultProbe)) removed++;
             } catch (RuntimeException failure) {
                 if (failures == null) failures = new IllegalStateException("Task resource cleanup sweep failed");
                 failures.addSuppressed(new IllegalStateException("Task cleanup failed: " + info.taskId(), failure));
@@ -61,6 +62,46 @@ public final class TaskCleanupScheduler {
         if (removed > 0) LOG.info("event=terminal_tasks_cleaned count={}", removed);
         if (failures != null) throw failures;
         return removed;
+    }
+
+    private static boolean cleanupTrackedTask(Map.Entry<String, TaskInfo> entry,
+                                              Map<String, TaskInfo> tasks, Instant cutoff,
+                                              java.util.function.Consumer<TaskInfo> resourceRelease,
+                                              java.util.function.Predicate<TaskInfo> consumedResultProbe) {
+        if (tasks.get(entry.getKey()) != entry.getValue()) return false;
+        entry.getValue().retryCleanup();
+        return cleanupTask(entry, tasks, cutoff, resourceRelease, consumedResultProbe);
+    }
+
+    /** Incremental registry walk: no per-task timer, extra owner queue, or full-map fast scan. */
+    static final class ConsumedResultSweep implements Runnable {
+        private final Map<String, TaskInfo> tasks;
+        private final java.util.function.Consumer<TaskInfo> resourceRelease;
+        private final java.util.function.Predicate<TaskInfo> consumedResultProbe;
+        // Accessed only by the non-overlapping scheduled task (scheduleWithFixedDelay).
+        private java.util.Iterator<Map.Entry<String, TaskInfo>> cursor = java.util.Collections.emptyIterator();
+
+        ConsumedResultSweep(Map<String, TaskInfo> tasks, java.util.function.Consumer<TaskInfo> resourceRelease,
+                            java.util.function.Predicate<TaskInfo> consumedResultProbe) {
+            this.tasks = tasks;
+            this.resourceRelease = resourceRelease;
+            this.consumedResultProbe = consumedResultProbe;
+        }
+
+        @Override
+        public void run() {
+            if (!cursor.hasNext()) cursor = tasks.entrySet().iterator();
+            for (int probed = 0; probed < MAX_CONSUMED_RESULT_PROBES && cursor.hasNext(); probed++) {
+                var entry = cursor.next();
+                try {
+                    // Retention eviction remains on its own cadence. This path requires actual
+                    // consumption/release evidence (or the original result authority deadline).
+                    cleanupTrackedTask(entry, tasks, Instant.MIN, resourceRelease, consumedResultProbe);
+                } catch (RuntimeException failure) {
+                    LOG.warn("event=consumed_result_cleanup_pending taskId={}", entry.getKey(), failure);
+                }
+            }
+        }
     }
 
     private static boolean cleanupTask(Map.Entry<String, TaskInfo> entry,
@@ -113,6 +154,8 @@ public final class TaskCleanupScheduler {
             Duration interval,
             java.util.function.Consumer<TaskInfo> resourceRelease,
             java.util.function.Predicate<TaskInfo> consumedResultProbe) {
+        executor.scheduleWithFixedDelay(new ConsumedResultSweep(tasks, resourceRelease, consumedResultProbe),
+                CONSUMED_RESULT_POLL_MILLIS, CONSUMED_RESULT_POLL_MILLIS, TimeUnit.MILLISECONDS);
         executor.scheduleAtFixedRate(
                 () -> {
                     try {

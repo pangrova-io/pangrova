@@ -17,6 +17,7 @@ import org.pangrova.parser.ast.statement.AlterTableStatement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
 import org.pangrova.parser.ast.type.DataTypeSpec;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
@@ -84,8 +85,7 @@ class DdlExecutorGeneratedColumnTest {
                     .isEqualTo(ExecutionMode.EXECUTION_MODE_ASYNC);
             assertThat(definition.getCapability())
                     .isEqualTo(BuiltInCapabilityCatalog.aiEmbeddingPlanRef());
-            assertThat(definition.getOutputType().getCanonicalSql())
-                    .isEqualTo("VECTOR(3, COSINE)");
+            assertThat(definition.getOutputType()).isEqualTo(VectorLogicalType.create(3));
         });
     }
 

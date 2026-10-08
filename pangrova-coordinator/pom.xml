@@ -212,6 +212,15 @@
         </dependency>
 
         <!-- Test dependencies -->
+        <!-- Actual JNI lifecycle fixtures have a separate, non-production package owner. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-worker</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <classifier>native-fixtures</classifier>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
@@ -290,35 +299,13 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <scope>test</scope>
+            <scope>runtime</scope>
+            <optional>true</optional>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-native-lib</id>
-                        <phase>process-test-resources</phase>
-                        <goals><goal>copy-resources</goal></goals>
-                        <configuration>
-                            <outputDirectory>${project.build.testOutputDirectory}/META-INF/native/${os.detected.name}/${os.detected.arch}</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${maven.multiModuleProjectDirectory}/pangrova-worker-native/build</directory>
-                                    <includes>
-                                        <include>libpangrova_native.dylib</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                            <overwrite>true</overwrite>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

@@ -64,7 +64,7 @@ class BatchStreamSlowProducerPropertyTest {
         registry.clear();
         ticketCounter.set(0);
         server = new TransportServer(
-                ticket -> {
+                ticket -> () -> {
                     SlowProducerState state = registry.get(ticket.queryId());
                     if (state == null) {
                         return new byte[0]; // unknown ticket → EOF

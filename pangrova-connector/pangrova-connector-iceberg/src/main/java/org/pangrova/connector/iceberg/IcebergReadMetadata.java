@@ -40,7 +40,8 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         this.catalog = catalog;
         this.catalogTables = new IcebergCatalogTables(catalog);
         this.pinManager = new IcebergSnapshotPinManager(catalogName, pinTtlMs, nativeIndexEvaluator::clearCache);
-        this.encryptionGuard = new IcebergColumnAccessGuard(accessibleKeys == null ? Set.of() : Set.copyOf(accessibleKeys));
+        this.encryptionGuard = new IcebergColumnAccessGuard(
+                accessibleKeys == null ? Set.of() : Set.copyOf(accessibleKeys));
     }
 
     /**

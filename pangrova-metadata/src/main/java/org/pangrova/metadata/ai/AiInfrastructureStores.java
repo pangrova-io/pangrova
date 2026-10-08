@@ -39,6 +39,7 @@ public record AiInfrastructureStores(
         Objects.requireNonNull(features, "features must not be null");
     }
 
+    /** Creates the governed metadata stores against the supplied durable database. */
     public static AiInfrastructureStores jdbc(DataSource dataSource) {
         Objects.requireNonNull(dataSource, "dataSource must not be null");
         return new AiInfrastructureStores(

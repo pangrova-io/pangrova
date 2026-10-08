@@ -63,12 +63,20 @@ class SourceFreeNativeWorkerFixtureIntegrationTest {
             var queries = worker.connectAsync(dispatcher, tracker, workers);
             var response = queries.submitQuery("unconsumed", "SELECT 1", SourceFreeQueryFixture.session("unconsumed"));
             assertThat(response.resultEndpoint()).isNotNull();
+            var issuedIds = tracker.getTaskIds("unconsumed");
+            assertThat(issuedIds).hasSize(1);
+            String issuedTaskId = issuedIds.iterator().next();
+            var issued = tracker.getTaskRequest(issuedTaskId).taskRequest();
+            assertThat(response.resultEndpoint().ticket()).isEqualTo(worker.resultTicket(issued));
+            assertThat(response.resultEndpoint().ticket()).isNotEqualTo(issuedTaskId);
             worker.close();
             assertThat(NativeRuntime.isInitialized()).isFalse();
             assertThat(worker.reports()).anySatisfy(report -> {
-                assertThat(report.taskId()).isEqualTo(response.resultEndpoint().ticket());
+                assertThat(report.taskId()).isEqualTo(issuedTaskId);
                 assertThat(report.state()).isEqualTo("CANCELLED");
                 assertThat(report.canonicalTaskReport()).isNotEmpty();
+                assertThat(TaskReport.parseFrom(report.canonicalTaskReport()).getAttempt())
+                        .isEqualTo(issued.getAttempt());
             });
         }
         runConstant("after-unconsumed");

@@ -15,7 +15,6 @@ package org.pangrova.testing.e2e.ai;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -24,10 +23,6 @@ import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
-import org.pangrova.worker.jni.NativeFunctionConfig;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -35,10 +30,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.pangrova.testing.e2e.ai.SharedAiProvider.DOCUMENT_PREFIX;
+import static org.pangrova.testing.e2e.ai.SharedAiProvider.EMBEDDING_DIMENSION;
+import static org.pangrova.testing.e2e.ai.SharedAiProvider.EMBEDDING_LOGICAL_MODEL;
+import static org.pangrova.testing.e2e.ai.SharedAiProvider.EMBEDDING_PROVIDER_MODEL;
+import static org.pangrova.testing.e2e.ai.SharedAiProvider.LOGICAL_MODEL;
+import static org.pangrova.testing.e2e.ai.SharedAiProvider.QUERY_PREFIX;
 
 /**
  * Real-provider AI SQL acceptance test.
@@ -54,91 +54,13 @@ import static org.awaitility.Awaitility.await;
 @DisplayName("Ollama AI SQL full-chain E2E")
 class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
 
-    private static final DockerImageName OLLAMA_IMAGE =
-            DockerImageName.parse("ollama/ollama:0.6.2");
-    private static final String PROVIDER_MODEL = "tinyllama";
-    private static final String LOGICAL_MODEL = "local-tinyllama";
-    private static final String EMBEDDING_PROVIDER_MODEL = "all-minilm:latest";
-    private static final String EMBEDDING_LOGICAL_MODEL = "local-all-minilm";
-    private static final int EMBEDDING_DIMENSION = 384;
-    private static final String QUERY_PREFIX = "Pangrova retrieval query: ";
-    private static final String DOCUMENT_PREFIX = "Pangrova stored document: ";
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
-    private static GenericContainer<?> ollama;
-    private static boolean aiModeEnabled;
-
     @BeforeAll
-    static void startRealModelEndpoint() throws Exception {
-        isDockerReady();
-
-        ollama = new GenericContainer<>(OLLAMA_IMAGE)
-                .withExposedPorts(11434)
-                .waitingFor(Wait.forHttp("/api/tags")
-                        .forStatusCode(200)
-                        .withStartupTimeout(Duration.ofMinutes(3)));
-        ollama.start();
-
-        var pull = ollama.execInContainer("ollama", "pull", PROVIDER_MODEL);
-        assertThat(pull.getExitCode())
-                .as("Ollama model pull failed: %s", pull.getStderr())
-                .isZero();
-        var embeddingPull = ollama.execInContainer(
-                "ollama", "pull", EMBEDDING_PROVIDER_MODEL);
-        assertThat(embeddingPull.getExitCode())
-                .as("Ollama embedding model pull failed: %s", embeddingPull.getStderr())
-                .isZero();
-        String digest = loadedModelDigest(PROVIDER_MODEL);
-        String embeddingDigest = loadedModelDigest(EMBEDDING_PROVIDER_MODEL);
-        assertThat(List.of(digest, embeddingDigest))
-                .as("Ollama must expose an immutable digest for the loaded deployment")
-                .allMatch(value -> value.matches("(?:sha256:)?[a-fA-F0-9]{64}"));
-
-        Map<String, String> model = Map.ofEntries(
-                Map.entry("models.local.name", LOGICAL_MODEL),
-                Map.entry("models.local.provider", "openai-compatible"),
-                Map.entry("models.local.provider-model", PROVIDER_MODEL),
-                Map.entry("models.local.version", digest),
-                Map.entry("models.local.endpoint", endpoint("/v1/chat/completions")),
-                Map.entry("models.local.authentication", "none"),
-                Map.entry("models.local.capabilities", "inference"),
-                Map.entry("models.local.max-batch-size", "8"),
-                Map.entry("models.local.max-requests-per-second", "32"),
-                Map.entry("models.local.timeout-seconds", "120"),
-                Map.entry("models.local.max-input-tokens", "2048"),
-                Map.entry("models.local.max-output-tokens", "128"),
-                Map.entry("models.local.max-concurrency", "2"),
-                Map.entry("models.local.max-invocations-per-task", "16"),
-                Map.entry("models.embedding.name", EMBEDDING_LOGICAL_MODEL),
-                Map.entry("models.embedding.provider", "openai-compatible"),
-                Map.entry("models.embedding.provider-model", EMBEDDING_PROVIDER_MODEL),
-                Map.entry("models.embedding.version", embeddingDigest),
-                Map.entry("models.embedding.endpoint", endpoint("/v1/embeddings")),
-                Map.entry("models.embedding.authentication", "none"),
-                Map.entry("models.embedding.capabilities", "embedding"),
-                Map.entry("models.embedding.embedding-dimension", Integer.toString(EMBEDDING_DIMENSION)),
-                Map.entry("models.embedding.query-prefix", QUERY_PREFIX),
-                Map.entry("models.embedding.document-prefix", DOCUMENT_PREFIX),
-                Map.entry("models.embedding.max-batch-size", "8"),
-                Map.entry("models.embedding.max-requests-per-second", "32"),
-                Map.entry("models.embedding.timeout-seconds", "120"),
-                Map.entry("models.embedding.max-input-tokens", "2048"),
-                Map.entry("models.embedding.max-concurrency", "2"),
-                Map.entry("models.embedding.max-invocations-per-task", "16"),
-                Map.entry("authorization.mode", "authenticated"),
-                Map.entry("authorization.allowed-models",
-                        LOGICAL_MODEL + "," + EMBEDDING_LOGICAL_MODEL),
-                Map.entry("authorization.allowed-capabilities",
-                        "inference:" + LOGICAL_MODEL + ",embedding:" + EMBEDDING_LOGICAL_MODEL),
-                Map.entry("authorization.granted-permissions", "AI_MODEL_USAGE"),
-                Map.entry("authorization.max-batch-size", "8"),
-                Map.entry("authorization.max-input-bytes", "1048576"));
-        enableAuthenticatedAiFunctions(new NativeFunctionConfig(
-                true, Map.of("ai-inference", model)));
-        aiModeEnabled = true;
+    static void registerRealEmbeddingModel() {
         String createEmbeddingModel = "CREATE EMBEDDING MODEL \""
                 + EMBEDDING_LOGICAL_MODEL + "\" ("
                 + "provider = 'openai-compatible', "
@@ -154,18 +76,6 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
                 .as("Public SQL must register the real embedding deployment: %s",
                         created.errorMessage())
                 .isTrue();
-    }
-
-    @AfterAll
-    static void stopRealModelEndpoint() {
-        if (aiModeEnabled) {
-            disableAuthenticatedAiMode();
-            aiModeEnabled = false;
-        }
-        if (ollama != null) {
-            ollama.stop();
-            ollama = null;
-        }
     }
 
     @Override
@@ -189,8 +99,8 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
     }
 
     @Test
-    @DisplayName("AI_COMPLETE read-through cache hits Native without a second provider call")
-    void repeatedAiCompleteIsServedByTheNativeSemanticCache() {
+    @DisplayName("non-deterministic AI_COMPLETE performs a real provider call on each execution")
+    void repeatedAiCompleteInvokesTheProviderForEachExecution() {
         String sql = "SELECT AI_COMPLETE('" + LOGICAL_MODEL
                 + "', 'Reply with exactly this cache marker: pangrova-r7-cache.') AS response";
         long before = completionRequestCount();
@@ -201,11 +111,10 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
         long afterFirst = completionRequestCount();
 
         String second = scalarString(executeQuery(sql));
-        assertThat(second).isEqualTo(first);
-        await().during(Duration.ofSeconds(2))
-                .atMost(Duration.ofSeconds(3))
-                .untilAsserted(() ->
-                        assertThat(completionRequestCount()).isEqualTo(afterFirst));
+        assertThat(first).isNotBlank();
+        assertThat(second).isNotBlank();
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(completionRequestCount()).isEqualTo(afterFirst + 1));
     }
 
     @Test
@@ -365,26 +274,6 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
         }
     }
 
-    private static String loadedModelDigest(String providerModel) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(endpoint("/api/tags")))
-                .timeout(Duration.ofSeconds(10))
-                .GET()
-                .build();
-        HttpResponse<String> response = HTTP.send(
-                request, HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).isEqualTo(200);
-        JsonNode models = MAPPER.readTree(response.body()).path("models");
-        for (JsonNode model : models) {
-            if (providerModel.equals(model.path("name").asText())
-                    || providerModel.equals(model.path("model").asText())) {
-                return model.path("digest").asText();
-            }
-        }
-        throw new IllegalStateException(
-                "Ollama did not list pulled model " + providerModel + ": " + response.body());
-    }
-
     private static float[] directEmbedding(String input) throws Exception {
         var body = MAPPER.createObjectNode();
         body.put("model", EMBEDDING_PROVIDER_MODEL);
@@ -428,15 +317,11 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
     }
 
     private static long completionRequestCount() {
-        return ollama.getLogs().lines()
-                .filter(line -> line.contains("/v1/chat/completions"))
-                .count();
+        return sharedAiProvider().requestCount("/v1/chat/completions");
     }
 
     private static long embeddingRequestCount() {
-        return ollama.getLogs().lines()
-                .filter(line -> line.contains("/v1/embeddings"))
-                .count();
+        return sharedAiProvider().requestCount("/v1/embeddings");
     }
 
     private static String scalarString(List<org.pangrova.spi.connector.data.TypedRow> rows) {
@@ -447,7 +332,6 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
     }
 
     private static String endpoint(String path) {
-        return "http://" + ollama.getHost() + ":"
-                + ollama.getMappedPort(11434) + path;
+        return sharedAiProvider().endpoint(path);
     }
 }

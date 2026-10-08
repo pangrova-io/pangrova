@@ -37,7 +37,7 @@ description: "Time-scoped internal audit evidence and implementation status; not
 > [单路径根因与实施规格](ai-native-single-path-root-cause-design.md)。三线只读复证发现
 > parser/optimizer/serde/type/function 多个真实差距；不能用已有组件绿灯覆盖这些缺陷。
 
-## 0. 当前实施状态（按日期增量复证；最新为 2026-10-04）
+## 0. 当前实施状态（按日期增量复证；最新为 2026-10-07）
 
 本节覆盖 2026-08-28 审计之后已经落地的生产边界及最近定向验证。若与后续历史快照冲突，
 以本节为当前状态；未在本节明确复证的能力继续保持未验收。
@@ -3937,6 +3937,985 @@ Native物理退出或独立Worker故障恢复证据。真实SDK生命周期、�
 日志 `/tmp/pangrova-production-sdk64-connector-authority-lifecycle-focused-r1.log`、
 `/tmp/pangrova-production-sdk64-avro-dependency-tree-r{1,2}.log`。依赖图检查不是
 SDK执行通过；修复后必须复跑原cohort及全仓消费者。
+
+### 0.56 2026-10-07 当前基线复证与实际报告失败边界
+
+基线为 `058fb13`，保留用户暂存的 `description`、`index`、`packed-refs` 删除。
+本次环境为 Corretto17.0.20、Maven3.9.16、macOS/aarch64；实际 Docker VM
+仅2CPU/约4GB，不能作为生产规模环境。`.pangrova/setup.sh --check` PASS。
+
+本次已执行的结果（历史 PASS 不自动升级为当前整链验收）：
+
+| 检查 | 实际结果 | 证据与边界 |
+|---|---|---|
+| 全39模块 `mvn -DskipTests install` | PASS，54.535秒 | main及test源码编译完成；行为测试明确SKIPPED。日志 `/tmp/pangrova-production-20261007-current-full-java-install-r1.log`。 |
+| 原查询/SDK生命周期扩展回归 | FAIL，164项中161 PASS / 3 ERROR / 0 SKIPPED | SPI1、Coordinator163；真实PG denied-owner10项通过，不能把失败cohort计为PASS。日志 `/tmp/pangrova-production-20261007-lifecycle-current-r1.log`。 |
+| 最近Worker/JNI链 | PASS，8项 / 0 SKIPPED | `NativeLibraryLoaderTest,NativeCreationTransactionIntegrationTest,WorkerExecutionChainTest`；真实JNI、Flight、Native receipt与handle回收，不是公开SQL或独立进程规模证据。日志 `/tmp/pangrova-production-20261007-worker-jni-current-r1.log`。 |
+| 当前Release构建与全量CTest | PASS，4041项，566.76秒 | `cmake --build pangrova-worker-native/build --parallel 2` 及无筛选 `ctest --test-dir pangrova-worker-native/build --output-on-failure`。产物和已打包资源SHA256均为 `f2c46b5758df1615c5bc4233f0b1f2be3ce5a8b71c748a7a762bdf60ce4829f1`。日志 `/tmp/pangrova-production-20261007-native-release-{build,ctest}-r1.log`；不是ASan或独立Worker证明。 |
+| RUNNING报告修复最近组合 | FAIL，6项中4 PASS / 2 ERROR / 0 SKIPPED | 3项冻结身份合同及新增真实认证HTTP/JNI进度重试通过；permit及非终态PG观察器仍失败。日志 `/tmp/pangrova-production-20261007-progress-report-green-r1.log`。 |
+| 客户端及上游严格模块回归 | PASS，2498项 / 0 SKIPPED，3分07秒 | `mvn -Pfull-regression,coverage,static-analysis -pl pangrova-client/pangrova-client-jdbc,pangrova-client/pangrova-client-cli -am install`；各模块Checkstyle/SpotBugs均0。日志 `/tmp/pangrova-production-20261007-clients-current-full-gates-r1.log`。不包含全部Planner/Worker/Coordinator/E2E。 |
+| 两阶段终态与观察器最近组合 | FAIL，12项中11 PASS / 1 ERROR / 0 SKIPPED | 真实pre-release FINISHED丢ACK/耗尽ACK后原事实重试及更晚actual-release、PG非终态异步/终态同步、signed ticket/实际关闭重初始化通过；permit仍被同journal retained失败批次阻断。日志 `/tmp/pangrova-production-20261007-terminal-publication-green-r2.log`。 |
+| 两阶段故障oracle复跑r3 | FAIL，12项中11 PASS / 1 ERROR / 0 SKIPPED | permit已断言真实cleanup异常及PostgreSQL42501；随后错误要求未获原报告ACK前出现released报告，实际仅有冻结seq2/FINISHED/drain UNSPECIFIED。日志 `/tmp/pangrova-production-20261007-terminal-publication-green-r3.log`。须校准阶段边界，不能制造receipt或提前归还许可。 |
+| PostgreSQL readiness修复 | PASS，2项 / 0 SKIPPED，11.410秒 | `mvn -Pfull-regression,coverage -pl pangrova-testing/pangrova-test-e2e -Dtest=SharedTestContainersConfigurationIntegrationTest test`，真实容器SELECT1、三项持久化配置及异步提交拒绝均通过。日志 `/tmp/pangrova-production-20261007-postgres-bootstrap-green-r3.log`。 |
+| 公开Smoke/Lance/Ollama链路r3 | FAIL，7项中4 FAIL / 3 ERROR / 0 SKIPPED，50.732秒 | 启动已越过模型、Native publication、PG、HTTP；真实tenant零quota拒绝429及重复create默认schema阻断业务验收。日志 `/tmp/pangrova-production-20261007-shared-ai-lance-e2e-r3.log`。不是完整业务E2E通过。 |
+| 真实query-terminal PG拒绝/恢复r4 | PASS，1项 / 0 SKIPPED | 原FINISHED报告未ACK时保持exact body/seq/time、没有drain receipt、许可仍持有；恢复后actual released报告ACK、FINISHED只落库一次、许可只归还一次。日志 `/tmp/pangrova-production-20261007-terminal-permit-green-r4.log`。 |
+| Worker完整严格回归r2 | FAIL，运行至159项，1 FAIL / 12 ERROR，随后JVM134中止 | 实际占用端口触发FlightResultServer中的外部Status CHECK并终止进程，不是OOM；还有空注册batch和过期测试合同。日志 `/tmp/pangrova-production-20261007-worker-full-gates-r2.log`。整套未跑完。 |
+| 新Native端口修复Release专项r3 | PASS，4项 / 0 SKIPPED | 双栈真实监听、独立IPv4/IPv6 bind均证明EADDRINUSE；失败以exception/canonical响应返回，registry未发布，可重启并实际排空。日志 `/tmp/pangrova-production-20261007-native-result-port-{build,nearest}-r3.log`。 |
+| 新Native端口修复ASan专项r3 | PASS，4项 / 0 SKIPPED | 同源ASan SDK/依赖增量构建，真实端口失败、TLS错误、RAII和重启断言全通过。日志 `/tmp/pangrova-production-20261007-native-asan-result-port-{build,nearest}-r3.log`。不是全量ASan通过。 |
+| 新库Worker最近组合r4 | FAIL，30项中29 PASS / 1 ERROR / 0 SKIPPED | 原WorkerResultPortIntegrationTest 3项全部通过；default启动与empty registration修复通过。唯一剩余为同handle重复shuffle start被Native拒绝，不能把组合计为PASS。日志 `/tmp/pangrova-production-20261007-worker-port-bootstrap-nearest-r4.log`。其中既有stub bootstrap仅组件测试，不作为真实Coordinator验收。 |
+| query隔离journal实际PG最近检查 | 行为PASS，18项 / 0 SKIPPED；严格verify FAIL | r1已实际运行18项再被Checkstyle151项阻断；r2行为复跑也18项通过。日志 `/tmp/pangrova-production-20261007-journal-query-isolation-{green-r1,behavior-r2}.log`。静态门槛保持不变，尚未形成模块PASS。 |
+| 公开部署fixture业务链r4/r5 | FAIL，r4为2 ERROR；r5为2 FAIL / 0 SKIPPED | r4真实HadoopCatalog仓库root不存在；补齐部署root后r5越过该边界。r5为opaque结果票据误当taskId、Worker catalog fetch实际HTTP401。日志 `/tmp/pangrova-production-20261007-shared-deployment-green-{r4,r5}.log`。模型pull的DNS超时曾自然恢复，最终不是环境阻塞而是业务失败。 |
+| signed-result客户端合同r6/r7 | FAIL，r6编译失败；r7为13项中12 PASS / 1 FAIL / 0 SKIPPED | r6缺SubmitTaskRequest import已修；r7签名票据合同通过，独立control identity fixture仍缺必需资源grant。补齐有限合同grant并新增clear-grant拒绝断言，r8待验证。日志 `/tmp/pangrova-production-20261007-e2e-signed-result-contract-{r6,r7}.log`。此类合同测试不是公开业务E2E。 |
+| signed-result及控制身份合同r8 | PASS，13项 / 0 SKIPPED，1分17秒 | 有限resource grant保留、clear-grant显式拒绝；opaque票据/真实签发、歧义binding拒绝及closed-port等原断言全部通过。日志 `/tmp/pangrova-production-20261007-e2e-signed-result-contract-r8.log`。非公开业务/独立进程规模验收。 |
+| 新Native端口cohort完整Release CTest r3 | PASS，4043项，564.93秒 | 新4项专项已包含在无筛选全套。日志 `/tmp/pangrova-production-20261007-native-release-ctest-r3.log`。完整ASan及后续shuffle整改不自动继承此PASS。 |
+| Metadata全模块严格回归r4 | 行为PASS，502项 / 0 SKIPPED；严格verify FAIL | Checkstyle从151降为0，SpotBugs仍50项。日志 `/tmp/pangrova-production-20261007-metadata-full-gates-r4.log`。共享DI身份、已冻结集合和实际可变数据须分别核实，不能通过复制协作者或blanket suppression制造PASS。 |
+| 目录部署/模型部署源码全39模块刷新r5/r6 | r5 FAIL；r6编译PASS，52.138秒 | 移动真实owner测试遗漏既有native-fixtures classifier，补test-scope依赖后39模块编译成功；行为测试SKIPPED。日志 `/tmp/pangrova-production-20261007-auth-deployment-full-java-refresh-{r5,r6}.log`。 |
+| 实际认证HTTP/Worker owner最近r6/r7 | r6 FAIL，15项中11 PASS / 4 ERROR；r7 PASS，18项 / 0 SKIPPED | r6保留生产loopback拒绝，fixture改绑定实际非回环NIC；旧null QueryDispatcher/假认证器换成真实dispatcher及签名OIDC。原owner四项、catalog PG/HTTP/真实client三项、secret四项、filter三项、mapper四项全通过。日志 `/tmp/pangrova-production-20261007-coordinator-auth-owner-nearest-{r6,r7}.log`。 |
+| 实际Ollama部署最近r6 | PASS，2项 / 0 SKIPPED | 同一有限deadline中实际pull两模型并核库存digest；真实pause后timeout、日志和owned-container实际删除通过。日志 `/tmp/pangrova-production-20261007-model-deployment-nearest-r6.log`。不是原AI SQL九项通过。 |
+| 公开SQL部署链r6 | FAIL，2项中1 PASS / 1 FAIL / 0 SKIPPED | finite-quota公开SELECT/零quota拒绝/恢复通过；目录401及结果票据问题已越过，真实Iceberg INSERT 7后SELECT读回null。日志 `/tmp/pangrova-production-20261007-shared-deployment-green-r6.log`。不能缩小为仅SELECT常量的业务验收。 |
+| Metadata列表快照最近r5 | PASS，17项 / 0 SKIPPED | 事件与reconciliation报告在构造边界冻结，caller/getter mutation拒绝；cache及reconcile原断言保留。日志 `/tmp/pangrova-production-20261007-metadata-immutable-events-nearest-r5.log`。 |
+| Metadata canonical JSON最近r6 | PASS，47项 / 0 SKIPPED | 移除可修改共享ObjectMapper的公开instance，全部metadata/Coordinator caller原子迁移；固定配置/缓存复用/原canonical bytes保持，PG持久化和artifact原合同通过。日志 `/tmp/pangrova-production-20261007-metadata-canonical-json-nearest-r6.log`。 |
+| Metadata显式journal owner最近r7 | 行为PASS，42项 / 0 SKIPPED；严格verify FAIL | 实际PG18、owner admission2、dependency16、JSON/immutable6；Checkstyle0，SpotBugs由50降为36。删除无caller的可写store accessor；不改真实SQL与原ACK/COMMIT边界。日志 `/tmp/pangrova-production-20261007-metadata-static-owner-nearest-r7.log`。 |
+| Coordinator canonical JSON/Feature/Semantic最近r8 | FAIL，12项中11 PASS / 1 ERROR / 0 SKIPPED | canonical JSON/semantic正反验证通过；Feature materialization实际Paimon split枚举拒绝缺issued query lifetime，仍需完整授权链根因分析。日志 `/tmp/pangrova-production-20261007-coordinator-canonical-json-nearest-r8.log`。 |
+| Worker canonical write最近r5 | FAIL，243项中233 PASS / 10 FAIL / 0 SKIPPED | 新canonical alias actual batch/direct/columnar正反测试通过；旧sink失败cleanup oracle仍要求abort失败时close也立即失败，实际仅abort failure，须核真实资源owner/retry语义，禁止弱化断言。日志 `/tmp/pangrova-production-20261007-worker-canonical-write-nearest-r5.log`。 |
+| 公开SQL部署链r7 | PASS，2项 / 0 SKIPPED，53.28秒 | 原真实Iceberg CREATE/INSERT 7/SELECT 7L、重复注册及仓库边界、有限配额/零配额拒绝/恢复均通过；同一canonical write alias绑定贯通实际SDK Parquet写入与Native扫描。日志 `/tmp/pangrova-production-20261007-shared-deployment-green-r7.log`。非独立多Worker性能证据。 |
+| Coordinator Feature/Semantic最近r9 | PASS，12项 / 0 SKIPPED | Feature fixture改用实际QueryManager公开提交与同一issued query lifetime，原Paimon split/materialize、policy、snapshot和Semantic正反断言不变；不是Native HA E2E。日志 `/tmp/pangrova-production-20261007-coordinator-canonical-json-nearest-r9.log`。 |
+| Metadata artifact page所有权最近r8 | PASS，15项 / 0 SKIPPED | 真实PG artifact原13项与nullable byte[]输入/输出快照2项；快照测试不是Native成功报告。日志 `/tmp/pangrova-production-20261007-artifact-page-ownership-nearest-r8.log`。 |
+| Metadata canonical dependency最近r9 | 行为PASS，63项 / 0 SKIPPED；严格verify FAIL | 实际PG未知kind六项明确拒绝，既有合法TABLE/EXTERNAL保护语义保留；Checkstyle0，SpotBugs34项未清零，不修改过滤器制造PASS。日志 `/tmp/pangrova-production-20261007-metadata-canonical-dependency-nearest-r9.log`。 |
+| 新shuffle owner Release构建/最近r4 | PASS，构建零告警、92项 / 0 SKIPPED，23.52秒 | 实际START lease/close race、exact replay/HMAC Flight数据及EOF、取消/截止时间/唯一join owner等9项新增测试包括在最近组合。日志 `/tmp/pangrova-production-20261007-native-shuffle-owner-{build,nearest}-r4.log`。 |
+| 新shuffle owner完整Release CTest r4 | PASS，4052项，568.36秒 | 无筛选全套，新产物SHA256 `921cca2f4230514ef4e66508f4943148f9bc9bf26267569a49ebbd42966e6a97`。日志 `/tmp/pangrova-production-20261007-native-release-ctest-r4.log`。不是完整ASan、JNI或部署验收。 |
+| 新shuffle owner ASan构建/最近r4 | PASS，92项 / 0 SKIPPED，47.77秒 | 同源ASan依赖与增量构建、并发/资源专项全部通过；完整ASan仍在运行，不能继承旧cohort结论。日志 `/tmp/pangrova-production-20261007-native-asan-shuffle-owner-{build,nearest}-r4.log`。 |
+
+新Native端口修复已重新打包并Worker clean install，build与resource SHA256同为
+`8c7b740b5fcdfc60ef25b01f856326e4cb050512b9edae9515472e7e74db417c`；
+无筛选4043项Release CTest已全通过。此前4041项产物
+`f2c46...`的PASS仅属于旧cohort。原OwnerDrain四项测试移到Coordinator集成边界，
+使用真实认证HTTP、WorkerManager及生产插件发现；所有原清理/失败/并发断言保留，
+新增真实注册及撤销观察，r7四项已通过，未用stub补齐缺失Coordinator URL。
+
+该owner四项在r7已实际通过，生产loopback校验没有放宽。后续Native shuffle原子注册/
+关闭修改已独立构建并通过完整Release4052项及最近ASan92项；完整ASan与新库Java消费
+链尚未验收，不继承上述8c cohort证据。重新打包及Worker编译刷新不等同于行为通过。
+
+公开Iceberg写入null根因已追到真实生产边界：新统一plan实际字段为
+`SubstraitRelationLayout.physicalAlias(0)`，Native Values与write descriptor均一致；
+`NativeWriteExecutor`和`WritePageProjector`仅识别旧`proj_`，使实际sink columns不含
+目标`id`，`AbstractIcebergPageSink`按缺名写null并真实commit。修复以既有统一alias
+匹配完整零基有序布局，将同一已验证output handle的logical writeColumnNames绑定为
+session事实，后续每批不得改布局；宽度、乱序、混合及失名均拒绝，不补null或加兼容
+分支。原CREATE/INSERT/SELECT及7L oracle未修改，r7公开写→读复验已通过。
+
+写入失败清理的独立根因也已确定：`NativeWriteSession.abort` 在实际discard抛错后
+跳过close，而旧假sink测试错误要求owner立即归零。修复分别记录真实abort/close完成
+阶段，abort失败仍尝试close，保留原异常树；任何未完成阶段保留原handle、catalog lease
+与owner，停止append/finish，恢复后仅重试未完成阶段。真实认证部署/SDK Parquet文件
+阻断与恢复的75项替代测试已SOURCE_READY，尚未实测；旧10项失败未删除、跳过或
+改为错误的owner=0。SDK组件清理测试与公开SQL端到端验收分别记录。
+
+持久化dependency未知kind原来降为EXTERNAL，可能取消TABLE/VIEW的drop保护并误放行
+cascade。现对不存在、未知、非canonical枚举明确报METADATA_METASTORE_ERROR，合法
+EXTERNAL仍按原契约处理，实际PG篡改行测试验证拒绝且原行不被改写；日志仅使用已
+解析的kind，避免原始持久化字段注入换行。未更改事务或schema迁移。
+
+共享metadata mapper的实际问题是公开mutable配置对象：任何caller可改变后续所有
+canonical JSON/摘要。现只公开固定序列化/类型读写与新树操作，配置对象和缓存不外泄，
+无每调用mapper复制或第二serialization实现；与[Jackson同版本上游说明](https://raw.githubusercontent.com/FasterXML/jackson-databind/jackson-databind-2.18.6/src/main/java/com/fasterxml/jackson/databind/ObjectMapper.java)
+关于首次读写后不能更改配置的线程安全约束一致。尚未解决的静态项继续保持FAIL。
+
+本次实际发现并修复的第一根因：`TaskStatusCollector` 发布RUNNING时合法没有
+Native终态字节，既有 `CanonicalTaskReportValidator` 仅对终态要求该证据；
+`TaskReportPublication.Fact` 却无条件 `digest(null)`。真实Worker经
+`RemoteTaskStatusReporter -> CoordinatorTaskResource -> TaskStatusReceiver` 同样
+经过此处，不是仅direct fixture问题。修复保留null及所有不可变REST字段，重试须
+完整内容一致；终态canonical校验未放宽。新增真实HTTP用例验证原事实ACK、同序列
+篡改stats被拒、再重放原事实ACK及实际结果42/EOF/排空。
+
+最近组合继续暴露两条后续根因，未通过前不得关闭验收：
+
+- `TaskJournalStoreFixture` 的观察器也从RUNNING不存在的terminal bytes推导事件ID；
+  应从同一实际issued request冻结完整attempt，保持真实PG lock、ack-before-commit
+  及0→1 committed观察，不制造Native报告或从不完整REST attempt重建控制authority。
+- permit用例全表REVOKE同时影响同一journal flush中的异步RUNNING与task终态，
+  尚未到达其query-terminal目标故障边界。生产Worker的monitor又把已成功Native后的
+  `onCompleted` 报告异常送入 `onError`，把报告失败误判为执行失败；原FINISHED事实
+  尚未完成，新失败事实被实际owner拒绝。须隔离真实PG FINISHED-query fault，并
+  分离Native执行/统计捕获失败与后续release/publication失败，保留原exact continuation
+  和可观测失败。不能修改FINISHED oracle、吞异常或增加超时求绿。
+
+上述Worker修复已扩展为同一 `TaskTerminalPublication` owner顺序覆盖
+EXECUTION_TERMINAL和RELEASED_TERMINAL：Native物理释放可以先发生，但旧实际报告
+先收到ACK，才能生成actual-drain的新序列；两个阶段共享最初有限delivery horizon，
+不延长、不添加第二registry或假receipt。真实HTTP丢/耗尽ACK新增用例已通过；
+查询仍FINISHED、Native无FAILED、完整body/seq/attempt一致，恢复后实际释放与结果42。
+permit r4在正确阶段边界已通过：真实PG42501期间cleanup明确抛错，冻结原报告重试，
+恢复后同一continuation ACK并生成更晚actual-release报告；physical release与metadata
+ACK不能等同，没有把cleanup异常吞掉或将未ACK的报告替换为新事实。
+
+SourceFree关闭用例中旧 `taskId == ticket` oracle与正式签名grant冲突；现从同一
+Tracker冻结实际issued request，验证opaque ticket等于同一真实producer signer
+发行的exact grant，且不等于taskId，再核CANCELLED Native报告完整attempt一致。
+原实际取消、shutdown与重新初始化断言保留，最近3项通过。这仍是单JVM routing
+integration，不是独立Worker部署验收。
+
+共享AI启动也发现负向接线证据：新增 `SharedNativeFunctionStartup` 原无caller，
+base先GET_CAPABILITIES、Ollama类后注册，违反实际Native显式publication门禁。
+现已修改为真实模型准备→唯一Native初始化→同refs注册/finalize→读取精确库存→
+Worker注册；Provider仅在Native实际退出后关闭。禁止借用foreign runtime，单个
+shutdown-hook，失败半启动保留原异常且后续fail-closed。四文件编译通过；真实
+Ollama/Lance/Smoke首轮 **FAIL，4个类级startup ERROR / 0 SKIPPED**，尚未进入
+各业务oracle。真实两模型准备、实际factory注册/finalize及精确库存发布已成功，
+随后被Shared PostgreSQL readiness阻断。日志
+`/tmp/pangrova-production-20261007-shared-ai-lance-e2e-r1.log`。
+
+单独Smoke复现采集了现场线程栈
+`/tmp/pangrova-production-20261007-postgres-startup-thread-r2.log`：main在
+`SharedTestContainers.<clinit> -> probeJdbcReady -> FutureTask.get` 等待；
+`awaitility[shared-postgres-jdbc-ready]` 明确等待同一个Class initialization
+monitor。probe的outer静态lambda不能在外部线程完成该类初始化。与此同时实际
+owned PostgreSQL容器内 `SELECT 1 AS ready` 返回1，排除把该现场直接归因为数据库
+未ready；修复必须移除该class-init依赖，保留实际JDBC与durability检查和原超时，
+不能增加超时或跳过探针。现改为独立nested Callable执行真实JDBC，不依赖outer
+class-init；最近真实容器2项通过。原E2E r3已越过此边界，但业务链仍失败。
+
+公开E2E r3两条新增根因已定位：`E2eCurrentAuthority.tenants` 创建tenant时
+quota=null，而`JdbcTenantStore`准确持久化为八项0，真实QuotaChecker据此拒绝
+所有公开SQL。测试部署须显式提供有限quota，不修改生产零配额拒绝语义、不覆盖
+既有tenant授权。`TestCatalogRegistrar.ensureDefaultSchema` 在每次fixture
+register时无条件create实际已存在的Iceberg默认schema；须在同实际session/catalog
+查询存在性，仅缺失时创建，保留真实错误传播。原部署链r5已越过这两处，完整业务
+仍被后续opaque票据/实际内部鉴权协议不一致阻断，不能据此前置修复声称E2E通过。
+
+结果票据与控制身份必须分离：Native DoGet传完整producer签名ticket，taskId只从
+Coordinator原始issued direct-result TaskRequest及其完整query/task binding选取；
+多个候选、空授权或foreign identity必须拒绝，不能解析票据为控制authority或unsigned
+fallback。目录部署请求的401已追到生产双方契约：client仅发X-Internal-Auth，
+filter仅接受Bearer且缺精确catalog-deployments内部路径，resource二次X-header校验
+因此永远到不了。修复原子统一Bearer、精确路径边界及requireInternalServiceIdentity，
+真实HTTP正负身份测试必须验证普通认证用户和相似prefix仍拒绝，不能关闭auth。
+
+生产journal还存在独立跨query队头阻塞：`JournalPendingWrites.awaitBatch` 从
+全局LinkedHashMap头取事件，`JournalEventSql.commit` 将不同query同事务提交；
+保留的失败query每轮占据头部并回滚健康query。完整整改应在同一有界owner内
+按query保序、公平分组事务；原事件身份、未知COMMIT、连接关闭、capacity和purge
+义务均须保留，以真实PostgreSQL行级拒绝及lostCOMMIT验收，不能增加失败fallback。
+该生产隔离修复已实施：同一锁下query-key派生索引、公平轮转、同query保序事务，
+没有第二authority registry或失败fallback。真实PG新增三项及原15项均通过；
+单query故障不再阻断健康query，同query后续事件不能越过失败头，容量/精确重放/
+purge/close/lostCOMMIT原义务保留。严格模块门槛尚有静态失败，继续修复，不能把行为
+PASS等同整体验收或把metadata ACK失败计为Native执行失败/物理释放成功。
+
+只读复证还确认实际函数目录的query冻结、Planner消费、TaskRequest field18双端
+尚未实现，分布式aggregate phase广告与实际state执行不一致；pinned SDK的TIME(6)
+与每列timestamp Arrow桥仍存在精度/布局缺口。完整原子切换及验收规格见
+[函数cohort实施规格](ai-native-function-cohort-plan.md)，不是已实现能力。
+Coordinator仍生产可达的 `IncrementalReadTask` 与 `TableWarmupExecutor` JVM源扫描
+也未迁移完成。统一Calcite公开前端、当前全仓严格回归、全部真实E2E、Linux同源
+ASan和独立进程规模/SLO均仍未验收；整体目标保持开放。
+
+### 0.57 2026-10-07 真实 AI 失败链与 SDK 根因继续复证
+
+下列证据属于各自冻结的源码/产物闭包，不表示全部当前改动或生产验收通过。
+环境继续为 JDK17/macOS/aarch64、真实 Docker PostgreSQL/Ollama；没有降低测试、
+使用 unavailable skip，或修改 ASan leak 过滤规则。
+
+| 检查 | 实际结果 | 日志与边界 |
+|---|---|---|
+| 新 shuffle owner 完整 ASan r4 | PASS，4052项，1640.86秒 | `/tmp/pangrova-production-20261007-native-asan-full-r4.log`；`-fsanitize=address` 构建，未设置关闭 leak 的测试环境。只证明该冻结 Native cohort。 |
+| 新库 Worker/JNI 最近 r5 | PASS，22项 / 0 SKIPPED，15.183秒 | `/tmp/pangrova-production-20261007-worker-shuffle-jni-nearest-r5.log`；原 shuffle/exchange/result-port/library/creation/execution 六套。不是独立进程公开SQL或SLO。 |
+| 全39模块刷新 r7 | 编译PASS，54.181秒；行为SKIPPED | `/tmp/pangrova-production-20261007-current-full-java-refresh-r7.log`；不包含本节后续 trace、嵌套schema与结果取消整改。 |
+| Common canonical摘要最近 | PASS，16项 / 0 SKIPPED；Checkstyle/SpotBugs0 | `/tmp/pangrova-production-20261007-common-digest-nearest-r1.log`；包括新增两项各100次properties，非SQL E2E。 |
+| Metadata摘要消费最近 | PASS，29项 / 0 SKIPPED | `/tmp/pangrova-production-20261007-metadata-digest-nearest-r1.log`；实际PG stage exchange14项及原canonical合同。不能替代全模块静态门槛。 |
+| 公开 AI/Lance/Smoke r8 | FAIL，18项：6 PASS / 6 FAIL / 6 ERROR / 0 SKIPPED；fork最终134 | `/tmp/pangrova-production-20261007-ai-lance-smoke-real-r8.log`，运行3分45秒。AI trace缺失、嵌套DDL拒绝、failed reader保留和原生析构abort均须分别解决。 |
+| 新真实写入清理 r1/r2 | FAIL，testCompile失败，未进入行为断言 | `/tmp/pangrova-production-20261007-write-cleanup-real-nearest-{r1,r2}.log`；错误使用不属于当前base的helper及Record泛型，已修编译，不计通过。 |
+| 写入清理 r3 | FAIL，5项：3 FAIL / 2 ERROR / 0 SKIPPED | `/tmp/pangrova-production-20261007-write-cleanup-real-nearest-r3.log`；实际SDK单行默认不会立刻创建文件，fixture低阈值也因生产未消费表配置而无效。 |
+| Iceberg writer配置及原相关回归 | PASS，25项 / 0 SKIPPED，8.514秒 | `/tmp/pangrova-production-20261007-iceberg-parquet-config-r1.log`；新增8项真实SDK分区/非分区/GZIP/metrics/自然flush/abort/default lazy及非法参数拒绝。 |
+| 写入清理 r4 | FAIL，5 FAIL / 0 SKIPPED | `/tmp/pangrova-production-20261007-write-cleanup-real-nearest-r4.log`；新断言误要求finish拒绝文案含stopped，生产实际精确文案为cannot finish after failure or abort；仅校准新断言，未改生产拒绝语义。 |
+| 写入清理 r5 | FAIL，5项：3 PASS / 2 ERROR / 0 SKIPPED | `/tmp/pangrova-production-20261007-write-cleanup-real-nearest-r5.log`；真实decoder异常与文件阻断/恢复2项、global close/lease/恢复1项通过；Decimal失败2项完整读取owned文件失败，严格7、1断言未删除。 |
+| execution trace adapter最近 | PASS，4项 / 0 SKIPPED，2.957秒 | `/tmp/pangrova-production-20261007-execution-trace-context-r1.log`；实际SDK sampled/unsampled span、真实线程交接、W3C propagator验证。不是AI SQL闭环。 |
+| execution trace adapter r2 | PASS，4项 / 0 SKIPPED，8.213秒；Checkstyle/SpotBugs0 | `/tmp/pangrova-production-20261007-execution-trace-context-r2.log`；补齐traceState访问器Javadoc后独立叶模块复验，不代表Coordinator新改动、公开AI SQL或原生结果链验收。 |
+| Coordinator trace首轮 | FAIL，6项：5 PASS / 1 ERROR / 0 SKIPPED | `/tmp/pangrova-production-20261007-coordinator-trace-request-r1.log`；新增callback断言错误使用尚未stamp execution-owner的factory请求，不放宽admission；改在真实已issued请求链核验。 |
+| Coordinator trace r2/r3 | PASS，分别15/20项，0 SKIPPED | `/tmp/pangrova-production-20261007-coordinator-trace-request-{r2,r3}.log`；r3含真实PG issued artifact deadline链5项，callback投影现有统一trace字段。后续MDC恢复改动须另验，不能沿用此结果。 |
+| Coordinator trace r4 | FAIL，编译失败，行为未运行，9.703秒 | `/tmp/pangrova-production-20261007-coordinator-trace-request-r4.log`；当前StagePlanAccess调用新增resultColumnTypes但已安装上游尚无此方法，需刷新完整依赖闭包。 |
+| Worker统一trace r2 | PASS，12项 / 0 SKIPPED，13.975秒 | `/tmp/pangrova-production-20261007-worker-canonical-trace-r2.log`；full-regression选择实际JNI creation、trace、loader与执行链。daily选择r1仅6项，不把未选中的Native4项算通过；非公开AI SQL。 |
+| Iceberg规范新表field IDs | PASS，16项 / 0 SKIPPED，9.812秒 | `/tmp/pangrova-production-20261007-iceberg-canonical-schema-r1.log`；真实Hadoop/JDBC与原nano-schema回归，不等于ASYNC embedding公开链已通过。 |
+| Metadata同事务projection/outbox最近 | PASS，77项 / 0 SKIPPED，约60秒 | `/tmp/pangrova-production-20261007-metadata-atomic-invalidation-r1.log`；包括真实PG提交/回滚/丢失COMMIT ACK及sync source/sink组件，既有组件测试不冒称湖仓公开E2E。 |
+| Metadata当前完整门槛 r10/r11 | FAIL；r10行为537项全PASS/0 SKIPPED，但Checkstyle1；Javadoc修正后r11 Checkstyle0、SpotBugs27 | `/tmp/pangrova-production-20261007-metadata-current-{full-gates-r10,static-r11}.log`；r11行为SKIPPED，仅静态复验。未修改过滤规则求绿；整体模块门槛未通过。 |
+| Metadata集合所有权最近 | PASS，7项 / 0 SKIPPED，16.783秒 | `/tmp/pangrova-production-20261007-metadata-immutable-ownership-r1.log`；实际值对象覆盖11个不可变集合访问器、嵌套冻结、输入变更隔离及canonical字节/摘要稳定性；仅叶模块test，不包含完整门槛。 |
+| Metadata不可变集合精确分类验证 | PASS；11条规则隔离及完整过滤器正例、12类负控制 | `/tmp/pangrova-production-20261007-metadata-immutable-filter-r1.log`；使用实际SpotBugs Filter API验证Class/Method/params/returns/Field/type/Bug精确匹配，不扩大为package/record过滤；其余16条原告警未隐藏，当前完整静态门槛须另验。 |
+| Metadata静态门槛 r12 | FAIL，35.252秒；Checkstyle0、SpotBugs16；行为SKIPPED | `/tmp/pangrova-production-20261007-metadata-static-r12.log`；独立叶模块verify未与其他构建共享该模块target。精确不可变分类仅消除已验证11条，其余借用依赖14条、公开graph hash比较1条、drift采样1条仍原样报告，完整门槛未通过。 |
+| SDK 1.11五源最小回补隔离矩阵 | PASS，18个standalone场景；不是JUnit全量或生产E2E | `/tmp/pangrova-iceberg-111-repair.bDH9UC/acceptance-{rows,deletes-ordered,io,delete-io,footer}.log`；分别4/10/1/1/2场景。同一最终候选JAR验证实际完整读、失败后永久拒绝文件元数据、真实OS I/O及FD0，生产依赖未切换。 |
+| SDK 1.11源码/产物闭包只读复核 | PASS，376个运行JAR内容hash；601/59/152个模块源码、class集合对照 | `/tmp/pangrova-production-20261007-sdk-{runtime-manifest,source-closure}-r1.log`；core/parquet无class差异；Hadoop仅3个已声明annotation-free package-info差异。完整javac记录可追溯，但缺官方shade/资源/可重复发布构建，不能判为发布级PASS。 |
+| Native reader新闭包构建 r5/r6 | FAIL，均未进入CTest | `/tmp/pangrova-production-20261007-native-result-reader-build-{r5,r6}.log`；r5测试误用Folly私有SemiFuture.wait，已保留原2秒及断言改用实际public Future API；r6出现新增VECTOR契约的signedness WERROR。完整源码闭包待协调，未回退未知改动、未打包失败产物。 |
+| 全39模块刷新 r8 | FAIL，1分56秒；行为未运行 | `/tmp/pangrova-production-20261007-current-full-java-refresh-r8.log`；Paimon编译读SPI target JAR报invalid stored block lengths/block type，不能把后续missing symbol当源码根因。只读检查确认同路径JAR在本轮中被另一Maven重写，17:37:49产物随后unzip-t正常；并发构建尚未协调，不盲目清target或回退源码。 |
+| Native reader新闭包 r7 | BLOCKED，Root构建已中断，exit130；CTest未运行 | `/tmp/pangrova-production-20261007-native-result-reader-build-r7.log`；Root仅将已验证范围内dimension转为int32_t以修WERROR，不改变VECTOR语义。另一个CMake正在写同一build目录及目标，已停止本轮自己的进程，未停止其他任务、未打包冲突产物。 |
+
+**真实 trace 缺口。** `TaskRequestFactory.canonicalRequest` 从未写统一 v2 field11；
+`CanonicalTaskRequests.callbackFor` 与 Native parser 已正确投影该字段，但收到空值，
+`AiExecutionContext.requireGovernedIdentity` 因此明确拒绝。不能删除审计身份校验、
+把 query UUID 冒充 trace，或从异步 dispatch 的空 ThreadLocal 读取零值求绿。
+当前整改将不可变执行上下文随 session/live/deferred 控制对象显式携带，在唯一 task
+builder 写现有字段，Worker JNI 也读取同一请求事实。无 ambient parent 时，观测adapter
+使用实际 OTel SDK IdGenerator 建合法 unsampled local root，并用官方 `Span.wrap`
+激活非recording context；这仅建立执行相关性，不声明 exporter、recorded span 或费用账本
+开启。依据 [OTel API](https://opentelemetry.io/docs/specs/otel/trace/api/) 及
+[SDK sampling规范](https://opentelemetry.io/docs/specs/otel/trace/sdk/)，未引入私有协议。
+恢复后的 durable attempt 新相关性不等于原 job trace 已持久化，该范围仍须单独验收。
+
+**真实嵌套 CREATE 缺口。** r8 真实 `v1.metadata.json` 的 VECTOR element-id为4，
+输入builder为3000；同版SDK新表必定assignFreshIds，而output factory比较原schema JSON，
+把SDK合法规范化误判为并发schema漂移。整改在创建前使用官方
+`TypeUtil.assignIncreasingFreshIds`，同一规范schema用于spec/sort/properties/create/handle；
+保留原exactJSONfence，真实并发alter仍必须拒绝。新增实际Hadoop/JDBC四项及原相关回归共16项已通过；公开ASYNC与完整AI链仍待新Native产物复验。
+
+**真实失败 reader 缺口。** Velox task terminate/removeTask删除route，但producer
+termination不唤醒destination consumer；其后deleteResults已找不到route。reader自己持有
+promise，不能依赖broken future，且DoGet丢弃实际ServerCallContext取消。结果是failed
+reader等待deadline、真实release拒绝、FAILED交付滞留。服务stop先Shutdown再revoke又
+等待reader；现场SIGABRT第一faultThread为DoGet worker中的`ResultBatchReader`析构，
+不是只凭日志猜为global task析构。必须显式唤醒真实pending read、传播实际取消，保持
+error非EOF，捕获实际buffer shared owner并在Shutdown前seal/revoke/wake；原无真实drain
+不归还预算的门禁不变。该Native闭包源码已完成，首次构建因实际Folly API不匹配失败；
+精确修正后再次构建被当前工作区新增VECTOR契约的WERROR阻断。没有成功的新闭包
+Native测试、打包或公开E2E结果，旧4052项PASS不覆盖新源码。
+后续只读进程/文件证据确认另一Maven输出到
+`/tmp/pangrova-ai-native-cli-verify-20261007.log`，另一CMake输出到
+`/tmp/pangrova-ai-native-native-build-20261007.log`，两者使用同工作区target/build。
+这不是缺JDK/Docker，也不是通过重试即可可靠验收；须单一构建owner、冻结完整源码闭包，
+再刷新上游、Native、classpath资源及JNI消费者。用户未提交的并发源码改动全部保留。
+
+**SDK Decimal失败原子性尚未解决。** 与Pangrova清理完全独立的同版SDK最小复现保留在
+`/tmp/pangrova-parquet-sdk-repro.ezvDW8`：Iceberg1.11.0 / Parquet1.17.1写7、1后拒绝
+7.01，close成功但footer第三块rows1/valueCount0，完整读取同样报past page end。
+仅诊断程序退出0，读验证为FAIL。SDK的计数先于model.write/endRecord，当前官方main
+仍保留该顺序，不能声称升级自然解决。异常后未提交文件不对SQL发布，删除失败保留
+owner并重试，但这不证明文件可完整读取或多字段失败行原子。用户已允许完整验收前提下
+评估独立SDK补丁；尚未切换生产依赖。不使用反射改SDK状态、不伪造SDK异常、不删除7、1 oracle。
+
+追加独立SDK评估发现：仅把计数移至model.write之后，单列能读不等于多字段行原子；
+默认buffer的晚字段失败仍产生marker列3值、id列2值的非法cohort。丢弃污染的当前group
+只能保留此前已封闭的group，不能承诺保留未flush的成功行。实际路径被非空目录阻断时，
+SDK首次close失败而第二次close返回成功、文件仍不存在；ParquetFileWriter.abort后close
+实际文件描述符仍为1，重试亦未释放。完整诊断保留在
+`/tmp/pangrova-iceberg-sdk-evaluation.msmmAm`，这些均为FAIL证据，不是已部署修复。
+需同时处理ParquetWriter失败/释放状态、DataWriter永久拒绝失败attempt发布、
+ParquetFileWriter的abort及实际stream关闭，并以完整独立版本SDK验收；禁止class影子覆盖。
+[官方最新发布1.12.0](https://iceberg.apache.org/releases/)的
+[固定tag写入源码](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/parquet/src/main/java/org/apache/iceberg/parquet/ParquetWriter.java)
+仍在model.write前计数、flush前标记closed，升级本身不作为此问题通过证据。
+
+**SDK升级兼容性必须独立验收。** 已隔离全部1.11 JAR并用完整官方1.12依赖重现上述
+写入问题，不以版本更新代替根因修复。1.12的
+[固定tag DeleteWriteBuilder](https://github.com/apache/iceberg/blob/apache-iceberg-1.12.0/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java)
+在buildPositionWriter拒绝非空rowSchema；当前主源码IcebergDeleteWriter通过forTable(table)
+设置该schema并写emptyRow，直接切换将导致该组件的position-delete构建失败。全仓调用
+追踪仅发现测试直接使用这些helper，尚未证明公开SQL删除接线；不将组件兼容性风险
+冒称已发生的生产SQL事故。当前优先评估
+1.11最小可追溯回补，保留1.12作为隔离候选，未更改生产POM或替换本机依赖缓存。
+隔离完整源码候选已初步证明sealed group可完整读取、失败DataWriter不发布以及真实
+abort后FD归零；1.11最小回补进一步完成数据/delete永久拒绝发布、实际I/O及构造/footer
+故障共18项独立实测，但这仅属于指定临时classpath矩阵。正式上游构建/依赖shade、
+完整SDK回归和原生产写入链仍需验收。Iceberg ParquetWriter构造器在model/store创建前
+取得compressor的失败释放边界未验收，不能将ParquetFileWriter的encryption构造FD测试
+泛化至整个SDK。当前主源码delete helpers缺少write异常后的finally/try-with-resources，
+矩阵中的显式close不能证明该caller退出安全；helper接线及owner清理仍为OPEN。
+临时编译JAR不等于可发布SDK，不允许影子类覆盖。
+五份补丁、官方输入与候选SHA、精确编译/复证命令、失败资源与正式门槛详见
+[SDK写失败整改与验收规格](iceberg-sdk-write-failure-repair-plan.md)。当前仅为SOURCE_READY，
+不作为已完成生产依赖升级。必要SDK升级/修复已获用户授权，不把未完成的技术验收
+虚构为还需新增本地升级审批；对外发布SDK和改动其他活动任务不在当前授权范围。
+
+**可空VECTOR坐标客户端缺口。** 当前Native合法双层nullability的正向用例明确接受
+`[1.0, NULL, 3.0]`，而ArrowBatchDecoder仍只构造float[]/double[]并拒绝NULL坐标，
+JDBC VectorSqlArray同样只支持基本类型数组。需要required-child保留primitive fast path、
+nullable-child保留Float[]/Double[]坐标空值，并同时贯通SPI、结果脱离batch所有权、CLI、
+JDBC元数据及Array生命周期；不能以NULL→0或Float64降精度规避。AI严格Float32/
+非空坐标契约保持不变。该缺口仅完成只读复证，相关源码仍由同工作区另一活动任务
+修改；未声称已修复或获得多阶段/独立进程验收。
+
+另外已复证metadata projection与独立invalidation写入不原子，生产sync没有writer接线且
+异常被吞掉；当前只授权同PG事务projection+outbox闭包。所有实际缓存消费者、关闭join
+以及外部湖仓DDL的durable intent/pending fence另须开发验收，不能仅传poller参数宣称分布式
+闭环。全仓严格回归、公开全部业务链、同源Linux以及生产规模/SLO仍未验收。
+
+### 0.58 2026-10-07 构建归属、旧 ASan 产物与可空 VECTOR 验收
+
+用户已明确授权协调共享工作区构建。另一活动任务停止了新共享构建，并将后续开发
+迁至独立 worktree/依赖缓存；本工作区由 Root 统一运行 Maven、Native、打包和回归。
+现有未提交源码、暂存删除及失败日志均保留，不使用 reset、stash 或协议影子覆盖。
+
+**旧 ASan 产物的实际根因。** 原完整 CTest 在四个新 reader 用例的 TearDown 卡住。
+只读 LLDB 栈显示 `releaseTaskAndWaitForDeletion → deletion_future.wait`；运行二进制的
+TearDown 反汇编在 `cancel` 后直接调用删除等待，缺少当前源码已有的
+`runner_pause_owned_` 分支和 `Task::resume`。证据为
+`/tmp/pangrova-production-20261007-reader-asan-lldb-layout-r2.log`，调试器已 detach。
+源码修改时间17:53:42、对象完成时间17:53:48不能证明编译器读取的是修改后内容；
+编译期间修改源码导致 mtime 增量检查漏掉旧输入。本轮旧 CTest 已由其 owner 中止，
+不折算完整 PASS，也不修改生产取消逻辑或放宽超时。
+旧对象 SHA256 `beb5b2a60192c9954b772e54f55a052c9c0b148786b719b37b9325e187f98ee5`
+已可恢复隔离至 `/tmp/pangrova-native-stale-object.74JYWc/ResultBatchStreamReaderTest.cpp.o`。
+新 Native 输入清单为 `/tmp/pangrova-production-20261007-native-input-r1.sha256`；
+`cmake --build pangrova-worker-native/build-asan --clean-first --parallel 2` 已 exit0，
+日志 `/tmp/pangrova-production-20261007-native-asan-build-r1.log`；615项输入重新核验通过。
+Reader最近12项全部通过，但随后十次重复选择在Flight shutdown用例失败，不能计稳定通过。
+实际gRPC trace显示应用层取消状态已发送，而无deadline的Shutdown仍等待idle client的
+GOAWAY/PING回复约5秒。证据为
+`/tmp/pangrova-production-20261007-reader-asan-shutdown-grpc-trace-r7.log`；这是独立于旧对象的真实缺陷。
+当前修复在权限撤销后调用实际Arrow deadline shutdown取消transport，同时仍join真实handler，
+新增不再Next/Cancel的idle client用例；不放宽2秒断言或制造排空receipt。
+`/tmp/pangrova-production-20261007-native-asan-shutdown-build-r2.log` 已 exit0；最近23项
+通过（19.06秒），五项并发相关用例各重复25次，共125次通过（46.63秒）。日志分别为
+`/tmp/pangrova-production-20261007-reader-asan-shutdown-green-r8.log` 和
+`/tmp/pangrova-production-20261007-reader-asan-shutdown-repeat-green-r9.log`。
+这不代表完整Release、打包JNI或公开SQL链已验收。当前无筛选ASan发现4069项，仍在运行；
+两个Lance重复失败用例已报告各256字节泄漏，完整回归不能计PASS。独立、不链接
+Pangrova/Velox/Arrow/Rust的同工具链程序复现同一分配；LLDB定位到Apple libc++
+`runtime_error`兼容性探针的`dlopen`失败路径及dyld线程局部错误字符串。1/32/4096次
+copy均只有一个256字节分配，自然退出并join的线程不保留该分配。此证据区分系统TLS
+与每任务累积泄漏，但不是消除报告或通过验收的理由；不修改生产throw、预热线程或新增
+suppression求绿。需匹配的生产平台/工具链完整重验，当前结果保持FAIL。
+独立报告为`/tmp/pangrova-runtime-error-asan.riwhp8/root-cause.md`，SHA256
+`d2241d5e04dec2b6cd21ee1547278eecd21385fb449304b8538cfef7087a5ffd`；
+全部原始诊断输出`diagnostic-runs.log`的SHA256为
+`c3ea04ebd3e64c28418117f9bd37e601e720bd2eb7a3f8621b586c743da23d6d`。
+当前Docker是Linux arm64基础/服务镜像，没有匹配的完整instrumented Linux依赖和
+Pangrova构建产物；不能将Docker可连接记成Linux生产ASan已经通过。
+完整运行继续暴露额外失败：截至第753项，已有六个256字节LSan报告，另有
+`SubstraitTimestampValidationTest.RejectsInvalidPrecision`在异常展开的
+`libunwind::CFI_Parser::decodeFDE`发生SEGV。该崩溃与TLS报告分开定位；系统库栈位置
+不是根因结论，更不能据此排除测试。原始崩溃栈保留于同一r10完整日志。
+进一步现场复证：ASan测试二进制`__eh_frame`约31.9MB，原TestBody的真实FDE
+偏移`0x1189db0`被compact-unwind的24位字段截成`0x189db0`，此处没有有效FDE；
+实际LLDB cursor因此将NULL传给decodeFDE。ASan shared dylib同样超过16MiB并有
+截断记录；当前旧Release的EH段未超阈值。单独`-no_compact_unwind`不是已验方案：
+隔离诊断的真实throw/catch因此abort，说明还必须验证完整DWARF/LSDA保留。
+链接修复仅在独立临时副本验证，当前生产/测试CMake输入与原完整cohort仍冻结。
+
+**可空 VECTOR Java 闭包。** ColumnDescriptor 保留既有统一 LogicalType，而非另立
+VECTOR 协议；结果 decoder 由完整 schema 声明选择 float[]/double[] 或 Float[]/Double[]，
+nullable child 即使当批全非空仍保持 boxed 载体。required parent/child 拒绝真实 NULL，
+维度和两种精度消费统一声明。SPI、脱离 batch 的快照、CLI、JDBC 元数据及 Array
+切片/free 已同批迁移，无旧构造器 shim。AI 的严格 Float32/非空坐标契约未放宽。
+
+| 检查 | 实际结果 | 命令、日志与边界 |
+|---|---|---|
+| 可空 VECTOR 最近 Java reactor | PASS，67项 / 0 FAIL / 0 ERROR / 0 SKIPPED，15.198秒 | JDK17，`mvn -B -pl pangrova-spi,pangrova-transport,pangrova-client/pangrova-client-cli,pangrova-client/pangrova-client-jdbc -am -Dtest=ArrowBatchDecoderVectorTest,ResultBatchOwnershipTest,ColumnValueVectorTest,ResultBatchDecoderTest,PangrovaResultSetVectorTest -Dsurefire.failIfNoSpecifiedTests=false test`；`/tmp/pangrova-production-20261007-vector-nullable-nearest-r1.log`。实际五类分别27/6/9/14/11项，真实 Arrow IPC 到客户端组件，不是 public SQL 或分布式 E2E。 |
+| VECTOR/客户端完整及静态门槛 | PASS，15模块，2550项 / 0 FAIL / 0 ERROR / 0 SKIPPED，4分08秒；Checkstyle/SpotBugs0 | `mvn -B -pl pangrova-spi,pangrova-transport,pangrova-client/pangrova-client-cli,pangrova-client/pangrova-client-jdbc -am -Pfull-regression,coverage,static-analysis verify`；`/tmp/pangrova-production-20261007-vector-clients-full-static-r1.log`。包含真实PG及TLS等组件回归，不作为已部署 Native/public AI SQL 或独立进程分布式验收。 |
+| E2E真实性静态门禁 | PASS；不是行为回归 | `.pangrova/scripts/check-e2e-truthfulness.sh`；`/tmp/pangrova-production-20261007-e2e-truthfulness-r1.log`。 |
+| Metadata新借用/drift/graph最近 r1 | PASS仅27项；新borrow7/drift4未选中 | `/tmp/pangrova-production-20261007-metadata-owner-decisions-nearest-r1.log`；daily profile过滤新integration类，不将未运行11项记为PASS。 |
+| Metadata新闭包真实选择 r2 | FAIL，38项：34 PASS / 1 FAIL / 3 ERROR / 0 SKIPPED，2分51秒 | 使用`-Pfull-regression`及六类selector，`/tmp/pangrova-production-20261007-metadata-owner-decisions-nearest-r2.log`；新增fixture的sink/peer未建schema父记录被实际PG23503拒绝；pool关闭断言错误要求参数化SQL异常包含bound值。仅修fixture建数及精确实际异常断言，不改PG外键、生产异常或关闭拒绝语义；修后结果另列r3，不改写首轮FAIL。 |
+| Metadata新闭包真实选择 r3 | PASS，38项 / 0 FAIL / 0 ERROR / 0 SKIPPED，2分58秒 | `/tmp/pangrova-production-20261007-metadata-owner-decisions-nearest-r3.log`；六类分别15/7/7/3/2/4项，新增真实PG借用7项和deterministic drift4项已实际运行。保留原10%采样概率，直接复证同一生产drift detector及实际42501事务拒绝；不是所有consumer、shutdown join或公开SQL闭环。 |
+| Metadata精确分类脚本 | PASS；行为证明须独立运行 | JDK17，`python3 .pangrova/scripts/tests/spotbugs-immutable-filter-test.py`；`/tmp/pangrova-production-20261007-metadata-owner-filter-r1.log`。实际pinned Filter API核11不可变getter/10借用constructor/公开graph identity及非安全采样，isolated/full规则和13类边界负控；未验证Default dispatcher及3个未接通constructor仍可见。不是完整静态门槛通过。 |
+| 统一声明owner与SDK dispatcher最近 r3 | PASS，29模块选择27项 / 0 FAIL / 0 ERROR / 0 SKIPPED，1分18秒 | `mvn -B -pl pangrova-connector/pangrova-connector-paimon,pangrova-coordinator -am -Pfull-regression -Dtest=DeclaredTypeTest,DeclaredLogicalTypesTest,PaimonHandleSchemaIntegrationTest,MetadataSharedDispatcherSdkIntegrationTest,PlanningReadBindingsIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`；`/tmp/pangrova-production-20261007-declared-owner-dispatcher-nearest-r3.log`。五类分别3/4/11/1/8项。原nested declaration移至中立SPI，唯一projector及全caller迁移，无新VECTOR协议或兼容别名；仍是既有physical-write支持域，非source nullability/public SQL验收。SDK bus前轮FAIL为独立fixture Paimon默认缓存命中旧Table；仅刷新该真实读取oracle再验证物理absence，两个Pangrova cache断言不变。该1项证明provided dispatcher身份，不等于生产bootstrap/peer SDK cache闭环。 |
+| 扩大声明/Metadata完整及静态回归 r1 | FAIL；Governance 115项行为PASS、0 SKIPPED，但SpotBugs 11项失败 | `/tmp/pangrova-production-20261007-declared-metadata-full-static-r1.log`。当前SPI/Protocol通过行为和静态检查；Governance阻断后续Metadata/Paimon完整验证，不能计整条链PASS。实际生产quality store的Statement未关闭，且SQL仍为PostgreSQL不支持的`MERGE ... KEY`；读/初始化/结果写错误还会被吞掉，正按真实调用链修复。其余DI身份提示需实际借用证据与精确边界分类，不扩大排除规则。 |
+| SplitFetcher中断边界最近 r1 | PASS，28项 / 0 FAIL / 0 ERROR / 0 SKIPPED，2分34秒 | `mvn -Pfull-regression -pl pangrova-coordinator -am -Dtest=SplitFetcherInterruptionTest,SplitFetcherSdkIntegrationTest,SplitFetchFailFastPropertyTest,PlanningReadBindingsIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test`；`/tmp/pangrova-production-20261007-split-interruption-nearest-r1.log`。四类分别10/2/8/8项；实际PG/plugin/Paimon source已执行。中断不再break后返回部分splits；保留interrupt、原始失败及真实close异常，source只关闭一次。不是分布式/public SQL E2E，也不证明selected-provider租约与catalog retirement已闭合。 |
+| Default dispatcher精确分类 r2 | PASS；不作为完整SpotBugs通过 | `/tmp/pangrova-production-20261007-metadata-dispatcher-filter-r2.log`。依据前述实际SDK bus的provided identity证据，仅新增原6参数storing constructor及typed field的EI_EXPOSE_REP2分类；11项借用constructor及13类边界负控通过，4参数forwarding constructor、3个未接通组件及敏感bytes/token仍不匹配。 |
+| Lineage构造及近测 r1 | PASS，14项 / 0 FAIL / 0 ERROR / 0 SKIPPED，1分09秒 | `/tmp/pangrova-production-20261007-lineage-construction-nearest-r1.log`。全仓无派生类，持有consumer executor的具体实现改为final，消除失败构造器被finalizer子类捕获的入口；不删除参数校验或扩大静态排除。构造边界4项、原shutdown7项、原query listener3项执行；不证明durable lineage或多Coordinator治理已闭合。 |
+| Governance PG及bootstrap最近 r1 | FAIL，30项：28 PASS / 0 FAIL / 2 ERROR / 0 SKIPPED | `/tmp/pangrova-production-20261007-governance-pg-nearest-r1.log`。新增实际PG规则/结果及精确3F000/42P01/23505验证3项通过；Lineage构造4项通过；Coordinator store失败前不创建未被context拥有的consumer验证1项通过。原bootstrap22项有两项旧fixture缺internal-service authority，被真实HTTP安全门禁拒绝；仅修真实授权fixture，保留门禁和原断言，修后r2另列。新增PG write gate验证无规则允许、实际读失败必须拒绝，不宣称质量SQL已实际执行。 |
+| Governance PG及bootstrap最近 r2 | PASS，31项 / 0 FAIL / 0 ERROR / 0 SKIPPED，2分20秒 | `/tmp/pangrova-production-20261007-governance-pg-nearest-r2.log`。PG store及真实read-failure write gate4项、构造4项、bootstrap22项、失败初始化1项全部执行。两旧fixture改为原Signed OIDC及持久authority helper，不改变生产鉴权、原断言或拒绝语义。扩大Governance行为/coverage/static回归继续执行。 |
+| SDK正式Parquet最近 r1 | PASS，61项 / 0 SKIPPED；ABI/RAT/Spotless/SBOM通过 | `/tmp/pangrova-sdk-release-candidate.OC3Ids/logs/parquet-nearest-r1.log`。实际官方工具链8模块，44 unit与17 Failsafe；exact官方1.17.1的japicmp无API变化。不是完整SDK或Pangrova生产E2E。 |
+| SDK正式Parquet完整 r1 | FAIL，1589项：1564 PASS / 1 FAIL / 24 SKIPPED / 0 ERROR，14分50秒 | `/tmp/pangrova-sdk-release-candidate.OC3Ids/logs/parquet-full-cohort-r1.log`。Hadoop模块650项中625 PASS/1 FAIL/24 SKIPPED；失败为原`testNoFlushAfterException`：真实close释放FD时底层流flush先前MAGIC，原路径靠未关闭流维持len0。不能恢复泄漏或修改oracle求绿；OutputFile/PositionOutputStream缺通用delete/discard契约，需实际owner根因方案。默认Hadoop3.3.0的24个bridge用例因缺相应FS API SKIPPED，后续需实际3.4.3 runtime cohort复验；六个后续模块被阻断，Iceberg正式constructor及最终shaded矩阵未运行。生产依赖未切换。 |
+| SDK 正式构建准备 | SOURCE_PLAN_READY；发布验收未通过 | 独立方案 `/tmp/pangrova-sdk-release-audit.00dX3p/release-preparation-plan.md`，SHA256 `ba7d1f2aa725d2fe7f2b7bfec1c7bb7c90696ce81b8cb2e2bbb56e9ccc242600`。官方源校验和通过，签名、Thrift0.22、官方 Immutables2.12.1、shading/资源/ABI/完整回归仍待执行。已授权独立目录/专用 cache 构建，不切换生产依赖或对外发布。 |
+
+ConnectorColumnTypeMapper 当前 storage VECTOR 投影 child REQUIRED，nullable-child 的
+公开声明/source 入口尚待统一契约复证；不能用 ARRAY 或手工协议作为公开 SQL 通过证据。
+Metadata 的真实消费者/cache fill fencing、SDK 构造/释放闭包、函数能力冻结、全部公开
+SQL/JNI/Smoke、同源 Linux 和生产规模/SLO 仍未完成，本节不改变整体 OPEN 状态。
+Governance仍有实质生产wiring缺口：bootstrap创建的auto-mask policy写入独立内存
+mask store，而实际query enforcer使用另一持久store；`ColumnTagService`仅测试直接消费，
+生产metadata没有注入其事件链。`DefaultQualityRuleExecutor`在生产assembly仍只检查
+expression非空，不读取实际表数据；`GovernanceQueryRunner`/SQL executor及write gate
+未在生产闭合。当前PG持久化/异常修复不解决这些缺口，必须先统一实际policy authority、
+native查询入口和tenant/snapshot边界，不能以扩大EI排除或手工结果模拟作为验收。
+
+### 0.59 2026-10-07 当前环境缩比验收与治理失败复证
+
+用户要求在当前环境等比例模拟。验收缩小数据、并发、线程和内存预算，不省略实际
+进程边界、跨Worker数据交换、权限、失败、重试、重启及排空。目标为独立Coordinator
+和至少两个独立Worker JVM，加载同源新Release JNI，通过真实公共SQL和结果传输验证；
+现有单JVM组件链不能计为独立进程分布式通过。Docker的2 CPU/4GiB用于真实依赖服务，
+macOS独立进程结果只证明该平台缩比功能，不能外推Linux ASan、规模吞吐或延迟SLO。
+过程harness及矩阵尚待落地，当前不计PASS。
+
+扩大Governance回归r2实际失败：123项，122 PASS / 1 FAIL / 0 SKIPPED，日志
+`/tmp/pangrova-production-20261007-governance-full-static-r2.log`。失败为旧
+`LineageQueryEventListenerTest.queryCreatedDoesNotEmitLineage`：生产listener实际发送
+START事件，旧测试sleep200ms后断言零事件，而consumer最长500ms轮询会偶然掩盖该
+错误。修正为真实latch等待，断言START、runId、SQL及空输入/输出，并使用真实关闭；
+不删除START或放宽生产语义。最近r3已通过18项、0 SKIPPED、45.048秒，包括PG4项、
+构造4项、关闭7项和listener3项，日志
+`/tmp/pangrova-production-20261007-governance-listener-nearest-r3.log`。
+完整行为/静态重验仍未通过，不能将未到达的Governance SpotBugs记成通过。
+
+列标签SQL另有真实假成功：SET/UNSET原分支仅DEBUG后return，然后invalidate/event并
+返回成功，未调用持久标签authority，也未接通实际查询的mask authority。当前最小
+正确性修复拒绝此请求且先于connector/cache/event副作用；真实PG/Paimon/parsing及
+query authority最近r4已通过28项、0 SKIPPED、2分11秒，日志
+`/tmp/pangrova-production-20261007-governance-tag-nearest-r4.log`。
+随后将拒绝收敛为既有`PARSER_UNSUPPORTED_FEATURE`结构化错误，不新增UOE stub；
+当前HTTP mapper对该错误仍映射500，不能宣称4xx已验收。明确拒绝不等于完成标签能力。后续必须统一
+tenant-scoped持久标签和实际Security policy authority，原子派生或durable outbox/
+reconcile，验证重复SET、UNSET、跨Coordinator、重启及存储失败的fail-closed语义。
+
+质量SQL的三值逻辑也经真实PG复现：四行amount为1/-1/0/NULL时，原
+`NOT(amount > 0)`只计2个失败，遗漏UNKNOWN。原契约明确只有TRUE通过；新计数和
+sample统一使用`IS NOT TRUE`，复用现有Planner统一truth predicate投影，不新增协议。
+复现r1为FAIL（1项，expected3/actual2，36.255秒），日志
+`/tmp/pangrova-production-20261007-quality-null-repro-r1.log`；修后最近r2共18项全部
+通过、0 SKIPPED、1分45秒，日志
+`/tmp/pangrova-production-20261007-quality-null-tag-nearest-r2.log`。包含真实PG检查1项、
+SQL构造/处理7项、原ALTER9项和结构化列标签拒绝SDK链1项，真实PG同时验证NULL失败
+计数及样本。该PG组件验证不是Native/public quality SQL或生产wiring通过。
+
+SDK正式r2最近编译失败（0行为测试）：重赋的blockSize被lambda捕获，不满足Java的
+effectively-final约束。该日志保留于独立候选目录，不折算行为失败或成功；下一cohort
+只复制已计算值再获取真实流。owned-header方案只延迟实际4字节PAR1/PARE，早期abort
+丢弃尚未交付的自有字节并真实关闭，不能回滚已交付body。原空文件oracle、实际FD零、
+完整官方reactor及最终shaded真实失败矩阵必须同时通过后才可切换生产依赖。
+
+原完整Native ASan r10已结束：4069项，4061 PASS / 8 FAIL / 0 SKIPPED，exit8，
+3497.33秒，未缩减选择。七项分别为Lance filter实际split失败1项、Lance physical
+write4项、result reader1项和NULL-aware mark1项，各报告256字节；另一个timestamp
+precision拒绝在真实compact-unwind展开崩溃。全部记录于
+`/tmp/pangrova-production-20261007-native-asan-full-shutdown-r10.log`，SHA256
+`238da9a9b661f451a0ccd5806d15070fd215862d5d7dd66b5290b1dc02ea2d5c`。
+615项冻结源码的结束后核验仍通过；该失败不被后续nearest覆盖。
+
+Native compact-unwind O1候选只在独立临时源/构建验证，当前共享源码不改、原完整
+ASan失败不覆盖。保留全部instrumentation和异常；三个最终Mach-O都需验证FDE范围，
+单case通过或EH段大小下降不足以计修复闭环，256字节系统TLS报告独立保持FAIL。
+
+### 0.60 2026-10-07 新Release全量通过与实际产物身份
+
+同一615项冻结输入的Release clean-first构建已完成，WERROR开启，exit0；日志
+`/tmp/pangrova-production-20261007-native-release-clean-shutdown-r4.log`。
+最近53项全部通过（0 SKIPPED，13.68秒），随后无过滤完整CTest发现4069项，
+**4069 PASS / 0 FAIL / 0 SKIPPED**，438.78秒、exit0；日志
+`/tmp/pangrova-production-20261007-native-release-full-shutdown-r7.log`，SHA256
+`a805b4fc4c5ba26a481670546ac470559ba374f75151599e9f9da71d12558836`。
+结束后冻结输入核验通过。实际新JNI库SHA256为
+`6738bfbad1bf77a54e4f44e85640bf7d6e7ec13cb03577d343e84984e44f9607`。
+22项JNI符号静态对称检查通过，但不能替代真实JNI调用。
+
+实际打包路径发现架构别名漂移：三个Maven raw-copy execution将CMake输出复制到
+`osx/aarch_64`，而loader读取canonical `osx/aarch64`；旧canonical库可能被选中。
+删除独立raw-copy，统一由既有`package-native-lib.sh`产生canonical资源，再由Maven
+正常复制。Loader对所有同名classpath库与实际已提取字节作流式SHA256检查，冲突
+在`System.load`前拒绝，字节相同的重复资源允许。最近3项真实URLClassLoader/文件
+提取组件测试通过（0 SKIPPED，29.010秒），日志
+`/tmp/pangrova-production-20261007-native-resource-identity-nearest-r1.log`；它们不执行
+JNI。新Release资源已为**独立macOS功能诊断**打包，源库和资源SHA相同，日志
+`/tmp/pangrova-production-20261007-native-mac-functional-package-r8.log`。
+原ASan完整FAIL仍阻止正式Step0–8发布验收；此次Mac打包不计正式生产Step4通过。
+
+扩大Governance r3行为测试**124 PASS / 0 FAIL / 0 SKIPPED**，Checkstyle零违规；
+同一verify命令在Gov SpotBugs阶段以7项告警失败，整体为FAIL，10分33秒。日志
+`/tmp/pangrova-production-20261007-governance-full-static-r3.log`。告警涉及Context暴露
+可变标签service/具体policy、Deps的policy引用以及三个store借用引用；没有扩大
+exclude或把未接通的生产质量/标签链路算作通过。仅匹配bare-stub的静态脚本通过
+也不能证明`DefaultQualityRuleExecutor`实际执行质量SQL。
+
+正式Parquet候选r4完整16-module clean install结束：2445项中**2414 PASS /
+31 SKIPPED / 0 FAIL**（Surefire 2397 PASS、31 SKIPPED，Failsafe17 PASS），13分38秒；
+独立候选`/tmp/pangrova-sdk-release-candidate.OC3Ids/logs/parquet-full-cohort-r4.log`，
+SHA256 `2a2b2ad1bf3e9621447176500842659b895bd0d1f38ca4b0347d14db007b8e06`。
+默认Hadoop桥接所跳过24项随后使用最终shaded候选JAR和真实Hadoop3.4.3运行，
+24 PASS、零ignore/assumption；余7项上游disabled/unsupported仍为SKIPPED。
+最近候选62项和public writer/reader实际6项通过，后者验证PAR1/PARE早期abort文件空、
+FD归零、零行footer读回和重复关闭；不是数据库E2E。SDK尚未切换生产依赖，正式
+Iceberg构造/失败矩阵及完整acceptance未结束，不计SDK修复全闭环。
+
+隔离O1候选JNI实际EH段仍为23,686,716字节，严格直接association审计中89,192项未
+命中覆盖该函数的FDE；这不是89,192个实际崩溃证明。官方lld可用较早的CFI起点
+作为合法搜索hint，错误PC范围计数还需区分此语义与真实截断/非CFI起址。O1没有
+满足实际元数据及异常闭包门禁，不接受为修复，不应用共享flags。
+原256字节报告已追到实际dyld pthread key258长期owner和LLVM17 Darwin-arm64空TLS
+扫描范围；拟议runtime补丁尚未构建/验收，不能通过新suppressions消除报告。
+
+### 0.61 2026-10-07 JNI实际加载与bundle安装修复
+
+新canonical Release库的真实loader最近r2通过：4 PASS / 0 SKIPPED，39.100秒，
+包括真实`System.load`1项和资源身份组件3项；日志
+`/tmp/pangrova-production-20261007-native-resource-loader-nearest-r2.log`。
+尚不是整个JNI执行/公开SQL/独立分布式验收。
+
+标准classifier install r9实际FAIL：module按jar packaging只生成attachment、没有主JAR，
+Maven install拒绝。改为packaging-only POM并显式绑定classifier jar goal后，r10 Maven
+exit0但实际产物没有Native entry；该结果为**打包内容FAIL**，不是PASS。POM生命周期
+没有默认resources绑定，已显式在classifier profile绑定resources→jar，保持唯一
+canonical资源路径。r10原空产物保留于
+`/tmp/pangrova-native-bundle-empty-r10.FQ2CnM/empty-classifier.jar`，SHA256
+`46007f0e3fcce9ea02af7f603d932959455180f9458eafa0e08198efb2ebd9df`。
+修后r11标准clean install及实际JAR内容检查通过，canonical entry为321,848,949字节，
+提取SHA与Release `6738bfbad1bf77a54e4f44e85640bf7d6e7ec13cb03577d343e84984e44f9607`
+一致；日志`/tmp/pangrova-production-20261007-native-mac-functional-bundle-green-r11.log`。
+该Mac诊断产物不消除原ASan FAIL，也不代替Linux发布artifact gate。
+
+重新clean install全部38个Java reactor projects（bundle已独立标准安装）通过，
+`native-runtime`使用新classifier，1分32秒、exit0；日志
+`/tmp/pangrova-production-20261007-mac-functional-java-clean-install-r12.log`。
+该命令`-DskipTests`只证明干净编译/打包/安装，不是全量测试；存在shade资源/模块
+元数据重叠及空smoke JAR告警，未声称Java零warning或全部生产验收通过。
+
+列标签结构化拒绝另有HTTP分类缺陷：已有domain code未被mapper识别，返回500。
+红测r1实际6项中5 PASS / 1 FAIL，expected400/actual500；只为既有
+`PARSER_UNSUPPORTED_FEATURE`添加400映射，保留domain code和所有存储内部失败500。
+绿测r2共7 PASS / 0 SKIPPED，1分55秒，含真实PG/Paimon列标签拒绝链1项与mapper6项。
+日志`/tmp/pangrova-production-20261007-unsupported-sql-http-{red-r1,green-r2}.log`。
+这是mapper及DDL SDK组件证明；异步SQL提交/最终FAILED仍需public入口复证，不把
+此7项算作公共SQL HTTP全链路通过。
+
+### 0.62 2026-10-07 Worker JNI扩展回归与独立进程缩比验收
+
+Worker JNI/write最近r13真实FAIL：336项，318 PASS / 10 FAIL / 8 ERROR /
+0 SKIPPED；日志`/tmp/pangrova-production-20261007-mac-functional-worker-jni-r13.log`。
+8 ERROR的夹具验证schema只有`id`，而descriptor/实际batch是`id,name`，被现有生产
+列数校验正确拒绝。10 FAIL的旧oracle假定abort/close失败立即移除owner，并假定
+close失败平铺在主异常上；实际Session按abort→close组合异常，并保留未完成阶段的
+所有权。修正真实两列夹具和清理断言，没有移除或弱化生产校验。
+
+新增四个direct/heap与abort/close阶段组合验证，确认已成功阶段不重复，失败阶段在
+清除注入故障后重试，owner仅在实际清理完成后释放，并且失败批次不能提交。原10项
+同时验证嵌套异常、失败期间owner保留、后续append拒绝及重试无commit metadata。
+r14共340 PASS / 0 FAIL / 0 ERROR / 0 SKIPPED，37.724秒；日志
+`/tmp/pangrova-production-20261007-mac-functional-worker-jni-green-r14.log`。
+包含真实Native loader/capability，但write adapter组件测试不是公共SQL分布式E2E。
+
+按照用户要求在本机缩比，新增独立production Main进程测试：Coordinator与两个Native
+Worker各自JVM，真实PG/LDAP、严格mTLS、同一Release Native哈希、运行JAR冻结manifest，
+三表24个真实写文件，跨Worker JOIN/GROUP/全局Top-K结果、canonical terminal/drain
+receipt、Worker排空退出及同ID新PID重入。真实IP SAN签发最近测试1 PASS / 0 SKIPPED；
+日志`/tmp/pangrova-production-20261007-local-process-ip-san-r1.log`。冻结运行包370 JAR，
+manifest SHA256 `a75c536063744ecf6666737775ff2562004549b240c547f337fa42d905365bd5`。
+首轮独立进程E2E正在执行，尚无PASS结论；生产CI image provenance/staging接线仍待
+闭合，不能用Mac host-local缩比替代Linux镜像验收、故障覆盖和生产规模SLO。
+
+隔离Iceberg SDK原九模块完整r1已关闭FAIL：行为9580项中9019 PASS / 561上游
+SKIPPED / 0行为FAIL，但原Checkstyle发现close复杂度及Set构造违规。保留原日志/XML，
+隔离修复仅分解同顺序私有清理阶段及原规范要求的Set factory；后续最近静态与行为、
+完整构建/API兼容/正式写入故障验收仍未全部完成。SDK未接入生产依赖，不标已验收。
+
+### 0.63 2026-10-07 实际生产classpath启动失败与精确依赖修复
+
+独立进程首轮r1为testCompile FAIL / 0 tests：夹具`java`字段遮蔽包名，已改为
+`javaExecutable`。r2为1 ERROR / 0 SKIPPED：真实Coordinator进程退出，运行包无SLF4J2
+provider，startup错误因NOP logging无堆栈。Worker/Coordinator日志实现原只在test
+scope；三个进程装配模块现显式声明runtime/optional日志实现，避免传递到API消费者。
+最近重新安装32模块通过（skipTests）；不标行为通过。
+
+日志恢复后的r3仍为1 ERROR / 0 SKIPPED，29.795秒，给出真实根因：HTTP/Jersey4
+AnnotationAcceptingListener初始化使用ASM API589824，生产classpath先加载Hadoop
+传递的Jersey1 ClassVisitor（仅接受262144/327680），实际抛IllegalArgumentException。
+真实JAR枚举、javap和dependency:tree互相吻合；不是HTTP随机启动超时。日志
+`/tmp/pangrova-production-20261007-independent-local-process-e2e-r{1,2,3}.log`及
+`/tmp/pangrova-production-20261007-production-classpath-conflict-tree-r1.log`保留。
+
+在managed Hadoop common/MR client依赖边界精确排除旧server/servlet和SLF4J1绑定；
+未用classpath排序、fixture删除或整个javax.ws.rs namespace排除。真实jdeps证明
+WebHdfsFileSystem等使用MediaType/HttpHeaders/Response，故保留其API依赖。新38模块
+install通过，1分18秒（skipTests）；日志
+`/tmp/pangrova-production-20261007-production-classpath-install-r2.log`。新冻结manifest
+SHA256 `db92949a5b78ff0820e2c76af45692d32a1b8bb1324c69d257e6b9d9be35a9be`，只含
+Jersey4 server而仍有JSR311。真实双Worker r4正在验证，尚未声明E2E通过。
+
+CI装配/验收接线已应用：Docker producer按实际Maven build.finalName选取principal
+JAR，依赖全量复制、不在fixture过滤；完整image lib/native/manifest提取核对不可变
+image ID、源码revision和所有哈希；两处full-regression Maven均传入严格artifact
+inputs。LocalRuntimeArtifacts集中拥有此验证职责，Mac继续核对真实Release cache。
+Shell语法/YAML解析/diff whitespace PASS；Linux镜像构建/full job仍NOT RUN，不算通过。
+
+隔离compiler-rt17 TLS扫描修复的默认正/负对照已PASS：真实main/worker TLS边界、
+唯一runtime实际加载、TSD sole-owner317保留与clear/delete精确317漏报对照、419真实
+lost allocation、真实UAF/OOB负对照、1/32/4096错误复制/抛出/exception_ptr释放、329
+exports与完整runtime metadata。receipt
+`/tmp/pangrova-compiler-rt17-tls.I8yt9I/isolated-runtime-controls-receipt.md` SHA256
+`921982ab3a27b083537eab6ff47e16898305a37464f4244ae6749a076af4cd0d`。仅为
+PASS_ISOLATED_CONTROLS；原ASan full FAIL、Native大型Mach-O unwind缺陷仍开放，没有
+安装/替换共享runtime、运行完整Native候选或将原八项失败改写通过。
+
+### 0.64 2026-10-07 Coordinator进程所有权与真实启动次序复证
+
+独立进程r4 CLOSED FAIL，1 ERROR / 0 SKIPPED，41.837秒：Jersey修复后真实HTTP
+已启动，Main随即正常返回；所有剩余线程为daemon，JVM立刻执行shutdown hook。
+根因不是启动异常或超时。生产入口现在由Main持有可中断的生命周期等待，只有实际
+依赖清理成功返回才解除；预启动close及失败清理均不解除。未修改Jetty daemon属性。
+最近CoordinatorLifecycleAdmissionTest 5 PASS / 0 SKIPPED，57.371秒；随后实际
+Coordinator install PASS，23.982秒（skipTests，不标为行为验收）。日志分别为
+`/tmp/pangrova-production-20261007-coordinator-process-wait-nearest-r1.log`、
+`/tmp/pangrova-production-20261007-coordinator-process-wait-install-r1.log`。
+
+重新冻结运行产物manifest SHA256
+`6d0657182ec018595227fe97b8d4f8a6f8b62c3eb381815bca039319c57685b3`，Native仍为
+`6738bfbad1bf77a54e4f44e85640bf7d6e7ec13cb03577d343e84984e44f9607`。
+r5 CLOSED FAIL：8项中5 PASS / 2 FAIL / 1 ERROR / 0 SKIPPED，2分35秒。
+真实Coordinator保持运行并返回健康JSON；夹具错误地在Worker/catalog创建前等待
+集群ready，按设计必然503。另两项是新增组件测试未规范化macOS TempDir路径，
+实际toRealPath为/private/var而预期为/var。夹具分开核验控制面http/transport就绪
+和完成注册/catalog后的集群200；组件fixture按真实路径比较，不降低生产就绪要求。
+
+r6 CLOSED FAIL：9项中8组件PASS / 1 E2E ERROR / 0 SKIPPED，48.429秒。
+真实独立Worker完成Native加载、mTLS服务、canonical capability注册和健康200；
+SELECT 42早于首个周期资源heartbeat，Coordinator注册记录的availableMemory=0，
+调度器正确fail-closed。新夹具只观察真实资源heartbeat及Coordinator 200 ACK后
+继续，不设置假容量、不提前宣称可调度、不重试失败SQL。r7仍在执行，未标E2E通过。
+日志`/tmp/pangrova-production-20261007-independent-local-process-e2e-r{4,5,6,7}.log`。
+
+LocalRuntimeArtifacts已按同类职责分开清单、canonical条目、本地Release cache、
+image owner/receipt/Docker identity验证；无新增转发层或执行路径。新增组件覆盖
+真实ZIP/SHA清单及必填输入/字节变更/过期JNI/tests JAR/非Release/不完整image
+provenance拒绝，并明确拒绝ReleaseWithDebInfo子串。8项组件PASS不代表JNI或Docker
+镜像E2E；全量Java静态、Linux镜像、原ASan八项失败及全部AI能力验收仍开放。
+
+### 0.65 2026-10-07 控制结果游标、真实TCP背压与安全关闭复证
+
+独立进程r7 CLOSED FAIL：9项中8组件PASS / 1 E2E ERROR / 0 SKIPPED，1分47秒。
+真实CLI SELECT 42成功，CREATE CATALOG结果无限重放，客户端ByteArrayOutputStream
+触发实际Java heap OOM；原生产CoordinatorDataProducer重复读取保留buffer而没有
+请求游标/EOF。原组件夹具用全局consumed集合掩盖该生产缺陷。SPI现在统一使用
+DataProducer.openStream创建请求级DataStream；保留响应每请求读取一次后EOF，独立
+请求可以重新读取，不删除共享结果或添加兼容轮询路径。夹具改用真实生产producer。
+新增实际TCP覆盖普通确认和空DDL结果，两次独立请求均要求实际EOF。最近专项
+Worker18 + Coordinator10 PASS / 0 SKIPPED；39-reactor install PASS，66秒，
+skipTests只计编译/安装。日志`/tmp/pangrova-production-20261007-control-result-cursor-{nearest-r1,full-install-r2}.log`。
+
+r8运行产物manifest SHA256
+`76103f5ebba04dfabe5509ea6e204d8fbb1a508b1e97fc0b108c156362103c9f`，Native仍为
+`6738bfbad1bf77a54e4f44e85640bf7d6e7ec13cb03577d343e84984e44f9607`。
+r8 CLOSED FAIL：10项中9组件PASS / 1 E2E ERROR / 0 SKIPPED，1分59秒。实际
+CREATE CATALOG及三个CREATE TABLE完成；首个INSERT已执行但其确认结果使用
+Coordinator明文端点，被严格TLS客户端正确拒绝。退出再暴露Worker先deregister
+后发送owner释放回执，实际报告被409 worker_not_registered拒绝，Coordinator
+缺失精确drain回执并被夹具SIGKILL；保留该真实退出失败。日志
+`/tmp/pangrova-production-20261007-independent-local-process-e2e-r8.log`。
+
+控制面确认服务现在消费同一已验证TLS材料并声明GRPC_TLS，实际SDK开启mTLS
+client verification，保留显式未配置TLS时的GRPC行为。新增真实TCP：有效双向
+证书确认+EOF、无客户端证书拒绝、显式plaintext，共3 PASS / 0 SKIPPED。
+关闭顺序改为：停止新HTTP输入/CDC、任务drain与close并取得终态ACK、停止并join
+heartbeat、要求typed deregistered ACK、关闭注册client及依赖资源。错误成功body、
+未确认注销和中断均不算ACK。实际HTTP/本地owner边界新增3项；最近Worker14及
+Coordinator5 PASS / 0 SKIPPED，未将组件结果计为双Worker E2E通过。日志
+`/tmp/pangrova-production-20261007-control-tls-shutdown-nearest-r1.log`、
+`/tmp/pangrova-production-20261007-shutdown-ack-nearest-r2.log`。
+
+真实TCP31连接barrier在原单池转发中确定性FAIL（accept+31 forward占满32线程，
+reverse全部排队）；显式31连接上限与独立有界reverse池修复后最近1 PASS，
+关闭要求双池/socket/permit实际结束，非静默drop或无界线程。另针对真实传输
+建立5项故障回归：r1 3 PASS / 2 FAIL，producer异常被Future隐藏及SDK丢弃
+错误描述；r2相同失败保留。生产改为AbortPolicy禁止CallerRuns进入满队列死锁，
+消费方观察完成Future并传递原异常，NULL超时/中断不发送EOF，保留SDK错误状态。
+r3原专项18 + 新5 = 23 PASS / 0 SKIPPED，28.047秒。日志
+`/tmp/pangrova-production-20261007-stream-failure-{red-r1,green-r2,green-r3}.log`。
+
+追加配置核查：生产Main此前只消费TLS材料，确认服务的发布地址/port/allocator
+仍硬编码为默认值；这使匹配真实LAN IP SAN的证书被错误localhost端点使用。
+新增统一typed keys `coordinator.transport.{advertised-host,port,allocator-limit-bytes}`
+并消费到同一TransportConfig，拒绝wildcard地址、非法端口及非正预算。48项最近
+配置/wiring/属性/TCP测试PASS / 0 SKIPPED，47.695秒，日志
+`/tmp/pangrova-production-20261007-control-transport-config-nearest-r1.log`。
+夹具显式发布实际LAN地址并缩小确认allocator至16MiB，没有放宽证书验证。
+上一39-reactor编译安装r3 PASS，1分23秒；新配置r4实际重新安装PASS，1分07秒。
+SPI142类型注解gate及E2E真实性gate PASS。r6冻结运行manifest SHA256
+`335f8fba5da92cee1f48ced2135e56d9bdefbe878499843a4efc1c1f692569ec`。
+独立进程r9 CLOSED FAIL，10项9组件PASS / 1 E2E ERROR / 0 SKIPPED，1分04秒。
+控制确认端点真实GRPC_TLS/实际LAN地址已生效，但夹具复用只有DNS localhost SAN的
+CLI client证书作为Coordinator服务端证书，实际IP hostname验证正确拒绝；不是
+生产TLS验证失效。夹具现在为Coordinator另发独立IP SAN身份，不改CLI client
+权限或验证规则。该r9未再出现SIGKILL关闭错误。r10 CLOSED FAIL，10项9组件PASS /
+1 E2E ERROR / 0 SKIPPED，1分18秒，日志
+`/tmp/pangrova-production-20261007-independent-local-process-e2e-r10.log`。
+严格TLS及前三次真实INSERT已成功，随后tenant concurrency 2 >= 2拒绝。
+真实日志证明初次SELECT Native owner直到shutdown才释放；第三次INSERT已实际
+释放Native但Coordinator dispatch/report publication operation退出后的cleanup仅
+入队，未及时重试。Worker consumed-result检查被错误绑定一分钟历史扫描，
+Coordinator重试也被绑定历史扫描。不得通过加大配额、等待TTL、重试被拒SQL或
+放宽排空证据掩盖问题。
+
+新增两项实际timer组件回归先RED：Worker一项FAIL（2秒内没有消费检查），
+Coordinator五项中一项FAIL（小时retention sweep前没有物理完成重试）。修复将
+物理检查与历史扫描分离：Worker每100ms最多64个既有registry entries，公平
+延续iterator而非每次全扫/每任务timer/另一owner队列；Coordinator每100ms向既有
+bounded cleanup executor提交单个重试，保留每轮4次上限及原指数退避。Native
+实际drain、身份、结果有效期、tenant配额、retention均未放宽。首次最近21项
+PASS / 0 SKIPPED，21.109秒，日志
+`/tmp/pangrova-production-20261007-terminal-retry-green-r1.log`；新增公平/失败保留
+回归已复验：22项PASS / 0 SKIPPED，22.059秒，日志
+`/tmp/pangrova-production-20261007-terminal-retry-green-r2.log`。全39模块安装r5
+PASS / skipTests，1分06秒；不据此标E2E PASS。
+
+control-path static r1 CLOSED FAIL：Worker Checkstyle 177项失败，Coordinator未执行；
+日志`/tmp/pangrova-production-20261007-control-path-static-r1.log`。Config检查已完成，
+不将静态门禁失败或下游SKIPPED记为PASS。
+
+当前等比例验收只降低数据/预算，未缩减真实进程、网络、JNI、身份及owner协议。
+最新全仓安装后仍须重新冻结产物、复跑双Worker/重启；全Java/static、完整AI E2E、
+Smoke、ASan及大规模SLO不能由以上组件PASS代替。
+
+### 0.66 2026-10-07 隔离SDK候选冻结与LLD候选拒绝
+
+SDK候选SOURCE_READY，NOT PRODUCTION_ACCEPTED；未切换生产POM/global m2。
+独占完整证据`/tmp/pangrova-sdk-release-candidate.OC3Ids/cohort-provenance.md` SHA256
+`219fea4a93a3690f1275c3eac8ac3843169919cb7b8de6c4068460c6ef4e5ed5`。
+Parquet完整2445=2414 PASS / 31上游SKIPPED，随后Hadoop3.4.3原24 bridge实际
+PASS；Iceberg选定9模块10339=9764 PASS / 575上游SKIPPED，其中9019行为PASS
+为r2真实执行后同输入Gradle恢复，745为r3新执行。精确官方1.11六模块原ABI
+分析实际执行PASS，最终169-JAR shaded runtime实际18故障PASS / 0 SKIPPED。
+source/Javadoc正常生成及SBOM完成，16主JAR/31分类包/17POM材料完整锁定。
+702 Fastutil重名class与官方原集合一致，但30 split packages/无显式AMN、
+distribution NOTICE/service review、下层构造/OOM/release和failed-close边界、
+生产集成及公共SQL故障E2E仍开放，不能将upstream条件skip写成PASS。
+
+隔离LLD17实际三目标链接均exit0/零warning，1361输入及6994基线前后完全一致，
+但候选正式REJECTED，未执行Native或替换共享runtime。完整报告
+`/tmp/pangrova-lld-cohort-preparing.3OVSaf/actual-link-and-rejection-receipt.md` SHA256
+`d901617a1116a72b63120383de64fe2807417d446851aa9aa4606dd849492b82`。
+真实Rust匿名compact-only汇编helper被旧LLD跳过，没有覆盖FDE；官方当前源码
+的匿名CUE owner机制可作下一候选的精确backport依据。另COMMON转Defined晚于
+显式exports过滤，使JNI/tests额外导出三个OpenSSL符号，必须独立修复该顺序/策略。
+不得通过接受额外exports、删除compact unwind、后处理metadata、合并runtime或
+放宽审计取得绿灯。原ASan完整八项FAIL及此次静态metadata/ABI FAIL全部保留。
+
+### 0.67 2026-10-07 真实HTTP来源、控制流限流与请求体边界
+
+r7冻结manifest SHA256 `404294433ac0ea7bced8a7c9d0493af3e0f2fea6f432b01d5abc3f21828cf96d`。
+独立进程r11 CLOSED FAIL，10项9组件PASS / 1 E2E ERROR / 0 SKIPPED，1分42秒，
+日志`/tmp/pangrova-production-20261007-independent-local-process-e2e-r11.log`。
+实际Coordinator-terminal-cleanup线程已在初次SELECT后释放执行anchor，后续
+20余次写入继续成功，没有重现tenant concurrency 2 >= 2。新失败是HTTP入口
+100/min限流，将所有无X-Forwarded-For的请求归入unknown桶；还盲目信任客户端
+头部，因此伪造头可绕过限流。真实Worker deregister也被429拒绝，而不是ACK。
+
+完整调用链：Jetty servlet peer → JAX-RS filters → AuthenticationFilter /
+RequestLimitFilter → WorkerResource / TaskStatusResource。原peer完全未消费，
+内部control与public API共桶且filter顺序未明确。新增pre-matching peer采集，
+先认证再按服务器产生的typed internal身份隔离public budget；仍校验internal
+route、secret、body size与控制端精确authority。移除没有caller、从未消费的
+trustedProxyCount构造设计；不通过加大HTTP额度、伪造XFF或忽略deregister解决。
+目前无trusted-proxy whitelist策略，代理后的真实peer预算/大规模控制吞吐仍
+需要独立设计与验收，不能声明现有修改已覆盖全部生产拓扑。
+
+真实TCP red-r2四项3 FAIL / 1 PASS / 0 SKIPPED：伪造IP得到200而非429、
+control被public额度饿死429、认证得到头部IP而非真实127.0.0.1。
+`/tmp/pangrova-production-20261007-http-control-limit-red-r2.log`；初次red-r1是
+测试UserIdentity构造签名编译错误，保留而不算行为红灯。green-r1最近36项
+PASS / 0 SKIPPED，16.124秒，`/tmp/pangrova-production-20261007-http-control-limit-green-r1.log`。
+
+新实际TCP请求体边界再RED：恰好128B被错误500拒绝；chunked 129B原500而非
+413，六项中2 FAIL / 4 PASS / 0 SKIPPED，日志
+`/tmp/pangrova-production-20261007-http-body-boundary-red-r3.log`。原stream在
+达到max时未检测真实EOF；读取超限IOException又被误当服务端错误。现在只
+探测实际额外字节、保留overflow失败状态、正确处理零长度读取，超限产生
+明确413，统一mapper保留Web错误状态/Retry-After并禁止异常产生200。新的
+实际TCP/stream/认证/typed identity/mapper最近47项PASS / 0 SKIPPED，18.779秒，
+日志`/tmp/pangrova-production-20261007-http-body-boundary-green-r2.log`。
+中间body red-r2测试错误引用private nested ObjectMapperResolver导致编译FAIL，
+修正后才取得上述真实行为红灯；不隐藏该失败。
+全仓39模块`mvn -B -Pnative-runtime -DskipTests install` r6 PASS，53.756秒，
+日志`/tmp/pangrova-production-20261007-http-control-full-install-r6.log`；仅是编译/
+打包/安装，不是行为验收。r8冻结完整生产runtime manifest SHA256
+`935fee3f4e4cdf92d2784e8b847e834ef70fef1c4005c64411bde9b397415d81`，Native仍是
+`6738bfbad1bf77a54e4f44e85640bf7d6e7ec13cb03577d343e84984e44f9607`。
+
+### 0.68 2026-10-07 双Worker公共入口复证与物理Join校验修复
+
+r12 CLOSED FAIL，10项9组件PASS / 1 E2E ERROR / 0 SKIPPED，总2分01秒；
+日志`/tmp/pangrova-production-20261007-independent-local-process-e2e-r12.log`。
+24次真实Native写入全部完成，第二独立Worker进程启动并注册；未再出现前轮
+unknown-IP限流或tenant concurrency配额失败。三表JOIN/聚合/Top-K在Stage 2
+序列化前被`SubstraitPlanValidator`拒绝：`StandardsCompliantMergeJoin`。
+因此不能计跨Worker结果、drain、重启通过。失败诊断保留于
+`/var/folders/kl/t8p9lh1d0ql0_gw1kv3qlkc80000gn/T/pangrova-local-process-16009131805053430197`。
+
+调用链：public CLI → HTTP submit → SqlCompiler / CBO physical join → fragment
+serialization → SubstraitPlanValidator → NativeCapabilityRegistry。
+根因是校验器按Java具体类simple name匹配，遗漏标准MergeJoin与NestedLoopJoin，
+而默认registry也没有这两项；Native实际inventory和converter均已有标准支持
+（`NativeCapabilityInventory.cpp`、`SubstraitPhysicalJoinConversion.cpp`、
+`SubstraitLogicalJoinConversion.cpp`）。修复按SDK物理Join类型契约匹配，保持
+统一Substrait/v2，不改proto、不绕过capability；同步校验MergeJoin的keys/
+post-filter、NestedLoopJoin的condition，未知能力/函数仍拒绝。
+
+最近真实converter→validator RED 33项15 FAIL / 18 PASS / 0 SKIPPED，6.497秒；
+`/tmp/pangrova-production-20261007-physical-join-validation-red-r1.log`。
+GREEN最近6类65项PASS / 0 SKIPPED，12.389秒，含参数化Join types、非对称
+schema、撤销MergeJoin capability、join-depth key校验与条件函数fail-closed；
+`/tmp/pangrova-production-20261007-physical-join-validation-green-r1.log`。
+独立进程验收须用新冻结产物再跑，不能将该组件通过升级成E2E通过。
+
+r12清理阶段另见真实Coordinator共享scheduler未终止：控制ack缓冲区的5分钟
+TTL任务没有撤销，`ExecutorDrain.shutdownAndAwait`真实5秒等待失败。
+最近buffer RED 14项3 FAIL / 11 PASS / 0 SKIPPED，16.326秒，
+`/tmp/pangrova-production-20261007-control-buffer-lifecycle-red-r1.log`：close后
+定时任务保留；调度拒绝后entry/bytes未回滚；quota拒绝静默返回。
+修复为buffer拥有各entry的expiration，物理query/publication drain后封写并
+撤销timer、真实join scheduler，结果transport退出后才释放保留的ack字节；
+插入/限额/关闭/删除用本地内存临界区串行，调度拒绝回滚，quota失败阻止
+FINISHED，expiration按entry identity避免旧回调误删新结果。不得通过
+shutdownNow丢弃未知cleanup或增加drain timeout。首次green-r1编译FAIL是残留
+日志变量projectedTotal，修正后继续最近测试；完整关闭仍待真实进程复证。
+
+join/buffer扩围最近r3为Planner66项 + Coordinator34项，共100 PASS / 0 SKIPPED，
+22.345秒；`/tmp/pangrova-production-20261007-join-buffer-nearest-green-r3.log`。
+补充Join residual函数拒绝与buffer拒绝不得调用finisher；最新Coordinator
+r4为35 PASS / 0 SKIPPED，21.044秒，含已经进入expiration回调同时seal的
+实际调度器竞态、保留ack直至transport关闭、三个真实TCP/TLS场景中只cancel
+buffer owned timer再graceful shutdown并实际awaitTermination，不用shutdownNow
+制造成功；`/tmp/pangrova-production-20261007-control-buffer-lifecycle-green-r4.log`。
+未变更Native输入，匹配既有Release构建最近`ctest -R
+'MergeJoin|CanonicalJoin|NativeCommandGetCapabilities' -j2 --output-on-failure`
+349 PASS / 0 SKIPPED，33.18秒；
+`/tmp/pangrova-production-20261007-canonical-joins-native-nearest-r1.log`。
+这些仍是最近组件/Native专项证据。全仓39模块安装r7 PASS，56.155秒，
+`/tmp/pangrova-production-20261007-join-buffer-full-install-r7.log`；skipTests只
+证明编译打包。r9生产runtime manifest SHA256
+`f282649818b942890ac7ee861b18e8e37b8da0f602e28ec02e260da8094a6a6b`。
+
+### 0.69 2026-10-08 SDK Join wire 输出与 Native canonical 一致性
+
+r13 CLOSED FAIL，10项9组件PASS / 1 E2E ERROR / 0 SKIPPED，总1分59秒；
+`/tmp/pangrova-production-20261007-independent-local-process-e2e-r13.log`。
+24次Native写入与第二独立Worker注册完成，MergeJoin已通过Planner校验，
+真实Native执行随后拒绝`Deprecated join key lists are not a canonical plan`。
+下游shuffle NOT_FOUND是失败producer尚未提供结果的连带错误，不能以fallback
+掩盖。跨Worker结果、drain和重启仍未通过。Coordinator真实scheduler退出日志
+`executor_actually_terminated`已出现，上一轮owned TTL任务阻塞根因不再复现；
+这不等于所有关闭阶段验收通过。
+
+调用链：public CLI → SqlCompiler → SubstraitConverter →
+SubstraitPlanSerializer → official SDK RelProtoConverter → v2 task →
+Native SubstraitPhysicalJoinConversion::requireCanonicalJoinKeys。
+复核实际SDK 0.95.0 sources，HashJoin/MergeJoin转换在所有keys为EQ时同时
+输出标准ComparisonJoinKey与deprecated左右keys，属于SDK兼容输出。
+Native已有统一canonical检查，修复唯一序列化边界而非放宽Native或新建协议。
+Normalizer递归确认标准keys数量、EQ比较及左右字段逐项完全相同后，移除冗余
+deprecated副本；旧字段独占、数量不等、冲突或有损比较一律拒绝。已canonical
+的其他比较语义保持不变，输入plan不变且归一化幂等。
+
+最近真实converter→production serializer RED 34项18 FAIL / 16 PASS / 0 SKIPPED，
+7.818秒；`/tmp/pangrova-production-20261007-canonical-join-wire-red-r1.log`。
+首次GREEN 68 PASS / 0 SKIPPED，11.858秒；新增递归、旧字段独占、数量、冲突、
+比较语义与幂等边界后，7类82 PASS / 0 SKIPPED，11.127秒；
+`/tmp/pangrova-production-20261008-canonical-join-wire-green-r2.log`。
+这些仍是协议边界组件证据；新的全仓安装、冻结产物与双Worker公共入口复证
+继续执行，不能提前计E2E通过。
+
+全仓39模块r8安装PASS，1分06秒；
+`/tmp/pangrova-production-20261008-canonical-join-wire-full-install-r8.log`。
+冻结r10 manifest SHA256
+`a93205a021ce54bf988056cc8fa4273e369e3499766704d3980bca5715dcfacd`。
+r14公共进程CLOSED FAIL，10项9组件PASS / 1 E2E ERROR / 0 SKIPPED，2分17秒；
+`/tmp/pangrova-production-20261008-independent-local-process-e2e-r14.log`。
+Join wire旧字段错误不再复现，真实shuffle接收端随后拒绝
+`Arrow wire schema differs from its admitted canonical schema`。
+下游producer aborted是连带错误，不是允许部分结果的理由。具体两端schema
+差异尚未取得，不把可能的名称或nullability问题写为已证根因。
+诊断workspace：
+`/var/folders/kl/t8p9lh1d0ql0_gw1kv3qlkc80000gn/T/pangrova-local-process-4430629578030369803`。
+Coordinator真实scheduler终止、drain完成日志均已出现；正常查询drain/Worker重启
+仍因主查询失败而未执行。
+
+Native仅扩充失败诊断以输出expected/actual schema，保持严格Equals与既有
+失败语义。Release / WERROR构建PASS，最近ArrowBatch/CanonicalArrow/
+CanonicalSerde 50 PASS / 0 SKIPPED，13.32秒；重新打包与39模块r9安装PASS，
+1分06秒。日志分别为
+`/tmp/pangrova-production-20261008-arrow-wire-schema-diagnostic-release-r1.log`、
+`/tmp/pangrova-production-20261008-arrow-wire-schema-diagnostic-native-nearest-r1.log`、
+`/tmp/pangrova-production-20261008-arrow-wire-schema-diagnostic-package-r1.log`、
+`/tmp/pangrova-production-20261008-arrow-wire-schema-diagnostic-full-install-r9.log`。
+新Native SHA256
+`fe8677eece5943daa37b72604589a5542aa9546332107333952c4e46a7a52de1`；
+冻结r11 manifest SHA256
+`4f19e3be53a599f26f96a798b40a6b0ade6dd46d21022795b4ae905fdc47f47b`。
+r15 CLOSED FAIL，9组件PASS / 1 E2E setup ERROR / 0 SKIPPED，18.541秒：
+实际产物guard发现native classifier仍包含旧库，业务进程未启动；
+`/tmp/pangrova-production-20261008-independent-local-process-e2e-r15.log`。
+普通install没有激活显式classifier包装profile。随后按实际平台显式包装并核对
+classifier和Worker JAR中的Native SHA均为上述新值；包装10.044秒PASS，
+`/tmp/pangrova-production-20261008-arrow-wire-schema-diagnostic-classifier-r1.log`。
+发行装配的多模块dependency复制还会
+合并同一库多个版本（例如Snappy、ZooKeeper、Commons），单图依赖解析与
+实际package/classpath收敛仍是待修门禁，不以当前classpath顺序当兼容证明。
+
+### 0.70 2026-10-08 普通查询绑定实际上游 canonical schema
+
+r16 CLOSED FAIL，9组件PASS / 1 E2E ERROR / 0 SKIPPED，2分18秒；
+`/tmp/pangrova-production-20261008-independent-local-process-e2e-r16.log`。
+匹配Native的新诊断确认两端物理类型相同，但消费端第4列要求`id0`、生产端为`id`。
+真实五列schema分别为`id, score, label, id0, region`与
+`id, score, label, id, region`，不是nullability或其他猜测。
+
+根因链：QuerySchedulingEngine.dispatchByTopology → StageDAG.fromFragmentedPlan →
+DAGExecutionState.serializePlan → 单独PlanFragment序列化 → Calcite展示名称被写入
+ExchangeInputDetail.output_schema；生产端CanonicalRelationSchema保持实际Join输入
+的同名字段。已有AuthorizedStageExchangeBindings只接通durable/export整图路径，
+普通查询未使用，故组件整图通过不能证明生产普通查询接通。
+
+修复共用同一个Planner canonical绑定算法。普通DAG在上游完成所有生成值、检索和
+模型operator绑定后，保存实际准备下发的不可变plan bytes；下游在序列化自身实际
+自适应计划时，从该上游schema绑定输入。缺上游、输入身份、类型或distribution
+不符均拒绝；展示结果名称不改，Native严格校验不放宽，Coordinator不处理数据。
+持久化replay仍只校验冻结契约，不重新编译或修复。
+
+组件RED r2：真实SQL→普通DAG序列化3项全部FAIL / 0 SKIPPED，14.202秒；
+`/tmp/pangrova-production-20261008-live-exchange-binding-red-r2.log`。
+GREEN r1：Planner6项和Coordinator5项全部PASS / 0 SKIPPED，36.407秒；
+`/tmp/pangrova-production-20261008-live-exchange-binding-green-r1.log`。
+覆盖computed、aggregate、同名Join及已有durable graph/replay；不是Native值/网络证据。
+全仓39模块r10 install PASS，54.383秒（skipTests，仅编译安装）；
+`/tmp/pangrova-production-20261008-live-exchange-binding-full-install-r10.log`。
+冻结r13 manifest SHA256
+`4bd0fa943265390b9ee919b354359d1d35d1416ac4a222d606ff8c188d1d7929`，
+classifier与Worker内Native SHA仍为`fe8677eece5943daa37b72604589a5542aa9546332107333952c4e46a7a52de1`。
+独立双Worker公共链r17 CLOSED PASS，10项 / 0 FAIL / 0 ERROR / 0 SKIPPED，
+2分23秒；`/tmp/pangrova-production-20261008-independent-local-process-e2e-r17.log`。
+其中1项真实进程E2E（134.2秒），9项是独立组件，不混计。
+完成24次真实Native写入、两个独立Worker跨进程JOIN/GROUP/全局Top-K两轮
+精确79..70结果；两Worker多stage真实FINISHED与NATIVE_OWNER_RELEASED及200回执；
+第一Worker真实SIGTERM/drain/deregistration、第二Worker独立SELECT42、相同ID
+新PID/epoch重启后再次查询，以及persisted tenant reservation归零。
+SDK补丁、ASan、全量Java/AI E2E与生产大规模性能仍有未完成门禁，不能因此
+宣称所有功能或整体验收完成。当前环境仅缩小数据与预算，不以单进程模拟分布式。
+
+### 0.71 2026-10-08 新 Native 全测、全量 Java 回归与新增 SDK 构造期证据
+
+普通live/durable交换、DAG取消/重试/回调、AI/检索binding与属性测试扩大GREEN r2：
+Planner13项 + Coordinator67项 = 80 PASS / 0 SKIPPED，1分13秒；
+`/tmp/pangrova-production-20261008-live-exchange-binding-green-r2.log`。
+新诊断Native库的完整Release CTest：4069 PASS / 0 FAIL / 0 SKIPPED，386.86秒；
+`/tmp/pangrova-production-20261008-release-native-full-r2.log`。
+不是ASan通过，也不替代JNI/公开AI链路的验收。
+
+全量`native-runtime,full-regression,coverage verify` r3 CLOSED FAIL，2分13秒；
+`/tmp/pangrova-production-20261008-java-full-regression-r3.log`。
+已运行2042项，2041 PASS / 1 FAIL / 0 SKIPPED，停在Test Common，后续reactor模块
+未运行（Maven reactor SKIPPED不是测试PASS）。失败是RegressionSelectionTest匹配
+旧`IMAGE=... docker buildx bake`，实际CI已加入`SOURCE_COMMIT`并使用shell续行。
+修正仅规范续行、保留全部原image/full-regression顺序与覆盖门禁，并加强同一build
+命令的source commit、实际image revision和staging commit断言，没有削弱测试。
+第一次修正漏算续行前空格，green-r1仍FAIL并保留；green-r2实际7 PASS / 0 SKIPPED，
+4.382秒；`/tmp/pangrova-production-20261008-ci-selection-source-provenance-green-r2.log`。
+完整r4已重新执行，提供冻结r13给独立进程测试，未完成前不计全量通过。
+
+SDK补丁仍不接入生产。Root新增只读169个冻结candidate JAR的公共SDK构造期oracle，
+独立子JVM限制64 MiB，真实ExampleParquetWriter builder使用合法正数1 GiB page size。
+实际失败位置：ByteArrayOutputStream.<init> → CodecFactory$HeapBytesCompressor.<init>
+:222 → getCompressor → ParquetWriter.<init>:398；不是fake allocator或推测OOM。
+`/tmp/pangrova-sdk-constructor-lease-oracle.7tq6Fmpn/candidate-red-r3.log` CLOSED FAIL：
+CodecPool lease 0→1、失败文件存在、lsof真实FD=1；随后普通8行完整write/read成功，
+lease仍为1。成功恢复不能折算为失败owner释放。当前candidate的公共Writer在取得
+compressor之前已start输出，且构造失败没有返回可关闭owner；HeapBytesCompressor
+先借lease再分配buffer，也丢失该lease。这是两个实际根因，不能仅移动一行后
+宣称所有构造/登记失败闭合。r1过早文件断言、r2 oracle int/long类型错误均保留，
+r3已修正oracle类型并成功真实读回；未把前两次结果计PASS。
+candidate169-JAR原manifest SHA
+`ad7b8c0c8970e4378338deec96e1af925ded29c06db10d90c498752dba543fd8`
+复核通过；程序不写SDK、生产依赖或冻结产物。下一候选必须独立可追溯版本、
+完整原上游与Pangrova链路验收后才可采用。
+
+LLVM17独立policy-compatible配置Stage S为configure-only PASS，零surfaced告警、
+34个真实cache probes保持一致（6个FALSE不覆盖），source/tool后哈希不变。
+Root已编译真实official gtest支持target，3对象/2 archive exit0零告警；artifact闭包
+复核中。TableGen、Stage L AsLib、实际候选链接及完整Native ASan尚未执行，
+不得从配置/支持库构建通过推断其已修复。
 
 ## 1. 2026-08-28 历史审计结论
 

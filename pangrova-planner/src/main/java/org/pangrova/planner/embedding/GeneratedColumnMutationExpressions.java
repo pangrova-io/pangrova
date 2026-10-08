@@ -7,7 +7,7 @@ import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.pangrova.parser.ast.type.DataTypeSpec;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
@@ -70,13 +70,12 @@ final class GeneratedColumnMutationExpressions {
                 || definition.getLogicalModelName().isBlank() || definition.getOptionsCount() != 0) {
             throw invalid("SYNC generated expressions require the canonical text embedding capability/model");
         }
-        var type = DataTypeSpec.fromRawTypeString(definition.getOutputType().getCanonicalSql());
+        int dimension = VectorLogicalType.requireDimension(definition.getOutputType());
         var column = metadata.typedColumns().get(target);
-        if (!(type instanceof DataTypeSpec.VectorType declared)
-                || column.type() != PangrovaType.VECTOR
+        if (column.type() != PangrovaType.VECTOR
                 || !(column.parameterizedType() instanceof VectorType physical)
                 || physical.elementType() != VectorType.ElementType.FLOAT
-                || physical.dimension() != declared.dimension()) {
+                || physical.dimension() != dimension) {
             throw invalid("Generated VECTOR output differs from its compiled storage declaration");
         }
     }

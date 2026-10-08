@@ -40,7 +40,13 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     for module in pangrova-standalone pangrova-coordinator pangrova-worker \
         pangrova-client/pangrova-client-cli pangrova-connector/pangrova-connector-iceberg \
         pangrova-connector/pangrova-connector-paimon pangrova-connector/pangrova-connector-lance; do \
-        cp "$module"/target/*.jar /dist/lib/; \
+        final_name="$(mvn -B -q -pl "$module" help:evaluate \
+            -Dexpression=project.build.finalName -DforceStdout)"; \
+        [[ "$final_name" =~ ^[A-Za-z0-9._-]+$ ]] || { \
+            echo "Invalid Maven principal artifact name for $module: $final_name" >&2; exit 1; }; \
+        principal="$module/target/$final_name.jar"; test -f "$principal" || { \
+            echo "Missing Maven principal release JAR: $principal" >&2; exit 1; }; \
+        cp "$principal" /dist/lib/; \
     done; \
     test -f "/dist/lib/$(basename "$bundle")"; \
     lance_jars=(/dist/lib/pangrova-connector-lance-*.jar); \
@@ -55,7 +61,9 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
 
 # The system ABI baseline matches the native Ubuntu 22.04 build.
 FROM eclipse-temurin:17-jre-jammy
+ARG SOURCE_COMMIT
 LABEL description="Pangrova distributed SQL query engine"
+LABEL org.opencontainers.image.revision="${SOURCE_COMMIT}"
 ENV PANGROVA_HOME=/opt/pangrova \
     PANGROVA_CONF_DIR=/opt/pangrova/config \
     PANGROVA_LOG_DIR=/opt/pangrova/logs

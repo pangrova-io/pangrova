@@ -15,7 +15,8 @@ final class DeclaredScalarProgram {
     static Expression lower(DeclaredFunctionRewrite rewrite, List<Expression> inputs,
                             Type output, FunctionMapper mapper) {
         if (!(output instanceof Type.Bool)) {
-            throw new IllegalArgumentException("Declared predicate program requires its validator-derived BOOLEAN output");
+            throw new IllegalArgumentException(
+                    "Declared predicate program requires its validator-derived BOOLEAN output");
         }
         List<Expression> evaluated = new ArrayList<>();
         for (var node : rewrite.nodes()) {

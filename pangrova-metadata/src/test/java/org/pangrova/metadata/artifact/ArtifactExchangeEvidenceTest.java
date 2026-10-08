@@ -45,6 +45,38 @@ class ArtifactExchangeEvidenceTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum");
     }
 
+    @Test
+    void exchangeDecodersRejectMalformedDigestsAndNoncanonicalBytesEvenWithCorrectDigest() {
+        var allocation = allocation();
+        var finalization = finalized(allocation, List.of(partition(0)), 0);
+        for (String invalid : new String[]{null, "", "0".repeat(64), allocation.sha256().substring(1),
+                allocation.sha256().toUpperCase(java.util.Locale.ROOT), " " + allocation.sha256()}) {
+            assertThatThrownBy(() -> ArtifactExchangeRegistration.decode(allocation.canonicalBytes(), invalid))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> ArtifactExchangeFinalization.decode(finalization.canonicalBytes(), invalid))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        byte[] canonical = allocation.canonicalBytes();
+        byte[] noncanonical = java.util.Arrays.copyOf(canonical, canonical.length + 1);
+        noncanonical[canonical.length] = '\n';
+        assertThatThrownBy(() -> ArtifactExchangeRegistration.decode(noncanonical, DigestUtils.sha256Hex(noncanonical)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not canonical");
+        assertThatThrownBy(() -> ArtifactExchangeRegistration.decode(null, allocation.sha256()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum or size");
+    }
+
+    @Test
+    void finalizationRejectsResponseBytesWithWrongIntegrityDigest() {
+        var allocation = allocation();
+        // Negative metadata contract only: these bytes are not claimed to be a Native or shuffle receipt.
+        String encoded = Base64.getEncoder().encodeToString(allocation.canonicalBytes());
+        assertThatThrownBy(() -> new ArtifactExchangeFinalization(allocation.exchangeId(), allocation.sha256(),
+                allocation.shuffleId(), allocation.planEpoch(), allocation.registeredOwner(),
+                allocation.producerCount(), allocation.producerSetSha256(), List.of(partition(0)), 0, 0,
+                encoded, "0".repeat(64)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("response checksum or size");
+    }
+
     private static ArtifactExchangeRegistration allocation() {
         var address = new ArtifactExchangeRegistration.Address("shuffle", 9080, "shuffle");
         return new ArtifactExchangeRegistration("edge", "artifact:execution", "shuffle-actual", 1, 7,

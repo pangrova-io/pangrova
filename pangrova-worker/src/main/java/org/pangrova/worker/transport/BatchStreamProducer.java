@@ -3,6 +3,7 @@ package org.pangrova.worker.transport;
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.spi.transport.DataProducer;
 import org.pangrova.spi.transport.DataTicket;
+import org.pangrova.spi.transport.DataStream;
 import org.apache.arrow.flight.Action;
 import org.apache.arrow.flight.ActionType;
 import org.apache.arrow.flight.CallStatus;
@@ -28,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -78,17 +80,33 @@ public class BatchStreamProducer implements FlightProducer {
                 t.setDaemon(true);
                 return t;
             },
-            new ThreadPoolExecutor.CallerRunsPolicy());
+            new ThreadPoolExecutor.AbortPolicy());
 
     private final DataProducer producer;
     private final BufferAllocator allocator;
     private final TransportTicketSigner ticketSigner;
+    private final ExecutorService batchFillExecutor;
+    private final long firstBatchTimeoutMillis;
+    private final long nextBatchTimeoutMillis;
 
     public BatchStreamProducer(DataProducer producer, BufferAllocator allocator,
                                TransportTicketSigner ticketSigner) {
+        this(producer, allocator, ticketSigner, BATCH_FILL_EXECUTOR,
+                FIRST_BATCH_TIMEOUT_MILLIS, NEXT_BATCH_TIMEOUT_MILLIS);
+    }
+
+    BatchStreamProducer(DataProducer producer, BufferAllocator allocator,
+                        TransportTicketSigner ticketSigner, ExecutorService batchFillExecutor,
+                        long firstBatchTimeoutMillis, long nextBatchTimeoutMillis) {
         this.producer = producer;
         this.allocator = allocator;
         this.ticketSigner = ticketSigner;
+        this.batchFillExecutor = java.util.Objects.requireNonNull(batchFillExecutor);
+        if (firstBatchTimeoutMillis <= 0 || nextBatchTimeoutMillis <= 0) {
+            throw new IllegalArgumentException("Batch polling timeouts must be positive");
+        }
+        this.firstBatchTimeoutMillis = firstBatchTimeoutMillis;
+        this.nextBatchTimeoutMillis = nextBatchTimeoutMillis;
     }
 
     @Override
@@ -100,8 +118,10 @@ public class BatchStreamProducer implements FlightProducer {
                 ticketSigner.validate(ticketBytes);
             }
             DataTicket dataTicket = deserializeTicket(ticketBytes);
+            DataStream stream = java.util.Objects.requireNonNull(producer.openStream(dataTicket),
+                    "DataProducer returned no request cursor");
 
-            byte[] firstBatch = pollUntilDataOrEnd(dataTicket, FIRST_BATCH_TIMEOUT_MILLIS);
+            byte[] firstBatch = pollUntilDataOrEnd(stream, firstBatchTimeoutMillis);
             if (firstBatch == null || firstBatch.length == 0) {
                 sendEmptyResponse(listener);
                 return;
@@ -111,11 +131,13 @@ public class BatchStreamProducer implements FlightProducer {
             listener.start(outputRoot);
             VectorLoader loader = new VectorLoader(outputRoot);
             decodeBatches(firstBatch, loader, listener);
-            streamRemainingBatches(dataTicket, loader, listener);
+            streamRemainingBatches(stream, loader, listener);
             listener.completed();
         } catch (Exception e) {
             LOG.error("event=flight_get_stream_failed error={}", e.getMessage(), e);
-            listener.error(e);
+            listener.error(e instanceof org.apache.arrow.flight.FlightRuntimeException ? e
+                    : CallStatus.INTERNAL.withDescription("Data stream failed: " + e.getMessage())
+                            .withCause(e).toRuntimeException());
         } finally {
             if (outputRoot != null) {
                 outputRoot.clear();
@@ -139,17 +161,16 @@ public class BatchStreamProducer implements FlightProducer {
      * Bounded by {@code timeoutMillis} so a vanished task can no longer
      * wedge the Flight handler thread indefinitely.
      */
-    private byte[] pollUntilDataOrEnd(DataTicket ticket, long timeoutMillis) {
+    private byte[] pollUntilDataOrEnd(DataStream stream, long timeoutMillis) {
         long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MILLISECONDS
                 .toNanos(timeoutMillis);
         while (!Thread.currentThread().isInterrupted()) {
-            byte[] data = producer.doGet(ticket);
+            byte[] data = stream.next();
             if (data != null) {
                 return data;
             }
             if (System.nanoTime() >= deadline) {
-                LOG.warn("event=flight_poll_timeout ticket={} timeoutMs={}",
-                        ticket, timeoutMillis);
+                LOG.warn("event=flight_poll_timeout timeoutMs={}", timeoutMillis);
                 throw CallStatus.TIMED_OUT
                         .withDescription("Timed out waiting for first batch after "
                                 + timeoutMillis + "ms")
@@ -157,7 +178,7 @@ public class BatchStreamProducer implements FlightProducer {
             }
             sleepForBackoff();
         }
-        return null;
+        throw CallStatus.CANCELLED.withDescription("Batch polling interrupted").toRuntimeException();
     }
 
     private static void sleepForBackoff() {
@@ -171,59 +192,77 @@ public class BatchStreamProducer implements FlightProducer {
      * on queue.put() when the buffer is full, providing natural backpressure
      * to the native execution layer.
      */
-    private void streamRemainingBatches(DataTicket ticket, VectorLoader loader,
+    private void streamRemainingBatches(DataStream stream, VectorLoader loader,
                                          ServerStreamListener listener) throws Exception {
         ArrayBlockingQueue<byte[]> queue = new ArrayBlockingQueue<>(MAX_BUFFERED_BATCHES);
         // F-WORKER-04: Use shared ExecutorService instead of per-request untracked Thread.
-        Future<?> producerFuture = BATCH_FILL_EXECUTOR.submit(() -> fillQueue(ticket, queue));
+        Future<?> producerFuture = batchFillExecutor.submit(() -> fillQueue(stream, queue));
         try {
-            consumeQueue(queue, loader, listener);
+            consumeQueue(queue, producerFuture, loader, listener);
         } finally {
             producerFuture.cancel(true);
         }
     }
 
-    private void fillQueue(DataTicket ticket, ArrayBlockingQueue<byte[]> queue) {
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(NEXT_BATCH_TIMEOUT_MILLIS);
+    private void fillQueue(DataStream stream, ArrayBlockingQueue<byte[]> queue) {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(nextBatchTimeoutMillis);
         try {
             while (!Thread.currentThread().isInterrupted()) {
-                byte[] data = producer.doGet(ticket);
+                byte[] data = stream.next();
                 if (data != null && data.length == 0) {
                     queue.put(POISON_PILL);
                     return;
                 }
                 if (data == null) {
                     if (System.nanoTime() >= deadline) {
-                        queue.put(POISON_PILL);
-                        return;
+                        throw CallStatus.TIMED_OUT.withDescription(
+                                "Timed out waiting for next batch after " + nextBatchTimeoutMillis + "ms")
+                                .toRuntimeException();
                     }
                     sleepForBackoff();
                     continue;
                 }
                 queue.put(data);
-                deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(NEXT_BATCH_TIMEOUT_MILLIS);
+                deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(nextBatchTimeoutMillis);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
     }
 
-    private void consumeQueue(ArrayBlockingQueue<byte[]> queue, VectorLoader loader,
+    private void consumeQueue(ArrayBlockingQueue<byte[]> queue, Future<?> producerFuture, VectorLoader loader,
                                ServerStreamListener listener) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(nextBatchTimeoutMillis);
         while (!Thread.currentThread().isInterrupted()) {
-            byte[] data = queue.poll(NEXT_BATCH_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
+            long remaining = deadline - System.nanoTime();
+            byte[] data = queue.poll(Math.max(0, Math.min(remaining,
+                    TimeUnit.MILLISECONDS.toNanos(Math.max(1, POLL_BACKOFF_MILLIS)))), TimeUnit.NANOSECONDS);
             if (data == null) {
-                LOG.warn("event=flight_consumer_timeout timeoutMs={}", NEXT_BATCH_TIMEOUT_MILLIS);
+                if (producerFuture.isDone()) verifyProducerCompletion(producerFuture);
+                if (System.nanoTime() < deadline) continue;
+                LOG.warn("event=flight_consumer_timeout timeoutMs={}", nextBatchTimeoutMillis);
                 throw CallStatus.TIMED_OUT
                         .withDescription("Timed out waiting for next batch after "
-                                + NEXT_BATCH_TIMEOUT_MILLIS + "ms")
+                                + nextBatchTimeoutMillis + "ms")
                         .toRuntimeException();
             }
             if (data == POISON_PILL) {
                 return;
             }
             decodeBatches(data, loader, listener);
+            deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(nextBatchTimeoutMillis);
         }
+        throw CallStatus.CANCELLED.withDescription("Batch consumption interrupted").toRuntimeException();
+    }
+
+    private static void verifyProducerCompletion(Future<?> producerFuture) throws Exception {
+        try {
+            producerFuture.get();
+        } catch (ExecutionException failure) {
+            if (failure.getCause() instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            throw failure;
+        }
+        throw CallStatus.CANCELLED.withDescription("Batch producer stopped without EOF").toRuntimeException();
     }
 
     private void sendEmptyResponse(ServerStreamListener listener) {

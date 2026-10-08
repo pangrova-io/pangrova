@@ -322,6 +322,161 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void rejectedQueryDoesNotRollbackHealthyQueryBatchAndItsOwnLaterTaskCannotOvertake() throws Exception {
+        verifyQueryIsolation(20);
+    }
+
+    @Test
+    void singleEventBatchesRemainFairWhileOneQueryCannotCommit() throws Exception {
+        verifyQueryIsolation(1);
+    }
+
+    private void verifyQueryIsolation(int batchSize) throws Exception {
+        journal.close();
+        journal = new JdbcQueryStateJournal(dataSource,
+                new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 20, batchSize, 24, 10));
+        var denied = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(800, "issuer"),
+                "q-fair-bad", "SELECT 42", "{}", "FINISHED");
+        var later = new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(801, "issuer"),
+                denied.queryId(), "t-bad", "worker", "FINISHED", 0, 2);
+        installQueryIsolationFault();
+        try {
+            var failure = assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.appendQueryEventSync(denied));
+            assertEquals(org.pangrova.spi.coordination.JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED,
+                    failure.admissionOutcome());
+            requireQueryIsolationFault(failure);
+            journal.appendTaskEvent(later);
+            var healthy = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(802, "issuer"),
+                    "q-fair-good", "SELECT 43", "{}", "RUNNING");
+            var healthyTask = new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(803, "issuer"),
+                    healthy.queryId(), "t-good", "worker", "FINISHED", 0, 2);
+            assertTimeoutPreemptively(java.time.Duration.ofSeconds(5), () -> {
+                journal.appendQueryEventSync(healthy);
+                journal.appendTaskEventSync(healthyTask);
+            });
+            assertEquals(healthy, journal.latestQueryEvent(healthy.queryId()).orElseThrow());
+            assertEquals(healthyTask, storedTaskEvent(healthyTask.context().eventId()));
+            assertEquals(0, countQueryRows("query_state_journal", denied.queryId()));
+            assertEquals(0, countQueryRows("task_state_journal", denied.queryId()),
+                    "A later task must not bypass its query's uncommitted earlier event");
+            requireQueryIsolationFault(assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.purgeQuery(denied.queryId())));
+            removeQueryIsolationFault();
+            journal.appendQueryEventSync(denied);
+            journal.appendTaskEventSync(later);
+            assertEquals(denied, journal.latestQueryEvent(denied.queryId()).orElseThrow());
+            assertEquals(later, storedTaskEvent(later.context().eventId()));
+            long queryRow = eventRowId(denied.context().eventId());
+            long taskRow = eventRowId("task_state_journal", later.context().eventId());
+            journal.appendQueryEventSync(denied);
+            journal.appendTaskEventSync(later);
+            assertEquals(queryRow, eventRowId(denied.context().eventId()));
+            assertEquals(taskRow, eventRowId("task_state_journal", later.context().eventId()));
+            assertEquals(1, countQueryRows("query_state_journal", denied.queryId()));
+            assertEquals(1, countQueryRows("task_state_journal", denied.queryId()));
+            journal.purgeQuery(denied.queryId());
+            assertEquals(0, countQueryRows("query_state_journal", denied.queryId()));
+            assertEquals(0, countQueryRows("task_state_journal", denied.queryId()));
+            assertEquals(1, countQueryRows("query_state_journal", healthy.queryId()));
+            assertEquals(1, countQueryRows("task_state_journal", healthy.queryId()));
+        } finally { removeQueryIsolationFault(); }
+    }
+
+    @Test
+    void rejectedQueryRetainsCapacityAndCloseOwnershipUntilExactFactsActuallyCommit() throws Exception {
+        journal.close();
+        journal = new JdbcQueryStateJournal(dataSource,
+                new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 20, 1, 24, 2));
+        var denied = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(810, "issuer"),
+                "q-fair-bad", "SELECT 42", "{}", "FINISHED");
+        var later = new TaskStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(811, "issuer"),
+                denied.queryId(), "t-bad", "worker", "FINISHED", 0, 2);
+        installQueryIsolationFault();
+        try {
+            requireQueryIsolationFault(assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.appendQueryEventSync(denied)));
+            requireQueryIsolationFault(assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.appendQueryEventSync(denied)));
+            // Exact retries join one resident owner; the second distinct event still fits.
+            journal.appendTaskEvent(later);
+            var overflow = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(812, "issuer"),
+                    "q-overflow", "SELECT 44", "{}", "QUEUED");
+            var rejected = assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.appendQueryEvent(overflow));
+            assertEquals(org.pangrova.spi.coordination.JournalWriteException.AdmissionOutcome.REJECTED_BEFORE_TRANSFER,
+                    rejected.admissionOutcome());
+            requireQueryIsolationFault(assertThrows(org.pangrova.spi.coordination.JournalWriteException.class,
+                    () -> journal.purgeQuery(denied.queryId())));
+            requireQueryIsolationFault(assertThrows(org.pangrova.spi.coordination.JournalWriteException.class, journal::close));
+            assertFalse(journal.isDrained());
+            assertEquals(0, countQueryRows("query_state_journal", denied.queryId()));
+            assertEquals(0, countQueryRows("task_state_journal", denied.queryId()));
+            removeQueryIsolationFault();
+            journal.close();
+            assertTrue(journal.isDrained());
+            assertEquals(1, countQueryRows("query_state_journal", denied.queryId()));
+            assertEquals(1, countQueryRows("task_state_journal", denied.queryId()));
+            assertEquals(0, countQueryRows("query_state_journal", overflow.queryId()));
+            assertEquals(denied, storedQueryEvent(denied.context().eventId()));
+            assertEquals(later, storedTaskEvent(later.context().eventId()));
+            long queryRow = eventRowId(denied.context().eventId());
+            long taskRow = eventRowId("task_state_journal", later.context().eventId());
+            journal.close();
+            assertEquals(queryRow, eventRowId(denied.context().eventId()));
+            assertEquals(taskRow, eventRowId("task_state_journal", later.context().eventId()));
+        } finally { removeQueryIsolationFault(); }
+    }
+
+    private void installQueryIsolationFault() throws java.sql.SQLException {
+        executeSql("CREATE FUNCTION reject_isolated_query_insert() RETURNS trigger LANGUAGE plpgsql AS $$"
+                + "BEGIN IF NEW.query_id = 'q-fair-bad' AND NEW.state = 'FINISHED' THEN "
+                + "RAISE EXCEPTION 'Actual isolated query FINISHED insert denied' USING ERRCODE = '42501'; "
+                + "END IF; RETURN NEW; END $$");
+        executeSql("CREATE TRIGGER reject_isolated_query_insert BEFORE INSERT ON query_state_journal "
+                + "FOR EACH ROW EXECUTE FUNCTION reject_isolated_query_insert()");
+    }
+
+    private void removeQueryIsolationFault() throws java.sql.SQLException {
+        executeSql("DROP TRIGGER IF EXISTS reject_isolated_query_insert ON query_state_journal");
+        executeSql("DROP FUNCTION IF EXISTS reject_isolated_query_insert()");
+    }
+
+    private static void requireQueryIsolationFault(Throwable failure) {
+        Throwable cause = failure;
+        while (cause.getCause() != null) cause = cause.getCause();
+        var actual = assertInstanceOf(java.sql.SQLException.class, cause);
+        assertEquals("42501", actual.getSQLState());
+        assertTrue(actual.getMessage().contains("Actual isolated query FINISHED insert denied"));
+    }
+
+    private TaskStateEvent storedTaskEvent(java.util.UUID eventId) throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT " + JournalEventSql.TASK_COLUMNS + " FROM task_state_journal WHERE event_id = ?")) {
+            statement.setObject(1, eventId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                var event = JournalEventSql.readTask(rows);
+                assertFalse(rows.next());
+                return event;
+            }
+        }
+    }
+
+    private QueryStateEvent storedQueryEvent(java.util.UUID eventId) throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT " + JournalEventSql.QUERY_COLUMNS + " FROM query_state_journal WHERE event_id = ?")) {
+            statement.setObject(1, eventId);
+            try (var rows = statement.executeQuery()) {
+                assertTrue(rows.next());
+                var event = JournalEventSql.readQuery(rows);
+                assertFalse(rows.next());
+                return event;
+            }
+        }
+    }
+
+    @Test
     void failedActualWriterJoinRetainsEventAndCloseRetriesAfterDatabaseUnblocks() throws Exception {
         var event = new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(900, "issuer"),
                 "q-held-close", "SELECT 1", "{}", "QUEUED");
@@ -346,8 +501,12 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     private long eventRowId(java.util.UUID eventId) throws java.sql.SQLException {
+        return eventRowId("query_state_journal", eventId);
+    }
+
+    private long eventRowId(String table, java.util.UUID eventId) throws java.sql.SQLException {
         try (var connection = dataSource.getConnection();
-                var statement = connection.prepareStatement("SELECT id FROM query_state_journal WHERE event_id = ?")) {
+                var statement = connection.prepareStatement("SELECT id FROM " + table + " WHERE event_id = ?")) {
             statement.setObject(1, eventId);
             try (var rows = statement.executeQuery()) {
                 assertTrue(rows.next());

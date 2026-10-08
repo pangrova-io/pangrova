@@ -6,6 +6,8 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -34,6 +36,8 @@ final class ProcessStatusReportRelay implements AutoCloseable {
     private final ExecutorService threads = ManagedExecutorFactory.newFixedThreadPool("process-report-relay", 8);
     private final HttpServer server;
     private final CopyOnWriteArrayList<Delivery> deliveries = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Registration> registrations = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Heartbeat> heartbeats = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Throwable> forwardingFailures = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<ReportHold> holds = new CopyOnWriteArrayList<>();
     private volatile URI coordinator;
@@ -65,15 +69,21 @@ final class ProcessStatusReportRelay implements AutoCloseable {
     }
 
     List<Delivery> deliveries() { return List.copyOf(deliveries); }
+    List<Registration> registrations() { return List.copyOf(registrations); }
+    List<Heartbeat> heartbeats() { return List.copyOf(heartbeats); }
     List<Throwable> forwardingFailures() { return List.copyOf(forwardingFailures); }
 
     private void forward(HttpExchange exchange) throws IOException {
         try (exchange) {
             byte[] body = exchange.getRequestBody().readAllBytes();
             Delivery delivery = observe(exchange, body);
+            Registration registration = observeRegistration(exchange, body);
+            Heartbeat heartbeat = observeHeartbeat(exchange, body);
             delaySelected(delivery);
             HttpResponse<byte[]> response = send(exchange, body);
             if (delivery != null) delivery.response().set(response);
+            if (registration != null) registration.response().set(response);
+            if (heartbeat != null) heartbeat.response().set(response);
             response.headers().map().forEach((name, values) -> {
                 if (!HOP_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
                     exchange.getResponseHeaders().put(name, values);
@@ -97,6 +107,21 @@ final class ProcessStatusReportRelay implements AutoCloseable {
         var delivery = new Delivery(report, body.clone(), System.nanoTime(), new AtomicReference<>());
         deliveries.add(delivery);
         return delivery;
+    }
+
+    private Registration observeRegistration(HttpExchange exchange, byte[] body) {
+        if (!exchange.getRequestURI().getPath().equals("/v1/workers/register")) return null;
+        var registration = new Registration(body.clone(), System.nanoTime(), new AtomicReference<>());
+        registrations.add(registration);
+        return registration;
+    }
+
+    private Heartbeat observeHeartbeat(HttpExchange exchange, byte[] body) throws IOException {
+        if (!exchange.getRequestURI().getPath().equals("/v1/worker/heartbeat")) return null;
+        var heartbeat = new Heartbeat(JsonMapperFactory.shared().readValue(body, HeartbeatRequest.class),
+                System.nanoTime(), new AtomicReference<>());
+        heartbeats.add(heartbeat);
+        return heartbeat;
     }
 
     private void delaySelected(Delivery delivery) throws InterruptedException {
@@ -146,6 +171,21 @@ final class ProcessStatusReportRelay implements AutoCloseable {
             AtomicReference<HttpResponse<byte[]>> response) {
         @Override public byte[] body() { return body.clone(); }
     }
+
+    record Registration(byte[] body, long receivedNanos,
+            AtomicReference<HttpResponse<byte[]>> response) {
+        @Override public byte[] body() { return body.clone(); }
+        WorkerRegistrationRequest request() {
+            try {
+                return JsonMapperFactory.shared().readValue(body, WorkerRegistrationRequest.class);
+            } catch (IOException failure) {
+                throw new java.io.UncheckedIOException("Malformed observed Worker registration", failure);
+            }
+        }
+    }
+
+    record Heartbeat(HeartbeatRequest request, long receivedNanos,
+                     AtomicReference<HttpResponse<byte[]>> response) { }
 
     record ReportHold(Predicate<TaskStatusReport> select, CompletableFuture<Void> released) implements AutoCloseable {
         @Override public void close() { released.complete(null); }

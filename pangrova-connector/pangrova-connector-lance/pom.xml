@@ -15,5 +15,6 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-test-common</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>com.lancedb</groupId><artifactId>lance-core</artifactId><version>0.39.0</version><scope>test</scope></dependency>
     </dependencies>
 </project>

@@ -157,13 +157,13 @@ public class CoordinatorHttpServer {
             config.register(new CatalogRestResource(operations));
             config.register(new OAuth2TokenResource(deps.authenticationManager()));
             if (deps.internalAuthSecret() != null && !deps.internalAuthSecret().isBlank()) {
-                config.register(new CatalogDeploymentResource(
-                        deps.metadataService(), deps.internalAuthSecret()));
+                config.register(new CatalogDeploymentResource(deps.metadataService()));
             }
         }
     }
 
     private static void registerFilters(ResourceConfig config, CoordinatorHttpServerContext deps) {
+        config.register(org.pangrova.coordinator.http.endpoint.RequestPeerAddressFilter.class);
         if (deps.workerManager() != null && (deps.authenticationManager() == null
                 || deps.internalAuthSecret() == null || deps.internalAuthSecret().isBlank())) {
             throw new IllegalArgumentException("Worker control requires configured internal-service authentication");

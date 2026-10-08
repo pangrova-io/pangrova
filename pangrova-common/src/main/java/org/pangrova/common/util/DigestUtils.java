@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.Objects;
 
 /**
  * SHA-256 digest utilities for hashing strings and byte arrays.
@@ -44,6 +45,36 @@ public final class DigestUtils {
      */
     public static String sha256Hex(byte[] data) {
         return HexFormat.of().formatHex(sha256().digest(data));
+    }
+
+    /**
+     * Verifies a public SHA-256 integrity digest using constant-time binary comparison.
+     *
+     * @param data bytes whose integrity is checked; must not be null
+     * @param expectedHex exact 64-character lowercase hexadecimal digest; no whitespace or case normalization
+     * @return false for an absent, malformed or different expected digest
+     * @throws NullPointerException if {@code data} is null, even when {@code expectedHex} is invalid
+     */
+    public static boolean matchesSha256(byte[] data, String expectedHex) {
+        Objects.requireNonNull(data, "data must not be null");
+        if (!isSha256Hex(expectedHex)) {
+            return false;
+        }
+        byte[] expected = HexFormat.of().parseHex(expectedHex);
+        return MessageDigest.isEqual(sha256().digest(data), expected);
+    }
+
+    private static boolean isSha256Hex(String value) {
+        if (value == null || value.length() != 64) {
+            return false;
+        }
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if ((character < '0' || character > '9') && (character < 'a' || character > 'f')) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

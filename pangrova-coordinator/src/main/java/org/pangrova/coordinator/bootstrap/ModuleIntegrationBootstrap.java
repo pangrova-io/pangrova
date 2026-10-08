@@ -272,7 +272,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             LOG.info("Phase skipped: governance not enabled");
             return;
         }
-        lineageEmitter = new LineageEventEmitter(new LogLineageBackend());
         QualityRuleStore ruleStore;
         if (dataSource != null) {
             ruleStore = new JdbcQualityRuleStore(dataSource);
@@ -283,6 +282,8 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                     + "Configure a datasource for production governance.");
             ruleStore = new InMemoryQualityRuleStore();
         }
+        // Validate persistent storage before starting a consumer not yet owned by the context.
+        lineageEmitter = new LineageEventEmitter(new LogLineageBackend());
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         channelRegistry.register(new LogAlertChannel());
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);

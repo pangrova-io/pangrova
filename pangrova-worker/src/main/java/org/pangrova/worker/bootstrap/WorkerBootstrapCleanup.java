@@ -16,12 +16,17 @@ final class WorkerBootstrapCleanup {
     WorkerBootstrapCleanup(WorkerComponentRefs refs) { this.refs = refs; }
 
     void close(WorkerBootstrapConfig config, WorkerObservabilitySetup observability, boolean deregister) {
-        if (deregister) steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
-        steps.attempt(this::closeHeartbeat);
         steps.attempt(() -> WorkerHttpBootstrap.stopHttp(refs));
         steps.attempt(this::closeCdc);
         steps.attempt(() -> WorkerShutdownSequence.drainTasks(refs.worker(), refs.taskManager()));
         steps.attempt(this::closeTasks);
+        steps.requireSuccess();
+        // Keep registration and heartbeats live until every terminal execution receipt has been acknowledged.
+        steps.attempt(() -> WorkerHeartbeatBootstrap.stopHeartbeat(refs));
+        steps.requireSuccess();
+        if (deregister) steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
+        steps.requireSuccess();
+        steps.attempt(this::closeRegistrationClient);
         steps.requireSuccess();
         steps.attempt(this::closeWriter);
         steps.attempt(() -> NativeFunctionBootstrap.close(refs));
@@ -29,8 +34,7 @@ final class WorkerBootstrapCleanup {
         WorkerResourceBootstrap.releaseResources(refs, observability);
     }
 
-    private void closeHeartbeat() {
-        WorkerHeartbeatBootstrap.stopHeartbeat(refs);
+    private void closeRegistrationClient() {
         var client = refs.registrationClient();
         if (client == null) return;
         client.close();

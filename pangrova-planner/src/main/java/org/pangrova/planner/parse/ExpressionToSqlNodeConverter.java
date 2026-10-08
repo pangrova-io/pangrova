@@ -416,6 +416,11 @@ final class ExpressionToSqlNodeConverter {
     // ── Type mapping ──
 
     private static SqlDataTypeSpec mapCastType(String typeName) {
+        if (typeName.startsWith("ARRAY(") && typeName.endsWith(")")) {
+            SqlDataTypeSpec element = mapCastType(typeName.substring(6, typeName.length() - 1));
+            return new SqlDataTypeSpec(new org.apache.calcite.sql.SqlCollectionTypeNameSpec(
+                    element.getTypeNameSpec(), SqlTypeName.ARRAY, POS), POS);
+        }
         // Parameterized types: DECIMAL(p,s), NUMERIC(p,s), VARCHAR(n)
         int parenIdx = typeName.indexOf('(');
         String baseName = parenIdx >= 0 ? typeName.substring(0, parenIdx) : typeName;

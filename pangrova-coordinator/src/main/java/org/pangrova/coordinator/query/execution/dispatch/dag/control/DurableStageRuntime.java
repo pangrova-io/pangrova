@@ -162,7 +162,7 @@ public final class DurableStageRuntime {
         var claim = new JdbcArtifactStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
                 stage, partition, progress.pageOrdinal(), term, dependencies.leaseDuration(), now);
         return dependencies.stages().preparePartition(claim, evidence -> {
-            var request = DurablePartitionRequest.prepare(evidence, exchange, now);
+            var request = DurablePartitionRequest.prepare(evidence, exchange, now, control.traceContext());
             var bindings = request.taskRequest().getOperatorBindingsList();
             long memory = request.taskRequest().getResourceGrant().getNativeMemoryBytes();
             var selected = bindings.isEmpty() ? dependencies.scheduler().selectWorker(memory, snapshot)

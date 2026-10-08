@@ -11,7 +11,6 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlNode;
 import org.pangrova.planner.mv.DynamicTableResolution;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
-import org.pangrova.planner.rewrite.ConstantFoldingRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.apache.calcite.sql.validate.SqlValidator;
@@ -43,7 +42,8 @@ public final class PangrovaPlanner {
     private final PangrovaParserFactory parserFactory;
     private final RelDataTypeFactory typeFactory;
     private final CalciteCatalogReader catalogReader;
-    private final ConstantFoldingRewriter constantFoldingRewriter = new ConstantFoldingRewriter();
+    private final java.util.concurrent.atomic.AtomicLong constantFoldedTotal =
+            new java.util.concurrent.atomic.AtomicLong();
     private final PangrovaSqlOperatorTable operatorTable = new PangrovaSqlOperatorTable();
 
     // Optional advanced feature integrations (null when not wired)
@@ -133,7 +133,7 @@ public final class PangrovaPlanner {
     /**
      * Parse, validate, optimize, and constant-fold SQL into a RelNode plan.
      * Constant expressions (no TableScan/TableModify/Exchange) are folded
-     * into LogicalValues via Calcite Interpreter evaluation.
+     * into LogicalValues by the registered Calcite reduction rules.
      * Pre-parse: Dynamic Table names are rewritten to physical target tables.
      * Post-optimization: MV rewrite is applied when MaterializedViewQueryRewriter is wired.
      */
@@ -170,12 +170,12 @@ public final class PangrovaPlanner {
         List<RuntimeFilterDescriptor> filterDescriptors =
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
-        RelNode folded = constantFoldingRewriter.tryFold(materializedViewRewritten, cluster);
+        recordConstantFold(materializedViewRewritten);
 
         // Verify metadata versions unchanged after compilation
         verifyMetadataVersions(pinnedVersions);
 
-        return new PlanResult(folded, preOptColumnNames, filterDescriptors, mergeOnReadHints);
+        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors, mergeOnReadHints);
     }
 
     /** Binds SQL without deriving facts from expressions that security policies may replace. */
@@ -200,8 +200,8 @@ public final class PangrovaPlanner {
         RelNode optimized = optimizationRunner.optimize(query.plan());
         List<RuntimeFilterDescriptor> descriptors = materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         // An MV substitution would introduce a different source that has not passed this query's authority.
-        RelNode folded = constantFoldingRewriter.tryFold(optimized, optimized.getCluster());
-        return new PlannedQuery(folded, query.columnNames(), descriptors, query.mergeOnReadHints());
+        recordConstantFold(optimized);
+        return new PlannedQuery(optimized, query.columnNames(), descriptors, query.mergeOnReadHints());
     }
 
     /**
@@ -227,11 +227,11 @@ public final class PangrovaPlanner {
         List<RuntimeFilterDescriptor> filterDescriptors =
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
-        RelNode folded = constantFoldingRewriter.tryFold(materializedViewRewritten, cluster);
+        recordConstantFold(materializedViewRewritten);
 
         verifyMetadataVersions(pinnedVersions);
 
-        return new PlanResult(folded, preOptColumnNames, filterDescriptors);
+        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors);
     }
 
     /**
@@ -285,9 +285,9 @@ public final class PangrovaPlanner {
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten =
                 materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
-        RelNode folded = constantFoldingRewriter.tryFold(materializedViewRewritten, cluster);
+        recordConstantFold(materializedViewRewritten);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(folded, preOptColumnNames, filterDescriptors);
+        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors);
     }
 
     // ---- Cross-catalog metadata version pinning ----
@@ -357,7 +357,13 @@ public final class PangrovaPlanner {
 
     /** Counter for constant-folded queries. Exposed for metrics collection. */
     public long getConstantFoldedTotal() {
-        return constantFoldingRewriter.getFoldedTotal();
+        return constantFoldedTotal.get();
+    }
+
+    private void recordConstantFold(RelNode plan) {
+        if (PlanShapeChecks.isFoldedConstant(plan)) {
+            constantFoldedTotal.incrementAndGet();
+        }
     }
 
     /** Returns the statistics collector, or null if not wired. Package-private to limit API surface. */

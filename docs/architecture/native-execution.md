@@ -65,6 +65,15 @@ task-scoped Flight result decoder so both Native exchange pages and result
 OutputBuffer pages use the same codec. The singleton global Sort
 remains a scale bottleneck until distributed range-sort/merge is validated.
 
+Result-service shutdown first seals registration and revokes each retained result
+authority, waking its actual pending SDK fetch. It then cancels transport calls
+through Arrow's deadline shutdown and joins the real handlers and serving thread.
+Shutdown must not depend on an idle client polling again or acknowledging GOAWAY.
+Transport cancellation alone is not task drain: producer stop, queue cleanup,
+reader leases and retained batch owners must still satisfy the task's existing
+drain contract before resources are released. Failed queue cleanup remains owned
+for retry and is reported to the caller.
+
 ## 2. Design Philosophy: Separation of Control Plane and Data Plane
 
 Building on the core ideas of Velox, Pangrova adopts an architecture that separates the "control plane" from the "data plane":
@@ -451,6 +460,91 @@ the production source of truth.
 The authoritative Native/JNI build order, mandatory Lance FFI dependency,
 Release packaging, full CTest, ASan and Java/E2E validation gates are in
 [the repository build pipeline](../../.pangrova/rules/build-pipeline.md).
+Native resources use the packager's canonical OS/architecture path, including
+`META-INF/native/osx/aarch64/libpangrova_native.dylib`; Maven copies that staged
+resource rather than independently mapping the raw CMake output into test
+resources. The loader extracts one resource and verifies every same-name
+classpath resource against the extracted bytes before loading. Different
+Native bundles on one classpath fail instead of selecting an older library by
+classpath order. Identical duplicates are permitted; this byte-identity check
+does not replace JNI ABI tests or same-source artifact provenance.
+The bundle module publishes a packaging-only POM with an attached classifier
+JAR. Its classifier profile explicitly stages resources before packaging;
+successful Maven installation alone is not evidence that the JAR contains the
+canonical Native entry. Verify that entry and its byte identity against the
+source library before using the bundle in a runtime acceptance test.
+Production process assemblies own an explicit SLF4J runtime backend and select
+each module's principal Maven JAR, not every JAR in its target directory. Table
+filesystem clients must not introduce a competing HTTP server or logging
+binding onto that classpath. Retain API dependencies needed by filesystem
+clients rather than removing an entire framework namespace without checking
+their actual callers.
+The Coordinator process entry owns an interruptible lifecycle wait after
+startup. It returns only after actual dependency cleanup succeeds; daemon HTTP
+threads are not process-lifetime ownership. Readiness requires registered
+Workers and catalogs and is distinct from control-plane startup.
+The Planner's unique Substrait serialization boundary emits canonical Join keys.
+If the official SDK redundantly emits deprecated left/right keys, remove those
+copies only after checking exact count, EQ comparison and field identity against
+the standard comparison keys. Reject legacy-only, conflicting or lossy duplicates;
+do not relax Native validation, translate legacy plans or introduce a second wire
+contract. Preserve other canonical comparison semantics and recursive plan layout.
+Live and durable stages share the canonical exchange-schema binding algorithm.
+For a live query, retain the exact producer plan after adaptive planning and
+operator binding, before task dispatch can publish RUNNING. Serialize a consumer
+from its current live fragment and bind each input to that prepared producer's
+canonical output schema, never its presentation column labels. Missing producers,
+inconsistent input identities, distributions or physical types fail closed.
+Durable replay validates its frozen contracts without recompilation or repair.
+These are control-plane plan bytes; row exchange remains Native Worker to Worker.
+Bounded statement acknowledgements use a request-scoped `DataStream` opened
+by `DataProducer`. Each read emits the retained serialized response once and
+then EOF; an independent read may reopen it within retention. Never model that
+cursor with a global consumed-query set or poll the immutable result buffer
+as if every repeated lookup were a new batch. Relational rows remain on the
+Native Worker endpoint.
+Configured Coordinator transport TLS applies to its acknowledgement server as
+well as outbound shuffle control. Its advertised result protocol must match
+the actual server, and mutual TLS must verify the client certificate chain.
+`coordinator.transport.advertised-host` is the client-routable address and must
+match that certificate's SAN; it is not the HTTP bind address.
+`coordinator.transport.port` selects the acknowledgement listen port (zero
+uses an ephemeral port). `coordinator.transport.allocator-limit-bytes` bounds
+its memory and must be positive. The production Main consumes all three keys;
+wildcard advertised addresses and out-of-range ports are rejected.
+Batch-fill saturation, producer exceptions, cancellation and idle timeout are
+transport failures, never successful EOF or silent partial-result completion.
+Worker shutdown retains registration and periodic heartbeats until tasks have
+released their Native owners and terminal receipts have been acknowledged.
+It then joins heartbeat callbacks, requires a typed deregistration ACK and
+releases registration and dependent runtime resources; interruption is not an ACK.
+Physical resource release must not wait for history-retention eviction. The
+Worker performs a bounded, incremental registry walk to probe actual consumed
+result ownership, retaining failed releases for retry; it does not add a timer
+or a duplicate ownership queue per task. Coordinator terminal-completion
+retries use a separate bounded cadence, retain exponential backoff, and run
+outside the timer thread. Neither cadence changes Native drain requirements,
+tenant concurrency limits, result authority expiry or history retention.
+
+Control acknowledgement buffers own their expiration tasks. After accepted query
+and publication owners drain, seal acknowledgement admission and cancel only the
+buffer's own timers before joining the shared scheduler. Keep acknowledgement
+bytes readable until their serving transport actually exits, then close the buffer.
+Quota or timer-admission failure must not publish a successful missing response;
+roll back failed insertion and retain exact byte accounting.
+HTTP ingress captures the real transport peer before authentication. Untrusted
+forwarding headers cannot change authentication or public rate-limit identity.
+Authenticated internal control does not share the public IP request quota, so
+public saturation cannot prevent Worker terminal ACKs, heartbeats or deregistration;
+the body limit and endpoint-specific control authority remain enforced. This is
+not a trusted-proxy policy or a production-scale control-plane throughput proof.
+Independent process acceptance freezes the complete production runtime-JAR
+manifest and verifies all canonical Native entries. Local builds require the
+actual Release CMake cache; CI image extraction requires the immutable image
+ID, source-revision label and byte-matching extraction receipt instead. These
+are distinct provenance proofs, not fallback loading strategies. A host-local
+Coordinator/two-Worker run proves only the exercised functional boundaries;
+it does not establish production-scale latency, throughput or fault coverage.
 Do not copy toolchain versions, machine-specific paths or a shortened
 "quick start" into this architecture document; passing a targeted Native
 test is not equivalent to the full-chain acceptance gate.

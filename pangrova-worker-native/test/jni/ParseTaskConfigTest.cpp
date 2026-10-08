@@ -13,6 +13,7 @@
 
 #include "executor/driver/TaskExecutor.h"
 #include "capability/NativeCapabilityCatalog.h"
+#include "capability/LogicalTypeContract.h"
 #include "jni/command/TaskRequestParser.h"
 #include "jni/command/WorkerLocalStorage.h"
 
@@ -581,6 +582,29 @@ TEST(ParseTaskConfigTest, ParsesIndexedResultVectorDimensions) {
   EXPECT_EQ(config.result_column_types[0].dimension, 3U);
   EXPECT_EQ(config.result_column_types[1].column_index, 2U);
   EXPECT_EQ(config.result_column_types[1].dimension, 5U);
+}
+
+TEST(ParseTaskConfigTest, RetainsCompleteDoubleStorageVectorDeclarationWithoutWeakeningAiContract) {
+  auto request = validRequest();
+  request.mutable_execution_options()->set_direct_result_output(true);
+  request.mutable_resource_grant()->set_shuffle_buffer_bytes(8 * 1024 * 1024);
+  proto::OperatorBinding embedding;
+  setEmbeddingOutputType(&embedding, 3);
+  auto* column = request.add_result_column_types();
+  column->set_column_index(0);
+  auto* logical = column->mutable_logical_type();
+  *logical = embedding.model().output_type();
+  logical->set_canonical_sql("VECTOR(3,DOUBLE)");
+  logical->mutable_substrait_type()->mutable_list()->mutable_type()->mutable_fp64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  logical->mutable_constraints(1)->set_string_value("FLOAT64");
+  const auto config = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(config.result_column_types.size(), 1U);
+  EXPECT_EQ(config.result_column_types[0].dimension, 3U);
+  EXPECT_EQ(config.result_column_types[0].logical_type.SerializeAsString(), logical->SerializeAsString());
+  EXPECT_THROW(pangrova::capability::requireFloatVectorDimension(*logical), std::invalid_argument);
+  logical->set_canonical_sql("VECTOR(3)");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::invalid_argument);
 }
 
 TEST(ParseTaskConfigTest, RejectsResultTypesWithoutDirectOutputOrUniqueIndex) {
@@ -1283,7 +1307,7 @@ TEST(ParseTaskConfigTest, PreservesGovernedAiInvocationBudget) {
       std::runtime_error);
 }
 
-TEST(ParseTaskConfigTest, ValidatesGovernedExecutionReusePolicy) {
+TEST(ParseTaskConfigTest, RejectsReuseOfNonDeterministicModelInvocations) {
   auto request = validRequest();
   request.mutable_security()->set_policy_context_hash("secured-plan-sha256");
   auto* binding = addAiBinding(request);
@@ -1296,9 +1320,17 @@ TEST(ParseTaskConfigTest, ValidatesGovernedExecutionReusePolicy) {
   reuse->set_key_dimension(256);
   reuse->set_require_complete(true);
 
-  auto config = parseTaskConfig(serializeRaw(request));
-  EXPECT_TRUE(config.operator_bindings.at("ai-invoke-1")
-                  .reuse_policy().enabled());
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+
+  auto exact_threshold = request;
+  exact_threshold.mutable_operator_bindings(0)
+      ->mutable_reuse_policy()->set_similarity_threshold(1.0);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(exact_threshold)), std::runtime_error);
+
+  auto without_reuse = request;
+  without_reuse.mutable_operator_bindings(0)->clear_reuse_policy();
+  auto config = parseTaskConfig(serializeRaw(without_reuse));
+  EXPECT_FALSE(config.operator_bindings.at("ai-invoke-1").has_reuse_policy());
   EXPECT_EQ(config.policy_context_hash, "secured-plan-sha256");
   EXPECT_FALSE(config.dependency_scope_hash.empty());
   EXPECT_FALSE(config.dependency_version_hash.empty());

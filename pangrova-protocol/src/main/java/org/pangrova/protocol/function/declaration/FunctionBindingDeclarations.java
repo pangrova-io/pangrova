@@ -178,6 +178,14 @@ public final class FunctionBindingDeclarations {
         return callbackMetadata("ai", name);
     }
 
+    /** Declared callback semantics for a SQL name; this does not admit an actual Native implementation. */
+    public static Optional<FunctionMetadata> callbackMetadataForSqlName(String name) {
+        return sqlBinding(FunctionKind.FUNCTION_KIND_SCALAR, name, "")
+                .filter(reference -> binding("SCALAR", reference.namespace(), reference.name())
+                        .has("runtimeSignature"))
+                .map(reference -> callbackMetadata(reference.namespace(), reference.name()));
+    }
+
     /** Same callback contract entry point for FILE and other declared namespaces. */
     public static FunctionMetadata callbackMetadata(String namespace, String name) {
         JsonNode entry = binding("SCALAR", namespace, name);

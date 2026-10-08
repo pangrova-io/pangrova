@@ -19,15 +19,18 @@ final class JournalFlushOwner implements AutoCloseable {
     private volatile Throwable ownerFailure;
 
     JournalFlushOwner(DataSource dataSource, StateJournalConfig config, JournalPendingWrites pending) {
-        this.dataSource = dataSource; this.config = config; this.pending = pending;
+        this.dataSource = dataSource;
+        this.config = config;
+        this.pending = pending;
         thread = new Thread(this::runOwned, "query-journal-flush");
         thread.setDaemon(true);
         thread.start();
     }
 
     private void runOwned() {
-        try { run(); }
-        catch (RuntimeException | Error failure) {
+        try {
+            run();
+        } catch (RuntimeException | Error failure) {
             ownerFailure = failure;
             pending.seal();
             LOG.error("event=journal_flush_owner_failed admitted_events_retained=true", failure);
@@ -37,8 +40,10 @@ final class JournalFlushOwner implements AutoCloseable {
     void awaitCommit(java.util.concurrent.CompletableFuture<Void> attempt)
             throws InterruptedException, java.util.concurrent.ExecutionException {
         while (true) {
-            try { attempt.get(1, java.util.concurrent.TimeUnit.SECONDS); return; }
-            catch (java.util.concurrent.TimeoutException notExited) {
+            try {
+                attempt.get(1, java.util.concurrent.TimeUnit.SECONDS);
+                return;
+            } catch (java.util.concurrent.TimeoutException notExited) {
                 if (ownerFailure != null) throw JournalPendingWrites.failure(
                         "Journal flush owner failed; admitted event remains owned", ownerFailure);
             }
@@ -50,17 +55,20 @@ final class JournalFlushOwner implements AutoCloseable {
             JournalPendingWrites.Batch batch;
             try {
                 retryExitedSqlOwners();
-                if (!closeConnection()) { pending.pauseRetry(config.flushIntervalMs()); continue; }
+                if (!closeConnection()) {
+                    pending.pauseRetry(config.flushIntervalMs());
+                    continue;
+                }
                 batch = pending.awaitBatch(config.batchSize(), config.flushIntervalMs());
-            }
-            catch (InterruptedException interrupted) {
+            } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw JournalPendingWrites.failure("Journal flush thread was interrupted before drain", interrupted);
             }
             if (batch == null) return;
             if (!batch.writes().isEmpty() && !flush(batch)) {
-                try { pending.pauseRetry(config.flushIntervalMs()); }
-                catch (InterruptedException interrupted) {
+                try {
+                    pending.pauseRetry(config.flushIntervalMs());
+                } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
                     throw JournalPendingWrites.failure("Journal flush retry interrupted before drain", interrupted);
                 }
@@ -70,8 +78,9 @@ final class JournalFlushOwner implements AutoCloseable {
 
     private void retryExitedSqlOwners() {
         for (JournalSqlOperation operation : pending.sqlOwners()) {
-            try { operation.retryClose(); }
-            catch (RuntimeException | Error failure) {
+            try {
+                operation.retryClose();
+            } catch (RuntimeException | Error failure) {
                 LOG.error("event=journal_entered_sql_owner_close_pending", failure);
             }
         }
@@ -114,9 +123,12 @@ final class JournalFlushOwner implements AutoCloseable {
 
     @Override public void close() {
         pending.seal();
-        if (Thread.currentThread() == thread) throw JournalPendingWrites.failure("Journal flush owner cannot join itself", null);
-        try { thread.join(JOIN_MS); }
-        catch (InterruptedException interrupted) {
+        if (Thread.currentThread() == thread) {
+            throw JournalPendingWrites.failure("Journal flush owner cannot join itself", null);
+        }
+        try {
+            thread.join(JOIN_MS);
+        } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw JournalPendingWrites.failure("Interrupted joining journal flush owner", interrupted);
         }

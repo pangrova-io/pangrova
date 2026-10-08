@@ -1,7 +1,7 @@
 // FlightShuffleServer: Arrow Flight server that multiplexes shuffle data
 // from multiple executor handles on a single port per worker.
 //
-// Uses a HandleRouter to map executor handles to their PartitionDemuxer,
+// Maps executor handles to their actual shared producer registration,
 // enabling all shuffle handles to share one Flight server instance.
 // Configures SO_REUSEPORT on the server socket to allow kernel-level
 // load balancing across threads.
@@ -25,6 +25,8 @@
 
 #include "shuffle/SerializedShuffleQueue.h"
 #include "shuffle/ShuffleBufferStore.h"
+#include "shuffle/ShuffleControlGate.h"
+#include "shuffle/ShuffleProducerRegistration.h"
 #include "shuffle/TicketVerifier.h"
 
 namespace pangrova::shuffle {
@@ -220,9 +222,11 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
 
   int start();
   void stop();
+  ShuffleControlGate::Lease acquireControl() { return control_gate_.acquire(); }
 
   // Register the exact fenced producer identity and partition count.
-  void registerHandle(int64_t handle, SerializedShuffleQueue* queue,
+  std::shared_ptr<ShuffleProducerRegistration> registerHandle(
+                      int64_t handle, SerializedShuffleQueue* queue,
                       const std::string& query_id, int32_t stage_id,
                       int32_t num_partitions,
                       uint64_t plan_epoch,
@@ -258,6 +262,7 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
 
   // Atomically updates the verifier key window without restarting the server.
   void setHmacKeys(std::string current_key, std::string previous_key);
+  std::string signingKey() const;
 
   arrow::Status DoGet(
       const arrow::flight::ServerCallContext& context,
@@ -265,6 +270,7 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
       std::unique_ptr<arrow::flight::FlightDataStream>* stream) override;
 
  private:
+  void stopInternal();
   FlightShuffleServerConfig config_;
   std::shared_ptr<ShuffleBufferStore> buffer_store_;
   int bound_port_ = 0;
@@ -274,34 +280,20 @@ class FlightShuffleServer : public arrow::flight::FlightServerBase {
   // Ticket HMAC verification (null when hmac_current_key is empty).
   mutable std::mutex ticket_verifier_mutex_;
   std::shared_ptr<TicketVerifier> ticket_verifier_;
-
-  struct HandleRoute {
-    std::shared_ptr<PartitionDemuxer> demuxer;
-    std::string query_id;
-    int32_t stage_id = -1;
-    uint64_t plan_epoch = 0;
-    uint32_t attempt_id = 0;
-    uint64_t fencing_token = 0;
-  };
+  std::string ticket_signing_key_;
 
   // Multiplexed handle routing. Shared ownership is required because an
   // in-flight Flight reader may outlive producer unregister.
   mutable std::mutex handles_mutex_;
-  std::unordered_map<int64_t, HandleRoute> handle_routes_;
+  std::unordered_map<int64_t, std::shared_ptr<ShuffleProducerRegistration>> handle_routes_;
+  ShuffleControlGate control_gate_;
+  std::mutex stop_mutex_;
+  std::condition_variable stop_cv_;
+  bool stopping_ = false;
+  bool stopped_ = false;
 
-  // Lingering handles: producer done but data not fully consumed.
-  struct LingeringEntry {
-    HandleRoute route;
-    std::chrono::steady_clock::time_point entered_at;
-  };
-  mutable std::mutex lingering_mutex_;
-  std::unordered_map<int64_t, LingeringEntry> lingering_demuxers_;
-
-  // Background evictor: periodically reaps fully-consumed / TTL-expired
-  // lingering demuxers so a client that disconnects without draining DoGet
-  // cannot leak demuxers unboundedly (F-SHUF-LINGER). Only touches
-  // lingering_mutex_ via evictFullyConsumedLingering(), so it stays outside
-  // the handles_mutex_ / registry_mutex_ / buf.mutex lock hierarchy.
+  // Eviction snapshots route owners, closes outside routing locks and removes
+  // only that same closed owner. Readers retain their actual demuxer credits.
   std::thread lingering_evictor_thread_;
   std::mutex evictor_mutex_;
   std::condition_variable evictor_cv_;

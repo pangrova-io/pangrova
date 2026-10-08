@@ -24,6 +24,27 @@ in the `pangrova-config` module. The bundled defaults ship in
 | `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve queries only), `MAINTENANCE` (background tasks only), or `COMBINED` (both) |
 | `coordinator.internal-auth-secret` | string | — | Shared internal control-plane secret, identical to `worker.internal-auth-secret`. The production process rejects absent, blank or fewer than 32 UTF-8 bytes, independently of client authentication. Inject through the YAML `${PANGROVA_INTERNAL_AUTH_SECRET}` placeholder. |
 
+## coordinator.transport
+
+These keys configure bounded statement acknowledgements, not relational query
+execution. Query rows are served directly by Native Workers.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `coordinator.transport.port` | int | `0` | Acknowledgement listen port, in `0..65535`; zero selects an ephemeral port |
+| `coordinator.transport.advertised-host` | string | `"localhost"` | Client-routable endpoint address; must not be a wildcard and must match the server certificate SAN when TLS is enabled |
+| `coordinator.transport.allocator-limit-bytes` | long | `268435456` | Positive acknowledgement transport memory limit |
+| `coordinator.transport.tls.enabled` | bool | `false` | Require mutual TLS for the acknowledgement server and outbound control-plane clients |
+| `coordinator.transport.tls.certificate-chain-path` | string | `""` | Readable Coordinator PEM certificate chain |
+| `coordinator.transport.tls.private-key-path` | string | `""` | Readable Coordinator PEM private key |
+| `coordinator.transport.tls.root-ca-path` | string | `""` | Readable root CA for peer verification; the acknowledgement server requires client certificates |
+| `coordinator.shuffle.tls.server-identity` | string | `""` | Certificate DNS/IP identity expected from shuffle servers |
+
+TLS requires all four material/identity settings. Material supplied with TLS
+disabled is rejected. `coordinator.host` is an HTTP bind address and does not
+set the advertised result address. Configure the advertised host explicitly for
+clients on other machines; the loopback default is only locally reachable.
+
 ## coordinator.speculation
 
 | Key | Type | Default | Description |
@@ -152,12 +173,23 @@ Additional coordinator behavior is tuned via JVM system properties
 
 | System property | Default | Description |
 |-----------------|---------|-------------|
-| `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit applied by the coordinator request-limit filter |
+| `pangrova.http.max-requests-per-minute` | `100` | Public HTTP requests per actual transport-peer IP per fixed one-minute window |
 | `pangrova.shuffle.manager` | (auto) | Shuffle provider name (`native`, `local-spill`, or `object-store`). When unset, the highest-durability provider on the classpath is selected automatically |
 | `pangrova.index.basePath` | `${java.io.tmpdir}/pangrova/indexes` | Base directory for index build artifacts |
 | `pangrova.cache.result.redis-url` | — | Redis URL to enable the external query result cache |
 | `pangrova.cache.result.ttl-seconds` | `3600` | TTL for externally cached query results |
 | `pangrova.cache.result.max-entry-bytes` | `10485760` | Maximum size (bytes) of a single externally cached result |
+
+The server captures the actual connection peer before authentication. Caller-supplied
+`X-Forwarded-For` is not trusted for authentication, brute-force tracking or this
+request budget; no trusted-proxy address policy is currently configured. Behind a
+reverse proxy, this limit therefore applies to the proxy's actual peer address.
+Only a server-authenticated internal-service identity on its dedicated control
+routes is excluded from the public budget, so user saturation cannot starve Worker
+heartbeats, terminal receipts or deregistration. Internal credentials cannot access
+user query routes. The request-body limit still applies to authenticated control:
+exactly the configured limit is allowed; an additional byte, including in a chunked
+request, returns structured HTTP 413 rather than HTTP 500.
 
 ---
 

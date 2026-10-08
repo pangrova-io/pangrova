@@ -16,7 +16,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ResultBatchOwnershipTest {
-    private static final ColumnDescriptor COLUMN = new ColumnDescriptor("value", Types.OTHER, "OTHER", 0, 0);
+    private static final ColumnDescriptor COLUMN = new ColumnDescriptor("value", Types.OTHER, "OTHER", 0, 0,
+            java.util.Optional.empty());
+
+    @Test
+    void nullableCoordinatesRemainTypedAndDetachedAcrossSnapshots() {
+        Float[] floats = {1.0f, null, 3.0f};
+        Double[] doubles = {1.0000000000000002, null, -123456789.12345679};
+        var batch = batch(java.util.Arrays.asList(floats, doubles));
+        floats[0] = 99.0f;
+        doubles[0] = 99.0;
+        var first = (List<?>) batch.rows().get(0)[0];
+        assertThat(first.get(0)).isInstanceOf(Float[].class);
+        assertThat(first.get(1)).isInstanceOf(Double[].class);
+        assertThat((Float[]) first.get(0)).containsExactly(1.0f, null, 3.0f);
+        assertThat((Double[]) first.get(1)).containsExactly(1.0000000000000002, null, -123456789.12345679);
+        ((Float[]) first.get(0))[1] = 99.0f;
+        ((Double[]) first.get(1))[1] = 99.0;
+        var second = (List<?>) batch.rows().get(0)[0];
+        assertThat(((Float[]) second.get(0))[1]).isNull();
+        assertThat(((Double[]) second.get(1))[1]).isNull();
+    }
 
     @Test
     void snapshotsCallerCollectionsAndRowArrays() {

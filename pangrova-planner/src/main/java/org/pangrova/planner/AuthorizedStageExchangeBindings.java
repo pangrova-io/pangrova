@@ -48,7 +48,8 @@ final class AuthorizedStageExchangeBindings {
                 var input = fragment.inputs().get(edge.exchangeId());
                 validateInput(input, edge);
                 if (!source.schema().equals(input.getOutputSchema())) {
-                    throw new IllegalArgumentException("Exchange input differs from frozen producer schema: " + edge.exchangeId());
+                    throw new IllegalArgumentException(
+                            "Exchange input differs from frozen producer schema: " + edge.exchangeId());
                 }
             }
         }
@@ -82,7 +83,31 @@ final class AuthorizedStageExchangeBindings {
 
     private static AuthorizedStageGraph.SerializedStage bindStage(AuthorizedStageGraph.SerializedStage stage,
             Map<String, StageTransfer> incoming, Map<Integer, Fragment> sources) {
-        Fragment fragment = fragment(stage);
+        var serialized = bindInputs(fragment(stage), stage.serializedPlan(), incoming, sources);
+        return new AuthorizedStageGraph.SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
+                serialized, stage.sources(), stage.outputNames(), stage.resultColumnModels(),
+                stage.resultColumnTypes(), stage.estimatedShuffleBytes(), stage.estimatedShuffleRows());
+    }
+
+    static SerializedPlanFragment bindInputs(int stageId, SerializedPlanFragment plan,
+            List<StageTransfer> transfers, Map<Integer, SerializedPlanFragment> producers) {
+        Map<Integer, Fragment> sources = new HashMap<>();
+        for (var edge : transfers) {
+            if (edge.downstreamStageId() != stageId) {
+                throw new IllegalArgumentException("Input binding requires only this stage's incoming edges");
+            }
+            var source = producers.get(edge.upstreamStageId());
+            if (source == null) {
+                throw new IllegalArgumentException("Exchange requires a prepared producer: " + edge.exchangeId());
+            }
+            sources.computeIfAbsent(edge.upstreamStageId(), id -> fragment(id, source));
+        }
+        return bindInputs(fragment(stageId, plan), plan,
+                incoming(transfers).getOrDefault(stageId, Map.of()), sources);
+    }
+
+    private static SerializedPlanFragment bindInputs(Fragment fragment, SerializedPlanFragment serialized,
+            Map<String, StageTransfer> incoming, Map<Integer, Fragment> sources) {
         requireInputs(fragment, incoming);
         Map<Rel, Rel> replacements = new IdentityHashMap<>();
         for (Rel relation : fragment.layout().relations()) {
@@ -103,11 +128,8 @@ final class AuthorizedStageExchangeBindings {
         Rel root = SubstraitRelationLayout.replaceRelations(fragment.root().getInput(), replacements);
         var plan = fragment.plan().toBuilder().setRelations(0, fragment.plan().getRelations(0).toBuilder()
                 .setRoot(fragment.root().toBuilder().setInput(root))).build();
-        var serialized = new SerializedPlanFragment(plan.toByteArray(), stage.serializedPlan().retrievalTopKHints(),
-                stage.serializedPlan().aiInvocationHints());
-        return new AuthorizedStageGraph.SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
-                serialized, stage.sources(), stage.outputNames(), stage.resultColumnModels(),
-                stage.estimatedShuffleBytes(), stage.estimatedShuffleRows());
+        return new SerializedPlanFragment(plan.toByteArray(), serialized.retrievalTopKHints(),
+                serialized.aiInvocationHints());
     }
 
     private static Map<Integer, Map<String, StageTransfer>> incoming(List<StageTransfer> transfers) {
@@ -174,7 +196,8 @@ final class AuthorizedStageExchangeBindings {
     }
 
     private static void validateProducer(Fragment source, StageTransfer edge) {
-        if (source == null) throw new IllegalArgumentException("Exchange requires a frozen producer: " + edge.exchangeId());
+        if (source == null) throw new IllegalArgumentException(
+                "Exchange requires a frozen producer: " + edge.exchangeId());
         Rel relation = source.root().getInput();
         if (!relation.hasExchange() || relation.getExchange().getPartitionCount() != edge.partitionCount()) {
             throw new IllegalArgumentException("Producer requires its bound terminal exchange: " + edge.exchangeId());
@@ -190,7 +213,8 @@ final class AuthorizedStageExchangeBindings {
                     && !edge.distributionKeys().isEmpty();
             case RANGE, ANY -> false;
         };
-        if (!matches) throw new IllegalArgumentException("Producer distribution differs from graph edge: " + edge.exchangeId());
+        if (!matches) throw new IllegalArgumentException(
+                "Producer distribution differs from graph edge: " + edge.exchangeId());
     }
 
     private static List<Integer> hashKeys(io.substrait.proto.ExchangeRel exchange) {

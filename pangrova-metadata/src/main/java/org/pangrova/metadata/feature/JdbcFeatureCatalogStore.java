@@ -19,7 +19,6 @@ package org.pangrova.metadata.feature;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.metadata.store.MetadataJsonMapper;
 
@@ -46,7 +45,10 @@ import static org.pangrova.metadata.store.JdbcSupport.setJson;
 /** PostgreSQL implementation of the governed feature and training catalog. */
 public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
 
-    private static final ObjectMapper MAPPER = MetadataJsonMapper.instance();
+    private static final int FEATURE_CREATED_AT_PARAMETER = 11;
+    private static final int TRAINING_SPLIT_KIND_PARAMETER = 11;
+    private static final int TRAINING_SPLIT_SEED_PARAMETER = 12;
+    private static final int TRAINING_CREATED_AT_PARAMETER = 13;
 
     private final DataSource dataSource;
 
@@ -69,7 +71,7 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
             statement.setString(8, version.definitionSha256().toLowerCase(Locale.ROOT));
             statement.setBytes(9, version.sourcePlan());
             statement.setString(10, version.sourcePlanSha256().toLowerCase(Locale.ROOT));
-            setInstant(statement, 11, version.createdAt());
+            setInstant(statement, FEATURE_CREATED_AT_PARAMETER, version.createdAt());
             statement.executeUpdate();
         } catch (SQLException failure) {
             throw new MetastoreException("Failed to create Feature View version", failure);
@@ -149,9 +151,9 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
             statement.setString(8, version.definitionSha256().toLowerCase(Locale.ROOT));
             statement.setBytes(9, version.normalizedPlan());
             statement.setString(10, version.normalizedPlanSha256().toLowerCase(Locale.ROOT));
-            statement.setString(11, version.splitKind().name());
-            statement.setLong(12, version.splitSeed());
-            setInstant(statement, 13, version.createdAt());
+            statement.setString(TRAINING_SPLIT_KIND_PARAMETER, version.splitKind().name());
+            statement.setLong(TRAINING_SPLIT_SEED_PARAMETER, version.splitSeed());
+            setInstant(statement, TRAINING_CREATED_AT_PARAMETER, version.createdAt());
             statement.executeUpdate();
         } catch (SQLException failure) {
             throw new MetastoreException("Failed to create Training Dataset version", failure);
@@ -244,7 +246,7 @@ public final class JdbcFeatureCatalogStore implements FeatureCatalogStore {
 
     private static JsonNode parse(String json) {
         try {
-            return MAPPER.readTree(json);
+            return MetadataJsonMapper.readTree(json);
         } catch (JsonProcessingException failure) {
             throw new IllegalStateException("Persisted catalog definition is invalid JSON", failure);
         }

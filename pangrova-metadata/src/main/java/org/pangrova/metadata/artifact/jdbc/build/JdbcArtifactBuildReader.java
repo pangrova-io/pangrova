@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
 final class JdbcArtifactBuildReader extends JdbcArtifactBuildStoreSupport {
 
@@ -63,7 +62,8 @@ final class JdbcArtifactBuildReader extends JdbcArtifactBuildStoreSupport {
         requireText(generation, "generation");
         requireText(sourceSnapshot, "sourceSnapshot");
         try (Connection connection = dataSource.getConnection()) {
-            return JdbcArtifactPublishedInputs.findManifest(connection, tenantId, artifactId, generation, sourceSnapshot);
+            return JdbcArtifactPublishedInputs.findManifest(
+                    connection, tenantId, artifactId, generation, sourceSnapshot);
         } catch (SQLException failure) {
             throw failure("find published artifact generation", failure);
         }

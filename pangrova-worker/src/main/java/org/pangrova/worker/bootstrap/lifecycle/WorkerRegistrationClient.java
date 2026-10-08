@@ -123,6 +123,7 @@ public final class WorkerRegistrationClient implements AutoCloseable {
         }
         LOG.error("event=worker_deregistration_failed maxAttempts={} workerId={}",
                 MAX_DEREGISTER_ATTEMPTS, workerId);
+        throw new IllegalStateException("Worker deregistration was not acknowledged: " + workerId);
     }
 
     private boolean trySendDeregister(HttpRequest request, String workerId, int attempt) {
@@ -130,6 +131,7 @@ public final class WorkerRegistrationClient implements AutoCloseable {
             HttpResponse<String> response = httpClient.send(
                     request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= HTTP_SUCCESS_MIN && response.statusCode() < HTTP_SUCCESS_MAX_EXCLUSIVE) {
+                mapper.readValue(response.body(), WorkerControlResponse.class).requireStatus("deregistered");
                 LOG.info("event=worker_deregistration_ack workerId={} body={}",
                         workerId, response.body());
                 return true;
@@ -142,7 +144,7 @@ public final class WorkerRegistrationClient implements AutoCloseable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             LOG.warn("event=worker_deregister_interrupted workerId={}", workerId);
-            return true;
+            throw new IllegalStateException("Worker deregistration interrupted: " + workerId, e);
         }
         return false;
     }

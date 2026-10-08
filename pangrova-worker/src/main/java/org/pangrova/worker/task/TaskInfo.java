@@ -127,10 +127,11 @@ public final class TaskInfo {
 
     long nextReportSequence() { return execution.nextReportSequence(); }
 
-    void publishReleasedTerminal(java.util.function.Supplier<org.pangrova.protocol.rest.task.TaskStatusReport> prepare,
-                                 java.util.function.Consumer<org.pangrova.protocol.rest.task.TaskStatusReport> send) {
-        if (!resourcesReleased()) throw new IllegalStateException("Terminal publication precedes actual resource release");
-        terminalPublication.publish(prepare, send);
+    void publishTerminalStatus(boolean released,
+                               java.util.function.Supplier<org.pangrova.protocol.rest.task.TaskStatusReport> prepare,
+                               java.util.function.Consumer<org.pangrova.protocol.rest.task.TaskStatusReport> send) {
+        if (released && !resourcesReleased()) throw new IllegalStateException("Terminal publication precedes actual resource release");
+        terminalPublication.publish(released, prepare, send);
     }
 
     // --- Resource accounting (delegated) ---

@@ -18,16 +18,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Types;
-import java.util.Arrays;
 import java.util.Map;
 
-/** Read-only JDBC array view of a VECTOR's FP32 coordinates. */
+/** Read-only JDBC array view of a VECTOR's Float32 or Float64 coordinates. */
 public final class VectorSqlArray implements Array {
 
-    private float[] coordinates;
+    private Object coordinates;
 
-    private VectorSqlArray(float[] coordinates) {
-        this.coordinates = coordinates.clone();
+    private VectorSqlArray(Object coordinates) {
+        this.coordinates = copyCoordinates(coordinates);
     }
 
     /** Creates an independently owned array of VECTOR coordinates, preserving SQL NULL. */
@@ -35,8 +34,9 @@ public final class VectorSqlArray implements Array {
         if (value == null) {
             return null;
         }
-        if (value instanceof float[] vector) {
-            return new VectorSqlArray(vector);
+        if (value instanceof float[] || value instanceof double[]
+                || value instanceof Float[] || value instanceof Double[]) {
+            return new VectorSqlArray(value);
         }
         throw new SQLFeatureNotSupportedException(
                 "JDBC getArray is supported only for VECTOR columns");
@@ -45,19 +45,19 @@ public final class VectorSqlArray implements Array {
     @Override
     public String getBaseTypeName() throws SQLException {
         requireOpen();
-        return "REAL";
+        return isDoublePrecision() ? "DOUBLE" : "REAL";
     }
 
     @Override
     public int getBaseType() throws SQLException {
         requireOpen();
-        return Types.REAL;
+        return isDoublePrecision() ? Types.DOUBLE : Types.REAL;
     }
 
     @Override
     public Object getArray() throws SQLException {
         requireOpen();
-        return coordinates.clone();
+        return copyCoordinates(coordinates);
     }
 
     @Override
@@ -68,12 +68,13 @@ public final class VectorSqlArray implements Array {
     @Override
     public Object getArray(long index, int count) throws SQLException {
         requireOpen();
-        if (index < 1 || count < 0 || index > coordinates.length + 1L
-                || count > coordinates.length - (index - 1)) {
+        int length = java.lang.reflect.Array.getLength(coordinates);
+        if (index < 1 || count < 0 || index > length + 1L
+                || count > length - (index - 1)) {
             throw new SQLException("VECTOR array slice is out of range");
         }
         int start = Math.toIntExact(index - 1);
-        return Arrays.copyOfRange(coordinates, start, start + count);
+        return copyCoordinates(coordinates, start, count);
     }
 
     @Override
@@ -106,6 +107,20 @@ public final class VectorSqlArray implements Array {
     @Override
     public void free() {
         coordinates = null;
+    }
+
+    private static Object copyCoordinates(Object values) {
+        return copyCoordinates(values, 0, java.lang.reflect.Array.getLength(values));
+    }
+
+    private static Object copyCoordinates(Object values, int start, int count) {
+        Object result = java.lang.reflect.Array.newInstance(values.getClass().getComponentType(), count);
+        System.arraycopy(values, start, result, 0, count);
+        return result;
+    }
+
+    private boolean isDoublePrecision() {
+        return coordinates instanceof double[] || coordinates instanceof Double[];
     }
 
     private void requireOpen() throws SQLException {

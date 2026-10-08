@@ -45,6 +45,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
     private final String queryId = "report-" + UUID.randomUUID();
     private final String workerId = "report-worker";
     private final WorkerManager workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+    private final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
     private final StatusReportMetricExport metrics = new StatusReportMetricExport();
     private final CompletableFuture<Throwable> deliveryFailure = new CompletableFuture<>();
     private SourceFreeNativeWorkerFixture worker;
@@ -83,7 +84,6 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
         dispatcher.setControlEpochSupplier(() -> 1L);
         dispatcher.setExecutionOwnerResolver(ignored -> new ExecutionOwnerIdentity(
                 "report-coordinator", "report-coordinator-incarnation", 1L));
-        var tracker = new CoordinatorTaskTracker();
         var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, dispatcher,
                 new TaskScheduler(new WorkerPerformanceScorer()), workers, tracker, null, null, null, 30L);
         var execution = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
@@ -160,6 +160,29 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
 
     TaskStatusReport actualRunningReport() {
         return worker.reports().stream().filter(report -> report.state().equals("RUNNING")).findFirst().orElseThrow();
+    }
+
+    TaskStatusReport actualExecutionTerminalReport(String state) {
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30)).until(() ->
+                worker.reports().stream().anyMatch(report -> report.state().equals(state) && !isDrained(report)));
+        return worker.reports().stream().filter(report -> report.state().equals(state) && !isDrained(report))
+                .findFirst().orElseThrow();
+    }
+
+    void pauseAutomaticTaskCleanup() throws InterruptedException { stopCleanup(); }
+
+    List<TaskStatusReport> actualReports() { return worker.reports(); }
+
+    org.pangrova.protocol.v2.TaskAttemptId issuedAttempt(TaskStatusReport report) {
+        var request = java.util.Objects.requireNonNull(tracker.getTaskRequest(report.taskId()),
+                "Actual report must retain its issued task request");
+        var attempt = request.taskRequest().getAttempt();
+        if (!attempt.getQueryOrJobId().equals(report.queryId())
+                || !attempt.getTaskId().equals(report.taskId())
+                || !org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(attempt).equals(report.attempt())) {
+            throw new IllegalStateException("Actual HTTP report differs from its issued attempt");
+        }
+        return attempt;
     }
 
     private static boolean isDrained(TaskStatusReport report) {

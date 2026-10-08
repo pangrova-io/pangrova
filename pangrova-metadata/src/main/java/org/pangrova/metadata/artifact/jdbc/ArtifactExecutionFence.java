@@ -14,6 +14,7 @@ import java.util.Optional;
 public final class ArtifactExecutionFence {
     private ArtifactExecutionFence() {}
 
+    /** Persists the exact tenant/job route before this job's execution is issued. */
     public static void insertRoute(Connection connection, String tenantId, String jobId) throws SQLException {
         var key = new ArtifactBuildJobKey(tenantId, jobId);
         try (var statement = connection.prepareStatement(
@@ -77,11 +78,13 @@ public final class ArtifactExecutionFence {
     /** An explicit stale-owner rejection, distinct from unavailable/corrupt authority or invalid input. */
     public static final class LostOwnerException extends IllegalStateException {
         private static final long serialVersionUID = 1L;
+
         private LostOwnerException(String message) {
             super(message);
         }
     }
 
+    /** Checks both the anchor's exact job association and its current execution ownership. */
     public static void requireAnchor(Connection connection, String tenantId, String jobId, ExecutionAnchor anchor)
             throws SQLException {
         if (!new ArtifactBuildJobKey(tenantId, jobId).executionId().equals(anchor.executionId())) {
@@ -95,7 +98,8 @@ public final class ArtifactExecutionFence {
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT publication_execution_owner_id,publication_execution_owner_incarnation,"
-                        + "publication_execution_owner_token FROM artifact_build_jobs WHERE tenant_id=? AND job_id=?")) {
+                        + "publication_execution_owner_token FROM artifact_build_jobs "
+                        + "WHERE tenant_id=? AND job_id=?")) {
             statement.setString(1, tenantId);
             statement.setString(2, jobId);
             try (var result = statement.executeQuery()) {

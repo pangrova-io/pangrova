@@ -43,7 +43,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Validates requirement G.4: per-batch logging uses DEBUG level,
+ * Validates that per-batch logging uses DEBUG level,
  * aggregate INFO emitted only every {@link NativeWriteExecutor#BATCH_LOG_INTERVAL} batches.
  *
  * <p>Verifies:
@@ -57,6 +57,7 @@ class BatchLoggingReductionTest {
 
     private ListAppender<ILoggingEvent> logAppender;
     private Logger executorLogger;
+    private NativeWriteExecutor executor;
 
     @BeforeEach
     void setUp() {
@@ -68,13 +69,17 @@ class BatchLoggingReductionTest {
 
     @AfterEach
     void tearDown() {
-        executorLogger.detachAppender(logAppender);
-        logAppender.stop();
+        try {
+            if (executor != null) executor.close();
+        } finally {
+            executorLogger.detachAppender(logAppender);
+            logAppender.stop();
+        }
     }
 
     @Test
     void hundredBatchesProduceMinimalInfoLogs() throws Exception {
-        NativeWriteExecutor executor = createExecutor();
+        executor = createExecutor();
         long handle = executor.beginWrite(descriptor("logging_test"));
 
         for (int i = 0; i < 100; i++) {
@@ -124,7 +129,7 @@ class BatchLoggingReductionTest {
 
     @Test
     void noPiiInAnyLogLevel() throws Exception {
-        NativeWriteExecutor executor = createExecutor();
+        executor = createExecutor();
         long handle = executor.beginWrite(descriptor("pii_test"));
 
         byte[] batch = buildBatch(5, 0);
@@ -189,7 +194,7 @@ class BatchLoggingReductionTest {
             ConnectorSession session = new StubSession();
             return new CatalogResourceResolver.CatalogResources(
                     metadata, provider, session, TestOutputHandles.outputHandle(),
-                    List.of("id"));
+                    List.of("id", "name"));
         }));
     }
 

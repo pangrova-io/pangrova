@@ -54,6 +54,8 @@ public final class NativeCapabilityRegistry {
                 "ProjectRel",
                 "AggregateRel",
                 "HashJoinRel",
+                "MergeJoinRel",
+                "NestedLoopJoinRel",
                 "JoinRel",
                 "ExchangeRel",
                 "ExtensionLeafRel",

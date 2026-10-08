@@ -1057,7 +1057,8 @@ void validateOperatorBindings(
     if (binding.has_reuse_policy()) {
       const auto& reuse = binding.reuse_policy();
       const bool reusable_capability =
-          pangrova::capability::isAiTextGeneration(binding.capability());
+          pangrova::capability::isAiTextGeneration(binding.capability()) &&
+          pangrova::capability::aiTextGenerationDescriptor().deterministic();
       if (!reuse.enabled() || !reusable_capability || background_artifact ||
           !governed_model || !reuse.require_complete() || reuse.ttl_ms() == 0 ||
           reuse.ttl_ms() > 7ULL * 24 * 60 * 60 * 1000 ||
@@ -1675,13 +1676,9 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
       throw std::runtime_error("Result column has no logical type");
     }
     const auto dimension =
-        pangrova::capability::requireFloatVectorDimension(column.logical_type());
-    if (column.logical_type().canonical_sql() !=
-        "VECTOR(" + std::to_string(dimension) + ")") {
-      throw std::runtime_error("Result column VECTOR type is not canonical");
-    }
+        pangrova::capability::requireStorageVectorDimension(column.logical_type());
     config.result_column_types.push_back(
-        {column.column_index(), dimension});
+        {column.column_index(), dimension, column.logical_type()});
   }
   config.callback_context = serializeCallbackContext(request);
   return config;

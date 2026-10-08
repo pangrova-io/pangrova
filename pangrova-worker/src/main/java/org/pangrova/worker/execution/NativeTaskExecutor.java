@@ -1,6 +1,5 @@
 package org.pangrova.worker.execution;
 
-import org.pangrova.observability.tracing.NativeTraceExporter;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.spi.execution.TaskExecutor;
 import org.pangrova.worker.ai.invocation.AiInvocationService;
@@ -77,10 +76,11 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
             prepareExternalShuffle(owner);
             AiInvocationService.registerTask(request);
             owner.aiRegistered = true;
-            String traceId = NativeTraceExporter.currentTraceId();
+            var trace = request.getTraceContext();
             byte[] localBytes = local.toByteArray();
             owner.enteredNative = true;
-            owner.handle = NativeRuntime.nativeCreateTaskExecutorWithTrace(localBytes, traceId);
+            owner.handle = NativeRuntime.nativeCreateTaskExecutorWithTraceContext(
+                    localBytes, trace.getTraceId(), trace.getSpanId());
             if (owner.handle <= 0) throw new IllegalStateException("JNI creation returned no positive actual handle");
             creationOwners.publish(owner);
             return owner.handle;
@@ -153,7 +153,7 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
     public void startTask(long executorHandle) {
         var lease = acquireHandleLease(executorHandle);
         try {
-            String traceId = NativeTraceExporter.currentTraceId();
+            String traceId = creationOwners.forHandle(executorHandle).request.getTraceContext().getTraceId();
             NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId);
         } finally {
             lease.close();

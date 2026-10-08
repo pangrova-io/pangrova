@@ -82,7 +82,7 @@ final class CanonicalExchangeGraphFixture {
                 plan(input, presentation), List.of(),
                 SubstraitRelationLayout.topLevelNames(NamedStruct.newBuilder().addAllNames(presentation)
                         .setStruct(SubstraitRelationLayout.describe(input).outputSchema().getStruct()).build()),
-                List.of(), -1, -1);
+                List.of(), List.of(), -1, -1);
     }
 
     static AuthorizedStageGraph graph(NamedStruct source, NamedStruct consumer) {

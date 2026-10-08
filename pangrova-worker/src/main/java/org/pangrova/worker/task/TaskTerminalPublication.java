@@ -8,42 +8,69 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.task.TerminalReportDeliveryPolicy;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 
-/** Retains one real post-release envelope until its exact metadata ACK is received. */
+/** Retains each real terminal envelope until ACK, advancing to release evidence only in order. */
 @ThreadSafe
 final class TaskTerminalPublication {
-    private final AtomicReference<CompletableFuture<Envelope>> envelope = new AtomicReference<>();
-    private final AtomicReference<CompletableFuture<Void>> delivery = new AtomicReference<>();
+    private final AtomicReference<Phase> phase = new AtomicReference<>();
 
-    void publish(Supplier<TaskStatusReport> prepare, Consumer<TaskStatusReport> send) {
-        Envelope retained = prepare(prepare);
-        var candidate = new CompletableFuture<Void>();
-        var claimed = claim(delivery, candidate);
-        if (claimed != candidate) { claimed.join(); return; }
-        try {
-            if (System.nanoTime() - retained.expiresAtNanos() >= 0) {
-                throw new IllegalStateException("Terminal receipt metadata delivery horizon exhausted: "
-                        + retained.report().taskId());
-            }
-            send.accept(retained.report());
-            candidate.complete(null);
-        } catch (RuntimeException | Error failure) {
-            candidate.completeExceptionally(failure);
-            throw failure;
+    void publish(boolean released, Supplier<TaskStatusReport> prepare, Consumer<TaskStatusReport> send) {
+        var candidate = new Phase(released, prepare, System.nanoTime()
+                + TerminalReportDeliveryPolicy.DELIVERY_HORIZON.toNanos());
+        phase.compareAndSet(null, candidate);
+        Phase current = phase.get();
+        while (true) {
+            current.publish(send);
+            if (current.released || !released) return;
+            // Even if Native resources have exited, the prior exact envelope must receive its real ACK first.
+            var next = new Phase(true, prepare, current.expiresAtNanos);
+            phase.compareAndSet(current, next);
+            current = phase.get();
         }
     }
 
-    private Envelope prepare(Supplier<TaskStatusReport> prepare) {
-        var candidate = new CompletableFuture<Envelope>();
-        var claimed = claim(envelope, candidate);
-        if (claimed != candidate) return claimed.join();
-        try {
-            Envelope retained = new Envelope(prepare.get(), System.nanoTime()
-                    + TerminalReportDeliveryPolicy.DELIVERY_HORIZON.toNanos());
-            candidate.complete(retained);
-            return retained;
-        } catch (RuntimeException | Error failure) {
-            candidate.completeExceptionally(failure);
-            throw failure;
+    private static final class Phase {
+        private final boolean released;
+        private final Supplier<TaskStatusReport> prepare;
+        private final long expiresAtNanos;
+        private final AtomicReference<CompletableFuture<TaskStatusReport>> envelope = new AtomicReference<>();
+        private final AtomicReference<CompletableFuture<Void>> delivery = new AtomicReference<>();
+
+        private Phase(boolean released, Supplier<TaskStatusReport> prepare, long expiresAtNanos) {
+            this.released = released;
+            this.prepare = prepare;
+            this.expiresAtNanos = expiresAtNanos;
+        }
+
+        private void publish(Consumer<TaskStatusReport> send) {
+            TaskStatusReport retained = prepare();
+            var candidate = new CompletableFuture<Void>();
+            var claimed = claim(delivery, candidate);
+            if (claimed != candidate) { claimed.join(); return; }
+            try {
+                if (System.nanoTime() - expiresAtNanos >= 0) {
+                    throw new IllegalStateException("Terminal receipt metadata delivery horizon exhausted: "
+                            + retained.taskId());
+                }
+                send.accept(retained);
+                candidate.complete(null);
+            } catch (RuntimeException | Error failure) {
+                candidate.completeExceptionally(failure);
+                throw failure;
+            }
+        }
+
+        private TaskStatusReport prepare() {
+            var candidate = new CompletableFuture<TaskStatusReport>();
+            var claimed = claim(envelope, candidate);
+            if (claimed != candidate) return claimed.join();
+            try {
+                TaskStatusReport retained = java.util.Objects.requireNonNull(prepare.get(), "terminal report");
+                candidate.complete(retained);
+                return retained;
+            } catch (RuntimeException | Error failure) {
+                candidate.completeExceptionally(failure);
+                throw failure;
+            }
         }
     }
 
@@ -56,5 +83,4 @@ final class TaskTerminalPublication {
         }
     }
 
-    private record Envelope(TaskStatusReport report, long expiresAtNanos) { }
 }

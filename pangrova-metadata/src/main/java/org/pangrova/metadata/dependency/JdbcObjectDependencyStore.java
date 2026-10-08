@@ -25,11 +25,8 @@ import java.util.Set;
  * <p>The schema PK is {@code (parent_catalog, parent_schema, parent_object,
  * child_catalog, child_schema, child_object)} — kinds are NOT part of the
  * identity. This store treats inserts as idempotent on the natural key by
- * issuing a DELETE+INSERT inside the same statement when the edge already
- * exists; PostgreSQL supports ON CONFLICT but H2 compatibility varies —
- * to keep the implementation portable (PG production + H2 tests), we
- * delete-then-insert per row in the same
- * transaction. The cost is acceptable: dependency edges churn on DDL only,
+ * issuing a DELETE+INSERT in the same PostgreSQL transaction when the edge
+ * already exists. The cost is acceptable: dependency edges churn on DDL only,
  * which is rare relative to query traffic.
  *
  * <p>All multi-row operations run inside a single transaction so partial
@@ -205,12 +202,11 @@ public final class JdbcObjectDependencyStore implements ObjectDependencyStore {
     private static void upsertEdges(Connection conn, ObjectRef child, Set<ObjectRef> parents)
             throws SQLException {
         // Idempotent insert: delete the natural-key match if it exists, then insert.
-        // Portable across PG and H2 (avoids ON CONFLICT syntax differences).
         try (PreparedStatement deleteEdge = conn.prepareStatement(DELETE_EDGE_SQL);
              PreparedStatement insert = conn.prepareStatement(INSERT_SQL)) {
             for (ObjectRef parent : parents) {
                 if (parent.equals(child)) {
-                    LOG.warn("event=dependency_self_edge_skipped obj={}", parent);
+                    LOG.warn("event=dependency_self_edge_skipped objectKind={}", parent.kind());
                     continue;
                 }
                 deleteEdge.setString(1, parent.catalog());
@@ -249,15 +245,12 @@ public final class JdbcObjectDependencyStore implements ObjectDependencyStore {
 
     private static ObjectKind parseKind(String raw) {
         if (raw == null) {
-            return ObjectKind.EXTERNAL;
+            throw new MetastoreException("Stored dependency object kind is absent");
         }
         try {
             return ObjectKind.valueOf(raw);
         } catch (IllegalArgumentException e) {
-            // Forward-compat: an unknown kind written by a newer node is treated
-            // as EXTERNAL rather than crashing the lookup.
-            LOG.warn("event=unknown_object_kind raw={} fallback=EXTERNAL", raw);
-            return ObjectKind.EXTERNAL;
+            throw new MetastoreException("Stored dependency object kind is not canonical", e);
         }
     }
 }

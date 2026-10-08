@@ -292,7 +292,8 @@ final class ExpressionConverter {
 
     private Expression convertArrayElement(RexNode operand, RelDataType componentType) {
         if (operand instanceof RexLiteral literal) return literalConverter.convert(literal, componentType);
-        if (operand instanceof RexCall nested && nested.getKind() == org.apache.calcite.sql.SqlKind.ARRAY_VALUE_CONSTRUCTOR) {
+        if (operand instanceof RexCall nested
+                && nested.getKind() == org.apache.calcite.sql.SqlKind.ARRAY_VALUE_CONSTRUCTOR) {
             return convertArrayConstructor(nested, componentType);
         }
         if (operand instanceof RexCall row && row.getKind() == org.apache.calcite.sql.SqlKind.ROW) {
@@ -329,7 +330,8 @@ final class ExpressionConverter {
         Type outputType = typeMapper.map(call.getType());
         var rewrite = org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
                 .rewrite(ref.namespace(), ref.name());
-        if (rewrite.isPresent()) return DeclaredScalarProgram.lower(rewrite.orElseThrow(), args, outputType, functionMapper);
+        if (rewrite.isPresent()) return DeclaredScalarProgram.lower(
+                rewrite.orElseThrow(), args, outputType, functionMapper);
         return ImmutableExpression.ScalarFunctionInvocation.builder()
                 .declaration(variant)
                 .outputType(outputType)

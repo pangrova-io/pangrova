@@ -6,6 +6,10 @@ variable "IMAGE" {
   default = "pangrova/pangrova:latest"
 }
 
+variable "SOURCE_COMMIT" {
+  default = ""
+}
+
 group "default" {
   targets = ["pangrova"]
 }
@@ -25,4 +29,7 @@ target "pangrova" {
   }
   platforms = split(",", PLATFORMS)
   tags = [IMAGE]
+  args = {
+    SOURCE_COMMIT = SOURCE_COMMIT
+  }
 }

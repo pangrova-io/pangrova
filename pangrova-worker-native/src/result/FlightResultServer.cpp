@@ -7,9 +7,11 @@
 #include "result/FlightResultServer.h"
 #include "result/ResultBatchStreamReader.h"
 #include "result/ResultReadAuthority.h"
+#include "capability/LogicalTypeContract.h"
 #include <arrow/util/key_value_metadata.h>
 #include <chrono>
 #include <fstream>
+#include <exception>
 #include <stdexcept>
 #include <unordered_set>
 #include <velox/exec/OutputBufferManager.h>
@@ -19,12 +21,15 @@ namespace pangrova::result {
 
 // F-NATIVE-SHUF-08: Singleton instance pointer for per-instance caches.
 std::atomic<FlightResultServer*> FlightResultServer::instance_{nullptr};
+std::shared_mutex FlightResultServer::instance_mutex_;
 
 FlightResultServer* FlightResultServer::instance() {
   return instance_.load(std::memory_order_acquire);
 }
 
 void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskOutputInfo info) {
+  if (!info.buffers) info.buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
+  std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
   auto* server = instance();
   if (!server || !server->isRunning() || !info.output_type || !info.wire_schema || !info.pool || !info.ownership ||
       static_cast<size_t>(info.wire_schema->num_fields()) != info.output_type->size() ||
@@ -40,13 +45,22 @@ void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskO
 }
 
 void FlightResultServer::unregisterTaskOutputType(const std::string& taskId) {
-  auto* server = instance();
-  if (!server) return;
-  std::lock_guard<std::mutex> lock(server->output_type_mutex_);
-  server->output_type_cache_.erase(taskId);
+  std::optional<TaskOutputInfo> removed;
+  {
+    std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
+    auto* server = instance();
+    if (!server) return;
+    std::lock_guard<std::mutex> lock(server->output_type_mutex_);
+    const auto found = server->output_type_cache_.find(taskId);
+    if (found == server->output_type_cache_.end()) return;
+    removed = std::move(found->second);
+    server->output_type_cache_.erase(found);
+  }
+  removed->ownership->revokeAuthority();
 }
 
 std::optional<FlightResultServer::TaskOutputInfo> FlightResultServer::lookupTaskOutputInfo(const std::string& taskId) {
+  std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
   auto* server = instance();
   if (!server) return std::nullopt;
   std::lock_guard<std::mutex> lock(server->output_type_mutex_);
@@ -56,11 +70,13 @@ std::optional<FlightResultServer::TaskOutputInfo> FlightResultServer::lookupTask
 
 arrow::Result<FlightResultServer::TaskOutputInfo> FlightResultServer::claimTaskOutputInfo(
     const protocol::v2::ResultReadGrant& grant) {
+  std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
   auto* server = instance();
   if (!server) return arrow::Status::Invalid("Result authority is unavailable");
   std::lock_guard<std::mutex> lock(server->output_type_mutex_);
   auto it = server->output_type_cache_.find(grant.attempt().task_id());
-  if (it == server->output_type_cache_.end() || it->second.claimed) {
+  if (it == server->output_type_cache_.end() || it->second.claimed ||
+      it->second.ownership->evidence().authority_revoked) {
     return arrow::Status::Invalid("Result authority is unavailable or already claimed");
   }
   ARROW_RETURN_NOT_OK(validateResultRead(grant, it->second.authority));
@@ -100,12 +116,13 @@ arrow::Result<std::shared_ptr<arrow::Schema>> withResultColumnTypes(
       return arrow::Status::Invalid("Invalid result column logical type index or dimension");
     }
     const auto& field = fields[column.column_index];
-    if (field->type()->id() != arrow::Type::LIST ||
-        std::static_pointer_cast<arrow::ListType>(field->type())
-                ->value_type()->id() != arrow::Type::FLOAT) {
-      return arrow::Status::TypeError(
-          "VECTOR result column requires List<Float32> storage at index " +
-          std::to_string(column.column_index));
+    try {
+      if (column.dimension != capability::requireStorageVectorDimension(column.logical_type)) {
+        return arrow::Status::Invalid("VECTOR dimension differs from admitted logical type");
+      }
+      capability::validateVectorResultField(column.logical_type, *field);
+    } catch (const std::invalid_argument& error) {
+      return arrow::Status::TypeError("Invalid VECTOR result field: ", error.what());
     }
     auto metadata = field->metadata()
         ? field->metadata()->Copy()
@@ -130,13 +147,16 @@ FlightResultServer::FlightResultServer(FlightResultServerConfig config)
     : config_(std::move(config)) {}
 
 FlightResultServer::~FlightResultServer() {
-  if (running_.load()) {
+  try {
     stop();
+  } catch (const std::exception& error) {
+    PANGROVA_LOG(ERROR) << "event=flight_result_destructor_cleanup_failed error=" << error.what();
   }
 }
 
 int FlightResultServer::start() {
-  if (running_.load()) {
+  std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+  if (running_.load() || initialized_) {
     throw std::logic_error("FlightResultServer already running");
   }
 
@@ -146,9 +166,10 @@ int FlightResultServer::start() {
   auto location_result = any_tls_path
       ? arrow::flight::Location::ForGrpcTls("0.0.0.0", config_.port)
       : arrow::flight::Location::ForGrpcTcp("0.0.0.0", config_.port);
-  CHECK(location_result.ok())
-      << "Failed to create Flight location: "
-      << location_result.status().ToString();
+  if (!location_result.ok()) {
+    throw std::runtime_error("Failed to create Flight location: " +
+        location_result.status().ToString());
+  }
 
   arrow::flight::FlightServerOptions options(*location_result);
 
@@ -191,12 +212,18 @@ int FlightResultServer::start() {
   }
 
   auto init_status = Init(options);
-  CHECK(init_status.ok())
-      << "Failed to init Flight result server: " << init_status.ToString();
+  if (!init_status.ok()) {
+    throw std::runtime_error("Failed to init Flight result server: " + init_status.ToString());
+  }
+  initialized_ = true;
+  transport_stopped_ = false;
 
   bound_port_ = port();
   running_.store(true);
-  instance_.store(this, std::memory_order_release);
+  {
+    std::unique_lock<std::shared_mutex> service_lock(instance_mutex_);
+    instance_.store(this, std::memory_order_release);
+  }
 
   // Serve in a background thread (Serve() blocks).
   server_thread_ = std::thread([this]() {
@@ -214,33 +241,52 @@ int FlightResultServer::start() {
 }
 
 void FlightResultServer::stop() {
-  if (!running_.exchange(false)) {
-    return;
+  std::lock_guard<std::mutex> lifecycle_lock(lifecycle_mutex_);
+  if (!initialized_) return;
+  running_.store(false);
+  {
+    std::unique_lock<std::shared_mutex> service_lock(instance_mutex_);
+    auto* expected = this;
+    instance_.compare_exchange_strong(expected, nullptr, std::memory_order_acq_rel);
   }
-  instance_.store(nullptr, std::memory_order_release);
-
-  auto status = Shutdown();
-  if (!status.ok()) {
-    PANGROVA_LOG(ERROR) << "event=flight_result_shutdown_error"
-                      << " error=" << status.ToString();
-  }
-
-  if (server_thread_.joinable()) {
-    server_thread_.join();
-  }
-
   std::unordered_map<std::string, TaskOutputInfo> revoked;
   {
     std::lock_guard<std::mutex> lock(output_type_mutex_);
     revoked.swap(output_type_cache_);
   }
-  const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-  for (const auto& [taskId, info] : revoked) {
-    if (buffers) {
-      buffers->deleteResults(taskId, 0);
-      info.ownership->revokeAndClearQueue();
+  // Transfer the actual cache nodes, not an unbudgeted deep copy of every
+  // schema/security envelope. Admission is sealed; failed nodes are returned
+  // to the same authoritative cache for retry without a second registry.
+  for (const auto& entry : revoked) entry.second.ownership->revokeAuthority();
+  std::exception_ptr cleanup_failure;
+  for (auto current = revoked.begin(); current != revoked.end();) {
+    try {
+      current->second.buffers->deleteResults(current->first, 0);
+      current->second.ownership->revokeAndClearQueue();
+      current = revoked.erase(current);
+    } catch (...) {
+      if (!cleanup_failure) cleanup_failure = std::current_exception();
+      ++current;
     }
   }
+  {
+    std::lock_guard<std::mutex> lock(output_type_mutex_);
+    output_type_cache_.swap(revoked);
+  }
+
+  // All result authority is already revoked. Cancel transport calls as well:
+  // an idle peer need not drive its completion queue to acknowledge GOAWAY,
+  // and a blocked network write cannot observe application-level revocation.
+  // The SDK still joins the actual handlers before Shutdown returns.
+  if (!transport_stopped_) {
+    const auto deadline = std::chrono::system_clock::now();
+    const auto status = Shutdown(&deadline);
+    if (!status.ok()) throw std::runtime_error("Flight result shutdown failed: " + status.ToString());
+    if (server_thread_.joinable()) server_thread_.join();
+    transport_stopped_ = true;
+  }
+  if (cleanup_failure) std::rethrow_exception(cleanup_failure);
+  initialized_ = false;
 
   PANGROVA_LOG(INFO) << "event=flight_result_server_stopped"
                     << " port=" << bound_port_;
@@ -249,7 +295,6 @@ void FlightResultServer::stop() {
 arrow::Status FlightResultServer::DoGet(
     const arrow::flight::ServerCallContext& context, const arrow::flight::Ticket& request,
     std::unique_ptr<arrow::flight::FlightDataStream>* stream) {
-  (void)context;
   auto authenticated = authenticateResultRead(request.ticket);
   if (!authenticated.ok()) return arrow::flight::MakeFlightError(
       arrow::flight::FlightStatusCode::Unauthenticated, "Invalid result authority");
@@ -270,7 +315,7 @@ arrow::Status FlightResultServer::DoGet(
   }
   ARROW_ASSIGN_OR_RAISE(auto claimed, claimTaskOutputInfo(grant));
   ARROW_ASSIGN_OR_RAISE(auto reader, resultBatchStreamReader(std::move(claimed), grant,
-      config_.max_bytes_per_response, config_.result_fetch_timeout_seconds));
+      config_.max_bytes_per_response, config_.result_fetch_timeout_seconds, &context));
   *stream = std::make_unique<arrow::flight::RecordBatchStream>(reader);
   return arrow::Status::OK();
 }

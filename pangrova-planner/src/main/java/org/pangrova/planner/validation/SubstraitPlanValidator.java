@@ -11,6 +11,8 @@ import io.substrait.relation.Project;
 import io.substrait.relation.Rel;
 import io.substrait.relation.Sort;
 import io.substrait.relation.physical.HashJoin;
+import io.substrait.relation.physical.MergeJoin;
+import io.substrait.relation.physical.NestedLoopJoin;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -41,7 +43,6 @@ public final class SubstraitPlanValidator {
             Map.entry("Filter", "FilterRel"),
             Map.entry("Project", "ProjectRel"),
             Map.entry("Aggregate", "AggregateRel"),
-            Map.entry("HashJoin", "HashJoinRel"),
             Map.entry("Join", "JoinRel"),
             Map.entry("Sort", "SortRel"),
             Map.entry("Fetch", "FetchRel"),
@@ -53,6 +54,12 @@ public final class SubstraitPlanValidator {
             Map.entry("Cross", "JoinRel"),
             Map.entry("ExtensionMulti", "JoinRel")
     );
+
+    /** Physical join capabilities follow the SDK relation contract, not implementation names. */
+    private static final Map<Class<? extends Rel>, String> PHYSICAL_JOIN_TYPE_NAMES = Map.of(
+            HashJoin.class, "HashJoinRel",
+            MergeJoin.class, "MergeJoinRel",
+            NestedLoopJoin.class, "NestedLoopJoinRel");
 
     /**
      * Maps Substrait SDK Expression class simple names to the registry's
@@ -89,7 +96,11 @@ public final class SubstraitPlanValidator {
         relCount[0]++;
         String className = stripImmutablePrefix(rel.getClass().getSimpleName());
 
-        String registryName = REL_TYPE_NAMES.get(className);
+        String registryName = PHYSICAL_JOIN_TYPE_NAMES.entrySet().stream()
+                .filter(entry -> entry.getKey().isInstance(rel))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElseGet(() -> REL_TYPE_NAMES.get(className));
         boolean unsupportedDetail = rel instanceof ExtensionLeaf leaf
                 && !(leaf.getDetail() instanceof ExchangeInputLeafDetail);
         if (registryName == null || !registry.isRelSupported(registryName)
@@ -192,6 +203,8 @@ public final class SubstraitPlanValidator {
             Project.class, (r, out) -> out.addAll(((Project) r).getExpressions()),
             Join.class, (r, out) -> collectJoinExpressions((Join) r, out),
             HashJoin.class, (r, out) -> collectHashJoinExpressions((HashJoin) r, out),
+            MergeJoin.class, (r, out) -> collectMergeJoinExpressions((MergeJoin) r, out),
+            NestedLoopJoin.class, (r, out) -> out.add(((NestedLoopJoin) r).getCondition()),
             Sort.class, (r, out) -> ((Sort) r).getSortFields().forEach(sf -> out.add(sf.expr())),
             Aggregate.class, (r, out) -> collectAggregateExpressions((Aggregate) r, out)
     );
@@ -212,6 +225,14 @@ public final class SubstraitPlanValidator {
         hj.getPostJoinFilter().ifPresent(result::add);
         result.addAll(hj.getLeftKeys());
         result.addAll(hj.getRightKeys());
+    }
+
+    private static void collectMergeJoinExpressions(MergeJoin join, List<Expression> result) {
+        join.getPostJoinFilter().ifPresent(result::add);
+        join.getKeys().forEach(key -> {
+            result.add(key.getLeft());
+            result.add(key.getRight());
+        });
     }
 
     private static void collectAggregateExpressions(Aggregate a, List<Expression> result) {

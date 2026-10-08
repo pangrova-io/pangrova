@@ -53,13 +53,6 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
         return provider;
     }
 
-    NativeFunctionConfig config() {
-        if (config == null) {
-            throw new IllegalStateException("The shared Native function configuration has not been prepared");
-        }
-        return config;
-    }
-
     @Override
     public void close() {
         if (NativeRuntime.isInitialized()) {

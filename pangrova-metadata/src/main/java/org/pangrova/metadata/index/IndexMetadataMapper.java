@@ -2,7 +2,6 @@ package org.pangrova.metadata.index;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.metadata.exception.MetastoreException;
 import org.pangrova.metadata.store.MetadataJsonMapper;
 import org.pangrova.metadata.index.model.IndexFileMapping;
@@ -31,7 +30,6 @@ import static org.pangrova.metadata.store.JdbcSupport.setInstant;
  */
 public final class IndexMetadataMapper {
 
-    private static final ObjectMapper MAPPER = MetadataJsonMapper.instance();
     private static final TypeReference<List<String>> LIST_STRING_TYPE = new TypeReference<>() {};
     private static final TypeReference<Map<String, String>> MAP_STRING_TYPE = new TypeReference<>() {};
 
@@ -161,7 +159,7 @@ public final class IndexMetadataMapper {
     /** Serializes a string list to JSON, returning an empty array for null/blank input. */
     public static String toJson(List<String> value) {
         try {
-            return MAPPER.writeValueAsString(value);
+            return MetadataJsonMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON serialization failed", e);
         }
@@ -170,7 +168,7 @@ public final class IndexMetadataMapper {
     /** Serializes a string map to JSON, returning an empty object for null/blank input. */
     public static String toJsonMap(Map<String, String> value) {
         try {
-            return MAPPER.writeValueAsString(value);
+            return MetadataJsonMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON serialization failed", e);
         }
@@ -188,7 +186,7 @@ public final class IndexMetadataMapper {
             return List.of();
         }
         try {
-            return MAPPER.readValue(json, LIST_STRING_TYPE);
+            return MetadataJsonMapper.readValue(json, LIST_STRING_TYPE);
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON deserialization failed", e);
         }
@@ -200,7 +198,7 @@ public final class IndexMetadataMapper {
             return Map.of();
         }
         try {
-            return MAPPER.readValue(json, MAP_STRING_TYPE);
+            return MetadataJsonMapper.readValue(json, MAP_STRING_TYPE);
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON deserialization failed", e);
         }

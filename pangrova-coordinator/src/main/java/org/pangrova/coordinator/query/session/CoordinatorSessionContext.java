@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query.session;
 
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.spi.connector.ConnectorQueryAuthority;
+import org.pangrova.observability.tracing.ExecutionTraceContext;
 
 import java.util.Map;
 import java.util.Optional;
@@ -17,13 +18,15 @@ public record CoordinatorSessionContext(
         Map<String, String> sessionProperties,
         UserIdentity userIdentity,
         String tenantId,
-        Optional<ConnectorQueryAuthority> queryAuthority
+        Optional<ConnectorQueryAuthority> queryAuthority,
+        ExecutionTraceContext traceContext
 ) {
 
     public CoordinatorSessionContext {
         checkNotNull(queryId, "queryId must not be null");
         sessionProperties = sessionProperties == null ? Map.of() : Map.copyOf(sessionProperties);
         queryAuthority = checkNotNull(queryAuthority, "queryAuthority must not be null");
+        traceContext = checkNotNull(traceContext, "traceContext must not be null");
         queryAuthority.ifPresent(authority -> {
             if (!queryId.equals(authority.queryId())) {
                 throw new IllegalArgumentException("Session queryId differs from its issued authority");
@@ -34,7 +37,16 @@ public record CoordinatorSessionContext(
     /** Creates an authenticated request context before engine query admission. */
     public CoordinatorSessionContext(String queryId, Map<String, String> sessionProperties,
             UserIdentity userIdentity, String tenantId) {
-        this(queryId, sessionProperties, userIdentity, tenantId, Optional.empty());
+        this(queryId, sessionProperties, userIdentity, tenantId, Optional.empty(), ExecutionTraceContext.capture());
+    }
+
+    public CoordinatorSessionContext(String queryId, Map<String, String> sessionProperties,
+            UserIdentity userIdentity, String tenantId, Optional<ConnectorQueryAuthority> queryAuthority) {
+        this(queryId, sessionProperties, userIdentity, tenantId, queryAuthority, ExecutionTraceContext.capture());
+    }
+
+    public CoordinatorSessionContext withTraceContext(ExecutionTraceContext context) {
+        return new CoordinatorSessionContext(queryId, sessionProperties, userIdentity, tenantId, queryAuthority, context);
     }
 
     /** Binds the actual engine-owned query lifetime without altering the authenticated actor. */
@@ -43,7 +55,7 @@ public record CoordinatorSessionContext(
             throw new IllegalStateException("Session already belongs to another query lifetime");
         }
         return new CoordinatorSessionContext(queryId, sessionProperties, userIdentity, tenantId,
-                Optional.of(authority));
+                Optional.of(authority), traceContext);
     }
 
     /**
@@ -53,6 +65,7 @@ public record CoordinatorSessionContext(
         if (queryAuthority.isPresent() && !queryId.equals(newQueryId)) {
             throw new IllegalStateException("An admitted session cannot change its query identity");
         }
-        return new CoordinatorSessionContext(newQueryId, sessionProperties, userIdentity, tenantId, queryAuthority);
+        return new CoordinatorSessionContext(newQueryId, sessionProperties, userIdentity, tenantId, queryAuthority,
+                traceContext);
     }
 }

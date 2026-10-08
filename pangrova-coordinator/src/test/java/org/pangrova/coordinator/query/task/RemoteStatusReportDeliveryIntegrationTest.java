@@ -186,6 +186,100 @@ class RemoteStatusReportDeliveryIntegrationTest {
         }
     }
 
+    @Test
+    void actualProgressWithoutTerminalBytesAcknowledgesOnlyItsUnchangedHttpRetry() throws Exception {
+        try (var fixture = scenario("RUNNING", false, 0, 0)) {
+            fixture.startWithoutConsumingResult();
+            var actual = fixture.actualRunningReport();
+            assertThat(actual.canonicalTaskReport()).isNull();
+            assertThat(deliverActualProgress(fixture, actual).command()).isEqualTo("CONTINUE");
+            var changed = new TaskStatusReport(actual.taskId(), actual.queryId(), actual.stageId(),
+                    actual.partitionId(), actual.taskType(), actual.workerId(), actual.state(), null,
+                    actual.error(), actual.writeResult(), actual.reportSequence(), actual.timestampMs(),
+                    actual.errorCode(), actual.errorMetadata(), actual.attempt(), actual.canonicalTaskReport());
+            assertThat(actual.stats()).isNotNull();
+            assertThat(deliverActualProgress(fixture, changed).command()).isEqualTo("STALE_REJECTED");
+            assertThat(deliverActualProgress(fixture, actual).command()).isEqualTo("CONTINUE");
+            fixture.consumeResult();
+            fixture.recoverAndDrain();
+            assertFortyTwo(fixture);
+        }
+    }
+
+    @Test
+    void successfulExecutionReportLostAckRetriesBeforePublishingActualRelease() throws Exception {
+        try (var fixture = scenario("FINISHED", false, 0, 2)) {
+            fixture.pauseAutomaticTaskCleanup();
+            fixture.finish();
+            var actual = fixture.actualExecutionTerminalReport("FINISHED");
+            awaitAttempts(fixture, 3);
+            assertExecutionTerminalRetries(fixture, actual, 3);
+            assertThat(fixture.failedReports()).isZero();
+            fixture.recoverAndDrain();
+            var released = fixture.actualReleasedReport("FINISHED");
+            assertThat(released.reportSequence()).isGreaterThan(actual.reportSequence());
+            assertActualDrained(released, TaskState.TASK_STATE_FINISHED);
+            assertFortyTwo(fixture);
+        }
+    }
+
+    @Test
+    void successfulExecutionReportExhaustedAckRetainsItsExactFactUntilRealRecovery() throws Exception {
+        try (var fixture = scenario("FINISHED", false, 0, Integer.MAX_VALUE)) {
+            fixture.pauseAutomaticTaskCleanup();
+            fixture.finish();
+            var actual = fixture.actualExecutionTerminalReport("FINISHED");
+            assertThat(fixture.awaitDeliveryFailure()).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("not acknowledged");
+            assertExecutionTerminalRetries(fixture, actual, TerminalReportDeliveryPolicy.ATTEMPTS_PER_ROUND);
+            assertThat(fixture.failedReports()).isEqualTo(1);
+            assertThat(fixture.queries().getQueryState(fixture.queryId()))
+                    .contains(org.pangrova.coordinator.query.QueryStateMachine.State.FINISHED);
+            assertThat(fixture.queries().getActiveQueryCount()).isEqualTo(1);
+            assertThat(fixture.actualReports()).noneMatch(report -> report.state().equals("FAILED"));
+            fixture.recoverAndDrain();
+            var released = fixture.actualReleasedReport("FINISHED");
+            assertThat(released.reportSequence()).isGreaterThan(actual.reportSequence());
+            assertThat(released.attempt()).isEqualTo(actual.attempt());
+            assertActualDrained(released, TaskState.TASK_STATE_FINISHED);
+            assertFortyTwo(fixture);
+        }
+    }
+
+    private static void assertExecutionTerminalRetries(
+            NativeReportDeliveryFixture fixture, TaskStatusReport actual, int count) throws Exception {
+        var canonical = TaskReport.parseFrom(actual.canonicalTaskReport());
+        assertThat(canonical.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+        assertThat(canonical.getExecutionDrainState())
+                .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED);
+        assertThat(canonical.hasError()).isFalse();
+        var attempts = fixture.relay().matchingAttempts();
+        assertThat(attempts).hasSize(count);
+        assertThat(accepted(attempts)).isEqualTo(count);
+        byte[] original = JsonMapperFactory.shared().writeValueAsBytes(actual);
+        for (var attempt : attempts) {
+            assertThat(attempt.body()).containsExactly(original);
+            var retried = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
+            assertThat(retried.reportSequence()).isEqualTo(actual.reportSequence());
+            assertThat(retried.canonicalTaskReport()).containsExactly(actual.canonicalTaskReport());
+        }
+    }
+
+    private static TaskStatusReportResponse deliverActualProgress(
+            NativeReportDeliveryFixture fixture, TaskStatusReport report) throws Exception {
+        var request = HttpRequest.newBuilder(fixture.coordinatorUri().resolve("/v1/task/status-report"))
+                .timeout(Duration.ofSeconds(5))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + NativeReportDeliveryFixture.SECRET)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(JsonMapperFactory.shared().writeValueAsBytes(report)))
+                .build();
+        var response = fixture.http().httpClient().send(request, HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(response.statusCode()).isEqualTo(200);
+        var acknowledgment = JsonMapperFactory.shared().readValue(response.body(), TaskStatusReportResponse.class);
+        assertThat(acknowledgment.taskId()).isEqualTo(report.taskId());
+        return acknowledgment;
+    }
+
     private NativeReportDeliveryFixture scenario(String state, boolean drained, int before, int after)
             throws Exception {
         return new NativeReportDeliveryFixture(directory, state, drained, before, after);

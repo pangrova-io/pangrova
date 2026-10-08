@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <shared_mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -29,6 +30,8 @@
 
 #include "result/ResultColumnType.h"
 #include "result/ResultOwnershipState.h"
+
+namespace facebook::velox::exec { class OutputBufferManager; }
 
 namespace pangrova::result {
 
@@ -117,6 +120,7 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
     std::vector<std::string> column_labels;
     std::shared_ptr<memory::ColumnarMemoryPool> pool;
     std::shared_ptr<ResultOwnershipState> ownership;
+    std::shared_ptr<facebook::velox::exec::OutputBufferManager> buffers;
     protocol::v2::ExecutionCallbackContext authority;
     bool claimed = false;
   };
@@ -174,12 +178,18 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   int bound_port_ = 0;
   std::atomic<bool> running_{false};
   std::thread server_thread_;
+  std::mutex lifecycle_mutex_;
+  bool initialized_ = false;
+  bool transport_stopped_ = false;
 
   // F-NATIVE-SHUF-08: Per-instance caches instead of process-global statics.
   // Guarded by their respective mutexes; accessed via instance().
   mutable std::mutex output_type_mutex_;
   std::unordered_map<std::string, TaskOutputInfo> output_type_cache_;
   static std::atomic<FlightResultServer*> instance_;
+  // Pins the actual service during short registration operations. Never held
+  // over network shutdown, joins or output-buffer callbacks.
+  static std::shared_mutex instance_mutex_;
 };
 
 }  // namespace pangrova::result

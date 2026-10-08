@@ -51,8 +51,13 @@ final class ControlPlaneResultTransportBootstrap {
         List<io.grpc.ServerInterceptor> interceptors = tracing == null
                 ? List.of()
                 : List.of(new org.pangrova.observability.tracing.FlightSpanInterceptor(tracing));
-        return new TransportServer(new CoordinatorDataProducer(buffer),
-                new TransportServerConfig(config.coordinatorTransportPort()),
+        var tls = config.shuffleTlsConfig();
+        var transport = new TransportServerConfig(config.coordinatorTransportPort(),
+                tls == null ? null : tls.certificateChain().toString(),
+                tls == null ? null : tls.privateKey().toString(),
+                tls == null ? null : tls.rootCa().toString(), tls != null,
+                config.coordinatorTransportAllocatorLimitBytes());
+        return new TransportServer(new CoordinatorDataProducer(buffer), transport,
                 null, interceptors);
     }
 
@@ -61,7 +66,7 @@ final class ControlPlaneResultTransportBootstrap {
             TransportServerLifecycle server, BufferAllocator allocator) {
         ResultEndpoint endpoint = new ResultEndpoint(
                 config.coordinatorTransportAdvertisedHost(), server.getPort(), "",
-                ResultProtocol.GRPC.value());
+                (config.shuffleTlsConfig() == null ? ResultProtocol.GRPC : ResultProtocol.GRPC_TLS).value());
         LOG.info("event=control_plane_result_transport_started port={} advertisedHost={}",
                 server.getPort(), config.coordinatorTransportAdvertisedHost());
         return new CoordinatorResultService(buffer,

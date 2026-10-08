@@ -3,18 +3,18 @@ package org.pangrova.spi.transport;
 import org.pangrova.spi.annotation.Internal;
 
 /**
- * Functional interface for handling DoGet requests on the data transport server.
+ * Opens independent request-scoped cursors on the data transport server.
  */
 @Internal
 @FunctionalInterface
 public interface DataProducer {
 
     /**
-     * Produces data for the given ticket.
+     * Opens one read request for the given ticket. Reopening retained results
+     * must not reuse an exhausted cursor from a previous request.
      *
      * @param ticket the data ticket identifying the requested partition
-     * @return raw data bytes if available; empty array if stream ended (no more data);
-     *         null if data is not yet ready (caller should retry)
+     * @return the non-null cursor owned by this request
      */
-    byte[] doGet(DataTicket ticket);
+    DataStream openStream(DataTicket ticket);
 }

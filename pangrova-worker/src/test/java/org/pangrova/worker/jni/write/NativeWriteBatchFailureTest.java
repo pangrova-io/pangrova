@@ -96,9 +96,10 @@ class NativeWriteBatchFailureTest {
             long handle = writer.beginWrite(descriptor("id"));
             Throwable failure = catchThrowable(() -> append(writer, handle, data, direct, 1, 1));
             assertDecodeFailure(failure);
-            assertThat(failure.getSuppressed()).containsExactly(sink.abortFailure, sink.closeFailure);
+            assertThat(failure.getSuppressed()).containsExactly(sink.abortFailure);
+            assertThat(sink.abortFailure.getSuppressed()).containsExactly(sink.closeFailure);
             assertThat(sink.batchCalls).isZero();
-            assertAborted(writer, handle, sink);
+            assertFailedCleanupRetried(writer, handle, sink);
         }
     }
 
@@ -122,14 +123,41 @@ class NativeWriteBatchFailureTest {
             long handle = writer.beginWrite(descriptor("id"));
             Throwable actual = catchThrowable(() -> append(writer, handle, data, direct, 2, 1));
             assertThat(actual).isSameAs(expected);
-            assertThat(actual.getSuppressed()).containsExactly(sink.abortFailure, sink.closeFailure);
+            assertThat(actual.getSuppressed()).containsExactly(sink.abortFailure);
+            assertThat(sink.abortFailure.getSuppressed()).containsExactly(sink.closeFailure);
             if (sink instanceof BatchSink batchSink) {
                 assertThat(batchSink.batchCalls).isEqualTo(1);
                 NativeWriteBatchTest.assertClosed(batchSink.borrowed);
             } else {
                 assertThat(sink.pageCalls).isEqualTo(1);
             }
-            assertAborted(writer, handle, sink);
+            assertFailedCleanupRetried(writer, handle, sink);
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void cleanupRetryDoesNotRepeatThePhaseThatAlreadySucceeded(boolean direct, boolean abortFails)
+            throws Exception {
+        var primary = new IllegalStateException("append failed");
+        RowSink sink = new RowSink(page -> { throw primary; });
+        var cleanup = new IllegalArgumentException("cleanup failed");
+        if (abortFails) sink.abortFailure = cleanup; else sink.closeFailure = cleanup;
+        byte[] data = integers(List.of("id"), new Integer[] {7});
+        try (NativeWriteExecutor writer = executor(sink, "id")) {
+            long handle = writer.beginWrite(descriptor("id"));
+            assertThat(catchThrowable(() -> append(writer, handle, data, direct, 1, 1)))
+                    .isSameAs(primary);
+            assertThat(primary.getSuppressed()).containsExactly(cleanup);
+            assertThat(writer.activeSessionCount()).isEqualTo(1);
+            assertThat(sink.events).containsExactly("abort", "close");
+            sink.abortFailure = null;
+            sink.closeFailure = null;
+            writer.abortWrite(handle);
+            assertThat(writer.activeSessionCount()).isZero();
+            assertThat(sink.events).containsExactly("abort", "close", abortFails ? "abort" : "close");
+            writer.closeAllSessions();
+            assertThat(writer.drainCommitMetadataForTask("write-task")).isEmpty();
         }
     }
 
@@ -250,6 +278,26 @@ class NativeWriteBatchFailureTest {
         writer.abortWrite(handle);
         writer.closeAllSessions();
         assertThat(sink.events).containsExactly("abort", "close");
+        assertThat(writer.drainCommitMetadataForTask("write-task")).isEmpty();
+    }
+
+    private static void assertFailedCleanupRetried(NativeWriteExecutor writer, long handle, RowSink sink) {
+        assertThat(writer.activeSessionCount()).isEqualTo(1);
+        assertThat(sink.events).containsExactly("abort", "close");
+        assertThat(writer.drainCommitMetadataForTask("write-task")).isEmpty();
+        assertThatThrownBy(() -> writer.appendDirectBatch(handle, directRange(new byte[0]), 0, 0))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("stopped");
+        assertThat(sink.events).containsExactly("abort", "close");
+        sink.abortFailure = null;
+        sink.closeFailure = null;
+        writer.abortWrite(handle);
+        assertThat(writer.activeSessionCount()).isZero();
+        assertThat(sink.events).containsExactly("abort", "close", "abort", "close");
+        assertThatThrownBy(() -> writer.commitWrite(handle)).isInstanceOfSatisfying(NativeRuntimeException.class,
+                failure -> assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.NATIVE_INVALID_HANDLE));
+        writer.abortWrite(handle);
+        writer.closeAllSessions();
+        assertThat(sink.events).containsExactly("abort", "close", "abort", "close");
         assertThat(writer.drainCommitMetadataForTask("write-task")).isEmpty();
     }
 

@@ -162,6 +162,11 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
     public TaskManager taskManager() { return manager; }
     public TaskStatusReceiver statusReceiver() { return java.util.Objects.requireNonNull(receiver); }
 
+    /** Uses the actual producer-local signer to check the exact issued result authority. */
+    public String resultTicket(org.pangrova.protocol.v2.TaskRequest request) {
+        return java.util.Objects.requireNonNull(resultTickets).issue(request);
+    }
+
     public WorkerInfo workerInfo() {
         return workerInfo(workers.get(0));
     }

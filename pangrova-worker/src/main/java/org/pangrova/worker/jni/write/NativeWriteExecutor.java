@@ -108,16 +108,16 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
                 catalogName, descriptor.schemaName(), descriptor.tableName(),
                 descriptor.dmlOperation());
 
-        // Resolve column names from table metadata instead of native RowVector names.
-        // The native engine's ProjectNode generates synthetic names (proj_0, proj_1, ...) for
-        // computed expressions (e.g., CASE WHEN in UPDATE). The table schema has
-        // the correct column names that Iceberg expects for writing.
+        // Physical task-local ordinals are not connector-owned logical column names.
+        // Resolve them only against the output handle already verified for this task.
         CatalogResourceResolver.CatalogResources resources =
                 catalogLookup.resolve(taskId, catalogName);
-        List<String> columnNames = resolveWriteColumnNames(descriptor, resources);
+        boolean physicalColumns = WritePageProjector.hasCanonicalPhysicalColumns(descriptor.columns().stream()
+                .map(WriteDescriptor.ColumnSchema::name).toList());
+        List<String> columnNames = resolveWriteColumnNames(descriptor, resources, physicalColumns);
         long handle = handleCounter.incrementAndGet();
         if (handle <= 0) throw new IllegalStateException("Native write handles are exhausted");
-        NativeWriteSession session = new NativeWriteSession(taskId, columnNames, catalogName);
+        NativeWriteSession session = new NativeWriteSession(taskId, columnNames, catalogName, physicalColumns);
         // Publication precedes allocation; close rejects the live admission until initialization exits.
         activeSessions.put(handle, session);
         try {
@@ -133,25 +133,29 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         return handle;
     }
 
-    /** Resolves synthetic native projection names against the target table schema. */
+    /** Resolves canonical task-local ordinals against the verified output handle's column order. */
     private List<String> resolveWriteColumnNames(
             WriteDescriptor descriptor,
-            CatalogResourceResolver.CatalogResources resources) {
+            CatalogResourceResolver.CatalogResources resources, boolean physicalColumns) {
         List<String> descriptorCols = descriptor.columns().stream()
                 .map(WriteDescriptor.ColumnSchema::name)
                 .toList();
-        boolean hasSyntheticNames = descriptorCols.stream()
-                .anyMatch(name -> name.startsWith("proj_"));
-        if (!hasSyntheticNames) {
-            return descriptorCols;
-        }
         List<String> schemaColumns = resources.writeColumnNames();
+        if (!physicalColumns) {
+            List<String> logicalColumns = schemaColumns.containsAll(descriptorCols)
+                    ? List.copyOf(new java.util.LinkedHashSet<>(descriptorCols))
+                    : WritePageProjector.resolveWriteColumns(descriptorCols);
+            if (!schemaColumns.containsAll(logicalColumns)) {
+                throw new IllegalArgumentException("Logical write columns differ from verified output columns");
+            }
+            return logicalColumns;
+        }
         if (schemaColumns.size() != descriptorCols.size()) {
             throw new IllegalArgumentException(
-                    "Native projection width does not match target table schema: projection="
+                    "Native projection width does not match verified output columns: projection="
                             + descriptorCols.size() + " table=" + schemaColumns.size());
         }
-        LOG.info("event=resolve_write_columns synthetic={} resolved={}",
+        LOG.info("event=resolve_write_columns physical={} resolved={}",
                 descriptorCols, schemaColumns);
         return schemaColumns;
     }
@@ -231,7 +235,8 @@ public final class NativeWriteExecutor implements NativeWriter, AutoCloseable {
         try (BufferAllocator allocator = sharedAllocator.newChildAllocator(
             "batch-decode-" + writeHandle, 0, 16L * 1024 * 1024);
             ColumnarBatch decoded = ColumnarBatch.open(data, allocator, rowCount, columnCount);
-            ColumnarBatch projected = WritePageProjector.projectToWriteSchema(decoded, ws.columnNames())) {
+            ColumnarBatch projected = WritePageProjector.projectToWriteSchema(
+                    decoded, ws.columnNames(), ws.physicalColumns())) {
             appendToSink(ws.sink(), projected);
             ws.rowsAppended().addAndGet(decoded.rowCount());
         } catch (IOException e) {

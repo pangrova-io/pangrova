@@ -227,12 +227,7 @@ public final class JdbcGeneratedValueArtifactPublicationStore
     }
 
     private static void requireStableIdentity(JobRow row, ArtifactBuildJob claimed) {
-        if (!row.tenantId().equals(claimed.tenantId())
-                || !row.artifactId().equals(claimed.artifactId())
-                || !row.artifactType().equals(claimed.artifactType())
-                || !row.generation().equals(claimed.stagingGeneration())
-                || !row.sourceId().equals(claimed.sourceId())
-                || !row.sourceSnapshot().equals(claimed.sourceSnapshot())
+        if (!matchesSourceIdentity(row, claimed)
                 || row.executionKind() != claimed.executionKind()
                 || !row.dependencySet().equals(claimed.dependencySet())
                 || row.emptyPartitionPolicy() != claimed.emptyPartitionPolicy()
@@ -245,6 +240,15 @@ public final class JdbcGeneratedValueArtifactPublicationStore
                 .equals(claimed.publicationExpectedUpdatedAt())) {
             throw new IllegalStateException("Claimed artifact identity changed before publication");
         }
+    }
+
+    private static boolean matchesSourceIdentity(JobRow row, ArtifactBuildJob claimed) {
+        return row.tenantId().equals(claimed.tenantId())
+                && row.artifactId().equals(claimed.artifactId())
+                && row.artifactType().equals(claimed.artifactType())
+                && row.generation().equals(claimed.stagingGeneration())
+                && row.sourceId().equals(claimed.sourceId())
+                && row.sourceSnapshot().equals(claimed.sourceSnapshot());
     }
 
     private static Aggregate aggregate(

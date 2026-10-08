@@ -89,11 +89,13 @@ public final class PlannedQuery {
     }
 
     /**
-     * Returns the output column names from the top-level query plan.
-     * Equivalent to the plan's row type field names.
+     * Returns the SQL output names preserved before optimization removes alias projects.
      */
     public List<String> queryOutputColumns() {
-        return plan.getRowType().getFieldNames();
+        if (columnNames.size() != plan.getRowType().getFieldCount()) {
+            throw new IllegalStateException("SQL output names differ from the planned column count");
+        }
+        return columnNames;
     }
 
     /**
@@ -107,6 +109,9 @@ public final class PlannedQuery {
     }
 
     private static String mapSqlTypeName(org.apache.calcite.rel.type.RelDataType type) {
+        if (type instanceof org.pangrova.planner.type.StorageVectorRelDataType vector) {
+            return vector.logicalType().getCanonicalSql();
+        }
         org.apache.calcite.sql.type.SqlTypeName sqlType = type.getSqlTypeName();
         return switch (sqlType) {
             case INTEGER -> "INT";
@@ -360,12 +365,6 @@ public final class PlannedQuery {
         var purpose = AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT;
         return AuthorizedStageGraph.compile(PlanFragmenter.fragment(plan, parallelism, purpose),
                 compiler, columnNames, purpose);
-    }
-
-    // ── Constant plan evaluation ──
-
-    public ConstantPlanEvaluator.EvaluatedConstant evaluateConstant() {
-        return ConstantPlanEvaluator.evaluateExpression(plan);
     }
 
     // ── AQE re-optimization ──

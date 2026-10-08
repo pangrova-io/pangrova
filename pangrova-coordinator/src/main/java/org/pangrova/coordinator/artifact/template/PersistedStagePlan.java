@@ -47,6 +47,11 @@ public final class PersistedStagePlan implements StagePlanAccess {
     }
 
     @Override
+    public List<org.pangrova.protocol.v2.ResultColumnLogicalType> resultColumnTypes() {
+        return FrozenStageBindings.resultColumnTypes(stage);
+    }
+
+    @Override
     public SerializedPlanFragment toSerializedPlan(SqlCompiler compiler, List<String> names) {
         if (!stage.outputNames().equals(names)) {
             throw new IllegalArgumentException("Persisted stage output ordinals cannot be rebound");

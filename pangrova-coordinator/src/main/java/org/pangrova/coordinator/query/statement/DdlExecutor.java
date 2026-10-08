@@ -97,6 +97,15 @@ public final class DdlExecutor {
 
     private void createTableInternal(ConnectorMetadata metadata, ConnectorSession session,
                                      QualifiedTableName ref, CreateTableStatement stmt) {
+        ConnectorTableMetadata tableMeta = declaredTableMetadata(new SchemaTableName(ref.schema(), ref.table()), stmt);
+        metadata.createTable(session, tableMeta);
+        invalidateSchemaCache();
+        LOG.info("event=table_created table={}", ref);
+    }
+
+    /** Compiles the exact CREATE declaration before any catalog mutation or downstream planning. */
+    public static ConnectorTableMetadata declaredTableMetadata(
+            SchemaTableName tableName, CreateTableStatement stmt) {
         List<ConnectorTableMetadata.Column> typedColumns = stmt.columns().stream()
                 .map(col -> new ConnectorTableMetadata.Column(
                         col.name(), DdlTypeMapper.map(col.type()),
@@ -108,12 +117,9 @@ public final class DdlExecutor {
         Map<String, String> props = mergeStructuralProperties(stmt);
         DdlTypeMapper.injectStructuralProperties(stmt.columns(), props);
         GeneratedColumnDefinitionCompiler.compile(stmt.columns(), props);
-        ConnectorTableMetadata tableMeta = new ConnectorTableMetadata(
-                new SchemaTableName(ref.schema(), ref.table()),
+        return new ConnectorTableMetadata(
+                tableName,
                 columnNames, typedColumns, props);
-        metadata.createTable(session, tableMeta);
-        invalidateSchemaCache();
-        LOG.info("event=table_created table={}", ref);
     }
 
     private static PangrovaException invalidGeneratedColumn(String message) {
@@ -159,6 +165,12 @@ public final class DdlExecutor {
 
     public List<TypedRow> executeAlterTable(
             AlterTableStatement stmt, CoordinatorSessionContext context) {
+        if (stmt instanceof AlterTableStatement.SetColumnTag
+                || stmt instanceof AlterTableStatement.UnsetColumnTag) {
+            throw new PangrovaException(PangrovaErrorCode.PARSER_UNSUPPORTED_FEATURE,
+                    "ALTER TABLE column tags are not supported until durable tag storage and "
+                            + "policy enforcement are wired");
+        }
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         ConnectorSession session = TableResolver.buildSession(context, ref.catalog(), ref.schema());
         ConnectorMetadata metadata = TableResolver.getMetadata(catalogRegistry, ref.catalog(), session);
@@ -251,19 +263,6 @@ public final class DdlExecutor {
         }
         if (stmt instanceof AlterTableStatement.SetPartitionSpec spec) {
             applySetPartitionSpec(metadata, session, handle, spec);
-            return;
-        }
-        if (stmt instanceof AlterTableStatement.SetColumnTag setTag) {
-            // Column-level tags are governance metadata stored outside connector layer.
-            // ConnectorMetadata does not expose column-level properties; tag persistence
-            // is handled by MetadataService.setTag() at a higher layer.
-            LOG.debug("event=set_column_tag column={} tag={}={}", setTag.columnName(),
-                    setTag.tagKey(), setTag.tagValue());
-            return;
-        }
-        if (stmt instanceof AlterTableStatement.UnsetColumnTag unsetTag) {
-            LOG.debug("event=unset_column_tag column={} tag={}", unsetTag.columnName(),
-                    unsetTag.tagKey());
             return;
         }
         if (stmt instanceof AlterTableStatement.RenameTable rename) {

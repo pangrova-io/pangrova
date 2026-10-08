@@ -27,20 +27,21 @@ import java.util.concurrent.atomic.AtomicInteger;
  * exceeds the limit during read.</p>
  *
  * <p>Rate limiting: uses a Caffeine cache to track request counts per IP within
- * a sliding 1-minute window. Rejects with HTTP 429 (Too Many Requests) when
+ * a fixed 1-minute window. Rejects with HTTP 429 (Too Many Requests) when
  * the configured threshold is exceeded.</p>
  *
- * <p>Health check endpoint ({@code /v1/health}) is exempt from both checks.</p>
+ * <p>Authenticated internal control is excluded from the public IP budget, not
+ * the body limit. Health ({@code /v1/health}) is exempt from both checks.</p>
  *
  * @ThreadSafe
  */
 @Provider
+@jakarta.annotation.Priority(jakarta.ws.rs.Priorities.AUTHORIZATION)
 public final class RequestLimitFilter implements ContainerRequestFilter {
 
     private static final Logger LOG = LoggerFactory.getLogger(RequestLimitFilter.class);
 
     private static final String HEALTH_PATH = "v1/health";
-    private static final String UNKNOWN_IP = "unknown";
 
     private static final int HTTP_STATUS_PAYLOAD_TOO_LARGE = 413;
     private static final int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
@@ -71,7 +72,10 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
         String clientIp = resolveClientIp(requestContext);
 
-        if (isRateLimitExceeded(clientIp)) {
+        // Authenticated Worker control cannot share the user-facing IP quota:
+        // starving terminal ACKs/heartbeats/deregistration prevents actual owner release.
+        // Body limits still apply, and merely naming an internal route is not authentication.
+        if (!AuthenticationFilter.hasInternalServiceIdentity(requestContext) && isRateLimitExceeded(clientIp)) {
             rejectTooManyRequests(requestContext, clientIp);
             return;
         }
@@ -104,11 +108,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
     }
 
     private static String resolveClientIp(ContainerRequestContext ctx) {
-        String forwarded = ctx.getHeaderString("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return UNKNOWN_IP;
+        return RequestPeerAddressFilter.resolve(ctx);
     }
 
     private static boolean isHealthCheck(ContainerRequestContext ctx) {
@@ -156,6 +156,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         private final InputStream delegate;
         private final int maxBytes;
         private int bytesRead;
+        private boolean limitExceeded;
 
         SizeLimitedInputStream(InputStream delegate, int maxBytes) {
             this.delegate = delegate;
@@ -164,11 +165,10 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
         @Override
         public int read() throws IOException {
-            if (bytesRead >= maxBytes) {
-                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
-            }
+            requireWithinLimit();
             int b = delegate.read();
             if (b != -1) {
+                if (bytesRead == maxBytes) rejectLimit();
                 bytesRead++;
             }
             return b;
@@ -176,15 +176,28 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
         @Override
         public int read(byte[] buf, int off, int len) throws IOException {
-            if (bytesRead >= maxBytes) {
-                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
-            }
+            java.util.Objects.checkFromIndexSize(off, len, buf.length);
+            if (len == 0) return 0;
+            requireWithinLimit();
+            // At the boundary, distinguish real EOF from an actual additional byte.
+            if (bytesRead == maxBytes) return read();
             int allowedLen = Math.min(len, maxBytes - bytesRead);
             int n = delegate.read(buf, off, allowedLen);
             if (n > 0) {
                 bytesRead += n;
             }
             return n;
+        }
+
+        private void requireWithinLimit() {
+            if (limitExceeded) rejectLimit();
+        }
+
+        private void rejectLimit() {
+            limitExceeded = true;
+            throw new jakarta.ws.rs.WebApplicationException(
+                    "Request body exceeds maximum size of " + maxBytes + " bytes",
+                    HTTP_STATUS_PAYLOAD_TOO_LARGE);
         }
 
         @Override

@@ -145,7 +145,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             ps.executeUpdate();
         } catch (SQLException e) {
             LOG.error("event=write_commit_journal_table_creation_failed error={}", e.getMessage(), e);
-            throw new JournalWriteException("Failed to create write_commit_journal table", e, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+            throw new JournalWriteException("Failed to create write_commit_journal table", e,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -194,7 +195,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             LOG.error("event=write_commit_intent_failed queryId={} error={}",
                     entry.queryId(), e.getMessage(), e);
             throw new JournalWriteException(
-                    "Failed to record write commit intent for queryId=" + entry.queryId(), e, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+                    "Failed to record write commit intent for queryId=" + entry.queryId(), e,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -216,10 +218,12 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             statement.setBytes(6, publication.manifestSha256());
             if (statement.executeUpdate() != 1) {
                 throw new JournalWriteException("Publication conflicts with write intent for queryId=" + queryId,
-                        new IllegalStateException("Missing intent, different fingerprint or publication"), JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+                        new IllegalStateException("Missing intent, different fingerprint or publication"),
+                        JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
             }
         } catch (SQLException failure) {
-            throw new JournalWriteException("Failed to persist publication for queryId=" + queryId, failure, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+            throw new JournalWriteException("Failed to persist publication for queryId=" + queryId, failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -241,7 +245,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             LOG.error("event=write_commit_mark_failed queryId={} error={}",
                     queryId, e.getMessage(), e);
             throw new JournalWriteException(
-                    "Failed to mark write commit as COMMITTED for queryId=" + queryId, e, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+                    "Failed to mark write commit as COMMITTED for queryId=" + queryId, e,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -267,7 +272,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             LOG.error("event=write_commit_lookup_failed queryId={} error={}",
                     queryId, e.getMessage(), e);
             throw new JournalWriteException(
-                    "Failed to look up write commit entry for queryId=" + queryId, e, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+                    "Failed to look up write commit entry for queryId=" + queryId, e,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
         return Optional.empty();
     }
@@ -282,7 +288,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 return result.next() ? Optional.of(readEntry(result)) : Optional.empty();
             }
         } catch (SQLException failure) {
-            throw new JournalWriteException("Cannot resolve immutable write event authority", failure, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+            throw new JournalWriteException("Cannot resolve immutable write event authority", failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -299,7 +306,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 return result.getBoolean(1);
             }
         } catch (SQLException failure) {
-            throw new JournalWriteException("Cannot read deferred work acknowledgement", failure, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+            throw new JournalWriteException("Cannot read deferred work acknowledgement", failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -312,10 +320,12 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                         + "#>> '{definition,hasGeneratedColumns}' = 'false'")) {
             statement.setString(1, Objects.requireNonNull(fingerprint, "fingerprint"));
             if (statement.executeUpdate() != 1) {
-                throw new IllegalStateException("No-work acknowledgement requires an exact COMMITTED absence declaration");
+                throw new IllegalStateException(
+                        "No-work acknowledgement requires an exact COMMITTED absence declaration");
             }
         } catch (SQLException failure) {
-            throw new JournalWriteException("Cannot acknowledge deferred write work", failure, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+            throw new JournalWriteException("Cannot acknowledge deferred write work", failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -346,7 +356,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             }
         } catch (SQLException e) {
             LOG.error("event=write_commit_replay_failed error={}", e.getMessage(), e);
-            throw new JournalWriteException("Failed to replay pending write commit entries", e, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+            throw new JournalWriteException("Failed to replay pending write commit entries", e,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
         LOG.info("event=write_commit_replay count={}", entries.size());
         return List.copyOf(entries);
@@ -366,7 +377,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 throw new IllegalStateException("Abort does not match an exact unpublished pending or aborted intent");
             }
         } catch (SQLException failure) {
-            throw new JournalWriteException("Cannot persist confirmed aborted write intent: " + queryId, failure, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+            throw new JournalWriteException("Cannot persist confirmed aborted write intent: " + queryId, failure,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -381,7 +393,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             LOG.error("event=write_commit_purge_failed queryId={} error={}",
                     queryId, e.getMessage(), e);
             throw new JournalWriteException(
-                    "Failed to purge write commit entry for queryId=" + queryId, e, JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+                    "Failed to purge write commit entry for queryId=" + queryId, e,
+                    JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }
 
@@ -424,7 +437,9 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                         || WriteCommitEntry.State.ABORTED.name().equals(rs.getString("state"))) {
                     throw new JournalWriteException(
                             "Conflicting write commit intent for queryId=" + candidate.queryId(),
-                            new IllegalStateException("query id has a different fingerprint or a durable abort barrier"), JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
+                            new IllegalStateException(
+                                    "query id has a different fingerprint or a durable abort barrier"),
+                            JournalWriteException.AdmissionOutcome.ACCEPTED_UNESTABLISHED);
                 }
             }
         }

@@ -354,6 +354,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                 state.dag(), state.dispatched(), writeConfig,
                 !serialized.retrievalTopKHints().isEmpty(),
                 Math.addExact(stage.currentGeneration(), 1L), null);
+        state.recordPreparedPlan(plan.stageId(), boundPlan);
         return new PreparedStage(plan, dispatch);
     }
 

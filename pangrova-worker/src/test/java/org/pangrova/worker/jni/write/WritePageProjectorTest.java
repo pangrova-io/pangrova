@@ -8,6 +8,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.nio.ByteBuffer;
@@ -18,6 +19,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.pangrova.protocol.substrait.SubstraitRelationLayout.physicalAlias;
 import static org.pangrova.worker.jni.write.WriteBatchFixtures.append;
 import static org.pangrova.worker.jni.write.WriteBatchFixtures.descriptor;
 import static org.pangrova.worker.jni.write.WriteBatchFixtures.executor;
@@ -67,13 +69,13 @@ class WritePageProjectorTest {
                         new Integer[][] {{1, 2}}, List.of("value", "id"), new Integer[][] {{2, 1}}),
                 new Projection("subset", List.of("ignored", "id", "extra"), List.of("id"),
                         new Integer[][] {{10, 20, 30}}, List.of("id"), new Integer[][] {{20}}),
+                new Projection("verified logical right suffix", List.of("amount_right"), List.of("amount_right"),
+                        new Integer[][] {{7}}, List.of("amount_right"), new Integer[][] {{7}}),
                 new Projection("missing becomes null", List.of("id"), List.of("missing", "id"),
                         new Integer[][] {{1}}, List.of("missing", "id"), new Integer[][] {{null, 1}}),
-                new Projection("synthetic positional", List.of("proj_0", "proj_1"), List.of("id", "value"),
+                new Projection("canonical positional", List.of(physicalAlias(0), physicalAlias(1)), List.of("id", "value"),
                         new Integer[][] {{7, null}}, List.of("id", "value"), new Integer[][] {{7, null}}),
-                new Projection("mixed synthetic positional", List.of("id", "proj_1"), List.of("value", "id"),
-                        new Integer[][] {{7, 8}}, List.of("value", "id"), new Integer[][] {{7, 8}}),
-                new Projection("source projection width mismatch", List.of("proj_0", "id"), List.of("id"),
+                new Projection("named subset width differs", List.of("ignored", "id"), List.of("id"),
                         new Integer[][] {{7, 8}}, List.of("id"), new Integer[][] {{8}}),
                 new Projection("last duplicate including null", List.of("id", "id", "value"), List.of("id", "value"),
                         new Integer[][] {{1, 2, 3}, {4, null, 5}}, List.of("id", "value"),
@@ -100,27 +102,96 @@ class WritePageProjectorTest {
                     Arguments.of(projection, true, true)));
     }
 
-    @Test
-    void syntheticDescriptorResolvesActualTableColumnsBeforeProjection() throws Exception {
-        BatchSink sink = new BatchSink(batch -> {
-            assertThat(batch.columns()).containsExactly("id", "amount");
-            assertThat(batch.value(0, 0)).isEqualTo(1);
-            assertThat(batch.value(0, 1)).isEqualTo(2);
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void canonicalDescriptorResolvesVerifiedOutputColumnsBeforeProjection(boolean direct, boolean columnar)
+            throws Exception {
+        List<List<Object>> received = new ArrayList<>();
+        RowSink sink = columnar ? new BatchSink(batch -> {
+            assertThat(batch.columns()).containsExactly("id", "amount_right");
+            received.add(Arrays.asList(batch.value(0, 0), batch.value(0, 1)));
+        }) : new RowSink(page -> {
+            assertThat(page.columns()).containsExactly("id", "amount_right");
+            received.add(page.columns().stream()
+                    .map(name -> ColumnValue.toRaw(page.rows().get(0).get(name))).toList());
         });
-        try (NativeWriteExecutor writer = executor(sink, "id", "amount")) {
-            long handle = writer.beginWrite(descriptor("proj_0", "proj_1"));
-            writer.appendDirectBatch(handle,
-                    WriteBatchFixtures.directRange(integers(
-                            List.of("proj_0", "proj_1"), new Integer[] {1, 2})), 1, 2);
+        try (NativeWriteExecutor writer = executor(sink, "id", "amount_right")) {
+            long handle = writer.beginWrite(descriptor(physicalAlias(0), physicalAlias(1)));
+            append(writer, handle, integers(List.of(physicalAlias(0), physicalAlias(1)),
+                    new Integer[] {1, 2}), direct, 1, 2);
+            assertThat(received).containsExactly(List.of(1, 2));
+            if (sink instanceof BatchSink batchSink) {
+                assertThat(batchSink.batchCalls).isEqualTo(1);
+                NativeWriteBatchTest.assertClosed(batchSink.borrowed);
+            }
             assertThat(writer.commitWrite(handle).rowsWritten()).isEqualTo(1);
         }
     }
 
+    @ParameterizedTest(name = "source={0}, direct={1}, columnar={2}")
+    @MethodSource("invalidCanonicalBatches")
+    void canonicalSessionRejectsEveryChangedPhysicalLayoutBeforeSinkDispatch(
+            List<String> source, boolean direct, boolean columnar) throws Exception {
+        RowSink sink = columnar ? new BatchSink(batch -> { }) : new RowSink(page -> { });
+        Integer[] values = new Integer[source.size()];
+        Arrays.fill(values, 7);
+        byte[] bytes = integers(source, values);
+        try (NativeWriteExecutor writer = executor(sink, "id", "amount")) {
+            long handle = writer.beginWrite(descriptor(physicalAlias(0), physicalAlias(1)));
+            assertThatThrownBy(() -> append(writer, handle, bytes, direct, 1, source.size()))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThat(writer.activeSessionCount()).isZero();
+            assertThat(sink.pageCalls).isZero();
+            if (sink instanceof BatchSink batchSink) assertThat(batchSink.batchCalls).isZero();
+            assertThat(sink.events).containsExactly("abort", "close");
+        }
+    }
+
+    static Stream<Arguments> invalidCanonicalBatches() {
+        return Stream.of(List.of(physicalAlias(0)), List.of(physicalAlias(0), physicalAlias(1), physicalAlias(2)),
+                List.of(physicalAlias(1), physicalAlias(0)), List.of(physicalAlias(0), physicalAlias(2)),
+                List.of(physicalAlias(0), "amount"), List.of("id", "amount"), List.of("invalid_0", "invalid_1"),
+                List.of(malformedAlias("01"), physicalAlias(1)),
+                List.of(malformedAlias("-1"), physicalAlias(1)),
+                List.of(malformedAlias("2147483648"), physicalAlias(1)),
+                List.of(malformedAlias("999999999999999999999999"), physicalAlias(1)),
+                List.of(malformedAlias("bad"), physicalAlias(1)))
+                .flatMap(source -> Stream.of(Arguments.of(source, false, false), Arguments.of(source, false, true),
+                        Arguments.of(source, true, false), Arguments.of(source, true, true)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidCanonicalDescriptors")
+    void canonicalDescriptorRejectsNoncanonicalCoordinatesBeforeSinkAllocation(List<String> columns) {
+        RowSink sink = new RowSink(page -> { });
+        try (NativeWriteExecutor writer = executor(sink, "id", "amount")) {
+            assertThatThrownBy(() -> writer.beginWrite(descriptor(columns.toArray(String[]::new))))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThat(writer.activeSessionCount()).isZero();
+            assertThat(sink.events).isEmpty();
+        }
+    }
+
+    static Stream<List<String>> invalidCanonicalDescriptors() {
+        return Stream.of(List.of(physicalAlias(1), physicalAlias(0)), List.of(physicalAlias(0), physicalAlias(2)),
+                List.of(physicalAlias(0), "amount"), List.of(physicalAlias(0), physicalAlias(0)),
+                List.of(physicalAlias(7), physicalAlias(8)), List.of("invalid_0", "invalid_1"),
+                List.of(malformedAlias("01"), malformedAlias("02")),
+                List.of(malformedAlias("-1"), malformedAlias("-2")),
+                List.of(malformedAlias("2147483648"), malformedAlias("2147483649")),
+                List.of(malformedAlias("999999999999999999999999"), malformedAlias("bad")));
+    }
+
+    private static String malformedAlias(String ordinal) {
+        String actual = physicalAlias(0);
+        return actual.substring(0, actual.lastIndexOf('_') + 1) + ordinal;
+    }
+
     @Test
-    void syntheticProjectionWidthMismatchFailsClosed() {
+    void canonicalDescriptorWidthMismatchFailsClosed() {
         RowSink sink = new RowSink(page -> { });
         try (NativeWriteExecutor writer = executor(sink, "id")) {
-            assertThatThrownBy(() -> writer.beginWrite(descriptor("proj_0", "proj_1")))
+            assertThatThrownBy(() -> writer.beginWrite(descriptor(physicalAlias(0), physicalAlias(1))))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("projection width");
             assertThat(writer.activeSessionCount()).isZero();
@@ -129,12 +200,12 @@ class WritePageProjectorTest {
     }
 
     @Test
-    void syntheticProjectionMetadataFailureIsNotConvertedToPositionalWrite() {
+    void canonicalDescriptorMetadataFailureIsNotConvertedToPositionalWrite() {
         try (NativeWriteExecutor writer = new NativeWriteExecutor(
                 new TestCatalogResourceResolver((taskId, catalog) -> {
             throw new IllegalStateException("catalog metadata unavailable");
         }))) {
-            assertThatThrownBy(() -> writer.beginWrite(descriptor("proj_0")))
+            assertThatThrownBy(() -> writer.beginWrite(descriptor(physicalAlias(0))))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("catalog metadata unavailable");
             assertThat(writer.activeSessionCount()).isZero();
@@ -147,11 +218,11 @@ class WritePageProjectorTest {
         try (var allocator = new RootAllocator(1024 * 1024)) {
             try (ColumnarBatch owner = ColumnarBatch.open(ByteBuffer.wrap(bytes), allocator, 1, 2)) {
                 assertThat(owner.columns()).containsExactly("id", "id");
-                try (ColumnarBatch view = WritePageProjector.projectToWriteSchema(owner, List.of("id"))) {
+                try (ColumnarBatch view = WritePageProjector.projectToWriteSchema(owner, List.of("id"), false)) {
                     assertThat(view.value(0, 0)).isEqualTo(2);
                 }
                 assertThat(owner.value(0, 0)).isEqualTo(1);
-                try (ColumnarBatch remaining = WritePageProjector.projectToWriteSchema(owner, List.of("id"))) {
+                try (ColumnarBatch remaining = WritePageProjector.projectToWriteSchema(owner, List.of("id"), false)) {
                     owner.close();
                     assertThatThrownBy(remaining::columns).isInstanceOf(IllegalStateException.class);
                     assertThatThrownBy(() -> remaining.value(0, 0)).isInstanceOf(IllegalStateException.class);

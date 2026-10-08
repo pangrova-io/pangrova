@@ -76,7 +76,7 @@ class NativeCapabilityRegistryTest {
     void defaultsRejectsUnknownRelType() {
         NativeCapabilityRegistry registry = NativeCapabilityRegistry.defaults();
 
-        assertThat(registry.isRelSupported("MergeJoinRel")).isFalse();
+        assertThat(registry.isRelSupported("UnknownRel")).isFalse();
         assertThat(registry.isRelSupported("")).isFalse();
     }
 

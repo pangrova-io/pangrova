@@ -70,7 +70,7 @@ class AuthorizedStageReplayTest {
                 .hasMessageContaining("exact persisted partition gate");
         var original = graph.stages().get(0);
         var changed = new SerializedStage(0, original.parallelism(), "OUTPUT", original.serializedPlan(),
-                original.sources(), List.of("different_output"), List.of(), -1, -1);
+                original.sources(), List.of("different_output"), List.of(), List.of(), -1, -1);
         assertThatThrownBy(() -> fetcher.fetch(new StageNode(0, changed, 1, "OUTPUT", List.of()),
                 dag, "replay-query", context)).hasMessageContaining("exact persisted partition gate");
         assertThatThrownBy(() -> fetcher.fetch(dag.findStageNode(1), dag, "replay-query", context))
@@ -91,9 +91,9 @@ class AuthorizedStageReplayTest {
         var exchange = Rel.newBuilder().setExchange(ExchangeRel.newBuilder().setInput(root.getInput())
                 .setPartitionCount(1).setRoundRobin(ExchangeRel.RoundRobin.newBuilder().setExact(true)));
         var output = new SerializedStage(0, 1, "OUTPUT", serialized(plan, input.build()),
-                List.of(), live.fieldNames(), List.of(), -1, -1);
+                List.of(), live.fieldNames(), List.of(), List.of(), -1, -1);
         var producer = new SerializedStage(1, 4, "COMPUTE", serialized(plan, exchange.build()),
-                List.of(), live.fieldNames(), List.of(), -1, -1);
+                List.of(), live.fieldNames(), List.of(), List.of(), -1, -1);
         return new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(output, producer), List.of(new StageTransfer(1, 0,
                 ShuffleType.SINGLETON, List.of(), "gather", 1, BatchSerde.BATCH_SERDE_ARROW_BATCH, true)));

@@ -16,6 +16,7 @@
 
 #include "jni/command/StatusSerializer.h"
 #include "result/FlightResultServer.h"
+#include "capability/LogicalTypeContract.h"
 
 // Logging for dynamic filter injection warnings.
 #if __has_include(<glog/logging.h>)
@@ -718,8 +719,18 @@ void VeloxTaskRunner::start() {
           *config_.canonical_output_schema, info.pool->source().get());
       // Check exact nested types/names while permitting task-local ordinal aliases.
       physicalArrowSchema(info.wire_schema, *config_.canonical_output_schema, output_type);
+      for (const auto& column : info.result_column_types) {
+        if (column.column_index >= static_cast<uint32_t>(info.wire_schema->num_fields()) ||
+            column.logical_type.substrait_type().SerializeAsString() !=
+                config_.canonical_output_schema->struct_().types(column.column_index).SerializeAsString()) {
+          throw std::invalid_argument("VECTOR result declaration differs from canonical output schema");
+        }
+        capability::validateVectorResultField(column.logical_type, *info.wire_schema->field(column.column_index));
+      }
       result_ownership_ = std::make_shared<pangrova::result::ResultOwnershipState>();
       info.ownership = result_ownership_;
+      result_buffers_ = facebook::velox::exec::OutputBufferManager::getInstanceRef();
+      info.buffers = result_buffers_;
       if (!info.authority.ParseFromString(config_.callback_context)) {
         throw std::runtime_error("Result task lacks its admitted callback authority");
       }
@@ -1102,10 +1113,10 @@ void VeloxTaskRunner::finalizeShuffleOutput() {
 
 void VeloxTaskRunner::revokeResultOutput() {
   if (config_.is_result_task) {
+    if (result_ownership_) result_ownership_->revokeAuthority();
     pangrova::result::FlightResultServer::unregisterTaskOutputType(config_.task_id);
-    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-    if (buffers) {
-      buffers->deleteResults(config_.task_id, 0);
+    if (result_buffers_) {
+      result_buffers_->deleteResults(config_.task_id, 0);
       if (result_ownership_) result_ownership_->revokeAndClearQueue();
     }
   }

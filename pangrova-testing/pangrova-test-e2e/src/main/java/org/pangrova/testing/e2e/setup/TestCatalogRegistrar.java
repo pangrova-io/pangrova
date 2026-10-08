@@ -11,6 +11,11 @@ import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -29,8 +34,26 @@ public final class TestCatalogRegistrar {
     public static void registerAll(CatalogRegistry registry, List<ConnectorTestConfig> configs,
             Function<String, ConnectorSession> sessions) {
         for (ConnectorTestConfig config : configs) {
+            prepareLocalWarehouse(config);
             register(registry, config);
             ensureDefaultSchema(registry, config, sessions.apply(config.catalogName()));
+        }
+    }
+
+    private static void prepareLocalWarehouse(ConnectorTestConfig config) {
+        if (!"iceberg".equals(config.connectorType()) || !"hadoop".equals(config.properties().get("type"))) {
+            return;
+        }
+        String implementation = config.properties().get("catalog-impl");
+        if (implementation != null && !"org.apache.iceberg.hadoop.HadoopCatalog".equals(implementation)) return;
+        String warehouse = java.util.Objects.requireNonNull(config.properties().get("warehouse"), "warehouse");
+        URI location = URI.create(warehouse);
+        if (location.getScheme() != null && !"file".equals(location.getScheme())) return;
+        Path directory = location.getScheme() == null ? Path.of(warehouse) : Path.of(location);
+        try {
+            Files.createDirectories(directory);
+        } catch (IOException failure) {
+            throw new UncheckedIOException("Failed to prepare the local Hadoop fixture warehouse", failure);
         }
     }
 
@@ -50,14 +73,12 @@ public final class TestCatalogRegistrar {
 
     private static void ensureDefaultSchema(CatalogRegistry registry, ConnectorTestConfig config,
             ConnectorSession session) {
-        try {
-            CatalogHandle handle = registry.getCatalog(config.catalogName());
-            ConnectorMetadata metadata = handle.getMetadata(session);
+        CatalogHandle handle = registry.getCatalog(config.catalogName());
+        ConnectorMetadata metadata = handle.getMetadata(session);
+        if (!metadata.listSchemaNames(session).contains(config.schemaName())) {
             metadata.createSchema(session, config.schemaName());
             LOG.info("Created default schema '{}' for catalog '{}'",
                     config.schemaName(), config.catalogName());
-        } catch (UnsupportedOperationException e) {
-            LOG.debug("Catalog '{}' does not support createSchema", config.catalogName());
         }
     }
 }

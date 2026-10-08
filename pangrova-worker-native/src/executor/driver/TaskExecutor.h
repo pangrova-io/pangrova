@@ -13,6 +13,8 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include "shuffle/ShuffleControlGate.h"
+#include "shuffle/ShuffleProducerRegistration.h"
 
 #include "split/SplitConfig.h"
 #include "executor/driver/PlanExecutionDriver.h"
@@ -209,6 +211,11 @@ class TaskExecutor {
   void start();
   void cancel();
   void release();
+  shuffle::ShuffleControlGate::Lease acquireShuffleStart();
+  void installShuffleRegistration(const shuffle::ShuffleControlGate::Lease& lease,
+      std::shared_ptr<shuffle::ShuffleProducerRegistration> registration);
+  void closeShuffleRegistration();
+  bool isShuffleStartSealed() const { return shuffle_start_gate_.isSealed(); }
   bool isExecutionReleased() const { return execution_released_.load(std::memory_order_acquire); }
 
   // Binds the process-local handle exactly once while the task is still NEW.
@@ -286,6 +293,9 @@ class TaskExecutor {
   void startDeadlineWatchdog();
   void stopDeadlineWatchdog();
   void failDeadline();
+  void releaseInternal();
+  void sealShuffleStarts();
+  shuffle::ShuffleControlGate::Lease acquireExecutionStart();
 
   TaskExecutorConfig config_;
 
@@ -296,6 +306,12 @@ class TaskExecutor {
 
   observability::NativeMetricsCollector metrics_collector_;
   std::atomic<bool> execution_released_{false};
+  shuffle::ShuffleControlGate shuffle_start_gate_;
+  std::mutex shuffle_registration_mutex_;
+  std::shared_ptr<shuffle::ShuffleProducerRegistration> shuffle_registration_;
+  std::mutex release_mutex_;
+  std::condition_variable release_cv_;
+  bool release_in_progress_ = false;
 
   // Trace ID for observability — set via constructor config or setTraceId().
   std::string trace_id_;
@@ -306,6 +322,8 @@ class TaskExecutor {
   std::mutex deadline_mutex_;
   std::condition_variable deadline_cv_;
   bool deadline_stop_{false};
+  bool deadline_join_in_progress_ = false;
+  std::thread::id deadline_thread_id_;
 };
 
 }  // namespace pangrova::executor

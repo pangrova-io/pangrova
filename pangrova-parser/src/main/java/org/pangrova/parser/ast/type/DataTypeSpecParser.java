@@ -15,7 +15,7 @@ import java.util.List;
  *   <li>Array: {@code ARRAY(elementType)}</li>
  *   <li>Map: {@code MAP(keyType, valueType)}</li>
  *   <li>Struct: {@code STRUCT(field1 type1, field2 type2, ...)}</li>
- *   <li>Vector: {@code VECTOR(dimension, metric)}</li>
+ *   <li>Vector: {@code VECTOR(dimension[, precision|metric[, metric]])}</li>
  * </ul>
  */
 public final class DataTypeSpecParser {
@@ -118,12 +118,13 @@ public final class DataTypeSpecParser {
         consumeToken("VECTOR");
         consumeChar('(');
         int dimension = parseInteger();
-        consumeChar(',');
-        skipWhitespace();
-        String metricName = parseIdentifier();
+        StringBuilder declaration = new StringBuilder("VECTOR(").append(dimension);
+        while (peekChar() == ',') {
+            consumeChar(',');
+            declaration.append(',').append(parseIdentifier());
+        }
         consumeChar(')');
-        DistanceMetric metric = DistanceMetric.valueOf(metricName);
-        return new DataTypeSpec.VectorType(dimension, metric);
+        return (DataTypeSpec.VectorType) DataTypeSpec.fromRawTypeString(declaration.append(')').toString());
     }
 
     private DataTypeSpec.PrimitiveType parsePrimitive(String token) {

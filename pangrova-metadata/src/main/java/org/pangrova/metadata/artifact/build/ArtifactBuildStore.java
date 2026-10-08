@@ -28,7 +28,8 @@ public interface ArtifactBuildStore {
     List<ArtifactBuildJobKey> listReadyForPublication(int limit, Instant now);
 
     Optional<ArtifactBuildLease> claimNextPage(
-            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            String tenantId, String jobId,
+            org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now);
 
     boolean renewPage(ArtifactBuildLease lease, Duration leaseDuration, Instant now);
@@ -86,7 +87,8 @@ public interface ArtifactBuildStore {
 
     /** Claims the metadata-only publication lease for a job whose every page succeeded. */
     Optional<ArtifactBuildJob> claimReadyForPublication(
-            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            String tenantId, String jobId,
+            org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now);
 
     /**

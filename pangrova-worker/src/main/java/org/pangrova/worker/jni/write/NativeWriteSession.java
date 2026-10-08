@@ -16,6 +16,7 @@ final class NativeWriteSession {
     private final String taskId;
     private final List<String> columnNames;
     private final String catalogName;
+    private final boolean physicalColumns;
     private final long startTimeNanos = System.nanoTime();
     private final AtomicLong rowsAppended = new AtomicLong();
     private final AtomicLong batchCount = new AtomicLong();
@@ -27,10 +28,11 @@ final class NativeWriteSession {
     private byte[] metadata;
 
     NativeWriteSession(String taskId,
-                       List<String> columnNames, String catalogName) {
+                       List<String> columnNames, String catalogName, boolean physicalColumns) {
         this.taskId = taskId;
         this.columnNames = List.copyOf(columnNames);
         this.catalogName = catalogName;
+        this.physicalColumns = physicalColumns;
     }
 
     /** The session is published before opening a sink, so failed initialization still has an owner. */
@@ -46,6 +48,7 @@ final class NativeWriteSession {
     String taskId() { return taskId; }
     List<String> columnNames() { return columnNames; }
     String catalogName() { return catalogName; }
+    boolean physicalColumns() { return physicalColumns; }
     long startTimeNanos() { return startTimeNanos; }
     AtomicLong rowsAppended() { return rowsAppended; }
     AtomicLong batchCount() { return batchCount; }
@@ -98,12 +101,25 @@ final class NativeWriteSession {
     void abort() {
         beginAbort();
         try {
-            if (sink != null && !finished && !aborted) {
-                sink.abort();
-                aborted = true;
+            Throwable failure = null;
+            try {
+                if (sink != null && !finished && !aborted) {
+                    sink.abort();
+                    aborted = true;
+                }
+            } catch (RuntimeException | Error abortFailure) {
+                failure = abortFailure;
             }
-            // A failed abort may still own IO; never close or remove that owner.
-            closeSink();
+            // Release resources even after failed discard, but retain this
+            // owner until both phases have actually completed successfully.
+            try {
+                closeSink();
+            } catch (RuntimeException | Error closeFailure) {
+                if (failure == null) failure = closeFailure;
+                else if (failure != closeFailure) failure.addSuppressed(closeFailure);
+            }
+            if (failure instanceof Error error) throw error;
+            if (failure instanceof RuntimeException runtime) throw runtime;
         } finally {
             endOperation();
         }

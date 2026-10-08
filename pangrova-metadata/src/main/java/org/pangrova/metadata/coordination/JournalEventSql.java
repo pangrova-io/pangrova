@@ -12,8 +12,10 @@ import org.pangrova.spi.coordination.TaskStateEvent;
 
 /** Single SQL encoding and exact event reconciliation for the two authoritative journal tables. */
 final class JournalEventSql {
-    static final String QUERY_COLUMNS = "event_id, query_id, sql_text, session_json, state, timestamp_ms, coordinator_id";
-    static final String TASK_COLUMNS = "event_id, query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id";
+    static final String QUERY_COLUMNS =
+            "event_id, query_id, sql_text, session_json, state, timestamp_ms, coordinator_id";
+    static final String TASK_COLUMNS =
+            "event_id, query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id";
     private static final String QUERY_INSERT = "INSERT INTO query_state_journal (" + QUERY_COLUMNS
             + ") VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING";
     private static final String TASK_INSERT = "INSERT INTO task_state_journal (" + TASK_COLUMNS
@@ -30,23 +32,28 @@ final class JournalEventSql {
             try {
                 connection.rollback();
                 if (failure instanceof PayloadConflict conflict) conflict.rollbackConfirmed = true;
-            } catch (SQLException rollback) { if (rollback != failure) failure.addSuppressed(rollback); }
+            } catch (SQLException rollback) {
+                if (rollback != failure) failure.addSuppressed(rollback);
+            }
             throw failure;
         }
     }
 
     private static void write(Connection connection, JournalPendingWrites.Write event) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(event.query != null ? QUERY_INSERT : TASK_INSERT)) {
+        try (PreparedStatement statement = connection.prepareStatement(
+                event.query != null ? QUERY_INSERT : TASK_INSERT)) {
             if (event.query != null) bindQuery(statement, event.query);
             else bindTask(statement, event.task);
             statement.executeUpdate();
         }
         String table = event.query != null ? "query_state_journal" : "task_state_journal";
         String columns = event.query != null ? QUERY_COLUMNS : TASK_COLUMNS;
-        try (PreparedStatement select = connection.prepareStatement("SELECT " + columns + " FROM " + table + " WHERE event_id = ?")) {
+        try (PreparedStatement select = connection.prepareStatement(
+                "SELECT " + columns + " FROM " + table + " WHERE event_id = ?")) {
             select.setObject(1, event.context().eventId());
             try (ResultSet rows = select.executeQuery()) {
-                boolean exact = rows.next() && (event.query != null ? event.query.equals(readQuery(rows)) : event.task.equals(readTask(rows)));
+                boolean exact = rows.next() && (event.query != null
+                        ? event.query.equals(readQuery(rows)) : event.task.equals(readTask(rows)));
                 if (!exact || rows.next()) throw new PayloadConflict(event.key());
             }
         }
@@ -81,7 +88,8 @@ final class JournalEventSql {
 
     static TaskStateEvent readTask(ResultSet rows) throws SQLException {
         return new TaskStateEvent(context(rows), rows.getString("query_id"), rows.getString("task_id"),
-                rows.getString("worker_id"), rows.getString("state"), rows.getInt("stage_id"), rows.getLong("report_sequence"));
+                rows.getString("worker_id"), rows.getString("state"), rows.getInt("stage_id"),
+                rows.getLong("report_sequence"));
     }
 
     private static JournalEventContext context(ResultSet rows) throws SQLException {
@@ -93,8 +101,10 @@ final class JournalEventSql {
         private static final long serialVersionUID = 1L;
         final JournalPendingWrites.Key eventId;
         boolean rollbackConfirmed;
+
         PayloadConflict(JournalPendingWrites.Key eventId) {
-            super("Journal event ID has a different durable payload: " + eventId, "23505"); this.eventId = eventId;
+            super("Journal event ID has a different durable payload: " + eventId, "23505");
+            this.eventId = eventId;
         }
     }
 }

@@ -4,6 +4,7 @@ import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.ArrowStreamWriter;
+import org.apache.iceberg.TableProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
@@ -99,9 +100,21 @@ public final class NativeWriteLifecycleFixture implements AutoCloseable {
 
     public Path appendAndFindOwnedFile(OpenSession opened, long value) throws IOException {
         append(opened.handle(), value);
+        return findOwnedFile(opened);
+    }
+
+    /** Finds a file naturally created by the real writer without finishing or closing the sink. */
+    public Path findOwnedFile(OpenSession opened) throws IOException {
         var added = files(opened).stream().filter(path -> !opened.existingFiles().contains(path)).toList();
         assertThat(added).as("one actual owned Parquet file from the real encoder").hasSize(1);
         return added.get(0);
+    }
+
+    /** Real Iceberg table properties that flush each record through the ordinary SDK writer. */
+    public static String naturalFlushTableOptions() {
+        return " WITH ('" + TableProperties.PARQUET_ROW_GROUP_SIZE_BYTES + "'='1', '"
+                + TableProperties.PARQUET_ROW_GROUP_CHECK_MIN_RECORD_COUNT + "'='1', '"
+                + TableProperties.PARQUET_ROW_GROUP_CHECK_MAX_RECORD_COUNT + "'='1')";
     }
 
     public void append(long handle, long value) throws IOException {
@@ -168,6 +181,11 @@ public final class NativeWriteLifecycleFixture implements AutoCloseable {
             Files.move(file, retained);
             Files.createDirectory(file);
             blocker = Files.writeString(file.resolve("actual-delete-barrier"), "occupied");
+        }
+
+        /** Returns the original owned file retained while its actual deletion is blocked. */
+        public Path retainedFile() {
+            return retained;
         }
 
         @Override

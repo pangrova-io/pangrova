@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import javax.annotation.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
 
@@ -18,6 +19,7 @@ public final class CoordinatorLifecycleAdmission {
     @GuardedBy("this") private Thread closer;
     @GuardedBy("this") private CompletableFuture<Void> startExit;
     @GuardedBy("this") private CompletableFuture<Void> closeExit;
+    private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
     @GuardedBy("this") private final Map<String, Step> steps = new HashMap<>();
 
     /** Claims the sole start attempt; a stopped or failed-start process cannot be restarted. */
@@ -47,6 +49,11 @@ public final class CoordinatorLifecycleAdmission {
 
     /** Returns admission state only; false does not prove dependent resources have exited. */
     public synchronized boolean isRunning() { return running; }
+
+    /** Waits interruptibly for successful actual cleanup; a failed close attempt is not an exit. */
+    public void awaitShutdown() throws InterruptedException {
+        shutdownCompleted.await();
+    }
 
     /**
      * Closes actual owners once at a time, retaining a failed attempt for an explicit retry.
@@ -78,6 +85,7 @@ public final class CoordinatorLifecycleAdmission {
         try {
             cleanup.run();
             synchronized (this) { stopped = true; }
+            shutdownCompleted.countDown();
             attempt.complete(null);
         } catch (RuntimeException | Error failure) {
             attempt.completeExceptionally(failure);

@@ -9,7 +9,6 @@ import org.pangrova.protocol.v2.CapabilityLimits;
 import org.pangrova.protocol.v2.CapabilityRef;
 import org.pangrova.protocol.v2.CoveragePolicy;
 import org.pangrova.protocol.v2.ExecutionPolicy;
-import org.pangrova.protocol.v2.ExecutionReusePolicy;
 import org.pangrova.protocol.v2.FallbackPolicy;
 import org.pangrova.protocol.v2.ModelAvailability;
 import org.pangrova.protocol.v2.ModelCapabilityContract;
@@ -32,11 +31,6 @@ public final class AiInvocationOperatorBinder {
 
     private static final String SERVICE_ID = "worker-local-governed-provider";
     private static final String ROUTE_POLICY_VERSION = "exact-worker-inventory";
-    private static final long REUSE_TTL_MS = 3_600_000L;
-    private static final long REUSE_MAX_ENTRIES = 100_000L;
-    private static final long REUSE_MAX_BYTES = 512L * 1024 * 1024;
-    private static final int REUSE_KEY_DIMENSION = 256;
-    private static final double REUSE_SIMILARITY_THRESHOLD = 0.98;
 
     private AiInvocationOperatorBinder() {}
 
@@ -92,16 +86,9 @@ public final class AiInvocationOperatorBinder {
                         .setOutputType(modelContract.getOutputType())
                         .setRequestLimits(ModelResourceEnvelopes.requestLimits(limits)))
                 .setResources(resources);
-        if (hint.operation() == AiInvocationPlanHint.Operation.TEXT_GENERATION) {
-            binding.setReusePolicy(ExecutionReusePolicy.newBuilder()
-                    .setEnabled(true)
-                    .setTtlMs(REUSE_TTL_MS)
-                    .setMaxEntries(REUSE_MAX_ENTRIES)
-                    .setMaxBytes(REUSE_MAX_BYTES)
-                    .setSimilarityThreshold(REUSE_SIMILARITY_THRESHOLD)
-                    .setKeyDimension(REUSE_KEY_DIMENSION)
-                    .setRequireComplete(true));
-        }
+        // A model/version binding does not establish deterministic generation.
+        // Ordinary AI SQL must execute each invocation; approximate prompt
+        // similarity cannot authorize substituting a prior model response.
         return binding.build();
     }
 

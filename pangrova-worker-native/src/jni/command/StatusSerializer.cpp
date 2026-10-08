@@ -83,10 +83,12 @@ std::vector<uint8_t> serializeTaskStatus(
     status.set_execution_drain_state(
         pangrova::protocol::v2::EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
   }
-  if (executor.hasFinalTaskStats()) {
-    const auto final_stats = executor.collectTaskStats();
+  // Refresh actual operator copies before sampling task-owned usage. Final
+  // stats survive reader/task deletion; live stats cover failed/cancelled scans.
+  const auto actual_stats = executor.collectTaskStats();
+  if (!actual_stats.empty()) {
     if (!status.mutable_native_task_stats()->ParseFromArray(
-            final_stats.data(), static_cast<int>(final_stats.size()))) {
+            actual_stats.data(), static_cast<int>(actual_stats.size()))) {
       throw std::runtime_error("Actual native task statistics are malformed");
     }
   }

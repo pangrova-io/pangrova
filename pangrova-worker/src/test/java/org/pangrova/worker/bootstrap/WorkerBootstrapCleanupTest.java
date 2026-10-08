@@ -39,9 +39,9 @@ class WorkerBootstrapCleanupTest {
             Thread.currentThread().interrupt();
             try {
                 assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config, new WorkerObservabilitySetup(), false))
-                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("scheduler drain interrupted")
-                        .satisfies(failure -> assertThat(failure.getSuppressed()).singleElement()
-                                .satisfies(other -> assertThat(other).hasMessageContaining("CDC consumer")));
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("CDC consumer");
+                assertThat(Thread.currentThread().isInterrupted()).isTrue();
+                assertThat(scheduler.isShutdown()).isFalse();
             } finally { Thread.interrupted(); resume.countDown(); }
             assertThat(dependent.isOpen()).isTrue();
             assertThat(refs.nativeFunctionResources()).containsExactly(dependent);

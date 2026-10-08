@@ -152,9 +152,8 @@
 
         <!-- Native JNI library: in production, loaded from classifier JAR on classpath.
              The dependency is declared in the 'native-runtime' profile below,
-             activated by CI via -Pnative-runtime. Development builds use
-             maven-resources-plugin to copy the dylib to the classpath
-             (see copy-native-lib execution above). -->
+             activated by CI via -Pnative-runtime. Local tests use the same
+             canonical resource staged by package-native-lib.sh before Maven. -->
 
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -184,7 +183,8 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <scope>test</scope>
+            <scope>runtime</scope>
+            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>io.opentelemetry</groupId>
@@ -242,32 +242,6 @@
                     </execution>
                 </executions>
             </plugin>
-            <!-- Copy native library from CMake build dir to classpath for tests.
-                 Same path as production (classpath extraction via NativeLibraryLoader).
-                 Skipped if the dylib doesn't exist (no native build). -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-native-lib</id>
-                        <phase>process-test-resources</phase>
-                        <goals><goal>copy-resources</goal></goals>
-                        <configuration>
-                            <outputDirectory>${project.build.testOutputDirectory}/META-INF/native/${os.detected.name}/${os.detected.arch}</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${maven.multiModuleProjectDirectory}/pangrova-worker-native/build</directory>
-                                    <includes>
-                                        <include>libpangrova_native.dylib</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                            <overwrite>true</overwrite>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -313,7 +287,7 @@
           native-runtime: activated by CI/release builds (-Pnative-runtime) to include
           the per-platform classifier JAR on the runtime classpath. This JAR contains
           libpangrova_native under META-INF/native/{os}/{arch}/ for classpath extraction.
-          Development builds skip this profile and use java.library.path instead.
+          Local builds stage the same resource with package-native-lib.sh.
         -->
         <profile>
             <id>native-runtime</id>

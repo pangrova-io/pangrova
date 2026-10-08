@@ -119,7 +119,8 @@ public class TransportServer implements TransportServerLifecycle {
         Objects.requireNonNull(config, "config must not be null");
         this.requestedPort = config.port();
         this.producer = producer;
-        this.allocator = new RootAllocator(DEFAULT_ALLOCATOR_LIMIT);
+        long limit = config.allocatorLimitBytes() > 0 ? config.allocatorLimitBytes() : DEFAULT_ALLOCATOR_LIMIT;
+        this.allocator = new RootAllocator(limit);
         this.ownsAllocator = true;
         this.config = config;
         this.ticketSigner = ticketSigner;
@@ -171,6 +172,11 @@ public class TransportServer implements TransportServerLifecycle {
     }
 
     private org.apache.arrow.flight.FlightServer buildServer() throws IOException {
+        boolean certificateConfigured = config.tlsCertPath() != null && !config.tlsCertPath().isBlank();
+        boolean keyConfigured = config.tlsKeyPath() != null && !config.tlsKeyPath().isBlank();
+        if (certificateConfigured != keyConfigured || (config.mtlsEnabled() && !config.mtlsConfigured())) {
+            throw new IllegalArgumentException("Incomplete transport TLS or mutual TLS configuration");
+        }
         BatchStreamProducer adapter = new BatchStreamProducer(producer, allocator, ticketSigner);
         if (config.tlsEnabled()) {
             java.io.File certFile = new java.io.File(config.tlsCertPath());
@@ -193,6 +199,9 @@ public class TransportServer implements TransportServerLifecycle {
             org.apache.arrow.flight.FlightServer.Builder tlsBuilder =
                     org.apache.arrow.flight.FlightServer.builder(allocator, location, adapter)
                             .useTls(certFile, keyFile);
+            if (config.mtlsConfigured()) {
+                tlsBuilder.useMTlsClientVerification(new java.io.File(config.tlsTrustChainPath()));
+            }
             attachInterceptors(tlsBuilder);
             return tlsBuilder.build();
         }

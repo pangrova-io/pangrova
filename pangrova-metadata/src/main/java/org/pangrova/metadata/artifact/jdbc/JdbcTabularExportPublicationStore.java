@@ -151,13 +151,7 @@ public final class JdbcTabularExportPublicationStore implements ArtifactPublicat
     }
 
     private static void requireStableIdentity(JobRow row, ArtifactBuildJob claimed) {
-        if (!row.tenantId().equals(claimed.tenantId())
-                || !row.jobId().equals(claimed.jobId())
-                || !row.artifactId().equals(claimed.artifactId())
-                || !row.artifactType().equals(claimed.artifactType())
-                || !row.generation().equals(claimed.stagingGeneration())
-                || !row.sourceId().equals(claimed.sourceId())
-                || !row.sourceSnapshot().equals(claimed.sourceSnapshot())
+        if (!matchesSourceIdentity(row, claimed)
                 || row.executionKind() != claimed.executionKind()
                 || !row.dependencySet().equals(claimed.dependencySet())
                 || row.emptyPartitionPolicy() != claimed.emptyPartitionPolicy()
@@ -170,6 +164,16 @@ public final class JdbcTabularExportPublicationStore implements ArtifactPublicat
                         .equals(claimed.publicationExpectedUpdatedAt())) {
             throw new IllegalStateException("Claimed tabular export identity changed");
         }
+    }
+
+    private static boolean matchesSourceIdentity(JobRow row, ArtifactBuildJob claimed) {
+        return row.tenantId().equals(claimed.tenantId())
+                && row.jobId().equals(claimed.jobId())
+                && row.artifactId().equals(claimed.artifactId())
+                && row.artifactType().equals(claimed.artifactType())
+                && row.generation().equals(claimed.stagingGeneration())
+                && row.sourceId().equals(claimed.sourceId())
+                && row.sourceSnapshot().equals(claimed.sourceSnapshot());
     }
 
     private static Aggregate aggregate(

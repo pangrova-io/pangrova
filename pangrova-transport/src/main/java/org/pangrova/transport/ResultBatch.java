@@ -32,7 +32,9 @@ import java.util.Set;
  * Produced by {@link ArrowBatchDecoder}; its public signature contains no Arrow types.
  *
  * <p>Row values are decoded Java values: INTEGER→Integer, BIGINT→Long,
- * FLOAT/DOUBLE→Double, VARCHAR→String, BOOLEAN→Boolean, Pangrova VECTOR→float[],
+ * FLOAT/DOUBLE→Double, VARCHAR→String, BOOLEAN→Boolean,
+ * Pangrova VECTOR→float[]/double[] for required coordinates and Float[]/Double[]
+ * for nullable coordinates according to the complete schema declaration,
  * NULL→null, and other complex values from Arrow {@code getObject()}.
  * Mutable cells are detached on input and output; immutable scalar cells are shared.
  * These heap snapshots are a client ownership boundary, not a zero-copy execution format.

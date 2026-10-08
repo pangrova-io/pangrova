@@ -21,6 +21,9 @@ import org.pangrova.planner.AuthorizedStageGraph.SerializedStage;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.protocol.v2.BatchSerde;
+import org.pangrova.protocol.type.VectorLogicalType;
+import org.pangrova.protocol.v2.ResultColumnLogicalType;
+import org.pangrova.planner.type.PlannerTypeFactory;
 import org.pangrova.spi.connector.metadata.Constraint;
 
 import java.math.BigDecimal;
@@ -64,8 +67,31 @@ class AuthorizedStageGraphTest {
                         AiInvocationPlanHint.Operation.EMBEDDING, false))))), List.of());
         var renamed = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new SerializedStage(0, 1, "OUTPUT", plan(),
-                List.of(), List.of("renamed"), List.of(), -1, -1)), List.of());
+                List.of(), List.of("renamed"), List.of(), List.of(), -1, -1)), List.of());
         assertThat(plain.sha256()).isNotEqualTo(governed.sha256()).isNotEqualTo(renamed.sha256());
+    }
+
+    @Test
+    void graphIdentityRetainsDimensionsThatCoreSubstraitListsCannotEncode() throws Exception {
+        var types = new PlannerTypeFactory();
+        var rex = new RexBuilder(types);
+        var cluster = RelOptCluster.create(new VolcanoPlanner(), rex);
+        var row = types.builder().add("embedding", types.createStorageVector(VectorLogicalType.create(3))).build();
+        var values = LogicalValues.createEmpty(cluster, row);
+        var serialized = new SerializedPlanFragment(new SubstraitPlanSerializer().serialize(
+                new SubstraitConverter().convert(values)), List.of(), List.of());
+        var firstType = ResultColumnLogicalType.newBuilder().setColumnIndex(0)
+                .setLogicalType(VectorLogicalType.create(3)).build();
+        var secondType = firstType.toBuilder().setLogicalType(VectorLogicalType.create(4)).build();
+        var first = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+                List.of(new SerializedStage(0, 1, "OUTPUT", serialized, List.of(), List.of("embedding"),
+                        List.of(), List.of(firstType), -1, -1)), List.of());
+        var second = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.QUERY_RESULT,
+                List.of(new SerializedStage(0, 1, "OUTPUT", serialized, List.of(), List.of("embedding"),
+                        List.of(), List.of(secondType), -1, -1)), List.of());
+        assertThat(first.sha256()).isNotEqualTo(second.sha256());
+        assertThat(first.stages().get(0).sha256()).isNotEqualTo(second.stages().get(0).sha256());
+        assertThat(first.stages().get(0).resultColumnTypes()).containsExactly(firstType);
     }
 
     @Test
@@ -99,7 +125,7 @@ class AuthorizedStageGraphTest {
                 new SplitSourceDescriptor("lake", "raw", source, Constraint.EMPTY, List.of("id"), java.util.Optional.empty()));
         var schema = SubstraitRelationLayout.rootSchema(Plan.parseFrom(plan.planBytes()).getRelations(0).getRoot());
         return new SerializedStage(id, parallelism, role, plan, sources,
-                SubstraitRelationLayout.topLevelNames(schema), List.of(), -1, -1);
+                SubstraitRelationLayout.topLevelNames(schema), List.of(), List.of(), -1, -1);
     }
 
     private static SerializedPlanFragment producerPlan() throws Exception {

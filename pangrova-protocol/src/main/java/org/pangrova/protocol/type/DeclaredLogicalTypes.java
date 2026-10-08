@@ -4,14 +4,20 @@ import io.substrait.proto.Type;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.TypeConstraint;
 import org.pangrova.spi.connector.data.type.TypeSignature;
-import org.pangrova.spi.connector.metadata.NativePhysicalWriteAllocation.DeclaredType;
+import org.pangrova.spi.connector.data.type.DeclaredType;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/** Converts complete connector type declarations into the sole cross-runtime logical contract. */
-public final class PhysicalWriteTypes {
+/**
+ * Projects complete connector declarations for the supported physical-write type domain.
+ *
+ * <p>The canonical logical contract is shared across runtimes. Type-domain admission
+ * remains explicit; this projector does not infer missing declarations or advertise
+ * support for every connector read type.</p>
+ */
+public final class DeclaredLogicalTypes {
     private static final int MAX_DECIMAL_PRECISION = 38;
     private static final Map<String, String> PRIMITIVES = Map.ofEntries(
             Map.entry("BOOLEAN", "bool"), Map.entry("TINYINT", "i8"), Map.entry("SMALLINT", "i16"),
@@ -19,7 +25,7 @@ public final class PhysicalWriteTypes {
             Map.entry("FLOAT", "fp32"), Map.entry("DOUBLE", "fp64"), Map.entry("DATE", "date"),
             Map.entry("TIME", "time"), Map.entry("VARBINARY", "binary"));
 
-    private PhysicalWriteTypes() {}
+    private DeclaredLogicalTypes() {}
 
     /**
      * Projects the exact ordered declaration into the canonical logical contract.

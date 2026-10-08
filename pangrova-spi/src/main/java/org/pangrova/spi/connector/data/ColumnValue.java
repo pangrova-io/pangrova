@@ -69,6 +69,39 @@ public sealed interface ColumnValue {
         public VectorValue {
             value = value.clone();
         }
+
+        @Override
+        public float[] value() { return value.clone(); }
+    }
+
+    /** Storage VECTOR with Float64 coordinates; AI output remains {@link VectorValue}. */
+    record DoubleVectorValue(double[] value) implements ColumnValue {
+        public DoubleVectorValue {
+            value = value.clone();
+        }
+
+        @Override
+        public double[] value() { return value.clone(); }
+    }
+
+    /** Storage VECTOR whose Float32 coordinates may contain SQL NULL. */
+    record NullableVectorValue(Float[] value) implements ColumnValue {
+        public NullableVectorValue {
+            value = value.clone();
+        }
+
+        @Override
+        public Float[] value() { return value.clone(); }
+    }
+
+    /** Storage VECTOR whose Float64 coordinates may contain SQL NULL. */
+    record NullableDoubleVectorValue(Double[] value) implements ColumnValue {
+        public NullableDoubleVectorValue {
+            value = value.clone();
+        }
+
+        @Override
+        public Double[] value() { return value.clone(); }
     }
 
     record MapValue(Map<?, ?> entries) implements ColumnValue {
@@ -96,6 +129,15 @@ public sealed interface ColumnValue {
         }
         if (raw instanceof float[] floats) {
             return new VectorValue(floats);
+        }
+        if (raw instanceof double[] doubles) {
+            return new DoubleVectorValue(doubles);
+        }
+        if (raw instanceof Float[] floats) {
+            return new NullableVectorValue(floats);
+        }
+        if (raw instanceof Double[] doubles) {
+            return new NullableDoubleVectorValue(doubles);
         }
         if (raw instanceof Map<?, ?> map) {
             return new MapValue(map);
@@ -130,7 +172,16 @@ public sealed interface ColumnValue {
             return value.value();
         }
         if (columnValue instanceof VectorValue value) {
-            return value.value().clone();
+            return value.value();
+        }
+        if (columnValue instanceof DoubleVectorValue value) {
+            return value.value();
+        }
+        if (columnValue instanceof NullableVectorValue value) {
+            return value.value();
+        }
+        if (columnValue instanceof NullableDoubleVectorValue value) {
+            return value.value();
         }
         if (columnValue instanceof ArrayValue value) {
             return value.elements();

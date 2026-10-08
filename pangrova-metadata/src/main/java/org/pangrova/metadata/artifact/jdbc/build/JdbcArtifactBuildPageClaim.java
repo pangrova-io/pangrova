@@ -40,23 +40,26 @@ final class JdbcArtifactBuildPageClaim {
 
     private static void persist(Connection connection, JdbcArtifactBuildStoreMappings.PageRow page,
             ExecutionAnchor anchor, IssuedLease lease, Instant now) throws SQLException {
-        try (var statement = connection.prepareStatement("UPDATE artifact_build_pages SET state='LEASED', attempt_id=?, "
-                + "fencing_token=?, lease_owner=?, owner_epoch=?, lease_expires_at=?, failure_reason=NULL, updated_at=?, "
+        try (var statement = connection.prepareStatement(
+                "UPDATE artifact_build_pages SET state='LEASED', attempt_id=?, "
+                + "fencing_token=?, lease_owner=?, owner_epoch=?, lease_expires_at=?, "
+                + "failure_reason=NULL, updated_at=?, "
                 + "execution_owner_id=?, execution_owner_incarnation=?, execution_owner_token=? "
                 + "WHERE tenant_id=? AND job_id=? AND page_id=? AND attempt_id=? AND state IN ('PENDING','LEASED')")) {
-            statement.setInt(1, lease.attemptId());
-            statement.setLong(2, lease.token());
-            statement.setString(3, anchor.ownerId());
-            statement.setLong(4, lease.ownerEpoch());
-            setInstant(statement, 5, lease.expiresAt());
-            setInstant(statement, 6, now);
-            statement.setString(7, anchor.ownerId());
-            statement.setString(8, anchor.ownerIncarnation());
-            statement.setLong(9, anchor.fencingToken());
-            statement.setString(10, page.tenantId());
-            statement.setString(11, page.jobId());
-            statement.setString(12, page.pageId());
-            statement.setInt(13, page.attemptId());
+            int parameter = 1;
+            statement.setInt(parameter++, lease.attemptId());
+            statement.setLong(parameter++, lease.token());
+            statement.setString(parameter++, anchor.ownerId());
+            statement.setLong(parameter++, lease.ownerEpoch());
+            setInstant(statement, parameter++, lease.expiresAt());
+            setInstant(statement, parameter++, now);
+            statement.setString(parameter++, anchor.ownerId());
+            statement.setString(parameter++, anchor.ownerIncarnation());
+            statement.setLong(parameter++, anchor.fencingToken());
+            statement.setString(parameter++, page.tenantId());
+            statement.setString(parameter++, page.jobId());
+            statement.setString(parameter++, page.pageId());
+            statement.setInt(parameter, page.attemptId());
             if (statement.executeUpdate() != 1) throw new IllegalStateException("artifact page lease fence was lost");
         }
     }

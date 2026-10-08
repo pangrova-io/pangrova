@@ -76,6 +76,15 @@ final class ResultBatchDecoder {
         if (value instanceof float[] vector) {
             return truncate(Arrays.toString(vector));
         }
+        if (value instanceof double[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof Float[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof Double[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
         return truncate(value.toString());
     }
 

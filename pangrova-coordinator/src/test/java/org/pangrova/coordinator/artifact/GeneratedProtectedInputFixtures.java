@@ -41,7 +41,7 @@ final class GeneratedProtectedInputFixtures {
         var graph = new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new AuthorizedStageGraph.SerializedStage(0, 1, "OUTPUT",
                         new SerializedPlanFragment(bytes, List.of(), List.of()), List.of(source),
-                        List.of("title", "body"), List.of(), 0, 0)), List.of());
+                        List.of("title", "body"), List.of(), List.of(), 0, 0)), List.of());
         return new AuthorizedRelation(bytes, List.of(source), List.of("title", "body"),
                 List.of("VARCHAR", "VARCHAR"), "0".repeat(64), true,
                 Map.of(source.qualifiedName(), schema.toByteArray()),

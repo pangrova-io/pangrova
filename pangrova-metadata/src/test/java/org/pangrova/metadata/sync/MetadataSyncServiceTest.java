@@ -9,7 +9,6 @@ import org.pangrova.metadata.exception.MetadataSyncException;
 import org.pangrova.metadata.model.TableMetadata;
 import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.store.MetadataStore;
-import org.pangrova.metadata.testinfra.SharedPostgresContainer;
 import org.pangrova.spi.connector.metadata.table.TableStatistics;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -276,77 +275,8 @@ class MetadataSyncServiceTest {
         assertThat(result.durationMs()).isGreaterThanOrEqualTo(0);
     }
 
-    // ── invalidation_log integration ──
-
     @Test
-    void incrementalSyncWritesToInvalidationLog() throws Exception {
-        var dataSource = SharedPostgresContainer.migratedDataSource("sync_invalidation");
-        var pollerCache = new RecordingCache();
-        var poller = new org.pangrova.metadata.cache.JdbcInvalidationPoller(dataSource, pollerCache, 1);
-        poller.initSchema();
-        try {
-            var syncWithPoller = new MetadataSyncService(store, cache, dispatcher, poller);
-
-            TableMetadata meta = table("cat", "sch", "t1");
-            MetadataChange change = new MetadataChange(
-                    MetadataChange.ChangeType.ADD,
-                    new QualifiedTableRef("cat", "sch", "t1"), meta);
-            StubCatalogAdapter adapter = new StubCatalogAdapter();
-            adapter.changes = List.of(change);
-
-            syncWithPoller.incrementalSync("cat", adapter);
-
-            // Verify invalidation was written to the log by querying the DB directly
-            try (var conn = dataSource.getConnection();
-                 var stmt = conn.createStatement();
-                 var rs = stmt.executeQuery("SELECT cache_key, invalidation_type FROM invalidation_log")) {
-                assertThat(rs.next())
-                        .as("Sync change must write invalidation entry to invalidation_log")
-                        .isTrue();
-                assertThat(rs.getString("cache_key")).contains("cat");
-                assertThat(rs.getString("cache_key")).contains("sch");
-                assertThat(rs.getString("cache_key")).contains("t1");
-                assertThat(rs.getString("invalidation_type")).isEqualTo("TABLE");
-            }
-        } finally {
-            poller.close();
-        }
-    }
-
-    @Test
-    void fullSyncWritesToInvalidationLogForEachTable() throws Exception {
-        var dataSource = SharedPostgresContainer.migratedDataSource("sync_full");
-        var pollerCache = new RecordingCache();
-        var poller = new org.pangrova.metadata.cache.JdbcInvalidationPoller(dataSource, pollerCache, 1);
-        poller.initSchema();
-        try {
-            var syncWithPoller = new MetadataSyncService(store, cache, dispatcher, poller);
-
-            StubCatalogAdapter adapter = new StubCatalogAdapter();
-            adapter.schemas = List.of("s1");
-            adapter.tablesBySchema.put("s1", List.of("t1", "t2"));
-            adapter.tableMetadata.put("s1:t1", table("cat", "s1", "t1"));
-            adapter.tableMetadata.put("s1:t2", table("cat", "s1", "t2"));
-
-            syncWithPoller.fullSync("cat", adapter);
-
-            // Verify 2 invalidation entries written
-            try (var conn = dataSource.getConnection();
-                 var stmt = conn.createStatement();
-                 var rs = stmt.executeQuery("SELECT COUNT(*) FROM invalidation_log")) {
-                rs.next();
-                assertThat(rs.getInt(1))
-                        .as("Full sync must write invalidation entry for each synced table")
-                        .isEqualTo(2);
-            }
-        } finally {
-            poller.close();
-        }
-    }
-
-    @Test
-    void syncWithoutPollerDoesNotFail() {
-        // Default syncService has no poller — verify no NPE
+    void incrementalSyncUsesPersistentStore() {
         TableMetadata meta = table("cat", "sch", "t1");
         MetadataChange change = new MetadataChange(
                 MetadataChange.ChangeType.ADD,

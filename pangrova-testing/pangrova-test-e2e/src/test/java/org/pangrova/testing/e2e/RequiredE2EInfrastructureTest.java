@@ -12,6 +12,10 @@ import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.TaskExecutionOptions;
+import org.pangrova.protocol.v2.StageResourceGrant;
+import org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture;
+import org.pangrova.worker.result.ResultReadTickets;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +48,9 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
                         .setPrincipal("e2e-user"))
                 .setSubstraitPlan(ByteString.copyFrom(plan))
                 .setSubstraitPlanChecksum(CanonicalTaskRequests.sha256(plan))
+                .setResourceGrant(StageResourceGrant.newBuilder()
+                        .setGrantId("e2e-control-binding-contract").setCpuSlots(1)
+                        .setNativeMemoryBytes(1048576).setShuffleBufferBytes(1048576))
                 .setDeadlineEpochMs(4_102_444_800_000L)
                 .build();
 
@@ -64,6 +71,10 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
                     .isEqualTo(anchor.ownerIncarnation());
             assertThat(bound.getAttempt().getExecutionOwner().getFencingToken())
                     .isEqualTo(anchor.fencingToken());
+            assertThat(bound.getResourceGrant()).isEqualTo(unbound.getResourceGrant());
+            assertThatThrownBy(() -> CanonicalTaskRequests.validateForAdmission(
+                    bound.toBuilder().clearResourceGrant().build()))
+                    .hasMessageContaining("Canonical task resource grant is incomplete");
             assertThatCode(() -> CanonicalTaskRequests.validateForAdmission(bound))
                     .doesNotThrowAnyException();
         } finally {
@@ -129,19 +140,53 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
     }
 
     @Test
-    void bindsNativeResultToEndpointTaskAcrossStages() {
+    void bindsOpaqueResultAuthorityToIssuedResultTaskAcrossStages() {
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         tracker.registerTask("query-1", "producer-task");
         tracker.registerTask("query-1", "result-task");
+        tracker.registerTaskRequest("producer-task", resultRequest("producer-task", false));
+        SubmitTaskRequest result = resultRequest("result-task", true);
+        tracker.registerTaskRequest("result-task", result);
+        ResultEndpoint endpoint = new ResultReadTickets(new byte[32])
+                .endpoint(result.taskRequest(), "worker-2", 12345, "grpc");
 
+        assertThat(endpoint.ticket()).isNotEqualTo("result-task");
         assertThat(SqlE2ETestBase.requireNativeResultTaskId(
-                new ResultEndpoint("worker-2", 12345, "result-task", "grpc"),
-                "query-1", tracker)).isEqualTo("result-task");
+                endpoint, "query-1", tracker)).isEqualTo("result-task");
         assertThatThrownBy(() -> SqlE2ETestBase.requireNativeResultTaskId(
-                new ResultEndpoint("worker-2", 12345, "foreign-task", "grpc"),
-                "query-1", tracker))
+                endpoint, "foreign-query", tracker))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Missing Native task ID");
+    }
+
+    @Test
+    void rejectsAmbiguousIssuedResultTasksAndMissingOpaqueAuthority() {
+        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+        tracker.registerTask("query-1", "result-1");
+        tracker.registerTask("query-1", "result-2");
+        SubmitTaskRequest first = resultRequest("result-1", true);
+        tracker.registerTaskRequest("result-1", first);
+        tracker.registerTaskRequest("result-2", resultRequest("result-2", true));
+        ResultEndpoint endpoint = new ResultReadTickets(new byte[32])
+                .endpoint(first.taskRequest(), "worker-2", 12345, "grpc");
+
+        assertThatThrownBy(() -> SqlE2ETestBase.requireNativeResultTaskId(endpoint, "query-1", tracker))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Ambiguous Native result task identity");
+        assertThatThrownBy(() -> SqlE2ETestBase.requireNativeResultTaskId(
+                new ResultEndpoint("worker-2", 12345, "", "grpc"), "query-1", tracker))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Missing Native task ID");
+    }
+
+    private static SubmitTaskRequest resultRequest(String taskId, boolean directResult) {
+        return SubmitTaskRequest.from(CanonicalTaskRequestTestFixture.builder(
+                taskId, "query-1", 0, 0, TaskKind.TASK_KIND_READ, new byte[]{1})
+                .setResourceGrant(StageResourceGrant.newBuilder()
+                        .setGrantId("e2e-result-contract").setCpuSlots(1)
+                        .setNativeMemoryBytes(1048576).setShuffleBufferBytes(1048576))
+                .setExecutionOptions(TaskExecutionOptions.newBuilder().setDirectResultOutput(directResult))
+                .build());
     }
 
     @Test
@@ -152,9 +197,12 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
         }
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         tracker.registerTask("query-1", "task-1");
+        SubmitTaskRequest result = resultRequest("task-1", true);
+        tracker.registerTaskRequest("task-1", result);
+        ResultEndpoint endpoint = new ResultReadTickets(new byte[32])
+                .endpoint(result.taskRequest(), "localhost", closedPort, "grpc");
         assertThatThrownBy(() -> SqlE2ETestBase.fetchResultsViaFlight(
-                new ResultEndpoint("localhost", closedPort, "task-1", "grpc"),
-                "query-1", tracker))
+                endpoint, "query-1", tracker))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Native Flight result fetch failed")
                 .hasCauseInstanceOf(Exception.class);

@@ -276,7 +276,7 @@ public final class JdbcEvaluationStore implements EvaluationStore {
             String failureClass,
             Instant completedAt) throws SQLException {
         String sql = "UPDATE evaluation_runs SET state=?,completed_at=?,trace_reference=?,"
-                + "failure_class=? WHERE tenant_id=? AND run_id=? AND state='RUNNING'";
+                + "failure_class=? WHERE tenant_id=? AND run_id=? AND state='RUNNING' RETURNING started_at";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, outcome.name());
             setInstant(statement, 2, completedAt);
@@ -284,7 +284,15 @@ public final class JdbcEvaluationStore implements EvaluationStore {
             statement.setString(4, failureClass);
             statement.setString(5, tenantId);
             statement.setString(6, runId);
-            return statement.executeUpdate();
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return 0;
+                }
+                if (completedAt.isBefore(getInstant(result, "started_at"))) {
+                    throw new IllegalArgumentException("completedAt must not precede startedAt");
+                }
+                return 1;
+            }
         }
     }
 
@@ -343,6 +351,9 @@ public final class JdbcEvaluationStore implements EvaluationStore {
             EvaluationReleaseDecision decision) throws SQLException {
         if (!run.state().isTerminal()) {
             throw new IllegalStateException("Release decision requires a terminal evaluation run");
+        }
+        if (decision.decidedAt().isBefore(run.completedAt())) {
+            throw new IllegalArgumentException("decidedAt must not precede evaluation completedAt");
         }
         if (!run.policyVersion().equals(decision.policyVersion())) {
             throw new IllegalStateException(

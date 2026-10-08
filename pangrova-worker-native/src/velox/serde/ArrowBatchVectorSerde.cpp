@@ -398,7 +398,8 @@ void ArrowBatchVectorSerde::deserialize(
   int64_t rows = resultOffset;
   for (const auto& batch : *decoded) {
     VELOX_USER_CHECK(batch->schema()->Equals(*wireSchema, true),
-        "Arrow wire schema differs from its admitted canonical schema");
+        "Arrow wire schema differs from its admitted canonical schema: expected=[{}] actual=[{}]",
+        wireSchema->ToString(true), batch->schema()->ToString(true));
     // Arrow cardinality is int64; validate before the SDK narrows to vector_size_t.
     VELOX_USER_CHECK_LE(batch->num_rows(),
         std::numeric_limits<facebook::velox::vector_size_t>::max() - rows,
