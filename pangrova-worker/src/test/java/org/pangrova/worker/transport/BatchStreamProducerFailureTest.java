@@ -3,6 +3,8 @@ package org.pangrova.worker.transport;
 import org.apache.arrow.flight.FlightClient;
 import org.apache.arrow.flight.FlightServer;
 import org.apache.arrow.flight.FlightStream;
+import org.apache.arrow.flight.FlightRuntimeException;
+import org.apache.arrow.flight.FlightStatusCode;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.RootAllocator;
@@ -15,9 +17,13 @@ import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.spi.transport.DataProducer;
+import org.pangrova.spi.transport.DataProducerException;
 import org.pangrova.spi.transport.DataTicket;
+import org.pangrova.spi.transport.TransportStatus;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.channels.Channels;
@@ -55,6 +61,45 @@ class BatchStreamProducerFailureTest {
             assertThat(stream.next()).isTrue();
             assertThat(stream.getRoot().getRowCount()).isEqualTo(1);
             assertThatThrownBy(stream::next).hasMessageContaining("Exact producer cursor failed");
+        });
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TransportStatus.class, names = "OK", mode = EnumSource.Mode.EXCLUDE)
+    void typedOpenFailureRetainsItsWireStatus(TransportStatus status) throws Exception {
+        withStream(ticket -> {
+            throw new DataProducerException(status, "Typed open failure");
+        }, stream -> assertWireFailure(stream, status, "Typed open failure"));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TransportStatus.class, names = "OK", mode = EnumSource.Mode.EXCLUDE)
+    void typedAsyncCursorFailureRetainsItsWireStatus(TransportStatus status) throws Exception {
+        byte[] batch = batch();
+        DataProducer producer = ticket -> {
+            AtomicInteger reads = new AtomicInteger();
+            return () -> {
+                if (reads.getAndIncrement() == 0) return batch;
+                throw new DataProducerException(status, "Typed cursor failure");
+            };
+        };
+        withStream(producer, stream -> {
+            assertThat(stream.next()).isTrue();
+            assertWireFailure(stream, status, "Typed cursor failure");
+        });
+    }
+
+    @Test
+    void exceptionWithOkStatusCannotBecomeSuccessfulEndOfStream() throws Exception {
+        withStream(ticket -> {
+            throw new DataProducerException(TransportStatus.OK, "Invalid success exception");
+        }, stream -> assertWireFailure(stream, TransportStatus.INTERNAL, "Invalid success exception"));
+    }
+
+    private static void assertWireFailure(FlightStream stream, TransportStatus status, String message) {
+        assertThatThrownBy(stream::next).isInstanceOfSatisfying(FlightRuntimeException.class, failure -> {
+            assertThat(failure.status().code()).isEqualTo(FlightStatusCode.valueOf(status.name()));
+            assertThat(failure.status().description()).contains(message);
         });
     }
 

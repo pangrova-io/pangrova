@@ -55,6 +55,18 @@ std::string toHex(std::string_view bytes) {
   return result;
 }
 
+std::string objectIdentity(const protocol::v2::ArtifactWriteBinding& binding,
+                           const artifact::ImmutableArtifactObject& stored,
+                           std::string_view role, std::string_view scope_id) {
+  std::string identity = "pangrova.artifact.object:";
+  for (const auto field : std::array<std::string_view, 5>{
+           binding.artifact_id(), binding.generation(), scope_id, role,
+           stored.sha256}) {
+    identity.append(std::to_string(field.size())).append(":").append(field);
+  }
+  return "artifact-object:" + toHex(sha256(identity));
+}
+
 class ScratchDirectory final {
  public:
   explicit ScratchDirectory(std::filesystem::path path)
@@ -77,9 +89,7 @@ void populateObject(protocol::v2::ArtifactObject* output,
                     const std::string& role, const std::string& scope_id,
                     protocol::v2::ArtifactObjectScope scope, uint32_t ordinal,
                     uint64_t rows) {
-  output->set_object_id(binding.artifact_id() + ":" + binding.generation() +
-                        ":" + scope_id + ":" + role + ":" +
-                        toHex(stored.sha256));
+  output->set_object_id(objectIdentity(binding, stored, role, scope_id));
   output->set_opaque_uri(stored.uri);
   output->set_size_bytes(stored.size_bytes);
   output->mutable_checksum()->set_algorithm(

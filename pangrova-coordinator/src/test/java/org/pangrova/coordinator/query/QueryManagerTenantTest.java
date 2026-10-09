@@ -6,7 +6,6 @@ import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -24,19 +23,24 @@ import org.pangrova.security.tenant.quota.QuotaChecker;
 import org.pangrova.security.tenant.quota.TenantQuotaExceededException;
 import org.pangrova.security.tenant.resolver.TenantResolver;
 import org.pangrova.security.tenant.store.InMemoryTenantStore;
-import org.pangrova.testing.TestExchangeTransport;
-import org.pangrova.worker.http.WorkerHttpServer;
-import org.pangrova.worker.task.TaskManager;
+import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Tests tenant resolution and quota checking wired into QueryManager.
  * Uses real TenantResolver, QuotaChecker, and InMemoryTenantStore.
  */
+@Tag("native-required")
 class QueryManagerTenantTest {
 
     private InMemoryTenantStore tenantStore;
@@ -52,7 +57,12 @@ class QueryManagerTenantTest {
     private QuotaChecker quotaChecker;
     private QueryManager queryManager;
     private QueryDispatcher orchestrator;
-    private WorkerHttpServer workerHttpServer;
+    private SourceFreeNativeWorkerFixture worker;
+    private WorkerManager workers;
+    private CoordinatorTaskTracker tracker;
+    private RemoteTaskDispatcher remote;
+    private ExecutorService submissions;
+    @TempDir Path nativeDirectory;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -60,28 +70,26 @@ class QueryManagerTenantTest {
         tenantResolver = new TenantResolver(tenantStore);
         quotaChecker = new QuotaChecker();
 
-        TaskManager workerTaskManager = TaskManager.forHttpWiringOnly();
-        workerHttpServer = new WorkerHttpServer(
-                new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0),
-                workerTaskManager, TestExchangeTransport.INSTANCE);
-        workerHttpServer.start();
-
-        orchestrator = buildOrchestrator(workerHttpServer.getPort());
-
-        var dagEngine = orchestrator.dagEngine();
-        workerTaskManager.setAutoFinishReporter(report ->
-                dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                        report.state(), report.error()));
-
-        queryManager = new QueryManager(new QueryManagerContext(
-                orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker, null, null, null, null, null,
-                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(), null));
+        worker = new SourceFreeNativeWorkerFixture("test-w", nativeDirectory);
+        submissions = Executors.newSingleThreadExecutor(runnable ->
+                new Thread(runnable, "tenant-query-dispatch"));
+        workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        workers.registerWorker(worker.workerInfo());
+        tracker = new CoordinatorTaskTracker();
+        orchestrator = buildOrchestrator();
+        queryManager = createManager(tenantResolver, quotaChecker, null);
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        if (workerHttpServer != null) {
-            workerHttpServer.stop();
+        try {
+            if (worker != null) worker.close();
+        } finally {
+            if (remote != null) remote.close();
+            if (submissions != null) {
+                submissions.shutdownNow();
+                assertThat(submissions.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            }
         }
     }
 
@@ -102,6 +110,7 @@ class QueryManagerTenantTest {
         // Unified path: constant queries dispatch to worker, reaching RUNNING
         assertThat(response.resultEndpoint()).isNotNull();
         assertThat(response.state()).isEqualTo("RUNNING");
+        finish(queryManager, response);
     }
 
     @Test
@@ -151,71 +160,74 @@ class QueryManagerTenantTest {
             tenantStore.createTenant(createTenant(tenantId, 10));
             tenantStore.addUserToTenant(tenantId, tenantId + "-user", TenantRole.MEMBER);
         }
-        QueryManager throttled = new QueryManager(new QueryManagerContext(
-                orchestrator, TestObservability.TRACING, null, tenantResolver, quotaChecker,
-                null, null, null, null,
-                new QueryThrottlingService(2, 0.001, 100.0),
-                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(),
-                null));
+        QueryManager throttled = createManager(tenantResolver, quotaChecker,
+                new QueryThrottlingService(2, 0.001, 100.0));
 
         for (String tenantId : List.of("tenant-a", "tenant-b")) {
             CoordinatorSessionContext session = new CoordinatorSessionContext(
                     UUID.randomUUID().toString(), Map.of(),
                     createIdentity(tenantId + "-user"), null);
-            assertThat(throttled.submitQuery(session.queryId(), "SELECT 1", session))
-                    .isNotNull();
+            var response = throttled.submitQuery(session.queryId(), "SELECT 1", session);
+            assertThat(response).isNotNull();
+            finish(throttled, response);
         }
     }
 
     @Test
-    void submitQueryWithoutTenantResolverSkipsTenantChecks() throws Exception {
-        TaskManager localTaskManager = TaskManager.forHttpWiringOnly();
-        WorkerHttpServer localServer = new WorkerHttpServer(
-                new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0),
-                localTaskManager, TestExchangeTransport.INSTANCE);
-        localServer.start();
-        try {
-            QueryDispatcher orchestrator = buildOrchestrator(localServer.getPort());
-            var dagEngine = orchestrator.dagEngine();
-            localTaskManager.setAutoFinishReporter(report ->
-                    dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                            report.state(), report.error()));
-
-            QueryManager noTenantManager = new QueryManager(
-                    QueryManagerContext.minimal(orchestrator, TestObservability.TRACING));
-
-            UserIdentity identity = createIdentity("dave");
-            CoordinatorSessionContext session = new CoordinatorSessionContext(
-                    UUID.randomUUID().toString(), Map.of(), identity, null);
-
-            SubmitQueryResponse response = noTenantManager.submitQuery(
-                    session.queryId(), "SELECT 1", session);
-
-            assertThat(response).isNotNull();
-            assertThat(response.state()).isEqualTo("RUNNING");
-        } finally {
-            localServer.stop();
-        }
+    void submitQueryWithoutTenantResolverSkipsTenantChecks() {
+        QueryManager noTenantManager = createManager(null, null, null);
+        UserIdentity identity = createIdentity("dave");
+        CoordinatorSessionContext session = new CoordinatorSessionContext(
+                UUID.randomUUID().toString(), Map.of(), identity, null);
+        SubmitQueryResponse response = noTenantManager.submitQuery(session.queryId(), "SELECT 1", session);
+        assertThat(response).isNotNull();
+        assertThat(response.state()).isEqualTo("RUNNING");
+        finish(noTenantManager, response);
     }
 
-    private static QueryDispatcher buildOrchestrator(int workerPort) {
+    private QueryDispatcher buildOrchestrator() {
         SqlCompiler compiler = new SqlCompiler();
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        wm.registerWorker(TestWorkerInfoBuilder.active(
-                "test-w", "localhost", workerPort, 0));
-        RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(
+        remote = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
-        dispatcher.setControlEpochSupplier(() -> 1L);
-        dispatcher.setExecutionOwnerResolver(ignored ->
+        remote.setControlEpochSupplier(() -> 1L);
+        remote.setExecutionOwnerResolver(ignored ->
                 new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
                         "test-coordinator", "test-incarnation", 1L));
         return new QueryDispatcher(
                 org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies(
                 QueryDispatcherContext.withDefaults(
-                        compiler, null, null, null, dispatcher, scheduler,
-                        wm, new CoordinatorTaskTracker(), null, null, null, 0L)),
+                        compiler, null, null, null, remote, scheduler,
+                        workers, tracker, null, null, null, 30L)),
                 null, null);
+    }
+
+    private QueryManager createManager(TenantResolver resolver, QuotaChecker quota,
+                                       QueryThrottlingService throttling) {
+        var manager = new QueryManager(new QueryManagerContext(orchestrator, TestObservability.TRACING,
+                null, resolver, quota, null, null, null, null, throttling,
+                new org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal(), null, null,
+                AsyncSubmitConfig.defaultEnabled(), submissions));
+        worker.connect(orchestrator, tracker, workers, manager);
+        return manager;
+    }
+
+    private void finish(QueryManager manager, SubmitQueryResponse response) {
+        String queryId = response.queryId();
+        var taskIds = tracker.getTaskIds(queryId);
+        assertThat(taskIds).hasSize(1);
+        String taskId = taskIds.iterator().next();
+        assertThat(response.resultEndpoint().ticket()).isEqualTo(
+                worker.resultTicket(tracker.getTaskRequest(taskId).taskRequest()));
+        worker.consume(response.resultEndpoint());
+        assertThat(worker.rows(response.resultEndpoint())).containsExactly(List.of(1));
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(manager.getQueryState(queryId)).contains(QueryStateMachine.State.FINISHED));
+        String localTaskId = worker.taskManager().resolveWorkerTaskId(taskId);
+        assertThat(localTaskId).isNotNull();
+        worker.taskManager().releaseTaskExecutor(localTaskId);
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(worker.taskManager().getExecutorHandle(localTaskId)).isEmpty());
     }
 
     private static Tenant createTenant(String tenantId, int maxConcurrentQueries) {

@@ -4,7 +4,6 @@ import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.task.TaskDuration;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.junit.jupiter.api.Test;
 
@@ -91,10 +90,7 @@ class SpeculativeExecutionIntegrationStatusTest {
 
     @Test
     void duplicateTaskResolverWiredIntoTaskStatusReceiver() {
-        Set<String> fieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
-        assertThat(fieldTypes)
-                .as("DuplicateTaskResolver IS wired into TaskStatusReceiver (Task 24 fix)")
-                .contains("DuplicateTaskResolver");
+        org.pangrova.coordinator.testinfra.SpeculationReceiverWiringFixture.assertCompletionBehavior();
     }
 
     @Test

@@ -49,9 +49,10 @@ class AuthorizedRelationTest {
     }
 
     private static AuthorizedStageGraph graph() {
+        byte[] canonicalPlan = new org.pangrova.planner.SqlCompiler().compile("SELECT 1 AS id");
         return new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new AuthorizedStageGraph.SerializedStage(
-                0, 1, "OUTPUT", new SerializedPlanFragment(new byte[] {1}, List.of(), List.of()),
+                0, 1, "OUTPUT", new SerializedPlanFragment(canonicalPlan, List.of(), List.of()),
                 List.of(), List.of("id"), List.of(), List.of(), 0, 0)), List.of());
     }
 }

@@ -9,6 +9,7 @@ import org.pangrova.spi.coordination.ExecutionAnchorStore;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
@@ -18,6 +19,7 @@ import javax.annotation.concurrent.GuardedBy;
 @ThreadSafe
 public final class CoordinatorExecutionAuthority implements AutoCloseable {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(CoordinatorExecutionAuthority.class);
+    private static final long SHUTDOWN_TIMEOUT_MS = 5000;
     private final ExecutionAnchorStore backend;
     private final String coordinatorId;
     private final String incarnation;
@@ -25,8 +27,11 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
     private final ScheduledExecutorService renewal;
     private final Object lifecycle = new Object();
     private final ExecutionAuthorityOperations operations = new ExecutionAuthorityOperations();
-    @GuardedBy("lifecycle") private CompletableFuture<Void> closeExit;
-    @GuardedBy("lifecycle") private Thread closer;
+    private final AtomicReference<QueryOwnershipRegistry> queryOwnership = new AtomicReference<>();
+    @GuardedBy("lifecycle")
+    private CompletableFuture<Void> closeExit;
+    @GuardedBy("lifecycle")
+    private Thread closer;
 
     /** Binds a real backend to one actual Coordinator process, independent of its enabled roles. */
     public CoordinatorExecutionAuthority(ExecutionAnchorStore backend, String coordinatorId, String incarnation,
@@ -44,8 +49,11 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
             renewal.scheduleWithFixedDelay(() -> ExecutorDrain.runOwned(renewal, this::renewSafely),
                     leaseDuration.toMillis() / 3, leaseDuration.toMillis() / 3, TimeUnit.MILLISECONDS);
         } catch (RuntimeException | Error failure) {
-            try { ExecutorDrain.shutdownAndAwait(renewal, 5000); }
-            catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            try {
+                ExecutorDrain.shutdownAndAwait(renewal, SHUTDOWN_TIMEOUT_MS);
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
             throw failure;
         }
     }
@@ -58,23 +66,31 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
                     && incarnation.equals(anchor.ownerIncarnation()));
             if (current.isPresent()) return current;
             return backend.tryAcquire(executionId, coordinatorId, incarnation, leaseDuration);
-        } finally { operation.close(); }
+        } finally {
+            operation.close();
+        }
     }
 
     /** Completes only an anchor actually issued to this process. */
     public boolean release(ExecutionAnchor anchor) {
         requireProcess(anchor);
         var operation = operations.enter();
-        try { return backend.release(anchor); }
-        finally { operation.close(); }
+        try {
+            return backend.release(anchor);
+        } finally {
+            operation.close();
+        }
     }
 
     /** Makes only this exact process token eligible for recovery. */
     public boolean yield(ExecutionAnchor anchor) {
         requireProcess(anchor);
         var operation = operations.enter();
-        try { return backend.yield(anchor); }
-        finally { operation.close(); }
+        try {
+            return backend.yield(anchor);
+        } finally {
+            operation.close();
+        }
     }
 
     /** Shared bootstrap backend used by the query HA registry. */
@@ -83,6 +99,21 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
     public String coordinatorId() { return coordinatorId; }
     /** Actual single startup identity shared across roles. */
     public String incarnation() { return incarnation; }
+
+    Duration leaseDuration() { return leaseDuration; }
+
+    void bindQueryOwnership(QueryOwnershipRegistry registry) {
+        if (!registry.usesStore(backend)) {
+            throw new IllegalArgumentException("Query ownership requires the exact process backend");
+        }
+        if (!queryOwnership.compareAndSet(null, registry) && queryOwnership.get() != registry) {
+            throw new IllegalStateException("Process authority already has a query ownership registry");
+        }
+    }
+
+    void unbindQueryOwnership(QueryOwnershipRegistry registry) {
+        queryOwnership.compareAndSet(registry, null);
+    }
 
     private void requireProcess(ExecutionAnchor anchor) {
         Objects.requireNonNull(anchor, "anchor");
@@ -93,12 +124,24 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
 
     private void renewSafely() {
         ExecutionAuthorityOperations.Operation operation;
-        try { operation = operations.enter(); }
-        catch (IllegalStateException sealed) { return; }
-        try { backend.renewOwned(coordinatorId, incarnation, leaseDuration); }
-        catch (RuntimeException failure) {
+        try {
+            operation = operations.enter();
+        } catch (IllegalStateException sealed) {
+            return;
+        }
+        try {
+            QueryOwnershipRegistry registry = queryOwnership.get();
+            var expected = registry == null ? java.util.List.<ExecutionAnchor>of()
+                    : registry.renewalSnapshot(coordinatorId, incarnation);
+            var receipt = backend.renewOwned(coordinatorId, incarnation, leaseDuration);
+            if (registry != null && !registry.applyRenewal(expected, receipt)) {
+                throw new IllegalStateException("Process renewal lost one or more exact query fences");
+            }
+        } catch (RuntimeException failure) {
             LOG.error("event=execution_authority_renewal_failed coordinatorId={}", coordinatorId, failure);
-        } finally { operation.close(); }
+        } finally {
+            operation.close();
+        }
     }
 
     /** Stops renewal and yields, rather than deletes, unfinished executions for exact-token recovery. */
@@ -110,21 +153,29 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
         synchronized (lifecycle) {
             if (closer == Thread.currentThread()) throw new IllegalStateException("Authority close cannot join itself");
             claimed = closer == null && (closeExit == null || closeExit.isCompletedExceptionally());
-            if (claimed) { closeExit = new CompletableFuture<>(); closer = Thread.currentThread(); }
+            if (claimed) {
+                closeExit = new CompletableFuture<>();
+                closer = Thread.currentThread();
+            }
             completion = closeExit;
         }
-        if (!claimed) { completion.join(); return; }
+        if (!claimed) {
+            completion.join();
+            return;
+        }
         try {
             // Actual scheduler and synchronous backend operations exit before the final exact-process yield.
-            ExecutorDrain.shutdownAndAwait(renewal, 5000);
-            operations.awaitExit(5000);
+            ExecutorDrain.shutdownAndAwait(renewal, SHUTDOWN_TIMEOUT_MS);
+            operations.awaitExit(SHUTDOWN_TIMEOUT_MS);
             backend.yieldOwned(coordinatorId, incarnation);
             completion.complete(null);
         } catch (RuntimeException | Error failure) {
             completion.completeExceptionally(failure);
             throw failure;
         } finally {
-            synchronized (lifecycle) { closer = null; }
+            synchronized (lifecycle) {
+                closer = null;
+            }
         }
     }
 }

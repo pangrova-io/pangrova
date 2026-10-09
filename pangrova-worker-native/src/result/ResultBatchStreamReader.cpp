@@ -90,8 +90,13 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
         context_(context) {}
 
   ~ResultBatchReader() override {
+    const bool alreadyRevoked = info_.ownership->evidence().authority_revoked;
     info_.ownership->revokeAuthority();
     try {
+      if (!finished_ && !alreadyRevoked && failure_.ok() && info_.fail_producer) {
+        info_.fail_producer(std::make_exception_ptr(
+            std::runtime_error("Result stream closed before its committed EOF")));
+      }
       info_.buffers->deleteResults(taskId(), 0);
       info_.ownership->revokeAndClearQueue();
     } catch (const std::exception& error) {
@@ -107,6 +112,27 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
   arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override {
     *out = nullptr;
     if (!failure_.ok()) return failure_;
+    arrow::Status status;
+    std::exception_ptr failure;
+    try {
+      status = readNext(out);
+    } catch (const std::exception& error) {
+      failure = std::current_exception();
+      status = arrow::Status::IOError("Result decoding failed: ", error.what());
+    }
+    if (!status.ok()) {
+      failure_ = status;
+      // Explicit authority/cancellation belongs to its admitted lifecycle owner,
+      // not to a data-validation failure competing with that cancellation.
+      if (!status.IsCancelled() && info_.fail_producer) {
+        info_.fail_producer(failure ? failure : std::make_exception_ptr(std::runtime_error(status.ToString())));
+      }
+    }
+    return status;
+  }
+
+ private:
+  arrow::Status readNext(std::shared_ptr<arrow::RecordBatch>* out) {
     ARROW_RETURN_NOT_OK(validateLiveAuthority());
     while (pending_.empty() && !finished_) {
       const auto status = fetchPages();
@@ -122,7 +148,6 @@ class ResultBatchReader final : public arrow::RecordBatchReader {
     return arrow::Status::OK();
   }
 
- private:
   const std::string& taskId() const { return grant_.attempt().task_id(); }
 
   arrow::Status validateLiveAuthority() const {

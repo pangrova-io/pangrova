@@ -53,22 +53,23 @@ public final class InMemoryExecutionAnchorStore implements ExecutionAnchorStore 
     }
 
     @Override
-    public synchronized int renewOwned(
+    public synchronized List<ExecutionAnchor> renewOwned(
             String ownerId, String ownerIncarnation, Duration leaseDuration) {
         requireOwner(ownerId, ownerIncarnation);
         requireDuration(leaseDuration);
         Instant now = now();
         Instant newDeadline = now.plusMillis(leaseDuration.toMillis());
-        int renewed = 0;
+        List<ExecutionAnchor> renewed = new ArrayList<>();
         for (Map.Entry<String, Row> entry : rows.entrySet()) {
             Row row = entry.getValue();
             if (row.matchesOwner(ownerId, ownerIncarnation)
                     && row.expiresAt.isAfter(now)) {
-                entry.setValue(row.withDeadline(newDeadline));
-                renewed++;
+                Row replacement = row.withDeadline(newDeadline);
+                entry.setValue(replacement);
+                renewed.add(replacement.toAnchor());
             }
         }
-        return renewed;
+        return List.copyOf(renewed);
     }
 
     @Override

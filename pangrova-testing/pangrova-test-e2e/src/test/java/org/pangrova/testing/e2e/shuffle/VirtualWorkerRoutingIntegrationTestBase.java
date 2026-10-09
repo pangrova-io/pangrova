@@ -26,7 +26,6 @@ import org.pangrova.testing.e2e.CanonicalWorkerInventory;
 import org.pangrova.testing.e2e.E2ETestFramework;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.runner.SqlTestRunner;
-import org.pangrova.testing.e2e.setup.TestDataSetup;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -59,6 +58,8 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     private static CoordinatorTaskTracker routingTaskTracker;
     private static RemoteTaskDispatcher routingDispatcher;
     private static ExecutorService routingAsyncExecutor;
+    private static E2ETestFramework routingFramework;
+    protected static SqlTestRunner routingSqlRunner;
 
     // -----------------------------------------------------------------------
     // Lifecycle: overlay a virtual-worker routing coordinator on the shared worker
@@ -67,26 +68,46 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     @BeforeAll
     static void initVirtualWorkerRoutingHarness() {
         isDockerReady();
-        testCluster = createRoutingHarness();
-        framework = new E2ETestFramework(
-                testCluster, VirtualWorkerRoutingIntegrationTestBase::executeViaRoutingPipeline);
-        sqlRunner = new SqlTestRunner(framework);
-        dataSetup = new TestDataSetup(sqlRunner);
-        framework.setup();
+        initializeRoutingHarness(createRoutingHarness());
+    }
+
+    static void initializeRoutingHarness(TestCluster testHarness) {
+        if (routingFramework != null) {
+            throw new IllegalStateException("A routing harness is already owned");
+        }
+        // The parent owns the shared physical Worker and its SQL/DDL/DML runner.
+        // Never replace those fields with a shorter-lived routing overlay.
+        routingFramework = new E2ETestFramework(
+                testHarness, VirtualWorkerRoutingIntegrationTestBase::executeViaRoutingPipeline);
+        routingSqlRunner = new SqlTestRunner(routingFramework);
+        routingFramework.setup();
     }
 
     @AfterAll
     static void stopVirtualWorkerRoutingHarness() {
-        if (framework != null) {
-            framework.teardown();
+        try {
+            closeRoutingHarness();
+        } finally {
+            configureStatusReporter();
         }
+    }
+
+    private static void closeRoutingHarness() {
+        if (routingFramework != null) {
+            routingFramework.teardown();
+            routingFramework = null;
+        }
+        routingSqlRunner = null;
         if (routingDispatcher != null) {
             routingDispatcher.close();
             routingDispatcher = null;
         }
         if (routingAsyncExecutor != null) {
-            routingAsyncExecutor.shutdownNow();
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(routingAsyncExecutor, 5000L);
             routingAsyncExecutor = null;
+        }
+        if (routingQueryManager != null) {
+            routingQueryManager.stopPeriodicCleanup();
         }
         stopCoordinatorQuietly(coordinatorServer);
         coordinatorServer = null;
@@ -171,19 +192,14 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
         routingDispatcher = dispatcher;
         SqlCompiler compiler = buildSqlCompiler();
-        // Late-bound NativeDmlCompileFunction for native DML execution.
-        // In E2E tests, completes QueryStateMachine lifecycle directly.
+        // Fixture tables and writes use the parent's real authenticated pipeline.
+        // A routing SELECT harness must never fabricate successful DML completion.
         var queryDispatcherRef = new java.util.concurrent.atomic.AtomicReference<QueryDispatcher>();
         org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch =
                 (sm, session, stmt) -> {
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.SCHEDULING);
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.RUNNING);
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.FINISHING);
-                    sm.tryTransition(org.pangrova.coordinator.query.QueryStateMachine.State.FINISHED);
-                    return new org.pangrova.coordinator.query.execution.dispatch.DispatchResult(
-                            "localhost", session.queryId(),
-                            new org.pangrova.protocol.rest.query.ResultEndpoint(
-                                    "localhost", 0, "dml-noop", "grpc"));
+                    throw new org.pangrova.common.exception.PangrovaException(
+                            org.pangrova.common.exception.PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
+                            "Routing harness accepts SELECT only; fixture writes require the shared SQL pipeline");
                 };
         var deps = QueryDispatcherContext.withDefaults(
                 compiler, null, null, null,

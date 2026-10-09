@@ -114,7 +114,7 @@ class NativeWriterRegistrationTest {
             ConnectorSession session = new StubSession();
             return new CatalogResourceResolver.CatalogResources(metadata, provider, session,
                     org.pangrova.worker.jni.write.TestOutputHandles.outputHandle(),
-                    java.util.List.of("id"));
+                    java.util.List.of("id", "name"));
         });
     }
 

@@ -30,11 +30,11 @@ class BufferMemoryBoundedPropertyTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "concurrent-buffer-bound")) {
             var infos = submitConcurrentTasks(tasks, taskCount, 3);
-            for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.FINISHED);
-            long heldGrants = runtime.arbitrator().snapshot().entrySet().stream()
-                    .filter(entry -> entry.getKey().startsWith("buffer:"))
-                    .mapToLong(java.util.Map.Entry::getValue).sum();
+            for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            long heldGrants = infos.stream().mapToLong(TaskInfo::allocatedBufferMemory).sum();
             assertThat(heldGrants).isEqualTo(taskCount * BUFFER_BYTES);
+            assertThat(runtime.arbitrator().getUsedMemory()).isGreaterThanOrEqualTo(heldGrants);
+            assertThat(runtime.nodePool().getUsedBytes()).isGreaterThanOrEqualTo(heldGrants);
             assertThat(runtime.arbitrator().getUsedMemory())
                     .isLessThanOrEqualTo(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
             for (var info : infos) assertThat(tasks.consume(info).rows()).isEqualTo(6);
@@ -47,13 +47,15 @@ class BufferMemoryBoundedPropertyTest {
              var tasks = new ActualTaskManagerFixture(runtime, "concurrent-buffer-release")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             var infos = submitConcurrentTasks(tasks, taskCount, 2);
-            for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            for (var info : infos) tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             for (var info : infos) {
                 assertThat(info.allocatedBufferMemory()).isEqualTo(BUFFER_BYTES);
                 assertThat(tasks.consume(info).rows()).isEqualTo(4);
-                assertThat(runtime.arbitrator().snapshot()).doesNotContainKey("buffer:" + info.taskId());
+                assertThat(info.allocatedBufferMemory()).isZero();
+                assertThat(info.executorHandle()).isZero();
             }
             assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
+            assertThat(runtime.nodePool().getUsedBytes()).isZero();
             assertThat(tasks.manager().getRunningTaskCount()).isZero();
         }
     }

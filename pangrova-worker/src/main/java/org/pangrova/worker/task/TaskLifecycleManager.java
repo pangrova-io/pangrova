@@ -161,7 +161,7 @@ final class TaskLifecycleManager {
         executor.bindTask(canonicalWriteTaskId(taskId, info), info.request().taskRequest());
     }
 
-    private void releaseAllResources(TaskInfo info, String taskId) {
+    void releaseAllResources(TaskInfo info, String taskId) {
         resourceReleaser.releaseAllResources(info, taskId, () -> {
             var executor = writeExecutor;
             if (executor != null) {
@@ -449,6 +449,23 @@ final class TaskLifecycleManager {
     void releaseFinishedTaskExecutor(TaskInfo info) {
         releaseAllResources(info, info.taskId());
         statusCollector.reportReleasedTerminal(info);
+    }
+
+    /** Publishes shutdown cancellation only after real resource exit; preserves a won completion. */
+    void releaseTaskForShutdown(TaskInfo info, LifecycleCallback callback) {
+        releaseAllResources(info, info.taskId());
+        if (info.getState() == TaskManager.TaskState.CANCELLING) {
+            callback.transition(info.taskId(), TaskManager.TaskState.CANCELLED);
+        } else if (info.getState() == TaskManager.TaskState.FINISHING) {
+            var actual = TaskCompletionMonitor.requireCanonicalTaskReport(
+                    info.request().taskRequest(), info.executorReleaseReport());
+            if (actual.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
+                throw new IllegalStateException("Shutdown release conflicts with the committed completion");
+            }
+            callback.transition(info.taskId(), TaskManager.TaskState.FINISHED);
+        }
+        statusCollector.reportReleasedTerminal(info);
+        callback.clearCoordinatorIndex(info);
     }
 
     boolean resultResourcesDrained(TaskInfo info) {

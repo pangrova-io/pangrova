@@ -15,7 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * into RemoteTaskDispatcher when resilience is enabled, rather than relying
  * on the deprecated single-arg constructor's internal default.
  */
-class RemoteTaskDispatcherCircuitBreakerInjectionTest {
+class RemoteTaskDispatcherCircuitBreakerInjectionTest
+        extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private CoordinatorBootstrap bootstrap;
 
@@ -38,7 +39,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         CircuitBreakerPolicy cb = bootstrap.getCircuitBreaker();
@@ -53,7 +54,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-cb-disabled", 0);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThat(bootstrap.getCircuitBreaker()).isNull();
@@ -70,7 +71,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         CircuitBreakerPolicy cb = bootstrap.getCircuitBreaker();

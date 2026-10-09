@@ -45,6 +45,7 @@ final class TaskSubmissionHandler {
         var canonical = request.taskRequest();
         owner.verifyControlEpochForAdmission(canonical.getAttempt().getControlEpoch());
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
+        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
         owner.verifyExecutionOwnerForAdmission(request);
         if (owner.drainExecutor.isDraining()) {
             throw new IllegalStateException("Worker is draining — new tasks are rejected");

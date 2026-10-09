@@ -55,6 +55,20 @@ class ActivationSmokeE2ETest extends PangrovaE2ETestBase {
     }
 
     @Test
+    void sequentialNativeQueriesReleaseAdmissionsBeyondTheTenantConcurrencyLimit() {
+        // The unchanged fixture admits at most 16 concurrent queries. Seventeen
+        // real executions must release physical owners rather than consume that quota forever.
+        for (long value = 0; value < 17; value++) {
+            assertScalarEquals("SELECT CAST(" + value + " AS BIGINT)", value);
+        }
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(20))
+                .untilAsserted(() -> {
+                    assertThat(queryManager.getActiveQueryCount()).isZero();
+                    assertThat(queryManager.getActiveQueryIds()).isEmpty();
+                });
+    }
+
+    @Test
     void tablelessNativeRelationsPreserveMultiplicityAndNullSemantics() {
         var rows = executeQuery("SELECT COALESCE(CAST(NULL AS BIGINT), CAST(7 AS BIGINT)) AS answer "
                 + "FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) t");

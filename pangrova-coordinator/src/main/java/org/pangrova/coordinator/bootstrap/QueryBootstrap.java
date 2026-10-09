@@ -77,6 +77,7 @@ final class QueryBootstrap {
     private org.pangrova.coordinator.speculation.SpeculativeExecutionScheduler speculationScheduler;
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private TaskScheduler taskScheduler;
+    private org.pangrova.resource.scheduler.WeightedFairScheduler fairScheduler;
     private org.pangrova.planner.cache.QueryResultCache queryResultCache;
     private org.pangrova.metadata.artifact.build.ArtifactBuildStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
@@ -178,6 +179,7 @@ final class QueryBootstrap {
                 ? new org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker() : null;
         DefaultModuleContext moduleContext = new QueryModuleLoader(
                 config, metadataBootstrap, moduleWiring, accessControl).load();
+        fairScheduler = moduleContext.optional(org.pangrova.resource.scheduler.WeightedFairScheduler.class);
         taskScheduler = moduleContext.require(TaskScheduler.class);
         queryResultCache = moduleContext.require(org.pangrova.planner.SqlCompiler.class).queryResultCache();
         if (metadataDataSource != null) {
@@ -301,6 +303,9 @@ final class QueryBootstrap {
         });
         progress.step("transport-allocator", () -> CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
         progress.step("result-cache", () -> CoordinatorShutdownSequence.closeQueryResultCache(queryResultCache));
+        progress.step("tenant-scheduler", () -> {
+            if (fairScheduler != null) fairScheduler.close();
+        });
     }
 
     /** Completes post-start HA wiring once the elected epoch service exists. */

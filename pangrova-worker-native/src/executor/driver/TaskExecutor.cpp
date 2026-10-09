@@ -48,16 +48,21 @@ TaskExecutor::~TaskExecutor() {
 }
 
 void TaskExecutor::start() {
-  auto execution_control = acquireExecutionStart();
-  if (isExecutionReleased()) {
-    throw std::runtime_error("Cannot start a released Native executor: " + config_.task_id);
+  {
+    auto execution_control = acquireExecutionStart();
+    if (isExecutionReleased()) {
+      throw std::runtime_error("Cannot start a released Native executor: " + config_.task_id);
+    }
+    if (!lifecycle_.transitionTo(ExecutorState::RUNNING)) {
+      throw std::runtime_error(
+          "Cannot start task " + config_.task_id +
+          ": invalid state transition");
+    }
+    execution_driver_->executeAsync();
   }
-  if (!lifecycle_.transitionTo(ExecutorState::RUNNING)) {
-    throw std::runtime_error(
-        "Cannot start task " + config_.task_id +
-        ": invalid state transition");
-  }
-  execution_driver_->executeAsync();
+  // Do not hold the start gate while waiting: cancellation/deadline must be
+  // able to seal admission and stop the actual producer during preparation.
+  if (config_.is_result_task) execution_driver_->waitForResultStartup();
 }
 
 void TaskExecutor::bindHandle(int64_t executor_handle) {

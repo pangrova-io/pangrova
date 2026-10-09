@@ -216,6 +216,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
+
       - name: Install classifier JAR to local Maven repo
         run: |
           JAR_FILE=$(ls native-bundle-jar/pangrova-native-bundle-*-linux-x86_64.jar | head -1)
@@ -277,6 +280,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
 
       - name: Build the canonical same-source Linux production image
         run: |
@@ -381,6 +387,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
 
       - name: Install classifier JAR to local Maven repo
         run: |
@@ -559,6 +568,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
 
       - name: Build benchmark JAR
         run: |
@@ -750,6 +762,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
+
       - name: Test Checkstyle boundary enforcement
         run: python3 .pangrova/scripts/tests/checkstyle-boundaries-test.py
 
@@ -773,6 +788,9 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
           cache: maven
+
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
 
       - name: Compile all modules
         run: mvn -B compile -pl '!pangrova-native-bundle'

@@ -89,6 +89,14 @@ covers the original UTF-8 SQL file, including whitespace. It is written only aft
 result consumption, FINISHED and successful client close. Output and receipt files
 must not already exist. Unknown, repeated and incomplete options are rejected.
 
+Both interactive and batch output use an ASCII table. Headers and cells escape
+newlines, carriage returns and tabs as `\n`, `\r` and `\t`; backslashes as `\\`;
+and the cell delimiter `|` as `\u007c`. Other terminal control characters and
+Unicode line separators are displayed as `\uXXXX`. This keeps each result row on
+one physical line, including multiline AI responses, without modifying the
+underlying query value. Literal escape sequences remain distinguishable because
+their backslashes are escaped too. `NULL` retains its existing display.
+
 Pipe SQL from a file:
 
 ```bash

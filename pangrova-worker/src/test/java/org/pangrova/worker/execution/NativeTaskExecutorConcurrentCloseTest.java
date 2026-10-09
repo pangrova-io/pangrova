@@ -18,6 +18,51 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class NativeTaskExecutorConcurrentCloseTest {
 
     @Test
+    void competingFixturesCannotInitializeOrRetireTheSameRuntime() throws Exception {
+        // Load the actual process library at the bootstrap boundary. The race
+        // below concerns two runtime owners, not first-use DLL extraction.
+        assertThat(org.pangrova.worker.jni.NativeRuntime.isInitialized()).isFalse();
+        var ready = new CountDownLatch(2);
+        var go = new CountDownLatch(1);
+        var owners = new java.util.concurrent.ConcurrentLinkedQueue<ActualNativeTaskFixture>();
+        var rejected = new java.util.concurrent.ConcurrentLinkedQueue<Throwable>();
+        var creators = new java.util.ArrayList<Thread>();
+        for (int index = 0; index < 2; index++) {
+            var creator = new Thread(() -> {
+                ready.countDown();
+                try {
+                    if (!go.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Fixture start timed out");
+                    owners.add(new ActualNativeTaskFixture());
+                } catch (Throwable failure) {
+                    rejected.add(failure);
+                }
+            }, "competing-native-fixture-" + index);
+            creators.add(creator);
+            creator.start();
+        }
+        try {
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            go.countDown();
+            for (var creator : creators) {
+                creator.join(5000);
+                assertThat(creator.isAlive()).isFalse();
+            }
+            assertThat(owners).hasSize(1);
+            assertThat(rejected).singleElement().satisfies(failure -> assertThat(failure)
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("different fixture still owns"));
+            var owner = owners.element();
+            assertThat(owner.createPending(owner.valuesRequest(false))).isPositive();
+        } finally {
+            go.countDown();
+            for (var creator : creators) creator.join(5000);
+            for (var owner : owners) owner.close();
+        }
+        try (var next = new ActualNativeTaskFixture()) {
+            assertThat(next.createPending(next.valuesRequest(false))).isPositive();
+        }
+    }
+
+    @Test
     void concurrentCloseCallsAreIdempotent() throws Exception {
         try (var fixture = new ActualNativeTaskFixture()) {
             long handle = fixture.createPending(fixture.valuesRequest(false));
@@ -61,13 +106,18 @@ class NativeTaskExecutorConcurrentCloseTest {
     }
 
     @Test
-    void createTaskAfterCloseThrowsIllegalState() {
+    void createTaskAfterCloseReportsVerifiedAbsenceOfNativeOwner() {
         try (var fixture = new ActualNativeTaskFixture()) {
             var request = fixture.valuesRequest(false);
             fixture.stopTransports();
             fixture.executor().close();
             assertThatThrownBy(() -> fixture.executor().createTask(request.toByteArray()))
-                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("closed");
+                    .isInstanceOfSatisfying(NativeTaskCreationFailure.class, failure -> {
+                        assertThat(failure.actualHandle()).isZero();
+                        assertThat(failure.withoutNativeOwner()).isTrue();
+                        assertThat(failure.getCause()).isInstanceOf(IllegalStateException.class)
+                                .hasMessageContaining("closed");
+                    });
         }
     }
 }

@@ -1,5 +1,7 @@
 package org.pangrova.planner.parse;
 
+import org.pangrova.common.exception.PangrovaErrorCode;
+import org.pangrova.planner.PlannerException;
 import org.pangrova.parser.ast.CreateCatalogStatement;
 import org.pangrova.parser.ast.Expression;
 import org.pangrova.parser.ast.Identifier;
@@ -156,6 +158,7 @@ final class ExtensionStatementSqlNodeConverter {
     }
 
     private SqlNode convertMerge(MergeStatement m) {
+        validateMergeActions(m);
         SqlIdentifier target = (SqlIdentifier) id(m.targetTable());
         SqlIdentifier targetAlias = m.targetAlias()
                 .map(a -> new SqlIdentifier(a, POS)).orElse(null);
@@ -169,6 +172,7 @@ final class ExtensionStatementSqlNodeConverter {
         SqlInsert ins = null;
         for (var clause : m.clauses()) {
             if (clause instanceof MergeStatement.MergeClause.WhenMatchedUpdate wu) {
+                onCond = matchedCondition(onCond, wu.condition());
                 SqlNodeList c = new SqlNodeList(wu.assignments().stream()
                         .map(a -> (SqlNode) new SqlIdentifier(a.column(), POS)).toList(), POS);
                 SqlNodeList v = new SqlNodeList(wu.assignments().stream()
@@ -176,6 +180,7 @@ final class ExtensionStatementSqlNodeConverter {
                 upd = new SqlUpdate(POS, target, c, v,
                         wu.condition().map(this::convertExpression).orElse(null), null, null);
             } else if (clause instanceof MergeStatement.MergeClause.WhenMatchedDelete wd) {
+                onCond = matchedCondition(onCond, wd.condition());
                 if (upd == null) {
                     upd = new SqlUpdate(POS, target, SqlNodeList.EMPTY, SqlNodeList.EMPTY,
                             wd.condition().map(this::convertExpression).orElse(null), null, null);
@@ -189,6 +194,38 @@ final class ExtensionStatementSqlNodeConverter {
             }
         }
         return new SqlMerge(POS, target, onCond, source, upd, ins, null, targetAlias);
+    }
+
+    private SqlNode matchedCondition(SqlNode onCondition, java.util.Optional<Expression> actionCondition) {
+        // With a single matched action, its guard can restrict the match join:
+        // Native CoW lowering still retains every non-matching physical target.
+        return actionCondition.map(condition -> (SqlNode) SqlStdOperatorTable.AND.createCall(
+                POS, onCondition, convertExpression(condition))).orElse(onCondition);
+    }
+
+    private static void validateMergeActions(MergeStatement merge) {
+        long matched = merge.clauses().stream()
+                .filter(clause -> !(clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert)).count();
+        long inserts = merge.clauses().size() - matched;
+        if (matched > 1 || inserts > 1) {
+            throw new PlannerException(PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
+                    "Multiple MERGE actions require ordered action lowering; clauses cannot be discarded");
+        }
+        for (var clause : merge.clauses()) {
+            if (clause instanceof MergeStatement.MergeClause.WhenNotMatchedInsert insert
+                    && insert.condition().isPresent()) {
+                throw new PlannerException(PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
+                        "Conditional MERGE INSERT requires a separately compiled source action predicate");
+            }
+            boolean conditionalMatched = clause instanceof MergeStatement.MergeClause.WhenMatchedUpdate update
+                    && update.condition().isPresent()
+                    || clause instanceof MergeStatement.MergeClause.WhenMatchedDelete delete
+                    && delete.condition().isPresent();
+            if (conditionalMatched && merge.clauses().size() > 1) {
+                throw new PlannerException(PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
+                        "Conditional mixed MERGE requires distinct match and action predicates");
+            }
+        }
     }
 
     private SqlNode convertInsertSelect(InsertSelectStatement stmt) {

@@ -68,7 +68,10 @@ class TaskManagerMemoryAllocationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = admission(runtime, 4 * 1024 * MB, 50 * MB);
              var resource = new TaskResource(tasks.manager(), runtime.transports().exchangeTransport(),
-                     "127.0.0.1", runtime.resultPort())) {
+                     new org.pangrova.worker.exchange.source.ExchangeSourceRegistry(),
+                     "127.0.0.1", runtime.resultPort(), null,
+                     new TaskResource.ResultBinding(org.pangrova.protocol.rest.query.ResultProtocol.GRPC.value(),
+                             runtime.resultTickets()))) {
             var response = resource.submitTask(SubmitTaskRequest.from(request(100 * MB, 60 * MB)));
             assertThat(response.getStatus()).isEqualTo(503);
             assertUnregistered(tasks);
@@ -81,7 +84,7 @@ class TaskManagerMemoryAllocationTest {
              var tasks = admission(runtime, 4 * 1024 * MB, 100 * MB)) {
             for (int index = 0; index < 2; index++) {
                 var info = tasks.submit(request(50 * MB, 50 * MB));
-                tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+                tasks.awaitState(info, TaskManager.TaskState.RUNNING);
                 assertThat(info.allocatedBufferMemory()).isEqualTo(50 * MB);
                 assertThat(tasks.consume(info).values()).containsExactly(42L);
                 assertThat(info.allocatedBufferMemory()).isZero();

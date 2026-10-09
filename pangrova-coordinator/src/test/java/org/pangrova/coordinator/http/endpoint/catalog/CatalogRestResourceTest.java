@@ -5,12 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.http.CoordinatorHttpServerContext;
-import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
-import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.model.TableMetadata;
@@ -18,8 +14,6 @@ import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.metadata.service.ResolvedTable;
-import org.pangrova.observability.noop.NoOpTracingProvider;
-import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -48,18 +42,16 @@ class CatalogRestResourceTest {
     private HttpClient httpClient;
     private String baseUrl;
     private final ObjectMapper mapper = JsonMapperFactory.create();
+    private org.pangrova.coordinator.testinfra.QueryControlPlaneFixture queryFixture;
 
     @BeforeAll
     void setUp() throws Exception {
         MetadataService stubService = new StubMetadataService();
 
-        var tracing = new NoOpTracingProvider();
-        var queryManager = new QueryManager(QueryManagerContext.minimal(null, tracing));
-        var taskTracker = new CoordinatorTaskTracker();
-        var workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        queryFixture = new org.pangrova.coordinator.testinfra.QueryControlPlaneFixture();
 
         var receiverContext = TaskStatusReceiverContext.withoutSpeculation(
-                queryManager, taskTracker, workerManager);
+                queryFixture.queries(), queryFixture.tracker(), queryFixture.workers());
         var receiver = new TaskStatusReceiver(receiverContext);
 
         var serverContext = new CoordinatorHttpServerContext(
@@ -74,9 +66,8 @@ class CatalogRestResourceTest {
 
     @AfterAll
     void tearDown() throws Exception {
-        if (httpServer != null) {
-            httpServer.stop();
-        }
+        try { if (httpServer != null) httpServer.stop(); }
+        finally { if (queryFixture != null) queryFixture.close(); }
     }
 
     @Test

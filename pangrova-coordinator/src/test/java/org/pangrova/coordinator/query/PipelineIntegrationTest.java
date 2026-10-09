@@ -1,383 +1,299 @@
 package org.pangrova.coordinator.query;
 
+import com.google.protobuf.ByteString;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.common.resilience.CircuitBreakerPolicy;
+import org.pangrova.coordinator.http.CoordinatorHttpServer;
+import org.pangrova.coordinator.query.execution.QueryDispatcher;
+import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
+import org.pangrova.coordinator.query.task.TaskStatusReceiver;
+import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
+import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
+import org.pangrova.coordinator.scheduler.TaskScheduler;
+import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
+import org.pangrova.coordinator.task.CoordinatorTaskTracker;
+import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
+import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.coordinator.worker.WorkerManager;
+import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
+import org.pangrova.planner.SqlCompiler;
+import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.protocol.rest.query.SubmitQueryResponse;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
+import org.pangrova.testing.TestObservability;
+import org.pangrova.worker.task.RemoteTaskStatusReporter;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies;
 
-import org.pangrova.coordinator.http.CoordinatorHttpServer;
-import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
-import org.pangrova.coordinator.query.execution.QueryDispatcher;
-import org.pangrova.coordinator.query.task.TaskStatusReceiver;
-import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
-import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
-import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.coordinator.scheduler.failure.NoAvailableWorkerException;
-import org.pangrova.coordinator.scheduler.TaskScheduler;
-import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
-import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
-import org.pangrova.observability.tracing.TracingHttpFilter;
-import org.pangrova.testing.TestObservability;
-import org.pangrova.protocol.rest.error.ErrorDetail;
-import org.pangrova.protocol.rest.query.SubmitQueryResponse;
-import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.spi.observability.TracingProvider;
-import org.pangrova.planner.SqlCompiler;
-import org.pangrova.testing.TestExchangeTransport;
-import org.pangrova.worker.http.WorkerHttpServer;
-import org.pangrova.worker.task.TaskManager;
-import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
-/**
- * HTTP routing and task lifecycle integration in one JVM on dynamic ports.
- * Uses the real compiler and an HTTP-wiring-only Worker task fixture.
- * Does not prove Native execution, result correctness or distributed isolation.
- */
+/** Real HTTP/JNI/result/status component integration in one JVM; not independent-process E2E. */
+@Tag("native-required")
 class PipelineIntegrationTest {
-
     private static final String QUERY_ID = "q1";
     private static final String WORKER_ID = "worker-1";
-    private static final int TRANSPORT_PORT = 0;
-    private static final TracingProvider TRACING = TestObservability.TRACING;
-    private static final TracingHttpFilter TRACING_FILTER = new TracingHttpFilter(TRACING);
-
-    private TaskManager workerTaskManager;
+    private static final long TASK_MEMORY_BYTES = 64L * 1024 * 1024;
+    @TempDir Path nativeDirectory;
+    private final List<RemoteTaskDispatcher> clients = new ArrayList<>();
+    private SourceFreeNativeWorkerFixture worker;
     private QueryManager queryManager;
     private QueryDispatcher orchestrator;
     private CoordinatorTaskTracker taskTracker;
     private TaskStatusReceiver taskStatusReceiver;
     private WorkerManager workerManager;
-
-    private WorkerHttpServer workerHttpServer;
-    private CoordinatorHttpServer coordinatorHttpServer;
+    private RemoteTaskDispatcher dispatcher;
+    private RemoteTaskStatusReporter reporter;
+    private CoordinatorHttpServer coordinatorServer;
 
     @BeforeEach
     void setUp() throws Exception {
-        workerTaskManager = TaskManager.forHttpWiringOnly();
+        worker = new SourceFreeNativeWorkerFixture(WORKER_ID, nativeDirectory);
         taskTracker = new CoordinatorTaskTracker();
-
-        // 1. Start WorkerHttpServer on random port
-        workerHttpServer = createWorkerHttpServer(workerTaskManager);
-        workerHttpServer.start();
-
-        // 2. Build orchestrator with RemoteTaskDispatcher + real worker port
-        workerManager = createWorkerManagerWithPort(workerHttpServer.getPort());
-        orchestrator = buildOrchestrator(workerManager);
-        queryManager = new QueryManager(QueryManagerContext.minimal(orchestrator, TRACING));
-
-        // 3. Start CoordinatorHttpServer on random port to receive status reports
-        taskStatusReceiver = new TaskStatusReceiver(
-                TaskStatusReceiverContext.withoutSpeculation(queryManager, taskTracker, workerManager));
-        coordinatorHttpServer = new CoordinatorHttpServer(0, taskStatusReceiver, queryManager, TRACING_FILTER);
-        coordinatorHttpServer.start();
-
-        var dagEngine = orchestrator.dagEngine();
-        workerTaskManager.setAutoFinishReporter(report ->
-                dagEngine.onTaskTerminal(report.queryId(), report.taskId(),
-                        report.state(), report.error()));
+        workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        WorkerInfo actual = worker.workerInfo();
+        workerManager.registerWorker(new WorkerInfo(actual.workerId(), actual.host(), actual.httpPort(),
+                actual.transportPort(), actual.resultServerPort(), actual.healthState(), actual.memoryPressure(),
+                actual.cpuUtilization(), actual.runningTaskCount(), TASK_MEMORY_BYTES, actual.lastHeartbeat(),
+                actual.performanceScore(), actual.resourcePoolId(), actual.protocolVersion(), actual.rackId(),
+                actual.dataLocality(), actual.cacheSummary(), actual.capabilityInventory()));
+        dispatcher = newDispatcher();
+        orchestrator = buildOrchestrator(new SqlCompiler(), workerManager, dispatcher);
+        queryManager = worker.connectAsync(orchestrator, taskTracker, workerManager);
+        taskStatusReceiver = new TaskStatusReceiver(new TaskStatusReceiverContext(queryManager, taskTracker,
+                workerManager, null, null, null, null, null, null, orchestrator.dagEngine(), null, null));
+        coordinatorServer = new CoordinatorHttpServer(0, taskStatusReceiver, queryManager, null);
+        coordinatorServer.start();
+        reporter = new RemoteTaskStatusReporter("http://localhost:" + coordinatorServer.getPort(),
+                TestObservability.TRACING, null);
+        worker.deliverReportsTo(reporter::report);
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        if (coordinatorHttpServer != null) {
-            coordinatorHttpServer.stop();
-        }
-        if (workerHttpServer != null) {
-            workerHttpServer.stop();
+        try {
+            if (worker != null) {
+                if (reporter != null) worker.deliverReportsTo(reporter::report);
+                worker.close();
+            }
+        } finally {
+            try { if (reporter != null) reporter.close(); }
+            finally {
+                try { if (coordinatorServer != null) coordinatorServer.stop(); }
+                finally { clients.forEach(RemoteTaskDispatcher::close); }
+            }
         }
     }
 
     @Test
     void constantQueryReachesRunning() {
         SubmitQueryResponse response = submitTestQuery();
-
         assertThat(response.queryId()).isEqualTo(QUERY_ID);
-        // Unified path: all results go through resultEndpoint (transport-based retrieval)
         assertThat(response.resultEndpoint()).isNotNull();
         assertThat(queryState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        finish(response.resultEndpoint());
     }
 
     @Test
     void dispatchCreatesWorkerTask() {
         String taskId = dispatchAndGetTaskId();
-
-        assertThat(taskId).isNotNull();
+        String localId = worker.taskManager().resolveWorkerTaskId(taskId);
+        assertThat(localId).isNotNull();
+        assertThat(worker.taskManager().getTaskState(localId)).isPresent();
         assertThat(queryState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        finish(endpoint());
     }
 
     @Test
     void fullPipelineReachesFinished() {
-        String taskId = dispatchAndGetTaskId();
-
-        simulateTaskCompletion(taskId);
-
+        dispatchAndGetTaskId();
+        finish(endpoint());
         assertThat(queryState()).isEqualTo(QueryStateMachine.State.FINISHED);
         assertThat(taskTracker.allTasksFinished(QUERY_ID)).isTrue();
     }
 
     @Test
     void rejectedTerminalReportDoesNotConsumeSequenceOrFinishQuery() {
+        var pending = new CopyOnWriteArrayList<TaskStatusReport>();
+        worker.deliverReportsTo(report -> {
+            if (report.state().equals("RUNNING")) reporter.report(report);
+            else pending.add(report);
+        });
         String taskId = dispatchAndGetTaskId();
-        assertThat(taskStatusReceiver.onTaskStatus(runningReport(taskId))).isTrue();
-        TaskStatusReport valid = finishedReport(taskId);
-        TaskStatusReport missingEvidence = new TaskStatusReport(
-                valid.taskId(), valid.queryId(), valid.stageId(), valid.partitionId(), valid.taskType(),
-                valid.workerId(), valid.state(), valid.stats(), valid.error(), valid.writeResult(),
-                valid.reportSequence(), valid.timestampMs(), valid.errorCode(), valid.errorMetadata(),
-                valid.attempt(), null);
-
-        assertThat(taskStatusReceiver.onTaskStatus(missingEvidence)).isFalse();
+        worker.consume(endpoint());
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> pending.stream()
+                .anyMatch(report -> report.taskId().equals(taskId) && report.state().equals("FINISHED")));
+        TaskStatusReport valid = pending.stream().filter(report -> report.taskId().equals(taskId)
+                && report.state().equals("FINISHED")).findFirst().orElseThrow();
+        var missing = new TaskStatusReport(valid.taskId(), valid.queryId(), valid.stageId(), valid.partitionId(),
+                valid.taskType(), valid.workerId(), valid.state(), valid.stats(), valid.error(), valid.writeResult(),
+                valid.reportSequence(), valid.timestampMs(), valid.errorCode(), valid.errorMetadata(), valid.attempt(), null);
+        assertThat(taskStatusReceiver.onTaskStatus(missing)).isFalse();
         assertThat(queryState()).isEqualTo(QueryStateMachine.State.RUNNING);
         assertThat(taskTracker.allTasksFinished(QUERY_ID)).isFalse();
         assertThat(taskStatusReceiver.onTaskStatus(valid)).isTrue();
         assertThat(queryState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(worker.rows(endpoint())).containsExactly(List.of(1));
     }
 
     @Test
     void stateMachineReachesTerminalAfterCompletion() {
-        String taskId = dispatchAndGetTaskId();
-        QueryStateMachine sm = queryManager.getStateMachine(QUERY_ID);
-
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
-
-        simulateTaskCompletion(taskId);
-
-        assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
-        assertThat(sm.isTerminal()).isTrue();
+        dispatchAndGetTaskId();
+        QueryStateMachine state = queryManager.getStateMachine(QUERY_ID);
+        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
+        finish(endpoint());
+        assertThat(state.getState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        assertThat(state.isTerminal()).isTrue();
     }
 
     @Test
     void trackerShowsFinishedAndNoFailure() {
-        String taskId = dispatchAndGetTaskId();
-
-        simulateTaskCompletion(taskId);
-
+        dispatchAndGetTaskId();
+        finish(endpoint());
         assertThat(taskTracker.allTasksFinished(QUERY_ID)).isTrue();
         assertThat(taskTracker.hasFailedTask(QUERY_ID)).isFalse();
     }
 
-    /** Validates: R14.3 — compile failure transitions QueryStateMachine to FAILED. */
     @Test
-    void compileFailureReachesFailed() throws Exception {
-        QueryManager mgr = buildManagerWith(new SqlCompiler(), createWorkerManager());
-
-        // Real SqlCompiler throws on unparseable SQL
-        assertThatThrownBy(() -> mgr.submitQuery(QUERY_ID, "THIS IS NOT VALID SQL !!!", testSession()))
-                .isInstanceOf(RuntimeException.class);
-
-        assertThat(mgr.getQueryState(QUERY_ID)).hasValue(QueryStateMachine.State.FAILED);
+    void compileFailureReachesFailed() {
+        QueryManager manager = new QueryManager(QueryManagerContext.minimal(
+                buildOrchestrator(new SqlCompiler(), workerManager, newDispatcher()), TestObservability.TRACING));
+        assertThatThrownBy(() -> manager.submitQuery(QUERY_ID, "THIS IS NOT VALID SQL !!!", testSession()))
+                .isInstanceOf(org.pangrova.parser.ParseException.class);
+        assertThat(manager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.FAILED);
     }
 
-    /** A valid protected query with no Worker fails admission, not SQL parsing. */
     @Test
-    void noAvailableWorkerReachesFailed() throws Exception {
-        WorkerManager emptyWm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        RemoteTaskDispatcher dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TRACING);
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        var emptyDeps = QueryDispatcherContext.withDefaults(
-                new SqlCompiler(), null, null, null, dispatcher, scheduler, emptyWm, taskTracker, null, null, null, 0L);
+    void noAvailableWorkerReachesFailed() {
+        var empty = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         QueryManager manager = new QueryManager(QueryManagerContext.minimal(
-                new QueryDispatcher(withPolicies(emptyDeps), null, null), TRACING));
+                buildOrchestrator(new SqlCompiler(), empty, newDispatcher()), TestObservability.TRACING));
         assertThatThrownBy(() -> manager.submitQuery(QUERY_ID, "SELECT 1", testSession()))
                 .isInstanceOf(NoAvailableWorkerException.class);
-        assertThat(manager.getQueryState(QUERY_ID)).hasValue(QueryStateMachine.State.FAILED);
+        assertThat(manager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.FAILED);
     }
 
-    /** Validates: R14.5 — drain mode rejects new queries with QueryRejectedException. */
     @Test
     void drainRejectsNewQueries() {
         queryManager.setAcceptingQueries(false);
-
-        assertThatThrownBy(() -> queryManager.submitQuery(QUERY_ID, "SELECT 1", testSession()))
-                .isInstanceOf(QueryRejectedException.class)
+        assertThatThrownBy(this::submitTestQuery).isInstanceOf(QueryRejectedException.class)
                 .hasMessageContaining("draining");
     }
 
-    /** Validates: R14.2, R2.3, R11.2 — two tasks both FINISHED → query FINISHED. */
     @Test
     void multiTaskAllFinishedReachesQueryFinished() {
-        String task1 = dispatchAndGetTaskId();
-        String task2 = "extra-task-2";
-
-        registerAdditionalTask(task1, task2);
-
-        assertThat(taskStatusReceiver.onTaskStatus(runningReport(task1))).isTrue();
-        assertThat(taskStatusReceiver.onTaskStatus(runningReport(task2))).isTrue();
-
-        assertThat(taskStatusReceiver.onTaskStatus(finishedReport(task1))).isTrue();
+        String first = dispatchAndGetTaskId();
+        ResultEndpoint second = dispatchAdditionalTask(first, "extra-task-2", false);
+        worker.consume(endpoint());
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(taskTracker.getTaskState(QUERY_ID, first))
+                        .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED));
         assertThat(queryState()).isEqualTo(QueryStateMachine.State.RUNNING);
-
-        assertThat(taskStatusReceiver.onTaskStatus(finishedReport(task2))).isTrue();
-        assertThat(queryState()).isEqualTo(QueryStateMachine.State.FINISHED);
+        finish(second);
+        assertThat(worker.rows(endpoint())).containsExactly(List.of(1));
         assertThat(taskTracker.allTasksFinished(QUERY_ID)).isTrue();
         assertThat(taskTracker.hasFailedTask(QUERY_ID)).isFalse();
     }
 
-    /** Validates: R14.2, R2.3, R11.2 — two tasks, one FAILED → query FAILED. */
     @Test
     void multiTaskPartialFailureReachesQueryFailed() {
-        String task1 = dispatchAndGetTaskId();
-        String task2 = "extra-task-2";
-
-        registerAdditionalTask(task1, task2);
-
-        assertThat(taskStatusReceiver.onTaskStatus(runningReport(task2))).isTrue();
-        assertThat(taskStatusReceiver.onTaskStatus(failedReport(task2))).isTrue();
-
-        // failQuery keeps the SM in the map for client polling (FAILED state)
-        assertThat(queryManager.getQueryState(QUERY_ID))
-                .hasValue(QueryStateMachine.State.FAILED);
-        assertThat(taskTracker.hasFailedTask(QUERY_ID)).isTrue();
-        assertThat(taskTracker.allTasksFinished(QUERY_ID)).isFalse();
+        String first = dispatchAndGetTaskId();
+        dispatchAdditionalTask(first, "extra-task-2", true);
+        awaitState(QueryStateMachine.State.FAILED);
+        assertThat(worker.reports()).anySatisfy(report -> {
+            assertThat(report.taskId()).isEqualTo("extra-task-2");
+            assertThat(report.state()).isEqualTo("FAILED");
+            assertThat(report.error()).isNotNull();
+            var canonical = org.pangrova.protocol.v2.TaskReport.parseFrom(report.canonicalTaskReport());
+            assertThat(canonical.getAttempt().getQueryOrJobId()).isEqualTo(QUERY_ID);
+            assertThat(canonical.getState()).isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED);
+        });
+        assertThat(queryManager.awaitAllQueries(5_000)).isTrue();
+        assertThat(taskTracker.getTaskIds(QUERY_ID)).isEmpty();
     }
 
-    // --- wiring ---
-
-    private QueryDispatcher buildOrchestrator(WorkerManager wm) {
-        RemoteTaskDispatcher dispatcher = fixtureDispatcher();
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        return new QueryDispatcher(
-                withPolicies(QueryDispatcherContext.withDefaults(
-                        new SqlCompiler(), null, null, null, dispatcher, scheduler, wm, taskTracker, null, null, null, 0L)),
-                null, null);
+    private QueryDispatcher buildOrchestrator(SqlCompiler compiler, WorkerManager workers,
+                                               RemoteTaskDispatcher transport) {
+        return new QueryDispatcher(withPolicies(QueryDispatcherContext.withDefaults(compiler,
+                null, null, null, transport, new TaskScheduler(new WorkerPerformanceScorer()),
+                workers, taskTracker, null, null, null, 30L)), null, null);
     }
 
-    private QueryManager buildManagerWith(SqlCompiler compiler, WorkerManager wm) {
-        RemoteTaskDispatcher dispatcher = fixtureDispatcher();
-        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
-        QueryDispatcher orch = new QueryDispatcher(
-                withPolicies(QueryDispatcherContext.withDefaults(
-                        compiler, null, null, null, dispatcher, scheduler, wm, taskTracker, null, null, null, 0L)),
-                null, null);
-        return new QueryManager(QueryManagerContext.minimal(orch, TRACING));
+    private RemoteTaskDispatcher newDispatcher() {
+        var transport = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
+        clients.add(transport);
+        transport.setControlEpochSupplier(() -> 1L);
+        transport.setExecutionOwnerResolver(ignored -> new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
+                "test-coordinator", "test-incarnation", 1L));
+        return transport;
     }
 
     private static CoordinatorSessionContext testSession() {
         return org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.session(QUERY_ID);
     }
 
-    private static RemoteTaskDispatcher fixtureDispatcher() {
-        var dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TRACING);
-        dispatcher.setControlEpochSupplier(() -> 1L);
-        dispatcher.setExecutionOwnerResolver(ignored -> new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
-                "test-coordinator", "test-incarnation", 1L));
-        return dispatcher;
-    }
-
-    // --- actions ---
-
     private SubmitQueryResponse submitTestQuery() {
         return queryManager.submitQuery(QUERY_ID, "SELECT 1", testSession());
     }
 
-    /**
-     * Dispatches a query to Worker via orchestrator.execute().
-     * Registers the state machine in queryManager for status tracking.
-     * Returns the dispatch result's task ticket.
-     */
     private String dispatchAndGetTaskId() {
-        QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = testSession();
-        var result = orchestrator.execute(sm, "SELECT 1", session);
-        // Inject the state machine into queryManager so status receiver can find it
-        queryManager.registerStateMachine(QUERY_ID, sm);
-        return result.taskId();
+        var response = submitTestQuery();
+        var ids = taskTracker.getTaskIds(QUERY_ID);
+        assertThat(ids).hasSize(1);
+        String taskId = ids.iterator().next();
+        assertThat(response.resultEndpoint().ticket()).isEqualTo(
+                worker.resultTicket(taskTracker.getTaskRequest(taskId).taskRequest()));
+        return taskId;
     }
 
-    /**
-     * Simulates the worker completing a task and reporting back to coordinator.
-     * Task is already registered and SCHEDULED by the orchestrator's dispatch.
-     */
-    private void simulateTaskCompletion(String taskId) {
-        assertThat(taskStatusReceiver.onTaskStatus(runningReport(taskId))).isTrue();
-        assertThat(taskStatusReceiver.onTaskStatus(finishedReport(taskId))).isTrue();
-    }
-
-    private void registerAdditionalTask(String dispatchedTask, String additionalTask) {
-        var original = taskTracker.getTaskRequest(dispatchedTask).taskRequest();
-        var request = org.pangrova.protocol.rest.task.SubmitTaskRequest.from(original.toBuilder()
-                .setAttempt(original.getAttempt().toBuilder().setTaskId(additionalTask)).build());
-        taskTracker.registerTask(QUERY_ID, additionalTask);
-        taskTracker.registerTaskRequest(additionalTask, request);
-        taskTracker.registerTaskAttempt(additionalTask,
-                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(request.taskRequest().getAttempt()));
-        taskTracker.assignWorker(additionalTask, WORKER_ID);
-        taskTracker.markScheduled(QUERY_ID, additionalTask);
-    }
-
-    // --- queries ---
-
-    private QueryStateMachine.State queryState() {
-        return queryManager.getQueryState(QUERY_ID).orElseThrow();
-    }
-
-    // --- factories ---
-
-    private static WorkerHttpServer createWorkerHttpServer(TaskManager taskManager) {
-        var config = new WorkerHttpServer.WorkerHttpConfig(0, "localhost", TRANSPORT_PORT);
-        return new WorkerHttpServer(config, taskManager, TestExchangeTransport.INSTANCE);
-    }
-
-    private static WorkerManager createWorkerManagerWithPort(int httpPort) {
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        wm.registerWorker(workerWithPort(httpPort));
-        return wm;
-    }
-
-    private static WorkerManager createWorkerManager() {
-        WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        wm.registerWorker(workerWithPort(8080));
-        return wm;
-    }
-
-    private static WorkerInfo workerWithPort(int httpPort) {
-        return TestWorkerInfoBuilder.active(WORKER_ID, "localhost", httpPort, TRANSPORT_PORT);
-    }
-
-    private TaskStatusReport finishedReport(String taskId) {
-        return report(taskId, "FINISHED");
-    }
-
-    private TaskStatusReport runningReport(String taskId) {
-        return report(taskId, "RUNNING");
-    }
-
-    private TaskStatusReport failedReport(String taskId) {
-        return report(taskId, "FAILED");
-    }
-
-    private TaskStatusReport report(String taskId, String state) {
-        var request = taskTracker.getTaskRequest(taskId).taskRequest();
-        var attempt = request.getAttempt();
-        assertThat(request.getSplitsCount()).as("Source-free routing fixture must not simulate a source scan")
-                .isZero();
-        ErrorDetail error = "FAILED".equals(state)
-                ? new ErrorDetail("INTERNAL", "INTERNAL", "task execution failed") : null;
-        byte[] canonical = null;
-        if ("FINISHED".equals(state)) {
-            canonical = org.pangrova.protocol.v2.TaskReport.newBuilder()
-                    .setAttempt(attempt)
-                    .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
-                    .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED)
-                    .setCoverage(org.pangrova.protocol.v2.CoverageReport.newBuilder()
-                            .setExpectedWorkUnits(1).setCompletedWorkUnits(1).setCoverageRatio(1.0)
-                            .setCompletionState(org.pangrova.protocol.v2.CompletionState.COMPLETION_STATE_COMPLETE))
-                    .build().toByteArray();
-        } else if ("FAILED".equals(state)) {
-            canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(request,
-                    org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED, error);
+    private ResultEndpoint dispatchAdditionalTask(String first, String taskId, boolean invalidPlan) {
+        var original = taskTracker.getTaskRequest(first).taskRequest();
+        var attempt = original.getAttempt().toBuilder().setTaskId(taskId).setStageId(1).build();
+        var builder = original.toBuilder().setAttempt(attempt);
+        if (invalidPlan) {
+            byte[] invalid = {0};
+            builder.setSubstraitPlan(ByteString.copyFrom(invalid))
+                    .setSubstraitPlanChecksum(CanonicalTaskRequests.sha256(invalid));
         }
-        return new TaskStatusReport(
-                taskId, QUERY_ID, attempt.getStageId(), attempt.getPartitionId(),
-                request.getExecutionOptions().getDirectResultOutput() ? "OUTPUT" : "COMPUTE", WORKER_ID, state,
-                null, error, null, "RUNNING".equals(state) ? 1L : 2L, System.currentTimeMillis(), null, null,
-                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.from(attempt), canonical);
+        var request = dispatcher.bindControlIdentity(SubmitTaskRequest.from(builder.build()));
+        taskTracker.registerTask(QUERY_ID, taskId);
+        taskTracker.registerTaskRequest(taskId, request);
+        taskTracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.from(request.taskRequest().getAttempt()));
+        taskTracker.assignWorker(taskId, WORKER_ID);
+        taskTracker.markScheduled(QUERY_ID, taskId);
+        var target = workerManager.getWorker(WORKER_ID);
+        try (var operation = taskTracker.enterQueryOperation(QUERY_ID)) {
+            taskTracker.bindDispatchTarget(request, target);
+            taskTracker.enterTaskDispatch(request);
+            return dispatcher.dispatch(request, target).resultEndpoint();
+        }
+    }
+
+    private ResultEndpoint endpoint() { return queryManager.getResultEndpoint(QUERY_ID).orElseThrow(); }
+    private QueryStateMachine.State queryState() { return queryManager.getQueryState(QUERY_ID).orElseThrow(); }
+
+    private void finish(ResultEndpoint endpoint) {
+        worker.consume(endpoint);
+        awaitState(QueryStateMachine.State.FINISHED);
+        assertThat(worker.rows(endpoint)).containsExactly(List.of(1));
+    }
+
+    private void awaitState(QueryStateMachine.State state) {
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5))
+                .untilAsserted(() -> assertThat(queryState()).isEqualTo(state));
     }
 }

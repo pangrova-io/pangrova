@@ -95,7 +95,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -216,12 +215,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static final AtomicBoolean workerTransportReady = new AtomicBoolean(false);
     private static final AtomicBoolean workerNativeReady = new AtomicBoolean(false);
 
-    // Coordinator-local result buffer — serves constant-fold and DDL/DML results via transport.
+    // Bounded Coordinator DDL/SHOW acknowledgements only; relational results belong to Native Workers.
     protected static volatile CoordinatorResultBuffer coordinatorResultBuffer;
     protected static volatile CoordinatorResultService coordinatorResultService;
     private static ScheduledExecutorService resultBufferExecutor;
     private static ScheduledExecutorService controlEpochObserver;
     private static volatile ExecutorService asyncQueryExecutor;
+    private static ExecutorService terminalCleanupExecutor;
 
     // Shared MaterializedViewManager — used by both DT DDL executor and planner rewriter
     private static volatile org.pangrova.planner.mv.MaterializedViewManager sharedMvManager;
@@ -484,6 +484,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         byte[] configBytes = org.pangrova.protocol.v2.RuntimeInitConfig.newBuilder()
                 .setMaxMemoryBytes(WORKER_MEMORY_BYTES)
                 .setIoThreadCount(4)
+                .setCacheEnabled(true)
+                .setRamCacheBytes(16L * 1024 * 1024)
+                .setArtifactCachePath(tempDir.resolve("native-artifact-cache").toString())
+                .setArtifactCacheBytes(64L * 1024 * 1024)
+                .setArtifactIndexMemoryBytes(16L * 1024 * 1024)
                 .setSpillEnabled(true)
                 .setSpillDirectory(writeStageDirectory.toString())
                 .setShuffleRetentionBytes(16L * 1024 * 1024)
@@ -570,6 +575,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         closeWorkerCatalogRuntime();
         closeQuietly(sharedDatasetControlClient, "native_dataset_control_client");
         sharedDatasetControlClient = null;
+        if (queryManager != null) queryManager.stopPeriodicCleanup();
+        if (terminalCleanupExecutor != null) terminalCleanupExecutor.shutdownNow();
         stopCoordinatorTransportQuietly();
         stopQuietly(coordinatorHttpServer);
         if (resultBufferExecutor != null) resultBufferExecutor.shutdownNow();
@@ -779,6 +786,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         QueryDispatcher dispatcher = buildQueryDispatcher();
         queryManager = new QueryManager(queryManagerContext(dispatcher));
+        startQueryCleanup();
         if (e2eCoordinationService != null) {
             queryManager.setLocalCoordinatorId(E2E_COORDINATOR_ID);
         }
@@ -842,6 +850,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     .newBoundedThreadPool("e2e-async-query-submit", 4, 128);
         }
         return asyncQueryExecutor;
+    }
+
+    private static void startQueryCleanup() {
+        if (terminalCleanupExecutor == null) {
+            terminalCleanupExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newBoundedThreadPool("e2e-terminal-cleanup", 2, 32);
+        }
+        queryManager.startPeriodicCleanup(
+                java.util.Objects.requireNonNull(resultBufferExecutor, "E2E control-plane scheduler"),
+                terminalCleanupExecutor, Duration.ofMinutes(5), Duration.ofSeconds(1));
     }
 
     private static CoordinatorHttpServer createCoordinatorHttpServer(
@@ -1665,6 +1683,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
         return () -> {
             stopQuietly(coordinatorHttpServer);
+            stopCoordinatorTransportQuietly();
             closeE2ECoordination();
             shutdownMetadata();
         };
@@ -1694,6 +1713,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         QueryDispatcher dispatcher = buildQueryDispatcher();
         System.err.println("[E2E-DEBUG] initCoordinatorServices: dispatcher built");
         queryManager = new QueryManager(queryManagerContext(dispatcher));
+        startQueryCleanup();
         System.err.println("[E2E-DEBUG] initCoordinatorServices: queryManager created");
         new CoordinatorMetrics(METRICS_PROVIDER, () -> (double) workerManager.getActiveWorkers().size());
         System.err.println("[E2E-DEBUG] initCoordinatorServices: metrics created");
@@ -1769,7 +1789,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
         return () -> {
             stopQuietly(workerHttpServer);
-            stopCoordinatorTransportQuietly();
         };
     }
 
@@ -1810,14 +1829,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         new WorkerMetrics(METRICS_PROVIDER, () -> 0.0, () -> 0.0);
 
-        // Phase 3: Coordinator-side transport + HTTP servers with health endpoint
-        coordinatorTransportServer = startCoordinatorTransportServer();
+        // Phase 3: the real Native result server and Worker HTTP health endpoint.
         workerTransportReady.set(true);
 
         HealthCheckEndpoint healthEndpoint = createWorkerHealthEndpoint();
-        int workerTransportPort = sharedResultServerPort > 0
-                ? sharedResultServerPort
-                : coordinatorTransportServer.getPort();
+        int workerTransportPort = requireWorkerResultPort();
         workerHttpServer = startWorkerHttpServer(workerTaskManager, taskExecutor,
                 workerTransportPort, healthEndpoint, 0);
         workerHttpReady.set(true);
@@ -1828,9 +1844,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static void initWorkerReadiness() {
         // Phase 4: register with real transport port (native FlightResultServer for SELECT queries)
-        int workerTransportPort = sharedResultServerPort > 0
-                ? sharedResultServerPort
-                : coordinatorTransportServer.getPort();
+        int workerTransportPort = requireWorkerResultPort();
         registerWorker(workerHttpServer.getPort(), workerTransportPort);
         configureStatusReporter();
         // The in-process Worker does not run WorkerHeartbeatBootstrap. Model its
@@ -1925,8 +1939,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return new ResourceManager(arbitrator, threadPoolManager, spillManager);
     }
 
+    private static int requireWorkerResultPort() {
+        if (sharedResultServerPort <= 0) {
+            throw new IllegalStateException("E2E Worker has no live Native result endpoint");
+        }
+        return sharedResultServerPort;
+    }
+
     /**
-     * Starts a coordinator-side transport server for serving constant-fold and DDL/DML results.
+     * Starts the bounded Coordinator DDL/SHOW acknowledgement transport.
      * Worker-side result serving is handled by the C++ FlightResultServer via NativeResultTransport.
      */
     private static TransportServer startCoordinatorTransportServer() {
@@ -2187,19 +2208,20 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static CoordinatorResultService buildCoordinatorResultService() {
-        if (coordinatorTransportServer == null || !coordinatorTransportServer.isRunning()) {
-            return null;
+        if (coordinatorResultService != null) {
+            if (coordinatorTransportServer == null || !coordinatorTransportServer.isRunning()) {
+                throw new IllegalStateException("E2E control-plane response owner has no live transport");
+            }
+            return coordinatorResultService;
         }
         if (resultBufferExecutor == null) {
-            resultBufferExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "result-buffer-expiry");
-                t.setDaemon(true);
-                return t;
-            });
+            resultBufferExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newSingleThreadScheduledExecutor("e2e-control-plane-expiry");
         }
-        closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
-        coordinatorResultBuffer = new CoordinatorResultBuffer(resultBufferExecutor, 300_000L);
+        coordinatorResultBuffer = new CoordinatorResultBuffer(
+                resultBufferExecutor, CoordinatorResultBuffer.DEFAULT_RETENTION_MS);
         coordinatorArrowAllocator = new org.apache.arrow.memory.RootAllocator(128L * 1024 * 1024);
+        coordinatorTransportServer = startCoordinatorTransportServer();
         var writer = new CoordinatorResultWriter(coordinatorArrowAllocator);
         var endpoint = new ResultEndpoint("localhost", coordinatorTransportServer.getPort(), "coordinator", "grpc");
         coordinatorResultService = new CoordinatorResultService(coordinatorResultBuffer, writer, endpoint);

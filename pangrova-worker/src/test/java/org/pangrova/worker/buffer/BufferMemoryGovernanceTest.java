@@ -44,13 +44,13 @@ class BufferMemoryGovernanceTest {
             assertThat(tasks.terminalReport(info).error().message()).contains("not-an-integer");
             assertThat(info.executorHandle()).isZero();
             assertThat(info.allocatedBufferMemory()).isZero();
-            assertThat(runtime.arbitrator().snapshot()).doesNotContainKey("buffer:" + info.taskId());
             assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
+            assertThat(runtime.nodePool().getUsedBytes()).isZero();
         }
     }
 
     @Test
-    void bufferMemoryUsesBufferPrefixKey() throws Exception {
+    void bufferGrantIsAccountedThroughBothBudgets() throws Exception {
         verifyHeldBuffer(TASK_MEMORY, 1);
     }
 
@@ -70,7 +70,7 @@ class BufferMemoryGovernanceTest {
             long baseline = runtime.arbitrator().getUsedMemory();
             for (int index = 0; index < taskCount; index++) {
                 var info = tasks.submit(request(TASK_MEMORY, ActualNativeTaskPlans.values(batchCount, 2)));
-                tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+                tasks.awaitState(info, TaskManager.TaskState.RUNNING);
                 assertThat(tasks.consume(info).rows()).isEqualTo(batchCount * 2L);
                 assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
             }
@@ -78,18 +78,25 @@ class BufferMemoryGovernanceTest {
     }
 
     @Property(tries = 5)
-    void bufferMemoryKeyUsesBufferPrefix(@ForAll @IntRange(min = 0, max = 99) int taskSuffix)
+    void distinctCanonicalTasksKeepIndependentBufferReservations(@ForAll @IntRange(min = 0, max = 99) int taskSuffix)
             throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-key-" + taskSuffix)) {
             var request = request(TASK_MEMORY, ActualNativeTaskPlans.values(1, 2)).toBuilder();
             request.getAttemptBuilder().setTaskId("task-key-" + taskSuffix);
             var info = tasks.submit(request.build());
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
-            String key = "buffer:" + info.taskId();
-            assertThat(runtime.arbitrator().snapshot()).containsEntry(key, bufferGrant(TASK_MEMORY));
-            tasks.consume(info);
-            assertThat(runtime.arbitrator().snapshot()).doesNotContainKey(key);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            var other = tasks.submit(request(TASK_MEMORY, ActualNativeTaskPlans.values(1, 2)));
+            tasks.awaitState(other, TaskManager.TaskState.RUNNING);
+            assertHeldGrant(runtime, info, TASK_MEMORY);
+            assertHeldGrant(runtime, other, TASK_MEMORY);
+            assertThat(runtime.arbitrator().getUsedMemory()).isGreaterThanOrEqualTo(2 * bufferGrant(TASK_MEMORY));
+            assertThat(tasks.consume(info).values()).containsExactly(0L, 1L);
+            assertThat(info.allocatedBufferMemory()).isZero();
+            assertHeldGrant(runtime, other, TASK_MEMORY);
+            assertThat(tasks.consume(other).values()).containsExactly(0L, 1L);
+            assertThat(runtime.arbitrator().getUsedMemory()).isZero();
+            assertThat(runtime.nodePool().getUsedBytes()).isZero();
         }
     }
 
@@ -98,7 +105,7 @@ class BufferMemoryGovernanceTest {
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-grant")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             var info = tasks.submit(request(taskMemory, ActualNativeTaskPlans.values(batches, 2)));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertHeldGrant(runtime, info, taskMemory);
             assertThat(tasks.consume(info).rows()).isEqualTo(batches * 2L);
             assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
@@ -108,7 +115,8 @@ class BufferMemoryGovernanceTest {
     private static void assertHeldGrant(ActualNativeTaskFixture runtime, TaskInfo info, long memory) {
         assertThat(info.executorHandle()).isPositive();
         assertThat(info.allocatedBufferMemory()).isEqualTo(bufferGrant(memory));
-        assertThat(runtime.arbitrator().snapshot()).containsEntry("buffer:" + info.taskId(), bufferGrant(memory));
+        assertThat(runtime.arbitrator().getUsedMemory()).isGreaterThanOrEqualTo(bufferGrant(memory));
+        assertThat(runtime.nodePool().getUsedBytes()).isGreaterThanOrEqualTo(bufferGrant(memory));
         assertThat(runtime.arbitrator().getUsedMemory()).isLessThanOrEqualTo(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
     }
 

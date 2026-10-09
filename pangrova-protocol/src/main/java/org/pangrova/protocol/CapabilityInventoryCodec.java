@@ -30,7 +30,8 @@ import java.security.MessageDigest;
  */
 public final class CapabilityInventoryCodec {
 
-    private static final int MAX_ENCODED_BYTES = 4 * 1024 * 1024;
+    /** Inclusive bound for the canonical Base64 inventory, before its transport envelope. */
+    public static final int MAX_ENCODED_BYTES = 4 * 1024 * 1024;
     private static final String RELATION_ENVELOPE_TYPE_URL =
             "type.googleapis.com/pangrova.protocol.v2.RelationDetailEnvelope";
 
@@ -290,7 +291,6 @@ public final class CapabilityInventoryCodec {
     private static boolean isRetrieval(CapabilityKind kind) {
         return kind == CapabilityKind.CAPABILITY_KIND_RETRIEVAL_SOURCE
                 || kind == CapabilityKind.CAPABILITY_KIND_RETRIEVAL_MERGE
-                || kind == CapabilityKind.CAPABILITY_KIND_RERANK
-                || kind == CapabilityKind.CAPABILITY_KIND_MATERIALIZER;
+                || kind == CapabilityKind.CAPABILITY_KIND_RERANK;
     }
 }

@@ -318,7 +318,10 @@ public record IcebergSplit(
         }
         return switch (readMode.toUpperCase()) {
             case "INCREMENTAL" -> IcebergReadMode.ICEBERG_READ_MODE_INCREMENTAL;
-            case "TIME_TRAVEL" -> IcebergReadMode.ICEBERG_READ_MODE_TIME_TRAVEL;
+            // Snapshot selection is a table-handle concern. Once pinned, FULL
+            // and TIME_TRAVEL describe the same physical scan and must carry
+            // identical durable split evidence for the same snapshot.
+            case "FULL", "TIME_TRAVEL" -> IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT;
             default -> IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT;
         };
     }

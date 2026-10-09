@@ -86,6 +86,18 @@ WHERE status = 'pending'
 
 ### MERGE INTO
 
+The Native copy-on-write path supports one MATCHED UPDATE or DELETE action,
+including its optional action predicate. FALSE or UNKNOWN predicates preserve
+the original target row; row policies and column masks apply to predicate reads,
+not to unassigned physical survivor values.
+
+An unconditional MATCHED UPDATE can be combined with one unconditional NOT
+MATCHED INSERT. Ordered multiple actions, conditional INSERT, and a conditional
+MATCHED action combined with another action are currently rejected with
+`NATIVE_UNSUPPORTED_PLAN`. They require distinct match and action predicates;
+their conditions must not be silently discarded or moved into ON to cause an
+incorrect INSERT. Complete ordered-action lowering remains an open capability.
+
 ```sql
 MERGE INTO prod.analytics.users AS target
 USING (
@@ -95,12 +107,7 @@ USING (
 ) AS source
 ON target.user_id = source.user_id
 WHEN MATCHED AND target.region IS NULL THEN
-  UPDATE SET target.region = 'unknown'
-WHEN NOT MATCHED THEN
-  INSERT (user_id, name, email, region, created_at)
-  VALUES (source.user_id, 'New User', 'pending@example.com', 'unknown', TIMESTAMP '2024-06-15 00:00:00')
-WHEN MATCHED AND target.email LIKE '%@deleted.com' THEN
-  DELETE;
+  UPDATE SET target.region = 'unknown';
 ```
 
 ---

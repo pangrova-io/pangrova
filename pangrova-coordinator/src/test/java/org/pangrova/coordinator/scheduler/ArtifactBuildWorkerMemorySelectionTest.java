@@ -7,10 +7,6 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerPerformanceScorer;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
-import org.pangrova.protocol.v2.CapabilityDescriptor;
-import org.pangrova.protocol.v2.CapabilityKind;
-import org.pangrova.protocol.v2.ExecutionMode;
-import org.pangrova.protocol.v2.ExecutionPlacement;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.resource.MemoryPressure;
 
@@ -27,16 +23,12 @@ class ArtifactBuildWorkerMemorySelectionTest {
     void exactHnswCapabilityDoesNotBypassAvailableMemoryLimit() {
         var capability = BuiltInCapabilityCatalog.hnswArtifactBuildPlanRef();
         var format = BuiltInCapabilityCatalog.hnswArtifactFormat();
-        var inventory = TestWorkerInfoBuilder.canonicalInventory().toBuilder()
-                .addCapabilities(CapabilityDescriptor.newBuilder()
-                        .setRef(capability.toBuilder()
-                                .setImplementationBuildId(format.getWriterBuildId()))
-                        .setKind(CapabilityKind.CAPABILITY_KIND_BACKGROUND_SINK)
-                        .setPlacement(ExecutionPlacement.EXECUTION_PLACEMENT_NATIVE)
-                        .addExecutionModes(ExecutionMode.EXECUTION_MODE_BATCH)
-                        .setRequiredPrivilege("CREATE INDEX")
-                        .addSupportedArtifactFormats(format))
-                .build();
+        var inventory = TestWorkerInfoBuilder.canonicalInventory();
+        assertThat(inventory.getCapabilitiesList()).anySatisfy(descriptor -> {
+            assertThat(descriptor.getRef().getCapabilityId()).isEqualTo(capability.getCapabilityId());
+            assertThat(descriptor.getRef().getImplementationBuildId()).isEqualTo(format.getWriterBuildId());
+            assertThat(descriptor.getSupportedArtifactFormatsList()).contains(format);
+        });
         // A 2 GiB Worker reserves 128 MiB for its system pool before advertising.
         WorkerInfo worker = new WorkerInfo(
                 "worker", "localhost", 8080, 9090, 9191,

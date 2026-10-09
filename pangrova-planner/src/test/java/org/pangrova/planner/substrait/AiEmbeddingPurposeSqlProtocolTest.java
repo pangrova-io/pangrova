@@ -28,7 +28,7 @@ class AiEmbeddingPurposeSqlProtocolTest {
     @ValueSource(strings = {"RAW", "QUERY", "DOCUMENT"})
     void explicitPurposeIsPreservedRegardlessOfInputRowCount(String purpose) throws Exception {
         var invocation = invocation("SELECT AI_EMBED('catalog.model', text, '" + purpose
-                + "') FROM (VALUES ('a'), ('b')) AS t(text)");
+                + "') FROM (SELECT 'a' AS text UNION ALL SELECT 'b' AS text) t");
         assertThat(invocation.getArgumentsCount()).isEqualTo(4);
         assertThat(invocation.getArguments(2).getValue().getLiteral().getString()).isEqualTo(purpose);
         assertThat(invocation.getArguments(3).getValue().getLiteral().getString()).isEqualTo("ai-invoke-0");
@@ -37,7 +37,8 @@ class AiEmbeddingPurposeSqlProtocolTest {
     @ParameterizedTest
     @ValueSource(strings = {"'AUTO'", "'query'", "NULL", "12", "purpose", "CAST('DOCUMENT' AS VARCHAR(3))"})
     void invalidNullOrRowDependentPurposeIsRejectedAtThePublicEntry(String purpose) throws Exception {
-        String source = " FROM (VALUES ('a', 'QUERY'), ('b', 'DOCUMENT')) AS t(text, purpose)";
+        String source = " FROM (SELECT 'a' AS text, 'QUERY' AS purpose "
+                + "UNION ALL SELECT 'b' AS text, 'DOCUMENT' AS purpose) t";
         var admitted = invocation("SELECT AI_EMBED('catalog.model', text, 'RAW')" + source);
         assertThat(admitted.getArguments(2).getValue().getLiteral().getString()).isEqualTo("RAW");
         String sql = "SELECT AI_EMBED('catalog.model', text, " + purpose

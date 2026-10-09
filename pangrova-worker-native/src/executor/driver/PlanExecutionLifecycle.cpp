@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <folly/executors/CPUThreadPoolExecutor.h>
+#include <folly/ScopeGuard.h>
 
 #include "executor/driver/TaskExecutor.h"
 #include "jni/RuntimeInitializer.h"
@@ -73,6 +74,12 @@ void PlanExecutionDriver::executeAsync() {
   // Lazy-init: completion_future_ is only valid after executeAsync() is called.
   // Must not be in constructor — tests that skip start() would hang in join().
   completion_future_ = completion_promise_.get_future();
+  startup_future_ = startup_promise_.get_future();
+  // A rejected launch owns no background continuation to signal either exit.
+  auto launchFailure = folly::makeGuard([this] {
+    signalStartup();
+    signalCompletion();
+  });
 
   // Prefer the process-global folly CPUThreadPoolExecutor (owned by
   // NativeEngineLifecycle). Pool threads return immediately after submitting
@@ -81,11 +88,27 @@ void PlanExecutionDriver::executeAsync() {
   auto exec = pangrova::jni::NativeEngineLifecycle::instance().executor();
   if (exec) {
     exec->add([this]() { executeVeloxPlan(); });
+    launchFailure.dismiss();
     return;
   }
   // Fallback for unit tests that don't initialize the global lifecycle.
   fallback_thread_ = std::make_unique<std::thread>(
       [this]() { executeVeloxPlan(); });
+  launchFailure.dismiss();
+}
+
+void PlanExecutionDriver::waitForResultStartup() {
+  if (!startup_future_.valid()) throw std::logic_error("Result startup was not launched");
+  if (config_.deadline_epoch_ms > 0) {
+    auto deadline = std::chrono::system_clock::time_point(
+        std::chrono::milliseconds(config_.deadline_epoch_ms));
+    if (startup_future_.wait_until(deadline) != std::future_status::ready) {
+      throw std::runtime_error("Result startup exceeded its admitted task deadline: " + config_.task_id);
+    }
+  } else {
+    startup_future_.wait();
+  }
+  startup_future_.get();
 }
 
 void PlanExecutionDriver::join() {

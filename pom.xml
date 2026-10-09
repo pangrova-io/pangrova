@@ -87,7 +87,7 @@
         <awaitility.version>4.2.2</awaitility.version>
 
         <!-- Connector dependencies -->
-        <iceberg.version>1.11.0</iceberg.version>
+        <iceberg.version>1.11.0-pangrova-schema-candidate1</iceberg.version>
         <avro.version>1.12.1</avro.version>
         <paimon.version>1.4.1</paimon.version>
         <hadoop.version>3.3.6</hadoop.version>

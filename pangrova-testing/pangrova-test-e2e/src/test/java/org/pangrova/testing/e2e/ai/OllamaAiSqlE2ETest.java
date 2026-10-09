@@ -19,6 +19,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.api.extension.TestWatcher;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
@@ -53,6 +56,15 @@ import static org.pangrova.testing.e2e.ai.SharedAiProvider.QUERY_PREFIX;
 @Tag("ai-provider")
 @DisplayName("Ollama AI SQL full-chain E2E")
 class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
+
+    @RegisterExtension
+    final TestWatcher deploymentEvidence = new TestWatcher() {
+        @Override
+        public void testFailed(ExtensionContext context, Throwable failure) {
+            failure.addSuppressed(new IllegalStateException(
+                    "Actual Ollama inference diagnostics: " + sharedAiProvider().deploymentDiagnostics()));
+        }
+    };
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newBuilder()
@@ -129,6 +141,16 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
     }
 
     @Test
+    @DisplayName("The deployment's signed input bound rejects oversized prompts before provider I/O")
+    void oversizedPromptCannotInvokeTheRealProvider() {
+        long before = completionRequestCount();
+        assertThat(executeExpectingError("SELECT AI_COMPLETE('" + LOGICAL_MODEL
+                + "', '" + "x".repeat(4_096) + "')"))
+                .containsIgnoringCase("input");
+        assertThat(completionRequestCount()).isEqualTo(before);
+    }
+
+    @Test
     @DisplayName("AI_EMBED returns exact real-provider VECTORs for distinct SQL inputs")
     void aiEmbedReturnsRealProviderVectorsForDistinctSqlInputs() throws Exception {
         float[] firstExpected = directEmbedding("Pangrova red apple");
@@ -190,12 +212,14 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
                 .get(0).get("embedding"), expected);
         var rows = executeQuery(
                     "SELECT id, AI_EMBED('" + EMBEDDING_LOGICAL_MODEL + "', content, '" + purpose
-                            + "') AS embedding FROM (VALUES "
-                            + "(1, '" + text + "'), (2, 'second embedding text'),"
-                            + "(3, '" + text + "'), (4, '" + text + "'),"
-                            + "(5, '" + text + "'), (6, '" + text + "'),"
-                            + "(7, '" + text + "'), (8, '" + text + "'),"
-                            + "(9, '" + text + "'), (10, NULL)) AS input(id, content) ORDER BY id");
+                            + "') AS embedding FROM ("
+                            + "SELECT 1 AS id, '" + text + "' AS content"
+                            + " UNION ALL SELECT 2, 'second embedding text'"
+                            + " UNION ALL SELECT 3, '" + text + "' UNION ALL SELECT 4, '" + text + "'"
+                            + " UNION ALL SELECT 5, '" + text + "' UNION ALL SELECT 6, '" + text + "'"
+                            + " UNION ALL SELECT 7, '" + text + "' UNION ALL SELECT 8, '" + text + "'"
+                            + " UNION ALL SELECT 9, '" + text + "' UNION ALL SELECT 10, CAST(NULL AS VARCHAR)"
+                            + ") input ORDER BY id");
         assertThat(rows).hasSize(10);
         for (int index = 0; index < rows.size(); index++) {
                 assertThat(((Number) ColumnValue.toRaw(rows.get(index).get("id"))).intValue())

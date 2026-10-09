@@ -49,11 +49,19 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
         var descriptor = TaskRequestDtoConverter.toTaskDescriptor(submitted);
         var info = new TaskInfo("pending-" + request.getAttempt().getTaskId(),
                 request.getAttempt().getQueryOrJobId(), submitted, descriptor, java.time.Instant.now());
+        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
+        var admission = manager.taskAdmissions.reserve(request, info.taskId());
         manager.lifecycleManager.reserveAdmissionResources(info);
-        manager.tasks.put(info.taskId(), info);
+        admission.publish(() -> manager.tasks.put(info.taskId(), info));
         manager.transition(info.taskId(), TaskManager.TaskState.INITIALIZING);
+        admission.admitted();
         info.setExecutorHandle(runtime.createPending(request));
         return info;
+    }
+
+    /** The completion callback releases resources before its own terminal-state publication. */
+    void releaseBeforeTerminal(TaskInfo info) {
+        manager.lifecycleManager.releaseAllResources(info, info.taskId());
     }
 
     TaskCompletionMonitor completionMonitor() { return new TaskCompletionMonitor(context, manager.statusCollector); }
@@ -80,8 +88,14 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
                     || report.state().equals("CANCELLED"))).findFirst().orElseThrow();
     }
 
+    public org.pangrova.protocol.v2.TaskReport releasedReport(TaskInfo info) {
+        return TaskCompletionMonitor.requireCanonicalTaskReport(
+                info.request().taskRequest(), info.executorReleaseReport());
+    }
+
     public ActualNativeResultReader.Received consume(TaskInfo info) throws Exception {
         var received = ActualNativeResultReader.read(runtime, info.request().taskRequest());
+        awaitState(info, TaskManager.TaskState.FINISHED);
         long handle = info.executorHandle();
         await().atMost(Duration.ofSeconds(20))
                 .until(() -> runtime.drainEvidence(handle, info.request().taskRequest()).getDrained());

@@ -114,6 +114,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
+
       - name: Build native library
         run: |
           ./pangrova-worker-native/bin/setup-native-build-env.sh

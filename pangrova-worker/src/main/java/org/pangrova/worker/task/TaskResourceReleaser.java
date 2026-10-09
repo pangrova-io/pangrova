@@ -65,10 +65,14 @@ final class TaskResourceReleaser {
      * and failure paths to prevent resource leaks from orphaned servers.
      */
     void stopShuffleServerIfNeeded(TaskInfo info) {
-        if (shuffleTransport instanceof org.pangrova.worker.shuffle.NativeShuffleTransport nst) {
+        if (info.shuffleServerHandle() != null
+                && shuffleTransport instanceof org.pangrova.worker.shuffle.NativeShuffleTransport nst) {
             long handle = info.executorHandle();
             if (handle != 0) {
                 nst.stopServer(handle);
+                // Keep the successful stop checkpoint when a later Native/RPC join fails.
+                // Reissuing task commands after release seals operation admission cannot drain it.
+                info.setShuffleServerHandle(null);
             }
         }
     }
@@ -110,7 +114,9 @@ final class TaskResourceReleaser {
     }
 
     private byte[] releaseActualExecutor(TaskInfo info, long handle) {
-        if (deps == null || deps.taskExecutor() == null) throw new IllegalStateException("Task executor is unavailable during release");
+        if (deps == null || deps.taskExecutor() == null) {
+            throw new IllegalStateException("Task executor is unavailable during release");
+        }
         if (deps.exchangeTransport() != null) deps.exchangeTransport().releaseInputs(handle);
         byte[] receipt = info.stagedExecutorReleaseReceipt();
         if (receipt == null) {
@@ -127,8 +133,10 @@ final class TaskResourceReleaser {
                 .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
             throw new IllegalStateException("Native release receipt has no actual executor drain evidence");
         }
-        if (report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED && !report.hasNativeTaskStats()) {
-            throw new IllegalStateException("Finished Native task release returned no final statistics: " + info.taskId());
+        if (report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
+                && !report.hasNativeTaskStats()) {
+            throw new IllegalStateException(
+                    "Finished Native task release returned no final statistics: " + info.taskId());
         }
         if (report.hasNativeTaskStats() && !report.getNativeTaskStats().getUnknownFields().asMap().isEmpty()) {
             throw new IllegalStateException("Released Native task statistics contain unknown fields: " + info.taskId());

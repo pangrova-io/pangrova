@@ -38,14 +38,7 @@ class IndependentLocalProcessesE2ETest extends ContainerTestBase {
             orders = "spec_catalog.default.local_orders_" + suffix;
             customers = "spec_catalog.default.local_customers_" + suffix;
             regions = "spec_catalog.default.local_regions_" + suffix;
-            String warehouse = processes.warehouse().toString().replace("'", "''");
-            String jdbc = processes.hostJdbcUrl().replace("'", "''");
-            processes.query("CREATE CATALOG spec_catalog WITH ('connector' = 'iceberg', "
-                    + "'type' = 'jdbc', 'uri' = '" + jdbc + "', "
-                    + "'jdbc.user' = 'pangrova', 'jdbc.password' = 'pangrova_test', "
-                    + "'jdbc.schema-version' = 'V1', 'warehouse' = '" + warehouse + "')",
-                    ResultProtocol.GRPC_TLS);
-            processes.awaitClusterReady();
+            processes.createSourceCatalog();
             seedTables();
             processes.startSecondWorker();
         } catch (Exception | Error failure) {

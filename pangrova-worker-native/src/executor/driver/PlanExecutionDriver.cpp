@@ -28,8 +28,15 @@ void PlanExecutionDriver::signalCompletion() {
   if (!completion_signalled_.exchange(true)) completion_promise_.set_value();
 }
 
+void PlanExecutionDriver::signalStartup() {
+  if (!startup_signalled_.exchange(true)) startup_promise_.set_value();
+}
+
 void PlanExecutionDriver::executeVeloxPlan() {
   auto completion = folly::makeGuard([this] { signalCompletion(); });
+  // Failed/cancelled preparation also exits startup. Its actual terminal
+  // status remains authoritative; this checkpoint cannot invent success.
+  auto startup = folly::makeGuard([this] { signalStartup(); });
   if (cancelled_.load()) return;
   std::shared_ptr<Execution> execution;
   try {
@@ -41,6 +48,7 @@ void PlanExecutionDriver::executeVeloxPlan() {
     execution = prepareExecution(span.get());
     if (!execution || !publishRunner(execution)) return;
     execution->runner->start();
+    signalStartup();
     startOutputDrains(execution);
     if (dispatchExecution(execution)) completion.dismiss();
   } catch (...) {

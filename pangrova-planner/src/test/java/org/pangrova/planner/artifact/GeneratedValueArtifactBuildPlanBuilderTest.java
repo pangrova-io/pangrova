@@ -12,6 +12,23 @@ import static org.assertj.core.api.Assertions.assertThat;
 class GeneratedValueArtifactBuildPlanBuilderTest {
 
     @Test
+    void sinkInputNamesMatchTheCanonicalComputedSourceRatherThanTheTargetColumn() throws Exception {
+        for (var sources : List.of(List.of("body"), List.of("title", "body"))) {
+            var built = GeneratedValueArtifactBuildPlanBuilder.build(
+                    locatedSource(sources), "stored_embedding", sources, "catalog.embed-v3", 768);
+            var sink = Plan.parseFrom(built.artifact().planBytes())
+                    .getRelations(0).getRoot().getInput().getExtensionSingle();
+            var input = org.pangrova.protocol.substrait.SubstraitRelationLayout
+                    .describe(sink.getInput()).outputSchema();
+            var detail = sink.getDetail().unpack(RelationDetailEnvelope.class).getArtifactBuild();
+            assertThat(detail.getInputFieldsList()).containsExactlyElementsOf(
+                    org.pangrova.protocol.substrait.SubstraitRelationLayout.topLevelNames(input));
+            assertThat(input.getStruct().getTypes(0).hasI64()).isTrue();
+            assertThat(input.getStruct().getTypes(1).getList().getType().hasFp32()).isTrue();
+        }
+    }
+
+    @Test
     void compilesModelProjectAndGenericArtifactSinkIntoOneCanonicalPlan() throws Exception {
         var built = GeneratedValueArtifactBuildPlanBuilder.build(
                 locatedSource(List.of("title", "body")),
@@ -66,7 +83,8 @@ class GeneratedValueArtifactBuildPlanBuilderTest {
         assertThat(envelope.getArtifactBuild().getPlanNodeId())
                 .isEqualTo(GeneratedValueArtifactBuildPlanBuilder.ARTIFACT_PLAN_NODE_ID);
         assertThat(envelope.getArtifactBuild().getInputFieldsList())
-                .containsExactly("$pangrova$row_position", "embedding");
+                .containsExactlyElementsOf(org.pangrova.protocol.substrait.SubstraitRelationLayout.topLevelNames(
+                        org.pangrova.protocol.substrait.SubstraitRelationLayout.describe(sink.getInput()).outputSchema()));
         assertThat(envelope.getArtifactBuild().getInvocation().getCapability())
                 .isEqualTo(BuiltInCapabilityCatalog.generatedValuesArtifactBuildPlanRef());
     }

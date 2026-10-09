@@ -206,7 +206,7 @@ protocol::v2::OperatorBinding generatedValuesArtifactBinding() {
     property->mutable_value()->set_string_value(value);
   };
   add_string("target_column", "embedding");
-  add_string("output_type", "VECTOR(2, COSINE)");
+  add_string("output_type", "VECTOR(2)");
   auto* dimension = output->add_properties();
   dimension->set_name("vector_dimension");
   dimension->mutable_value()->set_int64_value(2);
@@ -520,6 +520,37 @@ TEST(ArtifactBuildPlanConversionTest, BuildsTypedGeneratedValuesNativeSink) {
           serializePlan(rel), {}, false, "ArrowBatch",
           {{binding.plan_node_id(), binding}}, runtimeContext()),
       std::runtime_error);
+}
+
+TEST(ArtifactBuildPlanConversionTest, AcceptsCanonicalGeneratedVectorDeclaration) {
+  auto binding = generatedValuesArtifactBinding();
+  for (auto& property : *binding.mutable_output_artifact()->mutable_properties()) {
+    if (property.name() == "output_type") {
+      property.mutable_value()->set_string_value("VECTOR(2)");
+    }
+  }
+  const auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(registry);
+  auto result = converter.convert(
+      serializePlan(generatedValuesArtifactRelation()), {}, false, "ArrowBatch",
+      {{binding.plan_node_id(), binding}}, runtimeContext());
+  auto artifact = std::dynamic_pointer_cast<const ArtifactBuildNode>(result);
+  ASSERT_NE(artifact, nullptr);
+  EXPECT_EQ(artifact->config().generated_value_dimension, 2);
+}
+
+TEST(ArtifactBuildPlanConversionTest, RejectsLegacyGeneratedVectorMetricDeclaration) {
+  auto binding = generatedValuesArtifactBinding();
+  for (auto& property : *binding.mutable_output_artifact()->mutable_properties()) {
+    if (property.name() == "output_type") {
+      property.mutable_value()->set_string_value("VECTOR(2, COSINE)");
+    }
+  }
+  const auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(registry);
+  EXPECT_THROW(converter.convert(
+      serializePlan(generatedValuesArtifactRelation()), {}, false, "ArrowBatch",
+      {{binding.plan_node_id(), binding}}, runtimeContext()), std::invalid_argument);
 }
 
 TEST(ArtifactBuildPlanConversionTest, BuildsTypedTabularExportNativeSink) {

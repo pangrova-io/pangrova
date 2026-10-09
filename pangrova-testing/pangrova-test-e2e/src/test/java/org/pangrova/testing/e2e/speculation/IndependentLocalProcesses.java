@@ -49,6 +49,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final Path warehouse;
     private final Path javaExecutable;
     private final LocalRuntimeArtifacts artifacts;
+    private final org.pangrova.worker.jni.NativeFunctionConfig functions;
     private final Inet4Address advertisedAddress;
     private final ProcessSecurityAuthority security;
     private final ProcessStatusReportRelay reports;
@@ -70,6 +71,14 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private boolean tlsClosed;
 
     IndependentLocalProcesses() throws Exception {
+        this(org.pangrova.worker.jni.NativeFunctionConfig.DEFAULT);
+    }
+
+    IndependentLocalProcesses(org.pangrova.worker.jni.NativeFunctionConfig functions) throws Exception {
+        this.functions = java.util.Objects.requireNonNull(functions, "functions");
+        if (!functions.autoRegister()) {
+            throw new IllegalArgumentException("Independent Workers must register their actual Native functions");
+        }
         if (Runtime.version().feature() != 17) {
             throw new IllegalStateException("Independent local process test requires JDK 17");
         }
@@ -102,8 +111,11 @@ final class IndependentLocalProcesses implements AutoCloseable {
             for (AutoCloseable owner : new AutoCloseable[] {
                     createdReports, createdSecurity, createdTls}) {
                 if (owner == null) continue;
-                try { owner.close(); }
-                catch (Exception cleanup) { failure.addSuppressed(cleanup); }
+                try {
+                    owner.close();
+                } catch (Exception cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
             }
             throw new IllegalStateException(
                     "Local process fixture construction failed; diagnostics retained at "
@@ -138,6 +150,17 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 || first.resultServerPort() == second.resultServerPort()) {
             throw new IllegalStateException("Two live Workers registered overlapping endpoints");
         }
+    }
+
+    void createSourceCatalog() throws Exception {
+        String location = warehouse.toString().replace("'", "''");
+        String jdbc = hostJdbcUrl().replace("'", "''");
+        query("CREATE CATALOG spec_catalog WITH ('connector' = 'iceberg', "
+                + "'type' = 'jdbc', 'uri' = '" + jdbc + "', "
+                + "'jdbc.user' = 'pangrova', 'jdbc.password' = 'pangrova_test', "
+                + "'jdbc.schema-version' = 'V1', 'warehouse' = '" + location + "')",
+                ResultProtocol.GRPC_TLS);
+        awaitClusterReady();
     }
 
     private void startWorker(String id) throws Exception {
@@ -186,6 +209,14 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     long pid(String workerId) { return workers.get(workerId).process().pid(); }
     long coordinatorPid() { return coordinator.process().pid(); }
+
+    boolean hasAttributedQueryAudit(String queryId) throws IOException {
+        String record = "pangrova.audit.query - query=" + queryId + " user=" + ProcessSecurityAuthority.USER
+                + " tenant=" + ProcessSecurityAuthority.TENANT + " ";
+        try (var lines = Files.lines(coordinator.log(), StandardCharsets.UTF_8)) {
+            return lines.anyMatch(line -> line.contains(record));
+        }
+    }
     Path retainDiagnostics() {
         preserveDiagnostics = true;
         return workspace;
@@ -252,8 +283,11 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 throw new IllegalStateException("CLI timed out: " + tail(log));
             }
         } catch (InterruptedException interrupted) {
-            try { stopClient(client, log); }
-            catch (Exception cleanup) { interrupted.addSuppressed(cleanup); }
+            try {
+                stopClient(client, log);
+            } catch (Exception cleanup) {
+                interrupted.addSuppressed(cleanup);
+            }
             Thread.currentThread().interrupt();
             preserveDiagnostics = true;
             throw interrupted;
@@ -446,7 +480,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 security.hostJdbcUrl(), security.hostLdapUrl());
     }
 
-    private String workerYaml(String id, Path spill, Path shuffleSpill) {
+    private String workerYaml(String id, Path spill, Path shuffleSpill) throws IOException {
         var identity = workerIdentities.get(id);
         return """
                 worker:
@@ -489,7 +523,19 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 """.formatted(id, advertisedAddress.getHostAddress(), reports.port(), internalSecret,
                 identity.certificateChain(), identity.privateKey(), tls.root(),
                 advertisedAddress.getHostAddress(),
-                spill, shuffleSpill);
+                spill, shuffleSpill) + aiWorkerYaml();
+    }
+
+    private String aiWorkerYaml() throws IOException {
+        var yaml = new StringBuilder();
+        for (var setting : functions.configForPlugin("ai-inference").entrySet()) {
+            if (!setting.getKey().matches("[a-z0-9.-]+")) {
+                throw new IllegalArgumentException("Invalid AI deployment configuration key");
+            }
+            yaml.append("worker.ai.").append(setting.getKey()).append(": ")
+                    .append(JsonMapperFactory.shared().writeValueAsString(setting.getValue())).append('\n');
+        }
+        return yaml.toString();
     }
 
     private Path privateFile(String prefix, String suffix) throws IOException {
@@ -527,7 +573,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
             long size = channel.size();
             channel.position(Math.max(0, size - 20_000));
             var bytes = java.nio.ByteBuffer.allocate((int) Math.min(size, 20_000));
-            while (bytes.hasRemaining() && channel.read(bytes) != -1) { }
+            while (bytes.hasRemaining() && channel.read(bytes) != -1) {
+                // Drain the bounded log tail until the buffer is full or EOF.
+            }
             bytes.flip();
             return StandardCharsets.UTF_8.decode(bytes).toString();
         } catch (IOException failure) {
@@ -609,7 +657,11 @@ final class IndependentLocalProcesses implements AutoCloseable {
                     }
                 }
             } catch (Exception cleanup) {
-                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+                if (failure == null) {
+                    failure = cleanup;
+                } else {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
         return failure;
@@ -635,27 +687,48 @@ final class IndependentLocalProcesses implements AutoCloseable {
                     failure);
         }
         if (!reportsClosed) {
-            try { reports.close(); reportsClosed = true; }
-            catch (Exception cleanup) {
-                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+            try {
+                reports.close();
+                reportsClosed = true;
+            } catch (Exception cleanup) {
+                if (failure == null) {
+                    failure = cleanup;
+                } else {
+                    failure.addSuppressed(cleanup);
+                }
                 interrupted[0] |= Thread.interrupted();
             }
         }
         if (reportsClosed && !securityClosed) {
-            try { security.close(); securityClosed = true; }
-            catch (Exception cleanup) {
-                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+            try {
+                security.close();
+                securityClosed = true;
+            } catch (Exception cleanup) {
+                if (failure == null) {
+                    failure = cleanup;
+                } else {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
         if (reportsClosed && securityClosed && !tlsClosed) {
-            try { tls.close(); tlsClosed = true; }
-            catch (Exception cleanup) {
-                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+            try {
+                tls.close();
+                tlsClosed = true;
+            } catch (Exception cleanup) {
+                if (failure == null) {
+                    failure = cleanup;
+                } else {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
         if (failure == null && !preserveDiagnostics) {
-            try { deleteWorkspace(workspace); }
-            catch (IOException cleanup) { failure = cleanup; }
+            try {
+                deleteWorkspace(workspace);
+            } catch (IOException cleanup) {
+                failure = cleanup;
+            }
         }
         if (failure != null) preserveDiagnostics = true;
         else closed = true;
@@ -675,7 +748,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     record QueryResult(String queryId, String output) { }
+
     private record OwnedProcess(String name, Process process, Path config, Path log) { }
+
     private record RegisteredWorker(
             WorkerRegistrationRequest request, long coordinatorEpoch, long receivedNanos) { }
 }

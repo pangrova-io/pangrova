@@ -11,14 +11,26 @@ import static org.assertj.core.api.Assertions.assertThat;
  * starts HTTP + QueryManager but does NOT start indexing or streaming subsystems.
  */
 @DisplayName("Role-Based Coordinator Deployment")
-class RoleBasedDeploymentTest {
+class RoleBasedDeploymentTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private CoordinatorBootstrap bootstrap;
+    @org.junit.jupiter.api.io.TempDir
+    java.nio.file.Path indexDirectory;
+    private String previousIndexPath;
+
+    @org.junit.jupiter.api.BeforeEach
+    void configureOwnedIndexPath() {
+        previousIndexPath = System.getProperty("pangrova.index.basePath");
+        System.setProperty("pangrova.index.basePath", indexDirectory.toString());
+    }
 
     @AfterEach
     void tearDown() {
-        if (bootstrap != null && bootstrap.isStarted()) {
-            bootstrap.shutdown();
+        try {
+            if (bootstrap != null) bootstrap.shutdown();
+        } finally {
+            if (previousIndexPath == null) System.clearProperty("pangrova.index.basePath");
+            else System.setProperty("pangrova.index.basePath", previousIndexPath);
         }
     }
 
@@ -36,7 +48,7 @@ class RoleBasedDeploymentTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -47,9 +59,8 @@ class RoleBasedDeploymentTest {
     @Test
     @DisplayName("QUERY-only coordinator does not start indexing or streaming")
     void queryOnlyCoordinatorSkipsMaintenanceSubsystems() {
-        // Indexing and streaming require metadata + datasource which we don't provide.
-        // A QUERY-only coordinator should NOT attempt to start them even if feature flags
-        // are enabled, because role.isMaintenance() returns false.
+        // A QUERY-only coordinator must not start maintenance scheduling,
+        // even with a real authority and maintenance feature flags configured.
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "query-coord-2", 0,
@@ -64,11 +75,9 @@ class RoleBasedDeploymentTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
-        // Coordinator starts successfully — proves it didn't try to initialize
-        // indexing/streaming subsystems (which would fail without metadata datasource)
         assertThat(bootstrap.isStarted()).isTrue();
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
     }
@@ -78,7 +87,7 @@ class RoleBasedDeploymentTest {
     void combinedRoleStartsBothPaths() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("combined-1", 0);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();

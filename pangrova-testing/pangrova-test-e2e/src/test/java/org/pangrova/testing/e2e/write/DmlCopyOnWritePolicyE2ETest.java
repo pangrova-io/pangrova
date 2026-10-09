@@ -121,6 +121,18 @@ class DmlCopyOnWritePolicyE2ETest extends PangrovaE2ETestBase {
                 ORIGINAL.get(2).withNote("merge-309"), ORIGINAL.get(3), ORIGINAL.get(4));
     }
 
+    @Test
+    void mergeMatchedDeleteRetainsUnknownPredicatesAndPolicyHiddenPhysicalRows() {
+        String source = target() + "_source";
+        executeDdl("CREATE TABLE " + source + " (id BIGINT)");
+        executeDml("INSERT INTO " + source + " VALUES (101), (205), (309), (517)");
+        installPolicies();
+        executeDml("MERGE INTO " + target() + " t USING " + source + " s ON t.id=s.id"
+                + " WHEN MATCHED AND t.score=0 AND t.nullable_probe>0 THEN DELETE");
+        removePolicies();
+        assertThat(readRows()).containsExactly(ORIGINAL.get(0), ORIGINAL.get(1), ORIGINAL.get(3), ORIGINAL.get(4));
+    }
+
     private void installPolicies() {
         var session = authenticatedCatalogSession(CATALOG);
         String tenant = session.getProperties().get("tenant_id");

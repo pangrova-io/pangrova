@@ -11,6 +11,8 @@
 
 #include <atomic>
 #include <cstdint>
+#include <exception>
+#include <functional>
 #include <mutex>
 #include <shared_mutex>
 #include <optional>
@@ -122,6 +124,9 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
     std::shared_ptr<ResultOwnershipState> ownership;
     std::shared_ptr<facebook::velox::exec::OutputBufferManager> buffers;
     protocol::v2::ExecutionCallbackContext authority;
+    // The task adapter reports a failed read before queue cleanup can complete
+    // the producer. Weak task ownership must not create a result/Task cycle.
+    std::function<void(std::exception_ptr)> fail_producer;
     bool claimed = false;
   };
 

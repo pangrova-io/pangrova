@@ -36,7 +36,7 @@ class ShuffleErrorCallbackPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-no-shuffle")) {
             var info = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(info.shuffleServerHandle()).isNull();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             assertThat(info.executorHandle()).isZero();

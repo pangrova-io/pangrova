@@ -1,0 +1,68 @@
+diff --git a/src/core/lib/gprpp/status_helper.cc b/src/core/lib/gprpp/status_helper.cc
+--- a/src/core/lib/gprpp/status_helper.cc
++++ b/src/core/lib/gprpp/status_helper.cc
+@@ -288,7 +288,10 @@
+         absl::Time t;
+         if (absl::ParseTime(absl::RFC3339_full, payload_view, &t, nullptr)) {
+           kvs.push_back(
+-              absl::StrCat(type_url, ":\"", absl::FormatTime(t), "\""));
++              absl::StrCat(type_url, ":\"",
++                           absl::FormatTime(absl::RFC3339_full, t,
++                                            absl::UTCTimeZone()),
++                           "\""));
+         } else {
+           kvs.push_back(absl::StrCat(type_url, ":\"",
+                                      absl::CHexEscape(payload_view), "\""));
+diff --git a/test/core/gprpp/status_helper_test.cc b/test/core/gprpp/status_helper_test.cc
+--- a/test/core/gprpp/status_helper_test.cc
++++ b/test/core/gprpp/status_helper_test.cc
+@@ -153,7 +153,48 @@
+   StatusSetTime(&s, StatusTimeProperty::kCreated, t);
+   EXPECT_EQ(StatusToString(s),
+             absl::StrCat("CANCELLED:Message {created_time:\"",
+-                         absl::FormatTime(t), "\"}"));
++                         absl::FormatTime(absl::RFC3339_full, t,
++                                          absl::UTCTimeZone()),
++                         "\"}"));
++}
++
++TEST(StatusUtilTest, EpochTimePropertyUsesCanonicalUtc) {
++  absl::Status s = absl::CancelledError("Message");
++  StatusSetTime(&s, StatusTimeProperty::kCreated, absl::UnixEpoch());
++  const auto before = s;
++  EXPECT_EQ(StatusToString(s),
++            "CANCELLED:Message {created_time:\"1970-01-01T00:00:00+00:00\"}");
++  EXPECT_EQ(s, before);
++  EXPECT_EQ(StatusGetTime(s, StatusTimeProperty::kCreated), absl::UnixEpoch());
++}
++
++TEST(StatusUtilTest, TimePropertyPreservesNanoseconds) {
++  absl::Status s = absl::DeadlineExceededError("deadline");
++  const auto instant = absl::UnixEpoch() + absl::Nanoseconds(123456789);
++  StatusSetTime(&s, StatusTimeProperty::kCreated, instant);
++  EXPECT_EQ(StatusToString(s),
++            "DEADLINE_EXCEEDED:deadline {created_time:\"1970-01-01T00:00:00.123456789+00:00\"}");
++  EXPECT_EQ(StatusGetTime(s, StatusTimeProperty::kCreated), instant);
++}
++
++TEST(StatusUtilTest, ChildTimePropertyUsesCanonicalUtc) {
++  auto parent = absl::InternalError("parent");
++  auto child = absl::CancelledError("child");
++  StatusSetTime(&child, StatusTimeProperty::kCreated, absl::UnixEpoch());
++  StatusAddChild(&parent, child);
++  EXPECT_EQ(StatusToString(parent),
++            "INTERNAL:parent {children:[CANCELLED:child {created_time:\"1970-01-01T00:00:00+00:00\"}]}");
++  EXPECT_THAT(StatusGetChildren(parent), ::testing::ElementsAre(child));
++}
++
++TEST(StatusUtilTest, InvalidTimePayloadRemainsEscapedAndUnchanged) {
++  auto status = absl::AbortedError("invalid");
++  status.SetPayload("type.googleapis.com/grpc.status.time.created_time",
++                    absl::Cord("not\"a time"));
++  const auto before = status;
++  EXPECT_EQ(StatusToString(status),
++            "ABORTED:invalid {created_time:\"not\\\"a time\"}");
++  EXPECT_EQ(status, before);
+ }
+ 
+ TEST(StatusUtilTest, ComplexErrorWithChildrenToString) {

@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.speculation;
 
-import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskDuration;
 import org.junit.jupiter.api.Test;
@@ -49,10 +48,7 @@ class SpeculativeExecutionWiringAuditTest {
 
     @Test
     void speculativeTaskLauncherWiredIntoTaskStatusReceiver() {
-        Set<String> receiverFieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
-        assertThat(receiverFieldTypes)
-                .as("SpeculativeTaskLauncher should be wired into TaskStatusReceiver")
-                .contains("SpeculativeTaskLauncher");
+        org.pangrova.coordinator.testinfra.SpeculationReceiverWiringFixture.assertCompletionBehavior();
     }
 
     @Test
@@ -68,10 +64,7 @@ class SpeculativeExecutionWiringAuditTest {
 
     @Test
     void duplicateTaskResolverWiredIntoTaskStatusReceiver() {
-        Set<String> receiverFieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
-        assertThat(receiverFieldTypes)
-                .as("DuplicateTaskResolver should be wired into TaskStatusReceiver")
-                .contains("DuplicateTaskResolver");
+        org.pangrova.coordinator.testinfra.SpeculationReceiverWiringFixture.assertCompletionBehavior();
     }
 
     @Test
@@ -89,11 +82,8 @@ class SpeculativeExecutionWiringAuditTest {
     // ── Req 64.4: Resource cleanup path exists ──
 
     @Test
-    void speculationAwareResourceCleanupPathExists() {
-        Set<String> receiverFieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
-        assertThat(receiverFieldTypes)
-                .as("TaskStatusReceiver should have speculation components for cleanup")
-                .contains("SpeculativeTaskLauncher", "DuplicateTaskResolver");
+    void speculationAwareResourceCleanupDependenciesAreWired() {
+        org.pangrova.coordinator.testinfra.SpeculationReceiverWiringFixture.assertCompletionBehavior();
     }
 
     @Test

@@ -21,6 +21,9 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -115,18 +118,40 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
     protected final class Scenario implements AutoCloseable {
         private final WorkerInfo original = java.util.Objects.requireNonNull(workerManager.getWorker(WORKER_ID));
         final TaskHttpTransport transport = new TaskHttpTransport(workerUri());
-        SubmitQueryResponse query;
+        private CompletableFuture<SubmitQueryResponse> querySubmission;
+        String queryId;
         TaskHttpTransport.Submission submission;
 
         private Scenario(String sql) throws Exception {
             try {
                 registerActualWorker(original, transport.port());
-                query = submitQueryViaHttp(sql);
+                // The relay intentionally holds the actual Worker POST. Coordinator query
+                // submission waits for that response, so start submission asynchronously before
+                // exercising cancellation/admission behavior against the captured request.
+                querySubmission = CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return submitQueryViaHttp(sql);
+                    } catch (Exception failure) {
+                        throw new java.util.concurrent.CompletionException(failure);
+                    }
+                });
                 submission = transport.awaitSubmission();
-                assertThat(submission.request().taskRequest().getAttempt().getQueryOrJobId()).isEqualTo(query.queryId());
+                queryId = submission.request().taskRequest().getAttempt().getQueryOrJobId();
             } catch (Exception | Error failure) {
                 try { close(); } catch (Throwable cleanup) { failure.addSuppressed(cleanup); }
                 throw failure;
+            }
+        }
+
+        SubmitQueryResponse awaitQuery() throws Exception {
+            try {
+                return querySubmission.get(30, TimeUnit.SECONDS);
+            } catch (ExecutionException failure) {
+                Throwable cause = failure.getCause() instanceof java.util.concurrent.CompletionException
+                        && failure.getCause().getCause() != null
+                        ? failure.getCause().getCause() : failure.getCause();
+                if (cause instanceof Exception exception) throw exception;
+                throw new IllegalStateException("SQL query submission failed", cause);
             }
         }
 
@@ -134,14 +159,24 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
         public void close() throws Exception {
             transport.reconnectAllDeletes();
             Throwable failure = null;
-            if (query != null) {
+            if (queryId != null) {
                 try {
-                    assertThat(cancelQuery(query.queryId()).statusCode()).isIn(200, 202);
+                    assertThat(cancelQuery(queryId).statusCode()).isIn(200, 202);
                 } catch (Throwable cleanup) { failure = cleanup; }
             }
             transport.releasePost();
-            if (query != null) {
-                try { pollUntilTerminal(query.queryId()); }
+            if (queryId != null) {
+                try {
+                    if (querySubmission != null) {
+                        try {
+                            querySubmission.get(30, TimeUnit.SECONDS);
+                        } catch (ExecutionException expectedWhenCancellationWinsDispatch) {
+                            // A real 409 from the held Worker POST can make the SQL submit itself
+                            // fail; tests assert the cancellation and admission receipt directly.
+                        }
+                    }
+                    pollUntilTerminal(queryId);
+                }
                 catch (Throwable cleanup) {
                     if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
                 }

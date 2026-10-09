@@ -8,9 +8,13 @@
 #include <memory>
 #include <thread>
 #include <vector>
+#include <future>
+#include <folly/ScopeGuard.h>
+#include <folly/executors/CPUThreadPoolExecutor.h>
 
 #include "cache/SemanticResultCache.h"
 #include "executor/driver/TaskExecutor.h"
+#include "velox/runtime/NativeEngineLifecycle.h"
 #include "velox/vector/ComplexVector.h"
 #include "velox/vector/DecodedVector.h"
 
@@ -70,6 +74,65 @@ TEST(TaskExecutorStartTest, EmptyPlanTransitionsToFailed) {
   EXPECT_EQ(exec.state(), ExecutorState::FAILED);
   EXPECT_FALSE(exec.errorMessage().empty());
 }
+
+class ResultStartupGateTest : public ::testing::TestWithParam<bool> {};
+
+TEST_P(ResultStartupGateTest, WaitsForPreparationWithoutBlockingActualDeadline) {
+  auto config = makeConfig({});
+  config.is_result_task = true;
+  if (GetParam()) {
+    config.deadline_epoch_ms = std::chrono::duration_cast<milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count() + 2500;
+  }
+  TaskExecutor task(config);
+  std::future<void> start;
+  auto pool = std::dynamic_pointer_cast<folly::CPUThreadPoolExecutor>(
+      jni::NativeEngineLifecycle::instance().executor());
+  ASSERT_NE(pool, nullptr);
+  const auto count = pool->numThreads();
+  ASSERT_GT(count, 0);
+  std::promise<void> unblock;
+  auto blocked = unblock.get_future().share();
+  std::promise<void> allEntered;
+  auto entered = allEntered.get_future();
+  std::atomic<size_t> remaining{count};
+  auto releaseWorkers = folly::makeGuard([&] { unblock.set_value(); });
+  for (size_t worker = 0; worker < count; ++worker) {
+    pool->add([&, blocked] {
+      if (remaining.fetch_sub(1) == 1) allEntered.set_value();
+      blocked.wait();
+    });
+  }
+  ASSERT_EQ(entered.wait_for(milliseconds(2000)), std::future_status::ready);
+  start = std::async(std::launch::async, [&] { task.start(); });
+  const auto deadline = std::chrono::steady_clock::now() + milliseconds(2000);
+  while (task.state() == ExecutorState::PENDING && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::yield();
+  }
+  ASSERT_EQ(task.state(), ExecutorState::RUNNING);
+  // All real preparation threads are occupied. Submission alone is not readiness.
+  EXPECT_EQ(start.wait_for(milliseconds(100)), std::future_status::timeout);
+  if (GetParam()) {
+    ASSERT_TRUE(waitForTerminal(task, milliseconds(5000)));
+    EXPECT_EQ(task.state(), ExecutorState::FAILED);
+    EXPECT_NE(task.errorMessage().find("Task deadline exceeded"), std::string::npos);
+    ASSERT_EQ(start.wait_for(milliseconds(2000)), std::future_status::ready);
+    EXPECT_THROW(start.get(), std::runtime_error);
+  }
+  unblock.set_value();
+  releaseWorkers.dismiss();
+  if (!GetParam()) {
+    ASSERT_EQ(start.wait_for(milliseconds(2000)), std::future_status::ready);
+    EXPECT_NO_THROW(start.get());
+  }
+  ASSERT_TRUE(waitForTerminal(task, milliseconds(2000)));
+  EXPECT_EQ(task.state(), ExecutorState::FAILED);
+  EXPECT_FALSE(task.errorMessage().empty());
+  task.release();
+  EXPECT_TRUE(task.isExecutionReleased());
+}
+
+INSTANTIATE_TEST_SUITE_P(QueuedPreparation, ResultStartupGateTest, ::testing::Values(false, true));
 
 TEST(TaskExecutorStartTest, DeadlineExpiresWhileTaskIsPending) {
   auto config = makeConfig({});

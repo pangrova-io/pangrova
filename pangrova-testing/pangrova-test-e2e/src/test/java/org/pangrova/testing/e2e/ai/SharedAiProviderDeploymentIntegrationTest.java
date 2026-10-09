@@ -52,6 +52,8 @@ class SharedAiProviderDeploymentIntegrationTest extends ContainerTestBase {
                 assertThat(deployed.get("models." + binding.getKey() + ".provider-model"))
                         .isEqualTo(binding.getValue());
                 assertThat(deployed.get("models." + binding.getKey() + ".version")).isEqualTo(digest);
+                assertThat(deployed.get("models." + binding.getKey() + ".max-input-tokens"))
+                        .isEqualTo(Integer.toString(AiProviderDeployment.MAX_INPUT_TOKENS));
             }
             assertThat(provider.prepare()).isSameAs(config);
             await("two actual completed non-streaming model pulls")

@@ -51,7 +51,7 @@ class TaskStatusReportEnrichmentTest {
              var tasks = new ActualTaskManagerFixture(runtime, "enrichment-rows")) {
             var request = ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(5, 2));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(tasks.consume(info).rows()).isEqualTo(10);
             // Output rows are the terminal relation cardinality, not source/each-operator sums.
             tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
@@ -96,14 +96,17 @@ class TaskStatusReportEnrichmentTest {
     }
 
     @Test
-    void sequenceIsMonotonicallyIncreasingAcrossReports() {
+    void sequenceIsMonotonicallyIncreasingAcrossReports() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "enrichment-sequence")) {
-            var info = tasks.submit(runtime.valuesRequest(false));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            var info = tasks.submit(runtime.valuesRequest(true));
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.manager().statusCollector.reportStatus(info, "RUNNING", null);
+            assertThat(tasks.consume(info).values()).containsExactly(42L);
+            int published = taskReports(tasks, info).size();
             tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
             var reports = taskReports(tasks, info);
-            assertThat(reports).hasSizeGreaterThanOrEqualTo(3);
+            assertThat(reports).hasSize(published).hasSizeGreaterThanOrEqualTo(3);
             for (int i = 1; i < reports.size(); i++) {
                 assertThat(reports.get(i).reportSequence()).isGreaterThan(reports.get(i - 1).reportSequence());
             }

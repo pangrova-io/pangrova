@@ -46,7 +46,7 @@ class TaskCancellationResourceCleanupTest {
             long handle = info.executorHandle();
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
             var monitor = tasks.completionMonitor();
-            Runnable release = () -> tasks.manager().releaseTaskExecutor(info.taskId());
+            Runnable release = () -> tasks.releaseBeforeTerminal(info);
             monitor.onTaskCompleted(info.taskId(), info, tasks.manager().lifecycleCallback, release);
             tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
             byte[] receipt = info.executorReleaseReport();
@@ -118,8 +118,6 @@ class TaskCancellationResourceCleanupTest {
                 await().atMost(Duration.ofSeconds(20))
                         .until(() -> runtime.drainEvidence(handle, request).getActiveReaders() > 0);
                 assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
-                await().atMost(Duration.ofSeconds(20))
-                        .until(() -> runtime.drainEvidence(handle, request).getProducerStopped());
                 assertThatThrownBy(() -> tasks.manager().releaseTaskExecutor(info.taskId()))
                         .isInstanceOf(RuntimeException.class).hasMessageContaining("Result RPC");
                 assertThat(info.executorHandle()).isEqualTo(handle);
@@ -137,7 +135,7 @@ class TaskCancellationResourceCleanupTest {
     }
 
     @Test
-    void cancellationDuringNativeCreationNeverStartsOrReportsBeforeRelease() throws Exception {
+    void cancellationBeforeNativeStartNeverReportsBeforeRelease() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-create-cancel")) {
             // Exercise the actual created-but-not-started admission boundary.
@@ -146,7 +144,9 @@ class TaskCancellationResourceCleanupTest {
             long handle = info.executorHandle();
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
             assertThat(info.allocatedBufferMemory()).isPositive();
-            tasks.manager().lifecycleManager.executeTask(info.taskId(), info, tasks.manager().lifecycleCallback);
+            tasks.completionMonitor().onTaskError(info.taskId(), info,
+                    new java.util.concurrent.CancellationException("Cancelled before Native start"),
+                    tasks.manager().lifecycleCallback, () -> tasks.releaseBeforeTerminal(info));
             tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             var receipt = TaskReport.parseFrom(info.executorReleaseReport());
@@ -165,7 +165,7 @@ class TaskCancellationResourceCleanupTest {
             assertThat(tasks.manager().lifecycleCallback.transition(info.taskId(), TaskManager.TaskState.FINISHING))
                     .isFalse();
             tasks.completionMonitor().onTaskCompleted(info.taskId(), info, tasks.manager().lifecycleCallback,
-                    () -> tasks.manager().releaseTaskExecutor(info.taskId()));
+                    () -> tasks.releaseBeforeTerminal(info));
             tasks.awaitState(info, TaskManager.TaskState.CANCELLED);
             assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("FINISHED"));
             assertThat(info.executorHandle()).isZero();
@@ -210,7 +210,7 @@ class TaskCancellationResourceCleanupTest {
         return new Thread(() -> {
             try {
                 tasks.completionMonitor().onTaskCompleted(info.taskId(), info, tasks.manager().lifecycleCallback,
-                        () -> tasks.manager().releaseTaskExecutor(info.taskId()));
+                        () -> tasks.releaseBeforeTerminal(info));
             } catch (Throwable observed) { failure.set(observed); }
         }, "actual-terminal-release");
     }

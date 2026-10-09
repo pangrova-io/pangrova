@@ -74,23 +74,22 @@ class HaLeaseBackendFallbackTest {
     }
 
     @Test
-    @DisplayName("Single-node deployment with loopback host uses InMemory without failing")
-    void singleNodeLoopbackHostUsesInMemorySuccessfully() {
-        // Default config with loopback host, no metadata → single-node, should succeed
+    @DisplayName("Loopback lease admission does not permit unauthenticated Worker control")
+    void singleNodeLoopbackHostPassesLeaseAdmissionButRequiresControlAuthentication() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-3", 0);
 
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
-        bootstrap.start();
-        try {
-            assertThat(bootstrap.isStarted()).isTrue();
-        } finally {
-            bootstrap.shutdown();
-        }
+        assertThatThrownBy(bootstrap::start)
+                .isInstanceOf(org.pangrova.operations.bootstrap.BootstrapFailedException.class)
+                .hasRootCauseMessage("Worker control requires configured internal-service authentication");
+        assertThat(bootstrap.isStarted()).isFalse();
+        assertThat(bootstrap.getHttpPort()).isEqualTo(-1);
+        bootstrap.shutdown();
     }
 
     @Test
-    @DisplayName("Single-node localhost deployment with empty shuffle endpoints uses InMemory safely")
-    void singleNodeEmptyShuffleEndpointsUsesInMemory() {
+    @DisplayName("Empty shuffle endpoints do not permit unauthenticated Worker control")
+    void singleNodeEmptyShuffleEndpointsPassLeaseAdmissionButRequireControlAuthentication() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "coord-4", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
@@ -104,11 +103,11 @@ class HaLeaseBackendFallbackTest {
                 null, null, null);
 
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
-        bootstrap.start();
-        try {
-            assertThat(bootstrap.isStarted()).isTrue();
-        } finally {
-            bootstrap.shutdown();
-        }
+        assertThatThrownBy(bootstrap::start)
+                .isInstanceOf(org.pangrova.operations.bootstrap.BootstrapFailedException.class)
+                .hasRootCauseMessage("Worker control requires configured internal-service authentication");
+        assertThat(bootstrap.isStarted()).isFalse();
+        assertThat(bootstrap.getHttpPort()).isEqualTo(-1);
+        bootstrap.shutdown();
     }
 }

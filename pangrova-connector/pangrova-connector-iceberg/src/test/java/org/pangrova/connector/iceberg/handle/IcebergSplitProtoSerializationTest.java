@@ -44,7 +44,7 @@ class IcebergSplitProtoSerializationTest {
     }
 
     @Test
-    void icebergDetailPreservesReadModesAndSnapshotBounds() throws Exception {
+    void icebergDetailPreservesIncrementalModeAndSnapshotBounds() throws Exception {
         IcebergSplit split = IcebergSplit.builder("/data/file.parquet", 0, 512, "PARQUET")
                 .tableName("catalog.schema.table")
                 .snapshotId(100).dataSequenceNumber(5).specId(1)
@@ -61,10 +61,23 @@ class IcebergSplitProtoSerializationTest {
         assertThat(iceberg.getDataSequenceNumber()).isEqualTo(5);
         assertThat(iceberg.getSpecId()).isEqualTo(1);
 
-        assertThat(detail(IcebergSplit.builder("/data/file.parquet", 0, 1, "PARQUET")
-                .tableName("catalog.schema.table")
-                .readMode("TIME_TRAVEL").build()).getIceberg().getReadMode())
-                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_TIME_TRAVEL);
+    }
+
+    @Test
+    void explicitAndCurrentSnapshotSelectionHaveIdenticalCanonicalEvidence() throws Exception {
+        var full = IcebergSplit.builder("/data/file.parquet", 17, 512, "PARQUET")
+                .tableName("catalog.schema.table").snapshotId(100).dataSequenceNumber(5)
+                .specId(1).readMode("FULL").build();
+        var historical = IcebergSplit.builder("/data/file.parquet", 17, 512, "PARQUET")
+                .tableName("catalog.schema.table").snapshotId(100).dataSequenceNumber(5)
+                .specId(1).readMode("TIME_TRAVEL").build();
+        assertThat(detail(historical).getIceberg().getReadMode())
+                .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT);
+        assertThat(historical.toSplitInfoProto()).isEqualTo(full.toSplitInfoProto());
+        var differentSnapshot = IcebergSplit.builder("/data/file.parquet", 17, 512, "PARQUET")
+                .tableName("catalog.schema.table").snapshotId(101).dataSequenceNumber(5)
+                .specId(1).readMode("TIME_TRAVEL").build();
+        assertThat(differentSnapshot.toSplitInfoProto()).isNotEqualTo(full.toSplitInfoProto());
     }
 
     @Test

@@ -7,10 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -41,11 +39,12 @@ class QueryStatusResourceTest {
     private static final HttpClient HTTP_CLIENT = HttpClient.newHttpClient();
     private static final ObjectMapper MAPPER = JsonMapperFactory.create();
     private static QueryManager queryManager;
+    private static org.pangrova.coordinator.testinfra.QueryControlPlaneFixture queryFixture;
 
     @BeforeAll
     static void startServer() throws Exception {
-        queryManager = new QueryManager(
-                QueryManagerContext.minimal(null, new NoOpTracingProvider()));
+        queryFixture = new org.pangrova.coordinator.testinfra.QueryControlPlaneFixture();
+        queryManager = queryFixture.queries();
 
         ResourceConfig config = new ResourceConfig();
         config.register(new QueryStatusResource(queryManager));
@@ -62,9 +61,8 @@ class QueryStatusResourceTest {
 
     @AfterAll
     static void stopServer() throws Exception {
-        if (server != null) {
-            server.stop();
-        }
+        try { if (server != null) server.stop(); }
+        finally { if (queryFixture != null) queryFixture.close(); }
     }
 
     @Test

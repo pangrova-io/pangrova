@@ -38,8 +38,10 @@ class StagePartitionAcknowledgementTest {
         transport.response.complete(result(TASK));
         assertThat(observed.join()).isEqualTo(TaskStateMachine.State.FINISHED);
         assertThat(tracker.getWorkerForTask(TASK)).isEqualTo(worker.workerId());
-        tracker.unregisterSettledTask(QUERY, TASK);
-        assertThatThrownBy(() -> tracker.getTaskState(QUERY, TASK)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> tracker.unregisterSettledTask(QUERY, TASK))
+                .hasMessageContaining("without actual drain evidence");
+        assertThat(tracker.getTaskState(QUERY, TASK)).isEqualTo(TaskStateMachine.State.FINISHED);
+        assertThat(tracker.getTaskRequest(TASK)).isEqualTo(issued.request());
     }
 
     @Test
@@ -49,9 +51,10 @@ class StagePartitionAcknowledgementTest {
         assertThatThrownBy(() -> issued.acknowledgement().get(2, TimeUnit.SECONDS))
                 .hasCauseInstanceOf(TimeoutException.class);
         assertThat(transport.response).isCompletedExceptionally();
-        tracker.unregisterSettledTask(QUERY, TASK);
-        assertThat(tracker.getTaskAttempt(TASK)).isNull();
-        assertThat(tracker.getTaskRequest(TASK)).isNull();
+        assertThatThrownBy(() -> tracker.unregisterSettledTask(QUERY, TASK))
+                .hasMessageContaining("without actual drain evidence");
+        assertThat(tracker.getTaskAttempt(TASK)).isNotNull();
+        assertThat(tracker.getTaskRequest(TASK)).isNotNull();
     }
 
     @Test

@@ -31,7 +31,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * the configured threshold is exceeded.</p>
  *
  * <p>Authenticated internal control is excluded from the public IP budget, not
- * the body limit. Health ({@code /v1/health}) is exempt from both checks.</p>
+ * the body limit. Authenticated Worker registration uses the canonical inventory
+ * envelope bound; other routes retain the public body bound. Health
+ * ({@code /v1/health}) is exempt from both checks.</p>
  *
  * @ThreadSafe
  */
@@ -80,12 +82,23 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
             return;
         }
 
-        if (isContentLengthExceeded(requestContext)) {
+        int bodyLimit = requestBodyLimit(requestContext);
+        if (isContentLengthExceeded(requestContext, bodyLimit)) {
             rejectPayloadTooLarge(requestContext, clientIp);
             return;
         }
 
-        wrapInputStreamWithSizeLimit(requestContext);
+        wrapInputStreamWithSizeLimit(requestContext, bodyLimit);
+    }
+
+    private int requestBodyLimit(ContainerRequestContext context) {
+        String path = context.getUriInfo().getPath();
+        if ("POST".equals(context.getMethod())
+                && ("v1/workers/register".equals(path) || "/v1/workers/register".equals(path))
+                && AuthenticationFilter.hasInternalServiceIdentity(context)) {
+            return org.pangrova.protocol.rest.worker.WorkerRegistrationRequest.MAX_BODY_BYTES;
+        }
+        return maxRequestSizeBytes;
     }
 
     private boolean isRateLimitExceeded(String clientIp) {
@@ -94,16 +107,16 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         return currentCount > maxRequestsPerMinute;
     }
 
-    private boolean isContentLengthExceeded(ContainerRequestContext requestContext) {
+    private static boolean isContentLengthExceeded(ContainerRequestContext requestContext, int limit) {
         int contentLength = requestContext.getLength();
-        return contentLength > maxRequestSizeBytes;
+        return contentLength > limit;
     }
 
-    private void wrapInputStreamWithSizeLimit(ContainerRequestContext requestContext) {
+    private static void wrapInputStreamWithSizeLimit(ContainerRequestContext requestContext, int limit) {
         InputStream original = requestContext.getEntityStream();
         if (original != null) {
             requestContext.setEntityStream(
-                    new SizeLimitedInputStream(original, maxRequestSizeBytes));
+                    new SizeLimitedInputStream(original, limit));
         }
     }
 

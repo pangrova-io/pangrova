@@ -32,8 +32,12 @@ final class GeneratedBuildTestWorkers {
         CapabilityRef ai = BuiltInCapabilityCatalog.aiEmbeddingPlanRef().toBuilder()
                 .setImplementationBuildId(BuiltInCapabilityCatalog.NATIVE_BUILD_ID)
                 .build();
-        CapabilityInventory.Builder inventory = org.pangrova.coordinator.worker
-                .TestWorkerInfoBuilder.canonicalInventory().toBuilder()
+        var canonical = org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory();
+        CapabilityInventory.Builder inventory = canonical.toBuilder().clearCapabilities()
+                .addAllCapabilities(canonical.getCapabilitiesList().stream()
+                        .filter(capability -> !capability.getRef().getCapabilityId().equals(
+                                BuiltInCapabilityCatalog.generatedValuesArtifactBuildPlanRef().getCapabilityId()))
+                        .toList())
                 .addCapabilities(CapabilityDescriptor.newBuilder()
                         .setRef(ai)
                         .setKind(CapabilityKind.CAPABILITY_KIND_MODEL_INVOCATION)

@@ -6,34 +6,52 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdlib>
 #include <filesystem>
-
+#include <fstream>
+#include <stdexcept>
 #include <vector>
+
+#include <folly/String.h>
 
 #include "jni/RuntimeInitializer.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
+#include "velox/connector/PangrovaVeloxConnector.h"
+#include "velox/common/caching/AsyncDataCache.h"
+#include "velox/common/caching/FileIds.h"
+#include "velox/common/memory/Memory.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::jni::test {
 
 namespace {
 
-void enableTestArtifactCache(NativeRuntimeConfig& config) {
-  config.cache_enabled = true;
-  config.artifact_cache_path =
-      (std::filesystem::temp_directory_path() /
-       "pangrova-runtime-artifact-cache-test").string();
-  config.artifact_cache_bytes = 64 * 1024 * 1024;
-  config.artifact_index_memory_bytes = 16 * 1024 * 1024;
-}
-
-}  // namespace
-namespace {
-
 class RuntimeInitializerTest : public ::testing::Test {
  protected:
+  void enableTestArtifactCache(NativeRuntimeConfig& config) {
+    auto path = (std::filesystem::temp_directory_path() /
+                 "pangrova-runtime-artifact-cache-XXXXXX").string();
+    if (!::mkdtemp(path.data())) {
+      throw std::runtime_error("Cannot create owned runtime artifact cache directory");
+    }
+    artifact_cache_path_ = std::move(path);
+    config.cache_enabled = true;
+    config.artifact_cache_path = artifact_cache_path_;
+    config.artifact_cache_bytes = 64 * 1024 * 1024;
+    config.artifact_index_memory_bytes = 16 * 1024 * 1024;
+  }
+
   void TearDown() override {
     shutdownVeloxRuntime();
+    if (!artifact_cache_path_.empty()) {
+      std::error_code error;
+      std::filesystem::remove_all(artifact_cache_path_, error);
+      EXPECT_FALSE(error) << error.message();
+    }
   }
+
+ private:
+  std::string artifact_cache_path_;
 };
 
 // --- Config parsing ---
@@ -132,6 +150,77 @@ TEST_F(RuntimeInitializerTest, CacheEnabledCreatesAsyncDataCache) {
   initializeVeloxRuntime(config);
 
   EXPECT_NE(globalAsyncDataCache(), nullptr);
+}
+
+TEST_F(RuntimeInitializerTest, CachedPhysicalFilesRetainDistinctLiveIdentifiersAndValues) {
+  using namespace facebook::velox;
+  NativeRuntimeConfig config;
+  enableTestArtifactCache(config);
+  config.max_memory_bytes = 1024L * 1024 * 1024;
+  initializeVeloxRuntime(config);
+  auto root = facebook::velox::memory::MemoryManager::getInstance()->addRootPool("cached-file-test");
+  auto pool = root->addLeafChild("scan");
+  const auto type = ROW({"value"}, {BIGINT()});
+  const auto first = config.artifact_cache_path + "/first.parquet";
+  const auto second = config.artifact_cache_path + "/second.parquet";
+  // Apache Parquet 1.17.1 ExampleParquetWriter; required int64 value,
+  // UNCOMPRESSED, rows {11,13,17} and {101,103,107}. These are actual SDK
+  // files, not a second format encoder or a simulated reader.
+  auto write = [](const std::string& path, const std::string& hex) {
+    const auto bytes = folly::unhexlify<std::string>(hex);
+    std::ofstream output(path, std::ios::binary);
+    output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    output.close();
+    ASSERT_TRUE(output);
+  };
+  write(first,
+      "5041523115001530153015cbceb6f70d1c150615001508150800000b000000000000000d000000000000001100000000000000"
+      "1911021918080b000000000000001918081100000000000000150219160000191c1608155e160000001502192c480b63616368"
+      "65645f66696c6515020015042500180576616c7565001606191c191c26001c15041925080019180576616c756515001606165e"
+      "165e26083c1808110000000000000018080b0000000000000016002808110000000000000018080b0000000000000000191c"
+      "150015001502003c000016a40115141666153e00165e16062608165e140000191c18117772697465722e6d6f64656c2e6e616d"
+      "6518076578616d706c6500184a706172717565742d6d722076657273696f6e20312e31372e3120286275696c64203738613864"
+      "333233306562343736396462393364653566326632653138333633633034636165383129191c1c000000ff00000050415231");
+  write(second,
+      "5041523115001530153015ef8df0d2041c15061500150815080000650000000000000067000000000000006b00000000000000"
+      "19110219180865000000000000001918086b00000000000000150219160000191c1608155e160000001502192c480b63616368"
+      "65645f66696c6515020015042500180576616c7565001606191c191c26001c15041925080019180576616c756515001606165e"
+      "165e26083c18086b0000000000000018086500000000000000160028086b000000000000001808650000000000000000191c"
+      "150015001502003c000016a40115141666153e00165e16062608165e140000191c18117772697465722e6d6f64656c2e6e616d"
+      "6518076578616d706c6500184a706172717565742d6d722076657273696f6e20312e31372e3120286275696c64203738613864"
+      "333233306562343736396462393364653566326632653138333633633034636165383129191c1c000000ff00000050415231");
+  auto scan = [&](const std::string& path, const std::vector<int64_t>& expected) {
+    pangrova::velox::PangrovaVeloxDataSource source(pool.get(), type, type);
+    pangrova::split::SplitConfig split;
+    split.file_path = path;
+    split.file_format = pangrova::split::FileFormatType::PARQUET;
+    source.addSplit(std::make_shared<pangrova::velox::PangrovaConnectorSplit>("iceberg", split));
+    ASSERT_NE(fileIds().id(path), StringIdMap::kNoId);
+    std::vector<int64_t> actual;
+    ContinueFuture future;
+    while (true) {
+      auto batch = source.next(16, future);
+      if (!batch.has_value()) {
+        ASSERT_TRUE(future.valid());
+        std::move(future).get();
+        continue;
+      }
+      if (!*batch) break;
+      DecodedVector values(*(*batch)->childAt(0));
+      for (vector_size_t row = 0; row < (*batch)->size(); ++row) {
+        ASSERT_FALSE(values.isNullAt(row));
+        actual.push_back(values.valueAt<int64_t>(row));
+      }
+    }
+    EXPECT_EQ(actual, expected);
+  };
+  scan(first, {11, 13, 17});
+  scan(second, {101, 103, 107});
+  EXPECT_NE(fileIds().id(first), fileIds().id(second));
+  const auto hits = globalAsyncDataCache()->refreshStats().numHit;
+  scan(first, {11, 13, 17});
+  scan(second, {101, 103, 107});
+  EXPECT_GT(globalAsyncDataCache()->refreshStats().numHit, hits);
 }
 
 // --- Shutdown ---

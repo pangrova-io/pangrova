@@ -2,6 +2,7 @@ package org.pangrova.worker.transport;
 
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.spi.transport.DataProducer;
+import org.pangrova.spi.transport.DataProducerException;
 import org.pangrova.spi.transport.DataTicket;
 import org.pangrova.spi.transport.DataStream;
 import org.apache.arrow.flight.Action;
@@ -135,15 +136,31 @@ public class BatchStreamProducer implements FlightProducer {
             listener.completed();
         } catch (Exception e) {
             LOG.error("event=flight_get_stream_failed error={}", e.getMessage(), e);
-            listener.error(e instanceof org.apache.arrow.flight.FlightRuntimeException ? e
-                    : CallStatus.INTERNAL.withDescription("Data stream failed: " + e.getMessage())
-                            .withCause(e).toRuntimeException());
+            listener.error(wireFailure(e));
         } finally {
             if (outputRoot != null) {
                 outputRoot.clear();
                 outputRoot.close();
             }
         }
+    }
+
+    private static RuntimeException wireFailure(Exception failure) {
+        if (failure instanceof org.apache.arrow.flight.FlightRuntimeException wire) return wire;
+        CallStatus status = CallStatus.INTERNAL;
+        if (failure instanceof DataProducerException producerFailure) {
+            status = switch (producerFailure.getStatus()) {
+                case NOT_FOUND -> CallStatus.NOT_FOUND;
+                case INVALID_ARGUMENT -> CallStatus.INVALID_ARGUMENT;
+                case RESOURCE_EXHAUSTED -> CallStatus.RESOURCE_EXHAUSTED;
+                case UNAVAILABLE -> CallStatus.UNAVAILABLE;
+                case CANCELLED -> CallStatus.CANCELLED;
+                // An exception must never report successful EOF, even if its producer violates the contract.
+                case OK, INTERNAL -> CallStatus.INTERNAL;
+            };
+        }
+        return status.withDescription("Data stream failed: " + failure.getMessage())
+                .withCause(failure).toRuntimeException();
     }
 
     private static DataTicket deserializeTicket(byte[] ticketBytes) {

@@ -39,7 +39,7 @@ class QueryTerminalNativeOwnershipIntegrationTest {
     @Test
     void failedCleanupDoesNotLoseTerminalEffects() throws Exception {
         try (var fixture = new QueryTerminalNativeFixture(directory)) {
-            fixture.submitNativeFailure("SELECT 10 / n FROM (VALUES (0), (1)) AS t(n)");
+            fixture.submitNativeFailure("SELECT 10 / n FROM (SELECT 0 AS n UNION ALL SELECT 1 AS n) t");
             if (fixture.endpoint != null) {
                 try { fixture.consume(); }
                 catch (IllegalStateException failure) {
@@ -62,25 +62,50 @@ class QueryTerminalNativeOwnershipIntegrationTest {
     @Test
     void cancelledCleanupDoesNotLoseTerminalEffects() throws Exception {
         try (var fixture = new QueryTerminalNativeFixture(directory)) {
-            String rows = IntStream.range(0, 4096).mapToObj(value -> "(" + value + ")")
-                    .collect(java.util.stream.Collectors.joining(","));
-            fixture.submit("SELECT '" + "x".repeat(8192) + "' FROM (VALUES " + rows + ") AS t(n)");
+            fixture.submit("SELECT '" + "x".repeat(8192) + "' " + cancellationSource());
             assertThat(fixture.manager.cancelQuery(fixture.queryId)).isTrue();
             fixture.awaitLogicalTerminal(QueryStateMachine.State.CANCELLED);
+            var cancellation = fixture.manager.getStateMachine(fixture.queryId).journalEvent(
+                    QueryStateMachine.State.CANCELLED, () -> {
+                        throw new IllegalStateException("Actual cancellation did not retain its journal identity");
+                    });
             fixture.releaseActualWorkerOwners();
             assertPending(fixture, "CANCELLED");
             fixture.exitFrontend();
             fixture.retryPhysicalCleanup();
             assertThat(fixture.manager.getActiveQueryCount()).isZero();
             assertThat(fixture.throttle.availableGlobalPermits()).isEqualTo(1);
-            // The real state listener also appends its asynchronous CANCELLED event.
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
-                    assertThat(fixture.store.terminalWrites(fixture.queryId, "CANCELLED")).isEqualTo(2));
-            int writes = fixture.store.terminalWrites(fixture.queryId, "CANCELLED");
+            // Transition recording and terminal persistence share one immutable
+            // event ID. Actual purge drains both writes before deleting the row.
+            assertThat(fixture.store.terminalWrites(fixture.queryId, "CANCELLED")).isEqualTo(1);
+            assertThat(fixture.store.committedEvents(fixture.queryId).stream()
+                    .filter(event -> event.state().equals("CANCELLED")).toList()).containsExactly(cancellation);
+            assertThat(fixture.store.queryRows(fixture.queryId)).isZero();
             fixture.retryPhysicalCleanup();
-            assertThat(fixture.store.terminalWrites(fixture.queryId, "CANCELLED")).isEqualTo(writes);
+            assertThat(fixture.store.terminalWrites(fixture.queryId, "CANCELLED")).isEqualTo(1);
             assertThat(fixture.manager.awaitAllQueries(1000)).isTrue();
         }
+    }
+
+    @Test
+    void cancellationSourceProducesAll4096RowsInNativeExecution() throws Exception {
+        try (var fixture = new QueryTerminalNativeFixture(directory)) {
+            fixture.submit("SELECT COUNT(*) AS row_count " + cancellationSource());
+            fixture.consume();
+            fixture.awaitLogicalTerminal(QueryStateMachine.State.FINISHED);
+            assertThat(fixture.rows()).isEqualTo(List.of(List.of(4096L)));
+            fixture.releaseActualWorkerOwners();
+            fixture.exitFrontend();
+            fixture.retryPhysicalCleanup();
+            assertReleasedExactlyOnce(fixture, "FINISHED", AuditEventType.QUERY_COMPLETED);
+        }
+    }
+
+    private static String cancellationSource() {
+        String values = IntStream.range(0, 16).mapToObj(value -> "SELECT " + value + " AS n")
+                .collect(java.util.stream.Collectors.joining(" UNION ALL "));
+        // Preserve the 4096-row, 32 MiB output without a 4096-deep SQL tree.
+        return "FROM (" + values + ") a CROSS JOIN (" + values + ") b CROSS JOIN (" + values + ") c";
     }
 
     private static void assertPending(QueryTerminalNativeFixture fixture, String state) throws Exception {

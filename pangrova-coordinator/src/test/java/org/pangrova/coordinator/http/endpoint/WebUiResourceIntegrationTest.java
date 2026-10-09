@@ -7,12 +7,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.resource.MemoryPressure;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -45,12 +43,13 @@ class WebUiResourceIntegrationTest {
     private static final ObjectMapper MAPPER = JsonMapperFactory.create();
     private static QueryManager queryManager;
     private static WorkerManager workerManager;
+    private static org.pangrova.coordinator.testinfra.QueryControlPlaneFixture queryFixture;
 
     @BeforeAll
     static void startServer() throws Exception {
-        queryManager = new QueryManager(
-                QueryManagerContext.minimal(null, new NoOpTracingProvider()));
-        workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
+        queryFixture = new org.pangrova.coordinator.testinfra.QueryControlPlaneFixture();
+        queryManager = queryFixture.queries();
+        workerManager = queryFixture.workers();
 
         ResourceConfig config = new ResourceConfig();
         config.register(new WebUiResource(queryManager, workerManager, null));
@@ -68,9 +67,8 @@ class WebUiResourceIntegrationTest {
 
     @AfterAll
     static void stopServer() throws Exception {
-        if (server != null) {
-            server.stop();
-        }
+        try { if (server != null) server.stop(); }
+        finally { if (queryFixture != null) queryFixture.close(); }
     }
 
     @Test

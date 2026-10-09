@@ -53,6 +53,15 @@ larger global budget.
 Admission and pressure handling still require bounded, fair scheduling across
 Coordinators; a hard cap alone is not a memory guarantee.
 
+Worker registration carries the unchanged canonical v2 capability inventory in
+its JSON control envelope. Only an authenticated internal service POST to
+`/v1/workers/register` receives the protocol's inclusive 4 MiB encoded-inventory
+bound plus 64 KiB of envelope metadata. Both declared length and streamed bytes
+are limited. Public SQL and other control routes retain their existing request
+limits; a route name or caller-supplied bearer header alone cannot grant the
+registration allowance. This aligns the transport with the existing inventory
+contract rather than removing the ingress bound or adding an AI-specific proto.
+
 The planner places a hash exchange on grouping columns **before** a grouped
 Aggregate, or a singleton exchange before a global Aggregate. An unbounded
 `ORDER BY` is gathered before its Native Sort; root Top-K retains task-local
@@ -326,6 +335,23 @@ current connector and Native implementations, not by a duplicate split
 or reader SPI sketch here. A connector capability is publishable only when its
 planner binding, Native conversion, reader, failure semantics and E2E test agree.
 
+With the actual Velox scan cache enabled, the SDK's
+`facebook::velox::dwio::common::CachedBufferedInput` must own a live
+`facebook::velox::StringIdLease` from the SDK `fileIds()` registry for the
+immutable physical file path. An empty file identifier is invalid, not an
+uncached execution mode.
+Cache entries retain that identity after the reader closes; different physical
+files must neither share entries nor lose their IDs while cached. The lease,
+cache and reader remain Native-owned and are released through runtime shutdown.
+Mutable objects overwritten under one path require a separate versioned identity
+contract before they can safely use this immutable-file cache.
+
+Canonical capability inventory distinguishes a `MATERIALIZER` from candidate
+retrieval. Materializers describe bounded artifact output, supported formats and
+their result contract, not a Top-K candidate limit. `RETRIEVAL_SOURCE`,
+`RETRIEVAL_MERGE` and `RERANK` still require candidate bounds and a typed
+relation contract; materializer readiness cannot waive those requirements.
+
 ## 8. Velox Integration
 
 `VeloxTaskRunner` owns the Native task execution lifecycle. The current
@@ -384,6 +410,15 @@ Worker admission and Native implementation must consume that same
 declaration. SPI presence or a design sketch is not evidence of executable
 support.
 
+The Coordinator may share a fully validated, exactly equal immutable inventory
+between registered Workers within its own WorkerManager. This is control metadata
+deduplication, not candidate transport, score fusion or execution. Equality covers
+the complete canonical inventory, including rollout identity; a matching manifest
+label alone is insufficient. Worker identities, endpoint bindings, authorization
+and metrics remain independent. Weak inventory references must not retain retired
+rollouts; registry recovery uses the same validation and sharing boundary. This
+does not establish a fleet-size SLO or normalize the durable registry schema.
+
 ## 15. Native Functions
 
 Current scalar/vector functions are registered through the implemented
@@ -405,6 +440,31 @@ remains the sole control contract.
 Velox expression evaluation is the current implementation. A separate LLVM
 JIT or speculative operator-fusion pipeline is not a current Pangrova
 capability and is not required to interpret the task protocol.
+
+Planner validation maps the SDK's `io.substrait.expression.Expression.NestedList`
+and `io.substrait.expression.Expression.NestedStruct` to the shared
+Substrait `Nested` capability advertised by Native. It recursively validates
+every element and field, including functions inside nested constructors;
+support for a container never grants support for its children. Other nested
+forms are not admitted by this mapping. The default scalar capability set
+includes the implemented `round` binding; its decimal return parameters and
+INTEGER position still require the exact declared signature.
+
+For binary primitive arithmetic, Calcite may retain operands of different numeric
+types even after validating a common result type. Planner lowering materializes
+the common numeric argument types as explicit Substrait casts. Native still binds
+an exact registered signature; it never guesses an overload or adds implicit
+coercion. Each operand's nullability is preserved. SQL integer `MOD` keeps the
+divisor's return type: compute in the common argument type and explicitly cast
+the result to the validated SQL type. Decimal precision/scale and datetime/interval
+operators are not routed through this primitive-number normalization.
+
+The Java transport adapter preserves a producer's typed failure status both
+before the first batch and after asynchronous cursor handoff. NOT_FOUND,
+INVALID_ARGUMENT, RESOURCE_EXHAUSTED, UNAVAILABLE and CANCELLED remain distinct
+wire failures; unknown exceptions and invalid OK exceptions become INTERNAL,
+never successful EOF. This adapter contract does not replace the Native
+Worker-to-Worker data path or prove distributed recovery.
 
 ## 18. Observability
 
@@ -456,6 +516,38 @@ legacy execution path. The current Velox and connector implementations are
 the production source of truth.
 
 ## 22. Build and Verification
+
+Generated embedding artifacts use the same canonical logical type contract as
+model output: FLOAT32 is declared as `VECTOR(dimension)`, with dimension in
+1..65535 and no legacy metric suffix. Build and overlay conversion share the
+strict canonical text parser; the typed schema, nullability and constraints
+remain validated at their respective contract boundaries. Artifact sink input
+names come from the canonical relation layout of the actual projected source,
+not the target storage column name. The physical row-position BIGINT and
+source-field identity checks remain mandatory.
+
+Native artifact object IDs are fixed-length content identities, not concatenated
+source paths. Hash a domain-separated, length-framed tuple of artifact ID,
+generation, scope/source ID, object role and content checksum. Preserve the full
+source identity, URI and checksum in their separate canonical metadata fields.
+Identical output retries retain the same ID, while a changed role or content has
+a distinct identity. This keeps normal source URIs out of bounded database key
+columns without truncating them or widening indexed keys.
+
+Iceberg split evidence describes physical reads, not SQL snapshot-selection
+syntax. After the Connector has resolved an exact snapshot and its schema,
+current and time-travel selection of that same snapshot both emit the canonical
+`SNAPSHOT` scan mode. Historical declaration validation remains on the pinned
+table handle; incremental scans retain their separate mode and snapshot bounds.
+This lets a query reuse the exact durable artifact split checksum without
+discarding range, schema, delete-file, source or snapshot evidence.
+
+Generated-value publication row counts represent unique physical source rows,
+not the sum of rows in the value segment and locator sidecar. The publication
+transaction requires those roles to agree for each source object and counts the
+source once. Overlay fill-key reservation uses this source-row count directly;
+it must not halve it or require even totals. NULL generated values still occupy
+their physical row and locator.
 
 The authoritative Native/JNI build order, mandatory Lance FFI dependency,
 Release packaging, full CTest, ASan and Java/E2E validation gates are in
@@ -526,12 +618,70 @@ retries use a separate bounded cadence, retain exponential backoff, and run
 outside the timer thread. Neither cadence changes Native drain requirements,
 tenant concurrency limits, result authority expiry or history retention.
 
+All canonical task admission entry points validate the same request before
+reservation, publication or Native creation. Invalid canonical HTTP input is
+400; a valid request with missing internal signing/runtime authority remains
+an internal failure, never a fabricated successful admission.
+Shutdown preserves a won FINISHING commit point and puts other active tasks
+through cancellation. Publish released terminal state only after actual
+transport and Native owners exit. Retain successful per-owner cleanup
+checkpoints when a later join fails; sealed Native operation admission must
+not be reopened or bypassed to retry already-completed control commands.
+For a direct-result task, start acknowledgement is a preparation boundary,
+not merely background-work submission. Its task-local preparation must exit
+before the endpoint is advertised; successful preparation binds the actual
+authority, canonical schema and allocator. Keep this wait outside the start
+gate and bounded by the admitted deadline so cancellation remains possible.
+The checkpoint does not claim successful execution, a first batch, EOF or
+drain. Failed/cancelled preparation retains its actual terminal evidence.
+Result decoding and wire-schema failures must fail the actual Native producer
+before deleting its output queue. Queue cleanup otherwise releases the SDK's
+output-consumption wait and can turn a failed read into successful completion.
+The task adapter supplies a weakly owned failure port; result readers do not
+import executor or JNI ownership. Closing a reader before committed EOF also
+reports failure before cleanup. Explicit authority revocation and cancellation
+remain with their admitted lifecycle owner, and cannot overwrite a won terminal
+state. A transport error is not successful EOF or evidence of complete results.
+
 Control acknowledgement buffers own their expiration tasks. After accepted query
 and publication owners drain, seal acknowledgement admission and cancel only the
 buffer's own timers before joining the shared scheduler. Keep acknowledgement
 bytes readable until their serving transport actually exits, then close the buffer.
 Quota or timer-admission failure must not publish a successful missing response;
 roll back failed insertion and retain exact byte accounting.
+
+The query assembly owns the tenant-aware fair scheduler; TaskScheduler only
+borrows it. Bind that actual owner before later module construction, and join it
+on successful shutdown and failed startup. Seal submissions atomically with
+enqueueing, drain previously accepted callbacks, and require actual dispatcher
+termination. Interruption, timeout and self-join are failed drains, not release
+receipts; the retained owner may retry. Queue inspection must not expose a mutable
+admission bypass.
+An accepted callback owns its interrupt state only until it returns. The dedicated
+dispatcher clears that completed callback's interrupt before dispatching another
+callback or parking; this does not interrupt an in-flight callback or clear the
+separate shutdown caller's status. A fatal dispatcher exit with accepted callbacks
+still queued is a failed drain, even if the executor has terminated. That guard is
+not a durable recovery mechanism for those callbacks. An unexpected terminal
+dispatcher failure seals admission before propagating and retaining the original
+cause; later owner shutdown must not report a successful drain for that failure.
+
+Persisted file statistics are scoped by the authenticated tenant, exact table,
+source snapshot, file and column. Queries without an exact snapshot cannot use
+this cached pruning input. Connector-supplied statistics must also match the
+requested snapshot and files. PostgreSQL writes replace complete file/snapshot
+sets transactionally and idempotently; concurrent replacements acquire actual
+per-table/snapshot advisory lock keys in deterministic order, while row predicates
+compare complete identities rather than hashes. Failed batches roll back
+replacements as well as inserts. Lock count must not grow with files in a snapshot.
+V51 retains old unscoped rows without inventing a tenant; scoped reads and deletes
+cannot consume them. Storage isolation does not authorize background
+connector access: maintenance still requires its persisted subject and current
+tenant, column, role and policy decisions before I/O.
+File and column selections use typed PostgreSQL arrays rather than one bind
+parameter per selected value. Keep every exact scope predicate, perform deletion
+as one atomic statement, and free each JDBC array after the owning statement ends.
+This removes bind-count growth, not array-size, query-cost or memory limits.
 HTTP ingress captures the real transport peer before authentication. Untrusted
 forwarding headers cannot change authentication or public rate-limit identity.
 Authenticated internal control does not share the public IP request quota, so

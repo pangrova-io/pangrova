@@ -71,6 +71,7 @@ public final class NativeCapabilityRegistry {
                 "ScalarFunction",
                 "Cast",
                 "IfThen",
+                "Nested",
                 "WindowFunction"
         );
 
@@ -84,7 +85,7 @@ public final class NativeCapabilityRegistry {
                 "is_null", "is_not_null",
                 // arithmetic
                 "add", "subtract", "multiply", "divide",
-                "abs", "modulus", "power", "sqrt",
+                "abs", "modulus", "power", "sqrt", "round",
                 // boolean
                 "and", "or", "not", "coalesce",
                 // string

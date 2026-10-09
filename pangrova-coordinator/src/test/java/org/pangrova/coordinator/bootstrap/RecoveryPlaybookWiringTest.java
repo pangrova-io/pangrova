@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <p>Validates: Requirement R6.1</p>
  */
-class RecoveryPlaybookWiringTest {
+class RecoveryPlaybookWiringTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private CoordinatorBootstrap bootstrap;
 
@@ -95,7 +95,7 @@ class RecoveryPlaybookWiringTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThat(bootstrap.getRecoveryPlaybook()).isNotNull();
@@ -103,8 +103,8 @@ class RecoveryPlaybookWiringTest {
 
     @Test
     void fullBootstrap_operationsDisabled_recoveryPlaybookIsNull() {
-        bootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-no-ops", 0));
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(
+                CoordinatorBootstrapConfig.withDefaults("coord-no-ops", 0)));
         bootstrap.start();
 
         assertThat(bootstrap.getRecoveryPlaybook()).isNull();

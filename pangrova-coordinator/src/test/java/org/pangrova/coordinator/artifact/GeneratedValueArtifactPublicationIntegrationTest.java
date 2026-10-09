@@ -3,7 +3,8 @@ package org.pangrova.coordinator.artifact;
 import org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate;
 import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
 
-import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.metadata.artifact.build.ArtifactBuildDispatchSpec;
 import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
@@ -56,8 +57,9 @@ class GeneratedValueArtifactPublicationIntegrationTest {
     private static final String CHECKSUM = "42".repeat(32);
     private static final String TENANT = "tenant-a";
 
-    @Test
-    void atomicallyPublishesSidecarAndBindsOnlyTheTaskSourceObject() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"1,2", "10,10"})
+    void atomicallyPublishesSidecarAndBindsOnlyTheTaskSourceObject(long firstRows, long secondRows) throws Exception {
         var dataSource = SharedPostgresContainer.migratedDataSource(
                 "generated_value_publication");
         JdbcArtifactBuildStore buildStore = new JdbcArtifactBuildStore(dataSource);
@@ -79,9 +81,9 @@ class GeneratedValueArtifactPublicationIntegrationTest {
                 .setDataObjectId("object-a")
                 .setOpaqueLocation("s3://warehouse/object-a.parquet")
                 .build();
-        publishBuild(buildStore, publicationStore, split);
+        publishBuild(buildStore, publicationStore, split, firstRows, secondRows);
         assertPublication(buildStore, publicationStore);
-        assertTaskBinding(buildStore, publicationStore, split);
+        assertTaskBinding(buildStore, publicationStore, split, Math.addExact(firstRows, secondRows));
         assertClaimConnectionEvidence(dataSource, buildStore, publicationStore, split);
     }
 
@@ -141,7 +143,8 @@ class GeneratedValueArtifactPublicationIntegrationTest {
     }
 
     private void publishBuild(JdbcArtifactBuildStore buildStore,
-                              JdbcGeneratedValueArtifactPublicationStore publicationStore, DataSplit split)
+                              JdbcGeneratedValueArtifactPublicationStore publicationStore, DataSplit split,
+                              long firstRows, long secondRows)
             throws Exception {
         ArtifactBuildSplit buildSplit = ArtifactBuildSplit.of(
                 split.getDataObjectId(), split.toByteArray());
@@ -153,7 +156,8 @@ class GeneratedValueArtifactPublicationIntegrationTest {
                 List.of(buildSplit), List.of(), 5), new ArtifactBuildPage(
                 JOB_ID, "page-b", 0, 1, 1, ArtifactBuildPageKind.SOURCE_MAP,
                 List.of(ArtifactBuildSplit.of(second.getDataObjectId(), second.toByteArray())), List.of(), 5)));
-        for (String suffix : List.of("a", "b")) completeSourcePage(buildStore, suffix);
+        completeSourcePage(buildStore, "a", firstRows);
+        completeSourcePage(buildStore, "b", secondRows);
         assertThatThrownBy(() -> buildStore.claimReadyForPublication(
                 "tenant-b", JOB_ID, executions.takeOwnership("tenant-b", JOB_ID, "publisher-b", 9), 9,
                 Duration.ofMinutes(1), START.plusSeconds(2)))
@@ -166,7 +170,7 @@ class GeneratedValueArtifactPublicationIntegrationTest {
         publicationStore.publishClaimed(claim, "publisher-a", 9, START.plusSeconds(3));
     }
 
-    private void completeSourcePage(JdbcArtifactBuildStore buildStore, String suffix) throws Exception {
+    private void completeSourcePage(JdbcArtifactBuildStore buildStore, String suffix, long rows) throws Exception {
         var page = buildStore.claimNextPage(
                 TENANT, JOB_ID, executions.takeOwnership(TENANT, JOB_ID, "coordinator-a", 7), 7,
                 Duration.ofMinutes(1), START)
@@ -176,7 +180,7 @@ class GeneratedValueArtifactPublicationIntegrationTest {
         assertThat(buildStore.completePage(new ArtifactPageCompletion(
                 TENANT, page.jobId(), page.pageId(),
                 page.fencingToken(), page.ownerEpoch(),
-                report, sha256(report), outputs(suffix), START.plusSeconds(1),
+                report, sha256(report), outputs(suffix, rows), START.plusSeconds(1),
                 executions.reportedOwner(TENANT, page.jobId(), page.ownerEpoch())))).isTrue();
     }
 
@@ -199,7 +203,8 @@ class GeneratedValueArtifactPublicationIntegrationTest {
     }
 
     private static void assertTaskBinding(JdbcArtifactBuildStore buildStore,
-                                          JdbcGeneratedValueArtifactPublicationStore publicationStore, DataSplit split) {
+                                          JdbcGeneratedValueArtifactPublicationStore publicationStore, DataSplit split,
+                                          long sourceRows) {
         GeneratedValueArtifactBindingResolver resolver =
                 new GeneratedValueArtifactBindingResolver(publicationStore, buildStore);
         String encodedSplit = java.util.Base64.getEncoder()
@@ -213,7 +218,8 @@ class GeneratedValueArtifactPublicationIntegrationTest {
         assertThat(template.getArtifacts(0).getSplitObjectsCount()).isZero();
         var manifest = buildStore.findPublishedGeneration(TENANT, ARTIFACT_ID, GENERATION, SNAPSHOT).orElseThrow();
         assertThat(manifest.objectCount()).isEqualTo(4);
-        assertThat(template.getResources().getFillKeys()).isEqualTo(manifest.rowCount() / 2);
+        assertThat(manifest.rowCount()).isEqualTo(sourceRows);
+        assertThat(template.getResources().getFillKeys()).isEqualTo(sourceRows);
         assertThat(template.getResources().getObjectStoreReadBytes()).isEqualTo(manifest.totalBytes());
         assertThat(template.getExecutionPolicy().getCoveragePolicy()).isEqualTo(
                 org.pangrova.protocol.v2.CoveragePolicy.COVERAGE_POLICY_REQUIRE_COMPLETE);
@@ -299,16 +305,16 @@ class GeneratedValueArtifactPublicationIntegrationTest {
                 new ArtifactBuildDispatchSpec.ResourceGrant(1024, 1, 1024, 10_000));
     }
 
-    private static List<ArtifactBuildOutput> outputs(String suffix) {
+    private static List<ArtifactBuildOutput> outputs(String suffix, long rows) {
         return List.of(
                 new ArtifactBuildOutput(
                         "values-" + suffix, "s3://warehouse/values-" + suffix, "GENERATED_VALUES",
                         "object-" + suffix, 0, ArtifactBuildOutputScope.SOURCE_OBJECT,
-                        1024, 10, CHECKSUM, ""),
+                        1024, rows, CHECKSUM, ""),
                 new ArtifactBuildOutput(
                         "locators-" + suffix, "s3://warehouse/locators-" + suffix, "ROW_LOCATORS",
                         "object-" + suffix, 1, ArtifactBuildOutputScope.SOURCE_OBJECT,
-                        256, 10, CHECKSUM, ""));
+                        256, rows, CHECKSUM, ""));
     }
 
     private static String sha256(byte[] value) throws Exception {

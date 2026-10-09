@@ -376,6 +376,44 @@ TEST_F(ResultBatchStreamReaderTest, ActualSdkFailureAfterRouteRemovalWakesPendin
   EXPECT_TRUE(runner_->resultDrainEvidence().drained());
 }
 
+TEST_F(ResultBatchStreamReaderTest, InvalidResultFailsActualProducerBeforeReaderCleanupCanCompleteIt) {
+  auto completion = startPausedRunner();
+  const auto info = FlightResultServer::lookupTaskOutputInfo(task_id_);
+  ASSERT_TRUE(info.has_value());
+  ASSERT_TRUE(static_cast<bool>(info->fail_producer));
+  stage({batch(info->wire_schema, std::nullopt)});
+  buffers_->noMoreData(task_id_);
+  open(info->authority);
+  ASSERT_NE(reader_, nullptr);
+  std::shared_ptr<arrow::RecordBatch> output;
+  const auto status = reader_->ReadNext(&output);
+  ASSERT_FALSE(status.ok());
+  EXPECT_EQ(output, nullptr);
+  EXPECT_FALSE(buffers_->stats(task_id_).has_value());
+  auto joined = std::move(completion).via(pangrova::jni::globalExecutor().get());
+  joined.wait(std::chrono::seconds(2));
+  ASSERT_TRUE(joined.isReady());
+  EXPECT_FALSE(std::move(joined).get());
+  EXPECT_FALSE(runner_->errorMessage().empty());
+  reader_.reset();
+  EXPECT_TRUE(runner_->resultDrainEvidence().drained());
+}
+
+TEST_F(ResultBatchStreamReaderTest, ClosingBeforeCommittedEofFailsActualProducerInsteadOfCompletingIt) {
+  auto completion = startPausedRunner();
+  const auto info = FlightResultServer::lookupTaskOutputInfo(task_id_);
+  ASSERT_TRUE(info.has_value());
+  open(info->authority);
+  ASSERT_NE(reader_, nullptr);
+  reader_.reset();
+  auto joined = std::move(completion).via(pangrova::jni::globalExecutor().get());
+  joined.wait(std::chrono::seconds(2));
+  ASSERT_TRUE(joined.isReady());
+  EXPECT_FALSE(std::move(joined).get());
+  EXPECT_NE(runner_->errorMessage().find("Result stream closed before its committed EOF"), std::string::npos);
+  EXPECT_TRUE(runner_->resultDrainEvidence().drained());
+}
+
 TEST_F(ResultBatchStreamReaderTest, ActualFlightCancellationWakesSdkFetchAndRetiresItsReaderLease) {
   auto completion = startPausedRunner();
   const auto info = FlightResultServer::lookupTaskOutputInfo(task_id_);

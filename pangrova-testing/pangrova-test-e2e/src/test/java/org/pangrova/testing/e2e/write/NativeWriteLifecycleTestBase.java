@@ -62,7 +62,8 @@ public abstract class NativeWriteLifecycleTestBase extends SqlE2ETestBase {
 
     protected final String newTable() {
         String name = "lifecycle_" + UUID.randomUUID().toString().replace("-", "");
-        sqlRunner.executeDdl("CREATE TABLE " + qualified(name) + " (id BIGINT)");
+        sqlRunner.executeDdl("CREATE TABLE " + qualified(name) + " (id BIGINT)"
+                + NativeWriteLifecycleFixture.naturalFlushTableOptions());
         return name;
     }
 

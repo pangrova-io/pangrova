@@ -9,7 +9,6 @@ import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatNoException;
 
 /** Real lifecycle paths retain canonical reports; the unwired path tests registration only. */
 @Tag("native-required")
@@ -20,9 +19,9 @@ class TaskManagerStructuredLoggingTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "submit-log")) {
             var info = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
-            assertThat(tasks.terminalReport(info).taskId()).isEqualTo(info.request().taskRequest().getAttempt().getTaskId());
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(tasks.consume(info).values()).containsExactly(42L);
+            assertThat(tasks.terminalReport(info).taskId()).isEqualTo(info.request().taskRequest().getAttempt().getTaskId());
         }
     }
 
@@ -31,9 +30,9 @@ class TaskManagerStructuredLoggingTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "completion-log")) {
             var info = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
-            assertThat(tasks.manager().getTaskState(info.taskId())).hasValue(TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(tasks.consume(info).values()).containsExactly(42L);
+            assertThat(tasks.manager().getTaskState(info.taskId())).hasValue(TaskManager.TaskState.FINISHED);
         }
     }
 
@@ -53,8 +52,9 @@ class TaskManagerStructuredLoggingTest {
     void submitWithoutExecutionWiringDoesNotThrow() {
         var request = SubmitTaskRequest.from(ActualNativeTaskFixture.valuesTaskRequest(false));
         try (var manager = TaskManager.forHttpWiringOnly()) {
-            assertThatNoException().isThrownBy(() -> manager.submitTask(TaskRequestDtoConverter.toTaskDescriptor(request)));
-            assertThat(manager.getRunningTaskCount()).isEqualTo(1);
+            String id = manager.submitTask(TaskRequestDtoConverter.toTaskDescriptor(request));
+            assertThat(manager.getTaskState(id)).hasValue(TaskManager.TaskState.INITIALIZING);
+            assertThat(manager.getRunningTaskCount()).isZero();
         }
     }
 }

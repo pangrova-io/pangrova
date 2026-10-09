@@ -46,9 +46,13 @@ final class CatalogDeploymentTransport implements AutoCloseable {
             if (!released.await(10, TimeUnit.SECONDS)) {
                 throw new IOException("Actual deployment transport was not released");
             }
+            String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+            if (authorization == null || authorization.isBlank()) {
+                throw new IOException("Worker catalog deployment request omitted Authorization");
+            }
             URI target = coordinator.resolve(exchange.getRequestURI().toString());
             HttpRequest request = HttpRequest.newBuilder(target).timeout(Duration.ofSeconds(10))
-                    .header("X-Internal-Auth", exchange.getRequestHeaders().getFirst("X-Internal-Auth"))
+                    .header("Authorization", authorization)
                     .GET().build();
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
             response.headers().firstValue("Content-Type")

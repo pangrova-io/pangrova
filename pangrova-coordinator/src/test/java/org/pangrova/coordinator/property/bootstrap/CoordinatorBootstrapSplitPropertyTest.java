@@ -36,7 +36,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Property(tries = 10)
     void bootstrapInitializesAllCoreComponents(
             @ForAll("minimalConfigs") CoordinatorBootstrapConfig config) {
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         try {
             bootstrap.start();
             assertThat(bootstrap.isStarted()).isTrue();
@@ -56,7 +56,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Property(tries = 10)
     void disabledObservabilityUsesNoOpProvider(
             @ForAll("minimalConfigs") CoordinatorBootstrapConfig config) {
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         try {
             bootstrap.start();
             assertThat(bootstrap.getTracingProvider()).isInstanceOf(NoOpTracingProvider.class);
@@ -72,7 +72,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Property(tries = 10)
     void shutdownIsIdempotent(
             @ForAll("minimalConfigs") CoordinatorBootstrapConfig config) {
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
         bootstrap.shutdown();
         assertThat(bootstrap.isStarted()).isFalse();
@@ -87,7 +87,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Test
     void httpHealthEndpointRegistered() throws Exception {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-health", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         try {
             bootstrap.start();
             int port = bootstrap.getHttpPort();

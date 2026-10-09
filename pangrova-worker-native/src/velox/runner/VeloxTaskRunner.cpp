@@ -729,6 +729,10 @@ void VeloxTaskRunner::start() {
       }
       result_ownership_ = std::make_shared<pangrova::result::ResultOwnershipState>();
       info.ownership = result_ownership_;
+      info.fail_producer = [task = std::weak_ptr<facebook::velox::exec::Task>(velox_task_)](
+          std::exception_ptr failure) {
+        if (auto producer = task.lock()) producer->setError(failure);
+      };
       result_buffers_ = facebook::velox::exec::OutputBufferManager::getInstanceRef();
       info.buffers = result_buffers_;
       if (!info.authority.ParseFromString(config_.callback_context)) {

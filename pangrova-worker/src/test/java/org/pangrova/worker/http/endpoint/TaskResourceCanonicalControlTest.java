@@ -103,7 +103,12 @@ class TaskResourceCanonicalControlTest {
     }
 
     private static org.pangrova.protocol.rest.task.SubmitTaskRequest request(String taskId) {
-        return CanonicalTaskRequestTestFixture.request(taskId, "query-control", 0, 0,
-                TaskKind.TASK_KIND_READ, "plan".getBytes(StandardCharsets.UTF_8));
+        var canonical = CanonicalTaskRequestTestFixture.builder(taskId, "query-control", 0, 0,
+                TaskKind.TASK_KIND_READ, "plan".getBytes(StandardCharsets.UTF_8))
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                        .setGrantId(taskId + ":grant").setCpuSlots(1).setNativeMemoryBytes(1_048_576))
+                .build();
+        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
+        return org.pangrova.protocol.rest.task.SubmitTaskRequest.from(canonical);
     }
 }

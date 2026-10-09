@@ -31,7 +31,22 @@ public final class QueryExecutionModule implements CoordinatorModule {
 
     @Override
     public void configure(CoordinatorModuleContext context) {
-        TaskScheduler scheduler = buildTaskScheduler();
+        WeightedFairScheduler fairScheduler = tenantAwareScheduling
+                ? new WeightedFairScheduler() : null;
+        if (fairScheduler != null) {
+            // The assembly owns this executor; TaskScheduler only borrows its scoring state.
+            try {
+                context.bind(WeightedFairScheduler.class, fairScheduler);
+            } catch (RuntimeException | Error failure) {
+                try {
+                    fairScheduler.close();
+                } catch (RuntimeException | Error cleanupFailure) {
+                    if (failure != cleanupFailure) failure.addSuppressed(cleanupFailure);
+                }
+                throw failure;
+            }
+        }
+        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer(), fairScheduler);
         context.bind(TaskScheduler.class, scheduler);
 
         StatementDispatchPhase statementPhase = context.optional(StatementDispatchPhase.class);
@@ -58,9 +73,4 @@ public final class QueryExecutionModule implements CoordinatorModule {
         return 0;
     }
 
-    private TaskScheduler buildTaskScheduler() {
-        WeightedFairScheduler fairScheduler = tenantAwareScheduling
-                ? new WeightedFairScheduler() : null;
-        return new TaskScheduler(new WorkerPerformanceScorer(), fairScheduler);
-    }
 }

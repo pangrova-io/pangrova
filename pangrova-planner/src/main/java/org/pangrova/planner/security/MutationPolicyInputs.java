@@ -10,7 +10,7 @@ import org.apache.calcite.rel.logical.LogicalTableModify;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexShuttle;
-import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.apache.calcite.rex.RexUtil;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -38,8 +38,8 @@ final class MutationPolicyInputs {
             RexNode condition = restrictTargetPredicates(join, target);
             if (protectedTarget instanceof LogicalFilter filter) {
                 RexNode policy = shifted(filter.getCondition(), join.getLeft().getRowType().getFieldCount());
-                condition = join.getCluster().getRexBuilder().makeCall(
-                        SqlStdOperatorTable.AND, condition, policy);
+                condition = RexUtil.composeConjunction(
+                        join.getCluster().getRexBuilder(), List.of(condition, policy));
             }
             LogicalJoin protectedJoin = join.copy(join.getTraitSet(), condition,
                     sourceTransform.apply(join.getLeft()), target.relation(),
@@ -93,8 +93,8 @@ final class MutationPolicyInputs {
         RexNode condition = join.getCondition();
         int offset = join.getLeft().getRowType().getFieldCount();
         for (RexNode predicate : target.matchPredicates()) {
-            condition = join.getCluster().getRexBuilder().makeCall(
-                    SqlStdOperatorTable.AND, condition, shifted(predicate, offset));
+            condition = RexUtil.composeConjunction(join.getCluster().getRexBuilder(),
+                    List.of(condition, shifted(predicate, offset)));
         }
         return condition;
     }
@@ -118,8 +118,8 @@ final class MutationPolicyInputs {
         RexNode condition = filter.getCondition();
         RelNode child = filter.getInput();
         while (child instanceof LogicalFilter nested) {
-            condition = filter.getCluster().getRexBuilder().makeCall(
-                    SqlStdOperatorTable.AND, condition, nested.getCondition());
+            condition = RexUtil.composeConjunction(filter.getCluster().getRexBuilder(),
+                    List.of(condition, nested.getCondition()));
             child = nested.getInput();
         }
         return filter.copy(filter.getTraitSet(), child, condition);

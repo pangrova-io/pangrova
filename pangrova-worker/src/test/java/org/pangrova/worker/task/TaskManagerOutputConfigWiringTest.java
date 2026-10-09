@@ -23,7 +23,7 @@ class TaskManagerOutputConfigWiringTest {
              var tasks = new ActualTaskManagerFixture(runtime, "output-custom-grant")) {
             var request = request(true, 4L * 1024 * 1024, 3);
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(0L, 1L, 2L);
             assertThat(info.executorHandle()).isZero();
@@ -55,12 +55,15 @@ class TaskManagerOutputConfigWiringTest {
              var tasks = new ActualTaskManagerFixture(runtime, "output-exact-budget")) {
             var request = request(true, 1024L * 1024, 1);
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(info.allocatedBufferMemory()).isEqualTo(1024L * 1024);
-            assertThat(runtime.arbitrator().snapshot())
-                    .containsEntry("buffer:" + info.taskId(), 1024L * 1024);
+            // Serialized grants use the query-allocation API, not the named-pool snapshot.
+            assertThat(runtime.arbitrator().getUsedMemory()).isGreaterThanOrEqualTo(1024L * 1024);
+            assertThat(runtime.nodePool().getUsedBytes()).isGreaterThanOrEqualTo(1024L * 1024);
             assertThat(tasks.consume(info).values()).containsExactly(0L);
             assertThat(info.allocatedBufferMemory()).isZero();
+            assertThat(runtime.arbitrator().getUsedMemory()).isZero();
+            assertThat(runtime.nodePool().getUsedBytes()).isZero();
         }
     }
 
@@ -83,7 +86,7 @@ class TaskManagerOutputConfigWiringTest {
              var tasks = new ActualTaskManagerFixture(runtime, "output-default-request")) {
             var request = runtime.valuesRequest(true);
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(request.getResourceGrant().getShuffleBufferBytes()).isEqualTo(8L * 1024 * 1024);
             assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(42L);

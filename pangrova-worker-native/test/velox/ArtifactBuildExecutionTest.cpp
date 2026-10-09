@@ -85,6 +85,41 @@ class ArtifactBuildExecutionTest : public ::testing::Test {
 std::shared_ptr<facebook::velox::memory::MemoryPool>
     ArtifactBuildExecutionTest::pool_;
 
+ArtifactBuildConfig generatedValueConfig(
+    const TestDirectory& directory, bool denied, const std::string& artifact_id,
+    const std::string& generation, const std::string& source_id) {
+  ArtifactBuildConfig config;
+  config.kind = ArtifactBuildKind::GENERATED_VALUES;
+  config.output.set_artifact_id(artifact_id);
+  config.output.set_artifact_type("GENERATED_COLUMN_VALUES");
+  config.output.set_generation(generation);
+  config.output.set_source_id("catalog.schema.items");
+  config.output.set_source_snapshot("snapshot-9");
+  config.output.set_staging_uri((directory.path() / "objects").string());
+  *config.output.mutable_format() =
+      capability::generatedValuesArtifactFormat();
+  *config.output.mutable_row_locator() =
+      capability::physicalRowLocatorContract();
+  config.output.add_expected_source_object_ids(source_id);
+  config.output.set_publication_fencing_token(23);
+  config.output.set_work_unit_id("page-9");
+  config.output.set_idempotency_key("job-9:page-9:generation-9");
+  config.task.job_id = "job-9";
+  config.task.page_id = "page-9";
+  config.task.fencing_token = 23;
+  config.task.scratch_directory = (directory.path() / "scratch").string();
+  config.task.max_input_bytes = denied ? 1024 : 8 * 1024 * 1024;
+  config.task.max_spill_bytes = 8 * 1024 * 1024;
+  config.task.max_object_store_write_bytes = 8 * 1024 * 1024;
+  config.task.report_state =
+      std::make_shared<artifact::ArtifactWorkReportState>();
+  config.row_position_channel = 0;
+  config.generated_value_channel = 1;
+  config.generated_value_dimension = denied ? 2048 : 2;
+  config.max_rows = 100;
+  return config;
+}
+
 TEST_F(ArtifactBuildExecutionTest, BuildsImmutableDiskAnnWorkPageAndReport) {
   TestDirectory directory;
   facebook::velox::test::VectorMaker maker(pool_.get());
@@ -275,11 +310,18 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableHnswAndIvfPqWorkPages) {
 }
 
 TEST_F(ArtifactBuildExecutionTest, BuildsImmutableGeneratedValuesAndLocators) {
+  const std::string artifact_id = "generated-values-" + std::string(64, 'a');
+  const std::string generation = "generation:" + std::string(64, 'b');
+  const std::string source_id = "file:///warehouse/source/" + std::string(128, 'c') + ".parquet";
+  ASSERT_GT((artifact_id + ":" + generation + ":" + source_id +
+             ":GENERATED_VALUES:" + std::string(64, 'd')).size(), 255);
+  std::vector<std::string> initial_ids;
   unsigned scenario = 0;
   for (const auto& validity :
        {std::vector<uint8_t>{1, 1}, std::vector<uint8_t>{0, 1},
-        std::vector<uint8_t>{0, 0}, std::vector<uint8_t>{0, 0}}) {
-    const bool denied = scenario++ == 3;
+        std::vector<uint8_t>{0, 0}, std::vector<uint8_t>{1, 1},
+        std::vector<uint8_t>{0, 0}}) {
+    const bool denied = scenario++ == 4;
     TestDirectory directory;
     facebook::velox::test::VectorMaker maker(pool_.get());
     auto input = maker.rowVector(
@@ -292,35 +334,8 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableGeneratedValuesAndLocators) {
         "generated-values", std::vector<facebook::velox::RowVectorPtr>{input},
         true);
 
-    ArtifactBuildConfig config;
-    config.kind = ArtifactBuildKind::GENERATED_VALUES;
-    config.output.set_artifact_id("generated-column-1");
-    config.output.set_artifact_type("GENERATED_COLUMN_VALUES");
-    config.output.set_generation("9");
-    config.output.set_source_id("catalog.schema.items");
-    config.output.set_source_snapshot("snapshot-9");
-    config.output.set_staging_uri((directory.path() / "objects").string());
-    *config.output.mutable_format() =
-        capability::generatedValuesArtifactFormat();
-    *config.output.mutable_row_locator() =
-        capability::physicalRowLocatorContract();
-    config.output.add_expected_source_object_ids("source-file-9");
-    config.output.set_publication_fencing_token(23);
-    config.output.set_work_unit_id("page-9");
-    config.output.set_idempotency_key("job-9:page-9:generation-9");
-    config.task.job_id = "job-9";
-    config.task.page_id = "page-9";
-    config.task.fencing_token = 23;
-    config.task.scratch_directory = (directory.path() / "scratch").string();
-    config.task.max_input_bytes = denied ? 1024 : 8 * 1024 * 1024;
-    config.task.max_spill_bytes = 8 * 1024 * 1024;
-    config.task.max_object_store_write_bytes = 8 * 1024 * 1024;
-    config.task.report_state =
-        std::make_shared<artifact::ArtifactWorkReportState>();
-    config.row_position_channel = 0;
-    config.generated_value_channel = 1;
-    config.generated_value_dimension = denied ? 2048 : 2;
-    config.max_rows = 100;
+    ArtifactBuildConfig config = generatedValueConfig(
+        directory, denied, artifact_id, generation, source_id);
 
     auto sink = std::make_shared<ArtifactBuildNode>(
         "artifact-build-generated-values", config, values);
@@ -355,8 +370,20 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableGeneratedValuesAndLocators) {
     EXPECT_EQ(report->outputs(0).ordinal(), 0);
     EXPECT_EQ(report->outputs(1).object_role(), "ROW_LOCATORS");
     EXPECT_EQ(report->outputs(1).ordinal(), 1);
+    EXPECT_NE(report->outputs(0).object_id(), report->outputs(1).object_id());
+    if (scenario == 1) {
+      initial_ids = {report->outputs(0).object_id(), report->outputs(1).object_id()};
+    } else if (scenario == 4) {
+      EXPECT_EQ(report->outputs(0).object_id(), initial_ids[0]);
+      EXPECT_EQ(report->outputs(1).object_id(), initial_ids[1]);
+    } else {
+      EXPECT_NE(report->outputs(0).object_id(), initial_ids[0]);
+      EXPECT_EQ(report->outputs(1).object_id(), initial_ids[1]);
+    }
     for (const auto& output : report->outputs()) {
-      EXPECT_EQ(output.source_object_id(), "source-file-9");
+      EXPECT_EQ(output.object_id().size(), 80);
+      EXPECT_TRUE(output.object_id().starts_with("artifact-object:"));
+      EXPECT_EQ(output.source_object_id(), source_id);
       EXPECT_EQ(output.row_count(), 2);
       EXPECT_EQ(output.checksum().digest().size(), 32);
       EXPECT_EQ(std::filesystem::file_size(output.opaque_uri()),

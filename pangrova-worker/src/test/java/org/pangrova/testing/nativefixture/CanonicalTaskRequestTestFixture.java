@@ -33,6 +33,8 @@ public final class CanonicalTaskRequestTestFixture {
                         .setTenantId("tenant").setPrincipal("test-user"))
                 .setSubstraitPlan(ByteString.copyFrom(plan))
                 .setSubstraitPlanChecksum(CanonicalTaskRequests.sha256(plan))
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                        .setGrantId(taskId + ":grant").setCpuSlots(1).setNativeMemoryBytes(1_048_576))
                 .setDeadlineEpochMs(4_102_444_800_000L);
     }
 

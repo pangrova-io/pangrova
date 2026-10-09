@@ -40,6 +40,7 @@
 #include "velox/vector/SelectivityVector.h"
 
 #if PANGROVA_HAS_VELOX_DWIO
+#include "velox/common/caching/FileIds.h"
 #include "velox/common/file/File.h"
 #include "velox/common/file/FileSystems.h"
 #include "velox/dwio/common/Options.h"
@@ -429,14 +430,14 @@ void PangrovaVeloxDataSource::createReaderPair(
 #if PANGROVA_HAS_CACHED_BUFFERED_INPUT && PANGROVA_HAS_VELOX_ASYNC_CACHE
   auto* cache = facebook::velox::cache::AsyncDataCache::getInstance();
   if (cache) {
-    // Pass a shared IoStatistics instance for cache hit/miss observability.
-    // ScanTracker and StringIdLease remain empty — scan-level tracking is
-    // not yet wired to NativeMetricsCollector.
+    // Each immutable physical file needs a live SDK file-id lease. Cache
+    // entries retain this identity after their reader exits, so independent
+    // files cannot share a key or expose the no-id sentinel to cache loads.
     auto ioStats = std::make_shared<facebook::velox::dwio::common::IoStatistics>();
     input = std::make_unique<facebook::velox::dwio::common::CachedBufferedInput>(
         readFile,
         facebook::velox::dwio::common::MetricsLog::voidLog(),
-        facebook::velox::StringIdLease(),
+        facebook::velox::StringIdLease(facebook::velox::fileIds(), cleanPath),
         cache,
         std::shared_ptr<facebook::velox::cache::ScanTracker>(),
         facebook::velox::StringIdLease(),

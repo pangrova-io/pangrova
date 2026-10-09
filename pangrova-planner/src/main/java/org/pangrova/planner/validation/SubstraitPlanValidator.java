@@ -70,7 +70,9 @@ public final class SubstraitPlanValidator {
             Map.entry("ScalarFunctionInvocation", "ScalarFunction"),
             Map.entry("WindowFunctionInvocation", "WindowFunction"),
             Map.entry("Cast", "Cast"),
-            Map.entry("IfThen", "IfThen")
+            Map.entry("IfThen", "IfThen"),
+            Map.entry("NestedList", "Nested"),
+            Map.entry("NestedStruct", "Nested")
     );
 
     public SubstraitPlanValidator(NativeCapabilityRegistry registry) {
@@ -249,6 +251,10 @@ public final class SubstraitPlanValidator {
                     (e, out) -> out.add(((Expression.Cast) e).input())),
             new ExprChildExtractor(Expression.IfThen.class,
                     (e, out) -> collectIfThenChildren((Expression.IfThen) e, out)),
+            new ExprChildExtractor(Expression.NestedList.class,
+                    (e, out) -> out.addAll(((Expression.NestedList) e).values())),
+            new ExprChildExtractor(Expression.NestedStruct.class,
+                    (e, out) -> out.addAll(((Expression.NestedStruct) e).fields())),
             new ExprChildExtractor(Expression.ScalarFunctionInvocation.class,
                     (e, out) -> collectFunctionArgChildren(
                             ((Expression.ScalarFunctionInvocation) e).arguments(), out)),

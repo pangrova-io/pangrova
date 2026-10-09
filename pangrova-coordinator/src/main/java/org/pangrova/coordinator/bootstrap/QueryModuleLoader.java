@@ -10,6 +10,7 @@ import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.query.execution.result.QueryCacheService;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.planner.SqlCompiler;
+import org.pangrova.resource.scheduler.WeightedFairScheduler;
 import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,10 +45,16 @@ final class QueryModuleLoader {
         modules.sort(Comparator.comparingInt(CoordinatorModule::priority));
         DefaultModuleContext context = new DefaultModuleContext();
         seedBindings(context);
-        for (CoordinatorModule module : modules) {
-            module.configure(context);
-            LOG.debug("event=module_loaded module={} priority={}",
-                    module.getClass().getSimpleName(), module.priority());
+        try {
+            for (CoordinatorModule module : modules) {
+                module.configure(context);
+                LOG.debug("event=module_loaded module={} priority={}",
+                        module.getClass().getSimpleName(), module.priority());
+            }
+        } catch (RuntimeException | Error failure) {
+            CoordinatorResourceRelease.close(failure, CoordinatorResourceRelease.present(
+                    context.optional(WeightedFairScheduler.class), WeightedFairScheduler::close));
+            throw failure;
         }
         return context;
     }

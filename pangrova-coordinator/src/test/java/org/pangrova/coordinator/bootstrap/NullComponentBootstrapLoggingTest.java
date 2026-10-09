@@ -19,7 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * <p>Validates: Requirements R2.4 — Null Propagation Logging</p>
  */
-class NullComponentBootstrapLoggingTest {
+class NullComponentBootstrapLoggingTest
+        extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private ListAppender<ILoggingEvent> appender;
     private Logger bootstrapLogger;
@@ -48,7 +49,7 @@ class NullComponentBootstrapLoggingTest {
     void resilienceDisabled_emitsCircuitBreakerSkipLog() {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-cb-log-test", 0);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         bootstrap.start();
 
         assertThat(appender.list.stream()

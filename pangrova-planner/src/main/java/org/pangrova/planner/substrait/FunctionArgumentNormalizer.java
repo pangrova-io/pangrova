@@ -1,6 +1,8 @@
 package org.pangrova.planner.substrait;
 
 import io.substrait.expression.Expression;
+import io.substrait.expression.ImmutableExpression;
+import io.substrait.type.Type;
 import org.apache.calcite.rex.RexBuilder;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
@@ -14,17 +16,21 @@ import org.pangrova.protocol.v2.FunctionNormalizedArgument;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Materializes declared optional constants before hidden runtime binding arguments. */
+/** Materializes exact numeric signatures and optional constants before hidden runtime arguments. */
 final class FunctionArgumentNormalizer {
+    record Arguments(List<Expression> values, Type outputType) {}
+
     private final RexBuilder rexBuilder;
     private final LiteralConverter literalConverter;
+    private final TypeMapper typeMapper;
 
-    FunctionArgumentNormalizer(RexBuilder rexBuilder, LiteralConverter literalConverter) {
+    FunctionArgumentNormalizer(RexBuilder rexBuilder, LiteralConverter literalConverter, TypeMapper typeMapper) {
         this.rexBuilder = rexBuilder;
         this.literalConverter = literalConverter;
+        this.typeMapper = typeMapper;
     }
 
-    List<Expression> normalize(FunctionReference reference, RexCall call, List<Expression> arguments) {
+    Arguments normalize(FunctionReference reference, RexCall call, List<Expression> arguments) {
         var definitions = FunctionBindingDeclarations.normalizedArguments(
                 "SCALAR", reference.namespace(), reference.name());
         List<Expression> normalized = new ArrayList<>(arguments);
@@ -38,7 +44,40 @@ final class FunctionArgumentNormalizer {
                 throw invalid("Optional arguments cannot skip required argument positions");
             }
         }
-        return List.copyOf(normalized);
+        return normalizePrimitiveArithmetic(call, List.copyOf(normalized));
+    }
+
+    private Arguments normalizePrimitiveArithmetic(RexCall call, List<Expression> arguments) {
+        Type output = typeMapper.map(call.getType());
+        boolean arithmetic = switch (call.getKind()) {
+            case PLUS, MINUS, TIMES, DIVIDE, MOD -> true;
+            default -> false;
+        };
+        if (!arithmetic || call.getOperands().size() != 2
+                || !primitiveNumber(call.getType().getSqlTypeName())
+                || call.getOperands().stream().anyMatch(node -> !primitiveNumber(node.getType().getSqlTypeName()))) {
+            return new Arguments(arguments, output);
+        }
+        var factory = rexBuilder.getTypeFactory();
+        var common = factory.leastRestrictive(call.getOperands().stream().map(RexNode::getType).toList());
+        if (common == null) throw invalid("Primitive arithmetic has no validated common numeric type");
+        List<Expression> widened = new ArrayList<>(arguments.size());
+        for (int ordinal = 0; ordinal < arguments.size(); ordinal++) {
+            Expression argument = arguments.get(ordinal);
+            Type target = typeMapper.map(factory.createTypeWithNullability(common,
+                    call.getOperands().get(ordinal).getType().isNullable()));
+            widened.add(argument.getType().equals(target) ? argument : ImmutableExpression.Cast.builder()
+                    .input(argument).type(target).failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION).build());
+        }
+        return new Arguments(List.copyOf(widened), typeMapper.map(factory.createTypeWithNullability(
+                common, call.getType().isNullable())));
+    }
+
+    private static boolean primitiveNumber(SqlTypeName type) {
+        return switch (type) {
+            case TINYINT, SMALLINT, INTEGER, BIGINT, FLOAT, REAL, DOUBLE -> true;
+            default -> false;
+        };
     }
 
     private Expression defaultArgument(FunctionNormalizedArgument definition) {

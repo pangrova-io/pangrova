@@ -13,6 +13,53 @@ import static org.awaitility.Awaitility.await;
 
 class CoordinatorExecutionAuthorityIntegrationTest {
     @Test
+    void unifiedRenewalRefreshesTheActualQueryPublicationDeadline() throws Exception {
+        var backend = new JdbcExecutionAnchorStore(
+                SharedPostgresContainer.migratedDataSource("query_renewal_receipt"));
+        try (var authority = new CoordinatorExecutionAuthority(backend, "node", "process", Duration.ofSeconds(2));
+                var ha = new HighAvailabilityCoordinationService(new InMemoryDistributedLease())) {
+            ha.bindExecutionAuthority(authority);
+            ha.start("node");
+            assertThat(ha.acquireQueryOwnership("query", "node")).isTrue();
+            var initial = ha.requireExecutionAnchor("query");
+            assertThat(Duration.between(initial.acquiredAt(), initial.expiresAt())).isEqualTo(Duration.ofSeconds(2));
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                var renewed = ha.requireExecutionAnchor("query");
+                assertThat(renewed.expiresAt()).isAfter(initial.expiresAt());
+                assertThat(renewed.fencingToken()).isEqualTo(initial.fencingToken());
+                assertThat(renewed.acquiredAt()).isEqualTo(initial.acquiredAt());
+                assertThat(ha.validateDurableExecutionToken("query", renewed.fencingToken())).isTrue();
+            });
+            assertThat(ha.acquireQueryOwnership("foreign", "another-node")).isFalse();
+            assertThatThrownBy(() -> ha.setExecutionAnchorStore(backend))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("cannot change");
+        }
+    }
+
+    @Test
+    void unifiedRenewalInvalidatesARealLostQueryDespiteLiveMaintenanceAnchors() throws Exception {
+        var backend = new JdbcExecutionAnchorStore(
+                SharedPostgresContainer.migratedDataSource("query_renewal_lost_fence"));
+        try (var authority = new CoordinatorExecutionAuthority(backend, "node", "process", Duration.ofSeconds(2));
+                var ha = new HighAvailabilityCoordinationService(new InMemoryDistributedLease())) {
+            ha.bindExecutionAuthority(authority);
+            ha.start("node");
+            assertThat(ha.acquireQueryOwnership("lost", "node")).isTrue();
+            var lost = ha.requireExecutionAnchor("lost");
+            assertThat(backend.release(lost)).isTrue();
+            var maintenance = authority.acquire("maintenance").orElseThrow();
+
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                assertThat(ha.validateExecutionToken("lost", lost.fencingToken())).isFalse();
+                assertThat(backend.current("maintenance").orElseThrow().expiresAt())
+                        .isAfter(maintenance.expiresAt());
+            });
+            assertThatThrownBy(() -> ha.requireExecutionAnchor("lost"))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("No live local");
+        }
+    }
+
+    @Test
     void interruptedCloseRetainsRealBlockedRenewalAndRetriesOnlyAfterJdbcExit() throws Exception {
         var dataSource = (org.postgresql.ds.PGSimpleDataSource)
                 SharedPostgresContainer.migratedDataSource("authority_actual_join");
@@ -32,7 +79,7 @@ class CoordinatorExecutionAuthorityIntegrationTest {
                 await().atMost(Duration.ofSeconds(5)).until(() -> {
                     try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                             "SELECT COUNT(*) FROM pg_stat_activity WHERE application_name=? "
-                                    + "AND wait_event_type='Lock' AND query LIKE 'UPDATE execution_anchor SET expires_at=%'")) {
+                                    + "AND wait_event_type='Lock' AND query LIKE '%UPDATE execution_anchor%SET expires_at=%'")) {
                         statement.setString(1, application);
                         try (var result = statement.executeQuery()) { result.next(); return result.getInt(1) == 1; }
                     }

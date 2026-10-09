@@ -24,7 +24,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  *   <li>DegradationManager → QueryManager (via QueryManagerContext)</li>
  * </ul>
  */
-class ResilienceModuleIntegrationTest {
+class ResilienceModuleIntegrationTest
+        extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private CoordinatorBootstrap bootstrap;
 
@@ -167,7 +168,7 @@ class ResilienceModuleIntegrationTest {
 
     private CoordinatorBootstrap startWithResilience() {
         CoordinatorBootstrapConfig config = buildResilienceConfig();
-        CoordinatorBootstrap bs = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bs = new CoordinatorBootstrap(withControlAuthentication(config));
         bs.start();
         return bs;
     }
@@ -175,7 +176,7 @@ class ResilienceModuleIntegrationTest {
     private CoordinatorBootstrap startWithoutResilience() {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-no-res", 0);
-        CoordinatorBootstrap bs = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bs = new CoordinatorBootstrap(withControlAuthentication(config));
         bs.start();
         return bs;
     }

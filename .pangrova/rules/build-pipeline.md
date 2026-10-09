@@ -4,6 +4,20 @@ Prerequisite: Set `JAVA_HOME` to a JDK 17 installation, place `$JAVA_HOME/bin` a
 
 ## Java Side (Maven, JDK 17)
 
+The Iceberg JDBC catalog dependency is a separately versioned Pangrova patch
+candidate, built from a pinned Apache source archive. Before Maven on a clean
+machine, publish its consumed artifacts to the local Maven repository:
+
+```bash
+.pangrova/scripts/build-iceberg-sdk-candidate.sh
+```
+
+The script requires JDK 17 and Gradle 8.14.4, verifies the source archive and
+patch checksums, applies the tracked patch, and builds through the upstream
+Gradle build. Set `GRADLE_BIN` if that exact Gradle executable is not on `PATH`.
+Do not validate production artifacts against the unpatched upstream 1.11.0
+artifacts.
+
 ```bash
 # Compile (single module)
 mvn -q -pl <module> -am compile test-compile

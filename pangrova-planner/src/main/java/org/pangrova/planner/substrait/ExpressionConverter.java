@@ -61,7 +61,7 @@ final class ExpressionConverter {
         this.rexBuilder = rexBuilder;
         this.literalConverter = literalConverter;
         this.aiInvocationBinder = new AiInvocationBinder(aiInvocationSink);
-        this.argumentNormalizer = new FunctionArgumentNormalizer(rexBuilder, literalConverter);
+        this.argumentNormalizer = new FunctionArgumentNormalizer(rexBuilder, literalConverter, typeMapper);
     }
 
     void setCorrelateOuterFieldOffset(int offset) {
@@ -325,18 +325,24 @@ final class ExpressionConverter {
         FunctionReference ref = functionMapper.map(call.getOperator());
         var variant = functionMapper.resolveScalarVariant(ref);
         List<Expression> args = call.getOperands().stream().map(this::convert).toList();
-        args = argumentNormalizer.normalize(ref, call, args);
+        var normalized = argumentNormalizer.normalize(ref, call, args);
+        args = normalized.values();
         args = aiInvocationBinder.bind(ref, call, opName, args);
         Type outputType = typeMapper.map(call.getType());
         var rewrite = org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
                 .rewrite(ref.namespace(), ref.name());
         if (rewrite.isPresent()) return DeclaredScalarProgram.lower(
                 rewrite.orElseThrow(), args, outputType, functionMapper);
-        return ImmutableExpression.ScalarFunctionInvocation.builder()
+        Expression invocation = ImmutableExpression.ScalarFunctionInvocation.builder()
                 .declaration(variant)
-                .outputType(outputType)
+                .outputType(normalized.outputType())
                 .arguments(args)
                 .build();
+        // SQL MOD returns the divisor type; its exact Native overload computes
+        // in the common argument type before this explicit result conversion.
+        return normalized.outputType().equals(outputType) ? invocation : ImmutableExpression.Cast.builder()
+                .input(invocation).type(outputType)
+                .failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION).build();
     }
 
     private Expression convertVariantGet(RexCall call) {

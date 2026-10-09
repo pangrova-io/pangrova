@@ -347,6 +347,11 @@ public class CoordinatorTaskTracker {
         catch (RuntimeException | Error failure) { exited.run(); throw failure; }
     }
 
+    /** Returns whether this exact report still owns a required publication or observer retry. */
+    public boolean hasPendingReportPublication(org.pangrova.protocol.rest.task.TaskStatusReport report) {
+        return taskIdentityStore.hasPendingPublication(report);
+    }
+
     /** Registers the required publication before retaining a report's drain evidence. */
     public TaskReportPublication enterReportPublication(SubmitTaskRequest request,
             org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly) {

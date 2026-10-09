@@ -38,8 +38,12 @@ import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
 import org.pangrova.spi.connector.base.ConnectorException;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
+import org.pangrova.spi.connector.metadata.table.QualifiedTableName;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.spi.security.UserIdentity;
 
@@ -62,6 +66,39 @@ class GeneratedValueReadResolverIntegrationTest {
 
     @TempDir
     Path warehouse;
+
+    @Test
+    void currentReadAndPinnedArtifactBuildHaveIdenticalPhysicalSplitEvidence() throws Exception {
+        try (var fixture = fixture()) {
+            var catalog = fixture.registry().getCatalog("lake");
+            var metadata = catalog.getMetadata(session());
+            var handle = metadata.getTableHandle(session(), new SchemaTableName("db", "documents"));
+            var source = catalog.getSplitManager().getSplits(ConnectorTransactionHandle.EMPTY,
+                    session(), handle, DynamicFilter.ALL, Constraint.EMPTY);
+            DataSplit current;
+            try {
+                var batch = source.getNextBatch(1_000);
+                assertThat(batch).hasSize(1);
+                assertThat(source.isFinished()).isTrue();
+                current = DataSplit.parseFrom(batch.get(0).toSplitInfoProto());
+            } finally {
+                source.close();
+            }
+            var builds = new SnapshotArtifactSplitPlanner(fixture.registry()).enumerate(
+                    new QualifiedTableName("lake", "db", "documents"),
+                    Long.toString(fixture.table().currentSnapshot().snapshotId()), session());
+            assertThat(builds).hasSize(1);
+            assertThat(DataSplit.parseFrom(builds.get(0).canonicalSplitBytes())).isEqualTo(current);
+            append(fixture.table(), "later.parquet");
+            var historical = new SnapshotArtifactSplitPlanner(fixture.registry()).enumerate(
+                    new QualifiedTableName("lake", "db", "documents"), current.getSourceSnapshot(), session());
+            assertThat(historical).containsExactlyElementsOf(builds);
+            var latest = new SnapshotArtifactSplitPlanner(fixture.registry()).enumerate(
+                    new QualifiedTableName("lake", "db", "documents"),
+                    Long.toString(fixture.table().currentSnapshot().snapshotId()), session());
+            assertThat(latest).hasSize(2).noneMatch(split -> split.splitSha256().equals(builds.get(0).splitSha256()));
+        }
+    }
 
     @Test
     void timeTravelStillConsumesHistoricalGeneratedDeclarationAfterCurrentDefinitionRemoval() throws Exception {
@@ -121,7 +158,7 @@ class GeneratedValueReadResolverIntegrationTest {
         properties.put("pangrova.vector.dimension.embedding", "3");
         var table = catalog.createTable(TableIdentifier.of("db", "documents"), schema,
                 org.apache.iceberg.PartitionSpec.unpartitioned(), properties);
-        append(table);
+        append(table, "row.parquet");
         var dataSource = SharedPostgresContainer.migratedDataSource("generated_read_history");
         var connector = new IcebergConnector("lake", catalog);
         var registry = new CatalogRegistry(new JdbcMetadataStore(dataSource),
@@ -164,8 +201,8 @@ class GeneratedValueReadResolverIntegrationTest {
         return List.of(Base64.getEncoder().encodeToString(split.toByteArray()));
     }
 
-    private static void append(Table table) throws Exception {
-        var output = table.io().newOutputFile(table.location() + "/data/row.parquet");
+    private static void append(Table table, String fileName) throws Exception {
+        var output = table.io().newOutputFile(table.location() + "/data/" + fileName);
         var writer = Parquet.writeData(output).schema(table.schema()).withSpec(table.spec())
                 .createWriterFunc(GenericParquetWriter::create).build();
         try (writer) {

@@ -260,7 +260,7 @@ class IndexCommitHandlerStatisticsTest {
         List<IndexDescriptor> indexesForTable = List.of();
 
         @Override
-        public void batchInsertFileStatistics(String catalog, String schema,
+        public void batchInsertFileStatistics(String tenantId, String catalog, String schema,
                 String table, List<DataFileStatistics> statistics) {
             lastCatalog = catalog;
             lastSchema = schema;
@@ -269,7 +269,7 @@ class IndexCommitHandlerStatisticsTest {
         }
 
         @Override
-        public void deleteFileStatistics(String catalog, String schema,
+        public void deleteFileStatistics(String tenantId, String catalog, String schema,
                 String table, List<String> dataFilePaths) {
             deleteCatalog = catalog;
             deleteSchema = schema;

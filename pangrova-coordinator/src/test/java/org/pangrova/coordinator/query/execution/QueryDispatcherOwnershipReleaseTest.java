@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies;
@@ -42,6 +43,7 @@ class QueryDispatcherOwnershipReleaseTest {
 
     private HighAvailabilityCoordinationService haService;
     private QueryDispatcher dispatcher;
+    private CoordinatorTaskTracker tracker;
     private RemoteTaskDispatcher httpDispatcher;
     private org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture worker;
     @org.junit.jupiter.api.io.TempDir java.nio.file.Path nativeDirectory;
@@ -61,7 +63,7 @@ class QueryDispatcherOwnershipReleaseTest {
         TaskScheduler taskScheduler = new TaskScheduler(new WorkerPerformanceScorer());
         WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
-        var tracker = new CoordinatorTaskTracker();
+        tracker = new CoordinatorTaskTracker();
 
         var deps = new QueryDispatcherContext(
                 compiler,
@@ -92,18 +94,21 @@ class QueryDispatcherOwnershipReleaseTest {
         // Acquire ownership
         boolean acquired = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
         assertTrue(acquired, "ownership should be acquired");
+        assertFalse(haService.acquireQueryOwnership(queryId, "other-coordinator"));
+        tracker.openQueryIssuance(queryId);
 
         // cleanupQuery should release it
         dispatcher.cleanupQuery(queryId);
 
         // Verify ownership was released — re-acquiring should succeed
-        boolean reacquired = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        boolean reacquired = haService.acquireQueryOwnership(queryId, "other-coordinator");
         assertTrue(reacquired, "ownership should be re-acquirable after cleanup released it");
     }
 
     @Test
     void cleanupQuery_toleratesNoOwnership() {
-        // cleanupQuery on a query that was never owned should not throw
+        // Local issuance exists, but no distributed ownership was acquired.
+        tracker.openQueryIssuance("q-never-owned");
         dispatcher.cleanupQuery("q-never-owned");
     }
 
@@ -111,11 +116,13 @@ class QueryDispatcherOwnershipReleaseTest {
     void cleanupQuery_withoutHaService_doesNotThrow() {
         try (var remote = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING)) {
         // Dispatcher without HA wiring should still clean up without error
+        var localTracker = new CoordinatorTaskTracker();
+        localTracker.openQueryIssuance("q-no-ha");
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null,
                 remote,
                 new TaskScheduler(new WorkerPerformanceScorer()),
-                new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()), new CoordinatorTaskTracker(),
+                new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()), localTracker,
                 null, null, null, 0L);
         QueryDispatcher noHaDispatcher = new QueryDispatcher(deps, null, null);
         // No enableOwnershipTracking called — haService is null
@@ -129,18 +136,32 @@ class QueryDispatcherOwnershipReleaseTest {
         CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "default");
 
         // Acquire ownership before dispatch (simulating QueryManager behavior)
-        haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        assertTrue(haService.acquireQueryOwnership(queryId, COORDINATOR_ID));
+        assertFalse(haService.acquireQueryOwnership(queryId, "other-coordinator"));
 
         // Execute a constant query through the real Worker HTTP admission path.
         QueryStateMachine sm = new QueryStateMachine();
         var result = worker.execute(dispatcher, sm, "SELECT 1", session);
         assertNotNull(result);
 
-        // Simulate query completion cleanup
+        String taskId = result.taskId();
+        String workerTaskId = worker.taskManager().resolveWorkerTaskId(taskId);
+        assertNotNull(workerTaskId);
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
+                org.assertj.core.api.Assertions.assertThat(worker.taskManager().getTaskState(workerTaskId))
+                        .contains(org.pangrova.worker.task.TaskManager.TaskState.FINISHED));
+        assertThrows(IllegalStateException.class, () -> dispatcher.cleanupQuery(queryId));
+        assertFalse(haService.acquireQueryOwnership(queryId, "other-coordinator"));
+        worker.taskManager().releaseTaskExecutor(workerTaskId);
+        org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() ->
+                org.assertj.core.api.Assertions.assertThat(tracker.executionDrainReceipt(taskId))
+                        .isPresent());
+
+        // Cleanup requires the real Native owner release, not merely logical FINISHED.
         dispatcher.cleanupQuery(queryId);
 
         // Ownership should be released
-        boolean canReacquire = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        boolean canReacquire = haService.acquireQueryOwnership(queryId, "other-coordinator");
         assertTrue(canReacquire, "ownership should be released after query completion cleanup");
     }
 
@@ -150,7 +171,8 @@ class QueryDispatcherOwnershipReleaseTest {
         CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), null, null);
 
         // Acquire ownership
-        haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        assertTrue(haService.acquireQueryOwnership(queryId, COORDINATOR_ID));
+        assertFalse(haService.acquireQueryOwnership(queryId, "other-coordinator"));
 
         // Execute invalid SQL — triggers the catch block in execute() which calls cleanupQuery
         QueryStateMachine sm = new QueryStateMachine();
@@ -158,7 +180,7 @@ class QueryDispatcherOwnershipReleaseTest {
                 () -> dispatcher.execute(sm, "THIS IS NOT VALID SQL !!!", session));
 
         // The catch block in execute() calls cleanupQuery, which should release ownership
-        boolean canReacquire = haService.acquireQueryOwnership(queryId, COORDINATOR_ID);
+        boolean canReacquire = haService.acquireQueryOwnership(queryId, "other-coordinator");
         assertTrue(canReacquire, "ownership should be released after failed query cleanup");
     }
 

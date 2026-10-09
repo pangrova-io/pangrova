@@ -210,7 +210,7 @@ proto::OperatorBinding overlayBinding(
   addStringProperty(artifact_binding->mutable_properties(), "target_column",
                     "embedding");
   addStringProperty(artifact_binding->mutable_properties(), "output_type",
-                    "VECTOR(2, COSINE)");
+                    "VECTOR(2)");
   auto* dimension = artifact_binding->add_properties();
   dimension->set_name("vector_dimension");
   dimension->mutable_value()->set_int64_value(2);

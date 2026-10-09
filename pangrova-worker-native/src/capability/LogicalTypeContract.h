@@ -32,13 +32,13 @@ void validateVectorResultField(
 void validateVectorResultArray(
     const protocol::v2::LogicalType& logical_type, const arrow::Array& array);
 
-inline uint32_t requireFloatVectorDimension(
-    const protocol::v2::LogicalType& logical_type) {
+// Parses only the canonical FLOAT32 storage text; callers still validate typed
+// schema, nullability and constraints at their own contract boundary.
+inline uint32_t requireCanonicalFloatVectorDimension(std::string_view canonical) {
   constexpr std::string_view kPrefix = "VECTOR(";
   constexpr uint32_t kMaxDimension = 65'535;
-  const std::string_view canonical = logical_type.canonical_sql();
   if (!canonical.starts_with(kPrefix) || canonical.size() <= kPrefix.size() + 1 ||
-      canonical.back() != ')') {
+      canonical.back() != ')' || canonical[kPrefix.size()] == '0') {
     throw std::invalid_argument(
         "Embedding output type must be canonical VECTOR(dimension)");
   }
@@ -50,6 +50,12 @@ inline uint32_t requireFloatVectorDimension(
       dimension > kMaxDimension) {
     throw std::invalid_argument("Embedding VECTOR dimension is invalid");
   }
+  return dimension;
+}
+
+inline uint32_t requireFloatVectorDimension(
+    const protocol::v2::LogicalType& logical_type) {
+  const uint32_t dimension = requireCanonicalFloatVectorDimension(logical_type.canonical_sql());
   if (!logical_type.has_substrait_type() ||
       !logical_type.substrait_type().has_list() ||
       logical_type.substrait_type().list().nullability() !=

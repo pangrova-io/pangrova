@@ -47,6 +47,29 @@ class SignedOidcCoordinatorTestBaseTest extends SignedOidcCoordinatorTestBase {
         assertThat(response.body()).doesNotContain("TENANT-0001");
     }
 
+    @Test
+    void controlAuthenticationPreservesFeatureFlagsAndRejectsUnsignedTraffic() throws Exception {
+        var original = CoordinatorBootstrapConfig.withDefaults("fixture-control", 0);
+        var secured = withControlAuthentication(original);
+        assertThat(secured.securityEnabled()).isTrue();
+        assertThat(secured.metadataEnabled()).isTrue();
+        assertThat(secured.tenantEnabled()).isFalse();
+        assertThat(secured.streamingEnabled()).isFalse();
+        assertThat(secured.resilienceEnabled()).isFalse();
+        assertThat(secured.securityConfig().authenticatorType())
+                .isEqualTo(CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2);
+        coordinator = new CoordinatorBootstrap(secured);
+        coordinator.start();
+        assertThat(submit(false).statusCode()).isEqualTo(401);
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + coordinator.getHttpPort() + "/v1/query/submit"))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer unsigned-token")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"query\":\"SELECT 1\"}")).build();
+        assertThat(HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString()).statusCode())
+                .isEqualTo(401);
+    }
+
     private void startExhaustedTenant() {
         coordinator = startAuthorizedCoordinator(CoordinatorBootstrapConfig.withDefaults("fixture-quota", 0),
                 new ResourceQuota(1_073_741_824L, 0, 10, 60_000, 1_073_741_824L,

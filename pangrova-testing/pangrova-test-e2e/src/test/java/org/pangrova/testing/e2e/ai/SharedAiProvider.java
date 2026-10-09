@@ -6,8 +6,6 @@ import com.github.dockerjava.api.exception.NotFoundException;
 import org.pangrova.worker.jni.NativeFunctionConfig;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.utility.DockerImageName;
 
 import java.io.IOException;
 import java.net.URI;
@@ -44,6 +42,7 @@ public final class SharedAiProvider implements AutoCloseable {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
     private final GenericContainer<?> deployment;
+    private final Map<String, String> expectedModels;
     private final Duration deploymentTimeout;
     private final StringBuilder diagnosticTail = new StringBuilder();
     private GenericContainer<?> container;
@@ -51,14 +50,17 @@ public final class SharedAiProvider implements AutoCloseable {
 
     /** Creates one isolated deployment with a single three-minute setup budget. */
     public SharedAiProvider() {
-        this(new GenericContainer<>(DockerImageName.parse("ollama/ollama:0.6.2"))
-                .withExposedPorts(11434)
-                .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200)), DEPLOYMENT_TIMEOUT);
+        this(AiProviderDeployment.configured(), DEPLOYMENT_TIMEOUT);
     }
 
     /** Owns the actual test deployment; fault tests may shorten, but never enlarge, the budget. */
     SharedAiProvider(GenericContainer<?> deployment, Duration timeout) {
-        this.deployment = Objects.requireNonNull(deployment, "deployment");
+        this(new AiProviderDeployment(Objects.requireNonNull(deployment, "deployment"), Map.of()), timeout);
+    }
+
+    private SharedAiProvider(AiProviderDeployment selected, Duration timeout) {
+        this.deployment = selected.container();
+        this.expectedModels = selected.expectedModels();
         this.deploymentTimeout = Objects.requireNonNull(timeout, "timeout");
         if (deployment.getContainerId() != null) {
             throw new IllegalArgumentException("Model deployment must not borrow an already-created container");
@@ -90,6 +92,12 @@ public final class SharedAiProvider implements AutoCloseable {
             phase = "immutable model inventory";
             String digest = loadedModelDigest(PROVIDER_MODEL, deadline);
             String embeddingDigest = loadedModelDigest(EMBEDDING_PROVIDER_MODEL, deadline);
+            for (var actual : Map.of(PROVIDER_MODEL, digest, EMBEDDING_PROVIDER_MODEL, embeddingDigest).entrySet()) {
+                String expected = expectedModels.get(actual.getKey());
+                if (expected != null && !expected.equals(actual.getValue())) {
+                    throw new IllegalStateException("Prepared AI model identity changed: " + actual.getKey());
+                }
+            }
             remaining(deadline);
             config = configuration(digest, embeddingDigest);
             return config;
@@ -187,6 +195,12 @@ public final class SharedAiProvider implements AutoCloseable {
         return diagnosticTail.toString();
     }
 
+    /** Retains bounded actual deployment evidence on inference failures before owned cleanup. */
+    public String deploymentDiagnostics() {
+        requirePreparedContainer();
+        return diagnostics();
+    }
+
     /** Bounds the complete HTTP entity before retaining it, including error responses. */
     private static final class BoundedResponse implements HttpResponse.BodySubscriber<byte[]> {
         private final HttpResponse.BodySubscriber<byte[]> delegate = HttpResponse.BodySubscribers.ofByteArray();
@@ -269,7 +283,7 @@ public final class SharedAiProvider implements AutoCloseable {
         config.put(prefix + "max-batch-size", "8");
         config.put(prefix + "max-requests-per-second", "32");
         config.put(prefix + "timeout-seconds", "120");
-        config.put(prefix + "max-input-tokens", "2048");
+        config.put(prefix + "max-input-tokens", Integer.toString(AiProviderDeployment.MAX_INPUT_TOKENS));
         config.put(prefix + "max-concurrency", "2");
         config.put(prefix + "max-provider-items-per-task", "16");
         config.put(prefix + "max-provider-attempts-per-task", "16");

@@ -13,7 +13,6 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.spi.security.UserIdentity;
 import org.pangrova.testing.TestObservability;
-import org.pangrova.worker.http.WorkerHttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,17 +35,16 @@ class QueryDispatcherUnifiedPathTest {
 
     private static final UserIdentity TEST_IDENTITY = new UserIdentity(
             "test-user", Set.of("public"), Map.of(), Instant.EPOCH);
-    private WorkerHttpServer workerHttpServer;
     private QueryDispatcher dispatcher;
+    private CoordinatorTaskTracker tracker;
     private RemoteTaskDispatcher httpDispatcher;
     private SourceFreeNativeWorkerFixture worker;
     @TempDir java.nio.file.Path nativeDirectory;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Real worker HTTP server for distributed dispatch
+        // One real Worker endpoint; no independent-process isolation is claimed.
         worker = new SourceFreeNativeWorkerFixture("w1", nativeDirectory);
-        workerHttpServer = worker.httpServer();
 
         WorkerManager workerManager = new WorkerManager(20_000, 60_000, new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry());
         workerManager.registerWorker(worker.workerInfo());
@@ -59,7 +57,7 @@ class QueryDispatcherUnifiedPathTest {
                         "test-coordinator", "test-incarnation", 1L));
         TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
 
-        var tracker = new CoordinatorTaskTracker();
+        tracker = new CoordinatorTaskTracker();
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, httpDispatcher, scheduler, workerManager,
                 tracker, null, null, null, 30L);
@@ -140,14 +138,16 @@ class QueryDispatcherUnifiedPathTest {
     }
 
     @Test
-    void resultEndpointTicketMatchesWorkerTaskId() {
+    void resultEndpointTicketMatchesExactSignedTaskAuthority() {
         String queryId = "ticket-match";
         QueryStateMachine sm = new QueryStateMachine();
         CoordinatorSessionContext session = new CoordinatorSessionContext(queryId, Map.of(), TEST_IDENTITY, "default");
 
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
-        assertThat(result.resultEndpoint().ticket()).isEqualTo(result.taskId());
+        var request = tracker.getTaskRequest(result.taskId()).taskRequest();
+        assertThat(result.resultEndpoint().ticket()).isEqualTo(worker.resultTicket(request));
+        assertThat(result.resultEndpoint().ticket()).isNotEqualTo(result.taskId());
         assertOneValue(result, 1L);
     }
 

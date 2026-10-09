@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  *
  * <p><b>Validates: Requirements 48.1</b></p>
  */
-class CoordinatorShutdownPropertyTest {
+class CoordinatorShutdownPropertyTest extends org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     @Provide
     Arbitrary<String> coordinatorIds() {
@@ -40,7 +40,7 @@ class CoordinatorShutdownPropertyTest {
             @ForAll("coordinatorIds") String coordinatorId) {
 
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(coordinatorId, 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
 
         try {
             bootstrap.start();

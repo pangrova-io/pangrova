@@ -12,6 +12,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexInterpreter;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.schema.impl.AbstractTable;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -40,6 +41,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Tests actual policy application and the relation consumed by the Native COW writer. */
 class DmlCopyOnWritePolicyTest {
@@ -143,6 +145,99 @@ class DmlCopyOnWritePolicyTest {
         assertThat(join.getCondition().getKind()).isEqualTo(SqlKind.AND);
         assertThat(join.getLeft().explain()).contains("LogicalProject");
         assertThat(new SubstraitPlanSerializer().serialize(new SubstraitConverter().convert(modify))).isNotEmpty();
+    }
+
+    @Test
+    void compoundDeleteAndPolicyRetainUnknownAndUnauthorizedPhysicalRows() {
+        LogicalFilter survivors = (LogicalFilter) lowered(
+                "DELETE FROM target_rows WHERE score > 0 AND id > 1", true, false);
+
+        assertThat(survivors.getInput()).isInstanceOf(TableScan.class);
+        assertThat(RexUtil.isFlat(survivors.getCondition())).isTrue();
+        assertThat(value(survivors.getCondition(), survivors.getInput(), 3L, 1L, 30L)).isEqualTo(false);
+        assertThat(value(survivors.getCondition(), survivors.getInput(), 2L, 2L, 20L)).isEqualTo(true);
+        assertThat(value(survivors.getCondition(), survivors.getInput(), 3L, 1L, null)).isEqualTo(true);
+    }
+
+    @Test
+    void compoundUpdateAndPolicyReadMasksButPreserveUnassignedPhysicalValues() {
+        LogicalProject result = (LogicalProject) lowered(
+                "UPDATE target_rows SET tenant = 7 WHERE score = 0 AND id > 1", true, true);
+
+        assertThat(result.getInput()).isInstanceOf(TableScan.class);
+        assertThat(value(result.getProjects().get(1), result.getInput(), 3L, 1L, 30L))
+                .isEqualByComparingTo(java.math.BigDecimal.valueOf(7));
+        assertThat(value(result.getProjects().get(1), result.getInput(), 2L, 2L, 20L)).isEqualTo(2L);
+        assertThat(value(result.getProjects().get(2), result.getInput(), 3L, 1L, 30L)).isEqualTo(30L);
+    }
+
+    @Test
+    void compoundMergeMatchAndPolicyProduceFlatSerializableJoin() {
+        LogicalTableModify modify = protectedPlan(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id AND t.score >= 0 "
+                        + "WHEN MATCHED AND t.score = 0 AND t.tenant = 1 THEN UPDATE SET score = s.score",
+                true, true);
+        LogicalJoin join = (LogicalJoin) ((LogicalProject) modify.getInput()).getInput();
+
+        assertThat(join.getRight()).isInstanceOf(TableScan.class);
+        assertThat(RexUtil.isFlat(join.getCondition())).isTrue();
+        assertThat(new SubstraitPlanSerializer().serialize(new SubstraitConverter().convert(modify))).isNotEmpty();
+    }
+
+    @Test
+    void matchedActionPredicateRetainsSqlUnknownInsteadOfUnconditionallyUpdating() {
+        LogicalProject result = (LogicalProject) lowered(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id "
+                        + "WHEN MATCHED AND t.score > 0 THEN UPDATE SET score = s.score", false, false);
+        LogicalJoin join = (LogicalJoin) result.getInput();
+
+        assertThat(value(join.getCondition(), join, 1L, 1L, 10L, 1L, 1L, 99L, 1L)).isEqualTo(true);
+        assertThat(value(join.getCondition(), join, 1L, 1L, -1L, 1L, 1L, 99L, 1L)).isEqualTo(false);
+        assertThat(value(join.getCondition(), join, 1L, 1L, null, 1L, 1L, 99L, 1L))
+                .isEqualTo(org.apache.calcite.rel.metadata.NullSentinel.INSTANCE);
+    }
+
+    @Test
+    void matchedDeletePredicateRetainsUnknownPhysicalTargetRows() {
+        LogicalProject result = (LogicalProject) lowered(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id "
+                        + "WHEN MATCHED AND t.score > 0 THEN DELETE", false, false);
+        LogicalJoin join = (LogicalJoin) ((LogicalFilter) result.getInput()).getInput();
+
+        assertThat(value(join.getCondition(), join, 1L, 1L, -1L, 1L, 1L, 99L, 1L)).isEqualTo(false);
+        assertThat(value(join.getCondition(), join, 1L, 1L, null, 1L, 1L, 99L, 1L))
+                .isEqualTo(org.apache.calcite.rel.metadata.NullSentinel.INSTANCE);
+        assertThat(result.getRowType().getFieldNames()).containsExactly("id", "tenant", "score");
+    }
+
+    @Test
+    void conditionalMatchedActionCannotChangeNotMatchedInsertClassification() {
+        assertThatThrownBy(() -> protectedPlan(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id "
+                        + "WHEN MATCHED AND t.score > 0 THEN UPDATE SET score = s.score "
+                        + "WHEN NOT MATCHED THEN INSERT (id,tenant,score) VALUES (s.id,s.tenant,s.score)", false, false))
+                .isInstanceOf(org.pangrova.planner.PlannerException.class)
+                .hasMessageContaining("Conditional mixed MERGE");
+    }
+
+    @Test
+    void multipleMatchedActionsCannotSilentlyDiscardAnEarlierClause() {
+        assertThatThrownBy(() -> protectedPlan(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id "
+                        + "WHEN MATCHED AND t.score > 0 THEN UPDATE SET score = s.score "
+                        + "WHEN MATCHED THEN DELETE", false, false))
+                .isInstanceOf(org.pangrova.planner.PlannerException.class)
+                .hasMessageContaining("Multiple MERGE actions");
+    }
+
+    @Test
+    void conditionalInsertCannotSilentlyDropItsSourcePredicate() {
+        assertThatThrownBy(() -> protectedPlan(
+                "MERGE INTO target_rows t USING source_rows s ON t.id = s.id "
+                        + "WHEN NOT MATCHED AND s.score > 0 THEN INSERT (id,tenant,score) VALUES (s.id,s.tenant,s.score)",
+                false, false))
+                .isInstanceOf(org.pangrova.planner.PlannerException.class)
+                .hasMessageContaining("Conditional MERGE INSERT");
     }
 
     private static RelNode lowered(String sql, boolean rowPolicy, boolean mask) {

@@ -42,6 +42,7 @@ import org.pangrova.spi.connector.data.type.MapType;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.data.type.RowField;
 import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.spi.connector.data.type.VectorType;
 import org.pangrova.spi.connector.data.type.primitive.BigIntType;
 import org.pangrova.spi.connector.data.type.primitive.VarcharType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
@@ -163,7 +164,8 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
 
     private static ConnectorTableMetadata nestedTableMetadata() {
         var columns = List.of(
-                new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR),
+                new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR, OptionalInt.empty(),
+                        new VectorType(3, VectorType.ElementType.FLOAT)),
                 new ConnectorTableMetadata.Column("items", PangrovaType.ARRAY, OptionalInt.empty(),
                         new ArrayType(BigIntType.INSTANCE)),
                 new ConnectorTableMetadata.Column("attributes", PangrovaType.MAP, OptionalInt.empty(),

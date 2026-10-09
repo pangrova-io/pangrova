@@ -39,6 +39,7 @@ import java.util.OptionalLong;
 @Produces(MediaType.APPLICATION_JSON)
 @Consumes(MediaType.APPLICATION_JSON)
 public final class TaskResource implements Closeable {
+    private static final int HTTP_TOO_EARLY = 425;
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskResource.class);
 
@@ -123,8 +124,13 @@ public final class TaskResource implements Closeable {
                 request.taskRequest().getAttempt().getControlEpoch());
         taskManager.verifyAdmissionDeadline(request.taskRequest().getDeadlineEpochMs());
         // Validate the one canonical contract before any admission side effect.
-        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(
-                request.taskRequest());
+        try {
+            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request.taskRequest());
+        } catch (IllegalArgumentException invalidContract) {
+            return Response.status(Response.Status.BAD_REQUEST)
+                    .entity(new SubmitTaskResponse(false, invalidContract.getMessage(), null, null, null))
+                    .build();
+        }
         taskManager.verifyExecutionOwnerForAdmission(request);
         ResultEndpoint endpoint = resultEndpoint(request.taskRequest());
         TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
@@ -252,7 +258,7 @@ public final class TaskResource implements Closeable {
         return switch (failure.reason()) {
             case CONTROL_PLANE_NOT_READY -> Response.Status.SERVICE_UNAVAILABLE.getStatusCode();
             // No admission/seal side effect: wait for an authenticated heartbeat to observe this epoch.
-            case EPOCH_AHEAD -> 425;
+            case EPOCH_AHEAD -> HTTP_TOO_EARLY;
             default -> Response.Status.CONFLICT.getStatusCode();
         };
     }

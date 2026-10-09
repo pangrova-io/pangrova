@@ -225,8 +225,8 @@ class DistributedScenarioTest {
         String taskId = dispatchAndGetTaskId("resched-q1");
         dispatchAdditionalTask(taskId, "resched-q1-invalid-plan", true);
         awaitQueryState("resched-q1", QueryStateMachine.State.FAILED);
-        assertThat(taskTracker.hasFailedTask("resched-q1")).isTrue();
         assertActualFailure("resched-q1-invalid-plan");
+        assertFailedQueryDrained("resched-q1");
     }
 
     @Test
@@ -265,8 +265,8 @@ class DistributedScenarioTest {
         dispatchAdditionalTask(task0, "pwf-q1-invalid-plan", true);
         awaitQueryState("pwf-q1", QueryStateMachine.State.FAILED);
         assertThat(second).isNotNull();
-        assertThat(taskTracker.hasFailedTask("pwf-q1")).isTrue();
         assertActualFailure("pwf-q1-invalid-plan");
+        assertFailedQueryDrained("pwf-q1");
     }
 
     private static RemoteTaskDispatcher testDispatcher() {
@@ -283,7 +283,14 @@ class DistributedScenarioTest {
     }
 
     private String dispatchAndGetTaskId(String queryId) {
-        return submitTestQuery(queryId).resultEndpoint().ticket();
+        var response = submitTestQuery(queryId);
+        var taskIds = taskTracker.getTaskIds(queryId);
+        assertThat(taskIds).hasSize(1);
+        String taskId = taskIds.iterator().next();
+        var request = taskTracker.getTaskRequest(taskId).taskRequest();
+        assertThat(response.resultEndpoint().ticket()).isEqualTo(nativeWorker.resultTicket(request));
+        assertThat(response.resultEndpoint().ticket()).isNotEqualTo(taskId);
+        return taskId;
     }
 
     private ResultEndpoint dispatchAdditionalTask(String originalTaskId, String taskId, boolean invalidPlan) {
@@ -303,9 +310,14 @@ class DistributedScenarioTest {
         taskTracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.from(request.taskRequest().getAttempt()));
         taskTracker.assignWorker(taskId, WORKER_1_ID);
         taskTracker.markScheduled(queryId, taskId);
-        var result = remoteTaskDispatcher.dispatch(request, workerManager.getWorker(WORKER_1_ID));
-        assertThat(result.taskId()).isEqualTo(taskId);
-        return result.resultEndpoint();
+        var target = workerManager.getWorker(WORKER_1_ID);
+        try (var operation = taskTracker.enterQueryOperation(queryId)) {
+            taskTracker.bindDispatchTarget(request, target);
+            taskTracker.enterTaskDispatch(request);
+            var result = remoteTaskDispatcher.dispatch(request, target);
+            assertThat(result.taskId()).isEqualTo(taskId);
+            return result.resultEndpoint();
+        }
     }
 
     private void finishQuery(String queryId) {
@@ -327,7 +339,16 @@ class DistributedScenarioTest {
             assertThat(report.state()).isEqualTo("FAILED");
             assertThat(report.error()).isNotNull();
             assertThat(report.canonicalTaskReport()).isNotEmpty();
+            var canonical = org.pangrova.protocol.v2.TaskReport.parseFrom(report.canonicalTaskReport());
+            assertThat(canonical.getAttempt().getTaskId()).isEqualTo(taskId);
+            assertThat(canonical.getState()).isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED);
         });
+    }
+
+    private void assertFailedQueryDrained(String queryId) {
+        assertThat(queryManager.awaitAllQueries(5_000)).isTrue();
+        assertThat(taskTracker.getTaskIds(queryId)).isEmpty();
+        assertThat(queryState(queryId)).isEqualTo(QueryStateMachine.State.FAILED);
     }
 
     private ResultEndpoint endpoint(String queryId) {

@@ -19,10 +19,10 @@ class OutputBufferResetBetweenTasksTest {
              var tasks = new ActualTaskManagerFixture(runtime, "actual-result-isolation")) {
             var first = tasks.submit(ActualNativeTaskFixture.planTaskRequest(true,
                     ActualNativeTaskPlans.values(2, 3)));
-            tasks.awaitState(first, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(first, TaskManager.TaskState.RUNNING);
             assertThat(tasks.consume(first).values()).containsExactlyInAnyOrder(0L, 1L, 2L, 3L, 4L, 5L);
             var second = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(second, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(second, TaskManager.TaskState.RUNNING);
             assertThat(tasks.consume(second).values()).containsExactly(42L);
             assertThat(first.executorHandle()).isZero();
             assertThat(second.executorHandle()).isZero();
@@ -34,7 +34,7 @@ class OutputBufferResetBetweenTasksTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-result-retire")) {
             var first = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(first, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(first, TaskManager.TaskState.RUNNING);
             long oldHandle = first.executorHandle();
             tasks.consume(first);
             assertThatThrownBy(() -> runtime.executor().getTaskStatus(oldHandle))
@@ -50,11 +50,11 @@ class OutputBufferResetBetweenTasksTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-empty-isolation")) {
             var first = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(first, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(first, TaskManager.TaskState.RUNNING);
             assertThat(tasks.consume(first).rows()).isOne();
             var second = tasks.submit(ActualNativeTaskFixture.planTaskRequest(true,
                     ActualNativeTaskPlans.values(0, 0)));
-            tasks.awaitState(second, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(second, TaskManager.TaskState.RUNNING);
             var received = tasks.consume(second);
             assertThat(received.rows()).isZero();
             assertThat(received.values()).isEmpty();

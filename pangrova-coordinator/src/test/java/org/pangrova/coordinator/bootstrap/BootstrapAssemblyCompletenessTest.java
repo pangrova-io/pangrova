@@ -72,7 +72,14 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
         stubServer.createContext("/v1/workers/", ex -> {
             try (ex) {
                 ex.getRequestBody().readAllBytes();
-                ex.sendResponseHeaders("DELETE".equals(ex.getRequestMethod()) ? 200 : 405, -1);
+                if (!"DELETE".equals(ex.getRequestMethod())) {
+                    ex.sendResponseHeaders(405, -1);
+                    return;
+                }
+                byte[] response = "{\"status\":\"deregistered\",\"coordinator_epoch\":1}".getBytes(
+                        java.nio.charset.StandardCharsets.UTF_8);
+                ex.sendResponseHeaders(200, response.length);
+                ex.getResponseBody().write(response);
             }
         });
         stubServer.start();
@@ -113,7 +120,8 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
 
     @Test
     void coordinatorBootstrapWithMinimalConfigStartsSuccessfully() {
-        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-minimal", 0)));
+        coordinatorBootstrap = new CoordinatorBootstrap(withControlAuthentication(
+                CoordinatorBootstrapConfig.withDefaults("coord-minimal", 0)));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
@@ -135,7 +143,8 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
 
     @Test
     void observabilityTracingProviderWiredInCoordinator() {
-        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-obs", 0)));
+        coordinatorBootstrap = new CoordinatorBootstrap(withControlAuthentication(
+                CoordinatorBootstrapConfig.withDefaults("coord-obs", 0)));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.getTracingProvider()).isNotNull();
@@ -177,7 +186,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
-        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(config));
+        coordinatorBootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.getCircuitBreaker()).isNotNull();
@@ -190,7 +199,8 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
 
     @Test
     void resilienceCircuitBreakerNullWhenDisabled() {
-        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-no-cb", 0)));
+        coordinatorBootstrap = new CoordinatorBootstrap(withControlAuthentication(
+                CoordinatorBootstrapConfig.withDefaults("coord-no-cb", 0)));
         coordinatorBootstrap.start();
 
         // When resilience is disabled, RemoteTaskDispatcher uses CircuitBreakerPolicy.noOp()
@@ -244,7 +254,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(config));
+        coordinatorBootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         coordinatorBootstrap.start();
 
         assertThat(coordinatorBootstrap.isStarted()).isTrue();
@@ -260,7 +270,7 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, CoordinatorBootstrapConfig.SecurityConfig.noop(), null);
-        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(config));
+        coordinatorBootstrap = new CoordinatorBootstrap(withControlAuthentication(config));
         coordinatorBootstrap.start();
 
         // AccessControlEnforcer, ColumnMaskApplier, RowFilterApplier are injected
@@ -311,7 +321,8 @@ class BootstrapAssemblyCompletenessTest extends org.pangrova.coordinator.testinf
 
     @Test
     void operationsHealthCheckEndpointInHttpPipeline() throws Exception {
-        coordinatorBootstrap = new CoordinatorBootstrap(withAuthority(CoordinatorBootstrapConfig.withDefaults("coord-health", 0)));
+        coordinatorBootstrap = new CoordinatorBootstrap(withControlAuthentication(
+                CoordinatorBootstrapConfig.withDefaults("coord-health", 0)));
         coordinatorBootstrap.start();
 
         HttpResponse<String> resp = httpGet(

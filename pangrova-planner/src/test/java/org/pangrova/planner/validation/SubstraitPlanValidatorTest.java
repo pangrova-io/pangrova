@@ -25,6 +25,8 @@ import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.substrait.SubstraitConverter;
 
 import java.util.List;
 import java.util.Set;
@@ -149,6 +151,42 @@ class SubstraitPlanValidatorTest {
     }
 
     // --- PARTIAL_NATIVE scenarios ---
+
+    @Test
+    void canonicalRuntimeListAndStructConstructorsAreSupported() {
+        var nested = nestedPlan();
+        assertThat(validator.validate(nested).unsupportedNodes()).isEmpty();
+    }
+
+    @Test
+    void nestedConstructorsRequireTheCanonicalNestedCapability() {
+        var limited = NativeCapabilityRegistry.defaults();
+        limited.update(Set.of("ReadRel", "ProjectRel"),
+                Set.of("FieldReference", "Cast", "ScalarFunction"), Set.of("abs"));
+        var result = new SubstraitPlanValidator(limited).validate(nestedPlan());
+        assertThat(result.unsupportedNodes()).anySatisfy(node -> {
+            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.EXPRESSION);
+            assertThat(node.nodeType()).isEqualTo("Nested");
+        });
+    }
+
+    @Test
+    void nestedChildrenCannotHideAnUnsupportedFunction() {
+        var limited = NativeCapabilityRegistry.defaults();
+        limited.update(Set.of("ReadRel", "ProjectRel"),
+                Set.of("FieldReference", "Cast", "ScalarFunction", "Nested"), Set.of());
+        var result = new SubstraitPlanValidator(limited).validate(nestedPlan());
+        assertThat(result.unsupportedNodes()).singleElement().satisfies(node -> {
+            assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.FUNCTION);
+            assertThat(node.nodeType()).isEqualTo("abs");
+        });
+    }
+
+    private static Plan nestedPlan() {
+        var result = new SqlCompiler().compileForPolicyApplication(
+                "SELECT ARRAY[ROW(ABS(x),x)] FROM (SELECT 1 AS x) t");
+        return new SubstraitConverter().convert(result.plan());
+    }
 
     @Test
     void partialNativeWhenRegistryMissingSomeRelTypes() {

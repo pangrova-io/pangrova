@@ -62,6 +62,8 @@ public final class PlannerTypeSystem extends RelDataTypeSystemImpl {
     @Override
     public int getDefaultPrecision(SqlTypeName typeName) {
         return switch (typeName) {
+            // Pangrova FLOAT is FP32, unlike Calcite's default double-precision FLOAT.
+            case FLOAT -> super.getDefaultPrecision(SqlTypeName.REAL);
             case TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE, TIMESTAMP_TZ,
                     TIME, TIME_WITH_LOCAL_TIME_ZONE, TIME_TZ -> 6;
             default -> super.getDefaultPrecision(typeName);

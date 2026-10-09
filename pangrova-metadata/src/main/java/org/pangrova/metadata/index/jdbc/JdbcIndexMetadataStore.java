@@ -400,21 +400,21 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
 
     @Override
     public void batchInsertFileStatistics(
-            String catalog, String schema, String table,
+            String tenantId, String catalog, String schema, String table,
             List<DataFileStatistics> statistics) {
-        statisticsStore.batchInsertFileStatistics(catalog, schema, table, statistics);
+        statisticsStore.batchInsertFileStatistics(tenantId, catalog, schema, table, statistics);
     }
 
     @Override
-    public void deleteFileStatistics(String catalog, String schema, String table,
+    public void deleteFileStatistics(String tenantId, String catalog, String schema, String table,
                                      List<String> dataFilePaths) {
-        statisticsStore.deleteFileStatistics(catalog, schema, table, dataFilePaths);
+        statisticsStore.deleteFileStatistics(tenantId, catalog, schema, table, dataFilePaths);
     }
 
     @Override
     public Map<String, List<FileColumnStatistics>> getFileStatistics(
-            String catalog, String schema, String table,
+            String tenantId, String catalog, String schema, String table, String snapshotId,
             List<String> dataFilePaths, List<String> columns) {
-        return statisticsStore.getFileStatistics(catalog, schema, table, dataFilePaths, columns);
+        return statisticsStore.getFileStatistics(tenantId, catalog, schema, table, snapshotId, dataFilePaths, columns);
     }
 }

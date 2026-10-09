@@ -59,6 +59,13 @@ class CoordinatorWorkerProtocolPropertyTest {
 
     private static final String WORKER_ID = "w-proto";
     private static final AtomicLong SEQ = new AtomicLong(0);
+    private final java.util.ArrayList<RemoteTaskDispatcher> ownedDispatchers = new java.util.ArrayList<>();
+
+    @net.jqwik.api.lifecycle.AfterProperty
+    void closeDispatchers() {
+        ownedDispatchers.forEach(RemoteTaskDispatcher::close);
+        ownedDispatchers.clear();
+    }
 
     // ── Property 36: SubmitTaskRequest field completeness ──
 
@@ -132,8 +139,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(qm, tracker, wm));
 
-        tracker.registerTask(queryId, taskId);
-        tracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.of(1, 0));
+        issueRequest(tracker, queryId, taskId, TaskAttemptDescriptor.of(1, 0));
         tracker.markScheduled(queryId, taskId);
 
         QueryStateMachine sm = new QueryStateMachine();
@@ -145,16 +151,20 @@ class CoordinatorWorkerProtocolPropertyTest {
         long seq2 = SEQ.incrementAndGet();
 
         // First report accepted
-        boolean accepted1 = receiver.onTaskStatus(report(taskId, queryId, "RUNNING", seq2));
+        var acceptedReport = report(taskId, queryId, "RUNNING", seq2);
+        boolean accepted1 = receiver.onTaskStatus(acceptedReport);
         assertThat(accepted1).isTrue();
 
         // Stale report (lower sequence) rejected
         boolean accepted2 = receiver.onTaskStatus(report(taskId, queryId, "RUNNING", seq1));
         assertThat(accepted2).as("Stale report with seq=%d should be rejected", seq1).isFalse();
 
-        // Equal sequence also rejected
-        boolean accepted3 = receiver.onTaskStatus(report(taskId, queryId, "RUNNING", seq2));
-        assertThat(accepted3).as("Duplicate seq=%d should be rejected", seq2).isFalse();
+        // An exact lost-ACK replay is acknowledged, but cannot change the frozen fact.
+        assertThat(receiver.onTaskStatus(acceptedReport)).isTrue();
+        var changedFact = new TaskStatusReport(taskId, queryId, 0, 0, "COMPUTE", WORKER_ID,
+                "RUNNING", null, null, null, seq2, acceptedReport.timestampMs() + 1,
+                null, null, acceptedReport.attempt());
+        assertThat(receiver.onTaskStatus(changedFact)).isFalse();
     }
 
     @Example
@@ -175,15 +185,30 @@ class CoordinatorWorkerProtocolPropertyTest {
     }
 
     @Example
+    void attemptWithoutExactIssuedRequestCannotOwnAPublication() {
+        var tracker = new CoordinatorTaskTracker();
+        var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        workers.registerWorker(TestWorkerInfoBuilder.active(WORKER_ID, "localhost", 8080, 9090));
+        tracker.registerTask("unbound-query", "unbound-task");
+        tracker.registerTaskAttempt("unbound-task", TaskAttemptDescriptor.of(1, 0));
+        tracker.markScheduled("unbound-query", "unbound-task");
+        var receiver = new TaskStatusReceiver(TaskStatusReceiverContext.withoutSpeculation(
+                buildMinimalQueryManager(tracker, workers), tracker, workers));
+
+        assertThat(receiver.onTaskStatus(report("unbound-task", "unbound-query", "RUNNING", 1L))).isFalse();
+        assertThat(tracker.getTaskState("unbound-query", "unbound-task"))
+                .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.SCHEDULED);
+    }
+
+    @Example
     void staleAttemptIsRejectedBeforeSequenceIsConsumed() {
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         WorkerManager wm = new WorkerManager(
                 20_000, 60_000, new InMemoryWorkerRegistry());
         wm.registerWorker(TestWorkerInfoBuilder.active(
                 WORKER_ID, "localhost", 8080, 9090));
-        tracker.registerTask("q-fence", "t-fence");
         TaskAttemptDescriptor expected = TaskAttemptDescriptor.of(2, 1);
-        tracker.registerTaskAttempt("t-fence", expected);
+        issueRequest(tracker, "q-fence", "t-fence", expected);
         tracker.markScheduled("q-fence", "t-fence");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(
@@ -207,10 +232,7 @@ class CoordinatorWorkerProtocolPropertyTest {
                 WORKER_ID, "localhost", 8080, 9090));
         wm.registerWorker(TestWorkerInfoBuilder.active(
                 "w-other", "localhost", 8081, 9091));
-        tracker.registerTask("q-worker-fence", "t-worker-fence");
-        tracker.registerTaskAttempt(
-                "t-worker-fence", TaskAttemptDescriptor.of(1, 0));
-        tracker.assignWorker("t-worker-fence", WORKER_ID);
+        issueRequest(tracker, "q-worker-fence", "t-worker-fence", TaskAttemptDescriptor.of(1, 0));
         tracker.markScheduled("q-worker-fence", "t-worker-fence");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(
@@ -632,10 +654,23 @@ class CoordinatorWorkerProtocolPropertyTest {
         }
     }
 
-    private static QueryManager buildMinimalQueryManager(
+    private static void issueRequest(CoordinatorTaskTracker tracker, String queryId,
+                                     String taskId, TaskAttemptDescriptor attempt) {
+        tracker.openQueryIssuance(queryId);
+        tracker.registerTask(queryId, taskId);
+        var canonical = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                taskId, queryId, 0, 0, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, new byte[]{1});
+        canonical.setAttempt(canonical.getAttempt().toBuilder().setPlanEpoch(attempt.planEpoch())
+                .setAttemptId(attempt.attemptId()).setFencingToken(attempt.fencingToken()));
+        tracker.registerTaskRequest(taskId, SubmitTaskRequest.from(canonical.build()));
+        tracker.assignWorker(taskId, WORKER_ID);
+    }
+
+    private QueryManager buildMinimalQueryManager(
             CoordinatorTaskTracker tracker, WorkerManager workerManager) {
         var dispatcher = new RemoteTaskDispatcher(
                 CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
+        ownedDispatchers.add(dispatcher);
         var scheduler = new TaskScheduler(new WorkerPerformanceScorer());
         var deps = QueryDispatcherContext.withDefaults(
                 new SqlCompiler(), null, null, null, dispatcher, scheduler,

@@ -12,17 +12,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * {@link CpuSchedulingProvider} backed by {@link ResourcePool} definitions.
  *
- * <p>Bridges the gap between tenant resource pool configuration (which already
- * carries {@code cpuShare}) and the CPU scheduling SPI that the coordinator's
- * {@code TaskScheduler} and worker's {@code WeightedFairScheduler} consume.</p>
- *
- * <p>Resolves G-RES-02: the existing {@code ResourcePool.cpuShare()} field was
- * defined but never fed to any scheduling component. This provider reads pool
- * definitions and translates them to {@link CpuSchedulingConfig} entries.</p>
- *
- * <p>On startup, the coordinator populates this provider from
- * {@link ResourcePoolManager}'s pools; dynamic updates (ALTER RESOURCE GROUP)
- * are applied via {@link #updateConfig}.</p>
+ * <p>Translates registered pool definitions to {@link CpuSchedulingConfig} entries.
+ * This is an experimental configuration component: no production assembly currently
+ * registers this provider or consumes it in Worker/Native CPU scheduling. Registering
+ * a pool here does not enforce CPU shares, dedicated cores or execution concurrency.</p>
  */
 public final class ResourcePoolCpuSchedulingProvider implements CpuSchedulingProvider {
 

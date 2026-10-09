@@ -33,14 +33,31 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Actual registry, service, governance, and Ollama HTTP; not SQL/JNI E2E. */
 class GovernedProviderIntegrationTest extends ContainerTestBase {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(GovernedProviderIntegrationTest.class);
     private static GenericContainer<?> ollama;
     private GovernedAiTestModels models;
     private String taskId;
+
+    @org.junit.jupiter.api.extension.RegisterExtension
+    final org.junit.jupiter.api.extension.TestWatcher providerDiagnostics = new org.junit.jupiter.api.extension.TestWatcher() {
+        @Override
+        public void testFailed(org.junit.jupiter.api.extension.ExtensionContext context, Throwable cause) {
+            if (ollama != null && ollama.isRunning()) {
+                String logs = ollama.getLogs();
+                LOG.error("event=actual_provider_test_failed test={} providerLog={}", context.getDisplayName(),
+                        logs.substring(Math.max(0, logs.length() - 16_384)), cause);
+            }
+        }
+    };
 
     @BeforeAll
     static void startRealModels() throws Exception {
         isDockerReady();
         ollama = new GenericContainer<>(DockerImageName.parse("ollama/ollama:0.6.2"))
+                // This actual CPU deployment owns one model/runner slot; the
+                // provider queue still accepts the admitted concurrent calls.
+                .withEnv("OLLAMA_NUM_PARALLEL", "1")
+                .withEnv("OLLAMA_MAX_LOADED_MODELS", "1")
                 .withExposedPorts(11434)
                 .waitingFor(Wait.forHttp("/api/tags").forStatusCode(200)
                         .withStartupTimeout(Duration.ofMinutes(3)));

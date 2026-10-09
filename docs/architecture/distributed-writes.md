@@ -432,6 +432,31 @@ commit path):
 
 ## Native dataset metadata commands
 
+### Execution-anchor renewal
+
+Query admission and task stamping use a local control-only ownership cache;
+side-effecting commits still validate the durable backend fence. Renewal returns
+the exact immutable anchors committed by one backend batch, including execution
+ID, owner/incarnation, token and backend-clock expiry. A scalar count cannot
+establish ownership under concurrent acquisition or completion.
+
+The JDBC batch locks the owned rows before evaluating eligibility and uses the
+database's live clock for both the expiry check and the new deadline. A renewal
+blocked on a row lock must not revive a lease that expired while it waited;
+transaction-start timestamps cannot establish that invariant.
+
+The process-wide renewal scheduler snapshots query fences before its single
+batch, checks each still-owned fence against the receipt, invalidates lost
+entries and refreshes publication deadlines. Additional maintenance anchors
+cannot conceal a missing query fence. Query acquisition uses that process
+authority's lease duration; it does not inherit a different control-election
+TTL. Standalone HA consumes the same receipt contract. Completion and yield
+mark local entries unusable before backend I/O; a backend exception retains
+the exact entry for an explicit retry. Backend I/O never runs under a cache
+lock. These are control-plane changes, not Coordinator row execution or a new
+AI/vector protocol. Broader failure recovery and production acceptance gates
+remain required.
+
 The canonical runtime exposes `DATASET_SCHEMA_FINGERPRINT` and
 `FINALIZE_DISTRIBUTED_WRITE`. Neither command carries data rows. Schema
 fingerprinting reuses execution's Substrait `NamedStruct` conversion (including

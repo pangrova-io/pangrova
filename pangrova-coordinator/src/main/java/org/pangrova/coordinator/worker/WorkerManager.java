@@ -41,6 +41,7 @@ public class WorkerManager {
     private final long deadThresholdMs;
     private final WorkerRegistry registry;
     private final ConcurrentHashMap<String, WorkerInfo> workers = new ConcurrentHashMap<>();
+    private final WorkerCapabilityInventoryPool inventoryPool = new WorkerCapabilityInventoryPool();
     private final List<TopologyListener> topologyListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile LongCounter listenerFailureCounter;
     private volatile ClusterTenantUsageAggregator tenantUsageAggregator;
@@ -108,8 +109,9 @@ public class WorkerManager {
 
     public void registerWorker(WorkerInfo info) {
         checkNotNull(info, "WorkerInfo must not be null");
-        registry.register(toSnapshot(info));
-        workers.put(info.workerId(), info);
+        WorkerInfo registered = inventoryPool.share(info);
+        registry.register(toSnapshot(registered));
+        workers.put(registered.workerId(), registered);
         fireTopologyChanged();
     }
 
@@ -326,7 +328,7 @@ public class WorkerManager {
     public void loadFromRegistry() {
         List<WorkerSnapshot> active = registry.getActiveWorkers(Duration.ofMillis(deadThresholdMs));
         for (WorkerSnapshot snapshot : active) {
-            WorkerInfo info = fromSnapshot(snapshot);
+            WorkerInfo info = inventoryPool.share(fromSnapshot(snapshot));
             workers.put(info.workerId(), info);
         }
         fireTopologyChanged();
@@ -349,7 +351,7 @@ public class WorkerManager {
         }
         return registry.getWorker(workerId)
                 .map(snapshot -> {
-                    WorkerInfo info = fromSnapshot(snapshot);
+                    WorkerInfo info = inventoryPool.share(fromSnapshot(snapshot));
                     workers.putIfAbsent(info.workerId(), info);
                     fireTopologyChanged();
                     LOG.info("event=worker_recovered_from_registry workerId={}", workerId);
@@ -378,7 +380,7 @@ public class WorkerManager {
         return registry.expireStale(threshold);
     }
 
-    private static WorkerSnapshot toSnapshot(WorkerInfo info) {
+    private WorkerSnapshot toSnapshot(WorkerInfo info) {
         return new WorkerSnapshot(
                 info.workerId(),
                 info.host(),
@@ -395,7 +397,7 @@ public class WorkerManager {
                 info.lastHeartbeat().toEpochMilli(),
                 info.resultServerPort(),
                 info.cacheSummary(),
-                CapabilityInventoryCodec.encode(info.capabilityInventory()));
+                inventoryPool.encode(info.capabilityInventory()));
     }
 
     private static HeartbeatSnapshot toHeartbeatSnapshot(HeartbeatData data) {

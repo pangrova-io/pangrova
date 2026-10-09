@@ -49,6 +49,7 @@ class NativeCapabilityRegistryTest {
         assertThat(registry.isExprSupported("Cast")).isTrue();
         assertThat(registry.isExprSupported("IfThen")).isTrue();
         assertThat(registry.isExprSupported("WindowFunction")).isTrue();
+        assertThat(registry.isExprSupported("Nested")).isTrue();
     }
 
     @Test
@@ -60,6 +61,7 @@ class NativeCapabilityRegistryTest {
         assertThat(registry.isFunctionSupported("gt")).isTrue();
         assertThat(registry.isFunctionSupported("lt")).isTrue();
         assertThat(registry.isFunctionSupported("add")).isTrue();
+        assertThat(registry.isFunctionSupported("round")).isTrue();
         assertThat(registry.isFunctionSupported("sum")).isTrue();
         assertThat(registry.isFunctionSupported("count")).isTrue();
         assertThat(registry.isFunctionSupported("row_number")).isTrue();

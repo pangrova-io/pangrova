@@ -40,7 +40,7 @@
 #include "velox/runtime/NativeEngineLifecycle.h"
 #include "velox/runtime/TableFunctionRegistry.h"
 
-#include "velox/plan/GeneratedVectorShape.h"
+#include "capability/LogicalTypeContract.h"
 
 namespace pangrova::velox {
 
@@ -160,7 +160,7 @@ VeloxPlanConverter::convertGeneratedValuesOverlay(
       target_column = value.string_value();
     } else if (property.name() == "output_type" && value.has_string_value()) {
       output_type_dimension =
-          parseGeneratedVectorDimension(value.string_value());
+          capability::requireCanonicalFloatVectorDimension(value.string_value());
     } else if (property.name() == "vector_dimension" &&
                value.has_int64_value() && value.int64_value() > 0 &&
                value.int64_value() <=

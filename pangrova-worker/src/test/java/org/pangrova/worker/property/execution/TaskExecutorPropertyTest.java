@@ -11,6 +11,7 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.spi.execution.TaskExecutor;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.execution.NativeTaskExecutor;
+import org.pangrova.worker.execution.NativeTaskCreationFailure;
 import org.pangrova.worker.jni.NativeBridgeException;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.jni.NativeRuntimeException;
@@ -41,10 +42,18 @@ class TaskExecutorPropertyTest {
             Map.entry("getTaskStats", "nativeGetTaskStats"));
 
     @Property(tries = 10)
-    void createTaskEitherReturnsHandleOrThrows(@ForAll("taskRequestBytes") byte[] input) {
+    void malformedTaskRequestRetainsExactRejectionWithoutNativeOwner(@ForAll("taskRequestBytes") byte[] input) {
         try (var runtime = new ActualNativeTaskFixture()) {
             assertThatThrownBy(() -> runtime.executor().createTask(input))
-                    .isInstanceOf(NativeRuntimeException.class);
+                    .isInstanceOfSatisfying(NativeTaskCreationFailure.class, failure -> {
+                        assertThat(failure.actualHandle()).isZero();
+                        assertThat(failure.withoutNativeOwner()).isTrue();
+                        assertThat(failure.getCause()).isInstanceOfSatisfying(NativeRuntimeException.class,
+                                cause -> assertThat(cause.getErrorCode()).isEqualTo(
+                                        org.pangrova.common.exception.PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED));
+                    });
+            assertThat(runtime.nodePool().getUsedBytes()).isZero();
+            assertThat(runtime.arbitrator().getUsedMemory()).isZero();
             long valid = runtime.createPending(runtime.valuesRequest(false));
             assertThat(valid).isPositive();
             runtime.executor().releaseTask(valid);

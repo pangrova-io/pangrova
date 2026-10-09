@@ -41,6 +41,9 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     public static final String RUNTIME_LOCK = "pangrova-packaged-native-runtime";
     public static final long TASK_MEMORY_BYTES = 64L * 1024 * 1024;
     public static final long TOTAL_MEMORY_BYTES = 1024L * 1024 * 1024;
+    private static final java.util.concurrent.atomic.AtomicReference<ActualNativeTaskFixture> RUNTIME_OWNER =
+            new java.util.concurrent.atomic.AtomicReference<>();
+    private boolean closed;
 
     private final MemoryArbitrator arbitrator = new MemoryArbitrator(TOTAL_MEMORY_BYTES, 0);
     private final NodeMemoryPool nodePool = new RootMemoryPool("jni-fixture-root", TOTAL_MEMORY_BYTES)
@@ -53,16 +56,28 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     private final ResultReadTickets tickets;
 
     public ActualNativeTaskFixture() {
-        if (NativeRuntime.isInitialized()) {
+        if (!RUNTIME_OWNER.compareAndSet(null, this)) {
             throw new IllegalStateException("A different fixture still owns the Native runtime");
         }
-        var config = TestShuffleServiceConfig.config(WorkerBootstrapConfig.withDefaults("actual-jni-fixture"));
-        var endpoints = initializeRuntime(config);
-        executor = endpoints.executor();
-        results = endpoints.results();
-        exchange = endpoints.exchange();
-        tickets = endpoints.tickets();
-        transports = new TransportRefs(new NativeShuffleTransport(executor, "127.0.0.1", ""), results, exchange);
+        boolean acquisitionStarted = false;
+        try {
+            if (NativeRuntime.isInitialized()) {
+                throw new IllegalStateException("A different owner still owns the Native runtime");
+            }
+            var config = TestShuffleServiceConfig.config(WorkerBootstrapConfig.withDefaults("actual-jni-fixture"));
+            acquisitionStarted = true;
+            var endpoints = initializeRuntime(config);
+            executor = endpoints.executor();
+            results = endpoints.results();
+            exchange = endpoints.exchange();
+            tickets = endpoints.tickets();
+            transports = new TransportRefs(new NativeShuffleTransport(executor, "127.0.0.1", ""), results, exchange);
+        } catch (RuntimeException | Error failure) {
+            // A failed real drain retains the claim. Never let a shrinking
+            // property initialize/retire another fixture's process-wide owner.
+            if (!acquisitionStarted || !NativeRuntime.isInitialized()) RUNTIME_OWNER.compareAndSet(this, null);
+            throw failure;
+        }
     }
 
     private Endpoints initializeRuntime(WorkerBootstrapConfig config) {
@@ -116,6 +131,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     public NodeMemoryPool nodePool() { return nodePool; }
     public TransportRefs transports() { return transports; }
     public int resultPort() { return results.boundPort(); }
+    public ResultReadTickets resultTickets() { return tickets; }
     public String resultTicket(TaskRequest request) { return tickets.issue(request); }
 
     /** Uses the authoritative generated Substrait payload, not a synthetic plan decoder. */
@@ -195,7 +211,8 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
+        if (closed) return;
         // Stop readers and their final buffers before joining handles. A failed
         // release must remain retryable rather than shutting down its runtime.
         stopTransports();
@@ -205,6 +222,10 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
         if (nodePool.getUsedBytes() != 0
                 || arbitrator.getUsedMemory() != 0) {
             throw new IllegalStateException("Actual Native shutdown retained memory reservations");
+        }
+        closed = true;
+        if (!RUNTIME_OWNER.compareAndSet(this, null)) {
+            throw new IllegalStateException("Actual Native fixture lost its exclusive ownership claim");
         }
     }
 

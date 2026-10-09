@@ -44,7 +44,8 @@ class InMemoryExecutionAnchorStoreTest {
         store.tryAcquire("q-3", "a", "a-2", Duration.ofSeconds(10)).orElseThrow();
         clock.advance(Duration.ofSeconds(2));
 
-        assertThat(store.renewOwned("a", "a-1", Duration.ofSeconds(10))).isEqualTo(1);
+        assertThat(store.renewOwned("a", "a-1", Duration.ofSeconds(10)))
+                .containsExactly(store.current("q-1").orElseThrow());
         assertThat(store.current("q-1")).isPresent();
         assertThat(store.current("q-2")).isEmpty();
         assertThat(store.current("q-3")).isPresent();

@@ -166,6 +166,7 @@ class CoordinatorTaskTrackerTest {
 
     @Test
     void taskIdentityAtomicallyAddsRequestToPreparedAttempt() {
+        tracker.openQueryIssuance(QUERY_ID);
         TaskAttemptDescriptor attempt = TaskAttemptDescriptor.of(4, 2);
         SubmitTaskRequest request = request("t-identity", attempt);
 
@@ -178,6 +179,7 @@ class CoordinatorTaskTrackerTest {
 
     @Test
     void taskIdentityRejectsConflictingAttemptWithoutReplacingOriginal() {
+        tracker.openQueryIssuance(QUERY_ID);
         TaskAttemptDescriptor original = TaskAttemptDescriptor.of(4, 1);
         tracker.registerTaskAttempt("t-identity", original);
 
@@ -191,6 +193,7 @@ class CoordinatorTaskTrackerTest {
 
     @Test
     void unregisterTaskRequestRemovesOnlyMatchingPreparedIdentity() {
+        tracker.openQueryIssuance(QUERY_ID);
         SubmitTaskRequest request = request(
                 "t-identity", TaskAttemptDescriptor.of(1, 0));
         tracker.registerTaskRequest("t-identity", request);

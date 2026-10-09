@@ -49,7 +49,7 @@ class RequestLimitControlIsolationTest {
                 .register(new AuthenticationFilter(authentication, SECRET))
                 .register(CoordinatorExceptionMapper.class)
                 .register(org.glassfish.jersey.jackson.JacksonFeature.class)
-                .register(UserEndpoint.class).register(ControlEndpoint.class);
+                .register(UserEndpoint.class).register(ControlEndpoint.class).register(RegistrationEndpoint.class);
         var handler = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
         handler.setContextPath("/");
         handler.addServlet(new ServletHolder(new ServletContainer(config)), "/*");
@@ -119,6 +119,49 @@ class RequestLimitControlIsolationTest {
         assertThat(rejected.body()).contains("PAYLOAD_TOO_LARGE");
     }
 
+    @Test
+    void authenticatedRegistrationAcceptsTheBoundedCanonicalInventoryEnvelope() throws Exception {
+        int maximum = 4 * 1024 * 1024 + 64 * 1024;
+        var response = postRegistration("Bearer " + SECRET,
+                HttpRequest.BodyPublishers.ofByteArray(new byte[maximum]));
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo(Integer.toString(maximum));
+    }
+
+    @Test
+    void authenticatedRegistrationRejectsDeclaredEnvelopeOverflow() throws Exception {
+        var response = postRegistration("Bearer " + SECRET,
+                HttpRequest.BodyPublishers.ofByteArray(new byte[4 * 1024 * 1024 + 64 * 1024 + 1]));
+        assertThat(response.statusCode()).isEqualTo(413);
+    }
+
+    @Test
+    void authenticatedRegistrationRejectsChunkedEnvelopeOverflow() throws Exception {
+        var response = postRegistration("Bearer " + SECRET,
+                HttpRequest.BodyPublishers.ofInputStream(() ->
+                        new java.io.ByteArrayInputStream(new byte[4 * 1024 * 1024 + 64 * 1024 + 1])));
+        assertThat(response.statusCode()).isEqualTo(413);
+        assertThat(response.body()).contains("PAYLOAD_TOO_LARGE");
+    }
+
+    @Test
+    void ordinaryUserCannotBorrowTheRegistrationEnvelopeAllowance() throws Exception {
+        assertThat(postRegistration("Bearer user", HttpRequest.BodyPublishers.ofByteArray(new byte[129]))
+                .statusCode()).isEqualTo(413);
+    }
+
+    @Test
+    void forgedInternalTokenCannotBorrowTheRegistrationEnvelopeAllowance() throws Exception {
+        assertThat(postRegistration("Bearer forged", HttpRequest.BodyPublishers.ofByteArray(new byte[129]))
+                .statusCode()).isEqualTo(401);
+    }
+
+    private HttpResponse<String> postRegistration(String authorization, HttpRequest.BodyPublisher body)
+            throws Exception {
+        return client.send(HttpRequest.newBuilder(base.resolve("/v1/workers/register"))
+                .header("Authorization", authorization).POST(body).build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     private HttpResponse<String> get(String path, String auth, String forwarded) throws Exception {
         var builder = HttpRequest.newBuilder(base.resolve(path)).header("Authorization", auth).GET();
         if (forwarded != null) builder.header("X-Forwarded-For", forwarded);
@@ -139,6 +182,15 @@ class RequestLimitControlIsolationTest {
             return "control";
         }
 
+        @POST
+        public String post(@Context ContainerRequestContext context, byte[] body) {
+            AuthenticationFilter.requireInternalServiceIdentity(context);
+            return Integer.toString(body.length);
+        }
+    }
+
+    @Path("/v1/workers/register")
+    public static class RegistrationEndpoint {
         @POST
         public String post(@Context ContainerRequestContext context, byte[] body) {
             AuthenticationFilter.requireInternalServiceIdentity(context);

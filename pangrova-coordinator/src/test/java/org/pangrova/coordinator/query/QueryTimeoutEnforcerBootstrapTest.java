@@ -19,7 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Verifies QueryTimeoutEnforcer is started and stopped with the
  * Coordinator lifecycle, and that it correctly times out queries.
  */
-class QueryTimeoutEnforcerBootstrapTest {
+class QueryTimeoutEnforcerBootstrapTest extends
+        org.pangrova.coordinator.testinfra.SignedOidcCoordinatorTestBase {
 
     private CoordinatorBootstrap bootstrap;
 
@@ -88,7 +89,7 @@ class QueryTimeoutEnforcerBootstrapTest {
     private CoordinatorBootstrap startCoordinator() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 "coord-timeout-test", 0);
-        CoordinatorBootstrap b = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap b = new CoordinatorBootstrap(withControlAuthentication(config));
         b.start();
         return b;
     }

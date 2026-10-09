@@ -84,7 +84,7 @@ final class TaskHttpTransport implements AutoCloseable {
             var request = forwardedRequest(exchange, body);
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
             if (held) postResponse.complete(response);
-            if ("DELETE".equals(exchange.getRequestMethod()) && response.statusCode() == 200
+            if ("DELETE".equals(exchange.getRequestMethod())
                     && isCapturedTask(exchange.getRequestURI().getPath())) {
                 drainResponse.complete(response);
             }

@@ -18,7 +18,11 @@ class TaskManagerZeroHandleTest {
         try (var runtime = new ActualNativeTaskFixture()) {
             long available = runtime.arbitrator().getAvailableMemory();
             assertThatThrownBy(() -> runtime.executor().createTask(new byte[]{(byte) 0x80}))
-                    .isInstanceOf(NativeRuntimeException.class);
+                    .isInstanceOfSatisfying(org.pangrova.worker.execution.NativeTaskCreationFailure.class, failure -> {
+                        assertThat(failure.actualHandle()).isZero();
+                        assertThat(failure.withoutNativeOwner()).isTrue();
+                        assertThat(failure.getCause()).isInstanceOf(NativeRuntimeException.class);
+                    });
             assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
             var request = runtime.valuesRequest(false);
             long handle = runtime.createPending(request);
@@ -33,7 +37,7 @@ class TaskManagerZeroHandleTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-positive-handle")) {
             var info = tasks.submit(runtime.valuesRequest(true));
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             assertThat(info.executorHandle()).isPositive();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             assertThat(info.executorHandle()).isZero();

@@ -26,6 +26,9 @@ public record WorkerRegistrationRequest(
         @JsonProperty("shuffle_mode") String shuffleMode,
         @JsonProperty("capability_inventory") String capabilityInventory) {
 
+    /** Canonical inventory plus bounded JSON framing, addresses and locality metadata. */
+    public static final int MAX_BODY_BYTES = CapabilityInventoryCodec.MAX_ENCODED_BYTES + 64 * 1024;
+
     public WorkerRegistrationRequest {
         requireNonBlank(workerId, "workerId");
         requireNonBlank(httpHost, "httpHost");

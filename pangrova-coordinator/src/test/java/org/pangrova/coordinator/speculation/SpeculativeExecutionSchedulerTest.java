@@ -46,6 +46,7 @@ class SpeculativeExecutionSchedulerTest {
     private QueryManager queryManager;
     private SpeculativeExecutionScheduler scheduler;
     private WorkerManager workerManager;
+    private RemoteTaskDispatcher transport;
 
     @BeforeEach
     void setUp() {
@@ -61,6 +62,9 @@ class SpeculativeExecutionSchedulerTest {
                 worker.host(), request.taskRequest().getAttempt().getTaskId(),
                 new ResultEndpoint(worker.host(), worker.httpPort(), "result", "grpc")),
                 workerManager, taskTracker);
+        launcher.setCancelRetrier(new org.pangrova.coordinator.task.TaskCancelRetrier(
+                (request, worker) -> { throw new AssertionError("Cancellation is outside this scheduler test"); },
+                taskTracker));
         queryManager = buildMinimalQueryManager();
     }
 
@@ -69,6 +73,7 @@ class SpeculativeExecutionSchedulerTest {
         if (scheduler != null) {
             scheduler.close();
         }
+        if (transport != null) transport.close();
     }
 
     @Test
@@ -159,9 +164,9 @@ class SpeculativeExecutionSchedulerTest {
     private QueryManager buildMinimalQueryManager() {
         var scorer = new WorkerPerformanceScorer();
         var taskScheduler = new TaskScheduler(scorer);
-        var rtd = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
+        transport = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
         var ctx = QueryDispatcherContext.withDefaults(
-                new SqlCompiler(), null, null, null, rtd, taskScheduler,
+                new SqlCompiler(), null, null, null, transport, taskScheduler,
                 workerManager, taskTracker, null, null, null, 0L);
         var dispatcher = new QueryDispatcher(ctx, null, null);
         return new QueryManager(QueryManagerContext.minimal(dispatcher, new NoOpTracingProvider()));

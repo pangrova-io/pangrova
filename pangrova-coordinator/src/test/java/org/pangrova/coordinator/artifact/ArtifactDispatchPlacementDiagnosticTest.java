@@ -6,10 +6,6 @@ import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
-import org.pangrova.protocol.v2.CapabilityDescriptor;
-import org.pangrova.protocol.v2.CapabilityKind;
-import org.pangrova.protocol.v2.ExecutionMode;
-import org.pangrova.protocol.v2.ExecutionPlacement;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.resource.MemoryPressure;
 
@@ -26,16 +22,12 @@ class ArtifactDispatchPlacementDiagnosticTest {
     void explicitGrantAboveEveryCapableWorkerReportsResourceExhaustion() {
         var ref = BuiltInCapabilityCatalog.hnswArtifactBuildPlanRef();
         var format = BuiltInCapabilityCatalog.hnswArtifactFormat();
-        var inventory = TestWorkerInfoBuilder.canonicalInventory().toBuilder()
-                .addCapabilities(CapabilityDescriptor.newBuilder()
-                        .setRef(ref.toBuilder()
-                                .setImplementationBuildId(format.getWriterBuildId()))
-                        .setKind(CapabilityKind.CAPABILITY_KIND_BACKGROUND_SINK)
-                        .setPlacement(ExecutionPlacement.EXECUTION_PLACEMENT_NATIVE)
-                        .addExecutionModes(ExecutionMode.EXECUTION_MODE_BATCH)
-                        .setRequiredPrivilege("CREATE INDEX")
-                        .addSupportedArtifactFormats(format))
-                .build();
+        var inventory = TestWorkerInfoBuilder.canonicalInventory();
+        assertThat(inventory.getCapabilitiesList()).anySatisfy(capability -> {
+            assertThat(capability.getRef().getCapabilityId()).isEqualTo(ref.getCapabilityId());
+            assertThat(capability.getRef().getImplementationBuildId()).isEqualTo(format.getWriterBuildId());
+            assertThat(capability.getSupportedArtifactFormatsList()).contains(format);
+        });
         WorkerInfo worker = new WorkerInfo(
                 "worker", "localhost", 8080, 9090, 9191,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0,

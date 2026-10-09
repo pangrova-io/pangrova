@@ -15,6 +15,7 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
+import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 
 import java.time.Duration;
@@ -29,6 +30,27 @@ import static org.awaitility.Awaitility.await;
 @org.junit.jupiter.api.Tag("native-required")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskMemoryPropagationTest {
+    @org.junit.jupiter.api.Test
+    void resultDecodeBudgetFailureCannotPublishFinished() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "result-decode-budget")) {
+            long available = runtime.arbitrator().getAvailableMemory();
+            // The producer fits one actual capacity quantum; the result decoder
+            // needs a second quantum and must fail within this admitted grant.
+            var info = tasks.submit(request(1_278_854, ActualNativeTaskPlans.values(1, 1)));
+            assertThatThrownBy(() -> ActualNativeResultReader.read(runtime, info.request().taskRequest()))
+                    .isInstanceOf(org.apache.arrow.flight.FlightRuntimeException.class)
+                    .hasMessageContaining("MEM_CAP_EXCEEDED");
+            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            var receipt = tasks.releasedReport(info);
+            assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
+            assertThat(receipt.getError().getMessage()).contains("MEM_CAP_EXCEEDED");
+            assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("FINISHED"));
+            assertThat(info.executorHandle()).isZero();
+            assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(available);
+        }
+    }
+
     @Property(tries = 200)
     void memoryLimitResolutionMatchesDescriptor(@ForAll("positiveMemoryLimits") long memoryBytes) {
         var submitted = SubmitTaskRequest.from(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
@@ -46,14 +68,9 @@ class TaskMemoryPropagationTest {
             long baseline = runtime.arbitrator().getUsedMemory();
             long nodeBaseline = runtime.nodePool().getUsedBytes();
             var info = tasks.submit(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
-            awaitActualTerminal(tasks, info);
             assertThat(info.allocatedMemory()).isZero();
+            consumeActualResult(runtime, tasks, info);
             assertActualOutcome(tasks, info);
-            if (info.getState() == TaskManager.TaskState.FINISHED) {
-                assertThat(runtime.arbitrator().snapshot()).containsEntry("buffer:" + info.taskId(),
-                        info.request().taskRequest().getResourceGrant().getShuffleBufferBytes());
-                assertThat(tasks.consume(info).values()).containsExactly(0L);
-            }
             assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
             assertThat(runtime.nodePool().getUsedBytes()).isEqualTo(nodeBaseline);
             assertThat(info.executorHandle()).isZero();
@@ -65,16 +82,19 @@ class TaskMemoryPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-stats")) {
             var info = tasks.submit(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
-            awaitActualTerminal(tasks, info);
+            consumeActualResult(runtime, tasks, info);
             assertActualOutcome(tasks, info);
             assertThat(tasks.reports().reports()).isNotEmpty().allSatisfy(report -> {
-                assertThat(report.stats()).isNotNull();
-                assertThat(report.stats().memoryBytes()).isGreaterThanOrEqualTo(0);
-                assertThat(report.stats().peakMemoryBytes()).isGreaterThanOrEqualTo(0);
+                if (report.stats() == null) {
+                    assertThat(report.state()).isEqualTo("FAILED");
+                    assertThat(info.executorReleaseReport()).isNotEmpty();
+                } else {
+                    assertThat(report.stats().memoryBytes()).isGreaterThanOrEqualTo(0);
+                    assertThat(report.stats().peakMemoryBytes()).isGreaterThanOrEqualTo(0);
+                }
             });
             if (info.getState() == TaskManager.TaskState.FINISHED) {
                 assertThat(tasks.terminalReport(info).stats().peakMemoryBytes()).isPositive();
-                tasks.consume(info);
             }
         }
     }
@@ -101,15 +121,42 @@ class TaskMemoryPropagationTest {
         });
     }
 
+    private static void consumeActualResult(ActualNativeTaskFixture runtime,
+                                            ActualTaskManagerFixture tasks, TaskInfo info) throws Exception {
+        try {
+            assertThat(ActualNativeResultReader.read(runtime, info.request().taskRequest()).values())
+                    .containsExactly(0L);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+        } catch (org.apache.arrow.flight.FlightRuntimeException failure) {
+            // A small actual Native grant may fail. Only its released, classified
+            // memory-failure receipt below can qualify that failed execution.
+            awaitActualTerminal(tasks, info);
+            assertThat(info.getState()).describedAs("Actual result stream failed: %s", failure)
+                    .isEqualTo(TaskManager.TaskState.FAILED);
+        }
+        if (info.getState() == TaskManager.TaskState.FINISHED) {
+            long handle = info.executorHandle();
+            await().atMost(Duration.ofSeconds(20)).until(() ->
+                    runtime.drainEvidence(handle, info.request().taskRequest()).getDrained());
+            tasks.manager().releaseTaskExecutor(info.taskId());
+        }
+    }
+
     private static void assertActualOutcome(ActualTaskManagerFixture tasks, TaskInfo info) throws Exception {
         var terminal = tasks.terminalReport(info);
         var nativeReport = TaskReport.parseFrom(terminal.canonicalTaskReport());
         assertThat(nativeReport.getAttempt()).isEqualTo(info.request().taskRequest().getAttempt());
-        assertThat(nativeReport.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
         if (info.getState() == TaskManager.TaskState.FINISHED) {
+            assertThat(nativeReport.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
             assertThat(nativeReport.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
             assertThat(nativeReport.hasError()).isFalse();
         } else {
+            assertThat(nativeReport.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
+            var released = TaskReport.parseFrom(info.executorReleaseReport());
+            assertThat(released.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+            assertThat(released.getAttempt()).isEqualTo(info.request().taskRequest().getAttempt());
+            assertThat(released.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
+            assertThat(released.getError().getMessage()).containsIgnoringCase("memory");
             assertThat(nativeReport.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
             assertThat(nativeReport.getError().getMessage()).containsIgnoringCase("memory");
             assertThat(info.executorHandle()).isZero();

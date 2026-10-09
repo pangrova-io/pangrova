@@ -27,6 +27,7 @@ import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.resource.MemoryPressure;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
@@ -38,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
-/** Validates: Requirements 1.45, 1.46, 2.45, 2.46 */
+/** Control-plane election inputs only: recording dispatch/cancel provides no Native drain proof. */
 class SpeculativeExecutionWiringTest {
     private static final String QID = "q-spec-1";
     private static final String SID = "1";
@@ -51,6 +52,8 @@ class SpeculativeExecutionWiringTest {
     private TaskStatusReceiver receiver;
     private Rec rec;
     private WorkerManager wm;
+    private org.pangrova.coordinator.task.TaskCancelRetrier cancellations;
+    private final java.util.List<RemoteTaskDispatcher> transports = new java.util.ArrayList<>();
     @BeforeEach void setUp() {
         tracker = new CoordinatorTaskTracker();
         launcher = new SpeculativeTaskLauncher();
@@ -61,9 +64,14 @@ class SpeculativeExecutionWiringTest {
         wm.registerWorker(w(WA, "ha"));
         wm.registerWorker(w(WB, "hb"));
         launcher.setDispatchDependencies(rec, wm, tracker);
+        cancellations = new org.pangrova.coordinator.task.TaskCancelRetrier(rec, tracker);
+        launcher.setCancelRetrier(cancellations);
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(            qm(), tracker, wm, launcher, resolver, rec, null, null, null, null, null, null));
     }
-    @Test void slowTask_specLaunched_winnerKept_loserCancelled() {
+    @AfterEach void closeTransports() {
+        transports.forEach(RemoteTaskDispatcher::close);
+    }
+    @Test void slowTask_specLaunched_winnerKept_loserRetainedUntilDrain() {
         // t1-t3 start 1s ago (fast tasks); ts starts 60s ago (straggler: duration >> median*1.5)
         Instant fastStart = Instant.now().minusSeconds(1);
         Instant slowStart = Instant.now().minusSeconds(60);
@@ -77,8 +85,11 @@ class SpeculativeExecutionWiringTest {
         String si = launcher.getSpeculativeTaskId("ts").orElseThrow();
         receiver.onTaskStatus(fin(si, WB));
         assertThat(resolver.getWinner(QID, SID, 0))
-                .as("terminal query releases its speculative election").isEmpty();
-        assertThat(tracker.getTaskIds(QID)).doesNotContain("ts");
+                .as("no physical drain or query finalization has been proved").contains(si);
+        assertThat(tracker.getTaskIds(QID)).contains("ts", si);
+        assertThat(tracker.getTaskState(QID, si)).isEqualTo(TaskStateMachine.State.FINISHED);
+        assertThat(tracker.executionDrainReceipt("ts")).isEmpty();
+        assertThat(cancellations.pendingTaskIds()).containsExactly("ts");
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(rec.last).isEqualTo("ts");
     }
@@ -94,9 +105,11 @@ class SpeculativeExecutionWiringTest {
         String si = launcher.launchSpeculative("to", WA, QID);
         receiver.onTaskStatus(fin("to", WA));
         assertThat(resolver.getWinner(QID, "1", 0))
-                .as("terminal query releases its speculative election").isEmpty();
+                .as("recording cancellation cannot retire the physical loser").contains("to");
         assertThat(rec.last).isEqualTo(si);
-        assertThat(tracker.getTaskIds(QID)).doesNotContain(si);
+        assertThat(tracker.getTaskIds(QID)).contains("to", si);
+        assertThat(cancellations.pendingTaskIds()).containsExactly(si);
+        assertThat(tracker.executionDrainReceipt(si)).isEmpty();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
     }
     @Test void speculativeWinnerCompletesOriginalDagSlotWithoutFailingQuery() {
@@ -120,8 +133,10 @@ class SpeculativeExecutionWiringTest {
         assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
         assertThat(completedTask.get()).isEqualTo("to");
         assertThat(failedTask.get()).isNull();
-        assertThat(tracker.getTaskIds(QID)).doesNotContain("to");
-        assertThat(tracker.allTasksFinished(QID)).isTrue();
+        assertThat(tracker.getTaskIds(QID)).contains("to", copy);
+        assertThat(tracker.getTaskState(QID, copy)).isEqualTo(TaskStateMachine.State.FINISHED);
+        assertThat(tracker.allTasksFinished(QID)).isFalse();
+        assertThat(cancellations.pendingTaskIds()).containsExactly("to");
     }
     @Test void failedCopyDoesNotFailOriginalLogicalTask() {
         String copy = runningPair();
@@ -131,7 +146,9 @@ class SpeculativeExecutionWiringTest {
         assertThat(receiver.onTaskStatus(failed(copy, WB))).isTrue();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(receiver.onTaskStatus(fin("to", WA))).isTrue();
-        assertThat(tracker.allTasksFinished(QID)).isTrue();
+        assertThat(tracker.getTaskState(QID, "to")).isEqualTo(TaskStateMachine.State.FINISHED);
+        assertThat(tracker.allTasksFinished(QID)).isFalse();
+        assertThat(cancellations.pendingTaskIds()).containsExactly(copy);
         assertThat(failures.get()).isZero();
     }
     @Test void failedOriginalCanBeReplacedBySuccessfulCopy() {
@@ -142,7 +159,9 @@ class SpeculativeExecutionWiringTest {
         assertThat(receiver.onTaskStatus(failed("to", WA))).isTrue();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
-        assertThat(tracker.allTasksFinished(QID)).isTrue();
+        assertThat(tracker.getTaskState(QID, copy)).isEqualTo(TaskStateMachine.State.FINISHED);
+        assertThat(tracker.allTasksFinished(QID)).isFalse();
+        assertThat(cancellations.pendingTaskIds()).containsExactly("to");
         assertThat(failures.get()).isZero();
     }
     @Test void bothFailedAttemptsFailTheirLogicalTaskOnce() {
@@ -153,7 +172,8 @@ class SpeculativeExecutionWiringTest {
         assertThat(receiver.onTaskStatus(failed(copy, WB))).isTrue();
         assertThat(receiver.onTaskStatus(failed("to", WA))).isTrue();
         assertThat(tracker.hasFailedTask(QID)).isTrue();
-        assertThat(tracker.getTaskIds(QID)).doesNotContain(copy);
+        assertThat(tracker.getTaskIds(QID)).contains("to", copy);
+        assertThat(tracker.executionDrainReceipt(copy)).isEmpty();
         assertThat(failures.get()).isEqualTo(1);
     }
     @Test void concurrentSpeculativeLoserDoesNotContributeWriteFragment() throws Exception {
@@ -264,14 +284,20 @@ class SpeculativeExecutionWiringTest {
             }
         };
         launcher.setDispatchDependencies(rejectingDispatcher, wm, tracker);
+        cancellations = new org.pangrova.coordinator.task.TaskCancelRetrier(rejectingDispatcher, tracker);
+        launcher.setCancelRetrier(cancellations);
         run("to");
         tracker.assignWorker("to", WA);
         AtomicInteger failures = new AtomicInteger();
         tracker.setTaskFailureCallback((queryId, taskId) -> failures.incrementAndGet());
 
         assertThat(launcher.launchSpeculative("to", WA, QID)).isNull();
-        assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
-        assertThat(tracker.getTaskIds(QID)).containsExactly("to");
+        assertThat(launcher.getOriginalTasksWithCopies()).containsExactly("to");
+        String copy = launcher.getSpeculativeTaskId("to").orElseThrow();
+        assertThat(launcher.isAbortedCopy(copy)).isTrue();
+        assertThat(tracker.getTaskIds(QID)).containsExactlyInAnyOrder("to", copy);
+        assertThat(cancellations.pendingTaskIds()).containsExactly(copy);
+        assertThat(tracker.executionDrainReceipt(copy)).isEmpty();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(failures.get()).isZero();
         assertThat(rejectingDispatcher.last).startsWith("spec-");
@@ -289,13 +315,15 @@ class SpeculativeExecutionWiringTest {
         assertThat(SpeculationConfig.DISABLED.enabled()).isFalse();
         assertThat(SpeculationConfig.DISABLED.detectionIntervalMs()).isEqualTo(5_000L);
     }
-    @Test void resourceCleanup() {
+    @Test void pendingCancellationDoesNotEraseDeadlineOrIssuedOwner() {
         run("to");
         tracker.assignWorker("to", WA);
         tracker.setDeadline("to", Instant.now().plusSeconds(300));
         String si = launcher.launchSpeculative("to", WA, QID);
         receiver.onTaskStatus(fin(si, WB));
-        assertThat(tracker.getTimedOutTasks(Instant.now().plusSeconds(600))).doesNotContainKey("to");
+        assertThat(tracker.getTimedOutTasks(Instant.now().plusSeconds(600))).containsKey("to");
+        assertThat(tracker.getTaskRequest("to")).isNotNull();
+        assertThat(cancellations.pendingTaskIds()).containsExactly("to");
     }
     private void run(String id) {
         tracker.registerTask(QID, id);
@@ -393,6 +421,7 @@ class SpeculativeExecutionWiringTest {
     private QueryManager qm() {
         var s = new TaskScheduler(new WorkerPerformanceScorer());
         var h = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider());
+        transports.add(h);
         var d = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, h, s, wm, tracker, null, null, null, 0L);
         return new QueryManager(QueryManagerContext.minimal(new QueryDispatcher(d, null, null), new NoOpTracingProvider()));
     }

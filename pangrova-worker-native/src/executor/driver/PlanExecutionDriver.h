@@ -77,6 +77,9 @@ class PlanExecutionDriver {
   // Start execution on a background thread.
   void executeAsync();
 
+  // Result start acknowledges real preparation, not completion or buffered rows.
+  void waitForResultStartup();
+
   // Join the execution thread (blocking).
   void join();
 
@@ -145,6 +148,7 @@ class PlanExecutionDriver {
                               const std::string& cleanupErrors);
   bool dispatchExecution(const std::shared_ptr<Execution>& execution);
   void signalCompletion();
+  void signalStartup();
 
   // Close failure channels before publishing FAILED to terminal observers.
   void notifyFailure(const std::string& message);
@@ -167,6 +171,9 @@ class PlanExecutionDriver {
   std::promise<void> completion_promise_;
   std::atomic<bool> completion_signalled_{false};
   std::future<void> completion_future_;
+  std::promise<void> startup_promise_;
+  std::future<void> startup_future_;
+  std::atomic<bool> startup_signalled_{false};
   std::unique_ptr<std::thread> fallback_thread_;
 
   // Cancel flag — set by cancel(), checked by executeVeloxPlan().

@@ -60,7 +60,7 @@ public final class GeneratedValueArtifactBuildPlanBuilder {
                 .addExtensionUrns(extensionUrn(anchors.aiUrn(), canonicalUrn("ai", "ai_embed")))
                 .addExtensions(extensionFunction(anchors.aiUrn(), anchors.embedFunction(), "ai_embed:"))
                 .addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
-                        .setInput(artifactSink(projected, targetColumn))));
+                        .setInput(artifactSink(projected))));
         if (sources.size() > 1) {
             plan.addExtensionUrns(extensionUrn(anchors.stringUrn(), canonicalUrn("string", "concat")))
                     .addExtensions(extensionFunction(anchors.stringUrn(), anchors.concatFunction(), "concat:"));
@@ -120,10 +120,12 @@ public final class GeneratedValueArtifactBuildPlanBuilder {
                 .build();
     }
 
-    private static Rel artifactSink(Rel projected, String targetColumn) {
+    private static Rel artifactSink(Rel projected) {
+        var inputSchema = org.pangrova.protocol.substrait.SubstraitRelationLayout
+                .describe(projected).outputSchema();
         ArtifactBuildDetail detail = ArtifactBuildDetail.newBuilder()
                 .setPlanNodeId(ARTIFACT_PLAN_NODE_ID).setReportSchemaVersion(REPORT_SCHEMA_VERSION)
-                .addInputFields(PHYSICAL_ROW_POSITION_COLUMN).addInputFields(targetColumn)
+                .addAllInputFields(org.pangrova.protocol.substrait.SubstraitRelationLayout.topLevelNames(inputSchema))
                 .setInvocation(CapabilityInvocation.newBuilder()
                         .setCapability(BuiltInCapabilityCatalog.generatedValuesArtifactBuildPlanRef())
                         .addArguments(fieldArgument("row_position", 0))

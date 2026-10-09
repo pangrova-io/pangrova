@@ -54,7 +54,7 @@ class VirtualWorkerDataSkewRoutingIntegrationTest extends VirtualWorkerRoutingIn
         createSkewTable();
         insertSkewedData(rowCount);
 
-        List<TypedRow> rows = sqlRunner.execute(String.format(
+        List<TypedRow> rows = routingSqlRunner.execute(String.format(
                 "SELECT id, customer_id, amount FROM %s.%s.%s ORDER BY id ASC",
                 CATALOG, SCHEMA, skewTable));
 
@@ -78,7 +78,7 @@ class VirtualWorkerDataSkewRoutingIntegrationTest extends VirtualWorkerRoutingIn
         // merges all scan partitions. Without ORDER BY, the native engine
         // may return partial results when multiple small Parquet files are
         // routed across scan splits in the virtual-worker harness.
-        List<TypedRow> rows = sqlRunner.execute(String.format(
+        List<TypedRow> rows = routingSqlRunner.execute(String.format(
                 "SELECT id, partition_key FROM %s.%s.%s ORDER BY id",
                 CATALOG, SCHEMA, boundaryTable));
 

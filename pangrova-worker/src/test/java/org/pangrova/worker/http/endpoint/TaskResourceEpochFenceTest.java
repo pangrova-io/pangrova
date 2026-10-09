@@ -72,7 +72,11 @@ class TaskResourceEpochFenceTest {
     }
 
     private static Response seal(TaskResource resource, long epoch) {
-        var exact = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request(epoch).taskRequest());
+        var admitted = request(epoch).taskRequest().toBuilder()
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                        .setGrantId("task-epoch:grant").setCpuSlots(1).setNativeMemoryBytes(1_048_576))
+                .build();
+        var exact = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(admitted);
         return resource.cancelTask(exact.getAttempt().getTaskId(), exact.toByteArray());
     }
 

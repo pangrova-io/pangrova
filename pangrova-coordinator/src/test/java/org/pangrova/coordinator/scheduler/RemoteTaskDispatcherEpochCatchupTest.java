@@ -101,6 +101,8 @@ class RemoteTaskDispatcherEpochCatchupTest {
                     ? dispatcher.dispatchAsync(request(), worker).get(5, TimeUnit.SECONDS)
                     : dispatcher.dispatch(request(), worker);
             assertThat(result.taskId()).isEqualTo("task-epoch");
+            assertThat(result.resultEndpoint()).isEqualTo(
+                    new ResultEndpoint("127.0.0.1", 1, "ticket", "ARROW_FLIGHT"));
             assertThat(requests).hasValue(2);
             assertThat(Arrays.equals(first.get(), second.get())).isTrue();
             SubmitTaskRequest sent = JsonMapperFactory.shared()
@@ -131,6 +133,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
         return SubmitTaskRequest.from(canonical.toBuilder()
                 .setAttempt(canonical.getAttempt().toBuilder()
                         .setControlEpoch(0).clearExecutionOwner())
+                .setExecutionOptions(canonical.getExecutionOptions().toBuilder().setDirectResultOutput(true))
                 .build());
     }
 

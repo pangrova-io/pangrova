@@ -16,6 +16,15 @@ public final class PlannerTypeFactory extends JavaTypeFactoryImpl {
         super(PlannerTypeSystem.INSTANCE);
     }
 
+    @Override
+    public RelDataType createSqlType(SqlTypeName typeName) {
+        // Calcite interns types across factories by their digest. An unparameterized
+        // FLOAT could otherwise reuse a default factory's double-precision type.
+        return typeName == SqlTypeName.FLOAT
+                ? super.createSqlType(typeName, getTypeSystem().getDefaultPrecision(typeName))
+                : super.createSqlType(typeName);
+    }
+
     /** Projects the sole canonical VECTOR declaration into a distinct SQL collection type. */
     public StorageVectorRelDataType createStorageVector(LogicalType logicalType) {
         return (StorageVectorRelDataType) canonize(StorageVectorRelDataType.create(logicalType, this));

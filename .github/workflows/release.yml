@@ -166,6 +166,9 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Build pinned Iceberg SDK dependency
+        uses: ./.github/actions/setup-iceberg-sdk
+
       - name: Build Java modules
         run: mvn -B clean package -DskipTests -Prelease -pl '!pangrova-native-bundle'
 

@@ -37,13 +37,23 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     + "(execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version) VALUES (?, ?, ?, ?, ?, ?, 1) "
                     + "ON CONFLICT DO NOTHING";
+    private static final String REFRESH_INSERTED_ANCHOR_TIMES =
+            "UPDATE execution_anchor SET acquired_at=?, expires_at=? "
+                    + "WHERE execution_id=? AND owner_id=? AND owner_incarnation=? AND fencing_token=?";
     private static final String REPLACE_EXPIRED =
             "UPDATE execution_anchor SET owner_id=?, owner_incarnation=?, fencing_token=?, "
                     + "acquired_at=?, expires_at=?, version=version+1 "
                     + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=?";
     private static final String RENEW_OWNED =
-            "UPDATE execution_anchor SET expires_at=?, version=version+1 "
-                    + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>?";
+            "WITH owned AS MATERIALIZED ("
+                    + "SELECT execution_id, fencing_token, expires_at FROM execution_anchor "
+                    + "WHERE owner_id=? AND owner_incarnation=? ORDER BY execution_id FOR UPDATE) "
+                    + "UPDATE execution_anchor AS live SET "
+                    + "expires_at=clock_timestamp() + (? * INTERVAL '1 millisecond'), version=live.version+1 "
+                    + "FROM owned WHERE live.execution_id=owned.execution_id "
+                    + "AND live.fencing_token=owned.fencing_token AND owned.expires_at>clock_timestamp() "
+                    + "RETURNING live.execution_id, live.owner_id, live.owner_incarnation, live.fencing_token, "
+                    + "live.acquired_at, live.expires_at, live.version";
     private static final String RELEASE =
             "DELETE FROM execution_anchor WHERE execution_id=? AND owner_id=? "
                     + "AND owner_incarnation=? AND fencing_token=? AND expires_at>?";
@@ -75,10 +85,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         requireRequest(executionId, ownerId, ownerIncarnation, leaseDuration);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            Instant now = dbNow(connection);
-            Instant deadline = now.plusMillis(leaseDuration.toMillis());
             Optional<ExecutionAnchor> result = acquireLocked(
-                    connection, executionId, ownerId, ownerIncarnation, now, deadline);
+                    connection, executionId, ownerId, ownerIncarnation, leaseDuration);
             connection.commit();
             return result;
         } catch (SQLException failure) {
@@ -91,18 +99,32 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             String executionId,
             String ownerId,
             String ownerIncarnation,
-            Instant now,
-            Instant deadline) throws SQLException {
+            Duration leaseDuration) throws SQLException {
         AnchorRow row = selectForUpdate(connection, executionId);
         if (row == null) {
             long token = nextToken(connection);
-            if (insert(connection, executionId, ownerId, ownerIncarnation, token, now, deadline)) {
+            Instant insertTime = dbNow(connection);
+            Instant insertDeadline = insertTime.plusMillis(leaseDuration.toMillis());
+            if (insert(connection, executionId, ownerId, ownerIncarnation, token, insertTime, insertDeadline)) {
+                // ON CONFLICT may have waited for an uncommitted owner. Refresh
+                // inside this transaction after the insert has actually won.
+                Instant acquiredAt = dbNow(connection);
+                Instant expiresAt = acquiredAt.plusMillis(leaseDuration.toMillis());
+                refreshInsertedAnchorTimes(
+                        connection, executionId, ownerId, ownerIncarnation, token, acquiredAt, expiresAt);
                 return Optional.of(anchor(
-                        executionId, ownerId, ownerIncarnation, token, now, deadline));
+                        executionId, ownerId, ownerIncarnation, token, acquiredAt, expiresAt));
             }
             row = selectForUpdate(connection, executionId);
         }
-        if (row == null || row.expiresAt.isAfter(now)) {
+        if (row == null) {
+            return Optional.empty();
+        }
+        // SELECT FOR UPDATE can block. PostgreSQL CURRENT_TIMESTAMP is fixed at
+        // transaction start, so use the wall clock only after acquiring the row.
+        Instant now = dbNow(connection);
+        Instant deadline = now.plusMillis(leaseDuration.toMillis());
+        if (row.expiresAt.isAfter(now)) {
             return Optional.empty();
         }
         long token = nextToken(connection);
@@ -114,22 +136,48 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                 executionId, ownerId, ownerIncarnation, token, now, deadline));
     }
 
+    private static void refreshInsertedAnchorTimes(
+            Connection connection,
+            String executionId,
+            String ownerId,
+            String ownerIncarnation,
+            long token,
+            Instant acquiredAt,
+            Instant expiresAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(REFRESH_INSERTED_ANCHOR_TIMES)) {
+            setInstant(statement, 1, acquiredAt);
+            setInstant(statement, 2, expiresAt);
+            statement.setString(3, executionId);
+            statement.setString(4, ownerId);
+            statement.setString(5, ownerIncarnation);
+            statement.setLong(6, token);
+            if (statement.executeUpdate() != 1) {
+                throw new SQLException("New execution anchor changed before its acquisition could be committed");
+            }
+        }
+    }
+
     @Override
-    public int renewOwned(
+    public List<ExecutionAnchor> renewOwned(
             String ownerId, String ownerIncarnation, Duration leaseDuration) {
         requireOwner(ownerId, ownerIncarnation);
         requireDuration(leaseDuration);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            Instant now = dbNow(connection);
             try (PreparedStatement statement = connection.prepareStatement(RENEW_OWNED)) {
-                setInstant(statement, 1, now.plusMillis(leaseDuration.toMillis()));
-                statement.setString(2, ownerId);
-                statement.setString(3, ownerIncarnation);
-                setInstant(statement, 4, now);
-                int renewed = statement.executeUpdate();
+                // Expiry is checked after the materialized row-lock boundary,
+                // not against a transaction timestamp captured before waiting.
+                statement.setString(1, ownerId);
+                statement.setString(2, ownerIncarnation);
+                statement.setLong(3, leaseDuration.toMillis());
+                List<ExecutionAnchor> renewed = new ArrayList<>();
+                try (ResultSet result = statement.executeQuery()) {
+                    while (result.next()) {
+                        renewed.add(anchor(result.getString("execution_id"), mapRow(result)));
+                    }
+                }
                 connection.commit();
-                return renewed;
+                return List.copyOf(renewed);
             }
         } catch (SQLException failure) {
             throw storeFailure("renew", ownerId, failure);
@@ -331,8 +379,12 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     }
 
     private static Instant dbNow(Connection connection) throws SQLException {
+        String databaseProduct = connection.getMetaData().getDatabaseProductName();
+        String sql = databaseProduct != null && databaseProduct.toLowerCase().contains("postgres")
+                ? "SELECT clock_timestamp()"
+                : "SELECT CURRENT_TIMESTAMP";
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT CURRENT_TIMESTAMP");
+                sql);
              ResultSet result = statement.executeQuery()) {
             if (!result.next()) {
                 throw new SQLException("Database clock returned no timestamp");
