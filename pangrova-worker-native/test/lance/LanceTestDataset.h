@@ -9,6 +9,7 @@
 #include <vector>
 #include "lance/LanceBatchReader.h"
 #include "lance/LanceStorageContext.h"
+#include "LanceManagedSourceTestAuthority.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 
 namespace pangrova::test {
@@ -21,14 +22,7 @@ inline std::string testReadDetail(const protocol::v2::ScanPartitionDetail& parti
 }
 
 inline protocol::v2::CatalogExecutionBinding testDatasetCatalog() {
-  protocol::v2::CatalogExecutionBinding catalog;
-  catalog.set_catalog_name("test-lance");
-  catalog.set_connector_provider("lance");
-  catalog.set_catalog_incarnation_id("test-incarnation");
-  catalog.set_catalog_revision(1);
-  catalog.mutable_configuration_fingerprint()->set_algorithm(protocol::v2::Checksum::ALGORITHM_SHA256);
-  catalog.mutable_configuration_fingerprint()->set_digest(std::string(32, 'c'));
-  return catalog;
+  return LanceManagedSourceTestAuthority::catalog();
 }
 
 inline std::string testStorageBinding(const std::string& dataset,
@@ -44,12 +38,7 @@ inline protocol::v2::DatasetScanPartitionsResult testScanPage(const std::string&
     uint64_t version, const std::string& storageBinding, uint32_t pageSize = 256,
     bool hasCursor = false, uint64_t after = 0) {
   lance::LanceStorageContext storage(storageBinding);
-  std::array<uint8_t, 32> fingerprint{};
-  uint64_t actualVersion = 0;
-  if (lance_ffi_dataset_info(storage.get(), dataset.c_str(), version, &actualVersion,
-                             fingerprint.data(), fingerprint.size()) != 0) {
-    throw std::runtime_error(std::string("Test snapshot metadata lookup failed: ") + lance_ffi_last_error());
-  }
+  const auto accepted = LanceManagedSourceTestAuthority::reference(dataset, version);
   protocol::v2::ObjectStoreExecutionBinding binding;
   if (!binding.ParseFromString(storageBinding)) throw std::runtime_error("Invalid test storage binding");
   protocol::v2::DatasetScanPartitionsRequest request;
@@ -63,8 +52,8 @@ inline protocol::v2::DatasetScanPartitionsResult testScanPage(const std::string&
   request.set_after_partition_id(after);
   request.set_deadline_epoch_ms(std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now().time_since_epoch()).count() + 60'000);
-  request.mutable_physical_schema_sha256()->set_algorithm(protocol::v2::Checksum::ALGORITHM_SHA256);
-  request.mutable_physical_schema_sha256()->set_digest(fingerprint.data(), fingerprint.size());
+  *request.mutable_physical_schema_sha256() = accepted.physical_schema_sha256();
+  *request.mutable_accepted_snapshot() = accepted;
   const auto bytes = request.SerializeAsString();
   LanceCBuffer output{};
   if (lance_ffi_scan_partitions(storage.get(), reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size(), &output) != 0) {

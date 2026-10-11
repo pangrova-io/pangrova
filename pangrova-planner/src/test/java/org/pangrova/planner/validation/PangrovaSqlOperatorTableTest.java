@@ -11,6 +11,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -142,6 +143,25 @@ class PangrovaSqlOperatorTableTest {
         assertThat(match.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
         assertThat(score.getOperandTypeChecker().getOperandCountRange().getMin()).isEqualTo(2);
         assertThat(score.getOperandTypeChecker().getOperandCountRange().getMax()).isEqualTo(2);
+    }
+
+    @Test
+    void everyDeclaredCallbackProjectsItsCanonicalExecutionStability() {
+        var callbacks = operatorTable.getOperatorList().stream()
+                .filter(operator -> FunctionBindingDeclarations
+                        .callbackMetadataForSqlName(operator.getName()).isPresent())
+                .toList();
+        assertThat(callbacks).isNotEmpty();
+        assertThat(callbacks).allSatisfy(operator -> {
+            var metadata = FunctionBindingDeclarations.callbackMetadataForSqlName(operator.getName()).orElseThrow();
+            assertThat(operator.isDeterministic()).isEqualTo(metadata.deterministic());
+            assertThat(operator.isDynamicFunction()).isEqualTo(!metadata.deterministic());
+            assertThat(lookupByName(operator.getName().toLowerCase(java.util.Locale.ROOT))).singleElement()
+                    .satisfies(resolved -> {
+                        assertThat(resolved.isDeterministic()).isEqualTo(metadata.deterministic());
+                        assertThat(resolved.isDynamicFunction()).isEqualTo(!metadata.deterministic());
+                    });
+        });
     }
 
     private List<SqlOperator> lookupByName(String name) {

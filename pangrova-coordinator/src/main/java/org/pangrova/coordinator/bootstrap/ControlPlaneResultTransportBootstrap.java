@@ -31,16 +31,16 @@ final class ControlPlaneResultTransportBootstrap {
         CoordinatorPreflightChecks.validateAdvertisedHost(config);
         BufferAllocator allocator = new RootAllocator(
                 config.coordinatorTransportAllocatorLimitBytes());
+        CoordinatorResultBuffer buffer = new CoordinatorResultBuffer(
+                scheduler, CoordinatorResultBuffer.DEFAULT_RETENTION_MS);
         TransportServerLifecycle server = null;
         try {
-            CoordinatorResultBuffer buffer = new CoordinatorResultBuffer(
-                    scheduler, CoordinatorResultBuffer.DEFAULT_RETENTION_MS);
             server = createServer(config, tracing, buffer);
             server.start();
             return new Started(createService(config, buffer, server, allocator),
-                    server, allocator);
+                    server, allocator, buffer);
         } catch (RuntimeException failure) {
-            closeAfterFailure(server, allocator, failure);
+            closeAfterFailure(server, allocator, buffer, failure);
             throw failure;
         }
     }
@@ -51,9 +51,13 @@ final class ControlPlaneResultTransportBootstrap {
         List<io.grpc.ServerInterceptor> interceptors = tracing == null
                 ? List.of()
                 : List.of(new org.pangrova.observability.tracing.FlightSpanInterceptor(tracing));
-        return new TransportServer(new CoordinatorDataProducer(buffer),
-                new TransportServerConfig(config.coordinatorTransportPort()),
-                null, interceptors);
+        var tls = config.shuffleTlsConfig();
+        var serverConfig = new TransportServerConfig(config.coordinatorTransportPort(),
+                tls == null ? null : tls.certificateChain().toString(),
+                tls == null ? null : tls.privateKey().toString(),
+                tls == null ? null : tls.rootCa().toString(), tls != null,
+                config.coordinatorTransportAllocatorLimitBytes());
+        return new TransportServer(new CoordinatorDataProducer(buffer), serverConfig, null, interceptors);
     }
 
     private static CoordinatorResultService createService(
@@ -61,7 +65,7 @@ final class ControlPlaneResultTransportBootstrap {
             TransportServerLifecycle server, BufferAllocator allocator) {
         ResultEndpoint endpoint = new ResultEndpoint(
                 config.coordinatorTransportAdvertisedHost(), server.getPort(), "",
-                ResultProtocol.GRPC.value());
+                (config.shuffleTlsConfig() == null ? ResultProtocol.GRPC : ResultProtocol.GRPC_TLS).value());
         LOG.info("event=control_plane_result_transport_started port={} advertisedHost={}",
                 server.getPort(), config.coordinatorTransportAdvertisedHost());
         return new CoordinatorResultService(buffer,
@@ -69,7 +73,7 @@ final class ControlPlaneResultTransportBootstrap {
     }
 
     private static void closeAfterFailure(
-            TransportServerLifecycle server, BufferAllocator allocator,
+            TransportServerLifecycle server, BufferAllocator allocator, CoordinatorResultBuffer buffer,
             RuntimeException failure) {
         if (server != null) {
             try {
@@ -78,6 +82,7 @@ final class ControlPlaneResultTransportBootstrap {
                 failure.addSuppressed(cleanupFailure);
             }
         }
+        buffer.close();
         try {
             allocator.close();
         } catch (RuntimeException cleanupFailure) {
@@ -86,5 +91,5 @@ final class ControlPlaneResultTransportBootstrap {
     }
 
     record Started(CoordinatorResultService service, TransportServerLifecycle server,
-                   BufferAllocator allocator) {}
+                   BufferAllocator allocator, CoordinatorResultBuffer buffer) {}
 }

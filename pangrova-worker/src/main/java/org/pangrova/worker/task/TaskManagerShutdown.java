@@ -10,7 +10,8 @@ final class TaskManagerShutdown {
     private TaskManagerShutdown() {}
 
     static void close(TaskManagerContext deps, TaskExecutor executor,
-                      TaskLifecycleManager lifecycle, Collection<TaskInfo> tasks) {
+                      TaskLifecycleManager lifecycle, TaskLifecycleManager.LifecycleCallback callback,
+                      Collection<TaskInfo> tasks) {
         if (deps == null) return;
         RuntimeException failure = attempt(() -> deps.completionMonitorExecutor().shutdownNow(),
                 null, "stop completion monitors");
@@ -21,11 +22,16 @@ final class TaskManagerShutdown {
         if (deps.exchangeTransport() instanceof AutoCloseable exchange) {
             failure = attempt(() -> closeOwner(exchange), failure, "exchange readers");
         }
+        // No interrupted monitor may race the final state/publication reconciliation.
+        RuntimeException monitorFailure = attempt(() -> awaitMonitorExit(deps), null, "completion monitors");
+        if (monitorFailure != null) {
+            if (failure != null) monitorFailure.addSuppressed(failure);
+            throw monitorFailure;
+        }
         for (var info : tasks) {
-            failure = attempt(() -> lifecycle.releaseFinishedTaskExecutor(info), failure,
+            failure = attempt(() -> lifecycle.releaseRetiredTaskExecutor(info, callback), failure,
                     "task=" + info.taskId() + " query=" + info.queryId());
         }
-        failure = attempt(() -> awaitMonitorExit(deps), failure, "completion monitors");
         if (failure != null) throw failure;
         // Reader shutdown and task release still need this executor's global
         // and task command handles on retry. Never retire their control plane

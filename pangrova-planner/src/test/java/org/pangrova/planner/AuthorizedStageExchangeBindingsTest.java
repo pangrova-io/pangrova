@@ -19,6 +19,27 @@ import static org.pangrova.planner.CanonicalExchangeGraphFixture.*;
 /** Complete immutable graph/schema checks, not a Native result-value or distributed transport oracle. */
 class AuthorizedStageExchangeBindingsTest {
     @Test
+    void liveExchangeUsesDispatchedProducerWireNamesInsteadOfConsumerAliases() throws Exception {
+        var source = schema();
+        var aliases = source.toBuilder().setNames(0, "display_record").build();
+        var producer = plan(producer(values(source, 3)), aliases.getNamesList());
+        var consumer = plan(consumer(aliases), aliases.getNamesList());
+        var bound = AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, List.of(edge()),
+                Map.of(1, List.of(producer.planBytes())));
+        var root = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot();
+        var detail = root.getInput().getExtensionLeaf().getDetail()
+                .unpack(org.pangrova.protocol.v2.RelationDetailEnvelope.class).getExchangeInput();
+        assertThat(detail.getOutputSchema()).isEqualTo(source);
+        assertThat(root.getNames(0)).isEqualTo("display_record");
+        assertThatThrownBy(() -> AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, List.of(edge()),
+                Map.of(1, List.of(producer.planBytes(), plan(producer(values(aliases, 3)),
+                        aliases.getNamesList()).planBytes()))))
+                .hasMessageContaining("different schemas");
+        assertThatThrownBy(() -> AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, List.of(edge()), Map.of()))
+                .hasMessageContaining("no dispatched producer");
+    }
+
+    @Test
     void matchesCompleteNestedSchemaWithoutUsingPresentationNamesAsWireIdentity() throws Exception {
         NamedStruct schema = schema();
         var producer = stage(1, producer(values(schema, 3)),

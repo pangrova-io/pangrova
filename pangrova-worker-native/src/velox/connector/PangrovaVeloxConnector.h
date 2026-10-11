@@ -8,11 +8,13 @@
 #pragma once
 
 #include <memory>
+#include <atomic>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include "resource/TaskObjectReadBudget.h"
 #include "split/SplitConfig.h"
 #include "delete/RowDeleteFilter.h"
 #include "merge/MergeReader.h"
@@ -25,6 +27,7 @@
 
 #include "velox/connectors/Connector.h"
 #include "velox/core/Expressions.h"
+#include "folly/CancellationToken.h"
 
 #include "lance/LanceBatchReader.h"
 
@@ -120,8 +123,17 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
 
   uint64_t getCompletedRows() override;
   uint64_t getCompletedBytes() override;
+  void setCancellationToken(folly::CancellationToken token);
+  void setReadBudget(std::shared_ptr<resource::TaskObjectReadBudget> budget);
+  void cancel() override;
 
  private:
+  void checkCancelled() const;
+  folly::CancellationToken cancellation_token_;
+  std::shared_ptr<resource::TaskObjectReadBudget> read_budget_;
+  std::atomic<bool> cancellation_requested_{false};
+  std::string current_source_id_;
+  std::string current_source_snapshot_;
   // Apply dynamic filters to a RowVector, returning a filtered vector.
   // Uses SelectivityVector to mark rows that pass all dynamic filters,
   // then compacts via dictionary wrapping (same pattern as applyDeleteFilter).

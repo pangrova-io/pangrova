@@ -151,12 +151,13 @@ class RerankPlanBinderTest {
                 .addNames("content")
                 .addNames("score")
                 .setStruct(Type.Struct.newBuilder()
+                        .setNullability(Type.Nullability.NULLABILITY_REQUIRED)
                         .addTypes(Type.newBuilder().setI64(
-                                Type.I64.newBuilder()))
+                                Type.I64.newBuilder().setNullability(Type.Nullability.NULLABILITY_REQUIRED)))
                         .addTypes(Type.newBuilder().setString(
-                                Type.String.newBuilder()))
+                                Type.String.newBuilder().setNullability(Type.Nullability.NULLABILITY_NULLABLE)))
                         .addTypes(Type.newBuilder().setFp64(
-                                Type.FP64.newBuilder())))
+                                Type.FP64.newBuilder().setNullability(Type.Nullability.NULLABILITY_NULLABLE))))
                 .build();
     }
 }

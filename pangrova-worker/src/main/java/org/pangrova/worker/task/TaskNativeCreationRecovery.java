@@ -27,13 +27,22 @@ final class TaskNativeCreationRecovery {
 
     private static void recover(TaskInfo info, TaskExecutor executor) {
         var request = info.request().taskRequest();
-        var identity = ExecutorCreationRecoveryRequest.newBuilder()
-                .setAdmissionSeal(CanonicalTaskAdmissionSeals.create(request)).setSecurity(request.getSecurity()).build();
+        var identity =
+                ExecutorCreationRecoveryRequest.newBuilder()
+                        .setAdmissionSeal(CanonicalTaskAdmissionSeals.create(request))
+                        .setSecurity(request.getSecurity())
+                        .build();
         byte[] receipt = info.stagedCreationRecoveryReceipt();
         if (receipt == null) {
-            var command = RuntimeCommand.newBuilder().setProtocol(request.getProtocol()).setAttempt(request.getAttempt())
-                    .setCommandType(RuntimeCommandType.RUNTIME_COMMAND_TYPE_RECOVER_EXECUTOR_CREATION)
-                    .setPayload(Any.pack(identity)).build();
+            var command =
+                    RuntimeCommand.newBuilder()
+                            .setProtocol(request.getProtocol())
+                            .setAttempt(request.getAttempt())
+                            .setCommandType(
+                                    RuntimeCommandType
+                                            .RUNTIME_COMMAND_TYPE_RECOVER_EXECUTOR_CREATION)
+                            .setPayload(Any.pack(identity))
+                            .build();
             receipt = executor.executeCommand(0, command.toByteArray());
             // Reference transfer precedes decoding/allocation. A retry consumes
             // this actual response, not another request to an erased Java owner.
@@ -41,25 +50,37 @@ final class TaskNativeCreationRecovery {
         }
         try {
             var response = RuntimeCommandResponse.parseFrom(receipt);
-            if (!response.getSuccess() || response.hasError() || !response.getUnknownFields().asMap().isEmpty()
+            if (!response.getSuccess()
+                    || response.hasError()
+                    || !response.getUnknownFields().asMap().isEmpty()
                     || !response.getPayload().getUnknownFields().asMap().isEmpty()
-                    || !response.hasPayload() || !response.getPayload().is(ExecutorCreationRecoveryResult.class)) {
-                throw new IllegalStateException("Task creation recovery lacks canonical ownership evidence");
+                    || !response.hasPayload()
+                    || !response.getPayload().is(ExecutorCreationRecoveryResult.class)) {
+                throw new IllegalStateException(
+                        "Task creation recovery lacks canonical ownership evidence");
             }
             var actual = response.getPayload().unpack(ExecutorCreationRecoveryResult.class);
             accept(info, identity, actual);
         } catch (InvalidProtocolBufferException malformed) {
-            throw new IllegalStateException("Malformed task creation ownership evidence", malformed);
+            throw new IllegalStateException(
+                    "Malformed task creation ownership evidence", malformed);
         }
     }
 
-    static void accept(TaskInfo info, ExecutorCreationRecoveryRequest expected, ExecutorCreationRecoveryResult actual) {
-        if (!actual.hasIdentity() || !actual.getIdentity().equals(expected) || !actual.getUnknownFields().asMap().isEmpty()) {
+    static void accept(
+            TaskInfo info,
+            ExecutorCreationRecoveryRequest expected,
+            ExecutorCreationRecoveryResult actual) {
+        if (!actual.hasIdentity()
+                || !actual.getIdentity().equals(expected)
+                || !actual.getUnknownFields().asMap().isEmpty()) {
             throw new IllegalStateException("Recovered task creation identity changed");
         }
-        if (actual.getState() == ExecutorCreationState.EXECUTOR_CREATION_STATE_OWNER_PRESENT && actual.getExecutorHandle() > 0) {
+        if (actual.getState() == ExecutorCreationState.EXECUTOR_CREATION_STATE_OWNER_PRESENT
+                && actual.getExecutorHandle() > 0) {
             info.resolveNativeCreationFailure(actual.getExecutorHandle());
-        } else if (actual.getState() == ExecutorCreationState.EXECUTOR_CREATION_STATE_CLOSED_WITHOUT_OWNER
+        } else if (actual.getState()
+                        == ExecutorCreationState.EXECUTOR_CREATION_STATE_CLOSED_WITHOUT_OWNER
                 && actual.getExecutorHandle() == 0) {
             info.resolveNativeCreationFailure(0);
         } else throw new IllegalStateException("Recovered task creation remains unresolved");

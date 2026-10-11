@@ -99,6 +99,7 @@ public final class IndexEvaluationService {
             String dataFilePath, String indexFilePath,
             IndexPredicate predicate, FileSystemAccessor fsAccessor) {
 
+        IndexEvaluationFailures.checkInterrupted();
         if (!breakerAllows(indexId)) {
             LOG.debug("action=circuit_breaker_open indexId={} file={}", indexId, dataFilePath);
             return IndexEvalResult.UNKNOWN;
@@ -106,6 +107,7 @@ public final class IndexEvaluationService {
 
         LoadOutcome outcome = loadIndexData(
                 indexId, generation, dataFilePath, indexFilePath, fsAccessor);
+        IndexEvaluationFailures.checkInterrupted();
         if (outcome.data() == null) {
             // Only a genuine read/deserialize ERROR trips the breaker. A MISSING
             // index is normal during the write -> asynchronous-build window and
@@ -121,9 +123,11 @@ public final class IndexEvaluationService {
         try {
             IndexStrategyProvider engine = engineRegistry.getProvider(indexType);
             IndexEvalResult result = engine.evaluate(outcome.data(), predicate);
+            IndexEvaluationFailures.checkInterrupted();
             recordBreakerSuccess(indexId);
             return result;
         } catch (Exception e) {
+            IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.warn("action=eval_failed indexId={} file={} error={}",
                     indexId, dataFilePath, e.getMessage());
             recordBreakerFailure(indexId);
@@ -157,7 +161,8 @@ public final class IndexEvaluationService {
      *   <li>All UNKNOWN → UNKNOWN</li>
      * </ul>
      *
-     * <p>Loading failure for any hint is treated as UNKNOWN for that hint.
+     * <p>Ordinary loading failure for a hint is UNKNOWN. Authority failures,
+     * cancellation and interruption abort evaluation instead.
      */
     public IndexEvalResult aggregateResults(
             List<IndexDescriptor> descriptors,
@@ -169,6 +174,7 @@ public final class IndexEvaluationService {
         boolean hasKeep = false;
 
         for (IndexDescriptor descriptor : descriptors) {
+            IndexEvaluationFailures.checkInterrupted();
             try {
                 String indexFilePath = indexFilePathResolver.apply(descriptor.indexId());
                 if (indexFilePath == null) {
@@ -183,6 +189,7 @@ public final class IndexEvaluationService {
                     hasKeep = true;
                 }
             } catch (Exception e) {
+                IndexEvaluationFailures.propagateIfTerminal(e);
                 LOG.warn("Failed to evaluate index={} for file={}, treating as UNKNOWN",
                         descriptor.indexId(), dataFilePath, e);
             }
@@ -231,6 +238,7 @@ public final class IndexEvaluationService {
             cache.put(indexId, dataFilePath, generation, data);
             return LoadOutcome.present(data);
         } catch (Exception e) {
+            IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.warn("action=index_deserialize_failed indexId={} file={}", indexId, indexFilePath, e);
             return LoadOutcome.FAILED; // corrupt data is a genuine error
         }

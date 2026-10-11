@@ -10,6 +10,7 @@ import org.pangrova.worker.jni.NativeRuntime;
 /** One deployment, registration and publication owner for the shared E2E Native runtime. */
 final class SharedNativeFunctionStartup implements AutoCloseable {
     private final SharedAiProvider provider = new SharedAiProvider();
+    private final SharedGovernedFileStorage files = new SharedGovernedFileStorage();
     private final WorkerComponentRefs refs = new WorkerComponentRefs();
     private NativeFunctionConfig config;
     private NativeCapabilityAdvertisement.Advertisement advertisement;
@@ -18,15 +19,43 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
     NativeFunctionConfig prepare() {
         if (config == null) {
             try {
-                config = provider.prepare();
+                var prepared = provider.prepare();
+                var fileConfiguration = files.prepareConfiguredDeployment();
+                if (fileConfiguration.isEmpty()) {
+                    config = prepared;
+                } else {
+                    var plugins = new java.util.LinkedHashMap<>(prepared.pluginConfigs());
+                    var ai = new java.util.LinkedHashMap<>(prepared.configForPlugin("ai-inference"));
+                    for (var entry : fileConfiguration.entrySet()) {
+                        if (ai.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
+                            throw new IllegalStateException(
+                                    "Duplicate production FILE configuration: " + entry.getKey());
+                        }
+                    }
+                    plugins.put("ai-inference", java.util.Map.copyOf(ai));
+                    config = new NativeFunctionConfig(prepared.autoRegister(), plugins);
+                }
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while preparing real AI models", failure);
+                closeAfterPreparationFailure(failure);
+                throw new IllegalStateException("Interrupted while preparing real AI/FILE deployments", failure);
             } catch (Exception failure) {
-                throw new IllegalStateException("Failed to prepare real AI models", failure);
+                closeAfterPreparationFailure(failure);
+                throw new IllegalStateException("Failed to prepare real AI/FILE deployments", failure);
+            } catch (Error failure) {
+                closeAfterPreparationFailure(failure);
+                throw failure;
             }
         }
         return config;
+    }
+
+    private void closeAfterPreparationFailure(Throwable failure) {
+        try {
+            close();
+        } catch (RuntimeException cleanup) {
+            failure.addSuppressed(cleanup);
+        }
     }
 
     NativeCapabilityAdvertisement.Advertisement initialize() {
@@ -53,11 +82,11 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
         return provider;
     }
 
-    NativeFunctionConfig config() {
-        if (config == null) {
-            throw new IllegalStateException("The shared Native function configuration has not been prepared");
+    SharedGovernedFileStorage fileStorage() {
+        if (advertisement == null) {
+            throw new IllegalStateException("The shared Native function catalogue has not been published");
         }
-        return config;
+        return files;
     }
 
     @Override
@@ -65,7 +94,16 @@ final class SharedNativeFunctionStartup implements AutoCloseable {
         if (NativeRuntime.isInitialized()) {
             throw new IllegalStateException("Native callback owners must exit before closing their provider");
         }
-        NativeFunctionBootstrap.close(refs);
-        provider.close();
+        Exception failure = null;
+        for (AutoCloseable owner : new AutoCloseable[]{() -> NativeFunctionBootstrap.close(refs), provider, files}) {
+            try { owner.close(); } catch (Exception cleanup) {
+                if (failure == null) {
+                    failure = cleanup;
+                } else {
+                    failure.addSuppressed(cleanup);
+                }
+            }
+        }
+        if (failure != null) throw new IllegalStateException("Shared function deployment cleanup failed", failure);
     }
 }

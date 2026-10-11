@@ -187,6 +187,7 @@ joinType
 tableRef
     : qualifiedName timeTravelSpec? tableSampleClause? (AS? alias=identifier)?       #namedTableRef
     | LPAREN setQuery RPAREN (AS? alias=identifier)?              #derivedTableRef
+    | LPAREN VALUES valuesList RPAREN (AS? alias=identifier (LPAREN columnNameList RPAREN)?)? #valuesTableRef
     | LATERAL TABLE LPAREN tableFunctionCall RPAREN
         (AS? alias=identifier LPAREN columnNameList RPAREN)?      #lateralTableFunctionRef
     | TABLE LPAREN tableFunctionCall RPAREN
@@ -195,6 +196,8 @@ tableRef
         (AS? alias=identifier LPAREN columnNameList RPAREN)?        #lateralExplodeRef
     | LATERAL POSEXPLODE LPAREN expression RPAREN
         (AS? alias=identifier LPAREN columnNameList RPAREN)?        #lateralPosexplodeRef
+    | LATERAL? UNNEST LPAREN expression RPAREN (WITH ORDINALITY)?
+        (AS? alias=identifier (LPAREN columnNameList RPAREN)?)?      #unnestTableRef
     | LATERAL LPAREN setQuery RPAREN (AS? alias=identifier)?      #lateralDerivedTableRef
     | tableRef PIVOT LPAREN pivotAggregateList FOR identifier IN LPAREN pivotValueList RPAREN RPAREN (AS? alias=identifier)?   #pivotTableRef
     | tableRef UNPIVOT (nullsOption)? LPAREN identifier FOR identifier IN LPAREN unpivotColumnList RPAREN RPAREN (AS? alias=identifier)?  #unpivotTableRef
@@ -353,7 +356,7 @@ extractField
 
 castType
     : BIGINT | INT | INTEGER | DOUBLE PRECISION_KW? | BOOLEAN | DATE | TIMESTAMP | STRING_TYPE
-    | FLOAT | TINYINT | SMALLINT
+    | FLOAT | TINYINT | SMALLINT | VARBINARY
     | (DECIMAL | NUMERIC) (LPAREN precision=INTEGER_LITERAL (COMMA scale=INTEGER_LITERAL)? RPAREN)?
     | VARCHAR (LPAREN length=INTEGER_LITERAL RPAREN)?
     | ARRAY LPAREN castType RPAREN
@@ -874,6 +877,7 @@ autoEmbeddingClause
 columnType
     : BIGINT | INT | INTEGER | DOUBLE PRECISION_KW? | BOOLEAN | DATE | TIMESTAMP | STRING_TYPE
     | VARCHAR (LPAREN length=INTEGER_LITERAL RPAREN)?
+    | VARBINARY
     | DECIMAL (LPAREN precision=INTEGER_LITERAL (COMMA scale=INTEGER_LITERAL)? RPAREN)?
     | NUMERIC (LPAREN precision=INTEGER_LITERAL (COMMA scale=INTEGER_LITERAL)? RPAREN)?
     | FLOAT
@@ -1095,6 +1099,8 @@ LATERAL         : L A T E R A L;
 EXPLODE         : E X P L O D E;
 POSEXPLODE      : P O S E X P L O D E;
 GENERATE_SERIES : G E N E R A T E '_' S E R I E S;
+UNNEST          : U N N E S T;
+ORDINALITY      : O R D I N A L I T Y;
 
 // Table DDL keywords
 TABLE       : T A B L E;
@@ -1111,6 +1117,7 @@ TBLPROPERTIES : T B L P R O P E R T I E S;
 BIGINT      : B I G I N T;
 INT         : I N T;
 VARCHAR     : V A R C H A R;
+VARBINARY   : V A R B I N A R Y;
 DOUBLE      : D O U B L E;
 BOOLEAN     : B O O L E A N;
 DATE        : D A T E;
@@ -1421,7 +1428,7 @@ nonReservedKeyword
     | CATALOG | CATALOGS | DESCRIBE | PROPERTIES | CALL
     | SYSTEM_TIME | SYSTEM_VERSION | VERSION | SET | WITH | SHOW | LIMIT
     | TABLE | IF | EXISTS | INTO | VALUES | INSERT | PARTITIONED | COMMENT
-    | TBLPROPERTIES | BIGINT | INT | VARCHAR | DOUBLE | BOOLEAN | DATE | OFFSET
+    | TBLPROPERTIES | BIGINT | INT | VARCHAR | VARBINARY | DOUBLE | BOOLEAN | DATE | OFFSET
     | TIMESTAMP | STRING_TYPE | INTEGER
     | OUTER | OVER | PARTITION | FILTER
     | DECIMAL | NUMERIC | FLOAT | TINYINT | SMALLINT | VECTOR | ARRAY | MAP | STRUCT

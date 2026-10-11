@@ -64,7 +64,7 @@ class NativeCapabilityHandshakeE2ETest extends SqlE2ETestBase {
                 });
         assertThat(inventory.getSupportedRelationTypeUrlsList()).containsExactly(
                 "type.googleapis.com/pangrova.protocol.v2.RelationDetailEnvelope");
-        assertThat(inventory.getCandidateSchemaVersion()).isEqualTo(1);
+        assertThat(inventory.getCandidateSchemaVersion()).isEqualTo(2);
     }
 
 }

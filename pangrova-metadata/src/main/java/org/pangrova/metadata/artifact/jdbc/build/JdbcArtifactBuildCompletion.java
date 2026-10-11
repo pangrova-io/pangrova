@@ -24,7 +24,8 @@ final class JdbcArtifactBuildCompletion {
             throws SQLException {
         ArtifactCurrentAuthority.requireCurrent(connection, completion.tenantId(), completion.jobId());
         try {
-            ArtifactExecutionFence.requireCurrent(connection, completion.tenantId(), completion.jobId(), completion.executionOwner());
+            ArtifactExecutionFence.requireCurrent(connection, completion.tenantId(),
+                    completion.jobId(), completion.executionOwner());
         } catch (ArtifactExecutionFence.LostOwnerException staleOwner) {
             return false;
         }

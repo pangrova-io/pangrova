@@ -570,6 +570,23 @@ TEST_P(BatchVectorSerdeEquivalenceTest, RoundTripPreservesValuesAndNulls) {
   }
 }
 
+TEST(BatchVectorSerdeNullCountTest, UsesValidityBitmapWhenVeloxCachedCountIsStale) {
+  auto pool = pangrova::test::testLeafPool("BatchVectorSerdeNullCountTest");
+  auto input = makeVarcharVector(pool.get(), NullPattern::kSomeNulls, 10);
+  auto values = std::dynamic_pointer_cast<FlatVector<StringView>>(input->childAt(0));
+  ASSERT_NE(values, nullptr);
+  for (vector_size_t row = 0; row < input->size(); ++row) {
+    if (values->isNullAt(row)) values->set(row, StringView("replacement"));
+  }
+  ASSERT_EQ(BaseVector::countNulls(values->nulls(), values->size()), 0);
+  values->setNullCount(2);
+
+  const SerdeEquivalenceParam param{
+      "Varchar_StaleNullCount", ColumnType::kVarchar, NullPattern::kNoNulls, 10};
+  auto result = serdeRoundTrip(input, pool.get(), param);
+  assertVectorsEqual(values, result->childAt(0), input->size(), param.name);
+}
+
 // ===========================================================================
 // Parameterization: column types × null patterns × batch sizes
 // ===========================================================================

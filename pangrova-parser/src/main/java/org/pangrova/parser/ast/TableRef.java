@@ -17,7 +17,23 @@ public record TableRef(
         Optional<SystemTableReference> systemTableRef,
         Optional<TableSample> tableSample,
         Optional<PivotClause> pivotClause,
-        Optional<UnpivotClause> unpivotClause) {
+        Optional<UnpivotClause> unpivotClause,
+        Optional<ValuesTable> valuesTable) {
+
+    /** Backward-compatible constructor without a VALUES table. */
+    public TableRef(Identifier name,
+                    Optional<TimeTravelSpec> timeTravelSpec,
+                    Optional<String> alias,
+                    Optional<Statement> subquery,
+                    boolean lateral,
+                    Optional<TableFunctionRef> tableFunctionRef,
+                    Optional<SystemTableReference> systemTableRef,
+                    Optional<TableSample> tableSample,
+                    Optional<PivotClause> pivotClause,
+                    Optional<UnpivotClause> unpivotClause) {
+        this(name, timeTravelSpec, alias, subquery, lateral, tableFunctionRef,
+                systemTableRef, tableSample, pivotClause, unpivotClause, Optional.empty());
+    }
 
     public TableRef(Identifier name) {
         this(name, Optional.empty(), Optional.empty(), Optional.empty(), false,
@@ -70,6 +86,13 @@ public record TableRef(
                 Optional.empty(), Optional.empty());
     }
 
+    /** Creates a direct VALUES source, preserving its row multiset and column aliases. */
+    public static TableRef values(ValuesTable values, Optional<String> alias) {
+        return new TableRef(new Identifier(List.of("__values__")), Optional.empty(), alias,
+                Optional.empty(), false, Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.of(values));
+    }
+
     /** Creates a LATERAL derived table reference. */
     public static TableRef lateralDerived(Statement subquery, Optional<String> alias) {
         return new TableRef(new Identifier(List.of("__lateral_derived__")), Optional.empty(), alias,
@@ -89,7 +112,7 @@ public record TableRef(
         return new TableRef(source.name(), source.timeTravelSpec(), alias,
                 source.subquery(), source.lateral(), source.tableFunctionRef(),
                 source.systemTableRef(), source.tableSample(),
-                Optional.of(pivot), Optional.empty());
+                Optional.of(pivot), Optional.empty(), source.valuesTable());
     }
 
     /** Creates an UNPIVOT table reference wrapping a source table. */
@@ -97,7 +120,7 @@ public record TableRef(
         return new TableRef(source.name(), source.timeTravelSpec(), alias,
                 source.subquery(), source.lateral(), source.tableFunctionRef(),
                 source.systemTableRef(), source.tableSample(),
-                Optional.empty(), Optional.of(unpivot));
+                Optional.empty(), Optional.of(unpivot), source.valuesTable());
     }
 
     /** Returns the structural kind of this table reference. */
@@ -105,6 +128,7 @@ public record TableRef(
         if (pivotClause.isPresent()) return TableRefKind.PIVOT;
         if (unpivotClause.isPresent()) return TableRefKind.UNPIVOT;
         if (systemTableRef.isPresent()) return TableRefKind.SYSTEM_TABLE;
+        if (valuesTable.isPresent()) return TableRefKind.VALUES;
         if (tableFunctionRef.isPresent()) return TableRefKind.LATERAL_FUNCTION;
         if (subquery.isPresent() && lateral) return TableRefKind.LATERAL_DERIVED;
         if (subquery.isPresent()) return TableRefKind.DERIVED;
@@ -114,6 +138,11 @@ public record TableRef(
     /** Returns true if this is a derived table (subquery in FROM). */
     public boolean isDerived() {
         return subquery.isPresent();
+    }
+
+    /** Returns true if this is a VALUES table constructor. */
+    public boolean isValues() {
+        return valuesTable.isPresent();
     }
 
     /** Returns true if this is a LATERAL TABLE function reference. */

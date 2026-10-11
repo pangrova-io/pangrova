@@ -27,11 +27,18 @@ enum ScoreDirection {
   SCORE_DIRECTION_LOWER_IS_BETTER = 2;
 }
 
+enum CandidateIdentityKind {
+  CANDIDATE_IDENTITY_KIND_UNSPECIFIED = 0;
+  CANDIDATE_IDENTITY_KIND_VALUE_FIELDS = 1;
+  CANDIDATE_IDENTITY_KIND_PHYSICAL_SOURCE_ROW = 2;
+}
+
 message CandidateContract {
   uint32 schema_version = 1;
   substrait.NamedStruct schema = 2;
   ScoreDirection score_direction = 3;
   repeated string stable_key_fields = 4;
+  CandidateIdentityKind identity_kind = 5;
 }
 
 message RetrievalSourceDetail {
@@ -41,6 +48,8 @@ message RetrievalSourceDetail {
   uint64 candidate_limit = 4;
   uint64 exact_rescore_limit = 5;
   CandidateContract output_contract = 6;
+  // Visible SQL output K, independent of bounded exploration/rescore work.
+  uint64 output_limit = 7;
 }
 
 message RetrievalInputContract {

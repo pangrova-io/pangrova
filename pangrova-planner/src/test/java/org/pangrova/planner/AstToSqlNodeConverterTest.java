@@ -42,6 +42,18 @@ class AstToSqlNodeConverterTest {
     }
 
     @Test
+    void valuesDerivedTableKeepsDirectCalciteConstructorAndColumnAliases() {
+        SqlSelect select = (SqlSelect) new PangrovaParserFactory().parseToSqlNode(
+                "SELECT X FROM (VALUES (1, 2), (1, 2)) AS t(X, Y)");
+        SqlCall alias = (SqlCall) select.getFrom();
+        assertThat(alias.getKind()).isEqualTo(SqlKind.AS);
+        assertThat(alias.operand(0).getKind()).isEqualTo(SqlKind.VALUES);
+        assertThat(alias.getOperandList()).hasSize(4);
+        assertThat(alias.operand(2).toString()).contains("X");
+        assertThat(alias.operand(3).toString()).contains("Y");
+    }
+
+    @Test
     void convertStringLiteral() {
         Query query = selectExpr(Literal.ofString("hello"));
         SqlNode node = converter.convert(query);
@@ -218,6 +230,19 @@ class AstToSqlNodeConverterTest {
         SqlCall parsedArray = parsedRow.operand(0);
         assertThat(parsedArray.getOperator().getClass().getSimpleName())
                 .isEqualTo("EmptyArraySqlOperator");
+    }
+
+    @Test
+    void convertInsertValuesPreservesMapConstructor() {
+        SqlInsert insert = (SqlInsert) new PangrovaParserFactory().parseToSqlNode(
+                "INSERT INTO db.typed_values (props) VALUES (MAP['width', 100, 'height', 200])");
+        SqlCall row = ((SqlCall) insert.getSource()).operand(0);
+        SqlCall map = row.operand(0);
+
+        assertThat(map.getOperator()).isSameAs(
+                org.apache.calcite.sql.fun.SqlStdOperatorTable.MAP_VALUE_CONSTRUCTOR);
+        assertThat(map.getOperandList()).hasSize(4);
+        assertThat(map.toString()).contains("'width'", "100", "'height'", "200");
     }
 
     @Test

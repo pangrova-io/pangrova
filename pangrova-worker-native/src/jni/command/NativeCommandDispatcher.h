@@ -29,10 +29,4 @@ std::vector<uint8_t> dispatchCommandWithHandle(
 // the server was never started or already stopped.
 void shutdownFlightResultServer();
 
-// Stops and removes the per-executor FlightShuffleServer for the given handle.
-// Called from nativeReleaseExecutor to prevent port and memory leaks when
-// Java side releases an executor without explicitly stopping its shuffle server.
-// Idempotent — safe to call if no server exists for this handle.
-void cleanupShuffleServerForHandle(int64_t executor_handle);
-
 }  // namespace pangrova::jni

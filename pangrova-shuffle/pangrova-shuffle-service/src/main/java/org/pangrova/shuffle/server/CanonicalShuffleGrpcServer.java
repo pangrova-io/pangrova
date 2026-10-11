@@ -111,6 +111,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
         }
         PendingRead pending = new PendingRead(request, serverResponse, Context.current());
         serverResponse.setOnCancelHandler(pending::cancel);
+        serverResponse.setOnReadyHandler(pending::ready);
         if (!tryExecute(pending::start)) {
             response.onError(overloaded());
         }
@@ -398,12 +399,18 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
                     created.cancel();
                     return;
                 }
-                response.setOnReadyHandler(created::schedule);
                 created.schedule();
             } catch (RuntimeException failure) {
                 if (!closed.get() && !context.isCancelled()) {
                     response.onError(status(failure));
                 }
+            }
+        }
+
+        private void ready() {
+            ShuffleReadPump current = pump;
+            if (current != null) {
+                current.schedule();
             }
         }
 

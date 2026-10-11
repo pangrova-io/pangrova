@@ -22,6 +22,8 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
 import org.pangrova.planner.type.ModelBoundVectorRelDataType;
+import org.pangrova.planner.type.StorageVectorRelDataType;
+import org.pangrova.protocol.v2.ResultColumnLogicalType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -134,6 +136,20 @@ public final class PlanFragment implements StagePlanAccess {
                             "VECTOR result column has no exact model origin: " + index);
                 }
                 results.add(new ResultColumnModel(index, model));
+            }
+        }
+        return List.copyOf(results);
+    }
+
+    /** Final relational output types carry storage identity through references, aliases and exchanges. */
+    @Override
+    public List<ResultColumnLogicalType> resultColumnTypes() {
+        var fields = planNode.getRowType().getFieldList();
+        var results = new java.util.ArrayList<ResultColumnLogicalType>();
+        for (int index = 0; index < fields.size(); index++) {
+            if (fields.get(index).getType() instanceof StorageVectorRelDataType vector) {
+                results.add(ResultColumnLogicalType.newBuilder().setColumnIndex(index)
+                        .setLogicalType(vector.logicalType()).build());
             }
         }
         return List.copyOf(results);

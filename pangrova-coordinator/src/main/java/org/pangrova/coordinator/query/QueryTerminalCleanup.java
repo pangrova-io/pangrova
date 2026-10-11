@@ -73,8 +73,21 @@ final class QueryTerminalCleanup {
     }
 
     void onExecutionDrain(String queryId) {
+        retryAfterDrain(queryId);
+    }
+
+    void onOperationExit(String queryId) {
+        retryAfterDrain(queryId);
+    }
+
+    private void retryAfterDrain(String queryId) {
         Completion completion = pending.get(queryId);
-        if (completion != null) schedule(completion);
+        if (completion == null) return;
+        try {
+            complete(queryId, completion.context.state(), completion.context.reason());
+        } catch (RuntimeException failure) {
+            LOG.warn("event=query_terminal_completion_event_retry_failed queryId={}", queryId, failure);
+        }
     }
 
     private void schedule(Completion completion) {

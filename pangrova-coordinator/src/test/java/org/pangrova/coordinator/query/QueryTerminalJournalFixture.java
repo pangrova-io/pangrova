@@ -91,6 +91,17 @@ final class QueryTerminalJournalFixture implements AutoCloseable {
     }
     void denyQueryInsert() throws SQLException { execute("REVOKE INSERT ON query_state_journal FROM " + role); }
     void allowQueryInsert() throws SQLException { execute("GRANT INSERT ON query_state_journal TO " + role); }
+    void denyFinishedQueryInsert() throws SQLException {
+        execute("CREATE OR REPLACE FUNCTION reject_finished_query_insert() RETURNS trigger LANGUAGE plpgsql AS $$"
+                + "BEGIN IF NEW.state = 'FINISHED' THEN RAISE EXCEPTION 'Actual FINISHED journal insert denied' "
+                + "USING ERRCODE = '42501'; END IF; RETURN NEW; END $$");
+        execute("CREATE TRIGGER reject_finished_query_insert BEFORE INSERT ON query_state_journal "
+                + "FOR EACH ROW EXECUTE FUNCTION reject_finished_query_insert()");
+    }
+    void allowFinishedQueryInsert() throws SQLException {
+        execute("DROP TRIGGER IF EXISTS reject_finished_query_insert ON query_state_journal");
+        execute("DROP FUNCTION IF EXISTS reject_finished_query_insert()");
+    }
     void denyQueryDelete() throws SQLException { execute("REVOKE DELETE ON query_state_journal FROM " + role); }
     void allowQueryDelete() throws SQLException { execute("GRANT DELETE ON query_state_journal TO " + role); }
 
@@ -147,6 +158,7 @@ final class QueryTerminalJournalFixture implements AutoCloseable {
 
     @Override
     public void close() throws SQLException {
+        allowFinishedQueryInsert();
         journal.close();
         removeRole();
     }

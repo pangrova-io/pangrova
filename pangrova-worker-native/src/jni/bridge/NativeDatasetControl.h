@@ -12,8 +12,9 @@ class NativeDatasetControl final {
  public:
   static protocol::v2::RuntimeCommandResponse schemaFingerprint(
       const protocol::v2::RuntimeCommand& command);
-  static protocol::v2::RuntimeCommandResponse finalizeDistributedWrite(
+  static protocol::v2::RuntimeCommandResponse prepareDistributedWrite(
       const protocol::v2::RuntimeCommand& command);
+  static protocol::v2::RuntimeCommandResponse cleanupObjects(const protocol::v2::RuntimeCommand& command);
   static protocol::v2::RuntimeCommandResponse scanPartitions(const protocol::v2::RuntimeCommand& command);
 };
 

@@ -45,7 +45,7 @@ class NullComponentSkipLoggingTest {
     void lineageEmitterNull_emitsDebugLogWithSkipEvent() {
         QueryAuditDispatcher bridge = new QueryAuditDispatcher(null, null, null);
 
-        bridge.emitLineageOnFinished("q-test-001");
+        bridge.captureTerminalLineage("q-test-001");
 
         assertThat(appender.list).hasSize(1);
         ILoggingEvent event = appender.list.get(0);
@@ -62,7 +62,7 @@ class NullComponentSkipLoggingTest {
         // we never reach queryDispatcher.removeLineageInfo() and no NPE occurs
         QueryAuditDispatcher bridge = new QueryAuditDispatcher(null, null, null);
 
-        bridge.emitLineageOnFinished("q-safe");
+        bridge.captureTerminalLineage("q-safe");
 
         assertThat(appender.list).hasSize(1);
         assertThat(appender.list.get(0).getFormattedMessage())

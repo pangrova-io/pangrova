@@ -43,9 +43,7 @@ final class RemoteShuffleTaskEgress {
     private int activeWrites;
     private boolean activeFinish;
 
-    RemoteShuffleTaskEgress(
-            Binding binding,
-            RemoteShuffleClientPool clientPool) {
+    RemoteShuffleTaskEgress(Binding binding, RemoteShuffleClientPool clientPool) {
         this.shuffleId = binding.shuffleId();
         this.endpoints = binding.endpoints();
         this.commitAddress = binding.commitAddress();
@@ -59,10 +57,19 @@ final class RemoteShuffleTaskEgress {
             for (var endpoint : endpoints) {
                 endpointLeases.put(endpoint, clientPool.borrow(endpoint));
             }
-            this.renewableAccess = new RenewableShuffleAccess(commitLease.client(), shuffleId, taskAttempt,
-                    ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE, accessCapability);
+            this.renewableAccess =
+                    new RenewableShuffleAccess(
+                            commitLease.client(),
+                            shuffleId,
+                            taskAttempt,
+                            ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_WRITE,
+                            accessCapability);
         } catch (RuntimeException | Error failure) {
-            try { releaseClientLeases(); } catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+            try {
+                releaseClientLeases();
+            } catch (RuntimeException | Error cleanup) {
+                failure.addSuppressed(cleanup);
+            }
             throw failure;
         }
     }
@@ -86,7 +93,9 @@ final class RemoteShuffleTaskEgress {
                 && admissionSeal.equals(other.admissionSeal);
     }
 
-    boolean belongsTo(TaskAdmissionSealRequest expected) { return admissionSeal.equals(expected); }
+    boolean belongsTo(TaskAdmissionSealRequest expected) {
+        return admissionSeal.equals(expected);
+    }
 
     void write(int partitionId, long rowCount, ByteBuffer data) {
         beginWrite();
@@ -99,17 +108,17 @@ final class RemoteShuffleTaskEgress {
 
     private void writePartition(int partitionId, long rowCount, ByteBuffer data) {
         ShuffleServerEndpoint endpoint = endpointFor(partitionId);
-        RemoteShufflePartitionStats stats = partitions.computeIfAbsent(
-                partitionId, ignored -> new RemoteShufflePartitionStats());
+        RemoteShufflePartitionStats stats =
+                partitions.computeIfAbsent(
+                        partitionId, ignored -> new RemoteShufflePartitionStats());
         stats.lock();
         try {
             requireWritingAllowed();
-            RemoteShuffleProducerStream stream = streams.computeIfAbsent(
-                    endpoint, this::openStream);
+            RemoteShuffleProducerStream stream =
+                    streams.computeIfAbsent(endpoint, this::openStream);
             if (isAborted()) {
                 stream.abort("producer aborted before write");
-                throw new RemoteShuffleClientException(
-                        "Remote shuffle producer is aborted");
+                throw new RemoteShuffleClientException("Remote shuffle producer is aborted");
             }
             stream.write(partitionId, stats.nextSequence(), rowCount, data);
             stats.record(rowCount, data);
@@ -138,18 +147,22 @@ final class RemoteShuffleTaskEgress {
     }
 
     private void commitProducer() {
-        List<PartitionCommitSummary> summaries = partitions.entrySet().stream()
-                .sorted(Map.Entry.comparingByKey())
-                .map(entry -> entry.getValue().summary(entry.getKey()))
-                .toList();
-        long expectedBytes = partitions.values().stream()
-                .mapToLong(RemoteShufflePartitionStats::bytes)
-                .sum();
-        CommitProducerAttemptResponse response = commitLease.client()
-                .commitProducerAttempt(
-                        shuffleId, taskAttempt, summaries,
-                        renewableAccess.currentAtBoundary(deadlineEpochMillis),
-                        deadlineEpochMillis);
+        List<PartitionCommitSummary> summaries =
+                partitions.entrySet().stream()
+                        .sorted(Map.Entry.comparingByKey())
+                        .map(entry -> entry.getValue().summary(entry.getKey()))
+                        .toList();
+        long expectedBytes =
+                partitions.values().stream().mapToLong(RemoteShufflePartitionStats::bytes).sum();
+        CommitProducerAttemptResponse response =
+                commitLease
+                        .client()
+                        .commitProducerAttempt(
+                                shuffleId,
+                                taskAttempt,
+                                summaries,
+                                renewableAccess.currentAtBoundary(deadlineEpochMillis),
+                                deadlineEpochMillis);
         if (response.getAcceptedPartitions() != summaries.size()
                 || response.getTotalBytes() != expectedBytes
                 || response.getCommittedAttemptFencingToken()
@@ -188,8 +201,11 @@ final class RemoteShuffleTaskEgress {
             try {
                 releaseClientLeases();
             } catch (RuntimeException | Error leaseFailure) {
-                if (failure == null) failure = leaseFailure;
-                else failure.addSuppressed(leaseFailure);
+                if (failure == null) {
+                    failure = leaseFailure;
+                } else {
+                    failure.addSuppressed(leaseFailure);
+                }
             }
         }
         if (failure instanceof RuntimeException runtimeFailure) {
@@ -221,13 +237,15 @@ final class RemoteShuffleTaskEgress {
             while (activeWrites != 0 || activeFinish) {
                 long remaining = cleanupDeadline - System.nanoTime();
                 if (remaining <= 0) {
-                    throw new RemoteShuffleClientException("Remote shuffle producer operations have not drained");
+                    throw new RemoteShuffleClientException(
+                            "Remote shuffle producer operations have not drained");
                 }
                 try {
                     TimeUnit.NANOSECONDS.timedWait(lifecycleMonitor, remaining);
                 } catch (InterruptedException failure) {
                     Thread.currentThread().interrupt();
-                    throw new RemoteShuffleClientException("Remote shuffle operation drain interrupted", failure);
+                    throw new RemoteShuffleClientException(
+                            "Remote shuffle operation drain interrupted", failure);
                 }
             }
         }
@@ -235,10 +253,13 @@ final class RemoteShuffleTaskEgress {
 
     private RemoteShuffleProducerStream openStream(ShuffleServerEndpoint endpoint) {
         var lease = endpointLeases.get(endpoint);
-        if (lease == null) throw new IllegalStateException("Producer endpoint lease was not pre-admitted");
+        if (lease == null) {
+            throw new IllegalStateException("Producer endpoint lease was not pre-admitted");
+        }
         // All channel owners were admitted before Native task creation.
-        return lease.client().openProducerStream(
-                shuffleId, taskAttempt, codec, renewableAccess, deadlineEpochMillis);
+        return lease.client()
+                .openProducerStream(
+                        shuffleId, taskAttempt, codec, renewableAccess, deadlineEpochMillis);
     }
 
     private void releaseClientLeases() {
@@ -248,18 +269,28 @@ final class RemoteShuffleTaskEgress {
                 entry.getValue().close();
                 endpointLeases.remove(entry.getKey(), entry.getValue());
             } catch (RuntimeException | Error cleanup) {
-                if (failure == null) failure = cleanup;
-                else failure.addSuppressed(cleanup);
+                if (failure == null) {
+                    failure = cleanup;
+                } else {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
         try {
             commitLease.close();
         } catch (RuntimeException | Error cleanup) {
-            if (failure == null) failure = cleanup;
-            else failure.addSuppressed(cleanup);
+            if (failure == null) {
+                failure = cleanup;
+            } else {
+                failure.addSuppressed(cleanup);
+            }
         }
-        if (failure instanceof RuntimeException runtime) throw runtime;
-        if (failure instanceof Error error) throw error;
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
     }
 
     private ShuffleServerEndpoint endpointFor(int partitionId) {
@@ -279,8 +310,7 @@ final class RemoteShuffleTaskEgress {
                 return endpoint;
             }
         }
-        throw new IllegalArgumentException(
-                "No shuffle endpoint owns partition " + partitionId);
+        throw new IllegalArgumentException("No shuffle endpoint owns partition " + partitionId);
     }
 
     private void beginWrite() {
@@ -317,7 +347,8 @@ final class RemoteShuffleTaskEgress {
             while (activeWrites > 0 && lifecycle == Lifecycle.FINISHING) {
                 long remaining = deadlineEpochMillis - System.currentTimeMillis();
                 if (remaining <= 0) {
-                    throw new RemoteShuffleClientException("Remote shuffle producer completion deadline exceeded");
+                    throw new RemoteShuffleClientException(
+                            "Remote shuffle producer completion deadline exceeded");
                 }
                 try {
                     lifecycleMonitor.wait(remaining);
@@ -338,8 +369,7 @@ final class RemoteShuffleTaskEgress {
     private void requireWritingAllowed() {
         synchronized (lifecycleMonitor) {
             if (lifecycle == Lifecycle.ABORTED) {
-                throw new RemoteShuffleClientException(
-                        "Remote shuffle producer is aborted");
+                throw new RemoteShuffleClientException("Remote shuffle producer is aborted");
             }
         }
     }

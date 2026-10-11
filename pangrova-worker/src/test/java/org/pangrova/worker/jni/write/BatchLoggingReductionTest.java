@@ -189,7 +189,7 @@ class BatchLoggingReductionTest {
             ConnectorSession session = new StubSession();
             return new CatalogResourceResolver.CatalogResources(
                     metadata, provider, session, TestOutputHandles.outputHandle(),
-                    List.of("id"));
+                    List.of("id", "name"));
         }));
     }
 

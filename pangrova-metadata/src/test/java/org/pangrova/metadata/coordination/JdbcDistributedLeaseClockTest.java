@@ -31,7 +31,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * PostgreSQL test for A-LEASE-01 / A-HA-01: {@link JdbcDistributedLease} must anchor every
- * lease-expiry decision on the DATABASE server clock ({@code CURRENT_TIMESTAMP}), not the caller's
+ * lease-expiry decision on the DATABASE server clock ({@code clock_timestamp()}), not the caller's
  * JVM clock. Otherwise coordinator clock skew or a GC pause can make two nodes disagree about
  * whether a lease has expired, opening a double-active-leader (split-brain) window.
  *
@@ -58,14 +58,14 @@ class JdbcDistributedLeaseClockTest {
         assertThat(holder).isPresent();
         assertThat(holder.get().holderId()).isEqualTo("A");
 
-        // Renewal validity is judged against the DB clock (expires_at >= CURRENT_TIMESTAMP).
+        // Renewal validity is judged against the DB clock (expires_at > clock_timestamp()).
         assertThat(lease.tryRenew(
                 "k", "A", acquired.epoch(), Duration.ofSeconds(30))).isTrue();
     }
 
     @Test
     void expiryIsJudgedByDatabaseClockAllowingTakeover() throws InterruptedException {
-        // Very short lease: expiry is evaluated against the DB's CURRENT_TIMESTAMP, not the caller.
+        // Very short lease: expiry is evaluated against the DB's clock_timestamp(), not the caller.
         LeaseEntry first = lease.tryAcquire(
                 "k", "A", Duration.ofMillis(50)).orElseThrow();
         Thread.sleep(200);

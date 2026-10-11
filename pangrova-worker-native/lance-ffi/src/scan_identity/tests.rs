@@ -1,8 +1,7 @@
 use super::*;
-use crate::{canonical_schema_fingerprint, committed_manifest_digest, scan, StorageContext};
+use crate::{scan, sdk_read_test_support};
 use arrow_array::{RecordBatchIterator, UInt64Array};
 use lance::dataset::{Dataset, WriteParams};
-use prost::Message;
 
 fn partition(id: u64, rows: usize) -> Fragment {
     Fragment {
@@ -196,108 +195,56 @@ fn input() -> RecordBatchIterator<std::vec::IntoIter<Result<RecordBatch, arrow_s
     RecordBatchIterator::new(vec![Ok(batch)].into_iter(), schema)
 }
 
-async fn canonical_partition(
-    dataset: &Dataset,
-    storage: &StorageContext,
-    id: u64,
-) -> scan::Partition {
-    let schema: Schema = dataset.schema().into();
-    let checksum = |digest: Vec<u8>| crate::CanonicalChecksum {
-        algorithm: crate::ChecksumAlgorithm::Sha256 as i32,
-        digest,
-    };
-    scan::Partition {
-        partition_id: id,
-        physical_rows: dataset
-            .manifest()
-            .fragments
-            .iter()
-            .find(|fragment| fragment.id == id)
-            .unwrap()
-            .physical_rows
-            .unwrap() as u64,
-        physical_schema_sha256: Some(checksum(canonical_schema_fingerprint(&schema).to_vec())),
-        manifest_sha256: Some(checksum(
-            committed_manifest_digest(storage, dataset.uri(), dataset.version().version)
-                .await
-                .unwrap()
-                .to_vec(),
-        )),
-    }
+async fn canonical_partition(dataset: &Dataset, id: u64) -> scan::Partition {
+    sdk_read_test_support::partition(dataset, id).await
 }
 
-struct Reader(*mut crate::LanceCReader);
-impl Drop for Reader {
-    fn drop(&mut self) {
-        crate::lance_ffi_reader_close(self.0);
-    }
+// Actual SDK scanner leaf, sharing physical selection, scan setup, bounded
+// batches and position materialization with the mandatory accepted FFI reader.
+struct Reader {
+    runtime: Arc<tokio::runtime::Runtime>,
+    stream: lance_io::stream::BatchStream,
+    partition: Fragment,
+    pending: Option<RecordBatch>,
+    last: Option<u32>,
 }
 
 fn open_reader(uri: &str, version: u64, partition: scan::Partition) -> Reader {
-    let storage = crate::LanceCStorage {
-        context: StorageContext::test_local(uri),
-    };
-    let detail = crate::FileSplitDetail {
-        file_format: crate::FileFormat::Lance as i32,
-        read_unit: Some(crate::ReadUnit::ScanPartition(partition)),
-        ..Default::default()
-    }
-    .encode_to_vec();
-    let uri = std::ffi::CString::new(uri).unwrap();
-    let handle = crate::lance_ffi_reader_open(
-        &storage,
-        uri.as_ptr(),
-        version,
-        detail.as_ptr(),
-        detail.len(),
-        0,
-    );
-    assert!(
-        !handle.is_null(),
-        "{}",
-        unsafe { std::ffi::CStr::from_ptr(crate::lance_ffi_last_error()) }.to_string_lossy()
-    );
-    let reader = Reader(handle);
-    let names = [
-        std::ffi::CString::new(POSITION).unwrap(),
-        std::ffi::CString::new("id").unwrap(),
-    ];
-    let pointers = names.iter().map(|name| name.as_ptr()).collect::<Vec<_>>();
-    assert_eq!(
-        crate::lance_ffi_reader_set_projection(handle, pointers.as_ptr(), pointers.len()),
-        0
-    );
-    reader
+    let runtime = crate::get_or_create_runtime();
+    let (stream, fragment) = runtime.block_on(async {
+        let dataset = sdk_read_test_support::snapshot(uri, version).await;
+        let manifest = sdk_read_test_support::manifest_digest(&dataset).await;
+        let fragment = scan::select_manifest_fragment(&dataset, version, &manifest, &partition).unwrap();
+        let columns = vec![POSITION.to_owned(), "id".to_owned()];
+        let stream = scan::start_dataset_scan(&dataset, &fragment, Some(&columns)).await.unwrap();
+        (stream, fragment)
+    });
+    Reader { runtime, stream, partition: fragment, pending: None, last: None }
 }
 
-fn read_all(reader: &Reader) -> Vec<(i64, i64)> {
+fn read_all(mut reader: Reader) -> Vec<(i64, i64)> {
+    use futures::StreamExt;
     let mut result = Vec::new();
+    let columns = vec![POSITION.to_owned(), "id".to_owned()];
     for requested in [1, 3, 2].into_iter().cycle() {
-        let mut array = crate::FFI_ArrowArray::empty();
-        let mut schema = crate::FFI_ArrowSchema::empty();
-        let rc = crate::lance_ffi_reader_next(reader.0, &mut array, &mut schema, requested);
-        if rc == 0 {
-            return result;
-        }
-        assert_eq!(
-            rc,
-            1,
-            "{}",
-            unsafe { std::ffi::CStr::from_ptr(crate::lance_ffi_last_error()) }.to_string_lossy()
-        );
+        let batch = match reader.pending.take() {
+            Some(batch) => batch,
+            None => match reader.runtime.block_on(reader.stream.next()) {
+                Some(batch) => batch.unwrap(), None => return result,
+            },
+        };
+        let (batch, remainder) = scan::bounded_batch(batch, requested);
+        reader.pending = remainder;
+        assert!(batch.num_rows() > 0 && batch.num_rows() <= requested);
+        let batch = materialize(&batch, &reader.partition, &columns, &mut reader.last).unwrap();
+        // The same actual Arrow C Data export/import still checks physical identity values.
+        let data = arrow_array::StructArray::from(batch).into_data();
+        let (array, schema) = arrow::ffi::to_ffi(&data).unwrap();
         let data = unsafe { arrow::ffi::from_ffi(array, &schema) }.unwrap();
         let batch = RecordBatch::from(arrow_array::StructArray::from(data));
         assert_eq!(batch.schema().field(0).name(), POSITION);
-        let offsets = batch
-            .column(0)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .unwrap();
-        let ids = batch
-            .column(1)
-            .as_any()
-            .downcast_ref::<Int64Array>()
-            .unwrap();
+        let offsets = batch.column(0).as_any().downcast_ref::<Int64Array>().unwrap();
+        let ids = batch.column(1).as_any().downcast_ref::<Int64Array>().unwrap();
         for row in 0..batch.num_rows() {
             result.push((offsets.value(row), ids.value(row)));
         }
@@ -326,35 +273,27 @@ fn real_dataset_deleted_holes_partition_identity_and_historical_manifest_are_exa
         .await
         .unwrap();
         assert_eq!(dataset.manifest().fragments.len(), 2);
-        let storage = StorageContext::test_local(uri);
-        let before = canonical_partition(&dataset, &storage, 0).await;
+        let before = canonical_partition(&dataset, 0).await;
         dataset.delete("id IN (1, 3, 10)").await.unwrap();
-        let after = canonical_partition(&dataset, &storage, 0).await;
-        assert!(scan::select(&storage, uri, 2, &dataset, &before)
-            .await
-            .is_err());
+        let after = canonical_partition(&dataset, 0).await;
+        let current_manifest = sdk_read_test_support::manifest_digest(&dataset).await;
+        assert!(scan::select_manifest_fragment(&dataset, 2, &current_manifest, &before).is_err());
         (before, after)
     });
     assert_eq!(
-        read_all(&open_reader(uri, 1, before)),
+        read_all(open_reader(uri, 1, before)),
         (0..8).map(|id| (id, id)).collect::<Vec<_>>()
     );
     assert_eq!(
-        read_all(&open_reader(uri, 2, after)),
+        read_all(open_reader(uri, 2, after)),
         vec![(0, 0), (2, 2), (4, 4), (5, 5), (6, 6), (7, 7)]
     );
     let second = tokio::runtime::Runtime::new().unwrap().block_on(async {
-        let storage = StorageContext::test_local(uri);
-        let dataset = crate::open_atomic_dataset(uri, &storage)
-            .await
-            .unwrap()
-            .checkout_version(2)
-            .await
-            .unwrap();
-        canonical_partition(&dataset, &storage, 1).await
+        let dataset = sdk_read_test_support::snapshot(uri, 2).await;
+        canonical_partition(&dataset, 1).await
     });
     assert_eq!(
-        read_all(&open_reader(uri, 2, second)),
+        read_all(open_reader(uri, 2, second)),
         vec![(0, 8), (1, 9), (3, 11), (4, 12), (5, 13), (6, 14), (7, 15)]
     );
 }

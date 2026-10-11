@@ -148,18 +148,18 @@ class CoordinatorResultBufferTest {
     }
 
     @Test
-    void offHeapBytesTracksUsage() {
+    void bufferedBytesTracksUsage() {
         var buffer = new CoordinatorResultBuffer(executor, 10_000L);
-        assertThat(buffer.offHeapBytes()).isEqualTo(0);
+        assertThat(buffer.bufferedBytes()).isEqualTo(0);
 
         buffer.put("q1", new byte[]{1, 2, 3});
-        assertThat(buffer.offHeapBytes()).isEqualTo(3);
+        assertThat(buffer.bufferedBytes()).isEqualTo(3);
 
         buffer.put("q2", new byte[]{4, 5});
-        assertThat(buffer.offHeapBytes()).isEqualTo(5);
+        assertThat(buffer.bufferedBytes()).isEqualTo(5);
 
         buffer.remove("q1");
-        assertThat(buffer.offHeapBytes()).isEqualTo(2);
+        assertThat(buffer.bufferedBytes()).isEqualTo(2);
     }
 
 }

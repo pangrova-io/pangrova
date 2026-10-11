@@ -14,12 +14,10 @@
 package org.pangrova.spi.ai.rerank;
 
 import org.pangrova.spi.ai.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.ai.Modality;
 import org.pangrova.spi.annotation.Experimental;
 import org.pangrova.spi.annotation.ThreadSafe;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
@@ -27,9 +25,6 @@ import java.util.Set;
 @Experimental
 @ThreadSafe
 public interface RerankingProvider {
-
-    /** Default initial delay for retryable provider failures. */
-    Duration DEFAULT_RETRY_INITIAL_DELAY = Duration.ofMillis(500);
 
     /**
      * Scores documents in input order. Implementations must return exactly one
@@ -72,14 +67,7 @@ public interface RerankingProvider {
                 maxBatchSize(),
                 resourceLimits(),
                 false,
-                new AiCapabilityDescriptor.RetryPolicy(
-                        4,
-                        DEFAULT_RETRY_INITIAL_DELAY,
-                        Duration.ofSeconds(4),
-                        Set.of(
-                                AiInvocationException.Category.RATE_LIMIT,
-                                AiInvocationException.Category.TIMEOUT,
-                                AiInvocationException.Category.PROVIDER_UNAVAILABLE)),
+                AiCapabilityDescriptor.RetryPolicy.noRetry(),
                 Set.of("AI_MODEL_USAGE")));
     }
 }

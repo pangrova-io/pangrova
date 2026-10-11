@@ -24,7 +24,8 @@ class ResultReadTicketsTest {
         return CanonicalTaskRequestTestFixture.builder("task-42", "query", 0, 0,
                 TaskKind.TASK_KIND_READ, new byte[] {1})
                 .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
-                        .setGrantId("result-test").setCpuSlots(1).setNativeMemoryBytes(1048576))
+                        .setGrantId("result-test").setCpuSlots(1).setNativeMemoryBytes(1048576)
+                        .setShuffleBufferBytes(1048576))
                 .setExecutionOptions(TaskExecutionOptions.newBuilder().setDirectResultOutput(true)).build();
     }
 
@@ -61,5 +62,9 @@ class ResultReadTicketsTest {
         assertThatThrownBy(() -> tickets.issue(request().toBuilder()
                 .setExecutionOptions(TaskExecutionOptions.getDefaultInstance()).build()))
                 .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> tickets.issue(request().toBuilder()
+                .setResourceGrant(request().getResourceGrant().toBuilder().clearShuffleBufferBytes()).build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Serialized output requires a positive serialized-buffer grant");
     }
 }

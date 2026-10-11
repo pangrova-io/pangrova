@@ -18,6 +18,22 @@ import org.pangrova.spi.ai.inference.InferenceProvider;
 import org.pangrova.spi.ai.inference.InferenceResult;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.ScalarFunction;
+import org.pangrova.protocol.function.GovernedBindingProjection;
+import org.pangrova.protocol.function.GovernedScalarValue;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
+import org.pangrova.protocol.v2.CapabilityRef;
+import org.pangrova.protocol.v2.ExecutionPolicy;
+import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.v2.ModelBinding;
+import org.pangrova.protocol.v2.ModelRequestLimits;
+import org.pangrova.protocol.v2.OperatorBinding;
+import org.pangrova.protocol.v2.OperatorResourceRequirement;
+import org.pangrova.protocol.v2.StageResourceGrant;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.VersionedRef;
+import org.pangrova.worker.ai.context.AiExecutionContext;
+import org.pangrova.worker.ai.context.AiTestTaskAuthority;
+import org.pangrova.worker.ai.invocation.AiInvocationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -103,9 +119,8 @@ class AiFunctionFactoryTest {
                 .orElseThrow();
         stubProvider.setResponse("bound answer");
 
-        ColumnValue result = function.invoke(governedArguments(
-                org.pangrova.protocol.BuiltInCapabilityCatalog
-                        .aiTextGenerationPlanRef()));
+        ColumnValue result = withAdmittedTask(task -> function.invoke(governedArguments(
+                task, org.pangrova.protocol.BuiltInCapabilityCatalog.aiTextGenerationPlanRef())));
 
         assertEquals(
                 "bound answer", ((ColumnValue.StringValue) result).value());
@@ -125,7 +140,7 @@ class AiFunctionFactoryTest {
                 .build();
 
         assertThrows(IllegalArgumentException.class, () ->
-                function.invoke(governedArguments(tampered)));
+                withAdmittedTask(task -> function.invoke(governedArguments(task, tampered))));
     }
 
     @Test
@@ -135,15 +150,15 @@ class AiFunctionFactoryTest {
                         .equals("ai_complete"))
                 .findFirst()
                 .orElseThrow();
-        List<ColumnValue> first = governedArguments(
-                org.pangrova.protocol.BuiltInCapabilityCatalog
-                        .aiTextGenerationPlanRef());
-        List<ColumnValue> changed = new java.util.ArrayList<>(first);
-        changed.set(10, new ColumnValue.StringValue("1"));
-
-        assertThrows(IllegalArgumentException.class, () ->
-                ((org.pangrova.spi.function.BatchableScalarFunction) function)
-                        .invokeBatch(List.of(first, changed)));
+        assertThrows(IllegalArgumentException.class, () -> withAdmittedTask(task -> {
+            List<ColumnValue> first = governedArguments(
+                    task, org.pangrova.protocol.BuiltInCapabilityCatalog.aiTextGenerationPlanRef());
+            List<ColumnValue> changed = new java.util.ArrayList<>(first);
+            changed.set(2 + FunctionBindingDeclarations.governedLayout("AI_MODEL")
+                    .ordinal("provider_items"), new ColumnValue.StringValue("1"));
+            return ((org.pangrova.spi.function.BatchableScalarFunction) function)
+                    .invokeBatch(List.of(first, changed));
+        }));
     }
 
     @Test
@@ -222,37 +237,65 @@ class AiFunctionFactoryTest {
         assertEquals("ai-inference", factory.getName());
     }
 
-    private static List<ColumnValue> governedArguments(
-            org.pangrova.protocol.v2.CapabilityRef capability) {
-        String base64ModelSignature = java.util.Base64.getEncoder()
-                .encodeToString(new byte[32]);
-        return List.of(
-                new ColumnValue.StringValue("test-model"),
-                new ColumnValue.StringValue("Say hello"),
-                new ColumnValue.StringValue("ai-invoke-1"),
-                new ColumnValue.StringValue("test-model"),
-                new ColumnValue.StringValue("v1"),
-                new ColumnValue.StringValue(base64ModelSignature),
-                new ColumnValue.StringValue(capability.getCapabilityId()),
-                new ColumnValue.StringValue(capability.getSemanticVersion()),
-                new ColumnValue.StringValue(java.util.Base64.getEncoder()
-                        .encodeToString(
-                                capability.getSignatureSha256().toByteArray())),
-                new ColumnValue.StringValue(
-                        "query-1:stage-1:task-1:ai-invoke-1"),
-                new ColumnValue.StringValue("2"),
-                new ColumnValue.StringValue("1024"),
-                new ColumnValue.StringValue("1024000"),
-                new ColumnValue.StringValue("512000"),
-                new ColumnValue.StringValue("1000000"),
-                new ColumnValue.StringValue("false"),
-                new ColumnValue.StringValue("0"),
-                new ColumnValue.StringValue("0"),
-                new ColumnValue.StringValue("0"),
-                new ColumnValue.StringValue("0.0"),
-                new ColumnValue.StringValue("0"),
-                new ColumnValue.StringValue("false"),
-                new ColumnValue.StringValue("0"));
+    private static <T> T withAdmittedTask(java.util.function.Function<TaskRequest, T> action) {
+        String taskId = java.util.UUID.randomUUID().toString();
+        var grant = StageResourceGrant.newBuilder()
+                .setGrantId(taskId + ":grant").setCpuSlots(1).setNativeMemoryBytes(1_048_576)
+                .setProviderConcurrency(2).setProviderItems(1024).setProviderAttempts(4096)
+                .setProviderRequestBytes(1_024_000).setProviderResponseBytes(1_000_000).build();
+        var binding = OperatorBinding.newBuilder().setPlanNodeId("ai-invoke-1")
+                .setCapability(org.pangrova.protocol.BuiltInCapabilityCatalog.aiTextGenerationPlanRef())
+                .setModel(ModelBinding.newBuilder().setModel(VersionedRef.newBuilder()
+                        .setId("test-model").setVersion("v1")
+                        .setSignatureSha256(com.google.protobuf.ByteString.copyFrom(new byte[32])))
+                        .setOutputType(LogicalType.newBuilder().setCanonicalSql("VARCHAR")
+                                .setSubstraitType(io.substrait.proto.Type.newBuilder().setString(
+                                        io.substrait.proto.Type.String.newBuilder().setNullability(
+                                                io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE))))
+                        .setRequestLimits(ModelRequestLimits.newBuilder()
+                                .setMaxInputTokens(1024).setMaxOutputTokens(512)
+                                .setMaxRequestBytes(1_024_000).setMaxResponseBytes(1_000_000)))
+                .setExecutionPolicy(ExecutionPolicy.newBuilder()
+                        .setIdempotencyKey("query-1:stage-1:" + taskId + ":ai-invoke-1"))
+                .setResources(OperatorResourceRequirement.newBuilder()
+                        .setProviderConcurrency(2).setProviderItems(1024).setProviderAttempts(4096)
+                        .setProviderRequestBytes(1_024_000).setProviderResponseBytes(1_000_000))
+                .build();
+        var task = AiTestTaskAuthority.request(new AiTestTaskAuthority.Identity(
+                "tenant", "principal", "query-1", taskId, "trace", java.time.Instant.now()
+                        .plusSeconds(30).toEpochMilli()), grant).toBuilder()
+                .addOperatorBindings(binding).build();
+        AiInvocationService.registerTask(task);
+        var context = AiExecutionContext.fromTaskRequest(task);
+        try {
+            return AiExecutionContext.callWith(context, () -> action.apply(task));
+        } finally {
+            AiInvocationService.releaseTask(context.tenantId(), context.taskAttempt());
+        }
+    }
+
+    private static List<ColumnValue> governedArguments(TaskRequest task, CapabilityRef capability) {
+        var layout = FunctionBindingDeclarations.governedLayout("AI_MODEL");
+        var authority = GovernedBindingProjection.values(layout.id(),
+                task.getOperatorBindings(0).toBuilder().setCapability(capability).build());
+        var arguments = new java.util.ArrayList<ColumnValue>();
+        arguments.add(new ColumnValue.StringValue("test-model"));
+        arguments.add(new ColumnValue.StringValue("Say hello"));
+        for (var declared : layout.arguments()) {
+            arguments.add(new ColumnValue.StringValue(encode(authority.get(declared.name()))));
+        }
+        return List.copyOf(arguments);
+    }
+
+    private static String encode(GovernedScalarValue value) {
+        if (value instanceof GovernedScalarValue.Text text) return text.value();
+        if (value instanceof GovernedScalarValue.Signature signature) {
+            return java.util.Base64.getEncoder().encodeToString(signature.value().toByteArray());
+        }
+        if (value instanceof GovernedScalarValue.Unsigned unsigned) return Long.toString(unsigned.value());
+        if (value instanceof GovernedScalarValue.Flag flag) return Boolean.toString(flag.value());
+        if (value instanceof GovernedScalarValue.Floating floating) return Double.toString(floating.value());
+        throw new IllegalArgumentException("Unsupported declared authority value");
     }
 
     /**

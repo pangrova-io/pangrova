@@ -4,6 +4,7 @@ import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.spi.ai.embedding.BlobReference;
 import org.pangrova.worker.ai.context.AiExecutionContext;
+import org.pangrova.worker.ai.invocation.AiInvocationService;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -107,6 +108,7 @@ public final class GovernedBlobStore implements AutoCloseable {
         try {
             Draft draft = writeDraft(content, staging, effectiveLimit,
                     scope.context().deadlineEpochMs());
+            AiInvocationService.chargeGovernedFileBytes(draft.size());
             storage.publish(scope.token(), draft.checksum(), draft.size(), staging);
             String capability = capabilitySigner.sign(
                     scope.token(), normalizedMime, draft.size(), draft.checksum());
@@ -179,7 +181,11 @@ public final class GovernedBlobStore implements AutoCloseable {
         MessageDigest digest = sha256();
         long size = 0;
         try {
-            Files.createDirectories(staging.getParent());
+            Path parent = staging.getParent();
+            if (parent == null) {
+                throw new IOException("FILE staging path requires a parent directory");
+            }
+            Files.createDirectories(parent);
             try (FileChannel channel = FileChannel.open(
                     staging, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
                     var output = Channels.newOutputStream(channel)) {

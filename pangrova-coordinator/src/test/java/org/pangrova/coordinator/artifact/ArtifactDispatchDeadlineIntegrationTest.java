@@ -88,6 +88,12 @@ class ArtifactDispatchDeadlineIntegrationTest extends ContainerTestBase {
         assertThat(request.getOperatorBindingsList()).allSatisfy(binding ->
                 assertThat(binding.getExecutionPolicy().getDeadlineEpochMs()).isEqualTo(expected));
         assertThat(request.getSecurity().getPrincipal()).isEqualTo("alice");
+        assertThat(request.getTraceContext().getTraceId()).matches("[0-9a-f]{32}")
+                .isNotEqualTo("00000000000000000000000000000000");
+        assertThat(request.getTraceContext().getSpanId()).matches("[0-9a-f]{16}")
+                .isNotEqualTo("0000000000000000");
+        assertThat(org.pangrova.protocol.task.CanonicalTaskRequests.callbackFor(request).getTraceContext())
+                .isEqualTo(request.getTraceContext());
         assertThat(request.getAttempt().getFencingToken()).isEqualTo(lease.fencingToken());
         assertThat(request.getAttempt().getExecutionOwner().getOwnerId()).isEqualTo(lease.leaseOwner());
         assertThat(request.getAttempt().getQueryOrJobId()).isEqualTo(lease.executionAnchor().executionId());

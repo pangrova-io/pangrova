@@ -5,6 +5,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Verifies role-based coordinator deployment: a QUERY-only coordinator
@@ -36,7 +37,7 @@ class RoleBasedDeploymentTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -64,7 +65,7 @@ class RoleBasedDeploymentTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         // Coordinator starts successfully — proves it didn't try to initialize
@@ -78,7 +79,7 @@ class RoleBasedDeploymentTest {
     void combinedRoleStartsBothPaths() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("combined-1", 0);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();

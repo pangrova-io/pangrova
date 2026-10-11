@@ -3,8 +3,10 @@
 
 #include <openssl/evp.h>
 
+#include <algorithm>
 #include <array>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -13,8 +15,10 @@
 
 #include "executor/driver/TaskExecutor.h"
 #include "capability/NativeCapabilityCatalog.h"
+#include "capability/LogicalTypeContract.h"
 #include "jni/command/TaskRequestParser.h"
 #include "jni/command/WorkerLocalStorage.h"
+#include "../lance/LanceDatasetTestFixture.h"
 
 #include "pangrova/protocol/v2/connector.pb.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
@@ -459,7 +463,7 @@ void addGeneratedValueProperties(
     property->mutable_value()->set_string_value(value);
   };
   add_string("target_column", "embedding");
-  add_string("output_type", "VECTOR(2, COSINE)");
+  add_string("output_type", "VECTOR(2)");
   auto* dimension = properties->Add();
   dimension->set_name("vector_dimension");
   dimension->mutable_value()->set_int64_value(2);
@@ -581,6 +585,29 @@ TEST(ParseTaskConfigTest, ParsesIndexedResultVectorDimensions) {
   EXPECT_EQ(config.result_column_types[0].dimension, 3U);
   EXPECT_EQ(config.result_column_types[1].column_index, 2U);
   EXPECT_EQ(config.result_column_types[1].dimension, 5U);
+}
+
+TEST(ParseTaskConfigTest, RetainsCompleteDoubleStorageVectorDeclarationWithoutWeakeningAiContract) {
+  auto request = validRequest();
+  request.mutable_execution_options()->set_direct_result_output(true);
+  request.mutable_resource_grant()->set_shuffle_buffer_bytes(8 * 1024 * 1024);
+  proto::OperatorBinding embedding;
+  setEmbeddingOutputType(&embedding, 3);
+  auto* column = request.add_result_column_types();
+  column->set_column_index(0);
+  auto* logical = column->mutable_logical_type();
+  *logical = embedding.model().output_type();
+  logical->set_canonical_sql("VECTOR(3,DOUBLE)");
+  logical->mutable_substrait_type()->mutable_list()->mutable_type()->mutable_fp64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  logical->mutable_constraints(1)->set_string_value("FLOAT64");
+  const auto config = parseTaskConfig(serializeRaw(request));
+  ASSERT_EQ(config.result_column_types.size(), 1U);
+  EXPECT_EQ(config.result_column_types[0].dimension, 3U);
+  EXPECT_EQ(config.result_column_types[0].logical_type.SerializeAsString(), logical->SerializeAsString());
+  EXPECT_THROW(pangrova::capability::requireFloatVectorDimension(*logical), std::invalid_argument);
+  logical->set_canonical_sql("VECTOR(3)");
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::invalid_argument);
 }
 
 TEST(ParseTaskConfigTest, RejectsResultTypesWithoutDirectOutputOrUniqueIndex) {
@@ -991,12 +1018,19 @@ TEST(ParseTaskConfigTest, ParsesConnectorOwnedLanceWriteBinding) {
 
   addLanceCatalogFence(request);
 
+  // Preserve the former positive-version APPEND as an explicit rejection:
+  // a structural fixture cannot manufacture an accepted PostgreSQL base.
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::invalid_argument);
+  lance = write->mutable_output_binding()->mutable_lance();
+  lance->set_operation(proto::LANCE_WRITE_OPERATION_CREATE);
+  lance->set_expected_read_version(0);
   auto config = parseTaskConfig(serializeRaw(request));
   ASSERT_TRUE(config.write_config.lance_output.has_value());
   const auto& binding = *config.write_config.lance_output;
   EXPECT_EQ(binding.dataset_uri, "s3://warehouse/db/vectors.lance");
-  EXPECT_EQ(binding.operation, proto::LANCE_WRITE_OPERATION_APPEND);
-  EXPECT_EQ(binding.expected_read_version, 41);
+  EXPECT_EQ(binding.operation, proto::LANCE_WRITE_OPERATION_CREATE);
+  EXPECT_EQ(binding.expected_read_version, 0);
+  EXPECT_TRUE(binding.accepted_base_snapshot.empty());
   EXPECT_EQ(binding.write_id, "write-intent-123");
   EXPECT_EQ(
       binding.transaction_staging_prefix,
@@ -1064,6 +1098,10 @@ TEST(ParseTaskConfigTest, LanceRejectsCatalogColumnsAndAttemptStagingMutation) {
   lance->set_write_id("write-intent-123");
   lance->set_generation("generation-9");
   addLanceCatalogFence(request);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::invalid_argument);
+  lance = write->mutable_output_binding()->mutable_lance();
+  lance->set_operation(proto::LANCE_WRITE_OPERATION_CREATE);
+  lance->set_expected_read_version(0);
   auto valid = request;
   EXPECT_NO_THROW(parseTaskConfig(serializeRaw(valid)));
   request.mutable_execution_options()->mutable_write()->mutable_output_binding()
@@ -1076,6 +1114,107 @@ TEST(ParseTaskConfigTest, LanceRejectsCatalogColumnsAndAttemptStagingMutation) {
   request = valid;
   request.mutable_attempt()->set_attempt_id(request.attempt().attempt_id() + 1);
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
+class ParseTaskConfigLanceWriteTest : public lance::test::LanceDatasetTestFixture {
+ protected:
+  std::vector<uint8_t> writeRows(const lance::LanceWriterConfig& config,
+      const facebook::velox::RowTypePtr& type, const std::vector<int64_t>& values) {
+    auto ids = facebook::velox::BaseVector::create(facebook::velox::BIGINT(), values.size(), pool_.get());
+    for (size_t index = 0; index < values.size(); ++index) {
+      ids->asFlatVector<int64_t>()->set(index, values[index]);
+    }
+    auto rows = std::make_shared<facebook::velox::RowVector>(pool_.get(), type, nullptr,
+        values.size(), std::vector<facebook::velox::VectorPtr>{ids});
+    lance::LanceBatchWriter writer(pool_, type, config);
+    writer.writeBatch(rows);
+    return writer.finish();
+  }
+
+  proto::TaskRequest requestFor(const lance::LanceWriterConfig& config) {
+    auto request = validRequest();
+    if (!request.mutable_attempt()->ParseFromArray(config.taskAttempt.data(), config.taskAttempt.size())) {
+      throw std::runtime_error("Malformed actual PostgreSQL-issued task attempt");
+    }
+    request.set_task_kind(proto::TASK_KIND_WRITE);
+    request.mutable_security()->set_principal("lance-fixture-writer");
+    request.mutable_security()->set_tenant_id(config.tenantId);
+    auto* write = request.mutable_execution_options()->mutable_write();
+    write->set_write_mode("INSERT");
+    write->set_file_format(proto::FILE_FORMAT_LANCE);
+    *write->mutable_output_binding() = pangrova::test::LanceManagedSourceTestAuthority::allocationBinding(config);
+    // The catalog binding is the immutable template; allocation also returns
+    // the exact Java-derived prefix for this already-issued complete attempt.
+    write->mutable_output_binding()->mutable_lance()->set_transaction_staging_prefix(config.transactionStagingPrefix);
+    if (!request.add_worker_local_storage_bindings()->ParseFromString(config.storageBinding)) {
+      throw std::runtime_error("Malformed actual catalog storage binding");
+    }
+    return request;
+  }
+};
+
+TEST_F(ParseTaskConfigLanceWriteTest, PgAcceptedAppendBindingRoundTripsAndWritesExactHistoricalBase) {
+  const auto type = facebook::velox::ROW({"id"}, {facebook::velox::BIGINT()});
+  const auto path = (tmpDir_ / "append.lance").string();
+  const auto create = createConfig(path, "parser-create", type);
+  ASSERT_EQ(commitFragment(create, writeRows(create, type, {71, 72})), 1);
+  const auto accepted = pangrova::test::LanceManagedSourceTestAuthority::reference(path, 1);
+  const auto append = createConfig(path, "parser-append", type, lance::LanceWriteOperation::kAppend, 1);
+  const auto request = requestFor(append);
+  const auto parsed = parseTaskConfig(serializeRaw(request));
+  ASSERT_TRUE(parsed.write_config.lance_output.has_value());
+  const auto& binding = *parsed.write_config.lance_output;
+  EXPECT_EQ(binding.dataset_uri, path);
+  EXPECT_EQ(binding.operation, proto::LANCE_WRITE_OPERATION_APPEND);
+  EXPECT_EQ(binding.expected_read_version, 1);
+  EXPECT_EQ(binding.write_id, append.writeId);
+  EXPECT_EQ(binding.transaction_staging_prefix, append.transactionStagingPrefix);
+  EXPECT_EQ(binding.write_column_names, std::vector<std::string>({"id"}));
+  EXPECT_EQ(binding.generation, append.generation);
+  EXPECT_EQ(binding.schema_fence_sha256, append.schemaFenceSha256);
+  EXPECT_EQ(binding.task_attempt, append.taskAttempt);
+  EXPECT_EQ(binding.storage_binding, append.storageBinding);
+  EXPECT_EQ(binding.accepted_base_snapshot, append.acceptedBaseSnapshot);
+  proto::AcceptedSourceSnapshotRef base;
+  ASSERT_TRUE(base.ParseFromString(binding.accepted_base_snapshot));
+  EXPECT_EQ(base.SerializeAsString(), accepted.SerializeAsString());
+  EXPECT_EQ(base.catalog().SerializeAsString(), request.execution_options().write().output_binding().lance().catalog().SerializeAsString());
+  EXPECT_EQ(base.accepted_origin_catalog_revision(), accepted.accepted_origin_catalog_revision());
+  EXPECT_EQ(base.tenant_id(), append.tenantId);
+  EXPECT_EQ(base.table_id(), accepted.table_id());
+  EXPECT_EQ(base.table_generation(), accepted.table_generation());
+  EXPECT_EQ(base.version(), 1);
+  EXPECT_EQ(base.manifest_sha256().digest(), accepted.manifest_sha256().digest());
+  EXPECT_EQ(base.physical_schema_sha256().digest(), accepted.physical_schema_sha256().digest());
+  EXPECT_EQ(base.manifest_relative_path(), accepted.manifest_relative_path());
+  EXPECT_EQ(base.membership_id(), accepted.membership_id());
+  auto missing = request;
+  missing.mutable_execution_options()->mutable_write()->mutable_output_binding()->mutable_lance()->clear_base_snapshot();
+  EXPECT_THROW(parseTaskConfig(serializeRaw(missing)), std::invalid_argument);
+  auto different = request;
+  different.mutable_execution_options()->mutable_write()->mutable_output_binding()->mutable_lance()->mutable_base_snapshot()->set_version(2);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(different)), std::invalid_argument);
+  auto consumer = append;
+  consumer.outputPath = binding.dataset_uri;
+  consumer.operation = static_cast<lance::LanceWriteOperation>(binding.operation);
+  consumer.expectedReadVersion = binding.expected_read_version;
+  consumer.acceptedBaseSnapshot = binding.accepted_base_snapshot;
+  consumer.schemaFenceSha256 = binding.schema_fence_sha256;
+  consumer.writeId = binding.write_id;
+  consumer.generation = binding.generation;
+  consumer.transactionStagingPrefix = binding.transaction_staging_prefix;
+  consumer.taskAttempt = binding.task_attempt;
+  consumer.storageBinding = binding.storage_binding;
+  ASSERT_EQ(commitFragment(consumer, writeRows(consumer, type, {73})), 2);
+  EXPECT_EQ(pangrova::test::LanceManagedSourceTestAuthority::reference(path, 1).SerializeAsString(), accepted.SerializeAsString());
+  std::vector<int64_t> actual;
+  pangrova::test::PartitionedTestDatasetReader reader(pool_.get(), type, path, 2, {"id"});
+  while (auto rows = reader.next(16)) {
+    auto* ids = rows->childAt(0)->asFlatVector<int64_t>();
+    for (facebook::velox::vector_size_t index = 0; index < rows->size(); ++index) actual.push_back(ids->valueAt(index));
+  }
+  std::sort(actual.begin(), actual.end());
+  EXPECT_EQ(actual, std::vector<int64_t>({71, 72, 73}));
 }
 
 TEST(ParseTaskConfigTest, GenericWriteBindingFailsClosed) {
@@ -1283,7 +1422,7 @@ TEST(ParseTaskConfigTest, PreservesGovernedAiInvocationBudget) {
       std::runtime_error);
 }
 
-TEST(ParseTaskConfigTest, ValidatesGovernedExecutionReusePolicy) {
+TEST(ParseTaskConfigTest, RejectsReuseOfNonDeterministicModelInvocations) {
   auto request = validRequest();
   request.mutable_security()->set_policy_context_hash("secured-plan-sha256");
   auto* binding = addAiBinding(request);
@@ -1296,9 +1435,17 @@ TEST(ParseTaskConfigTest, ValidatesGovernedExecutionReusePolicy) {
   reuse->set_key_dimension(256);
   reuse->set_require_complete(true);
 
-  auto config = parseTaskConfig(serializeRaw(request));
-  EXPECT_TRUE(config.operator_bindings.at("ai-invoke-1")
-                  .reuse_policy().enabled());
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+
+  auto exact_threshold = request;
+  exact_threshold.mutable_operator_bindings(0)
+      ->mutable_reuse_policy()->set_similarity_threshold(1.0);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(exact_threshold)), std::runtime_error);
+
+  auto without_reuse = request;
+  without_reuse.mutable_operator_bindings(0)->clear_reuse_policy();
+  auto config = parseTaskConfig(serializeRaw(without_reuse));
+  EXPECT_FALSE(config.operator_bindings.at("ai-invoke-1").has_reuse_policy());
   EXPECT_EQ(config.policy_context_hash, "secured-plan-sha256");
   EXPECT_FALSE(config.dependency_scope_hash.empty());
   EXPECT_FALSE(config.dependency_version_hash.empty());

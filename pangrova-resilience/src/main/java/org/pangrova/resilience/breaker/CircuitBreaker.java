@@ -354,7 +354,7 @@ public class CircuitBreaker implements CircuitBreakerPolicy {
      * {@link #snapshot()} are also synchronized to ensure a consistent view.</p>
      */
     @ThreadSafe
-    static class SlidingWindowCounter {
+    static final class SlidingWindowCounter {
 
         private static final byte SUCCESS = 0;
         private static final byte FAILURE = 1;

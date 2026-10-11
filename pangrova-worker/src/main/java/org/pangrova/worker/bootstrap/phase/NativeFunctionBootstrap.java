@@ -17,20 +17,21 @@ import java.util.Map;
 import java.util.ServiceLoader;
 
 /**
- * Bootstrap phase that discovers user-defined functions via
- * {@link ServiceLoader} and registers them with the native execution engine.
+ * Bootstrap phase that discovers user-defined functions via {@link ServiceLoader} and registers
+ * them with the native execution engine.
  *
- * <p>This phase runs after {@link NativeRuntimeBootstrap} and before
- * {@link WorkerTaskBootstrap}. It:
+ * <p>This phase runs after {@link NativeRuntimeBootstrap} and before {@link WorkerTaskBootstrap}.
+ * It:
+ *
  * <ol>
- *   <li>Discovers {@link FunctionFactory} implementations via ServiceLoader</li>
- *   <li>Collects scalar and aggregate functions from each factory</li>
- *   <li>Registers them in the {@link NativeFunctionBridge} for JNI callback dispatch</li>
- *   <li>Stores the bridge in {@link WorkerComponentRefs} for lifecycle management</li>
+ *   <li>Discovers {@link FunctionFactory} implementations via ServiceLoader
+ *   <li>Collects scalar and aggregate functions from each factory
+ *   <li>Registers them in the {@link NativeFunctionBridge} for JNI callback dispatch
+ *   <li>Stores the bridge in {@link WorkerComponentRefs} for lifecycle management
  * </ol>
  *
- * <p>Registration is fail-closed. A worker must not accept tasks if its Java
- * function catalog cannot be reproduced in the native expression engine.</p>
+ * <p>Registration is fail-closed. A worker must not accept tasks if its Java function catalog
+ * cannot be reproduced in the native expression engine.
  */
 public final class NativeFunctionBootstrap {
 
@@ -41,16 +42,17 @@ public final class NativeFunctionBootstrap {
     /**
      * Discovers and registers UDF/UDAF functions with the native engine.
      *
-     * @param refs          component refs to store the function bridge
+     * @param refs component refs to store the function bridge
      * @param functionConfig configuration controlling auto-registration
      */
     public static void initialize(WorkerComponentRefs refs, NativeFunctionConfig functionConfig) {
         initialize(refs, functionConfig, ServiceLoader.load(FunctionFactory.class));
     }
 
-    static void initialize(WorkerComponentRefs refs,
-                           NativeFunctionConfig functionConfig,
-                           Iterable<FunctionFactory> factories) {
+    static void initialize(
+            WorkerComponentRefs refs,
+            NativeFunctionConfig functionConfig,
+            Iterable<FunctionFactory> factories) {
         if (!functionConfig.autoRegister()) {
             if (refs.nativeAvailable()) NativeCapabilityLoader.finalizeStartup();
             LOG.info("event=phase_skipped phase=native_functions reason=auto_register_disabled");
@@ -77,21 +79,29 @@ public final class NativeFunctionBootstrap {
                 LOG.info("event=function_factory_discovered plugin={}", pluginName);
 
                 scalarCount += registerScalarFunctions(bridge, factory, pluginConfig, pluginName);
-                aggregateCount += registerAggregateFunctions(bridge, factory, pluginConfig, pluginName);
+                aggregateCount +=
+                        registerAggregateFunctions(bridge, factory, pluginConfig, pluginName);
             }
 
             refs.setNativeFunctionBridge(bridge);
 
             List<NativeFunctionDescriptor> descriptors = bridge.buildDescriptors();
             if (refs.nativeAvailable()) {
-                NativeRuntime.nativeRegisterFunctions(bridge, descriptors);
+                if (!descriptors.isEmpty()) {
+                    NativeRuntime.nativeRegisterFunctions(bridge, descriptors);
+                }
                 NativeCapabilityLoader.finalizeStartup();
             }
-            LOG.info("event=native_functions_registered factories={} scalars={} aggregates={} descriptors={}",
-                    factoryCount, scalarCount, aggregateCount, descriptors.size());
+            LOG.info(
+                    "event=native_functions_registered factories={} scalars={} aggregates={} descriptors={}",
+                    factoryCount,
+                    scalarCount,
+                    aggregateCount,
+                    descriptors.size());
         } catch (RuntimeException | Error startupFailure) {
-            try { refs.closeNativeFunctionResources(); }
-            catch (RuntimeException | Error cleanupFailure) {
+            try {
+                refs.closeNativeFunctionResources();
+            } catch (RuntimeException | Error cleanupFailure) {
                 if (cleanupFailure != startupFailure) startupFailure.addSuppressed(cleanupFailure);
             }
             throw startupFailure;
@@ -103,10 +113,11 @@ public final class NativeFunctionBootstrap {
         refs.closeNativeFunctionResources();
     }
 
-    private static int registerScalarFunctions(NativeFunctionBridge bridge,
-                                               FunctionFactory factory,
-                                               Map<String, String> pluginConfig,
-                                               String pluginName) {
+    private static int registerScalarFunctions(
+            NativeFunctionBridge bridge,
+            FunctionFactory factory,
+            Map<String, String> pluginConfig,
+            String pluginName) {
         int count = 0;
         List<ScalarFunction> scalars = factory.getScalarFunctions(pluginConfig);
         for (ScalarFunction fn : scalars) {
@@ -115,17 +126,22 @@ public final class NativeFunctionBootstrap {
                 count++;
             } catch (RuntimeException e) {
                 throw new IllegalStateException(
-                        "Failed to register scalar function '" + fn.getMetadata().name()
-                                + "' from plugin '" + pluginName + "'", e);
+                        "Failed to register scalar function '"
+                                + fn.getMetadata().name()
+                                + "' from plugin '"
+                                + pluginName
+                                + "'",
+                        e);
             }
         }
         return count;
     }
 
-    private static int registerAggregateFunctions(NativeFunctionBridge bridge,
-                                                  FunctionFactory factory,
-                                                  Map<String, String> pluginConfig,
-                                                  String pluginName) {
+    private static int registerAggregateFunctions(
+            NativeFunctionBridge bridge,
+            FunctionFactory factory,
+            Map<String, String> pluginConfig,
+            String pluginName) {
         int count = 0;
         List<AggregateFunction> aggregates = factory.getAggregateFunctions(pluginConfig);
         for (AggregateFunction fn : aggregates) {
@@ -134,8 +150,12 @@ public final class NativeFunctionBootstrap {
                 count++;
             } catch (RuntimeException e) {
                 throw new IllegalStateException(
-                        "Failed to register aggregate function '" + fn.getMetadata().name()
-                                + "' from plugin '" + pluginName + "'", e);
+                        "Failed to register aggregate function '"
+                                + fn.getMetadata().name()
+                                + "' from plugin '"
+                                + pluginName
+                                + "'",
+                        e);
             }
         }
         return count;

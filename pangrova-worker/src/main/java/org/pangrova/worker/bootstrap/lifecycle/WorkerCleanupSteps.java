@@ -9,16 +9,24 @@ public final class WorkerCleanupSteps {
 
     /** Runs a step even if a previous independent step failed. */
     public void attempt(Runnable close) {
-        try { close.run(); }
-        catch (RuntimeException | Error closeFailure) {
-            if (failure == null) failure = closeFailure;
-            else if (failure != closeFailure) failure.addSuppressed(closeFailure);
+        try {
+            close.run();
+        } catch (RuntimeException | Error closeFailure) {
+            if (failure == null) {
+                failure = closeFailure;
+            } else if (failure != closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
         }
     }
 
     /** Prevents entering a dependent cleanup phase after an earlier failure. */
     public void requireSuccess() {
-        if (failure instanceof RuntimeException runtime) throw runtime;
-        if (failure instanceof Error error) throw error;
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
     }
 }

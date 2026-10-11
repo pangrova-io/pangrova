@@ -28,6 +28,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.types.TypeUtil;
 
 import java.util.List;
 import java.util.Map;
@@ -89,12 +90,15 @@ public class IcebergMetadata extends IcebergReadMetadata {
 
     @Override
     public ConnectorOutputTableHandle createTable(ConnectorSession session, ConnectorTableMetadata metadata) {
-        Schema schema = IcebergSchemaBuilder.buildIcebergSchema(metadata.typedColumns(), metadata.properties());
+        Map<String, String> declaredProperties = IcebergSchemaBuilder.declaredTableProperties(
+                metadata.typedColumns(), metadata.properties());
+        Schema schema = TypeUtil.assignIncreasingFreshIds(
+                IcebergSchemaBuilder.buildIcebergSchema(metadata.typedColumns(), declaredProperties));
         TableIdentifier id = TableIdentifier.of(metadata.table().schema(), metadata.table().table());
-        PartitionSpec spec = IcebergSchemaBuilder.buildPartitionSpec(schema, metadata.properties());
-        org.apache.iceberg.SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(schema, metadata.properties());
+        PartitionSpec spec = IcebergSchemaBuilder.buildPartitionSpec(schema, declaredProperties);
+        org.apache.iceberg.SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(schema, declaredProperties);
         Map<String, String> icebergProps =
-                IcebergFormatVersions.creationProperties(schema, metadata.properties());
+                IcebergFormatVersions.creationProperties(schema, declaredProperties);
         Table table = icebergProps.isEmpty()
                 ? catalog.createTable(id, schema, spec)
                 : catalog.createTable(id, schema, spec, icebergProps);

@@ -18,7 +18,6 @@ final class RemoteShuffleClientOwner {
     int borrowers;
     @GuardedBy("RemoteShuffleClientPool.admission")
     boolean retired;
-    volatile Throwable retirementFailure;
     private final AtomicReference<CompletableFuture<Void>> drain = new AtomicReference<>();
 
     RemoteShuffleClientOwner(RemoteShuffleChannelAdmission.Reservation reservation) {
@@ -32,10 +31,8 @@ final class RemoteShuffleClientOwner {
                 var channel = reservation.channel();
                 if (channel != null) RemoteShuffleClient.closeChannel(channel);
                 reservation.releaseTerminated();
-                retirementFailure = null;
                 attempt.complete(null);
             } catch (RuntimeException | Error failure) {
-                retirementFailure = failure;
                 attempt.completeExceptionally(failure);
                 throw failure;
             } finally {

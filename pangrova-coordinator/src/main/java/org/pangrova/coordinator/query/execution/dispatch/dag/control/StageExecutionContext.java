@@ -4,6 +4,7 @@ import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.metadata.artifact.build.ArtifactBuildLease;
 import org.pangrova.metadata.artifact.build.ArtifactExecutionOwner;
 import org.pangrova.metadata.artifact.jdbc.CurrentDeferredExecutionContext;
+import org.pangrova.observability.tracing.ExecutionTraceContext;
 
 import java.util.Map;
 import java.util.Objects;
@@ -18,6 +19,7 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
     String principal();
     Set<String> activeRoles();
     Map<String, String> executionProperties();
+    ExecutionTraceContext traceContext();
 
     /** Only a live query has a connector session; deferred authority cannot impersonate one. */
     default CoordinatorSessionContext requireLiveSession() {
@@ -38,18 +40,24 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
             return session.userIdentity() == null ? Set.of() : session.userIdentity().groups();
         }
         public Map<String, String> executionProperties() { return session.sessionProperties(); }
+        public ExecutionTraceContext traceContext() { return session.traceContext(); }
     }
 
     /** Job-level authority resolved by the same current PG gate used for every exact partition claim. */
-    record Durable(CurrentDeferredExecutionContext authority, Map<Integer, Long> allocationEpochs)
+    record Durable(CurrentDeferredExecutionContext authority, Map<Integer, Long> allocationEpochs,
+            ExecutionTraceContext traceContext)
             implements StageExecutionContext {
         public Durable {
             Objects.requireNonNull(authority, "authority");
+            Objects.requireNonNull(traceContext, "traceContext");
             allocationEpochs = Map.copyOf(allocationEpochs);
             for (var entry : allocationEpochs.entrySet()) {
                 authority.dispatchSpec().stageGraph().requireStage(entry.getKey());
                 if (entry.getValue() <= 0) throw new IllegalArgumentException("Allocation epoch must be positive");
             }
+        }
+        public Durable(CurrentDeferredExecutionContext authority, Map<Integer, Long> allocationEpochs) {
+            this(authority, allocationEpochs, ExecutionTraceContext.capture());
         }
         /** Restored exchanges retain their original epoch, independently of the new access owner. */
         public long planEpoch(int stageId) {
@@ -66,11 +74,12 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
     }
 
     /** The private-constructor authority object can only be obtained from the current same-transaction PG resolver. */
-    record Deferred(CurrentDeferredExecutionContext authority, ArtifactBuildLease lease)
+    record Deferred(CurrentDeferredExecutionContext authority, ArtifactBuildLease lease, ExecutionTraceContext traceContext)
             implements StageExecutionContext {
         public Deferred {
             Objects.requireNonNull(authority, "authority");
             Objects.requireNonNull(lease, "lease");
+            Objects.requireNonNull(traceContext, "traceContext");
             var spec = authority.dispatchSpec();
             if (!spec.tenantId().equals(lease.tenantId()) || !spec.jobId().equals(lease.jobId())
                     || !authority.executionAnchor().executionId().equals(lease.executionAnchor().executionId())
@@ -79,6 +88,9 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
                 throw new IllegalArgumentException(
                         "Deferred stage context differs from its actual leased execution owner");
             }
+        }
+        public Deferred(CurrentDeferredExecutionContext authority, ArtifactBuildLease lease) {
+            this(authority, lease, ExecutionTraceContext.capture());
         }
         public String executionId() { return authority.executionAnchor().executionId(); }
         public String tenantId() { return authority.dispatchSpec().tenantId(); }

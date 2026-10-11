@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <barrier>
 #include <chrono>
@@ -17,7 +18,10 @@
 
 #include <unistd.h>
 
+#include <arrow/buffer.h>
 #include <arrow/c/abi.h>
+#include <arrow/c/bridge.h>
+#include <arrow/ipc/writer.h>
 #include <openssl/evp.h>
 
 #include "../TestMemoryHelper.h"
@@ -53,8 +57,10 @@ class LanceDatasetTestFixture : public ::testing::Test {
   }
 
   void SetUp() override {
-    tmpDir_ = std::filesystem::temp_directory_path() /
-        ("lance_reader_test_" + std::to_string(::getpid()));
+    tmpDir_ = pangrova::test::LanceManagedSourceTestAuthority::warehouse() /
+        ("lance_reader_test_" + std::to_string(::getpid()) + "_" +
+         ::testing::UnitTest::GetInstance()->current_test_info()->test_suite_name() + "_" +
+         ::testing::UnitTest::GetInstance()->current_test_info()->name());
     std::filesystem::create_directories(tmpDir_);
   }
 
@@ -80,36 +86,19 @@ class LanceDatasetTestFixture : public ::testing::Test {
     const auto fingerprintRc = lance_ffi_schema_fingerprint(
         &schema, config.schemaFenceSha256.data(),
         config.schemaFenceSha256.size());
-    if (schema.release) {
-      schema.release(&schema);
-    }
     if (fingerprintRc != 0) {
+      if (schema.release) schema.release(&schema);
       throw std::runtime_error("failed to fingerprint test Lance schema");
     }
+    auto imported = arrow::ImportSchema(&schema);
+    if (!imported.ok()) throw std::runtime_error(imported.status().ToString());
+    auto ipc = arrow::ipc::SerializeSchema(**imported, arrow::default_memory_pool());
+    if (!ipc.ok()) throw std::runtime_error(ipc.status().ToString());
     config.writeId = writeId;
     config.tenantId = "tenant-a";
     config.generation = "generation-1";
-    config.transactionStagingPrefix =
-        "_pangrova/write-staging/" + writeId + "/task-" +
-        std::to_string(partitionId);
-    pangrova::protocol::v2::TaskAttemptId attempt;
-    attempt.set_query_or_job_id("query");
-    attempt.set_stage_id(1);
-    attempt.set_partition_id(partitionId);
-    attempt.set_plan_epoch(1);
-    attempt.set_attempt_id(0);
-    attempt.set_fencing_token(1);
-    attempt.set_task_id("task-" + std::to_string(partitionId));
-    attempt.set_control_epoch(1);
-    auto* owner = attempt.mutable_execution_owner();
-    owner->set_owner_id("coordinator");
-    owner->set_owner_incarnation("incarnation-1");
-    owner->set_fencing_token(1);
-    std::string serialized;
-    if (!attempt.SerializeToString(&serialized)) {
-      throw std::runtime_error("failed to serialize test TaskAttemptId");
-    }
-    config.taskAttempt.assign(serialized.begin(), serialized.end());
+    pangrova::test::LanceManagedSourceTestAuthority::allocate(config,
+        std::string(reinterpret_cast<const char*>((*ipc)->data()), (*ipc)->size()), partitionId);
     return config;
   }
 
@@ -119,63 +108,13 @@ class LanceDatasetTestFixture : public ::testing::Test {
       bool recovering = false,
       uint64_t knownCommittedVersion = 0,
       const std::vector<std::string>& stagingPrefixes = {}) {
-    if (!stagingPrefixes.empty() && stagingPrefixes.size() != fragments.size()) {
-      throw std::invalid_argument("one staging prefix is required per fragment");
+    // The old recovery arguments are assertions against actual PG truth only.
+    // They never authorize SDK filesystem lookup or physical publication.
+    if (!recovering && knownCommittedVersion != 0) {
+      throw std::runtime_error("A known version requires an explicit recovery attempt");
     }
-    std::vector<LanceCCommitFragment> views;
-    views.reserve(fragments.size());
-    for (size_t index = 0; index < fragments.size(); ++index) {
-      const auto& fragment = fragments[index];
-      const auto& prefix = stagingPrefixes.empty()
-          ? config.transactionStagingPrefix
-          : stagingPrefixes[index];
-      views.push_back({fragment.data(), fragment.size(), prefix.c_str()});
-    }
-    uint64_t committedVersion = 0;
-    std::array<uint8_t, 32> manifestDigest{};
-    const auto deadline = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count() + 60'000;
-    LanceStorageContext storage(config.storageBinding);
-    int32_t rc = lance_ffi_commit_fragments(storage.get(),
-        config.outputPath.c_str(),
-        config.writeId.c_str(),
-        config.tenantId.c_str(),
-        config.generation.c_str(),
-        static_cast<int32_t>(config.operation),
-        config.expectedReadVersion,
-        config.schemaFenceSha256.data(),
-        config.schemaFenceSha256.size(),
-        views.data(),
-        views.size(),
-        8,
-        recovering ? 1 : 0,
-        knownCommittedVersion,
-        static_cast<uint64_t>(deadline),
-        &committedVersion,
-        manifestDigest.data(),
-        manifestDigest.size());
-    if (rc != 0) {
-      const char* error = lance_ffi_last_error();
-      throw std::runtime_error(
-          std::string("Lance test commit failed") +
-          (error == nullptr ? "" : std::string(": ") + error));
-    }
-    bool matchesPersistedManifest = false;
-    for (const auto& entry : std::filesystem::directory_iterator(
-             std::filesystem::path(config.outputPath) / "_versions")) {
-      if (!entry.is_regular_file() || entry.path().extension() != ".manifest") continue;
-      std::ifstream file(entry.path(), std::ios::binary);
-      const std::string bytes((std::istreambuf_iterator<char>(file)), {});
-      std::array<uint8_t, 32> actual{};
-      unsigned int size = 0;
-      EXPECT_EQ(EVP_Digest(bytes.data(), bytes.size(), actual.data(), &size,
-                          EVP_sha256(), nullptr), 1);
-      EXPECT_EQ(size, 32u);
-      matchesPersistedManifest = matchesPersistedManifest || actual == manifestDigest;
-    }
-    EXPECT_TRUE(matchesPersistedManifest)
-        << "Lance C ABI must return SHA-256 of persisted manifest bytes, not a schema or tag digest";
-    return committedVersion;
+    return pangrova::test::LanceManagedSourceTestAuthority::commit(
+        config, fragments, knownCommittedVersion, stagingPrefixes);
   }
 
   static uint64_t commitFragment(
@@ -188,35 +127,7 @@ class LanceDatasetTestFixture : public ::testing::Test {
       const LanceWriterConfig& config,
       const std::vector<std::vector<uint8_t>>& fragments,
       const std::vector<std::string>& stagingPrefixes = {}) {
-    if (!stagingPrefixes.empty() && stagingPrefixes.size() != fragments.size()) {
-      throw std::invalid_argument("one staging prefix is required per fragment");
-    }
-    std::vector<LanceCCommitFragment> views;
-    views.reserve(fragments.size());
-    for (size_t index = 0; index < fragments.size(); ++index) {
-      const auto& prefix = stagingPrefixes.empty()
-          ? config.transactionStagingPrefix
-          : stagingPrefixes[index];
-      views.push_back(
-          {fragments[index].data(), fragments[index].size(), prefix.c_str()});
-    }
-    LanceStorageContext storage(config.storageBinding);
-    if (lance_ffi_discard_fragments(storage.get(),
-            config.outputPath.c_str(),
-            config.writeId.c_str(),
-            config.tenantId.c_str(),
-            config.generation.c_str(),
-            static_cast<int32_t>(config.operation),
-            config.expectedReadVersion,
-            config.schemaFenceSha256.data(),
-            config.schemaFenceSha256.size(),
-            views.data(),
-            views.size()) != 0) {
-      const char* error = lance_ffi_last_error();
-      throw std::runtime_error(
-          std::string("Lance test discard failed") +
-          (error == nullptr ? "" : std::string(": ") + error));
-    }
+    pangrova::test::LanceManagedSourceTestAuthority::cleanup(config, fragments, stagingPrefixes);
   }
 
   static pangrova::protocol::v2::LanceWriteFragment parseFragment(
@@ -230,42 +141,25 @@ class LanceDatasetTestFixture : public ::testing::Test {
   }
 
   static uint64_t datasetVersion(const std::string& path) {
-    uint64_t version = 0;
-    LanceStorageContext storage(pangrova::test::testStorageBinding(path));
-    if (lance_ffi_dataset_version(storage.get(), path.c_str(), &version) != 0) {
-      const char* error = lance_ffi_last_error();
-      throw std::runtime_error(
-          std::string("Lance dataset version lookup failed") +
-          (error == nullptr ? "" : std::string(": ") + error));
-    }
-    return version;
+    return pangrova::test::LanceManagedSourceTestAuthority::reference(path, 0).version();
   }
 
-  static std::array<uint8_t, 32> datasetSchemaFence(
-      const std::string& path) {
-    std::array<uint8_t, 32> fingerprint{};
-    LanceStorageContext storage(pangrova::test::testStorageBinding(path));
-    if (lance_ffi_dataset_schema_fingerprint(
-            storage.get(), path.c_str(), fingerprint.data(), fingerprint.size()) != 0) {
-      const char* error = lance_ffi_last_error();
-      throw std::runtime_error(
-          std::string("Lance dataset schema lookup failed") +
-          (error == nullptr ? "" : std::string(": ") + error));
-    }
-    return fingerprint;
+  static std::array<uint8_t, 32> datasetSchemaFence(const std::string& path) {
+    const auto actual = pangrova::test::LanceManagedSourceTestAuthority::reference(path, 0).physical_schema_sha256().digest();
+    if (actual.size() != 32) throw std::runtime_error("PG accepted schema is malformed");
+    std::array<uint8_t, 32> result{};
+    std::copy(actual.begin(), actual.end(), result.begin());
+    return result;
   }
 
-  static std::pair<uint64_t, std::array<uint8_t, 32>> datasetInfo(
-      const std::string& path) {
-    uint64_t version = 0;
-    std::array<uint8_t, 32> fingerprint{};
-    LanceStorageContext storage(pangrova::test::testStorageBinding(path));
-    if (lance_ffi_dataset_info(
-            storage.get(), path.c_str(), datasetVersion(path), &version, fingerprint.data(), fingerprint.size()) !=
-        0) {
-      throw std::runtime_error("Lance dataset info lookup failed");
+  static std::pair<uint64_t, std::array<uint8_t, 32>> datasetInfo(const std::string& path) {
+    const auto accepted = pangrova::test::LanceManagedSourceTestAuthority::reference(path, 0);
+    const auto storage = pangrova::test::testStorageBinding(path);
+    const auto page = pangrova::test::testScanPage(path, accepted.version(), storage);
+    if (page.version() != accepted.version() || page.physical_schema_sha256().SerializeAsString() != accepted.physical_schema_sha256().SerializeAsString()) {
+      throw std::runtime_error("Actual SDK schema differs from authoritative accepted source");
     }
-    return {version, fingerprint};
+    return {page.version(), datasetSchemaFence(path)};
   }
 
   // Write a dataset with id (BIGINT) and name (VARCHAR) columns.

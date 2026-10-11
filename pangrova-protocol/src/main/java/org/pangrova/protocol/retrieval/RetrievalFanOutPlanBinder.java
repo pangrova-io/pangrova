@@ -295,7 +295,7 @@ public final class RetrievalFanOutPlanBinder {
                                     .SORT_DIRECTION_ASC_NULLS_LAST));
             ++rewritten;
             return relation.toBuilder().setFetch(fetch.toBuilder()
-                    .setCountExpr(SubstraitFetchBounds.literal(binding.candidateLimit()))
+                    .setCountExpr(SubstraitFetchBounds.literal(binding.outputLimit()))
                     .setInput(Rel.newBuilder().setSort(sort))).build();
         }
 

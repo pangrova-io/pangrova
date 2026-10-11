@@ -29,8 +29,9 @@ final class JournalSqlOperation implements AutoCloseable {
             original = error;
             throw error;
         } finally {
-            try { close(); }
-            catch (RuntimeException | Error cleanup) {
+            try {
+                close();
+            } catch (RuntimeException | Error cleanup) {
                 if (original == null) throw cleanup;
                 if (original != cleanup) original.addSuppressed(cleanup);
             }
@@ -43,8 +44,9 @@ final class JournalSqlOperation implements AutoCloseable {
     }
 
     void closeAfterFailure(Throwable original) {
-        try { close(); }
-        catch (RuntimeException | Error cleanup) {
+        try {
+            close();
+        } catch (RuntimeException | Error cleanup) {
             if (original != cleanup) original.addSuppressed(cleanup);
         }
     }
@@ -62,7 +64,9 @@ final class JournalSqlOperation implements AutoCloseable {
         } catch (SQLException | RuntimeException | Error error) {
             failure = error;
             throw JournalPendingWrites.failure("Entered journal SQL owner could not close", error);
-        } finally { cleaning.set(false); }
+        } finally {
+            cleaning.set(false);
+        }
     }
 
     Throwable failure() { return failure; }

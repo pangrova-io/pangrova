@@ -274,9 +274,8 @@ class HttpsBlobImporterTest {
     }
 
     private static <T> T governed(Supplier<T> action) {
-        AiExecutionContext context = org.pangrova.worker.ai.context.AiTestTaskAuthority.context(
-                "tenant-a", "alice", "query-1", "task-1", "trace-1",
-                Instant.now().plus(Duration.ofMinutes(1)).toEpochMilli(), 1024);
-        return AiExecutionContext.callWith(context, action);
+        return org.pangrova.worker.ai.context.AiTestTaskAuthority.callWithRegisteredTask(
+                "tenant-a", "alice", Instant.now().plus(Duration.ofMinutes(1)).toEpochMilli(),
+                1024, action);
     }
 }

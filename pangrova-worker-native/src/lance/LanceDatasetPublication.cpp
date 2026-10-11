@@ -180,7 +180,7 @@ void validateAllocation(const proto::LanceWriteBinding& binding) {
 }
 
 void validateAttempt(const proto::TaskAttemptId& attempt,
-                     const proto::FinalizeDistributedWriteRequest& request) {
+                     const proto::PrepareDistributedWriteRequest& request) {
   require(attempt.query_or_job_id() == request.execution_id() &&
       text(attempt.task_id()) && attempt.stage_id() >= 0 && attempt.partition_id() >= 0 &&
       attempt.plan_epoch() > 0 && attempt.fencing_token() > 0 &&
@@ -191,7 +191,7 @@ void validateAttempt(const proto::TaskAttemptId& attempt,
 }
 
 std::string validateFragment(const proto::DistributedWriteFragment& winner,
-                            const proto::FinalizeDistributedWriteRequest& request) {
+                            const proto::PrepareDistributedWriteRequest& request) {
   const auto& binding = request.output_binding().lance();
   validateAttempt(winner.task_attempt(), request);
   require(!winner.commit_metadata().empty() && winner.commit_metadata().size() <= kMaxFragmentBytes &&
@@ -224,8 +224,11 @@ std::string validateFragment(const proto::DistributedWriteFragment& winner,
   return prefix;
 }
 
-std::vector<std::string> validatePublication(const proto::FinalizeDistributedWriteRequest& request) {
+std::vector<std::string> validatePublication(const proto::PrepareDistributedWriteRequest& request) {
   validateKnownFields(request);
+  require(request.invocation_id().size() == 32 && std::all_of(request.invocation_id().begin(),
+      request.invocation_id().end(), [](char value) { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'); }),
+      "Dataset preparation requires its durable invocation nonce");
   validateSecurity(request.security());
   validateOwner(request.execution_owner());
   validateOwner(request.intent_execution_owner());
@@ -241,11 +244,19 @@ std::vector<std::string> validatePublication(const proto::FinalizeDistributedWri
       request.ByteSizeLong() <= kMaxMetadataBytes && request.fragments_size() > 0 &&
       request.fragments_size() <= kMaxFragments, "Dataset publication request is incomplete or oversized");
   validateAllocation(request.output_binding().lance());
-  require((request.known_published_version() == 0 && !request.has_known_manifest_sha256()) ||
-      (request.recovering() && request.known_published_version() ==
-          request.output_binding().lance().expected_read_version() + 1 &&
-       checksum(request.known_manifest_sha256())),
-      "Dataset known publication hint requires recovery, an exact version and SHA-256");
+  const auto& reservation = request.reservation();
+  const auto& binding = request.output_binding().lance();
+  require(request.has_reservation() && text(reservation.table_id()) && reservation.table_generation() > 0 &&
+      reservation.tenant_id() == request.security().tenant_id() && request.commit_fingerprint().size() == 64 &&
+      std::all_of(request.commit_fingerprint().begin(), request.commit_fingerprint().end(), [](unsigned char ch) {
+        return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+      }) && reservation.manifest_relative_path() == "_pangrova/prepared/" + request.commit_fingerprint() + ".manifest" &&
+      reservation.has_base_snapshot() == binding.has_base_snapshot() &&
+      (binding.expected_read_version() == 0) == !binding.has_base_snapshot() &&
+      (!binding.has_base_snapshot() || canonical(reservation.base_snapshot()) == canonical(binding.base_snapshot())) &&
+      request.object_page_size() == 512 && request.object_page_index() < 4096 &&
+      ((request.object_page_index() == 0) == request.after_object_path().empty()),
+      "Dataset preparation requires its exact reservation, accepted base and bounded page cursor");
   std::set<std::pair<int32_t, int32_t>> partitions;
   std::unordered_set<std::string> tasks;
   std::vector<std::string> prefixes;
@@ -362,48 +373,87 @@ std::array<uint8_t, 32> LanceDatasetPublication::schemaFingerprint(const ArrowSc
   return result;
 }
 
-proto::FinalizeDistributedWriteResult LanceDatasetPublication::finalizeWrite(
-    const proto::FinalizeDistributedWriteRequest& request, const std::string& storageBinding) {
-  auto prefixes = validatePublication(request);
+proto::PrepareDistributedWriteResult LanceDatasetPublication::prepareWrite(
+    const proto::PrepareDistributedWriteRequest& request, const std::string& storageBinding) {
+  validatePublication(request);
   ensureRuntime();
-  const auto& binding = request.output_binding().lance();
-  std::vector<LanceCCommitFragment> fragments;
-  fragments.reserve(prefixes.size());
-  for (int index = 0; index < request.fragments_size(); ++index) {
-    const auto& bytes = request.fragments(index).commit_metadata();
-    fragments.push_back({reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size(),
-                         prefixes[static_cast<size_t>(index)].c_str()});
-  }
   validateDeadline(request.deadline_epoch_ms());
-  uint64_t version = 0;
-  std::array<uint8_t, 32> manifest{};
-  const auto& schema = binding.schema_fence_sha256().digest();
   LanceStorageContext storage(storageBinding);
-  const int32_t rc = lance_ffi_commit_fragments(storage.get(),
-      binding.dataset_uri().c_str(), binding.write_id().c_str(), request.security().tenant_id().c_str(),
-      binding.generation().c_str(), static_cast<int32_t>(binding.operation()), binding.expected_read_version(),
-      reinterpret_cast<const uint8_t*>(schema.data()), schema.size(), fragments.data(), fragments.size(),
-      8, request.recovering() ? 1 : 0, request.known_published_version(), request.deadline_epoch_ms(),
-      &version, manifest.data(), manifest.size());
-  proto::FinalizeDistributedWriteResult result;
+  const auto bytes = canonical(request);
+  LanceCBuffer response{};
+  const int32_t rc = lance_ffi_prepare_write(storage.get(),
+      reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size(), &response);
+  proto::PrepareDistributedWriteResult result;
   result.set_commit_fingerprint(request.commit_fingerprint());
-  const std::string digest(reinterpret_cast<const char*>(manifest.data()), manifest.size());
-  const bool exact_hint = request.known_published_version() == 0 ||
-      (version == request.known_published_version() && equal(digest, request.known_manifest_sha256().digest()));
-  if (rc != 0 || version != binding.expected_read_version() + 1 || !exact_hint ||
-      std::all_of(manifest.begin(), manifest.end(), [](uint8_t byte) { return byte == 0; })) {
-    const char* error = rc == 0 ? nullptr : lance_ffi_last_error();
-    PANGROVA_LOG(ERROR) << "event=dataset_publication_outcome_unknown execution_id=" << request.execution_id()
+  if (rc != 0) {
+    lance_ffi_buffer_free(response);
+    const char* error = lance_ffi_last_error();
+    PANGROVA_LOG(ERROR) << "event=dataset_preparation_outcome_unknown execution_id=" << request.execution_id()
         << " control_epoch=" << request.control_epoch() << " ffi_code=" << rc
-        << " diagnostic=" << (error ? error : "publication evidence mismatch");
-    result.set_outcome(proto::WRITE_PUBLICATION_OUTCOME_UNKNOWN);
+        << " diagnostic=" << (error ? error : "no preparation evidence");
+    result.set_outcome(proto::WRITE_PREPARATION_OUTCOME_UNKNOWN);
     return result;
   }
-  result.set_outcome(proto::WRITE_PUBLICATION_OUTCOME_COMMITTED);
-  result.set_published_version(version);
-  result.mutable_manifest_sha256()->set_algorithm(proto::Checksum::ALGORITHM_SHA256);
-  result.mutable_manifest_sha256()->set_digest(digest);
+  const bool parsed = response.len <= kMaxMetadataBytes && result.ParseFromArray(response.data, response.len);
+  lance_ffi_buffer_free(response);
+  require(parsed && result.commit_fingerprint() == request.commit_fingerprint() &&
+      result.invocation_id() == request.invocation_id(),
+      "SDK preparation did not return its exact actual join evidence");
+  validateKnownFields(result);
+  if (result.outcome() == proto::WRITE_PREPARATION_OUTCOME_UNKNOWN) {
+    require(!result.has_publication() && !result.has_object_page(), "UNKNOWN preparation contains candidate evidence");
+    const char* error = lance_ffi_last_error();
+    PANGROVA_LOG(ERROR) << "event=dataset_preparation_outcome_unknown execution_id=" << request.execution_id()
+        << " control_epoch=" << request.control_epoch() << " ffi_code=" << rc
+        << " diagnostic=" << (error ? error : "no preparation evidence");
+    return result;
+  }
+  require(result.outcome() == proto::WRITE_PREPARATION_OUTCOME_PREPARED && result.sdk_joined() && result.has_publication() &&
+      result.publication().has_candidate() && result.has_object_page(),
+      "SDK preparation did not return bounded canonical candidate evidence");
+  validateKnownFields(result);
+  const auto& candidate = result.publication().candidate();
+  const auto& binding = request.output_binding().lance();
+  require(canonical(candidate.catalog()) == canonical(binding.catalog()) &&
+      candidate.tenant_id() == request.security().tenant_id() && candidate.table_id() == request.reservation().table_id() &&
+      candidate.table_generation() == request.reservation().table_generation() &&
+      candidate.dataset_uri() == binding.dataset_uri() && candidate.version() == binding.expected_read_version() + 1 &&
+      candidate.membership_id() == request.commit_fingerprint() &&
+      candidate.accepted_origin_catalog_revision() == binding.catalog().catalog_revision() &&
+      candidate.manifest_relative_path() == request.reservation().manifest_relative_path() &&
+      candidate.size_bytes() > 0 && checksum(candidate.manifest_sha256()) &&
+      canonical(candidate.physical_schema_sha256()) == canonical(binding.schema_fence_sha256()) &&
+      checksum(result.publication().objects_sha256()) && result.publication().objects_count() > 0 &&
+      result.publication().objects_count() <= 512ULL * 4096 && result.object_page().objects_size() > 0 &&
+      result.object_page().objects_size() <= 512 && checksum(result.object_page().sha256()) &&
+      result.object_page().page_index() == request.object_page_index() &&
+      result.object_page().after_path() == request.after_object_path(),
+      "SDK preparation evidence differs from the reserved source identity");
   return result;
+}
+
+proto::CleanupSourceObjectsResult LanceDatasetPublication::cleanupObjects(
+    const proto::CleanupSourceObjectsRequest& request, const std::string& storageBinding) {
+  validateKnownFields(request); validateSecurity(request.security()); validateCatalog(request.catalog());
+  validateOwner(request.execution_owner()); validateDeadline(request.deadline_epoch_ms());
+  require(request.objects_size() > 0 && request.objects_size() <= 512 && request.control_epoch() > 0 &&
+      text(request.execution_id()) && request.commit_fingerprint().size() == 64 && request.cleanup_id().size() == 32 &&
+      checksum(request.objects_sha256()), "Incomplete authoritative source cleanup");
+  ensureRuntime(); LanceStorageContext storage(storageBinding);
+  const auto bytes = canonical(request); LanceCBuffer response{};
+  const int32_t rc = lance_ffi_cleanup_objects(storage.get(), reinterpret_cast<const uint8_t*>(bytes.data()), bytes.size(), &response);
+  if (rc != 0) {
+    lance_ffi_buffer_free(response);
+    throw std::runtime_error(std::string("Source cleanup outcome unknown: ") +
+        (lance_ffi_last_error() ? lance_ffi_last_error() : "missing SDK evidence"));
+  }
+  proto::CleanupSourceObjectsResult result;
+  const bool parsed = response.len <= kMaxMetadataBytes && result.ParseFromArray(response.data, response.len);
+  lance_ffi_buffer_free(response);
+  require(parsed && result.cleanup_id() == request.cleanup_id() && result.sdk_joined() &&
+      result.deleted_count() == static_cast<uint32_t>(request.objects_size()) &&
+      canonical(result.objects_sha256()) == canonical(request.objects_sha256()), "Source cleanup differs from its exact joined deletion proof");
+  validateKnownFields(result); return result;
 }
 
 proto::DatasetScanPartitionsResult LanceDatasetPublication::scanPartitions(
@@ -415,6 +465,13 @@ proto::DatasetScanPartitionsResult LanceDatasetPublication::scanPartitions(
   require(text(request.dataset_uri(), 8192) && request.version() > 0 &&
       request.page_size() > 0 && request.page_size() <= 256 && checksum(request.physical_schema_sha256()),
       "Dataset scan requires a bounded immutable manifest partition request");
+  const auto& accepted = request.accepted_snapshot();
+  require(request.has_accepted_snapshot() && canonical(accepted.catalog()) == canonical(request.catalog()) &&
+      accepted.tenant_id() == request.security().tenant_id() && accepted.dataset_uri() == request.dataset_uri() &&
+      accepted.version() == request.version() && accepted.table_generation() > 0 && text(accepted.table_id()) &&
+      accepted.size_bytes() > 0 && checksum(accepted.manifest_sha256()) &&
+      canonical(accepted.physical_schema_sha256()) == canonical(request.physical_schema_sha256()),
+      "Dataset scan requires its exact accepted catalog membership");
   ensureRuntime();
   LanceStorageContext storage(storageBinding);
   const auto bytes = canonical(request);
@@ -431,6 +488,8 @@ proto::DatasetScanPartitionsResult LanceDatasetPublication::scanPartitions(
   lance_ffi_buffer_free(page);
   if (!parsed || result.partitions_size() > static_cast<int>(request.page_size()) ||
       result.version() != request.version() || !checksum(result.manifest_sha256()) ||
+      canonical(result.accepted_snapshot()) != canonical(request.accepted_snapshot()) ||
+      canonical(result.manifest_sha256()) != canonical(request.accepted_snapshot().manifest_sha256()) ||
       canonical(result.physical_schema_sha256()) != canonical(request.physical_schema_sha256())) {
     throw std::runtime_error("Dataset partition result violates the bounded manifest contract");
   }

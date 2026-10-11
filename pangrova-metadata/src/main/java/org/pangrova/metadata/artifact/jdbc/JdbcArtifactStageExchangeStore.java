@@ -190,7 +190,10 @@ public final class JdbcArtifactStageExchangeStore {
                     var edge = expected.get(row.getString("exchange_id"));
                     if (edge == null || edge.upstreamStageId() != row.getInt("producer_stage_id")
                             || edge.downstreamStageId() != row.getInt("consumer_stage_id")
-                            || !graphSha256.equals(row.getString("graph_sha256"))) {
+                            || !java.security.MessageDigest.isEqual(
+                                    graphSha256.getBytes(java.nio.charset.StandardCharsets.US_ASCII),
+                                    row.getString("graph_sha256")
+                                            .getBytes(java.nio.charset.StandardCharsets.US_ASCII))) {
                         throw new IllegalStateException(
                                 "Persisted exchange edges differ from the immutable stage graph");
                     }
@@ -227,7 +230,7 @@ public final class JdbcArtifactStageExchangeStore {
         byte[] report = row.getBytes("report_bytes");
         if (row.getInt("partition_id") != partition || !"SUCCEEDED".equals(row.getString("state"))
                 || report == null || report.length == 0 || row.getLong("execution_owner_token") <= 0
-                || !org.pangrova.common.util.DigestUtils.sha256Hex(report).equals(row.getString("report_sha256"))) {
+                || !org.pangrova.common.util.DigestUtils.matchesSha256(report, row.getString("report_sha256"))) {
             throw new IllegalStateException("External finalize lacks exact, immutable producer winners");
         }
     }

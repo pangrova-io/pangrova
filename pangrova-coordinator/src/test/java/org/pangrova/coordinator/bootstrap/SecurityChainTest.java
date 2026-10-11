@@ -31,6 +31,7 @@ import java.util.Set;
 import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Acceptance test: validates the full security chain from CoordinatorBootstrap.start()
@@ -182,16 +183,13 @@ class SecurityChainTest extends ContainerTestBase {
      * <p><b>Validates: Requirements 94.5 (security disabled path)</b></p>
      */
     @Test
-    void securityDisabledStillRejectsUnprotectedCompilation() throws Exception {
+    void securityDisabledRejectsWorkerControlStartup() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 "coord-nosec", 0);
-        bootstrap = new CoordinatorBootstrap(withAuthority(config));
-        bootstrap.start();
-
-        int port = bootstrap.getHttpPort();
-        HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
-        assertThat(resp.statusCode()).isEqualTo(403);
-        assertThat(resp.body()).contains("Protected compilation requires complete authorization and policy enforcement");
+        bootstrap = new CoordinatorBootstrap(config);
+        assertThatThrownBy(bootstrap::start)
+                .isInstanceOf(org.pangrova.operations.bootstrap.BootstrapFailedException.class)
+                .hasMessageContaining("Worker control requires configured internal-service authentication");
     }
 
 
@@ -233,7 +231,8 @@ class SecurityChainTest extends ContainerTestBase {
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, SecurityConfig.noop(), null);
+                null, new SecurityConfig(SecurityConfig.AuthenticatorType.NOOP,
+                        "test-internal-service-secret", Map.of()), null);
         bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
         assertThat(bootstrap.isStarted()).isTrue();

@@ -25,7 +25,8 @@ public class CatalogHealthMonitor {
     private final ScheduledExecutorService scheduler;
 
     public CatalogHealthMonitor(Map<String, CatalogHandle> catalogs) {
-        this.catalogs = catalogs;
+        // Keep the registry's live membership while preventing monitor-side structural mutation.
+        this.catalogs = java.util.Collections.unmodifiableMap(java.util.Objects.requireNonNull(catalogs, "catalogs"));
         ScheduledExecutorService pool =
                 ManagedExecutorFactory.newSingleThreadScheduledExecutor("catalog-health-monitor");
         if (pool instanceof ScheduledThreadPoolExecutor stpe) {

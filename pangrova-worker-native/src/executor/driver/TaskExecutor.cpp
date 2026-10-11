@@ -38,14 +38,17 @@ TaskExecutor::TaskExecutor(const TaskExecutorConfig& config)
 }
 
 TaskExecutor::~TaskExecutor() {
-  stopDeadlineWatchdog();
-  cancel();
-  if (execution_driver_) execution_driver_->join();
-  drainUnconsumedOutput();
+  try {
+    release();
+  } catch (const std::exception& error) {
+    PANGROVA_LOG(ERROR) << "event=task_destructor_release_failed task_id=" << config_.task_id
+                       << " error=" << error.what();
+  }
   cache::SemanticResultCache::instance().releaseTaskUsage(config_.task_id);
 }
 
 void TaskExecutor::start() {
+  auto execution_control = acquireExecutionStart();
   if (isExecutionReleased()) {
     throw std::runtime_error("Cannot start a released Native executor: " + config_.task_id);
   }
@@ -72,6 +75,7 @@ void TaskExecutor::bindHandle(int64_t executor_handle) {
 }
 
 void TaskExecutor::cancel() {
+  sealShuffleStarts();
   stopDeadlineWatchdog();
   if (lifecycle_.isTerminal()) return;
   if (!router_.abortShuffle()) return;  // committed producer wins
@@ -81,6 +85,27 @@ void TaskExecutor::cancel() {
 }
 
 void TaskExecutor::release() {
+  {
+    std::unique_lock<std::mutex> lock(release_mutex_);
+    release_cv_.wait(lock, [this] { return !release_in_progress_; });
+    if (isExecutionReleased()) return;
+    release_in_progress_ = true;
+  }
+  try {
+    releaseInternal();
+    std::lock_guard<std::mutex> lock(release_mutex_);
+    release_in_progress_ = false;
+    release_cv_.notify_all();
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(release_mutex_);
+    release_in_progress_ = false;
+    release_cv_.notify_all();
+    throw;
+  }
+}
+
+void TaskExecutor::releaseInternal() {
+  closeShuffleRegistration();
   stopDeadlineWatchdog();
   if (lifecycle_.state() != ExecutorState::FINISHED) {
     router_.abortShuffle();
@@ -129,21 +154,34 @@ void TaskExecutor::startDeadlineWatchdog() {
       }
     }
   });
+  deadline_thread_id_ = deadline_thread_.get_id();
 }
 
 void TaskExecutor::stopDeadlineWatchdog() {
+  std::thread joining;
   {
-    std::lock_guard<std::mutex> lock(deadline_mutex_);
+    std::unique_lock<std::mutex> lock(deadline_mutex_);
     deadline_stop_ = true;
+    deadline_cv_.notify_all();
+    if (deadline_thread_id_ == std::this_thread::get_id()) return;
+    deadline_cv_.wait(lock, [this] { return !deadline_join_in_progress_; });
+    if (deadline_thread_.joinable() &&
+        deadline_thread_.get_id() != std::this_thread::get_id()) {
+      joining = std::move(deadline_thread_);
+      deadline_join_in_progress_ = true;
+    }
   }
   deadline_cv_.notify_all();
-  if (deadline_thread_.joinable() &&
-      deadline_thread_.get_id() != std::this_thread::get_id()) {
-    deadline_thread_.join();
+  if (joining.joinable()) {
+    joining.join();
+    std::lock_guard<std::mutex> lock(deadline_mutex_);
+    deadline_join_in_progress_ = false;
+    deadline_cv_.notify_all();
   }
 }
 
 void TaskExecutor::failDeadline() {
+  sealShuffleStarts();
   if (lifecycle_.isTerminal()) {
     return;
   }
@@ -269,6 +307,17 @@ void TaskExecutor::recordExecutionError(
   lifecycle_.recordExecutionError(error);
 }
 
+void TaskExecutor::recordResultStreamFailure(const std::string& message) {
+  protocol::v2::ExecutionError error;
+  error.set_error_class(protocol::v2::ERROR_CLASS_RESULT_VALIDATION);
+  error.set_code("RESULT_STREAM_FAILED");
+  error.set_message(message.substr(0, 4096));
+  error.set_retryable(false);
+  error.set_failed_component("native-result-stream");
+  lifecycle_.recordExecutionError(error);
+  lifecycle_.notifyTaskFailed(error.message());
+}
+
 std::string TaskExecutor::nativeStackTrace() const {
   return lifecycle_.nativeStackTrace();
 }
@@ -331,6 +380,7 @@ void TaskExecutor::setTraceId(const std::string& trace_id) {
 }
 
 void TaskExecutor::notifyTaskFailed(const std::string& message) {
+  sealShuffleStarts();
   if (!router_.abortShuffle()) return;  // committed producer wins
   execution_driver_->cancel();
   router_.closeAll();

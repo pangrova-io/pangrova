@@ -147,11 +147,33 @@ public final class IcebergSchemaBuilder {
     private static Type buildVectorType(ConnectorTableMetadata.Column col,
                                         Map<String, String> properties,
                                         int nestedBaseFieldId) {
-        String dimKey = IcebergTypeMapper.VECTOR_DIMENSION_KEY_PREFIX + col.name();
-        String dimStr = properties.get(dimKey);
-        int dim = dimStr != null ? Integer.parseInt(dimStr) : 128;
-        var vectorType = new VectorType(dim, null);
-        return IcebergTypeMapper.toIcebergVectorType(vectorType, nestedBaseFieldId);
+        VectorType vector = requireDeclaredVector(col, properties);
+        return IcebergTypeMapper.toIcebergVectorType(vector, nestedBaseFieldId);
+    }
+
+    /** Preserves the declared vector dimension alongside the exact SDK coordinate type. */
+    public static Map<String, String> declaredTableProperties(
+            List<ConnectorTableMetadata.Column> columns, Map<String, String> properties) {
+        Map<String, String> declared = new LinkedHashMap<>(properties);
+        for (ConnectorTableMetadata.Column column : columns) {
+            if (column.type() == PangrovaType.VECTOR) {
+                VectorType vector = requireDeclaredVector(column, properties);
+                declared.put(IcebergTypeMapper.vectorDimensionKey(column.name()), Integer.toString(vector.dimension()));
+            }
+        }
+        return Map.copyOf(declared);
+    }
+
+    private static VectorType requireDeclaredVector(ConnectorTableMetadata.Column column,
+                                                      Map<String, String> properties) {
+        if (!(column.parameterizedType() instanceof VectorType vector)) {
+            throw new IllegalArgumentException("VECTOR requires its concrete storage declaration: " + column.name());
+        }
+        String dimension = properties.get(IcebergTypeMapper.vectorDimensionKey(column.name()));
+        if (dimension != null && !Integer.toString(vector.dimension()).equals(dimension)) {
+            throw new IllegalArgumentException("Vector dimension property disagrees with column " + column.name());
+        }
+        return vector;
     }
 
     private static Type resolveParameterizedType(ConnectorTableMetadata.Column col,

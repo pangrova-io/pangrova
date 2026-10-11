@@ -13,6 +13,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -49,6 +51,10 @@ public class TransportServer implements TransportServerLifecycle {
     private final List<ServerInterceptor> serverInterceptors;
 
     private volatile org.apache.arrow.flight.FlightServer delegate;
+
+    /** Guarded by the synchronized lifecycle methods; failed drain remains retryable. */
+    private boolean closed;
+    private boolean stopping;
 
     public TransportServer(DataProducer producer, TransportServerConfig config) {
         this(producer, config,
@@ -119,7 +125,8 @@ public class TransportServer implements TransportServerLifecycle {
         Objects.requireNonNull(config, "config must not be null");
         this.requestedPort = config.port();
         this.producer = producer;
-        this.allocator = new RootAllocator(DEFAULT_ALLOCATOR_LIMIT);
+        long limit = config.allocatorLimitBytes() > 0 ? config.allocatorLimitBytes() : DEFAULT_ALLOCATOR_LIMIT;
+        this.allocator = new RootAllocator(limit);
         this.ownsAllocator = true;
         this.config = config;
         this.ticketSigner = ticketSigner;
@@ -128,7 +135,10 @@ public class TransportServer implements TransportServerLifecycle {
     }
 
     @Override
-    public void start() {
+    public synchronized void start() {
+        if (closed || stopping) {
+            throw new IllegalStateException("TransportServer is closing or has been closed");
+        }
         if (!running.compareAndSet(false, true)) {
             return;
         }
@@ -136,19 +146,26 @@ public class TransportServer implements TransportServerLifecycle {
             delegate = buildServer();
             delegate.start();
             LOG.info("event=transport_server_started port={}", getPort());
-        } catch (IOException e) {
-            running.set(false);
-            throw new IllegalStateException("Failed to start TransportServer on port " + requestedPort, e);
+        } catch (IOException | RuntimeException failure) {
+            try {
+                stop();
+            } catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+            }
+            throw new IllegalStateException("Failed to start TransportServer on port " + requestedPort, failure);
         }
     }
 
     @Override
-    public void stop() {
-        if (!running.compareAndSet(true, false)) {
+    public synchronized void stop() {
+        if (closed) {
             return;
         }
+        stopping = true;
+        running.set(false);
         shutdownDelegate();
         closeOwnedAllocator();
+        closed = true;
         LOG.info("event=transport_server_stopped");
     }
 
@@ -170,37 +187,57 @@ public class TransportServer implements TransportServerLifecycle {
         return producer;
     }
 
+    BufferAllocator allocator() {
+        return allocator;
+    }
+
     private org.apache.arrow.flight.FlightServer buildServer() throws IOException {
         BatchStreamProducer adapter = new BatchStreamProducer(producer, allocator, ticketSigner);
+        validateTlsConfiguration();
         if (config.tlsEnabled()) {
-            java.io.File certFile = new java.io.File(config.tlsCertPath());
-            java.io.File keyFile = new java.io.File(config.tlsKeyPath());
-            if (!certFile.exists() || !keyFile.exists()) {
-                LOG.error("event=transport_tls_cert_invalid certPath={} keyPath={} certExists={} keyExists={}",
-                        config.tlsCertPath(), config.tlsKeyPath(),
-                        certFile.exists(), keyFile.exists());
-                throw new IllegalStateException(
-                        "TLS certificate or key file not found: cert=" + config.tlsCertPath()
-                                + " key=" + config.tlsKeyPath());
-            }
-            Location location = Location.forGrpcTls("0.0.0.0", requestedPort);
-            if (config.mtlsConfigured()) {
-                LOG.info("event=transport_server_mtls_enabled certPath={} trustChainPath={}",
-                        config.tlsCertPath(), config.tlsTrustChainPath());
-            } else {
-                LOG.info("event=transport_server_tls_enabled certPath={}", config.tlsCertPath());
-            }
-            org.apache.arrow.flight.FlightServer.Builder tlsBuilder =
-                    org.apache.arrow.flight.FlightServer.builder(allocator, location, adapter)
-                            .useTls(certFile, keyFile);
-            attachInterceptors(tlsBuilder);
-            return tlsBuilder.build();
+            return buildSecureServer(adapter);
         }
         Location location = Location.forGrpcInsecure("0.0.0.0", requestedPort);
         org.apache.arrow.flight.FlightServer.Builder builder =
                 org.apache.arrow.flight.FlightServer.builder(allocator, location, adapter);
         attachInterceptors(builder);
         return builder.build();
+    }
+
+    private void validateTlsConfiguration() {
+        boolean certificate = config.tlsCertPath() != null && !config.tlsCertPath().isBlank();
+        boolean key = config.tlsKeyPath() != null && !config.tlsKeyPath().isBlank();
+        if (certificate != key || (config.mtlsEnabled() && !config.mtlsConfigured())) {
+            throw new IllegalArgumentException("TLS requires certificate and key; mTLS also requires a trust chain");
+        }
+    }
+
+    private org.apache.arrow.flight.FlightServer buildSecureServer(BatchStreamProducer adapter) throws IOException {
+        Path certificate = requireTlsFile(config.tlsCertPath());
+        Path key = requireTlsFile(config.tlsKeyPath());
+        Path trust = config.mtlsConfigured() ? requireTlsFile(config.tlsTrustChainPath()) : null;
+        Location location = Location.forGrpcTls("0.0.0.0", requestedPort);
+        try (var certificateInput = Files.newInputStream(certificate);
+             var keyInput = Files.newInputStream(key);
+             var trustInput = trust == null ? null : Files.newInputStream(trust)) {
+            var builder = org.apache.arrow.flight.FlightServer.builder(allocator, location, adapter)
+                    .useTls(certificateInput, keyInput);
+            if (trustInput != null) {
+                builder.useMTlsClientVerification(trustInput);
+            }
+            attachInterceptors(builder);
+            var server = builder.build();
+            LOG.info("event=transport_server_tls_configured mtls={}", trustInput != null);
+            return server;
+        }
+    }
+
+    private static Path requireTlsFile(String configured) throws IOException {
+        Path path = Path.of(configured);
+        if (!Files.isRegularFile(path) || !Files.isReadable(path)) {
+            throw new IOException("TLS input is not a readable regular file: " + path);
+        }
+        return path;
     }
 
     /**
@@ -241,13 +278,13 @@ public class TransportServer implements TransportServerLifecycle {
             server.close();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOG.warn("event=transport_server_shutdown_interrupted");
+            throw new IllegalStateException("Transport server shutdown was interrupted; owner remains retained", e);
         }
         delegate = null;
     }
 
     /**
-     * Closes owned allocator, tolerating minor leaks from gRPC async cleanup.
+     * Closes the owned allocator only after actual transport memory has drained.
      * Skips close if the allocator is externally managed (ownsAllocator=false).
      */
     private void closeOwnedAllocator() {
@@ -255,11 +292,12 @@ public class TransportServer implements TransportServerLifecycle {
             return;
         }
         waitForAllocatorDrain();
-        try {
-            allocator.close();
-        } catch (IllegalStateException e) {
-            LOG.warn("event=transport_allocator_leak error={}", e.getMessage());
+        long retained = allocator.getAllocatedMemory();
+        if (retained != 0) {
+            throw new IllegalStateException("Transport allocator still owns " + retained
+                    + " bytes; retry after release");
         }
+        allocator.close();
     }
 
     private void waitForAllocatorDrain() {

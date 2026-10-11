@@ -30,7 +30,8 @@ import java.security.MessageDigest;
  */
 public final class CapabilityInventoryCodec {
 
-    private static final int MAX_ENCODED_BYTES = 4 * 1024 * 1024;
+    /** Inclusive Base64 inventory bound shared with the registration transport. */
+    public static final int MAX_ENCODED_BYTES = 4 * 1024 * 1024;
     private static final String RELATION_ENVELOPE_TYPE_URL =
             "type.googleapis.com/pangrova.protocol.v2.RelationDetailEnvelope";
 
@@ -78,6 +79,7 @@ public final class CapabilityInventoryCodec {
         validateEnvelopeVersions(inventory);
         CapabilityValidation capabilities = validateCapabilities(inventory);
         validateRetrievalContract(inventory, capabilities.hasRetrieval());
+        validateMaterializerContract(inventory, capabilities.hasMaterializer());
         validateModels(inventory, capabilities.refs());
         FunctionCatalogContracts.validate(inventory);
     }
@@ -114,6 +116,7 @@ public final class CapabilityInventoryCodec {
         Set<String> identities = new HashSet<>();
         Set<String> capabilityRefs = new HashSet<>();
         boolean hasRetrievalCapability = false;
+        boolean hasMaterializerCapability = false;
         for (CapabilityDescriptor descriptor : inventory.getCapabilitiesList()) {
             String identity = validateDescriptor(descriptor);
             if (!identities.add(identity)) {
@@ -123,18 +126,43 @@ public final class CapabilityInventoryCodec {
             capabilityRefs.add(refIdentity(descriptor.getRef()));
             if (isRetrieval(descriptor.getKind())) {
                 hasRetrievalCapability = true;
-                if (descriptor.getLimits().getMaxCandidateRows() == 0) {
+                if (descriptor.getLimits().getMaxCandidateRows() <= 0) {
                     throw new IllegalArgumentException(
                             "Native retrieval capability has no candidate bound: " + identity);
                 }
             }
+            if (descriptor.getKind() == CapabilityKind.CAPABILITY_KIND_MATERIALIZER) {
+                hasMaterializerCapability = true;
+                validateMaterializerLimits(descriptor, identity);
+            }
         }
-        return new CapabilityValidation(Set.copyOf(capabilityRefs), hasRetrievalCapability);
+        return new CapabilityValidation(
+                Set.copyOf(capabilityRefs), hasRetrievalCapability, hasMaterializerCapability);
+    }
+
+    private static void validateMaterializerLimits(CapabilityDescriptor descriptor, String identity) {
+        var limits = descriptor.getLimits();
+        // Row-preserving materialization is governed by fill keys and artifact reads,
+        // not by retrieval candidates; Native rejects candidate grants for this kind.
+        if (limits.getMaxInputBytes() <= 0 || limits.getMaxOutputBytes() <= 0
+                || limits.getMaxCandidateRows() != 0 || limits.getMaxCandidateBytes() != 0) {
+            throw new IllegalArgumentException(
+                    "Native materializer capability has invalid resource limits: " + identity);
+        }
+    }
+
+    private static void validateMaterializerContract(CapabilityInventory inventory, boolean hasMaterializer) {
+        if (hasMaterializer
+                && !inventory.getSupportedRelationTypeUrlsList().contains(RELATION_ENVELOPE_TYPE_URL)) {
+            throw new IllegalArgumentException(
+                    "Native materializer capabilities are missing their typed relation contract");
+        }
     }
 
     private static void validateRetrievalContract(
             CapabilityInventory inventory, boolean hasRetrievalCapability) {
-        if (hasRetrievalCapability && (inventory.getCandidateSchemaVersion() == 0
+        if (hasRetrievalCapability && (inventory.getCandidateSchemaVersion()
+                != org.pangrova.protocol.retrieval.RetrievalCandidateIdentity.SCHEMA_VERSION
                 || !inventory.getSupportedRelationTypeUrlsList()
                         .contains(RELATION_ENVELOPE_TYPE_URL))) {
             throw new IllegalArgumentException(
@@ -229,7 +257,7 @@ public final class CapabilityInventoryCodec {
                 && contract.getBindingContractSha256().size() == 32;
     }
 
-    private record CapabilityValidation(Set<String> refs, boolean hasRetrieval) {}
+    private record CapabilityValidation(Set<String> refs, boolean hasRetrieval, boolean hasMaterializer) {}
 
     private static String validateDescriptor(CapabilityDescriptor descriptor) {
         var ref = descriptor.getRef();
@@ -241,6 +269,7 @@ public final class CapabilityInventoryCodec {
                     "Capability has no exact 32-byte signature: " + identity);
         }
         if (descriptor.getKind() == CapabilityKind.CAPABILITY_KIND_UNSPECIFIED
+                || descriptor.getKind() == CapabilityKind.UNRECOGNIZED
                 || descriptor.getPlacement()
                 == ExecutionPlacement.EXECUTION_PLACEMENT_UNSPECIFIED
                 || descriptor.getExecutionModesList().isEmpty()
@@ -290,7 +319,6 @@ public final class CapabilityInventoryCodec {
     private static boolean isRetrieval(CapabilityKind kind) {
         return kind == CapabilityKind.CAPABILITY_KIND_RETRIEVAL_SOURCE
                 || kind == CapabilityKind.CAPABILITY_KIND_RETRIEVAL_MERGE
-                || kind == CapabilityKind.CAPABILITY_KIND_RERANK
-                || kind == CapabilityKind.CAPABILITY_KIND_MATERIALIZER;
+                || kind == CapabilityKind.CAPABILITY_KIND_RERANK;
     }
 }

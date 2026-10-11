@@ -94,11 +94,12 @@ enum RuntimeCommandType {
   RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH = 15;
   RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE = 16;
   RUNTIME_COMMAND_TYPE_DATASET_SCHEMA_FINGERPRINT = 17;
-  RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE = 18;
+  RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE = 18;
   RUNTIME_COMMAND_TYPE_DATASET_SCAN_PARTITIONS = 19;
   RUNTIME_COMMAND_TYPE_GET_RESOURCE_DRAIN_EVIDENCE = 20;
   RUNTIME_COMMAND_TYPE_RECOVER_EXECUTOR_CREATION = 21;
   RUNTIME_COMMAND_TYPE_FINALIZE_FUNCTION_CATALOG = 22;
+  RUNTIME_COMMAND_TYPE_CLEANUP_SOURCE_OBJECTS = 23;
 }
 
 // One explicit startup transition, before the Worker accepts any task. This
@@ -172,6 +173,7 @@ message DatasetScanPartitionsRequest {
   uint32 page_size = 7;
   bool has_cursor = 8;
   uint64 after_partition_id = 9;
+  AcceptedSourceSnapshotRef accepted_snapshot = 10;
 }
 
 message DatasetScanPartitionsResult {
@@ -182,6 +184,7 @@ message DatasetScanPartitionsResult {
   repeated ScanPartitionDetail partitions = 5;
   bool has_more = 6;
   uint64 next_partition_id = 7;
+  AcceptedSourceSnapshotRef accepted_snapshot = 8;
 }
 
 // Metadata only. The standard NamedStruct is the same physical schema consumed
@@ -204,9 +207,9 @@ message DistributedWriteFragment {
   Checksum sha256 = 3;
 }
 
-// One generic publication command for Native sinks. The output allocation owns
-// URI/schema/operation/catalog; no feature-specific request mirrors those fields.
-message FinalizeDistributedWriteRequest {
+// Native only prepares an SDK manifest at the durably reserved private address.
+// Acceptance is the same-connection PG head/membership/journal transaction.
+message PrepareDistributedWriteRequest {
   SecurityContext security = 1;
   WriteOutputBinding output_binding = 2;
   string execution_id = 3;
@@ -215,27 +218,88 @@ message FinalizeDistributedWriteRequest {
   uint64 control_epoch = 6;
   uint64 deadline_epoch_ms = 7;
   repeated DistributedWriteFragment fragments = 8;
-  uint64 known_published_version = 9;
-  Checksum known_manifest_sha256 = 10;
-  bool recovering = 11;
-  // Provenance of the immutable winners when the PENDING intent was recorded.
-  // This is not execution authority: execution_owner above is the current
-  // backend-issued owner and is independently fenced by the Worker.
+  reserved 9, 10, 11;
   ExecutionOwnerIdentity intent_execution_owner = 12;
+  SourcePublicationReservation reservation = 13;
+  uint32 object_page_index = 14;
+  string after_object_path = 15;
+  uint32 object_page_size = 16;
+  string invocation_id = 17;
 }
 
-enum WritePublicationOutcome {
-  WRITE_PUBLICATION_OUTCOME_UNSPECIFIED = 0;
-  WRITE_PUBLICATION_OUTCOME_COMMITTED = 1;
-  WRITE_PUBLICATION_OUTCOME_NOT_COMMITTED = 2;
-  WRITE_PUBLICATION_OUTCOME_UNKNOWN = 3;
+message SourcePublicationReservation {
+  string table_id = 1;
+  uint64 table_generation = 2;
+  string tenant_id = 3;
+  string manifest_relative_path = 4;
+  AcceptedSourceSnapshotRef base_snapshot = 5;
 }
 
-message FinalizeDistributedWriteResult {
-  WritePublicationOutcome outcome = 1;
+enum SourceObjectPurpose {
+  SOURCE_OBJECT_PURPOSE_UNSPECIFIED = 0;
+  SOURCE_OBJECT_PURPOSE_SOURCE = 1;
+  SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR = 2;
+}
+
+message PreparedSourceObject {
+  string relative_path = 1;
+  uint64 size_bytes = 2;
+  SourceObjectPurpose purpose = 3;
+}
+
+message PreparedSourcePublication {
+  AcceptedSourceSnapshotRef candidate = 1;
+  uint64 row_count = 2;
+  uint64 objects_count = 3;
+  Checksum objects_sha256 = 4;
+  // APPEND retains accepted base membership; CREATE/OVERWRITE use no parent.
+  string inherited_membership = 5;
+}
+
+enum WritePreparationOutcome {
+  WRITE_PREPARATION_OUTCOME_UNSPECIFIED = 0;
+  WRITE_PREPARATION_OUTCOME_PREPARED = 1;
+  WRITE_PREPARATION_OUTCOME_UNKNOWN = 2;
+}
+
+message PreparedSourceObjectPage {
+  uint32 page_index = 1;
+  string after_path = 2;
+  repeated PreparedSourceObject objects = 3;
+  Checksum sha256 = 4;
+  bool is_last = 5;
+}
+
+message PrepareDistributedWriteResult {
+  WritePreparationOutcome outcome = 1;
   string commit_fingerprint = 2;
-  uint64 published_version = 3;
-  Checksum manifest_sha256 = 4;
+  PreparedSourcePublication publication = 3;
+  PreparedSourceObjectPage object_page = 4;
+  string invocation_id = 5;
+  // True only after the actual SDK future has returned, including its object-store calls.
+  bool sdk_joined = 6;
+}
+
+// Exact deletion set already durably marked by the source authority. No discovery or recursive directory deletion.
+message CleanupSourceObjectsRequest {
+  CatalogExecutionBinding catalog = 1;
+  SecurityContext security = 2;
+  string execution_id = 3;
+  string commit_fingerprint = 4;
+  ExecutionOwnerIdentity execution_owner = 5;
+  uint64 control_epoch = 6;
+  uint64 deadline_epoch_ms = 7;
+  string cleanup_id = 8;
+  string dataset_uri = 9;
+  repeated PreparedSourceObject objects = 10;
+  Checksum objects_sha256 = 11;
+}
+
+message CleanupSourceObjectsResult {
+  string cleanup_id = 1;
+  Checksum objects_sha256 = 2;
+  uint32 deleted_count = 3;
+  bool sdk_joined = 4;
 }
 
 message RuntimeCommand {
@@ -307,6 +371,8 @@ message NativeFunctionDescriptor {
   repeated LogicalType argument_types = 3;
   NativeFunctionKind function_kind = 4;
   bool deterministic = 5;
+  // NULL-input invocation policy is explicit, including false; startup rejects absence.
+  optional bool default_null_behavior = 6;
 }
 
 message MemorySnapshot {

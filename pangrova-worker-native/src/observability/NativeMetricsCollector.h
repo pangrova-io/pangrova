@@ -3,6 +3,10 @@
 #include <atomic>
 #include <cstdint>
 
+namespace facebook::velox::exec {
+struct TaskStats;
+}
+
 namespace pangrova::observability {
 
 struct TaskStatsSnapshot {
@@ -39,6 +43,8 @@ public:
     void updatePeakMemory(int64_t bytes);
     // One sink publishes cumulative observations; repeated snapshots are not summed.
     void observeColumnarConversionCopiedBytes(uint64_t cumulative_bytes);
+    // Sum actual read operators first; observing the same task is idempotent.
+    void observeColumnarReadTaskStats(const facebook::velox::exec::TaskStats& stats);
 
     // Connector-specific metric accumulators.
     void addMergeReaderInputRows(int64_t rows);
@@ -58,6 +64,7 @@ private:
     std::atomic<int64_t> rows_read_{0};
     std::atomic<int64_t> bytes_read_{0};
     std::atomic<uint64_t> columnar_conversion_copied_bytes_{0};
+    std::atomic<uint64_t> columnar_read_copied_bytes_{0};
     // Connector-specific counters.
     std::atomic<int64_t> merge_reader_input_rows_{0};
     std::atomic<int64_t> merge_reader_output_rows_{0};

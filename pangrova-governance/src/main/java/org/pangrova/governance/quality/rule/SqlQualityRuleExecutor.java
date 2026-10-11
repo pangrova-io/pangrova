@@ -22,7 +22,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  *
  * <p>SQL construction uses the rule's {@code checkExpression} as a WHERE
  * predicate. A row passes if the expression evaluates to true; it fails
- * otherwise. The executor runs two queries:</p>
+ * otherwise, including SQL UNKNOWN (NULL). The executor runs two queries:</p>
  * <ol>
  *   <li>Count query: total rows and failing rows</li>
  *   <li>Sample query: up to {@link QualityQueryResult#MAX_SAMPLES} failing rows</li>
@@ -115,7 +115,7 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
         String expression = validateCheckExpression(rule.checkExpression());
         return String.format(Locale.ROOT,
                 "SELECT COUNT(*) AS total_rows, "
-                        + "COUNT(CASE WHEN NOT (%s) THEN 1 END) AS failed_rows "
+                        + "COUNT(CASE WHEN (%s) IS NOT TRUE THEN 1 END) AS failed_rows "
                         + "FROM %s",
                 expression, fqn);
     }
@@ -127,7 +127,7 @@ public final class SqlQualityRuleExecutor implements QualityRuleExecutor {
         String fqn = safeQualifiedTableName(rule);
         String expression = validateCheckExpression(rule.checkExpression());
         return String.format(Locale.ROOT,
-                "SELECT * FROM %s WHERE NOT (%s) LIMIT %d",
+                "SELECT * FROM %s WHERE (%s) IS NOT TRUE LIMIT %d",
                 fqn, expression, QualityQueryResult.MAX_SAMPLES);
     }
 

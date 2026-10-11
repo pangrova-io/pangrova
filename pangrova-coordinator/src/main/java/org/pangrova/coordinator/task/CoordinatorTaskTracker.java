@@ -31,9 +31,14 @@ public class CoordinatorTaskTracker {
             new ConcurrentHashMap<>();
 
     private final TaskTimingTracker timingTracker = new TaskTimingTracker();
+    private final Object drainRetirementLock = new Object();
 
     /** Atomic task identity used for status fencing and optional speculative cloning. */
     private final TaskIdentityRegistry taskIdentityStore = new TaskIdentityRegistry();
+
+    public CoordinatorTaskTracker() {
+        taskIdentityStore.onConnectorOperationExit(this::notifyQueryOperationExit);
+    }
 
     private volatile TaskFailureCallback taskFailureCallback;
 
@@ -294,12 +299,36 @@ public class CoordinatorTaskTracker {
 
     /** Retires execution resources without awarding rejected durable publication a DAG win. */
     public void unregisterDrainedTask(org.pangrova.protocol.v2.TaskReport receipt) {
+        synchronized (drainRetirementLock) {
+            unregisterDrainedTaskOwned(receipt);
+        }
+    }
+
+    /** Retires the currently retained drain receipt under the same lock as compaction. */
+    public boolean unregisterRecordedDrainedTask(String taskId) {
+        synchronized (drainRetirementLock) {
+            var receipt = taskIdentityStore.executionDrainReceipt(taskId);
+            if (receipt.isEmpty()) return false;
+            unregisterDrainedTaskOwned(receipt.orElseThrow());
+            return true;
+        }
+    }
+
+    private void unregisterDrainedTaskOwned(org.pangrova.protocol.v2.TaskReport receipt) {
         String taskId = receipt.getAttempt().getTaskId();
         var retained = taskIdentityStore.executionDrainReceipt(taskId).orElseThrow(() ->
                 new IllegalStateException("Cannot retire execution without its retained exact drain receipt"));
-        if (!retained.equals(receipt)) throw new IllegalArgumentException("Execution drain receipt changed");
         var request = taskIdentityStore.request(taskId);
-        if (request == null || !request.taskRequest().getAttempt().equals(receipt.getAttempt())) {
+        if (request == null) {
+            if (!org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(retained)
+                    .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                            .compactExecutionDrainReceipt(receipt))) {
+                throw new IllegalArgumentException("Execution drain receipt changed");
+            }
+            return; // Concurrent cleanup already compacted this exact released owner.
+        }
+        if (!retained.equals(receipt)) throw new IllegalArgumentException("Execution drain receipt changed");
+        if (!request.taskRequest().getAttempt().equals(receipt.getAttempt())) {
             throw new IllegalStateException("Execution drain receipt lost its exact issued request");
         }
         String executionId = receipt.getAttempt().getQueryOrJobId();
@@ -333,7 +362,10 @@ public class CoordinatorTaskTracker {
 
     public QueryIssuanceOperation enterQueryOperation(String queryId) {
         Runnable exited = taskIdentityStore.enterQueryOperation(queryId);
-        try { return new QueryIssuanceOperation(exited); }
+        try { return new QueryIssuanceOperation(() -> {
+            exited.run();
+            notifyQueryOperationExit(queryId);
+        }); }
         catch (RuntimeException | Error failure) {
             exited.run();
             throw failure;
@@ -343,8 +375,24 @@ public class CoordinatorTaskTracker {
     /** Enters an already issued scope for a state transition, including terminal cleanup metadata. */
     public QueryIssuanceOperation enterQueryMetadataOperation(String queryId) {
         Runnable exited = taskIdentityStore.enterMetadataOperation(queryId);
-        try { return new QueryIssuanceOperation(exited); }
+        try { return new QueryIssuanceOperation(() -> {
+            exited.run();
+            notifyQueryOperationExit(queryId);
+        }); }
         catch (RuntimeException | Error failure) { exited.run(); throw failure; }
+    }
+
+    private final java.util.concurrent.CopyOnWriteArrayList<java.util.function.Consumer<String>>
+            queryOperationExitListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    private void notifyQueryOperationExit(String queryId) {
+        if (taskIdentityStore.queryOperationsDrained(queryId)) {
+            queryOperationExitListeners.forEach(listener -> listener.accept(queryId));
+        }
+    }
+
+    public void addQueryOperationExitListener(java.util.function.Consumer<String> listener) {
+        queryOperationExitListeners.add(java.util.Objects.requireNonNull(listener));
     }
 
     /** Registers the required publication before retaining a report's drain evidence. */
@@ -352,7 +400,9 @@ public class CoordinatorTaskTracker {
             org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly) {
         // The publication exit owns the notification claim and still holds its query-operation lease.
         // Rechecking completed notifications here would block the very callback that completes them.
-        return taskIdentityStore.enterReport(request, report, resourceOnly, () -> publishExecutionDrain(report.taskId()));
+        return taskIdentityStore.enterReport(request, report, resourceOnly,
+                () -> publishExecutionDrain(report.taskId()),
+                () -> notifyQueryOperationExit(report.queryId()));
     }
 
     /** Captures the actual target before transport admission, never a later WorkerId lookup. */
@@ -379,13 +429,26 @@ public class CoordinatorTaskTracker {
 
     /** Called only after all dependent query owners have actually cleaned up. */
     public void retireQueryIssuance(String queryId) {
-        taskIdentityStore.retireQuery(queryId);
-        var removed = queryTasks.remove(queryId);
-        if (removed != null) removed.keySet().forEach(taskId -> {
-            taskWorkerAssignment.remove(taskId);
-            timingTracker.clearTaskTracking(taskId);
-        });
-        workerQueryIndex.values().forEach(index -> index.remove(queryId));
+        synchronized (drainRetirementLock) {
+            // Query retirement compacts every retained request. It must not
+            // interleave with a loser cleanup that has read one of those requests.
+            taskIdentityStore.retireQuery(queryId);
+            var removed = queryTasks.remove(queryId);
+            if (removed != null) removed.keySet().forEach(taskId -> {
+                taskWorkerAssignment.remove(taskId);
+                timingTracker.clearTaskTracking(taskId);
+            });
+            workerQueryIndex.values().forEach(index -> index.remove(queryId));
+            queryRetirementListeners.forEach(listener -> listener.accept(queryId));
+        }
+    }
+
+    private final java.util.concurrent.CopyOnWriteArrayList<java.util.function.Consumer<String>>
+            queryRetirementListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** Runs only after issuance retirement verified every entered execution had drained. */
+    public void addQueryRetirementListener(java.util.function.Consumer<String> listener) {
+        queryRetirementListeners.add(java.util.Objects.requireNonNull(listener));
     }
 
     /** Reacknowledges only an already validated exact exit receipt, never outputs or a new winner. */

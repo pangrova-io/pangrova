@@ -176,7 +176,13 @@ class CoordinatorBootstrapTest extends org.pangrova.coordinator.testinfra.Signed
                 new CoordinatorBootstrapConfig.SecurityConfig(
                         CoordinatorBootstrapConfig.SecurityConfig.AuthenticatorType.OAUTH2,
                         null, java.util.Map.of("issuerUri", issuerUri())), null);
-        var bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        var infrastructure = withAuthority(config);
+        var missingSecret = new CoordinatorBootstrapConfig(
+                infrastructure.core(), infrastructure.featureFlags(), infrastructure.query(),
+                infrastructure.transport(), infrastructure.workerHealth(),
+                infrastructure.metadataJdbcConfig(), config.securityConfig(),
+                infrastructure.observabilityBootstrapConfig());
+        var bootstrap = new CoordinatorBootstrap(missingSecret);
 
         assertThatThrownBy(bootstrap::start).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("internalAuthSecret is required");

@@ -11,6 +11,7 @@ import org.pangrova.coordinator.bootstrap.CoordinatorBootstrapConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Property tests for Coordinator graceful shutdown (Property 24).
@@ -40,7 +41,7 @@ class CoordinatorShutdownPropertyTest {
             @ForAll("coordinatorIds") String coordinatorId) {
 
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(coordinatorId, 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
 
         try {
             bootstrap.start();

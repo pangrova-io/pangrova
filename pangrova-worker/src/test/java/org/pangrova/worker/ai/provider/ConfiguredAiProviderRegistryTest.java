@@ -67,6 +67,8 @@ class ConfiguredAiProviderRegistryTest {
             assertThat(inference.capabilities())
                     .extracting(AiCapabilityDescriptor::operation)
                     .containsExactly(AiCapabilityDescriptor.Operation.TEXT_GENERATION);
+            assertThat(inference.capabilities().iterator().next().retryPolicy())
+                    .isEqualTo(AiCapabilityDescriptor.RetryPolicy.noRetry());
             assertThat(registry.models().stream()
                     .filter(model -> model.name().equals("chat"))
                     .findFirst().orElseThrow().properties())
@@ -78,6 +80,8 @@ class ConfiguredAiProviderRegistryTest {
             assertThat(embedding.capabilities().iterator().next().signatures())
                     .containsExactly(new AiCapabilityDescriptor.Signature(
                             "VECTOR", java.util.List.of("VARCHAR")));
+            assertThat(embedding.capabilities().iterator().next().retryPolicy())
+                    .isEqualTo(AiCapabilityDescriptor.RetryPolicy.noRetry());
             assertThat(secretResolutions).hasValue(2);
         }
     }
@@ -213,6 +217,8 @@ class ConfiguredAiProviderRegistryTest {
                 Map.entry("models.rerank.max-provider-items-per-task", "1024")));
         var first = ConfiguredAiProviderRegistry.describeModels(base)
                 .iterator().next();
+        assertThat(first.capabilities().get(0).retryPolicy())
+                .isEqualTo(AiCapabilityDescriptor.RetryPolicy.noRetry());
         base.put("models.rerank.max-provider-items-per-task", "1025");
         var invocationLimitChange = ConfiguredAiProviderRegistry
                 .describeModels(base).iterator().next();

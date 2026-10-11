@@ -76,6 +76,7 @@ class FunctionBindingDeclarationsTest {
         assertThat(metadata.name()).isEqualTo("ai_embed");
         assertThat(metadata.returnType()).isEqualTo("VECTOR");
         assertThat(metadata.deterministic()).isFalse();
+        assertThat(metadata.defaultNullBehavior()).isFalse();
         assertThat(FunctionBindingDeclarations.callbackArgumentSignatures("ai_embed"))
                 .containsExactly(java.util.List.of("VARCHAR", "VARCHAR", "VARCHAR"),
                         java.util.List.of("VARCHAR", "ROW", "VARCHAR"));
@@ -95,6 +96,30 @@ class FunctionBindingDeclarationsTest {
                 .containsExactly("VARBINARY", "VARCHAR");
         assertThat(FunctionBindingDeclarations.callbackMetadata("file", "file_from_url").returnType())
                 .isEqualTo("ROW");
+    }
+
+    @Test
+    void sqlCallbackMetadataIsTheSameCanonicalRuntimeEntry() {
+        int checked = 0;
+        for (var entry : BindingDeclarationJson.load().get("bindings")) {
+            if (!entry.has("runtimeSignature") || !entry.has("sqlNames")) {
+                continue;
+            }
+            var metadata = FunctionBindingDeclarations.callbackMetadata(
+                    entry.get("namespace").textValue(), entry.get("name").textValue());
+            assertThat(metadata.defaultNullBehavior())
+                    .isEqualTo(entry.get("runtimeSignature").get("defaultNullBehavior").booleanValue());
+            for (var name : entry.get("sqlNames")) {
+                assertThat(FunctionBindingDeclarations.callbackMetadataForSqlName(name.textValue()))
+                        .contains(metadata);
+                assertThat(FunctionBindingDeclarations.callbackMetadataForSqlName(
+                        name.textValue().toLowerCase(java.util.Locale.ROOT))).contains(metadata);
+                checked++;
+            }
+        }
+        assertThat(checked).isPositive();
+        assertThat(FunctionBindingDeclarations.callbackMetadataForSqlName("MATCH")).isEmpty();
+        assertThat(FunctionBindingDeclarations.callbackMetadataForSqlName("NO_SUCH_CALLBACK")).isEmpty();
     }
 
     @Test

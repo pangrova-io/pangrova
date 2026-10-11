@@ -13,8 +13,10 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
+import org.junit.jupiter.api.Test;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
+import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
 
 import java.time.Duration;
@@ -40,20 +42,20 @@ class TaskMemoryPropagationTest {
     }
 
     @Property(tries = 200)
-    void unifiedAccountingUsesOnlyArbitrator(@ForAll("positiveMemoryLimits") long memoryBytes) throws Exception {
+    void unifiedAccountingUsesOnlyArbitrator(@ForAll("executableMemoryLimits") long memoryBytes)
+            throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-accounting")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             long nodeBaseline = runtime.nodePool().getUsedBytes();
             var info = tasks.submit(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            assertThat(runtime.arbitrator().queryAllocationsSnapshot()).containsEntry("buffer:" + info.taskId(),
+                    info.request().taskRequest().getResourceGrant().getShuffleBufferBytes());
+            assertThat(tasks.consume(info).values()).containsExactly(0L);
             awaitActualTerminal(tasks, info);
             assertThat(info.allocatedMemory()).isZero();
             assertActualOutcome(tasks, info);
-            if (info.getState() == TaskManager.TaskState.FINISHED) {
-                assertThat(runtime.arbitrator().snapshot()).containsEntry("buffer:" + info.taskId(),
-                        info.request().taskRequest().getResourceGrant().getShuffleBufferBytes());
-                assertThat(tasks.consume(info).values()).containsExactly(0L);
-            }
             assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
             assertThat(runtime.nodePool().getUsedBytes()).isEqualTo(nodeBaseline);
             assertThat(info.executorHandle()).isZero();
@@ -61,10 +63,12 @@ class TaskMemoryPropagationTest {
     }
 
     @Property(tries = 100)
-    void statsCollectionIncludesMemory(@ForAll("positiveMemoryLimits") long memoryBytes) throws Exception {
+    void statsCollectionIncludesMemory(@ForAll("executableMemoryLimits") long memoryBytes) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-stats")) {
             var info = tasks.submit(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            tasks.consume(info);
             awaitActualTerminal(tasks, info);
             assertActualOutcome(tasks, info);
             assertThat(tasks.reports().reports()).isNotEmpty().allSatisfy(report -> {
@@ -72,10 +76,31 @@ class TaskMemoryPropagationTest {
                 assertThat(report.stats().memoryBytes()).isGreaterThanOrEqualTo(0);
                 assertThat(report.stats().peakMemoryBytes()).isGreaterThanOrEqualTo(0);
             });
-            if (info.getState() == TaskManager.TaskState.FINISHED) {
-                assertThat(tasks.terminalReport(info).stats().peakMemoryBytes()).isPositive();
-                tasks.consume(info);
-            }
+            assertThat(tasks.terminalReport(info).stats().peakMemoryBytes()).isPositive();
+        }
+    }
+
+    @Test
+    void lowMemoryLimitFailsWithoutLeakingAdmissionOrNativeOwner() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "memory-cap-failure")) {
+            long baseline = runtime.arbitrator().getUsedMemory();
+            var request = request(1024L * 1024, ActualNativeTaskPlans.values(1, 1));
+            var info = tasks.submit(request);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            assertThatThrownBy(() -> ActualNativeResultReader.read(runtime, request))
+                    .hasMessageContaining("MEM_CAP_EXCEEDED");
+            tasks.awaitState(info, TaskManager.TaskState.FAILED);
+            var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
+            assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
+            assertThat(report.getReportOrigin())
+                    .isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
+            assertThat(report.getError().getCode()).isEqualTo("RESULT_STREAM_FAILED");
+            assertThat(report.getError().getMessage()).contains("MEM_CAP_EXCEEDED");
+            assertThat(report.getCoverage().getCompletedWorkUnits()).isZero();
+            assertThat(info.executorHandle()).isZero();
+            assertThat(info.allocatedBufferMemory()).isZero();
+            assertThat(runtime.arbitrator().getUsedMemory()).isEqualTo(baseline);
         }
     }
 
@@ -105,11 +130,13 @@ class TaskMemoryPropagationTest {
         var terminal = tasks.terminalReport(info);
         var nativeReport = TaskReport.parseFrom(terminal.canonicalTaskReport());
         assertThat(nativeReport.getAttempt()).isEqualTo(info.request().taskRequest().getAttempt());
-        assertThat(nativeReport.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
         if (info.getState() == TaskManager.TaskState.FINISHED) {
+            assertThat(nativeReport.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
             assertThat(nativeReport.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
             assertThat(nativeReport.hasError()).isFalse();
         } else {
+            assertThat(nativeReport.getReportOrigin())
+                    .isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
             assertThat(nativeReport.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
             assertThat(nativeReport.getError().getMessage()).containsIgnoringCase("memory");
             assertThat(info.executorHandle()).isZero();
@@ -125,6 +152,9 @@ class TaskMemoryPropagationTest {
 
     @Provide Arbitrary<Long> positiveMemoryLimits() {
         return Arbitraries.longs().between(1L, 4L * 1024 * 1024 * 1024);
+    }
+    @Provide Arbitrary<Long> executableMemoryLimits() {
+        return Arbitraries.longs().between(64L * 1024 * 1024, 4L * 1024 * 1024 * 1024);
     }
     @Provide Arbitrary<Integer> batchCounts() { return Arbitraries.integers().between(0, 5); }
 }

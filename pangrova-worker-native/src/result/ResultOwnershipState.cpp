@@ -2,6 +2,7 @@
 
 #include <arrow/array.h>
 #include <stdexcept>
+#include "result/ResultPendingRead.h"
 
 namespace pangrova::result {
 bool ResultOwnershipState::Evidence::drained() const {
@@ -12,13 +13,50 @@ void ResultOwnershipState::stopProducer() {
   std::lock_guard<std::mutex> lock(mutex_);
   evidence_.producer_stopped = true;
 }
+void ResultOwnershipState::revokeAuthority() {
+  std::shared_ptr<ResultPendingRead> pending;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    evidence_.authority_revoked = true;
+    pending = pending_read_.lock();
+  }
+  if (pending) pending->cancel(arrow::Status::Cancelled("Result authority was revoked"));
+}
 void ResultOwnershipState::revokeAndClearQueue() {
+  revokeAuthority();
   std::lock_guard<std::mutex> lock(mutex_);
-  evidence_.authority_revoked = evidence_.queue_cleared = true;
+  evidence_.queue_cleared = true;
+}
+arrow::Status ResultOwnershipState::attachPendingRead(const std::shared_ptr<ResultPendingRead>& pending) {
+  bool revoked;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!pending_read_.expired()) return arrow::Status::Invalid("Result reader already has an outstanding fetch");
+    pending_read_ = pending;
+    revoked = evidence_.authority_revoked;
+  }
+  if (revoked) pending->cancel(arrow::Status::Cancelled("Result authority was revoked"));
+  return arrow::Status::OK();
+}
+void ResultOwnershipState::detachPendingRead(const std::shared_ptr<ResultPendingRead>& pending) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (pending_read_.lock() == pending) pending_read_.reset();
+}
+bool ResultOwnershipState::hasPendingRead() const {
+  std::shared_ptr<ResultPendingRead> pending;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pending = pending_read_.lock();
+  }
+  return pending && pending->isWaiting();
 }
 void ResultOwnershipState::acquireReader() {
   std::lock_guard<std::mutex> lock(mutex_);
   if (evidence_.authority_revoked) throw std::runtime_error("Result authority was revoked");
+  // Destination zero has one canonical sequence/ACK owner. Service admission
+  // already enforces this through TaskOutputInfo::claimed; retain the same
+  // invariant for direct reader construction, without replacing its callback.
+  if (evidence_.active_readers != 0) throw std::runtime_error("Result stream already has a reader");
   ++evidence_.active_readers;
 }
 void ResultOwnershipState::releaseReader() noexcept {

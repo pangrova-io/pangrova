@@ -2,8 +2,6 @@ package org.pangrova.metadata.sync;
 
 import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.metadata.adapter.FederatedCatalog;
-import org.pangrova.metadata.cache.InvalidationEntry.InvalidationType;
-import org.pangrova.metadata.cache.JdbcInvalidationPoller;
 import org.pangrova.metadata.cache.MetadataCache;
 import org.pangrova.metadata.event.MetadataEvent;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
@@ -28,9 +26,9 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Orchestrates incremental and full metadata synchronization between external catalogs and the local store.
  *
- * <p>When an {@link JdbcInvalidationPoller} is provided, every applied change also writes
- * an invalidation entry so that other coordinators' caches are notified via the shared
- * {@code invalidation_log} table.</p>
+ * <p>The persistent store owns durable invalidation in the same transaction as each
+ * local projection mutation. Local cache invalidation follows a successful store call;
+ * this service never publishes a second, independently committed invalidation.</p>
  *
  * <p>Sync reliability features:</p>
  * <ul>
@@ -44,27 +42,18 @@ public class MetadataSyncService {
     private static final Logger LOG = LoggerFactory.getLogger(MetadataSyncService.class);
     private static final int MAX_RETRIES = 3;
     private static final double DRIFT_SAMPLE_RATE = 0.1;
-    private static final String CACHE_KEY_SEPARATOR = "\u001F";
 
     private final MetadataStore store;
     private final MetadataCache cache;
     private final MetadataEventDispatcher eventDispatcher;
-    private final JdbcInvalidationPoller invalidationPoller;
     private final SchemaEvolutionValidator schemaEvolutionValidator;
     private final AtomicLong schemaDriftDetectedCount = new AtomicLong();
 
+    /** Shares the persistent mutation authority, local cache and metadata event dispatcher. */
     public MetadataSyncService(MetadataStore store, MetadataCache cache, MetadataEventDispatcher eventDispatcher) {
-        this(store, cache, eventDispatcher, null);
-    }
-
-    /** Creates the sync service with an invalidation poller for cross-coordinator notification. */
-    public MetadataSyncService(MetadataStore store, MetadataCache cache,
-                               MetadataEventDispatcher eventDispatcher,
-                               JdbcInvalidationPoller invalidationPoller) {
         this.store = store;
         this.cache = cache;
         this.eventDispatcher = eventDispatcher;
-        this.invalidationPoller = invalidationPoller;
         this.schemaEvolutionValidator = new SchemaEvolutionValidator();
     }
 
@@ -159,8 +148,9 @@ public class MetadataSyncService {
         }
     }
 
-    private void validateSingleTable(String catalogName, FederatedCatalog adapter,
-                                     MetadataChange change) {
+    // The sampled path and deterministic component checks use this same actual drift detector.
+    void validateSingleTable(String catalogName, FederatedCatalog adapter,
+                             MetadataChange change) {
         QualifiedTableRef ref = change.tableRef();
         try {
             TableMetadata actual = adapter.getTable(ref.schema(), ref.table());
@@ -171,7 +161,6 @@ public class MetadataSyncService {
                         catalogName, ref.schema(), ref.table());
                 store.saveTable(actual);
                 cache.invalidateTable(catalogName, ref.schema(), ref.table());
-                writeInvalidationEntry(ref);
                 schemaDriftDetectedCount.incrementAndGet();
             }
         } catch (Exception e) {
@@ -231,7 +220,6 @@ public class MetadataSyncService {
             TableMetadata metadata = adapter.getTable(schema, table);
             store.saveTable(metadata);
             cache.invalidateTable(catalogName, schema, table);
-            writeInvalidationEntry(new QualifiedTableRef(catalogName, schema, table));
             acc.applied++;
         } catch (Exception e) {
             acc.errors++;
@@ -254,7 +242,6 @@ public class MetadataSyncService {
             store.saveTable(change.metadata());
         }
         cache.invalidateTable(ref.catalog(), ref.schema(), ref.table());
-        writeInvalidationEntry(ref);
         eventDispatcher.dispatch(new MetadataEvent.MetadataSyncedEvent(catalogName, change));
 
         // Schema evolution detection: when UPDATE changes column structure, validate and dispatch
@@ -359,20 +346,6 @@ public class MetadataSyncService {
             if (newCol != null && !oldCol.type().equals(newCol.type())) {
                 changes.add(new SchemaChange.ChangeType(oldCol.name(), newCol.type()));
             }
-        }
-    }
-
-    private void writeInvalidationEntry(QualifiedTableRef ref) {
-        if (invalidationPoller == null) {
-            return;
-        }
-        String cacheKey = ref.catalog() + CACHE_KEY_SEPARATOR
-                + ref.schema() + CACHE_KEY_SEPARATOR + ref.table();
-        try {
-            invalidationPoller.writeInvalidation(cacheKey, InvalidationType.TABLE);
-        } catch (Exception e) {
-            LOG.warn("event=invalidation_write_failed table={}.{}.{} error={}",
-                    ref.catalog(), ref.schema(), ref.table(), e.getMessage());
         }
     }
 

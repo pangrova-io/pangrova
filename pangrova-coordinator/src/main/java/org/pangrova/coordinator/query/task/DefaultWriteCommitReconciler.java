@@ -31,7 +31,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * <p>Outcomes:
  * <ul>
  *   <li>{@code COMMITTED} — handle rehydrated and the (idempotent) commit succeeded;</li>
- *   <li>{@code ABORTED} — the target table no longer exists, so the write can never land;</li>
+ *   <li>{@code ABORTED} — the connector committed an exact durable abort barrier;</li>
  *   <li>{@code QUARANTINED} — the connector cannot rehydrate, the identity is unparseable/legacy,
  *       the catalog is unknown, or the outcome is otherwise ambiguous (manual intervention).</li>
  * </ul>
@@ -82,10 +82,20 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                     + "reason=connector_cannot_decode", entry.queryId(), table);
             return RecoveryOutcome.QUARANTINED;
         } catch (RuntimeException e) {
-            if (isTableGone(e)) {
-                LOG.warn("event=write_commit_reconcile queryId={} table={} outcome=ABORTED "
-                        + "reason=table_gone", entry.queryId(), table);
-                return RecoveryOutcome.ABORTED;
+            if (e instanceof org.pangrova.spi.connector.metadata.SourceTableUnavailableException || isTableGone(e)) {
+                try {
+                    ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
+                    var receipt = catalog.getMetadata(session).abortDistributedWrite(
+                            session, handle, entry.fragments(), entry.commitContext());
+                    if (!receipt.executionId().equals(entry.queryId()) || !receipt.commitFingerprint().equals(entry.commitFingerprint())) {
+                        throw new IllegalStateException("Durable abort receipt differs from journal intent");
+                    }
+                    return RecoveryOutcome.ABORTED;
+                } catch (RuntimeException barrierFailure) {
+                    LOG.warn("event=write_commit_reconcile queryId={} outcome=QUARANTINED reason=source_abort_unconfirmed error={}",
+                            entry.queryId(), barrierFailure.toString());
+                    return RecoveryOutcome.QUARANTINED;
+                }
             }
             LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=ambiguous error={}", entry.queryId(), table, e.toString());

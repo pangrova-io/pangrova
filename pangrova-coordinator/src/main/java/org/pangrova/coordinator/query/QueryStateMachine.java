@@ -56,6 +56,46 @@ public class QueryStateMachine {
     private final AtomicBoolean physicalCleanupApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
     private volatile Runnable admissionRelease;
+    private final AtomicReference<org.pangrova.spi.coordination.QueryLineageFact> lineageStart =
+            new AtomicReference<>();
+    private final AtomicReference<org.pangrova.spi.coordination.QueryLineageFact> lineageTerminal =
+            new AtomicReference<>();
+    private org.pangrova.spi.execution.eventlistener.QueryLineageMetadata lineageMetadata =
+            org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.empty();
+
+    /** Holds authorized plan lineage for the full query lifetime, independent of diagnostic cache eviction. */
+    public synchronized void bindLineageMetadata(
+            org.pangrova.spi.execution.eventlistener.QueryLineageMetadata metadata) {
+        java.util.Objects.requireNonNull(metadata, "metadata");
+        if (connectorAdmissionClosed() || lineageTerminal.get() != null) {
+            throw new java.util.concurrent.CancellationException("Query lineage admission has closed");
+        }
+        lineageMetadata = metadata;
+    }
+
+    /** Returns the immutable authorized plan lineage retained by this query owner. */
+    public synchronized org.pangrova.spi.execution.eventlistener.QueryLineageMetadata lineageMetadata() {
+        return lineageMetadata;
+    }
+
+    synchronized org.pangrova.spi.coordination.QueryLineageFact freezeLineage(
+            org.pangrova.spi.coordination.QueryLineageFact.Phase phase,
+            java.util.function.Supplier<org.pangrova.spi.coordination.QueryLineageFact> create) {
+        var slot = phase == org.pangrova.spi.coordination.QueryLineageFact.Phase.START
+                ? lineageStart : lineageTerminal;
+        var retained = slot.get();
+        if (retained == null) {
+            var candidate = java.util.Objects.requireNonNull(create.get(), "lineage fact");
+            if (candidate.phase() != phase) throw new IllegalArgumentException("Lineage phase changed");
+            slot.compareAndSet(null, candidate);
+            retained = slot.get();
+        }
+        if (retained.phase() != phase) throw new IllegalStateException("Query has a different frozen terminal fact");
+        return retained;
+    }
+
+    org.pangrova.spi.coordination.QueryLineageFact lineageStart() { return lineageStart.get(); }
+
 
     void retainAdmissionRelease(Runnable release) { admissionRelease = release; }
 

@@ -134,6 +134,7 @@ class CoordinatorWorkerProtocolPropertyTest {
 
         tracker.registerTask(queryId, taskId);
         tracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.of(1, 0));
+        registerReadRequest(tracker, queryId, taskId, TaskAttemptDescriptor.of(1, 0));
         tracker.markScheduled(queryId, taskId);
 
         QueryStateMachine sm = new QueryStateMachine();
@@ -145,16 +146,17 @@ class CoordinatorWorkerProtocolPropertyTest {
         long seq2 = SEQ.incrementAndGet();
 
         // First report accepted
-        boolean accepted1 = receiver.onTaskStatus(report(taskId, queryId, "RUNNING", seq2));
+        TaskStatusReport exact = report(taskId, queryId, "RUNNING", seq2);
+        boolean accepted1 = receiver.onTaskStatus(exact);
         assertThat(accepted1).isTrue();
 
         // Stale report (lower sequence) rejected
         boolean accepted2 = receiver.onTaskStatus(report(taskId, queryId, "RUNNING", seq1));
         assertThat(accepted2).as("Stale report with seq=%d should be rejected", seq1).isFalse();
 
-        // Equal sequence also rejected
-        boolean accepted3 = receiver.onTaskStatus(report(taskId, queryId, "RUNNING", seq2));
-        assertThat(accepted3).as("Duplicate seq=%d should be rejected", seq2).isFalse();
+        // Exact completed publication is reacknowledged after a lost HTTP ACK.
+        boolean accepted3 = receiver.onTaskStatus(exact);
+        assertThat(accepted3).as("Exact published seq=%d should be reacknowledged", seq2).isTrue();
     }
 
     @Example
@@ -175,6 +177,24 @@ class CoordinatorWorkerProtocolPropertyTest {
     }
 
     @Example
+    void scheduledTaskWithoutIssuedRequestIsRejectedBeforeSequenceReservation() {
+        CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
+        WorkerManager wm = new WorkerManager(
+                20_000, 60_000, new InMemoryWorkerRegistry());
+        wm.registerWorker(TestWorkerInfoBuilder.active(
+                WORKER_ID, "localhost", 8080, 9090));
+        tracker.registerTask("q-unbound", "t-unbound");
+        tracker.registerTaskAttempt("t-unbound", TaskAttemptDescriptor.of(1, 0));
+        tracker.markScheduled("q-unbound", "t-unbound");
+        TaskStatusReceiver receiver = new TaskStatusReceiver(
+                TaskStatusReceiverContext.withoutSpeculation(
+                        buildMinimalQueryManager(tracker, wm), tracker, wm));
+
+        assertThat(receiver.onTaskStatus(report(
+                "t-unbound", "q-unbound", "RUNNING", 7L))).isFalse();
+    }
+
+    @Example
     void staleAttemptIsRejectedBeforeSequenceIsConsumed() {
         CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
         WorkerManager wm = new WorkerManager(
@@ -184,6 +204,7 @@ class CoordinatorWorkerProtocolPropertyTest {
         tracker.registerTask("q-fence", "t-fence");
         TaskAttemptDescriptor expected = TaskAttemptDescriptor.of(2, 1);
         tracker.registerTaskAttempt("t-fence", expected);
+        registerReadRequest(tracker, "q-fence", "t-fence", expected);
         tracker.markScheduled("q-fence", "t-fence");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(
@@ -210,6 +231,8 @@ class CoordinatorWorkerProtocolPropertyTest {
         tracker.registerTask("q-worker-fence", "t-worker-fence");
         tracker.registerTaskAttempt(
                 "t-worker-fence", TaskAttemptDescriptor.of(1, 0));
+        registerReadRequest(tracker, "q-worker-fence", "t-worker-fence",
+                TaskAttemptDescriptor.of(1, 0));
         tracker.assignWorker("t-worker-fence", WORKER_ID);
         tracker.markScheduled("q-worker-fence", "t-worker-fence");
         TaskStatusReceiver receiver = new TaskStatusReceiver(
@@ -345,7 +368,9 @@ class CoordinatorWorkerProtocolPropertyTest {
             releaseRetryCommit.countDown();
 
             assertThat(retry.get(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(stale.get(5, TimeUnit.SECONDS)).isFalse();
+            // Once the winning report is published, its exact drain evidence
+            // can be reacknowledged without repeating the durable commit.
+            assertThat(stale.get(5, TimeUnit.SECONDS)).isTrue();
             assertThat(commitAttempts).hasValue(2);
             assertThat(tracker.getTaskState("job-1", "page-1"))
                     .isEqualTo(org.pangrova.coordinator.task.TaskStateMachine.State.FINISHED);
@@ -531,6 +556,18 @@ class CoordinatorWorkerProtocolPropertyTest {
     @Provide
     Arbitrary<String> workerIds() {
         return Arbitraries.strings().alpha().ofMinLength(2).ofMaxLength(6).map(s -> "w-" + s);
+    }
+
+    private static void registerReadRequest(CoordinatorTaskTracker tracker,
+            String queryId, String taskId, TaskAttemptDescriptor attempt) {
+        var builder = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
+                taskId, queryId, 0, 0,
+                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, new byte[]{1});
+        builder.setAttempt(builder.getAttempt().toBuilder()
+                .setPlanEpoch(attempt.planEpoch())
+                .setAttemptId(attempt.attemptId())
+                .setFencingToken(attempt.fencingToken()));
+        tracker.registerTaskRequest(taskId, SubmitTaskRequest.from(builder.build()));
     }
 
     private static TaskStatusReport report(String taskId, String queryId, String state, long seq) {

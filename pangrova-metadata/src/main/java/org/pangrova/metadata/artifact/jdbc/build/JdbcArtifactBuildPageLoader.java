@@ -170,6 +170,7 @@ public final class JdbcArtifactBuildPageLoader {
                 && left.writerBuildId().equals(right.writerBuildId());
     }
 
+    /** Loads the exact scoped page cohort in its persisted ordinal order. */
     public static List<ArtifactBuildPage> loadPages(
             Connection connection, String tenantId, String jobId)
             throws SQLException {

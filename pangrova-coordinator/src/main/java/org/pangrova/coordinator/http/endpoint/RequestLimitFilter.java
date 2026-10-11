@@ -11,6 +11,7 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.Provider;
 import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.protocol.rest.error.ErrorDetail;
+import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +41,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
     private static final Logger LOG = LoggerFactory.getLogger(RequestLimitFilter.class);
 
     private static final String HEALTH_PATH = "v1/health";
+    private static final String REGISTRATION_PATH = "v1/workers/register";
     private static final String UNKNOWN_IP = "unknown";
 
     private static final int HTTP_STATUS_PAYLOAD_TOO_LARGE = 413;
@@ -76,12 +78,13 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
             return;
         }
 
-        if (isContentLengthExceeded(requestContext)) {
+        int bodyLimit = bodyLimit(requestContext);
+        if (isContentLengthExceeded(requestContext, bodyLimit)) {
             rejectPayloadTooLarge(requestContext, clientIp);
             return;
         }
 
-        wrapInputStreamWithSizeLimit(requestContext);
+        wrapInputStreamWithSizeLimit(requestContext, bodyLimit);
     }
 
     private boolean isRateLimitExceeded(String clientIp) {
@@ -90,16 +93,25 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         return currentCount > maxRequestsPerMinute;
     }
 
-    private boolean isContentLengthExceeded(ContainerRequestContext requestContext) {
-        int contentLength = requestContext.getLength();
-        return contentLength > maxRequestSizeBytes;
+    private int bodyLimit(ContainerRequestContext requestContext) {
+        String path = requestContext.getUriInfo().getPath();
+        if ("POST".equals(requestContext.getMethod())
+                && (REGISTRATION_PATH.equals(path) || ("/" + REGISTRATION_PATH).equals(path))) {
+            return WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES;
+        }
+        return maxRequestSizeBytes;
     }
 
-    private void wrapInputStreamWithSizeLimit(ContainerRequestContext requestContext) {
+    private boolean isContentLengthExceeded(ContainerRequestContext requestContext, int limit) {
+        int contentLength = requestContext.getLength();
+        return contentLength > limit;
+    }
+
+    private void wrapInputStreamWithSizeLimit(ContainerRequestContext requestContext, int limit) {
         InputStream original = requestContext.getEntityStream();
         if (original != null) {
             requestContext.setEntityStream(
-                    new SizeLimitedInputStream(original, maxRequestSizeBytes));
+                    new SizeLimitedInputStream(original, limit));
         }
     }
 
@@ -156,6 +168,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         private final InputStream delegate;
         private final int maxBytes;
         private int bytesRead;
+        private boolean exceeded;
 
         SizeLimitedInputStream(InputStream delegate, int maxBytes) {
             this.delegate = delegate;
@@ -164,7 +177,12 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
         @Override
         public int read() throws IOException {
+            if (exceeded) {
+                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
+            }
             if (bytesRead >= maxBytes) {
+                if (delegate.read() == -1) return -1;
+                exceeded = true;
                 throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
             }
             int b = delegate.read();
@@ -176,7 +194,14 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
 
         @Override
         public int read(byte[] buf, int off, int len) throws IOException {
+            java.util.Objects.checkFromIndexSize(off, len, buf.length);
+            if (len == 0) return 0;
+            if (exceeded) {
+                throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
+            }
             if (bytesRead >= maxBytes) {
+                if (delegate.read() == -1) return -1;
+                exceeded = true;
                 throw new IOException("Request body exceeds maximum size of " + maxBytes + " bytes");
             }
             int allowedLen = Math.min(len, maxBytes - bytesRead);

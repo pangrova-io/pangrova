@@ -74,11 +74,19 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
   context->max_object_store_write_bytes = static_cast<uint64_t>(
       std::max<int64_t>(0, config_.resource_limit.max_object_store_write_bytes));
   context->report_state = config_.artifact_report_state;
+  context->read_budget = std::make_shared<resource::TaskObjectReadBudget>(
+      context->max_object_store_read_bytes);
+  {
+    std::lock_guard<std::mutex> lock(runner_mutex_);
+    task_read_budget_ = context->read_budget;
+    if (cancelled_.load()) task_read_budget_->requestCancel();
+  }
   execution->artifactContext = std::move(context);
   execution->retrieval = artifact::ArtifactRetrievalPlanner::prepare(
       config_.substrait_plan, config_.operator_bindings, config_.splits,
       static_cast<uint64_t>(
-          std::max<int64_t>(0, config_.resource_limit.max_object_store_read_bytes)));
+          std::max<int64_t>(0, config_.resource_limit.max_object_store_read_bytes)),
+      execution->artifactContext->read_budget);
   velox::VeloxPlanConverter converter(config_.function_registry);
   auto plan = converter.convert(config_.substrait_plan, execution->retrieval->splits,
       config_.is_result_task, "ArrowBatch", config_.operator_bindings,

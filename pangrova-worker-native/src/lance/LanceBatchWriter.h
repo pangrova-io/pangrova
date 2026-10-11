@@ -53,6 +53,8 @@ struct LanceWriterConfig {
   // Exact Lance snapshot used to create the transaction. CREATE requires 0;
   // APPEND and OVERWRITE require a non-zero version.
   uint64_t expectedReadVersion = 0;
+  // Canonical AcceptedSourceSnapshotRef bytes; no independently copied authority fields.
+  std::string acceptedBaseSnapshot;
 
   // Connector-owned schema fence and idempotency identity. The worker echoes
   // these into typed commit metadata; the connector validates them again.

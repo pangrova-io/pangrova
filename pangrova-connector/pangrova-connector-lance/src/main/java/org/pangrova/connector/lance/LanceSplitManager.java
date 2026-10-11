@@ -14,10 +14,12 @@ import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
 public final class LanceSplitManager implements ConnectorSplitManager {
     private final Optional<NativeDatasetControlPlane> controlPlane;
     private final LanceSnapshotResolver snapshots;
+    private final java.util.function.Supplier<LanceCatalogStore> store;
 
     LanceSplitManager(Optional<NativeDatasetControlPlane> controlPlane,
             java.util.function.Supplier<LanceCatalogStore> store, String catalog, String warehouse) {
         this.controlPlane = java.util.Objects.requireNonNull(controlPlane);
+        this.store = java.util.Objects.requireNonNull(store);
         this.snapshots = new LanceSnapshotResolver(store, controlPlane, catalog, warehouse);
     }
     @Override public ConnectorSplitSource getSplits(ConnectorTransactionHandle transaction,
@@ -26,6 +28,8 @@ public final class LanceSplitManager implements ConnectorSplitManager {
             throw new IllegalArgumentException("Expected Lance table handle");
         }
         LanceSessionIdentity.requireTenant(session, lance.tenantId());
-        return new LancePartitionSplitSource(snapshots.resolve(session, lance), session, controlPlane);
+        var selected = snapshots.resolve(session, lance);
+        return new LancePartitionSplitSource(selected, session, controlPlane,
+                selected.version() == 0 ? null : store.get().loadSnapshot(selected).reference());
     }
 }

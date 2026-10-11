@@ -24,6 +24,7 @@ import java.util.function.Supplier;
 
 /** Tenant-scoped SQL metadata and catalog CAS after one journaled Native publication. */
 public final class LanceMetadata implements ConnectorMetadata {
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(LanceMetadata.class);
     private final String catalog;
     private final String warehouse;
     private final Supplier<LanceCatalogStore> store;
@@ -148,14 +149,50 @@ public final class LanceMetadata implements ConnectorMetadata {
             throw new SecurityException("Lance write intent tenant or base snapshot mismatch");
         }
         long rows = LanceCommitFragments.validate(lance, fragments, context);
-        NativeWriteFinalization publication = nativeControl().finalizeWrite(session, output, fragments, context);
-        if (publication.outcome() != NativeWriteFinalization.Outcome.COMMITTED) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Native dataset publication outcome is " + publication.outcome());
+        var accepted = store.get().accepted(lance, fragments, context);
+        if (accepted.isEmpty()) {
+            var reservation = store.get().reserve(lance, fragments, context);
+            var preparation = nativeControl().prepareWrite(session, output, fragments, context, reservation);
+            if (preparation.outcome() != org.pangrova.spi.connector.metadata.NativeWritePreparation.Outcome.PREPARED) {
+                throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                        "Native dataset preparation is UNKNOWN; reserved objects remain held for replay");
+            }
+            accepted = Optional.of(store.get().accept(lance, reservation, preparation.publication().orElseThrow(), rows));
         }
-        store.get().publish(lance, context.commitFingerprint(), publication.publishedVersion(),
-                publication.manifestSha256(), rows);
+        var reference = accepted.orElseThrow().reference();
+        NativeWriteFinalization publication = new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED,
+                reference.version(), reference.manifestSha256());
+        cleanupAfterBarrier(session, lance, context);
         notifyCommitted(lance, context, publication);
+    }
+
+    @Override public org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abortDistributedWrite(
+            ConnectorSession session, ConnectorOutputTableHandle output, List<byte[]> fragments, DistributedWriteCommitContext context) {
+        if (!(output instanceof LanceOutputHandle lance)) throw new IllegalArgumentException("Expected Lance output handle");
+        requireTable(session, lance.table());
+        if (!context.tenantId().equals(lance.table().tenantId()) || context.baseSnapshotId() != lance.table().version()) {
+            throw new SecurityException("Lance abort intent tenant or base snapshot mismatch");
+        }
+        LanceCommitFragments.validate(lance, fragments, context);
+        var receipt = store.get().abort(lance, context);
+        cleanupAfterBarrier(session, lance, context);
+        return receipt;
+    }
+
+    @Override public void abortDistributedWrite(ConnectorSession session, ConnectorOutputTableHandle output,
+            List<byte[]> fragments) {
+        throw new UnsupportedOperationException("Lance abort requires its exact durable journal context");
+    }
+
+    private void cleanupAfterBarrier(ConnectorSession session, LanceOutputHandle output, DistributedWriteCommitContext context) {
+        try {
+            nativeControl().cleanupSourceObjects(session, store.get().reservation(output, context));
+        } catch (RuntimeException held) {
+            // Source visibility/abort is already committed. Keep its truthful receipt while
+            // the durable DELETING/ISSUED facts retain objects for exact reconciliation.
+            LOG.warn("event=lance_source_cleanup_held executionId={} fingerprint={}",
+                    context.executionId(), context.commitFingerprint(), held);
+        }
     }
 
     private void notifyCommitted(LanceOutputHandle output, DistributedWriteCommitContext context,
@@ -186,12 +223,13 @@ public final class LanceMetadata implements ConnectorMetadata {
         LanceSessionIdentity.requireTenant(session, lance.tenantId());
         return lance;
     }
-    private static LanceOutputHandle allocate(LanceTableHandle table,
+    private LanceOutputHandle allocate(LanceTableHandle table,
             NativeWriteAllocation.Operation operation, String mode) {
         String writeId = UUID.randomUUID().toString();
         return new LanceOutputHandle(table, new NativeWriteAllocation(table.datasetUri(), operation, table.version(),
                 table.schemaFence(), writeId, "_pangrova/write-staging/" + writeId, UUID.randomUUID().toString(),
-                table.columns().stream().map(LanceColumn::name).toList()), mode);
+                table.columns().stream().map(LanceColumn::name).toList()), mode,
+                table.version() == 0 ? null : store.get().loadSnapshot(table).reference());
     }
     private record LanceColumnHandle(String columnName) implements ColumnHandle {}
 }

@@ -157,8 +157,7 @@ public class CoordinatorHttpServer {
             config.register(new CatalogRestResource(operations));
             config.register(new OAuth2TokenResource(deps.authenticationManager()));
             if (deps.internalAuthSecret() != null && !deps.internalAuthSecret().isBlank()) {
-                config.register(new CatalogDeploymentResource(
-                        deps.metadataService(), deps.internalAuthSecret()));
+                config.register(new CatalogDeploymentResource(deps.metadataService()));
             }
         }
     }

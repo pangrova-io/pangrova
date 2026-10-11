@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.http.endpoint;
 
+import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
@@ -23,6 +24,7 @@ import org.slf4j.LoggerFactory;
  *   <li>{@link AccessDeniedException} → 403 ACCESS_DENIED</li>
  *   <li>{@link TenantQuotaExceededException} → 429 USER_ERROR</li>
  *   <li>Not-found exceptions (catalog/table) → 404 NOT_FOUND</li>
+ *   <li>JAX-RS exceptions retain their response status and protocol headers</li>
  *   <li>All other exceptions → 500 INTERNAL_ERROR</li>
  * </ul>
  *
@@ -37,7 +39,10 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
     private static final int HTTP_STATUS_UNAUTHORIZED = 401;
     private static final int HTTP_STATUS_FORBIDDEN = 403;
     private static final int HTTP_STATUS_NOT_FOUND = 404;
+    private static final int HTTP_STATUS_METHOD_NOT_ALLOWED = 405;
+    private static final int HTTP_STATUS_NOT_ACCEPTABLE = 406;
     private static final int HTTP_STATUS_CONFLICT = 409;
+    private static final int HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE = 415;
     private static final int HTTP_STATUS_TOO_MANY_REQUESTS = 429;
     private static final int HTTP_STATUS_SERVICE_UNAVAILABLE = 503;
     private static final int HTTP_STATUS_INTERNAL_ERROR = 500;
@@ -52,7 +57,11 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
         logException(status, errorCode, message, exception);
 
         ErrorDetail detail = new ErrorDetail(errorCode, errorType, message);
-        return Response.status(status)
+        Response.ResponseBuilder response = exception instanceof WebApplicationException webException
+                ? Response.fromResponse(webException.getResponse()) : Response.status(status);
+        // The JSON error replaces the original entity; retain protocol headers such as Allow,
+        // WWW-Authenticate and Retry-After, but never stale body length or encoding metadata.
+        return response.header("Content-Length", null).header("Content-Encoding", null)
                 .type(MediaType.APPLICATION_JSON_TYPE)
                 .entity(detail)
                 .build();
@@ -63,11 +72,15 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
                     IllegalArgumentException.class, HTTP_STATUS_BAD_REQUEST,
                     AuthenticationRequiredException.class, HTTP_STATUS_UNAUTHORIZED,
                     AccessDeniedException.class, HTTP_STATUS_FORBIDDEN,
+                    jakarta.ws.rs.ForbiddenException.class, HTTP_STATUS_FORBIDDEN,
                     UnregisteredWorkerException.class, HTTP_STATUS_CONFLICT,
                     NoAvailableWorkerException.class, HTTP_STATUS_SERVICE_UNAVAILABLE
             );
 
     private static int resolveHttpStatus(Exception exception) {
+        if (exception instanceof WebApplicationException webException) {
+            return webException.getResponse().getStatus();
+        }
         if (exception instanceof TenantQuotaExceededException) {
             return HTTP_STATUS_TOO_MANY_REQUESTS;
         }
@@ -87,10 +100,17 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
         }
         return switch (status) {
             case HTTP_STATUS_BAD_REQUEST -> "BAD_REQUEST";
+            case HTTP_STATUS_UNAUTHORIZED -> "AUTHENTICATION_REQUIRED";
             case HTTP_STATUS_FORBIDDEN -> "ACCESS_DENIED";
+            case HTTP_STATUS_METHOD_NOT_ALLOWED -> "METHOD_NOT_ALLOWED";
+            case HTTP_STATUS_NOT_ACCEPTABLE -> "NOT_ACCEPTABLE";
+            case HTTP_STATUS_UNSUPPORTED_MEDIA_TYPE -> "UNSUPPORTED_MEDIA_TYPE";
+            case HTTP_STATUS_TOO_MANY_REQUESTS -> "RATE_LIMITED";
+            case HTTP_STATUS_SERVICE_UNAVAILABLE -> "SERVICE_UNAVAILABLE";
             case HTTP_STATUS_NOT_FOUND -> "NOT_FOUND";
             case HTTP_STATUS_CONFLICT -> "CONFLICT";
-            default -> "INTERNAL_ERROR";
+            default -> status >= HTTP_STATUS_BAD_REQUEST && status < HTTP_STATUS_INTERNAL_ERROR
+                    ? "BAD_REQUEST" : "INTERNAL_ERROR";
         };
     }
 

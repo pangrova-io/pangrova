@@ -305,11 +305,20 @@ TEST_F(LanceCommitExecutionTest, AppendAndOverwriteHonorVersionAndModeFences) {
       std::runtime_error);
   EXPECT_EQ(datasetVersion(path), 3);
 
-  auto stale = createConfig(
-      path, "append-stale", outputType, LanceWriteOperation::kAppend, 99);
-  LanceBatchWriter staleWriter(pool_, outputType, stale);
-  staleWriter.writeBatch(makeBatch(100, "stale"));
-  EXPECT_THROW(staleWriter.finish(), std::runtime_error);
+  // A base which was never accepted is rejected by the actual PG allocation
+  // before a writer can open it. Keep the complete stale-write oracle bounded
+  // by the failure assertion, including later physical stages if admission
+  // ever permits this invalid base.
+  EXPECT_THROW(
+      ([&] {
+        auto stale = createConfig(
+            path, "append-stale", outputType, LanceWriteOperation::kAppend, 99);
+        LanceBatchWriter staleWriter(pool_, outputType, stale);
+        staleWriter.writeBatch(makeBatch(100, "stale"));
+        staleWriter.finish();
+      }()),
+      std::runtime_error);
+  EXPECT_EQ(datasetVersion(path), 3);
 }
 
 TEST_F(LanceCommitExecutionTest, ConcurrentOverwritesPublishOnlyOneVersion) {

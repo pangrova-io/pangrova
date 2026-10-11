@@ -6,6 +6,8 @@
 #include <string>
 
 #include <arrow/type.h>
+#include <arrow/array.h>
+#include <arrow/builder.h>
 #include <gtest/gtest.h>
 
 namespace pangrova::capability {
@@ -39,6 +41,52 @@ TEST(StorageLogicalTypeContractTest, ExactDoubleVectorSchemaAndEveryNullabilityA
       arrow::fixed_size_list(arrow::field("element", arrow::float64(), true), 4), false)), std::invalid_argument);
   logical.set_canonical_sql("VECTOR(3)");
   EXPECT_THROW(validateStorageLogicalType(logical, *physical), std::invalid_argument);
+}
+
+TEST(StorageLogicalTypeContractTest, ResultVectorAcceptsBothListLayoutsAndPreservesActualDoubleValues) {
+  auto logical = vectorType();
+  const auto child = arrow::field("element", arrow::float64(), true);
+  EXPECT_EQ(requireStorageVectorDimension(logical), 3U);
+  EXPECT_NO_THROW(validateVectorResultField(logical, *arrow::field("result", arrow::list(child), false)));
+  EXPECT_NO_THROW(validateVectorResultField(logical, *arrow::field("result", arrow::fixed_size_list(child, 3), false)));
+  EXPECT_THROW(validateVectorResultField(logical, *arrow::field("result", arrow::fixed_size_list(child, 2), false)),
+      std::invalid_argument);
+  EXPECT_THROW(validateVectorResultField(logical, *arrow::field("result",
+      arrow::list(arrow::field("element", arrow::float32(), true)), false)), std::invalid_argument);
+  auto values = std::make_shared<arrow::DoubleBuilder>();
+  arrow::ListBuilder rows(arrow::default_memory_pool(), values, arrow::list(child));
+  ASSERT_TRUE(rows.Append().ok());
+  ASSERT_TRUE(values->AppendValues({1.0000000000000002, -123456789.12345679, 0.25}).ok());
+  auto array = rows.Finish().ValueOrDie();
+  EXPECT_NO_THROW(validateVectorResultArray(logical, *array));
+  const auto& decoded = static_cast<const arrow::DoubleArray&>(*static_cast<const arrow::ListArray&>(*array).values());
+  EXPECT_DOUBLE_EQ(decoded.Value(0), 1.0000000000000002);
+  EXPECT_DOUBLE_EQ(decoded.Value(1), -123456789.12345679);
+}
+
+TEST(StorageLogicalTypeContractTest, ResultValuesValidateVisibleLengthsAndBothNullabilityLevels) {
+  auto logical = vectorType();
+  auto values = std::make_shared<arrow::DoubleBuilder>();
+  arrow::ListBuilder rows(arrow::default_memory_pool(), values,
+      arrow::list(arrow::field("element", arrow::float64(), true)));
+  ASSERT_TRUE(rows.Append().ok());
+  ASSERT_TRUE(values->AppendValues({1.0, 2.0}).ok());
+  auto wrongLength = rows.Finish().ValueOrDie();
+  EXPECT_THROW(validateVectorResultArray(logical, *wrongLength), std::invalid_argument);
+  ASSERT_TRUE(rows.AppendNull().ok());
+  auto nullRow = rows.Finish().ValueOrDie();
+  EXPECT_THROW(validateVectorResultArray(logical, *nullRow), std::invalid_argument);
+  logical.mutable_substrait_type()->mutable_list()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  EXPECT_NO_THROW(validateVectorResultArray(logical, *nullRow));
+  ASSERT_TRUE(rows.Append().ok());
+  ASSERT_TRUE(values->Append(1.0).ok());
+  ASSERT_TRUE(values->AppendNull().ok());
+  ASSERT_TRUE(values->Append(3.0).ok());
+  auto nullElement = rows.Finish().ValueOrDie();
+  EXPECT_NO_THROW(validateVectorResultArray(logical, *nullElement));
+  logical.mutable_substrait_type()->mutable_list()->mutable_type()->mutable_fp64()
+      ->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  EXPECT_THROW(validateVectorResultArray(logical, *nullElement), std::invalid_argument);
 }
 
 TEST(StorageLogicalTypeContractTest, NestedFieldNamesDimensionsAndDuplicateConstraintsCannotDrift) {

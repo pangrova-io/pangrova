@@ -2,6 +2,8 @@ package org.pangrova.planner;
 
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.spi.annotation.Internal;
+import org.pangrova.protocol.type.VectorLogicalType;
+import org.pangrova.protocol.v2.ResultColumnLogicalType;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -39,6 +41,7 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
     public record SerializedStage(int stageId, int parallelism, String taskType,
             SerializedPlanFragment serializedPlan, List<SplitSourceDescriptor> sources,
             List<String> outputNames, List<PlanFragment.ResultColumnModel> resultColumnModels,
+            List<ResultColumnLogicalType> resultColumnTypes,
             long estimatedShuffleBytes, long estimatedShuffleRows) implements StagePlanAccess {
         /** Copies metadata and requires explicit stage role, field names and canonical non-empty plan bytes. */
         public SerializedStage {
@@ -46,12 +49,30 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
             sources = List.copyOf(sources);
             outputNames = List.copyOf(outputNames);
             resultColumnModels = List.copyOf(resultColumnModels);
+            resultColumnTypes = List.copyOf(resultColumnTypes.stream()
+                    .sorted(Comparator.comparingInt(ResultColumnLogicalType::getColumnIndex)).toList());
+            Set<Integer> typedColumns = new HashSet<>();
+            for (var column : resultColumnTypes) {
+                VectorLogicalType.requireStorageDimension(column.getLogicalType());
+                if (column.getColumnIndex() < 0 || column.getColumnIndex() >= outputNames.size()
+                        || !typedColumns.add(column.getColumnIndex())
+                        || !column.getUnknownFields().asMap().isEmpty()
+                        || resultColumnModels.stream().anyMatch(
+                                model -> model.columnIndex() == column.getColumnIndex())) {
+                    throw new IllegalArgumentException("Invalid or conflicting declared result column identity");
+                }
+            }
             if (stageId < 0 || parallelism <= 0 || serializedPlan.planBytes().length == 0
                     || !("OUTPUT".equals(taskType) || "COMPUTE".equals(taskType))
                     || outputNames.stream().anyMatch(String::isBlank)
                     || new HashSet<>(outputNames).size() != outputNames.size()) {
                 throw new IllegalArgumentException("Invalid authorized stage payload");
             }
+        }
+
+        @Override
+        public List<ResultColumnLogicalType> resultColumnTypes() {
+            return List.copyOf(resultColumnTypes);
         }
 
         @Override
@@ -112,7 +133,8 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
             List<String> names = "OUTPUT".equals(stage.taskType()) ? List.copyOf(outputNames) : fragment.fieldNames();
             stages.add(new SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
                     fragment.toSerializedPlan(compiler, names), fragment.splitSources(), names,
-                    fragment.resultColumnModels(), fragment.estimatedShuffleBytes(), fragment.estimatedShuffleRows()));
+                    fragment.resultColumnModels(), fragment.resultColumnTypes(),
+                    fragment.estimatedShuffleBytes(), fragment.estimatedShuffleRows()));
         }
         return new AuthorizedStageGraph(terminalPurpose,
                 AuthorizedStageExchangeBindings.bind(stages, graph.transfers()), graph.transfers());
@@ -127,6 +149,12 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
     public static void validateExchangeContracts(Map<Integer, SerializedPlanFragment> plans,
             List<StageTransfer> transfers) {
         AuthorizedStageExchangeBindings.validate(Map.copyOf(plans), List.copyOf(transfers));
+    }
+
+    /** Binds a live consumer to the canonical schemas of its dispatched producer plans. */
+    public static SerializedPlanFragment bindLiveExchangeInputs(int stageId, SerializedPlanFragment consumer,
+            List<StageTransfer> incoming, Map<Integer, List<byte[]>> producerPlans) {
+        return AuthorizedStageExchangeBindings.bindLive(stageId, consumer, incoming, producerPlans);
     }
 
     /** Returns a stable digest covering stage payloads, scheduling coordinates, exact sources and exchanges. */
@@ -165,6 +193,12 @@ public record AuthorizedStageGraph(TerminalPurpose terminalPurpose,
         for (var model : stage.resultColumnModels()) {
             output.writeInt(model.columnIndex());
             writeText(output, model.modelName());
+        }
+        output.writeInt(stage.resultColumnTypes().size());
+        for (var type : stage.resultColumnTypes()) {
+            byte[] bytes = type.toByteArray();
+            output.writeInt(bytes.length);
+            output.write(bytes);
         }
         output.writeInt(stage.serializedPlan().retrievalTopKHints().size());
         for (var hint : stage.serializedPlan().retrievalTopKHints()) {

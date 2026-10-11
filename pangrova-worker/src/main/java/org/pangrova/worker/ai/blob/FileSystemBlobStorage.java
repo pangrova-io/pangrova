@@ -36,7 +36,11 @@ public final class FileSystemBlobStorage implements BlobStorage {
             String tenantScope, String checksum, long size, Path stagedContent)
             throws IOException {
         Path target = objectPath(tenantScope, checksum);
-        Files.createDirectories(target.getParent());
+        Path parent = target.getParent();
+        if (parent == null) {
+            throw new IOException("Published FILE path requires a parent directory");
+        }
+        Files.createDirectories(parent);
         try {
             Files.createLink(target, stagedContent);
         } catch (FileAlreadyExistsException race) {

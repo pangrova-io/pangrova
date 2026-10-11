@@ -143,6 +143,48 @@ std::shared_ptr<const Constant> VeloxPlanConverter::convertListLiteral(
   return arrayConstant(std::move(elements));
 }
 
+std::shared_ptr<const Constant> VeloxPlanConverter::convertMapLiteral(
+    const substrait::Expression_Literal_Map& map) {
+  if (map.key_values_size() == 0) {
+    throw std::runtime_error("empty map literal requires typed empty_map");
+  }
+  if (!map.key_values(0).has_key() || !map.key_values(0).has_value()) {
+    throw std::runtime_error("Substrait MAP literal requires key and value");
+  }
+  auto firstKey = convertLiteral(map.key_values(0).key());
+  auto firstValue = convertLiteral(map.key_values(0).value());
+  auto owner = literalPool();
+  auto* pool = owner.get();
+  auto keys = facebook::velox::BaseVector::create(
+      firstKey->type(), map.key_values_size(), pool);
+  auto values = facebook::velox::BaseVector::create(
+      firstValue->type(), map.key_values_size(), pool);
+  for (int i = 0; i < map.key_values_size(); ++i) {
+    const auto& pair = map.key_values(i);
+    if (!pair.has_key() || !pair.has_value() || pair.key().has_null()) {
+      throw std::runtime_error("Substrait MAP literal requires non-null keys and values");
+    }
+    auto key = i == 0 ? firstKey : convertLiteral(pair.key());
+    auto value = i == 0 ? firstValue : convertLiteral(pair.value());
+    if (!key->type()->equivalent(*keys->type()) ||
+        !value->type()->equivalent(*values->type())) {
+      throw std::runtime_error("Substrait MAP literal key/value types differ");
+    }
+    auto keyVector = key->toConstantVector(pool);
+    auto valueVector = value->toConstantVector(pool);
+    keys->copy(keyVector.get(), i, 0, 1);
+    values->copy(valueVector.get(), i, 0, 1);
+  }
+  auto offsets = facebook::velox::AlignedBuffer::allocate<int32_t>(1, pool);
+  auto sizes = facebook::velox::AlignedBuffer::allocate<int32_t>(1, pool);
+  offsets->asMutable<int32_t>()[0] = 0;
+  sizes->asMutable<int32_t>()[0] = map.key_values_size();
+  auto type = facebook::velox::MAP(keys->type(), values->type());
+  return std::make_shared<Constant>(std::make_shared<facebook::velox::MapVector>(
+      pool, std::move(type), nullptr, 1, offsets, sizes,
+      std::move(keys), std::move(values)));
+}
+
 std::shared_ptr<const Constant> VeloxPlanConverter::convertStructLiteral(
     const substrait::Expression_Literal_Struct& value) {
   auto owner = literalPool();
@@ -190,6 +232,43 @@ std::shared_ptr<const Constant> VeloxPlanConverter::convertLiteral(
       return convertDecimalLiteral(literal.decimal());
     case substrait::Expression_Literal::kDate:
       return constant(DATE(), variant(literal.date()));
+    case substrait::Expression_Literal::kIntervalDayToSecond: {
+      const auto& value = literal.interval_day_to_second();
+      if (!value.has_precision() && !value.has_microseconds()) {
+        throw std::runtime_error("Substrait day-time interval requires a precision mode");
+      }
+      if (value.has_microseconds() && value.subseconds() != 0) {
+        throw std::runtime_error("Legacy interval microseconds cannot combine with subseconds");
+      }
+      const int32_t precision = value.has_microseconds() ? 6 : value.precision();
+      const int64_t subseconds = value.has_microseconds()
+          ? value.microseconds() : value.subseconds();
+      if (precision < 0 || precision > 9) {
+        throw std::runtime_error("Substrait day-time interval requires precision in [0, 9]");
+      }
+      int64_t unit = 1;
+      for (int32_t i = 0; i < precision; ++i) unit *= 10;
+      if (subseconds <= -unit || subseconds >= unit) {
+        throw std::runtime_error("Substrait day-time interval subseconds exceed one second");
+      }
+      int64_t fractionalMillis = subseconds;
+      if (precision < 3) {
+        for (int32_t i = precision; i < 3; ++i) fractionalMillis *= 10;
+      } else if (precision > 3) {
+        const int64_t divisor = unit / 1000;
+        if (fractionalMillis % divisor != 0) {
+          throw std::runtime_error("Substrait day-time interval loses sub-millisecond precision");
+        }
+        fractionalMillis /= divisor;
+      }
+      const __int128 millis = static_cast<__int128>(value.days()) * 86'400'000
+          + static_cast<__int128>(value.seconds()) * 1000 + fractionalMillis;
+      if (millis < std::numeric_limits<int64_t>::min()
+          || millis > std::numeric_limits<int64_t>::max()) {
+        throw std::runtime_error("Substrait day-time interval overflows int64 milliseconds");
+      }
+      return constant(INTERVAL_DAY_TIME(), variant(static_cast<int64_t>(millis)));
+    }
     case substrait::Expression_Literal::kPrecisionTimestamp:
       return constant(TIMESTAMP(), variant(toVeloxTimestamp(literal.precision_timestamp())));
     case substrait::Expression_Literal::kPrecisionTimestampTz:
@@ -206,12 +285,28 @@ std::shared_ptr<const Constant> VeloxPlanConverter::convertLiteral(
     }
     case substrait::Expression_Literal::kList:
       return convertListLiteral(literal.list());
+    case substrait::Expression_Literal::kMap:
+      return convertMapLiteral(literal.map());
     case substrait::Expression_Literal::kStruct:
       return convertStructLiteral(literal.struct_());
     case substrait::Expression_Literal::kEmptyList: {
       auto owner = literalPool();
       return arrayConstant(BaseVector::create(
           convertType(literal.empty_list().type()), 0, owner.get()));
+    }
+    case substrait::Expression_Literal::kEmptyMap: {
+      auto owner = literalPool();
+      auto* pool = owner.get();
+      auto keyType = convertType(literal.empty_map().key());
+      auto valueType = convertType(literal.empty_map().value());
+      auto offsets = AlignedBuffer::allocate<int32_t>(1, pool);
+      auto sizes = AlignedBuffer::allocate<int32_t>(1, pool);
+      offsets->asMutable<int32_t>()[0] = 0;
+      sizes->asMutable<int32_t>()[0] = 0;
+      return std::make_shared<Constant>(std::make_shared<MapVector>(
+          pool, MAP(keyType, valueType), nullptr, 1, offsets, sizes,
+          BaseVector::create(keyType, 0, pool),
+          BaseVector::create(valueType, 0, pool)));
     }
     default:
       throw std::runtime_error(

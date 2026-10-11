@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -14,6 +15,8 @@
 #include "jni/RuntimeInitializer.h"
 #include "retrieval/RetrievalFusion.h"
 #include "velox/plan/RetrievalMergeOperator.h"
+#include "velox/connector/PangrovaTableHandle.h"
+#include "velox/vector/DecodedVector.h"
 
 #include "velox/core/PlanFragment.h"
 #include "velox/core/PlanNode.h"
@@ -32,6 +35,9 @@ struct OutputRow {
   double score;
   std::string source;
   std::string payload;
+  std::string snapshot;
+  std::string object;
+  int64_t position = -1;
 };
 
 class RetrievalMergeExecutionTest : public ::testing::Test {
@@ -70,11 +76,20 @@ class RetrievalMergeExecutionTest : public ::testing::Test {
           vector->childAt(3)->asFlatVector<facebook::velox::StringView>();
       std::lock_guard<std::mutex> guard(mutex);
       for (facebook::velox::vector_size_t row = 0; row < vector->size(); ++row) {
-        rows.push_back(OutputRow{
+        OutputRow output{
             keys->valueAt(row).str(),
             scores->valueAt(row),
             sources->valueAt(row).str(),
-            payloads->valueAt(row).str()});
+            payloads->valueAt(row).str(), "", "", -1};
+        if (vector->childrenSize() == 8) {
+          facebook::velox::DecodedVector snapshot(*vector->childAt(5));
+          facebook::velox::DecodedVector object(*vector->childAt(6));
+          facebook::velox::DecodedVector position(*vector->childAt(7));
+          output.snapshot = snapshot.valueAt<facebook::velox::StringView>(row).str();
+          output.object = object.valueAt<facebook::velox::StringView>(row).str();
+          output.position = position.valueAt<int64_t>(row);
+        }
+        rows.push_back(std::move(output));
       }
       return facebook::velox::exec::BlockingReason::kNotBlocked;
     };
@@ -167,6 +182,44 @@ TEST_F(RetrievalMergeExecutionTest, LinearRunsAsARealVeloxOperator) {
   EXPECT_NEAR(rows[1].score, 0.3, 1e-12);
   EXPECT_EQ(rows[2].key, "c");
   EXPECT_NEAR(rows[2].score, 0.0, 1e-12);
+}
+
+TEST_F(RetrievalMergeExecutionTest, PhysicalIdentityPreservesDomainsAndFusesOnlyTheSameSourceRow) {
+  facebook::velox::test::VectorMaker maker(pool_.get());
+  auto batch = maker.rowVector(
+      {"stable_key", "score", "source_id", "payload", std::string(kSourceIdColumnName),
+       std::string(kSourceSnapshotColumnName), std::string(kSourceObjectIdColumnName),
+       std::string(kPhysicalRowPositionColumnName)},
+      {maker.flatVector<std::string>({"same", "same", "same", "same"}),
+       maker.flatVector<double>({0.1, 0.2, 12.0, 11.0}),
+       maker.flatVector<std::string>({"vector", "vector", "text", "text"}),
+       maker.flatVector<std::string>({"same", "same", "same", "same"}),
+       maker.flatVector<std::string>({"table", "table", "table", "table"}),
+       maker.flatVector<std::string>({"snapshot-a", "snapshot-b", "snapshot-a", "snapshot-a"}),
+       maker.flatVector<std::string>({"object-a", "object-a", "object-a", "object-b"}),
+       maker.flatVector<int64_t>({7, 7, 7, 7})});
+  auto values = std::make_shared<facebook::velox::core::ValuesNode>(
+      "physical-candidates", std::vector<RowVectorPtr>{batch}, true);
+  RetrievalMergeConfig config{RetrievalMergeKind::kRrf, 1, 2, {4, 5, 6, 7},
+      {{"vector", pangrova::retrieval::ScoreDirection::kLowerIsBetter, 1.0},
+       {"text", pangrova::retrieval::ScoreDirection::kHigherIsBetter, 1.0}},
+      4, 100, 1024 * 1024, 2, 60, true};
+  auto merge = std::make_shared<RetrievalMergeNode>("physical-merge", std::move(config), values);
+  auto rows = execute(merge);
+  ASSERT_EQ(rows.size(), 3);
+  EXPECT_EQ(rows[0].snapshot, "snapshot-a");
+  EXPECT_EQ(rows[0].object, "object-a");
+  EXPECT_EQ(rows[0].position, 7);
+  EXPECT_NEAR(rows[0].score, 2.0 / 61.0, 1e-12);
+  std::set<std::pair<std::string, std::string>> identities;
+  for (const auto& row : rows) {
+    EXPECT_EQ(row.key, "same");
+    EXPECT_EQ(row.payload, "same");
+    EXPECT_EQ(row.position, 7);
+    identities.emplace(row.snapshot, row.object);
+  }
+  EXPECT_EQ(identities, (std::set<std::pair<std::string, std::string>>{
+      {"snapshot-a", "object-a"}, {"snapshot-a", "object-b"}, {"snapshot-b", "object-a"}}));
 }
 
 }  // namespace

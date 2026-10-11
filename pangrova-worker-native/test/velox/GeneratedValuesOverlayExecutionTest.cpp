@@ -5,7 +5,8 @@
 #include "../CanonicalTestPlan.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
-#include <chrono>
+#include <cstdlib>
+#include <stdexcept>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -17,6 +18,8 @@
 #include "artifact/ImmutableArtifactCache.h"
 #include "artifact/ImmutableArtifactWriter.h"
 #include "artifact/RowLocatorSidecar.h"
+#include "resource/TaskObjectReadBudget.h"
+#include "velox/plan/ArtifactBuildOperator.h"
 #include "capability/NativeCapabilityCatalog.h"
 #include "jni/RuntimeInitializer.h"
 #include "pangrova/protocol/v2/plan_extension.pb.h"
@@ -41,11 +44,15 @@ namespace proto = pangrova::protocol::v2;
 class TestDirectory final {
  public:
   TestDirectory() {
-    path_ = std::filesystem::temp_directory_path() /
-            ("pangrova-generated-overlay-" +
-             std::to_string(
-                 std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(path_);
+    const auto pattern = (std::filesystem::temp_directory_path() /
+                          "pangrova-generated-overlay-XXXXXX").string();
+    std::vector<char> name(pattern.begin(), pattern.end());
+    name.push_back('\0');
+    const auto* created = ::mkdtemp(name.data());
+    if (created == nullptr) {
+      throw std::runtime_error("Cannot reserve exclusive generated overlay test directory");
+    }
+    path_ = created;
   }
   ~TestDirectory() {
     std::error_code ignored;
@@ -210,7 +217,7 @@ proto::OperatorBinding overlayBinding(
   addStringProperty(artifact_binding->mutable_properties(), "target_column",
                     "embedding");
   addStringProperty(artifact_binding->mutable_properties(), "output_type",
-                    "VECTOR(2, COSINE)");
+                    "VECTOR(2)");
   auto* dimension = artifact_binding->add_properties();
   dimension->set_name("vector_dimension");
   dimension->mutable_value()->set_int64_value(2);
@@ -239,6 +246,14 @@ class GeneratedValuesOverlayExecutionTest : public ::testing::Test {
 std::shared_ptr<facebook::velox::memory::MemoryPool>
     GeneratedValuesOverlayExecutionTest::pool_;
 
+std::shared_ptr<ArtifactBuildTaskContext> readContext(const proto::OperatorBinding& binding) {
+  auto context = std::make_shared<ArtifactBuildTaskContext>();
+  context->max_object_store_read_bytes = binding.resources().object_store_read_bytes();
+  context->read_budget = std::make_shared<resource::TaskObjectReadBudget>(
+      context->max_object_store_read_bytes);
+  return context;
+}
+
 TEST_F(GeneratedValuesOverlayExecutionTest,
        ConvertsMaterializesAndExecutesExactOverlay) {
   for (const auto& validity :
@@ -254,7 +269,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
         facebook::velox::exec::FunctionRegistrySnapshot::capture();
     VeloxPlanConverter converter(converter_registry);
     auto converted = converter.convert(overlayPlan(), {split}, false, "ArrowBatch",
-                                       {{binding.plan_node_id(), binding}});
+                                       {{binding.plan_node_id(), binding}}, readContext(binding));
     auto overlay =
         std::dynamic_pointer_cast<const GeneratedValuesOverlayNode>(converted);
     ASSERT_NE(overlay, nullptr);
@@ -336,7 +351,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter row_count_converter(row_count_converter_registry);
   EXPECT_THROW(row_count_converter.convert(overlayPlan(), {}, false, "ArrowBatch",
-                                           {{binding.plan_node_id(), binding}}),
+                                           {{binding.plan_node_id(), binding}}, readContext(binding)),
                std::runtime_error);
 
   substrait::Plan plan;
@@ -362,7 +377,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
   VeloxPlanConverter option_converter(option_converter_registry);
   EXPECT_THROW(
       option_converter.convert(option_bytes, {}, false, "ArrowBatch",
-                               {{valid_binding.plan_node_id(), valid_binding}}),
+                               {{valid_binding.plan_node_id(), valid_binding}}, readContext(valid_binding)),
       std::runtime_error);
 
   auto wrong_capability = valid_binding;
@@ -373,7 +388,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
   VeloxPlanConverter capability_converter(capability_converter_registry);
   EXPECT_THROW(capability_converter.convert(
                    overlayPlan(), {}, false, "ArrowBatch",
-                   {{wrong_capability.plan_node_id(), wrong_capability}}),
+                   {{wrong_capability.plan_node_id(), wrong_capability}}, readContext(wrong_capability)),
                std::runtime_error);
 }
 
@@ -386,7 +401,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto converted = converter.convert(overlayPlan(), {}, false, "ArrowBatch",
-                                     {{binding.plan_node_id(), binding}});
+                                     {{binding.plan_node_id(), binding}}, readContext(binding));
   auto overlay =
       std::dynamic_pointer_cast<const GeneratedValuesOverlayNode>(converted);
   ASSERT_NE(overlay, nullptr);
@@ -433,4 +448,23 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
 }
 
 }  // namespace
+TEST_F(GeneratedValuesOverlayExecutionTest, MissingOrOversizedReadOwnerRejectsBeforeMaterialization) {
+  TestDirectory directory;
+  ArtifactCacheGuard cache(directory.path() / "cache");
+  auto binding = overlayBinding(directory.path());
+  auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter absent(registry);
+  EXPECT_THROW(absent.convert(overlayPlan(), {}, false, "ArrowBatch",
+                              {{binding.plan_node_id(), binding}}), std::runtime_error);
+  auto context = readContext(binding);
+  context->max_object_store_read_bytes = binding.resources().object_store_read_bytes() - 1;
+  VeloxPlanConverter oversized(registry);
+  EXPECT_THROW(oversized.convert(overlayPlan(), {}, false, "ArrowBatch",
+                                 {{binding.plan_node_id(), binding}}, context), std::runtime_error);
+  EXPECT_EQ(context->read_budget->requestedBytes(), 0u);
+  EXPECT_EQ(context->read_budget->activeReads(), 0u);
+  EXPECT_EQ(artifact::ImmutableArtifactCache::instance().usedBytes(), 0u);
+  context->read_budget->stopAndDrain();
+}
+
 }  // namespace pangrova::velox::test

@@ -20,6 +20,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class NativeCapabilityLoaderTest {
 
     @Test
+    void capturesMembershipFromActualNativeCatalogue() throws Exception {
+        var inventory = CapabilityInventory.parseFrom(ActualNativeCatalogue.bytes());
+        var relTypes = new java.util.HashSet<>(inventory.getSupportedSubstraitRelTypesList());
+        var exprTypes = new java.util.HashSet<>(inventory.getSupportedSubstraitExpressionTypesList());
+        var functions = new java.util.ArrayList<>(inventory.getFunctionsList());
+        var captured = new NativeCapabilityLoader.ParsedCapabilities(
+                relTypes, exprTypes, functions, inventory.getFunctionCatalog(),
+                inventory.getNativeEngineVersion(), inventory);
+        relTypes.clear();
+        exprTypes.clear();
+        functions.clear();
+        assertThat(captured.relTypes()).containsExactlyInAnyOrderElementsOf(
+                inventory.getSupportedSubstraitRelTypesList());
+        assertThat(captured.exprTypes()).containsExactlyInAnyOrderElementsOf(
+                inventory.getSupportedSubstraitExpressionTypesList());
+        assertThat(captured.functions()).containsExactlyElementsOf(inventory.getFunctionsList());
+        assertThat(captured.inventory()).isSameAs(inventory);
+        assertThatThrownBy(() -> captured.functions().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void acceptsInventoryBoundToCanonicalV2Descriptor() {
         NativeCapabilityLoader.ParsedCapabilities parsed =
                 NativeCapabilityLoader.parseCapabilityResponse(

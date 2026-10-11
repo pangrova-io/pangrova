@@ -92,10 +92,8 @@ public final class QueryLineageCapture {
      * Source tables come from table references (scans); write targets come from
      * the DML write target if present.
      */
-    public void captureLineageInfo(String queryId, String sql, PlannedQuery plannedQuery) {
-        if (!checkCapacity("lineageInfo")) {
-            return;
-        }
+    public org.pangrova.spi.execution.eventlistener.QueryLineageMetadata captureLineageInfo(
+            String queryId, String sql, PlannedQuery plannedQuery) {
         List<String> sources = new ArrayList<>();
         List<String> targets = new ArrayList<>();
         for (List<String> ref : plannedQuery.tableReferences()) {
@@ -105,16 +103,37 @@ public final class QueryLineageCapture {
                 targets.add(String.join(".", t.qualifiedTableName())));
         List<ColumnDerivation> columnDerivations = extractColumnDerivations(plannedQuery);
         var info = new QueryLineageInfo(sql, sources, targets, columnDerivations);
-        lineageInfoMap.put(queryId, new TimestampedEntry<>(info, System.currentTimeMillis()));
+        if (checkCapacity("lineageInfo")) {
+            lineageInfoMap.put(queryId, new TimestampedEntry<>(info, System.currentTimeMillis()));
+        }
+        return metadata(info);
+    }
+
+    private static org.pangrova.spi.execution.eventlistener.QueryLineageMetadata metadata(QueryLineageInfo info) {
+        var inputs = info.sourceTables().stream().map(name ->
+                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.Dataset(
+                        "pangrova", name, List.of())).toList();
+        var columns = info.columnDerivations().stream().map(column ->
+                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.Column(column.outputColumn(),
+                        column.sourceColumns().stream().map(source ->
+                                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.SourceColumn(
+                                        "pangrova", source.table(), source.column())).toList(),
+                        switch (column.expression()) {
+                            case DIRECT -> org.pangrova.spi.execution.eventlistener.QueryLineageMetadata
+                                    .DerivationKind.DIRECT;
+                            case TRANSFORM -> org.pangrova.spi.execution.eventlistener.QueryLineageMetadata
+                                    .DerivationKind.TRANSFORM;
+                            case AGGREGATE -> org.pangrova.spi.execution.eventlistener.QueryLineageMetadata
+                                    .DerivationKind.AGGREGATE;
+                        })).toList();
+        var outputs = info.targetTables().stream().map(name ->
+                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.Dataset(
+                        "pangrova", name, columns)).toList();
+        return new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata(inputs, outputs);
     }
 
     private List<ColumnDerivation> extractColumnDerivations(PlannedQuery plannedQuery) {
-        try {
-            return plannedQuery.columnLineage();
-        } catch (Exception e) {
-            LOG.debug("event=column_lineage_extraction_failed error={}", e.getMessage());
-            return List.of();
-        }
+        return plannedQuery.columnLineage();
     }
 
     /** Returns and removes captured lineage info for a query. */

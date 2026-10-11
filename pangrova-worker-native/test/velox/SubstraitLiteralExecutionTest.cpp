@@ -267,6 +267,56 @@ TEST_F(SubstraitLiteralExecutionTest, ScalarDecimalTypedNullAndSignedValues) {
   EXPECT_TRUE(output->childAt(2)->type()->equivalent(*facebook::velox::DECIMAL(25, 4)));
 }
 
+TEST_F(SubstraitLiteralExecutionTest, MapLiteralPreservesTypedKeyValuePairs) {
+  Literal map;
+  auto* first = map.mutable_map()->add_key_values();
+  first->mutable_key()->set_string("width");
+  first->mutable_value()->set_i32(100);
+  auto* second = map.mutable_map()->add_key_values();
+  second->mutable_key()->set_string("height");
+  second->mutable_value()->set_i32(200);
+
+  auto output = execute(projection({expression(map)}));
+  ASSERT_NE(output, nullptr);
+  ASSERT_EQ(output->size(), 1);
+  auto result = output->childAt(0)->as<facebook::velox::MapVector>();
+  ASSERT_NE(result, nullptr);
+  ASSERT_EQ(result->sizeAt(0), 2);
+  EXPECT_TRUE(result->type()->equivalent(*facebook::velox::MAP(
+      facebook::velox::VARCHAR(), facebook::velox::INTEGER())));
+  EXPECT_EQ(result->mapKeys()->asFlatVector<facebook::velox::StringView>()->valueAt(0), "width");
+  EXPECT_EQ(result->mapValues()->asFlatVector<int32_t>()->valueAt(1), 200);
+}
+
+TEST_F(SubstraitLiteralExecutionTest, DayIntervalLiteralExecutesDateAdditionWithoutLosingPrecision) {
+  Literal date;
+  date.set_date(19'723);  // 2024-01-01.
+  Literal interval;
+  auto* value = interval.mutable_interval_day_to_second();
+  value->set_days(30);
+  value->set_seconds(0);
+  value->set_precision(6);
+  value->set_subseconds(0);
+  substrait::Type dateType;
+  dateType.mutable_date()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+
+  auto output = execute(projection({binary(date, interval, dateType)}, {"add"}));
+  ASSERT_NE(output, nullptr);
+  EXPECT_EQ(output->childAt(0)->asFlatVector<int32_t>()->valueAt(0), 19'753);
+
+  // Exercise the deprecated wire field without relying on its deprecated setter.
+  const auto* legacy = value->GetDescriptor()->FindFieldByName("microseconds");
+  ASSERT_NE(legacy, nullptr);
+  value->GetReflection()->SetInt32(value, legacy, 0);
+  output = execute(projection({binary(date, interval, dateType)}, {"add"}));
+  ASSERT_NE(output, nullptr);
+  EXPECT_EQ(output->childAt(0)->asFlatVector<int32_t>()->valueAt(0), 19'753);
+
+  value->set_precision(6);
+  interval.mutable_interval_day_to_second()->set_subseconds(1);
+  reject(projection({expression(interval)}), "loses sub-millisecond precision");
+}
+
 TEST_F(SubstraitLiteralExecutionTest, DecimalArraysRetainTypedNullsAndScale) {
   Literal array;
   auto* list = array.mutable_list();

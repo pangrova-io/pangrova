@@ -94,6 +94,19 @@ public final class VectorSearchRewriter {
         String algorithm = matchingIndex.properties().getOrDefault("algorithm", "HNSW");
         CapabilityRef retrievalCapability =
                 BuiltInCapabilityCatalog.vectorRetrievalPlanRef(algorithm);
+        if (!org.pangrova.planner.retrieval.PhysicalRetrievalIdentityRewriter
+                .supportedInput(sortNode.getInput())) {
+            return Optional.empty();
+        }
+        if (!preFilters.isEmpty()) {
+            if (!BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(
+                    retrievalCapability.getCapabilityId())
+                    || !org.pangrova.planner.retrieval.FilteredRetrievalEligibility
+                            .supported(sortNode.getInput())) {
+                return Optional.empty();
+            }
+            retrievalCapability = BuiltInCapabilityCatalog.filteredDiskAnnRetrievalPlanRef();
+        }
         int dimension = Integer.parseInt(matchingIndex.properties().getOrDefault("dimension", "128"));
         double estimatedRecall = RECALL_ESTIMATOR.estimateRecall(
                 candidate.topK, dimension, algorithm, 0);
@@ -106,10 +119,7 @@ public final class VectorSearchRewriter {
             strategy = new VectorHybridSearchStrategy(
                     VectorHybridSearchStrategy.Mode.ANN_THEN_FILTER, effectiveK);
         } else {
-            int effectiveK = Math.min(candidate.topK * 4, candidate.topK + 1000);
-            if (estimatedRecall < 0.9) {
-                effectiveK = (int) Math.ceil(effectiveK * (1.0 / estimatedRecall));
-            }
+            int effectiveK = candidate.topK;
             strategy = new VectorHybridSearchStrategy(
                     VectorHybridSearchStrategy.Mode.ANN_THEN_FILTER, effectiveK);
         }
@@ -144,7 +154,8 @@ public final class VectorSearchRewriter {
             return boundedProperty(
                     properties, "nprobes", Math.min(8, clusters), 1, clusters);
         }
-        if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+        if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
             return boundedProperty(
                     properties, "search_list_size", dynamic, effectiveK, 100_000);
         }
@@ -293,9 +304,11 @@ public final class VectorSearchRewriter {
 
     private static boolean samePhysicalArrayElement(org.apache.calcite.rel.type.RelDataType left,
             org.apache.calcite.rel.type.RelDataType right) {
-        if (!floatingArray(left) || !floatingArray(right)) return false;
-        return (left.getComponentType().getSqlTypeName() == org.apache.calcite.sql.type.SqlTypeName.DOUBLE)
-                == (right.getComponentType().getSqlTypeName() == org.apache.calcite.sql.type.SqlTypeName.DOUBLE);
+        var leftElement = left.getComponentType();
+        var rightElement = right.getComponentType();
+        if (!floatingArray(left) || !floatingArray(right) || leftElement == null || rightElement == null) return false;
+        return (leftElement.getSqlTypeName() == org.apache.calcite.sql.type.SqlTypeName.DOUBLE)
+                == (rightElement.getSqlTypeName() == org.apache.calcite.sql.type.SqlTypeName.DOUBLE);
     }
 
     private static boolean floatingArray(org.apache.calcite.rel.type.RelDataType type) {
@@ -354,25 +367,23 @@ public final class VectorSearchRewriter {
         return "unknown";
     }
 
-    private static final int MAX_PREFILTER_DEPTH = 5;
-
     private static List<String> extractPreFilters(RelNode input) {
+        var filters = new java.util.ArrayList<String>();
         RelNode current = input;
-        int depth = 0;
-        while (current != null && depth < MAX_PREFILTER_DEPTH) {
+        while (current != null) {
             if (current instanceof LogicalFilter filter) {
                 List<RexNode> conjuncts = RelOptUtil.conjunctions(filter.getCondition());
-                return conjuncts.stream()
-                        .map(RexNode::toString)
-                        .toList();
+                conjuncts.stream().map(RexNode::toString).forEach(filters::add);
             }
             if (current.getInputs().isEmpty()) {
                 break;
             }
+            if (current.getInputs().size() != 1) {
+                break;
+            }
             current = current.getInput(0);
-            depth++;
         }
-        return List.of();
+        return List.copyOf(filters);
     }
 
     private static IndexDescriptor findMatchingIndex(

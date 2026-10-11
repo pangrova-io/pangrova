@@ -150,7 +150,8 @@ public class TaskManager implements AutoCloseable {
         drainExecutor.beginDraining();
         for (TaskInfo info : tasks.values()) info.retryCleanup();
         taskAdmissions.sealAndAwaitAdmissions();
-        TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, java.util.List.copyOf(tasks.values()));
+        TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
+                java.util.List.copyOf(tasks.values()));
     }
 
     /**

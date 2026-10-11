@@ -53,7 +53,7 @@ public final class FeatureViewDefinitionValidator {
             throw invalid("Feature View definition must be non-empty and at most 1 MiB", null);
         }
         try {
-            JsonNode root = MetadataJsonMapper.instance().readTree(definitionJson);
+            JsonNode root = MetadataJsonMapper.readTree(definitionJson);
             requireDefinitionFields(root);
             List<String> entityKeys = stringArray(root, "entity_keys");
             if (entityKeys.isEmpty() || new HashSet<>(entityKeys).size() != entityKeys.size()) {
@@ -70,7 +70,7 @@ public final class FeatureViewDefinitionValidator {
                 throw invalid("freshness_target_ms must be positive", null);
             }
             JsonNode canonicalRoot = canonicalize(root);
-            String canonical = MetadataJsonMapper.instance().writeValueAsString(canonicalRoot);
+            String canonical = MetadataJsonMapper.writeValueAsString(canonicalRoot);
             return new ValidatedFeatureViewDefinition(
                     canonical, DigestUtils.sha256Hex(canonical), entityKeys, eventTime,
                     source, sourceQuery, transformVersion,
@@ -97,7 +97,7 @@ public final class FeatureViewDefinitionValidator {
         }
         requireOutputNames(relation);
         try {
-            JsonNode schema = MetadataJsonMapper.instance().readTree(definition.schemaJson());
+            JsonNode schema = MetadataJsonMapper.readTree(definition.schemaJson());
             Set<String> names = new HashSet<>();
             schema.fieldNames().forEachRemaining(names::add);
             requireOutputTypes(relation, schema, names);
@@ -218,7 +218,7 @@ public final class FeatureViewDefinitionValidator {
 
     private static JsonNode canonicalize(JsonNode node) {
         if (node.isObject()) {
-            ObjectNode sorted = MetadataJsonMapper.instance().createObjectNode();
+            ObjectNode sorted = MetadataJsonMapper.createObjectNode();
             List<String> names = new ArrayList<>();
             node.fieldNames().forEachRemaining(names::add);
             names.stream().sorted(Comparator.naturalOrder())
@@ -226,7 +226,7 @@ public final class FeatureViewDefinitionValidator {
             return sorted;
         }
         if (node.isArray()) {
-            ArrayNode values = MetadataJsonMapper.instance().createArrayNode();
+            ArrayNode values = MetadataJsonMapper.createArrayNode();
             node.forEach(value -> values.add(canonicalize(value)));
             return values;
         }

@@ -270,6 +270,50 @@ class JdbcEvaluationStoreTest {
                 .isInstanceOf(MetastoreException.class);
     }
 
+    @Test
+    void completionBeforeStartRollsBackStateAndMetricsForEveryTerminalOutcome() {
+        for (EvaluationRunState outcome : List.of(
+                EvaluationRunState.SUCCEEDED, EvaluationRunState.FAILED, EvaluationRunState.CANCELLED)) {
+            String runId = "early-" + outcome.name();
+            store.createRun(runningRun(runId, null, "model-v2"));
+            List<EvaluationMetric> metrics = List.of(new EvaluationMetric("quality", 0.9, "ratio", true, null));
+            String failureClass = outcome == EvaluationRunState.FAILED ? "evaluation-failed" : null;
+            assertThatThrownBy(() -> store.completeRun(
+                    TENANT, runId, outcome, metrics, null, failureClass, NOW))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not precede startedAt");
+            assertThat(store.findRun(TENANT, runId).orElseThrow().state())
+                    .isEqualTo(EvaluationRunState.RUNNING);
+            assertThat(store.listMetrics(TENANT, runId)).isEmpty();
+            assertThat(store.completeRun(
+                    TENANT, runId, outcome, metrics, null, failureClass, NOW.plusSeconds(1))).isTrue();
+            assertThat(store.findRun(TENANT, runId).orElseThrow().completedAt()).isEqualTo(NOW.plusSeconds(1));
+            assertThat(store.listMetrics(TENANT, runId)).containsExactlyElementsOf(metrics);
+        }
+    }
+
+    @Test
+    void releaseDecisionCannotPrecedeCompletionAndRejectedAttemptPublishesNothing() {
+        for (boolean approved : List.of(true, false)) {
+            String runId = "decision-" + approved;
+            store.createRun(runningRun(runId, null, "model-v2"));
+            assertThat(store.completeRun(TENANT, runId, EvaluationRunState.SUCCEEDED,
+                    List.of(new EvaluationMetric("quality", 0.9, "ratio", true, null)),
+                    null, null, NOW.plusSeconds(10))).isTrue();
+            assertThatThrownBy(() -> store.recordReleaseDecision(new EvaluationReleaseDecision(
+                    TENANT, runId, approved, "quality-policy-v3", "evaluation outcome", "release-owner",
+                    NOW.plusSeconds(9))))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("must not precede evaluation completedAt");
+            assertThat(store.findReleaseDecision(TENANT, runId)).isEmpty();
+            EvaluationReleaseDecision valid = new EvaluationReleaseDecision(
+                    TENANT, runId, approved, "quality-policy-v3", "evaluation outcome", "release-owner",
+                    NOW.plusSeconds(10));
+            store.recordReleaseDecision(valid);
+            assertThat(store.findReleaseDecision(TENANT, runId)).contains(valid);
+        }
+    }
+
     private static EvaluationDatasetVersion dataset() {
         return new EvaluationDatasetVersion(
                 new EvaluationDatasetId(TENANT, "golden-qa"),

@@ -42,7 +42,12 @@ public final class ConstraintBasedSplitFilter {
             List<DataSplit> retainedSplits,
             int totalSplits,
             int skippedSplits
-    ) {}
+    ) {
+        /** Freezes the retained split membership for this filtering decision. */
+        public FilterResult {
+            retainedSplits = List.copyOf(retainedSplits);
+        }
+    }
 
     /**
      * Filters splits using their constraint predicates against the provided

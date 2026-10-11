@@ -4,6 +4,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <vector>
@@ -30,6 +31,13 @@ class RowLocatorSidecar final {
   static std::vector<uint64_t> readPhysicalRowPositions(
       const std::string& path,
       uint64_t max_entries);
+
+  // Validates the same complete file contract while letting the task owner
+  // place its locator index in governed storage without a duplicate vector.
+  static uint64_t visitPhysicalRowPositions(
+      const std::string& path,
+      uint64_t max_entries,
+      const std::function<void(uint64_t, uint64_t)>& visitor);
 };
 
 }  // namespace pangrova::artifact

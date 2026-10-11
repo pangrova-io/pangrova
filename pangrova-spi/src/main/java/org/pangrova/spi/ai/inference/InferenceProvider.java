@@ -22,7 +22,6 @@ import org.pangrova.spi.annotation.ThreadSafe;
 
 import java.util.List;
 import java.util.Set;
-import java.time.Duration;
 
 /**
  * SPI contract for generative AI / LLM inference providers.
@@ -32,9 +31,9 @@ import java.time.Duration;
  * this interface on the Worker data plane during scalar and table function
  * evaluation (ai_complete, ai_summarize, ai_classify, ai_filter).</p>
  *
- * <p>Implementations must handle rate limiting, retry with exponential backoff,
- * and request timeout internally (matching the pattern established by
- * {@link org.pangrova.spi.ai.embedding.EmbeddingProvider}).</p>
+ * <p>Implementations must enforce local rate admission and request deadlines.
+ * Model POST replay requires a separately verified provider idempotency contract;
+ * the default capability admits one physical attempt.</p>
  */
 @Experimental
 @ThreadSafe
@@ -104,14 +103,8 @@ public interface InferenceProvider {
      */
     default Set<AiCapabilityDescriptor> capabilities() {
         Set<Modality> modalities = supportedModalities();
-        AiCapabilityDescriptor.RetryPolicy retryPolicy = new AiCapabilityDescriptor.RetryPolicy(
-                4,
-                Duration.ofMillis(500),
-                Duration.ofSeconds(4),
-                Set.of(
-                        AiInvocationException.Category.RATE_LIMIT,
-                        AiInvocationException.Category.TIMEOUT,
-                        AiInvocationException.Category.PROVIDER_UNAVAILABLE));
+        AiCapabilityDescriptor.RetryPolicy retryPolicy =
+                AiCapabilityDescriptor.RetryPolicy.noRetry();
         var text = new AiCapabilityDescriptor(
                 "inference:" + modelName(),
                 modelVersion(),

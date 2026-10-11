@@ -229,7 +229,7 @@ TEST_F(NativeCommandGetCapabilitiesTest, AdvertisesTypedBoundedRetrievalContract
   finalizeCatalogue();
   auto inventory = parseInventory(parseResponse(
       dispatchCommand(buildGetCapabilitiesCommand())));
-  ASSERT_EQ(inventory.capabilities_size(), 14);
+  ASSERT_EQ(inventory.capabilities_size(), 15);
   const auto& descriptor = inventory.capabilities(0);
   EXPECT_EQ(
       descriptor.ref().capability_id(),
@@ -320,20 +320,27 @@ TEST_F(NativeCommandGetCapabilitiesTest, AdvertisesTypedBoundedRetrievalContract
       diskann.supported_artifact_formats(0).SerializeAsString(),
       pangrova::capability::diskAnnArtifactFormat().SerializeAsString());
   EXPECT_GT(diskann.limits().max_candidate_rows(), 0u);
-  const auto& hnsw = inventory.capabilities(10);
+  const auto& filtered = inventory.capabilities(10);
+  EXPECT_TRUE(pangrova::capability::isFilteredDiskAnnRetrieval(filtered.ref()));
+  EXPECT_EQ(filtered.kind(), proto::CAPABILITY_KIND_RETRIEVAL_SOURCE);
+  ASSERT_EQ(filtered.supported_artifact_formats_size(), 1);
+  EXPECT_EQ(filtered.supported_artifact_formats(0).SerializeAsString(),
+            pangrova::capability::diskAnnArtifactFormat().SerializeAsString());
+  EXPECT_GT(filtered.limits().max_candidate_rows(), 0u);
+  const auto& hnsw = inventory.capabilities(11);
   EXPECT_TRUE(pangrova::capability::isHnswRetrieval(hnsw.ref()));
   EXPECT_EQ(
       hnsw.supported_artifact_formats(0).SerializeAsString(),
       pangrova::capability::hnswArtifactFormat().SerializeAsString());
-  const auto& ivf_pq = inventory.capabilities(11);
+  const auto& ivf_pq = inventory.capabilities(12);
   EXPECT_TRUE(pangrova::capability::isIvfPqRetrieval(ivf_pq.ref()));
   EXPECT_EQ(
       ivf_pq.supported_artifact_formats(0).SerializeAsString(),
       pangrova::capability::ivfPqArtifactFormat().SerializeAsString());
-  const auto& bm25 = inventory.capabilities(12);
+  const auto& bm25 = inventory.capabilities(13);
   EXPECT_TRUE(pangrova::capability::isBm25Retrieval(bm25.ref()));
   EXPECT_EQ(bm25.kind(), proto::CAPABILITY_KIND_RETRIEVAL_SOURCE);
-  const auto& overlay = inventory.capabilities(13);
+  const auto& overlay = inventory.capabilities(14);
   EXPECT_TRUE(pangrova::capability::isGeneratedValuesOverlay(overlay.ref()));
   EXPECT_EQ(overlay.ref().semantic_version(), "2.0.0");
   EXPECT_EQ(overlay.kind(), proto::CAPABILITY_KIND_MATERIALIZER);
@@ -361,6 +368,7 @@ TEST_F(NativeCommandGetCapabilitiesTest, OmitsDiskAnnWhenArtifactCacheIsNotReady
       inventory.capabilities().begin(), inventory.capabilities().end(),
       [](const proto::CapabilityDescriptor& descriptor) {
         return pangrova::capability::isDiskAnnRetrieval(descriptor.ref()) ||
+            pangrova::capability::isFilteredDiskAnnRetrieval(descriptor.ref()) ||
             pangrova::capability::isHnswRetrieval(descriptor.ref()) ||
             pangrova::capability::isIvfPqRetrieval(descriptor.ref()) ||
             pangrova::capability::isBm25Retrieval(descriptor.ref()) ||

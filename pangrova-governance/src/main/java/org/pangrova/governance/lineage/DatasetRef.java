@@ -31,10 +31,18 @@ public record DatasetRef(
      */
     public record ColumnLineage(
         String outputColumn,
-        List<SourceColumnRef> sourceColumns
+        List<SourceColumnRef> sourceColumns,
+        org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.DerivationKind derivation
     ) {
+        /** A two-argument direct column reference has identity semantics. */
+        public ColumnLineage(String outputColumn, List<SourceColumnRef> sourceColumns) {
+            this(outputColumn, sourceColumns,
+                    org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.DerivationKind.DIRECT);
+        }
+
         public ColumnLineage {
             sourceColumns = sourceColumns == null ? List.of() : List.copyOf(sourceColumns);
+            java.util.Objects.requireNonNull(derivation, "derivation");
         }
     }
 }

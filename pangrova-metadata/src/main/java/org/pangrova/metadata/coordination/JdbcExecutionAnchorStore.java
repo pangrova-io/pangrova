@@ -43,17 +43,20 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=?";
     private static final String RENEW_OWNED =
             "UPDATE execution_anchor SET expires_at=?, version=version+1 "
-                    + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>?";
+                    + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>? AND execution_id=ANY(?)";
     private static final String RELEASE =
             "DELETE FROM execution_anchor WHERE execution_id=? AND owner_id=? "
                     + "AND owner_incarnation=? AND fencing_token=? AND expires_at>?";
     private static final String YIELD =
-            "UPDATE execution_anchor SET expires_at=CURRENT_TIMESTAMP, version=version+1 "
+            "UPDATE execution_anchor SET expires_at=?, version=version+1 "
                     + "WHERE execution_id=? AND owner_id=? AND owner_incarnation=? "
-                    + "AND fencing_token=? AND expires_at>CURRENT_TIMESTAMP";
-    private static final String YIELD_OWNED =
-            "UPDATE execution_anchor SET expires_at=CURRENT_TIMESTAMP, version=version+1 "
-                    + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>CURRENT_TIMESTAMP";
+                    + "AND fencing_token=? AND expires_at>?";
+    private static final String LOCK_OWNED =
+            "SELECT execution_id FROM execution_anchor WHERE owner_id=? AND owner_incarnation=? "
+                    + "ORDER BY execution_id FOR UPDATE";
+    private static final String REFRESH_INSERTED =
+            "UPDATE execution_anchor SET acquired_at=?, expires_at=? "
+                    + "WHERE execution_id=? AND fencing_token=? AND version=1";
     private static final String SELECT_EXPIRED =
             "SELECT execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version FROM execution_anchor "
@@ -66,6 +69,27 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
     }
 
+    /** Holds the exact live owner on a caller-owned publication transaction. Sample time only after its lock. */
+    public static ExecutionAnchor requireCurrent(Connection connection, ExecutionAnchor expected) throws SQLException {
+        Objects.requireNonNull(expected, "expected");
+        if (connection.getAutoCommit()) {
+            throw new IllegalArgumentException("Execution publication fence requires a transaction");
+        }
+        AnchorRow row;
+        try (var statement = connection.prepareStatement(SELECT_CURRENT + " FOR SHARE")) {
+            statement.setString(1, expected.executionId());
+            try (var result = statement.executeQuery()) {
+                row = result.next() ? mapRow(result) : null;
+            }
+        }
+        if (row == null || !row.ownerId.equals(expected.ownerId())
+                || !row.ownerIncarnation.equals(expected.ownerIncarnation())
+                || row.fencingToken != expected.fencingToken() || !row.expiresAt.isAfter(dbNow(connection))) {
+            throw new IllegalStateException("Execution publication owner is absent, replaced or expired");
+        }
+        return anchor(expected.executionId(), row);
+    }
+
     @Override
     public Optional<ExecutionAnchor> tryAcquire(
             String executionId,
@@ -75,10 +99,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         requireRequest(executionId, ownerId, ownerIncarnation, leaseDuration);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            Instant now = dbNow(connection);
-            Instant deadline = now.plusMillis(leaseDuration.toMillis());
             Optional<ExecutionAnchor> result = acquireLocked(
-                    connection, executionId, ownerId, ownerIncarnation, now, deadline);
+                    connection, executionId, ownerId, ownerIncarnation, leaseDuration);
             connection.commit();
             return result;
         } catch (SQLException failure) {
@@ -91,21 +113,30 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             String executionId,
             String ownerId,
             String ownerIncarnation,
-            Instant now,
-            Instant deadline) throws SQLException {
+            Duration leaseDuration) throws SQLException {
         AnchorRow row = selectForUpdate(connection, executionId);
         if (row == null) {
             long token = nextToken(connection);
-            if (insert(connection, executionId, ownerId, ownerIncarnation, token, now, deadline)) {
+            Instant now = dbNow(connection);
+            if (insert(connection, executionId, ownerId, ownerIncarnation, token,
+                    now, now.plusMillis(leaseDuration.toMillis()))) {
+                // INSERT may wait for an invisible competing INSERT that rolls back.
+                // Our row is now exclusively owned; grant from time after that wait.
+                now = dbNow(connection);
+                Instant deadline = now.plusMillis(leaseDuration.toMillis());
+                refreshInserted(connection, executionId, token, now, deadline);
                 return Optional.of(anchor(
                         executionId, ownerId, ownerIncarnation, token, now, deadline));
             }
             row = selectForUpdate(connection, executionId);
         }
+        Instant now = dbNow(connection);
         if (row == null || row.expiresAt.isAfter(now)) {
             return Optional.empty();
         }
         long token = nextToken(connection);
+        now = dbNow(connection);
+        Instant deadline = now.plusMillis(leaseDuration.toMillis());
         if (!replaceExpired(connection, new ExpiredReplacement(
                 executionId, ownerId, ownerIncarnation, token, now, deadline, row))) {
             return Optional.empty();
@@ -119,20 +150,30 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             String ownerId, String ownerIncarnation, Duration leaseDuration) {
         requireOwner(ownerId, ownerIncarnation);
         requireDuration(leaseDuration);
+        return updateOwnedLeases(ownerId, ownerIncarnation, Optional.of(leaseDuration));
+    }
+
+    private int updateOwnedLeases(String ownerId, String ownerIncarnation, Optional<Duration> extension) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
+            List<String> locked = lockOwned(connection, ownerId, ownerIncarnation);
             Instant now = dbNow(connection);
+            Instant deadline = extension.map(duration -> now.plusMillis(duration.toMillis())).orElse(now);
+            java.sql.Array identities = connection.createArrayOf("text", locked.toArray(String[]::new));
             try (PreparedStatement statement = connection.prepareStatement(RENEW_OWNED)) {
-                setInstant(statement, 1, now.plusMillis(leaseDuration.toMillis()));
+                setInstant(statement, 1, deadline);
                 statement.setString(2, ownerId);
                 statement.setString(3, ownerIncarnation);
                 setInstant(statement, 4, now);
-                int renewed = statement.executeUpdate();
+                statement.setArray(5, identities);
+                int updated = statement.executeUpdate();
                 connection.commit();
-                return renewed;
+                return updated;
+            } finally {
+                identities.free();
             }
         } catch (SQLException failure) {
-            throw storeFailure("renew", ownerId, failure);
+            throw storeFailure(extension.isPresent() ? "renew" : "yield", ownerId, failure);
         }
     }
 
@@ -141,6 +182,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         Objects.requireNonNull(anchor, "anchor must not be null");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
+            selectForUpdate(connection, anchor.executionId());
             Instant now = dbNow(connection);
             try (PreparedStatement statement = connection.prepareStatement(RELEASE)) {
                 statement.setString(1, anchor.executionId());
@@ -160,13 +202,21 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     @Override
     public boolean yield(ExecutionAnchor anchor) {
         Objects.requireNonNull(anchor, "anchor must not be null");
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(YIELD)) {
-            statement.setString(1, anchor.executionId());
-            statement.setString(2, anchor.ownerId());
-            statement.setString(3, anchor.ownerIncarnation());
-            statement.setLong(4, anchor.fencingToken());
-            return statement.executeUpdate() == 1;
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            selectForUpdate(connection, anchor.executionId());
+            Instant now = dbNow(connection);
+            try (PreparedStatement statement = connection.prepareStatement(YIELD)) {
+                setInstant(statement, 1, now);
+                statement.setString(2, anchor.executionId());
+                statement.setString(3, anchor.ownerId());
+                statement.setString(4, anchor.ownerIncarnation());
+                statement.setLong(5, anchor.fencingToken());
+                setInstant(statement, 6, now);
+                boolean yielded = statement.executeUpdate() == 1;
+                connection.commit();
+                return yielded;
+            }
         } catch (SQLException failure) {
             throw storeFailure("yield", anchor.executionId(), failure);
         }
@@ -175,14 +225,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     @Override
     public int yieldOwned(String ownerId, String ownerIncarnation) {
         requireOwner(ownerId, ownerIncarnation);
-        try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(YIELD_OWNED)) {
-            statement.setString(1, ownerId);
-            statement.setString(2, ownerIncarnation);
-            return statement.executeUpdate();
-        } catch (SQLException failure) {
-            throw storeFailure("yield", ownerId, failure);
-        }
+        return updateOwnedLeases(ownerId, ownerIncarnation, Optional.empty());
     }
 
     @Override
@@ -198,13 +241,13 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            Instant now = dbNow(connection);
-            Instant deadline = now.plusMillis(leaseDuration.toMillis());
             List<ExpiredRow> expired = selectExpired(
-                    connection, now, maxBatchSize);
+                    connection, dbNow(connection), maxBatchSize);
             List<ExecutionAnchor> claimed = new ArrayList<>(expired.size());
             for (ExpiredRow row : expired) {
                 long token = nextToken(connection);
+                Instant now = dbNow(connection);
+                Instant deadline = now.plusMillis(leaseDuration.toMillis());
                 if (replaceExpired(connection, new ExpiredReplacement(
                         row.executionId, newOwnerId, newOwnerIncarnation,
                         token, now, deadline, row.anchorRow))) {
@@ -224,7 +267,6 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     public Optional<ExecutionAnchor> current(String executionId) {
         requireNonBlank(executionId, "executionId");
         try (Connection connection = dataSource.getConnection()) {
-            Instant now = dbNow(connection);
             try (PreparedStatement statement = connection.prepareStatement(SELECT_CURRENT)) {
                 statement.setString(1, executionId);
                 try (ResultSet result = statement.executeQuery()) {
@@ -232,7 +274,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                         return Optional.empty();
                     }
                     AnchorRow row = mapRow(result);
-                    return row.expiresAt.isAfter(now)
+                    return row.expiresAt.isAfter(dbNow(connection))
                             ? Optional.of(anchor(executionId, row)) : Optional.empty();
                 }
             }
@@ -247,6 +289,32 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             statement.setString(1, executionId);
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() ? mapRow(result) : null;
+            }
+        }
+    }
+
+    private static List<String> lockOwned(Connection connection, String ownerId, String ownerIncarnation)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(LOCK_OWNED)) {
+            statement.setString(1, ownerId);
+            statement.setString(2, ownerIncarnation);
+            try (ResultSet result = statement.executeQuery()) {
+                List<String> identities = new ArrayList<>();
+                while (result.next()) identities.add(result.getString(1));
+                return identities;
+            }
+        }
+    }
+
+    private static void refreshInserted(Connection connection, String executionId, long token,
+                                        Instant now, Instant deadline) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(REFRESH_INSERTED)) {
+            setInstant(statement, 1, now);
+            setInstant(statement, 2, deadline);
+            statement.setString(3, executionId);
+            statement.setLong(4, token);
+            if (statement.executeUpdate() != 1) {
+                throw new SQLException("Inserted execution anchor lost its transaction ownership");
             }
         }
     }
@@ -332,7 +400,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
 
     private static Instant dbNow(Connection connection) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT CURRENT_TIMESTAMP");
+                "SELECT clock_timestamp()");
              ResultSet result = statement.executeQuery()) {
             if (!result.next()) {
                 throw new SQLException("Database clock returned no timestamp");

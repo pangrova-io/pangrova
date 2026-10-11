@@ -27,6 +27,7 @@ import org.pangrova.security.store.PersistentRowPolicyStore;
 import org.pangrova.security.tenant.model.Tenant;
 import org.pangrova.security.tenant.model.TenantRole;
 import org.pangrova.security.tenant.model.TenantStatus;
+import org.pangrova.security.tenant.model.ResourceQuota;
 import org.pangrova.spi.coordination.WriteCommitJournal;
 import org.pangrova.spi.security.AccessControl;
 
@@ -43,12 +44,14 @@ final class E2eCurrentAuthority {
 
     private E2eCurrentAuthority() {}
 
-    static JdbcTenantStore tenants(DataSource dataSource, String tenantId, String principal) {
+    static JdbcTenantStore tenants(DataSource dataSource, String tenantId, String principal,
+                                  ResourceQuota deploymentQuota) {
+        java.util.Objects.requireNonNull(deploymentQuota, "deploymentQuota");
         var store = new JdbcTenantStore(dataSource);
         store.initSchema();
         if (store.getTenant(tenantId).isEmpty()) {
             store.createTenant(new Tenant(tenantId, "Authenticated SQL E2E tenant", TenantStatus.ACTIVE,
-                    null, List.of(), List.of(), "e2e", Map.of(), Instant.EPOCH, principal));
+                    deploymentQuota, List.of(), List.of(), "e2e", Map.of(), Instant.EPOCH, principal));
         }
         if (store.getTenant(tenantId).orElseThrow().status() != TenantStatus.ACTIVE) {
             throw new IllegalStateException("Fixture tenant is not ACTIVE");

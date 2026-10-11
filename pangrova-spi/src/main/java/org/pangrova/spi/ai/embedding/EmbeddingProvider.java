@@ -13,7 +13,6 @@
  */
 package org.pangrova.spi.ai.embedding;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -35,9 +34,6 @@ import org.pangrova.spi.annotation.ThreadSafe;
 @Experimental
 @ThreadSafe
 public interface EmbeddingProvider {
-
-    /** Default initial delay for retryable provider failures. */
-    Duration DEFAULT_RETRY_INITIAL_DELAY = Duration.ofMillis(500);
 
     /**
      * Embeds one ordered batch using its explicit semantic purpose.
@@ -115,14 +111,7 @@ public interface EmbeddingProvider {
                 maxBatchSize(),
                 resourceLimits(),
                 true,
-                new AiCapabilityDescriptor.RetryPolicy(
-                        4,
-                        DEFAULT_RETRY_INITIAL_DELAY,
-                        Duration.ofSeconds(4),
-                        Set.of(
-                                AiInvocationException.Category.RATE_LIMIT,
-                                AiInvocationException.Category.TIMEOUT,
-                                AiInvocationException.Category.PROVIDER_UNAVAILABLE)),
+                AiCapabilityDescriptor.RetryPolicy.noRetry(),
                 Set.of("AI_MODEL_USAGE")));
     }
 

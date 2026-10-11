@@ -354,4 +354,17 @@ class ExpressionCoverageTest extends SqlE2ETestBase {
             assertThat(((Number) rows.get(0).getRaw("none_cnt")).longValue()).isZero();
         }
     }
+
+    @Nested
+    @DisplayName("Inline relational values")
+    class InlineValues {
+        @Test
+        void namedValuesReachNativeWithoutAUnionRewrite() {
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT x AS val FROM (VALUES (1, 2), (3, 4)) AS t(x, y) ORDER BY x");
+            assertThat(rows).hasSize(2);
+            assertThat(((Number) rows.get(0).getRaw("val")).intValue()).isEqualTo(1);
+            assertThat(((Number) rows.get(1).getRaw("val")).intValue()).isEqualTo(3);
+        }
+    }
 }

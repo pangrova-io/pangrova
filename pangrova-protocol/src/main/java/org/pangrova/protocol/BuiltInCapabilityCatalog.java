@@ -34,6 +34,12 @@ public final class BuiltInCapabilityCatalog {
     public static final String DISKANN_RETRIEVAL_ID =
             "pangrova.retrieval.vector.diskann";
     public static final String DISKANN_RETRIEVAL_VERSION = "1.0.0";
+    public static final String FILTERED_DISKANN_RETRIEVAL_ID =
+            "pangrova.retrieval.vector.diskann.filtered";
+    public static final String FILTERED_DISKANN_RETRIEVAL_VERSION = "1.0.0";
+    private static final byte[] FILTERED_DISKANN_RETRIEVAL_SIGNATURE = HexFormat.of().parseHex(
+            "ae26c57846bf7327447975abdaef0ee5d4e03aa855b902cb0192c8b360047716");
+
     public static final String DISKANN_ARTIFACT_FORMAT_ID = "pangrova.diskann.segment";
     public static final int DISKANN_ARTIFACT_FORMAT_MAJOR = 2;
     public static final String HNSW_ARTIFACT_BUILD_ID =
@@ -275,6 +281,12 @@ public final class BuiltInCapabilityCatalog {
                 .setSemanticVersion(DISKANN_RETRIEVAL_VERSION)
                 .setSignatureSha256(ByteString.copyFrom(DISKANN_RETRIEVAL_SIGNATURE))
                 .build();
+    }
+
+    /** Native predicate-first retrieval in one admitted task with physical row identity. */
+    public static CapabilityRef filteredDiskAnnRetrievalPlanRef() {
+        return capabilityRef(FILTERED_DISKANN_RETRIEVAL_ID,
+                FILTERED_DISKANN_RETRIEVAL_VERSION, FILTERED_DISKANN_RETRIEVAL_SIGNATURE);
     }
 
     /** Immutable DiskANN segment format with a position-aligned locator sidecar. */

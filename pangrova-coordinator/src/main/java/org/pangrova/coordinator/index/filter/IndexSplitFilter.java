@@ -6,6 +6,7 @@ import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.coordinator.index.IndexDescriptorCache;
 import org.pangrova.coordinator.index.ddl.ConnectorAccessorResolver;
 import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.eval.IndexEvaluationFailures;
 import org.pangrova.planner.index.IndexHint;
 import org.pangrova.spi.connector.index.NativeIndexCapability;
 import org.pangrova.spi.connector.index.NativeIndexEvaluator;
@@ -34,7 +35,7 @@ import java.util.concurrent.TimeoutException;
  * Filters splits using a hybrid L0/L1 coordinator + L2 worker architecture.
  * L0: file column statistics (min/max). L1: connector-native evaluation.
  * Surviving files get {@link IndexEvalHint} for worker-side L2 evaluation.
- * Safety: any evaluation failure retains the split (conservative).
+ * Safety: ordinary evaluation failures retain the split; authority and cancellation abort the query.
  */
 @ThreadSafe
 public final class IndexSplitFilter implements AutoCloseable {
@@ -105,6 +106,7 @@ public final class IndexSplitFilter implements AutoCloseable {
             String querySnapshotToken,
             Map<String, List<FileColumnStatistics>> fileStatistics,
             long limitK) {
+        IndexEvaluationFailures.checkInterrupted();
         if (indexHints.isEmpty()) {
             return splits;
         }
@@ -217,6 +219,7 @@ public final class IndexSplitFilter implements AutoCloseable {
         } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
+            IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.warn("event=native_evaluator_resolve_failed catalog={} error={} "
                     + "detail=L1 index filtering disabled, only L0 statistics pruning active",
                     catalogName, e.getMessage());
@@ -234,6 +237,7 @@ public final class IndexSplitFilter implements AutoCloseable {
         } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
+            IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.debug("event=native_capabilities_resolve_failed catalog={}", catalogName);
             return List.of();
         }
@@ -315,30 +319,38 @@ public final class IndexSplitFilter implements AutoCloseable {
         return collectL1Results(survivors, futures);
     }
 
-    private List<ConnectorSplit> collectL1Results(List<ConnectorSplit> survivors,
+    List<ConnectorSplit> collectL1Results(List<ConnectorSplit> survivors,
                                                   List<CompletableFuture<ConnectorSplit>> futures) {
         List<ConnectorSplit> result = new ArrayList<>(survivors.size());
-        for (int i = 0; i < survivors.size(); i++) {
-            ConnectorSplit evaluated = awaitFuture(futures.get(i), survivors.get(i), i);
-            if (evaluated != null) {
-                result.add(evaluated);
+        try {
+            for (int i = 0; i < survivors.size(); i++) {
+                ConnectorSplit evaluated = awaitFuture(futures.get(i), survivors.get(i), i);
+                if (evaluated != null) {
+                    result.add(evaluated);
+                }
             }
+            return List.copyOf(result);
+        } catch (RuntimeException failure) {
+            futures.forEach(future -> future.cancel(true));
+            throw failure;
         }
-        return List.copyOf(result);
     }
 
-    private ConnectorSplit awaitFuture(CompletableFuture<ConnectorSplit> future,
+    ConnectorSplit awaitFuture(CompletableFuture<ConnectorSplit> future,
                                        ConnectorSplit fallback, int index) {
         try {
+            IndexEvaluationFailures.checkInterrupted();
             return future.get(evalConfig.evalTimeoutMs(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             future.cancel(true);
+            IndexEvaluationFailures.checkInterrupted();
             if (evalConfig.evalMetrics() != null) {
                 evalConfig.evalMetrics().recordTimeout();
             }
             LOG.warn("event=index_eval_timeout splitIndex={} timeoutMs={}", index, evalConfig.evalTimeoutMs());
             return fallback;
         } catch (Exception e) {
+            IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.warn("event=index_eval_parallel_failed error={}", e.getMessage());
             return fallback;
         }
@@ -440,13 +452,16 @@ public final class IndexSplitFilter implements AutoCloseable {
     private IndexEvalResult invokeNativeEval(String dataFilePath, List<IndexHint> indexHints,
                                              SplitEvalContext ctx) {
         try {
+            IndexEvaluationFailures.checkInterrupted();
             List<IndexPredicate> predicates = indexHints.stream()
                     .map(IndexHint::predicate).toList();
             IndexEvalResult nativeResult = ctx.nativeEvaluator().evaluate(
                     dataFilePath, predicates, ctx.nativeCapabilities());
+            IndexEvaluationFailures.checkInterrupted();
             return nativeResult == IndexEvalResult.SKIP
                     ? IndexEvalResult.SKIP : IndexEvalResult.KEEP;
         } catch (Exception e) {
+            IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.warn("event=native_eval_failed file={} error={} "
                     + "detail=file retained conservatively",
                     dataFilePath, e.getMessage());

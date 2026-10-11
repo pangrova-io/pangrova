@@ -37,7 +37,12 @@ public final class DynamicFilterApplicator {
             List<String> retainedSplits,
             int totalSplits,
             int filteredSplits
-    ) {}
+    ) {
+        /** Freezes the retained split membership for this filtering decision. */
+        public FilterResult {
+            retainedSplits = List.copyOf(retainedSplits);
+        }
+    }
 
     /**
      * Applies all dynamic filters to the given encoded splits.

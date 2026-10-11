@@ -34,10 +34,17 @@ class LanceOutputHandleCodecTest {
                 LanceColumn.from(new ConnectorTableMetadata.Column("col" + index,
                         PangrovaTypeMapping.toPangrovaType(types.get(index)), OptionalInt.empty(), types.get(index)))).toList();
         LanceTableHandle table = new LanceTableHandle("lance_catalog", "tenant-1", new SchemaTableName("db", "vectors"),
-                "table-1", "s3://warehouse/table-1.lance", columns, Map.of("b", "2", "a", "1"), new byte[32], 7, 2, 20);
-        var allocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteAllocation.Operation.APPEND,
+                "table-1", "s3://warehouse/table-1.lance", columns, Map.of("b", "2", "a", "1"), new byte[32], 0, 1, 0);
+        var allocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteAllocation.Operation.CREATE,
+                0, table.schemaFence(), "write-1", "staging/write-1", "generation-1", columns.stream().map(LanceColumn::name).toList());
+        var handle = new LanceOutputHandle(table, allocation, "INSERT", null);
+        // The old positive-version input without membership is now an explicit invalid allocation.
+        var unproven = new LanceTableHandle(table.catalog(), table.tenantId(), table.table(), table.tableId(),
+                table.datasetUri(), table.columns(), table.properties(), table.schemaFence(), 7, 2, 20);
+        var unprovenAllocation = new NativeWriteAllocation(table.datasetUri(), NativeWriteAllocation.Operation.APPEND,
                 7, table.schemaFence(), "write-1", "staging/write-1", "generation-1", columns.stream().map(LanceColumn::name).toList());
-        var handle = new LanceOutputHandle(table, allocation, "INSERT");
+        assertThatThrownBy(() -> new LanceOutputHandle(unproven, unprovenAllocation, "INSERT", null))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("exact accepted base membership");
         var codec = new LanceOutputHandleCodec();
         byte[] bytes = codec.serialize(handle);
         var decoded = (LanceOutputHandle) codec.deserialize(1, bytes);
@@ -63,6 +70,6 @@ class LanceOutputHandleCodecTest {
         return new LanceOutputHandle(table, new NativeWriteAllocation(table.datasetUri(),
                 table.version() == 0 ? NativeWriteAllocation.Operation.CREATE : NativeWriteAllocation.Operation.APPEND,
                 table.version(), table.schemaFence(), java.util.UUID.randomUUID().toString(),
-                "staging/write-1", "generation-1", table.columns().stream().map(LanceColumn::name).toList()), "INSERT");
+                "staging/write-1", "generation-1", table.columns().stream().map(LanceColumn::name).toList()), "INSERT", null);
     }
 }

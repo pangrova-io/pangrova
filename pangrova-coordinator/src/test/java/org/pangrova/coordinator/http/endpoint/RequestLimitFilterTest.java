@@ -7,6 +7,7 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import org.pangrova.coordinator.http.RequestLimitConfig;
+import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -54,6 +55,55 @@ class RequestLimitFilterTest {
 
         assertThat(ctx.isAborted()).isTrue();
         assertThat(ctx.getAbortedStatus()).isEqualTo(413);
+    }
+
+    @Test
+    void registrationAcceptsCanonicalInventoryEnvelopeButOtherRoutesKeepOriginalLimit() throws IOException {
+        int bodyBytes = MAX_SIZE + 1;
+        StubRequestContext registration = new StubRequestContext("/v1/workers/register");
+        registration.setContentLength(bodyBytes);
+        registration.setEntityStream(new ByteArrayInputStream(new byte[bodyBytes]));
+        filter.filter(registration);
+        assertThat(registration.isAborted()).isFalse();
+        assertThat(registration.getEntityStream().readAllBytes()).hasSize(bodyBytes);
+
+        StubRequestContext heartbeat = new StubRequestContext("/v1/worker/heartbeat");
+        heartbeat.setContentLength(bodyBytes);
+        heartbeat.setEntityStream(new ByteArrayInputStream(new byte[bodyBytes]));
+        filter.filter(heartbeat);
+        assertThat(heartbeat.getAbortedStatus()).isEqualTo(413);
+
+        StubRequestContext otherMethod = new StubRequestContext("/v1/workers/register");
+        otherMethod.setMethod("PUT");
+        otherMethod.setContentLength(bodyBytes);
+        filter.filter(otherMethod);
+        assertThat(otherMethod.getAbortedStatus()).isEqualTo(413);
+    }
+
+    @Test
+    void registrationBodyBoundAppliesToDeclaredAndStreamingLengths() throws IOException {
+        int exact = WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES;
+        StubRequestContext declaredTooLarge = new StubRequestContext("v1/workers/register");
+        declaredTooLarge.setContentLength(exact + 1);
+        filter.filter(declaredTooLarge);
+        assertThat(declaredTooLarge.getAbortedStatus()).isEqualTo(413);
+
+        StubRequestContext unknownLength = new StubRequestContext("v1/workers/register");
+        unknownLength.setEntityStream(new ByteArrayInputStream(new byte[exact + 1]));
+        filter.filter(unknownLength);
+        assertThat(unknownLength.isAborted()).isFalse();
+        assertThat(unknownLength.getEntityStream().readNBytes(exact)).hasSize(exact);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> unknownLength.getEntityStream().read())
+                .isInstanceOf(IOException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> unknownLength.getEntityStream().read())
+                .isInstanceOf(IOException.class);
+
+        StubRequestContext exactLength = new StubRequestContext("v1/workers/register");
+        exactLength.setEntityStream(new ByteArrayInputStream(new byte[exact]));
+        filter.filter(exactLength);
+        assertThat(exactLength.getEntityStream().readAllBytes()).hasSize(exact);
     }
 
     @Test
@@ -185,6 +235,7 @@ class RequestLimitFilterTest {
     private static final class StubRequestContext implements jakarta.ws.rs.container.ContainerRequestContext {
 
         private final String path;
+        private String method = "POST";
         private final MultivaluedMap<String, String> headers = new MultivaluedHashMap<>();
         private int contentLength = -1;
         private InputStream entityStream;
@@ -196,6 +247,11 @@ class RequestLimitFilterTest {
 
         void setContentLength(int length) {
             this.contentLength = length;
+        }
+
+        @Override
+        public void setMethod(String method) {
+            this.method = method;
         }
 
         void addHeader(String name, String value) {
@@ -255,8 +311,7 @@ class RequestLimitFilterTest {
         @Override public void setRequestUri(URI requestUri) {}
         @Override public void setRequestUri(URI baseUri, URI requestUri) {}
         @Override public jakarta.ws.rs.core.Request getRequest() { return null; }
-        @Override public String getMethod() { return "POST"; }
-        @Override public void setMethod(String method) {}
+        @Override public String getMethod() { return method; }
         @Override public MultivaluedMap<String, String> getHeaders() { return headers; }
         @Override public java.util.Date getDate() { return null; }
         @Override public java.util.Locale getLanguage() { return null; }

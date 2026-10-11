@@ -160,18 +160,8 @@ message LanceWriteBinding {
   SerializedConnectorOutputHandle output_handle = 10;
   // Stable allocation prefix, before the exact attempt hash is appended.
   string allocation_staging_prefix = 11;
-}
-
-// Immutable identity of the exact catalog deployment authorized by the
-// Coordinator. Catalog properties and resolved secrets are deliberately not
-// carried in TaskRequest; Workers fetch the exact revision over the trusted
-// internal control channel and resolve secrets locally.
-message CatalogExecutionBinding {
-  string catalog_name = 1;
-  string connector_provider = 2;
-  string catalog_incarnation_id = 3;
-  uint64 catalog_revision = 4;
-  Checksum configuration_fingerprint = 5;
+  // Exact PG-accepted base. Positive read versions require it; CREATE forbids it.
+  AcceptedSourceSnapshotRef base_snapshot = 12;
 }
 
 // Connector-owned, versioned serialization of the exact output handle

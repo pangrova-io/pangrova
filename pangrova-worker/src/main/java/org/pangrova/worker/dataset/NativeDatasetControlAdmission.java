@@ -1,6 +1,7 @@
 package org.pangrova.worker.dataset;
 
 import org.pangrova.common.concurrent.ThreadSafe;
+
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -13,6 +14,9 @@ final class NativeDatasetControlAdmission implements AutoCloseable {
     private final Semaphore permits = new Semaphore(MAX_CONCURRENT_COMMANDS);
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    @org.pangrova.common.concurrent.GuardedBy("this")
+    private boolean drained;
+
     Lease acquire() {
         if (closed.get()) throw new IllegalStateException("Native dataset control is closed");
         if (!permits.tryAcquire()) throw new ControlAdmissionRejectedException();
@@ -24,15 +28,19 @@ final class NativeDatasetControlAdmission implements AutoCloseable {
     }
 
     @Override
-    public void close() {
-        if (!closed.compareAndSet(false, true)) return;
+    public synchronized void close() {
+        closed.set(true);
+        if (drained) return;
         try {
             if (!permits.tryAcquire(MAX_CONCURRENT_COMMANDS, DRAIN_SECONDS, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("Native dataset control failed to drain before shutdown");
+                throw new IllegalStateException(
+                        "Native dataset control failed to drain before shutdown");
             }
+            drained = true;
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted draining Native dataset control", interrupted);
+            throw new IllegalStateException(
+                    "Interrupted draining Native dataset control", interrupted);
         }
     }
 

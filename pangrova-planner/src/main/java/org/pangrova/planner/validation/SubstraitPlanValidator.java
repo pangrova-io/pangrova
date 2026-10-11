@@ -6,6 +6,7 @@ import io.substrait.plan.Plan;
 import io.substrait.relation.Aggregate;
 import io.substrait.relation.Filter;
 import io.substrait.relation.ExtensionLeaf;
+import io.substrait.relation.ExtensionSingle;
 import io.substrait.relation.Join;
 import io.substrait.relation.Project;
 import io.substrait.relation.Rel;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
+import org.pangrova.planner.extension.UnnestRelDetail;
 
 /**
  * Validates a Substrait {@link Plan} against the native engine's capability
@@ -42,6 +44,8 @@ public final class SubstraitPlanValidator {
             Map.entry("Project", "ProjectRel"),
             Map.entry("Aggregate", "AggregateRel"),
             Map.entry("HashJoin", "HashJoinRel"),
+            Map.entry("MergeJoin", "MergeJoinRel"),
+            Map.entry("StandardsCompliantMergeJoin", "MergeJoinRel"),
             Map.entry("Join", "JoinRel"),
             Map.entry("Sort", "SortRel"),
             Map.entry("Fetch", "FetchRel"),
@@ -50,6 +54,7 @@ public final class SubstraitPlanValidator {
             Map.entry("BroadcastExchange", "ExchangeRel"),
             Map.entry("RoundRobinExchange", "ExchangeRel"),
             Map.entry("ExtensionLeaf", "ExtensionLeafRel"),
+            Map.entry("ExtensionSingle", "ExtensionSingleRel"),
             Map.entry("Cross", "JoinRel"),
             Map.entry("ExtensionMulti", "JoinRel")
     );
@@ -62,6 +67,8 @@ public final class SubstraitPlanValidator {
             Map.entry("FieldReference", "FieldReference"),
             Map.entry("ScalarFunctionInvocation", "ScalarFunction"),
             Map.entry("WindowFunctionInvocation", "WindowFunction"),
+            Map.entry("NestedList", "Nested"),
+            Map.entry("NestedStruct", "Nested"),
             Map.entry("Cast", "Cast"),
             Map.entry("IfThen", "IfThen")
     );
@@ -90,14 +97,16 @@ public final class SubstraitPlanValidator {
         String className = stripImmutablePrefix(rel.getClass().getSimpleName());
 
         String registryName = REL_TYPE_NAMES.get(className);
-        boolean unsupportedDetail = rel instanceof ExtensionLeaf leaf
-                && !(leaf.getDetail() instanceof ExchangeInputLeafDetail);
+        boolean unsupportedDetail = (rel instanceof ExtensionLeaf leaf
+                && !(leaf.getDetail() instanceof ExchangeInputLeafDetail))
+                || (rel instanceof ExtensionSingle single
+                        && !(single.getDetail() instanceof UnnestRelDetail));
         if (registryName == null || !registry.isRelSupported(registryName)
                 || unsupportedDetail) {
             unsupported.add(new UnsupportedNode(
                     registryName != null ? registryName : className,
                     unsupportedDetail
-                            ? "Extension leaf detail not supported by native engine"
+                            ? "Extension detail not supported by native engine"
                             : "Rel type not supported by native engine",
                     depth, UnsupportedNode.Kind.RELATION));
         }
@@ -233,7 +242,11 @@ public final class SubstraitPlanValidator {
                             ((Expression.ScalarFunctionInvocation) e).arguments(), out)),
             new ExprChildExtractor(Expression.WindowFunctionInvocation.class,
                     (e, out) -> collectFunctionArgChildren(
-                            ((Expression.WindowFunctionInvocation) e).arguments(), out))
+                            ((Expression.WindowFunctionInvocation) e).arguments(), out)),
+            new ExprChildExtractor(Expression.NestedList.class,
+                    (e, out) -> out.addAll(((Expression.NestedList) e).values())),
+            new ExprChildExtractor(Expression.NestedStruct.class,
+                    (e, out) -> out.addAll(((Expression.NestedStruct) e).fields()))
     );
 
     private record ExprChildExtractor(

@@ -44,19 +44,43 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
     public RecordingTaskStatusReporter reports() { return reports; }
 
     /** Real admission and executor ownership, with completion deliberately driven by its actual controller test. */
-    TaskInfo preparePending(TaskRequest request) {
+    public TaskInfo preparePending(TaskRequest request) {
         var submitted = SubmitTaskRequest.from(request);
         var descriptor = TaskRequestDtoConverter.toTaskDescriptor(submitted);
         var info = new TaskInfo("pending-" + request.getAttempt().getTaskId(),
                 request.getAttempt().getQueryOrJobId(), submitted, descriptor, java.time.Instant.now());
+        // Same canonical reservation as production submission, while retaining the real not-started boundary.
+        manager.verifyControlEpochForAdmission(request.getAttempt().getControlEpoch());
+        manager.verifyExecutionOwnerForAdmission(submitted);
+        var reservation = manager.taskAdmissions.reserve(request, info.taskId());
+        assertThat(reservation.first()).isTrue();
         manager.lifecycleManager.reserveAdmissionResources(info);
-        manager.tasks.put(info.taskId(), info);
-        manager.transition(info.taskId(), TaskManager.TaskState.INITIALIZING);
-        info.setExecutorHandle(runtime.createPending(request));
+        reservation.publish(() -> manager.tasks.put(info.taskId(), info));
+        assertThat(manager.transition(info.taskId(), TaskManager.TaskState.INITIALIZING)).isTrue();
+        reservation.admitted();
+        assertThat(manager.taskAdmissions.knownIdentity(
+                org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request))).isTrue();
+        info.beginNativeCreation();
+        try {
+            info.setExecutorHandle(runtime.createPending(request));
+        } catch (RuntimeException | Error failure) {
+            info.failNativeCreation(failure);
+            throw failure;
+        }
         return info;
     }
 
     TaskCompletionMonitor completionMonitor() { return new TaskCompletionMonitor(context, manager.statusCollector); }
+
+    /** Reads the real HTTP admission's exact task owner without resubmitting or synthesizing state. */
+    public TaskInfo admittedTask(TaskRequest request) {
+        var owner = java.util.Objects.requireNonNull(manager.tasks.get(
+                manager.resolveWorkerTaskId(request.getAttempt().getTaskId())), "actual admitted task");
+        if (!owner.request().taskRequest().equals(request)) {
+            throw new IllegalArgumentException("Admitted task differs from the exact requested owner");
+        }
+        return owner;
+    }
 
     public TaskInfo submit(TaskRequest request) {
         var submitted = SubmitTaskRequest.from(request);

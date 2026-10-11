@@ -31,8 +31,10 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
     private final RemoteShuffleClientPool clientPool;
     private final ConcurrentMap<String, RemoteShuffleTaskEgress> tasks = new ConcurrentHashMap<>();
     private final Set<RemoteShuffleTaskEgress> pendingCandidates = ConcurrentHashMap.newKeySet();
+
     @GuardedBy("this")
     private boolean closed;
+
     @GuardedBy("this")
     private int installing;
 
@@ -134,7 +136,10 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
         tasks.remove(taskId, task);
     }
 
-    /** Joins only resources owned by this exact original NETWORK request, including failed candidates. */
+    /**
+     * Joins only resources owned by this exact original NETWORK request, including failed
+     * candidates.
+     */
     public void releaseTask(TaskRequest request) {
         var seal = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request);
         String taskId = seal.getAttempt().getTaskId();
@@ -154,7 +159,8 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
                 candidate.abort("unpublished task candidate released");
                 pendingCandidates.remove(candidate);
             } catch (RuntimeException | Error cleanup) {
-                if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+                if (failure == null) failure = cleanup;
+                else failure.addSuppressed(cleanup);
             }
         }
         if (failure instanceof RuntimeException runtime) throw runtime;
@@ -208,7 +214,8 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
                     TimeUnit.NANOSECONDS.timedWait(this, remaining);
                 } catch (InterruptedException failure) {
                     Thread.currentThread().interrupt();
-                    throw new RemoteShuffleClientException("Shuffle task admission drain interrupted", failure);
+                    throw new RemoteShuffleClientException(
+                            "Shuffle task admission drain interrupted", failure);
                 }
             }
         }
@@ -218,8 +225,10 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
         RemoteShuffleTaskEgress task = tasks.get(taskId);
         if (task == null || !task.queryId().equals(queryId)) {
             throw new RemoteShuffleClientException(
-                    "No installed external shuffle task for queryId=" + queryId
-                            + " taskId=" + taskId);
+                    "No installed external shuffle task for queryId="
+                            + queryId
+                            + " taskId="
+                            + taskId);
         }
         return task;
     }
@@ -241,26 +250,43 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
         ShuffleExecutionBinding binding = shuffle.getExecutionBinding();
         validateBinding(attempt, shuffle.getPartitionCount(), binding);
         ShuffleExecutionOwner owner = toOwner(binding);
-        ExchangeTaskAttempt taskAttempt = new ExchangeTaskAttempt(
-                attempt.getQueryOrJobId(), attempt.getStageId(), attempt.getPartitionId(),
-                attempt.getTaskId(), attempt.getControlEpoch(),
-                new ExchangeAttemptFence(attempt.getPlanEpoch(), attempt.getAttemptId(),
-                        attempt.getFencingToken()), owner);
-        List<ShuffleServerEndpoint> endpoints = binding.getEndpointsList().stream()
-                .map(endpoint -> new ShuffleServerEndpoint(
-                        endpoint.getHost(), endpoint.getPort(), endpoint.getPartitionStart(),
-                        endpoint.getPartitionEnd(), endpoint.getTlsIdentity()))
-                .sorted(Comparator.comparingInt(ShuffleServerEndpoint::partitionStart))
-                .toList();
+        ExchangeTaskAttempt taskAttempt =
+                new ExchangeTaskAttempt(
+                        attempt.getQueryOrJobId(),
+                        attempt.getStageId(),
+                        attempt.getPartitionId(),
+                        attempt.getTaskId(),
+                        attempt.getControlEpoch(),
+                        new ExchangeAttemptFence(
+                                attempt.getPlanEpoch(),
+                                attempt.getAttemptId(),
+                                attempt.getFencingToken()),
+                        owner);
+        List<ShuffleServerEndpoint> endpoints =
+                binding.getEndpointsList().stream()
+                        .map(
+                                endpoint ->
+                                        new ShuffleServerEndpoint(
+                                                endpoint.getHost(),
+                                                endpoint.getPort(),
+                                                endpoint.getPartitionStart(),
+                                                endpoint.getPartitionEnd(),
+                                                endpoint.getTlsIdentity()))
+                        .sorted(Comparator.comparingInt(ShuffleServerEndpoint::partitionStart))
+                        .toList();
         validateCoverage(endpoints, shuffle.getPartitionCount());
         var commit = binding.getCommitAddress();
-        return new RemoteShuffleTaskEgress(new RemoteShuffleTaskEgress.Binding(
-                binding.getShuffleId(), endpoints,
-                new ShuffleServiceAddress(
-                        commit.getHost(), commit.getPort(), commit.getTlsIdentity()),
-                taskAttempt, request.getDeadlineEpochMs(),
-                parseCodec(shuffle.getCompressionCodec()), binding.getWriteCapability(),
-                org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request)),
+        return new RemoteShuffleTaskEgress(
+                new RemoteShuffleTaskEgress.Binding(
+                        binding.getShuffleId(),
+                        endpoints,
+                        new ShuffleServiceAddress(
+                                commit.getHost(), commit.getPort(), commit.getTlsIdentity()),
+                        taskAttempt,
+                        request.getDeadlineEpochMs(),
+                        parseCodec(shuffle.getCompressionCodec()),
+                        binding.getWriteCapability(),
+                        org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request)),
                 clientPool);
     }
 
@@ -268,8 +294,10 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
             org.pangrova.protocol.v2.TaskAttemptId attempt,
             int partitionCount,
             ShuffleExecutionBinding binding) {
-        if (partitionCount <= 0 || binding.getShuffleId().isBlank()
-                || binding.getEndpointsCount() == 0 || !binding.hasExecutionOwner()
+        if (partitionCount <= 0
+                || binding.getShuffleId().isBlank()
+                || binding.getEndpointsCount() == 0
+                || !binding.hasExecutionOwner()
                 || !binding.hasCommitAddress()) {
             throw new IllegalArgumentException(
                     "External shuffle binding requires partitions, id, endpoints, commit address and owner");
@@ -320,5 +348,4 @@ public final class RemoteShuffleByteEgress implements AutoCloseable {
             default -> throw new IllegalArgumentException("Unknown shuffle stream codec: " + codec);
         };
     }
-
 }

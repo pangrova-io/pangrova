@@ -69,5 +69,8 @@ public record EvaluationRun(
         } else if (state == EvaluationRunState.FAILED && failureClass == null) {
             throw new IllegalArgumentException("failed evaluation requires failureClass");
         }
+        if (completedAt != null && completedAt.isBefore(startedAt)) {
+            throw new IllegalArgumentException("completedAt must not precede startedAt");
+        }
     }
 }

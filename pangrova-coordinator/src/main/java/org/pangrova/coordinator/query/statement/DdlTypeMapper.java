@@ -96,7 +96,7 @@ final class DdlTypeMapper {
                     decimal.precision(), decimal.scale());
         }
         if (spec instanceof DataTypeSpec.VectorType vector) {
-            return new org.pangrova.spi.connector.data.type.VectorType(vector.dimension(), null);
+            return new org.pangrova.spi.connector.data.type.VectorType(vector.dimension(), vector.elementType());
         }
         return PangrovaTypeMapping.toType(map(spec));
     }

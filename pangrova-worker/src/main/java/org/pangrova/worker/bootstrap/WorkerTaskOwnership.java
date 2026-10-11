@@ -12,19 +12,34 @@ import org.pangrova.worker.task.TaskManager;
 @ThreadSafe
 public final class WorkerTaskOwnership implements AutoCloseable {
     private final RemoteShuffleChannelAdmission channelAdmission;
-    @GuardedBy("this") private final List<AutoCloseable> partialOwners = new ArrayList<>();
-    @GuardedBy("this") private TaskManager manager;
-    @GuardedBy("this") private int transferredPartialOwners;
-    @GuardedBy("this") private boolean sealed;
-    @GuardedBy("this") private boolean drained;
-    @GuardedBy("this") private long generation;
+
+    @GuardedBy("this")
+    private final List<AutoCloseable> partialOwners = new ArrayList<>();
+
+    @GuardedBy("this")
+    private TaskManager manager;
+
+    @GuardedBy("this")
+    private int transferredPartialOwners;
+
+    @GuardedBy("this")
+    private boolean sealed;
+
+    @GuardedBy("this")
+    private boolean drained;
+
+    @GuardedBy("this")
+    private long generation;
 
     public WorkerTaskOwnership(RemoteShuffleChannelAdmission.Limits limits) {
         channelAdmission = new RemoteShuffleChannelAdmission(limits);
     }
 
-    public RemoteShuffleChannelAdmission channelAdmission() { return channelAdmission; }
+    public RemoteShuffleChannelAdmission channelAdmission() {
+        return channelAdmission;
+    }
 
+    /** Retains a partially created owner until successful transfer or actual cleanup. */
     public synchronized void retain(AutoCloseable owner) {
         partialOwners.add(java.util.Objects.requireNonNull(owner, "owner"));
         generation++;
@@ -32,15 +47,18 @@ public final class WorkerTaskOwnership implements AutoCloseable {
         if (sealed) throw new IllegalStateException("Task bootstrap ownership is sealed");
     }
 
-    public synchronized void publish(TaskManager manager) {
-        this.manager = java.util.Objects.requireNonNull(manager, "manager");
+    /** Transfers the initialized manager and the already retained partial owners. */
+    public synchronized void publish(TaskManager actualManager) {
+        this.manager = java.util.Objects.requireNonNull(actualManager, "manager");
         transferredPartialOwners = partialOwners.size();
         generation++;
         drained = false;
         if (sealed) throw new IllegalStateException("Task bootstrap ownership is sealed");
     }
 
-    public synchronized boolean isDrained() { return drained; }
+    public synchronized boolean isDrained() {
+        return drained;
+    }
 
     @Override
     public void close() {
@@ -51,8 +69,11 @@ public final class WorkerTaskOwnership implements AutoCloseable {
             sealed = true;
             if (drained) return;
             actualManager = manager;
-            actualPartialOwners = List.copyOf(partialOwners.subList(
-                    actualManager == null ? 0 : transferredPartialOwners, partialOwners.size()));
+            actualPartialOwners =
+                    List.copyOf(
+                            partialOwners.subList(
+                                    actualManager == null ? 0 : transferredPartialOwners,
+                                    partialOwners.size()));
             observedGeneration = generation;
         }
         channelAdmission.seal();
@@ -61,8 +82,11 @@ public final class WorkerTaskOwnership implements AutoCloseable {
             failure = closeOwner(actualPartialOwners.get(index), failure);
         }
         if (actualManager != null) failure = closeOwner(actualManager, failure);
-        try { channelAdmission.requireDrained(); } catch (RuntimeException observed) {
-            if (failure == null) failure = observed; else failure.addSuppressed(observed);
+        try {
+            channelAdmission.requireDrained();
+        } catch (RuntimeException observed) {
+            if (failure == null) failure = observed;
+            else failure.addSuppressed(observed);
         }
         if (failure != null) throw failure;
         synchronized (this) {
@@ -79,7 +103,8 @@ public final class WorkerTaskOwnership implements AutoCloseable {
         try {
             owner.close();
         } catch (Exception | Error failure) {
-            var observed = new IllegalStateException("Task bootstrap owner has not drained", failure);
+            var observed =
+                    new IllegalStateException("Task bootstrap owner has not drained", failure);
             if (aggregate == null) return observed;
             aggregate.addSuppressed(observed);
         }

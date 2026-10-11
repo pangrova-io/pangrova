@@ -248,6 +248,7 @@ public final class TaskRequestFactory {
                         .setFencingToken(spec.attempt().fencingToken())
                         .setTaskId(spec.taskId()))
                 .setTaskKind(spec.taskKind())
+                .setTraceContext(traceContext(spec.execution()))
                 .setSecurity(securityContext(
                         spec.execution(), spec.operatorBindings()))
                 .setSubstraitPlan(ByteString.copyFrom(planBytes))
@@ -266,6 +267,13 @@ public final class TaskRequestFactory {
         }
         bindDeferredIdentity(request, spec.execution());
         return request.build();
+    }
+
+    private static org.pangrova.protocol.v2.TraceContext traceContext(StageExecutionContext execution) {
+        var context = execution.traceContext();
+        return org.pangrova.protocol.v2.TraceContext.newBuilder()
+                .setTraceId(context.traceId()).setSpanId(context.spanId())
+                .setTraceState(context.traceState()).setTraceFlags(context.traceFlags()).build();
     }
 
     private static List<ExchangeInputBinding> exchangeInputs(
@@ -421,7 +429,7 @@ public final class TaskRequestFactory {
                 .setProviderAttempts(provider.attempts())
                 .setProviderRequestBytes(provider.requestBytes())
                 .setProviderResponseBytes(provider.responseBytes())
-                .setMediaBytes(provider.mediaBytes());
+                .setMediaBytes(Math.max(provider.mediaBytes(), template.getMediaBytes()));
         if (candidate.rows() > 0) {
             grant.setCandidateBytes(candidate.bytes() > 0
                     ? candidate.bytes() : template.getNativeMemoryBytes());

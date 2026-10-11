@@ -3,6 +3,7 @@ package org.pangrova.metadata.artifact;
 import org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.util.DigestUtils;
 import org.pangrova.metadata.artifact.build.ArtifactStageGraph;
 import org.pangrova.metadata.artifact.contract.ArtifactBuildPageKind;
 
@@ -12,6 +13,39 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class ArtifactStageGraphTest {
+
+    @Test
+    void graphRejectsMalformedDigestsAndCorrectlyHashedNoncanonicalEncoding() {
+        var terminal = stage(0, 1, ArtifactBuildPageKind.RELATIONAL_PARTITION, true);
+        var graph = new ArtifactStageGraph(ArtifactStageGraph.FORMAT_VERSION,
+                ArtifactStageGraph.Purpose.RELATIONAL_EXPORT, List.of(terminal), List.of(), List.of());
+        for (String invalid : new String[]{null, "", "0".repeat(64), graph.sha256().substring(1),
+                graph.sha256().toUpperCase(java.util.Locale.ROOT), graph.sha256() + "\n"}) {
+            assertThatThrownBy(() -> ArtifactStageGraph.decode(graph.canonicalBytes(), invalid))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum");
+        }
+        byte[] canonical = graph.canonicalBytes();
+        byte[] noncanonical = java.util.Arrays.copyOf(canonical, canonical.length + 1);
+        noncanonical[canonical.length] = '\n';
+        assertThatThrownBy(() -> ArtifactStageGraph.decode(noncanonical, DigestUtils.sha256Hex(noncanonical)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not canonical");
+        assertThatThrownBy(() -> ArtifactStageGraph.decode(null, graph.sha256()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("bytes or checksum");
+    }
+
+    @Test
+    void stagePlanRejectsWrongDigestWithoutAcceptingNoncanonicalBase64() {
+        var original = stage(0, 1, ArtifactBuildPageKind.RELATIONAL_PARTITION, true);
+        assertThatThrownBy(() -> new ArtifactStageGraph.StagePlan(original.stageId(), original.parallelism(),
+                original.pageKind(), original.planBase64(), "0".repeat(64), original.template(),
+                original.sourceKeys(), original.outputNames(), original.publicationOutput()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("different checksum");
+        String unpadded = original.planBase64().replace("=", "");
+        assertThatThrownBy(() -> new ArtifactStageGraph.StagePlan(original.stageId(), original.parallelism(),
+                original.pageKind(), unpadded, original.planSha256(), original.template(),
+                original.sourceKeys(), original.outputNames(), original.publicationOutput()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("noncanonical");
+    }
 
     @Test void rejectsRemovedOrUnknownPersistedBatchFormats() {
         for (String format : List.of("BATCH_SERDE_NATIVE_ROW", "BATCH_SERDE_UNSPECIFIED", "BATCH_SERDE_UNKNOWN")) {

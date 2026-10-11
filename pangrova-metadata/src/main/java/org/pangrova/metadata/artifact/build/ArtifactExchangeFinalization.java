@@ -25,7 +25,7 @@ public record ArtifactExchangeFinalization(
         }
         byte[] response = Base64.getDecoder().decode(responseBase64);
         if (response.length == 0 || response.length > 16 * 1024 * 1024
-                || !DigestUtils.sha256Hex(response).equals(responseSha256)
+                || !DigestUtils.matchesSha256(response, responseSha256)
                 || !Base64.getEncoder().encodeToString(response).equals(responseBase64)) {
             throw new IllegalArgumentException("External finalize response checksum or size is invalid");
         }
@@ -34,7 +34,9 @@ public record ArtifactExchangeFinalization(
         long rows = 0;
         for (int i = 0; i < partitions.size(); i++) {
             var partition = partitions.get(i);
-            if (partition.partitionId() != i) throw new IllegalArgumentException("Finalize partition cohort is not exact");
+            if (partition.partitionId() != i) {
+                throw new IllegalArgumentException("Finalize partition cohort is not exact");
+            }
             bytes = Math.addExact(bytes, partition.totalBytes());
             rows = Math.addExact(rows, partition.totalRows());
         }

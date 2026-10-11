@@ -18,4 +18,9 @@ public record FileValidationContext(
         Map<String, String> tableProperties,
         String tableName,
         MimeTypeValidator validator) {
+
+    /** Captures the table policy while borrowing the thread-safe validator. */
+    public FileValidationContext {
+        tableProperties = tableProperties == null ? null : Map.copyOf(tableProperties);
+    }
 }

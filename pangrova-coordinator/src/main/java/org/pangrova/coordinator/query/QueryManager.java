@@ -31,6 +31,7 @@ import org.pangrova.spi.observability.LongCounter;
 import org.pangrova.spi.observability.MetricsProvider;
 import org.pangrova.spi.observability.Span;
 import org.pangrova.spi.observability.SpanKind;
+import org.pangrova.spi.observability.Scope;
 import org.pangrova.spi.observability.TracingProvider;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -83,15 +84,16 @@ public class QueryManager {
                 this::emitTerminalEvents,
                 this::releasePhysicalQuery, java.util.Objects.requireNonNull(nanoClock, "nanoClock"));
         this.queryDispatcher.addExecutionDrainListener(terminalCleanup::onExecutionDrain);
+        this.queryDispatcher.addQueryOperationExitListener(terminalCleanup::onOperationExit);
         this.cleanupScheduler = new QueryCleanupScheduler(queries,
                 terminalCleanup::isPending, this::retryPendingTerminalCompletions);
         this.auditBridge = new QueryAuditDispatcher(
                 QueryAuditDispatcher.createAuditEmitter(deps.auditEmitter(), deps.queryAuditService()),
                 deps.lineageEmitter(),
-                deps.queryDispatcher());
+                deps.queryDispatcher(), deps.eventDispatcher());
         this.admission = new QueryAdmission(deps.resilienceRegistry(), deps.throttlingService());
         this.journalLifecycle = new QueryJournalLifecycle(deps.stateJournal() != null
-                ? deps.stateJournal() : new InMemoryQueryStateJournal());
+                ? deps.stateJournal() : new InMemoryQueryStateJournal(), auditBridge);
         this.asyncSubmitConfig = deps.asyncSubmitConfig();
         this.asyncExecutor = deps.asyncExecutor();
         this.querySubmitCounter = createCounter(deps.metricsProvider(),
@@ -139,18 +141,24 @@ public class QueryManager {
         }
         Throwable submissionFailure = null;
         try {
-            admission.checkDegradation();
-            Span span = tracingProvider.startSpan("query.submit", SpanKind.SERVER);
-            span.setAttribute("query.id", queryId);
-            LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
-            try {
-                incrementCounter(querySubmitCounter);
-                LOG.info("event=query_submitted queryId={}", queryId);
-                auditBridge.emitAuditSubmitted(queryId, sql, submittedSession);
-                return executeQuery(queryId, sql, submittedSession, stateMachine);
-            } finally {
-                LogContext.clear();
-                span.end();
+            try (Scope parent = submittedSession.traceContext().makeCurrent()) {
+                Span span = tracingProvider.startSpan("query.submit", SpanKind.SERVER);
+                span.setAttribute("query.id", queryId);
+                Map<String, String> previousLogContext = LogContext.snapshot();
+                try (Scope current = span.makeCurrent()) {
+                    submittedSession = submittedSession.withTraceContext(
+                            org.pangrova.observability.tracing.ExecutionTraceContext.capture());
+                    LogContext.set(NativeTraceExporter.currentTraceId(), NativeTraceExporter.currentSpanId());
+                    LogContext.setQueryId(queryId);
+                    incrementCounter(querySubmitCounter);
+                    LOG.info("event=query_submitted queryId={}", queryId);
+                    auditBridge.emitAuditSubmitted(queryId, sql, submittedSession, stateMachine);
+                    admission.checkDegradation();
+                    return executeQuery(queryId, sql, submittedSession, stateMachine);
+                } finally {
+                    LogContext.restore(previousLogContext);
+                    span.end();
+                }
             }
         } catch (RuntimeException | Error failure) {
             submissionFailure = failure;
@@ -282,7 +290,7 @@ public class QueryManager {
                         ? session.tenantId() : "default");
         return new CoordinatorSessionContext(
                 session.queryId(), session.sessionProperties(),
-                session.userIdentity(), tenantId, session.queryAuthority());
+                session.userIdentity(), tenantId, session.queryAuthority(), session.traceContext());
     }
 
     public void setClusterAdmissionController(

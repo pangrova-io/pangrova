@@ -18,7 +18,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.worker.ai.blob.GovernedBlobStore;
 import org.pangrova.worker.ai.blob.BlobTestStores;
-import org.pangrova.worker.ai.context.AiExecutionContext;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -60,8 +59,8 @@ class FileFromBytesFunctionTest {
     }
 
     private static <T> T governed(java.util.function.Supplier<T> action) {
-        return AiExecutionContext.callWith(org.pangrova.worker.ai.context.AiTestTaskAuthority.context(
-                "tenant-a", "alice", "query-1", "task-1", "trace-1",
-                Instant.now().plus(Duration.ofMinutes(1)).toEpochMilli(), 1024), action);
+        return org.pangrova.worker.ai.context.AiTestTaskAuthority.callWithRegisteredTask(
+                "tenant-a", "alice", Instant.now().plus(Duration.ofMinutes(1)).toEpochMilli(),
+                1024, action);
     }
 }

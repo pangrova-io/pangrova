@@ -1,7 +1,6 @@
 package org.pangrova.planner.artifact;
 
 import com.google.protobuf.Any;
-import io.substrait.proto.Expression;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
 import io.substrait.proto.PlanRel;

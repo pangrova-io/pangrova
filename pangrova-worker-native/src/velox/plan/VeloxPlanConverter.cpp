@@ -101,6 +101,7 @@ VeloxPlanConverter::convert(
   logical_node_types_.clear();
   relation_output_schemas_.clear();
   canonical_output_schema_.Clear();
+  result_output_schema_.Clear();
   serde_schema_bindings_.clear();
   result_column_labels_.clear();
   function_map_.clear();

@@ -5,7 +5,11 @@ import org.pangrova.resource.MemoryPressure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -20,10 +24,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * SharedArbitrator — see {@code VeloxMemoryBridge} and
  * {@code VeloxTaskRunner} in pangrova-worker-native.</p>
  *
- * <p>The spill directory configured here is propagated to the native side
- * via {@code SubmitTaskRequest.resourceLimit.spillDirectory} for Velox
- * operator spill. Java-side SpillManager does not write to that directory
- * directly.</p>
+ * <p>Java candidates own their buffers and spill directories. This manager
+ * inspects the configured local volume and invokes each owner synchronously.
+ * Native operator spill has a separate canonical task grant and lifecycle.</p>
  */
 @ThreadSafe
 public class SpillManager {
@@ -43,7 +46,7 @@ public class SpillManager {
     }
 
     /**
-     * Creates a spill manager writing spill files to the given directory (nullable).
+     * Creates a manager inspecting the operator-configured spill volume (nullable).
      */
     public SpillManager(String spillDirectory) {
         this.spillDirectory = spillDirectory;
@@ -60,14 +63,37 @@ public class SpillManager {
      * Spill candidate with priority ordering.
      * Priority: 1=ScanBuffer, 2=ShuffleBuffer, 3=Sort, 4=Aggregation, 5=HashJoin.
      */
-    public record SpillCandidate(String id, int priority, long reclaimableBytes, Runnable reclaimAction) {
-        /** Compat constructor for callers not supplying a reclaim action. */
-        public SpillCandidate(String id, int priority, long reclaimableBytes) {
-            this(id, priority, reclaimableBytes, () -> {});
+    public static final class SpillCandidate {
+        private final SpillableBuffer buffer;
+
+        SpillCandidate(SpillableBuffer buffer) {
+            this.buffer = Objects.requireNonNull(buffer, "buffer");
+        }
+
+        public String id() {
+            return buffer.spillId();
+        }
+
+        public int priority() {
+            return buffer.spillPriority();
+        }
+
+        public long reclaimableBytes() {
+            return buffer.reclaimableBytes();
+        }
+
+        private long reclaim(long targetBytes) {
+            return buffer.spillToDisk(targetBytes);
         }
     }
 
+    /** Registers the live buffer owner for synchronous pressure reclamation. */
     public void registerCandidate(SpillCandidate candidate) {
+        Objects.requireNonNull(candidate, "candidate");
+        Objects.requireNonNull(candidate.id(), "candidate.id");
+        if (candidate.priority() <= 0 || candidate.reclaimableBytes() < 0) {
+            throw new IllegalArgumentException("Invalid spill candidate: " + candidate.id());
+        }
         candidates.put(candidate.id(), candidate);
     }
 
@@ -99,37 +125,63 @@ public class SpillManager {
      */
     public long handleMemoryPressure(MemoryPressure pressure, long targetBytes) {
         int maxPriority = resolveMaxPriority(pressure);
-        if (maxPriority == 0) {
+        if (maxPriority == 0 || targetBytes <= 0) {
             return 0;
         }
-        if (!hasEnoughDiskSpace(targetBytes)) {
-            LOG.warn("event=spill_skipped_low_disk spillDir={} targetBytes={} pressure={}",
-                    spillDirectory, targetBytes, pressure);
-            return 0;
+        long reclaimed = 0;
+        int triggered = 0;
+        // Selection estimates order work; only each owner's actual return counts as reclaimed.
+        for (SpillCandidate candidate : collectUntilTarget(Long.MAX_VALUE, maxPriority)) {
+            if (reclaimed >= targetBytes) {
+                break;
+            }
+            long remaining = targetBytes - reclaimed;
+            if (!hasEnoughDiskSpace(candidate.reclaimableBytes())) {
+                LOG.warn("event=spill_skipped_low_disk spillDir={} candidate={} pressure={}",
+                        spillDirectory, candidate.id(), pressure);
+                continue;
+            }
+            long freed = candidate.reclaim(remaining);
+            if (freed < 0) {
+                throw new IllegalStateException("Negative actual spill bytes for " + candidate.id());
+            }
+            reclaimed = saturatedAdd(reclaimed, freed);
+            triggered++;
+            if (candidate.reclaimableBytes() == 0) {
+                candidates.remove(candidate.id(), candidate);
+            }
         }
-        List<SpillCandidate> selected = collectUntilTarget(targetBytes, maxPriority);
-        long reclaimed = selected.stream().mapToLong(SpillCandidate::reclaimableBytes).sum();
-        selected.forEach(c -> candidates.remove(c.id()));
         LOG.info("event=spill_triggered candidates={} reclaimedBytes={} targetBytes={} pressure={}",
-                selected.size(), reclaimed, targetBytes, pressure);
+                triggered, reclaimed, targetBytes, pressure);
         return reclaimed;
     }
 
-    /**
-     * Checks whether the spill directory has enough free disk space.
-     * Returns true if no spill directory is configured (spill may go elsewhere)
-     * or if free space exceeds the minimum threshold plus the target bytes.
-     */
-    private boolean hasEnoughDiskSpace(long targetBytes) {
+    /** Checks the actual volume of the operator-configured directory, including missing descendants. */
+    private boolean hasEnoughDiskSpace(long expectedBytes) {
         if (spillDirectory == null) {
             return true;
         }
-        File spillDir = new File(spillDirectory);
-        if (!spillDir.exists()) {
-            return true;
+        Path volumePath = Path.of(spillDirectory).toAbsolutePath();
+        while (!Files.exists(volumePath)) {
+            volumePath = volumePath.getParent();
+            if (volumePath == null) {
+                throw new IllegalStateException("No existing spill directory ancestor: " + spillDirectory);
+            }
         }
-        long freeSpace = spillDir.getUsableSpace();
-        return freeSpace > MIN_FREE_DISK_BYTES + targetBytes;
+        if (!Files.isDirectory(volumePath)) {
+            throw new IllegalStateException("Spill directory is not a directory: " + volumePath);
+        }
+        try {
+            long freeSpace = Files.getFileStore(volumePath).getUsableSpace();
+            return freeSpace > MIN_FREE_DISK_BYTES
+                    && expectedBytes < freeSpace - MIN_FREE_DISK_BYTES;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot inspect spill volume: " + spillDirectory, e);
+        }
+    }
+
+    private static long saturatedAdd(long left, long right) {
+        return right > Long.MAX_VALUE - left ? Long.MAX_VALUE : left + right;
     }
 
     private int resolveMaxPriority(MemoryPressure pressure) {
@@ -148,7 +200,7 @@ public class SpillManager {
                 Comparator.comparingInt(SpillCandidate::priority)
                         .thenComparing(Comparator.comparingLong(SpillCandidate::reclaimableBytes).reversed()));
         for (SpillCandidate c : candidates.values()) {
-            if (c.priority() <= maxPriority) {
+            if (c.priority() <= maxPriority && c.reclaimableBytes() > 0) {
                 heap.offer(c);
             }
         }
@@ -162,7 +214,7 @@ public class SpillManager {
         while (!heap.isEmpty() && accumulated < targetBytes) {
             SpillCandidate candidate = heap.poll();
             result.add(candidate);
-            accumulated += candidate.reclaimableBytes();
+            accumulated = saturatedAdd(accumulated, candidate.reclaimableBytes());
         }
         return result;
     }

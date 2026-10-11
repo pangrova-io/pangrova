@@ -61,8 +61,9 @@ final class TaskJournalStoreFixture implements AutoCloseable {
         }
     }
 
-    int committed(TaskStatusReport report) throws SQLException {
-        var context = eventContext(report);
+    int committed(TaskStatusReport report, org.pangrova.protocol.v2.TaskAttemptId issuedAttempt) throws SQLException {
+        var context = org.pangrova.coordinator.task.TaskJournalEventContext.create(
+                issuedAttempt, report.reportSequence(), report.timestampMs());
         try (var connection = administrator.getConnection(); var statement = connection.prepareStatement(
                 "SELECT count(*) FROM task_insert_observations WHERE task_id=? AND state=? AND report_sequence=? "
                         + "AND timestamp_ms=? AND event_id=? AND coordinator_id=? AND query_id=? AND worker_id=? AND stage_id=?")) {
@@ -76,16 +77,6 @@ final class TaskJournalStoreFixture implements AutoCloseable {
             statement.setString(8, report.workerId());
             statement.setInt(9, report.stageId());
             try (var result = statement.executeQuery()) { result.next(); return result.getInt(1); }
-        }
-    }
-
-    private static org.pangrova.spi.coordination.JournalEventContext eventContext(TaskStatusReport report) {
-        try {
-            var actual = org.pangrova.protocol.v2.TaskReport.parseFrom(report.canonicalTaskReport());
-            return org.pangrova.coordinator.task.TaskJournalEventContext.create(
-                    actual.getAttempt(), report.reportSequence(), report.timestampMs());
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            throw new IllegalStateException("Actual Native report is malformed", malformed);
         }
     }
 

@@ -36,6 +36,7 @@ public final class CompositeAiInvocationObserver implements AiInvocationObserver
         this.observers = List.copyOf(observers);
     }
 
+    /** Loads the installed observers and retains the canonical invocation logger. */
     public static AiInvocationObserver discover() {
         List<AiInvocationObserver> observers = new ArrayList<>();
         observers.add(new LoggingAiInvocationObserver());
@@ -54,8 +55,7 @@ public final class CompositeAiInvocationObserver implements AiInvocationObserver
     }
 
     static void notifyObservers(
-            List<AiInvocationObserver> observers,
-            Consumer<AiInvocationObserver> notification) {
+            List<AiInvocationObserver> observers, Consumer<AiInvocationObserver> notification) {
         RuntimeException firstFailure = null;
         for (AiInvocationObserver observer : observers) {
             try {
@@ -69,8 +69,7 @@ public final class CompositeAiInvocationObserver implements AiInvocationObserver
         }
     }
 
-    private static RuntimeException merge(
-            RuntimeException firstFailure, RuntimeException failure) {
+    private static RuntimeException merge(RuntimeException firstFailure, RuntimeException failure) {
         if (firstFailure == null) {
             return failure;
         }

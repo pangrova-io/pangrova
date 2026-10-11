@@ -14,8 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class LanceFactoryWiringTest {
-    private static final Map<String, String> CONFIG = Map.of(
-            "jdbc.url", "jdbc:postgresql://127.0.0.1:1/never_opened", "warehouse", "s3://warehouse");
+    private static final Map<String, String> CONFIG = Map.of("warehouse", "s3://warehouse");
 
     @Test
     void serviceLoaderRegistersFactoryAndWorkerCodecDoesNotOpenCatalogOrPageSink() {
@@ -29,7 +28,7 @@ class LanceFactoryWiringTest {
     }
 
     @Test
-    void createWithoutRealNativeSchemaControlFailsBeforeOpeningJdbc() {
+    void createWithoutRealNativeSchemaControlFailsBeforeOpeningCatalog() {
         var connector = new LanceConnectorFactory().create("lance_catalog", CONFIG, Optional::empty);
         var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "new_table"), List.of("id"),
                 List.of(new ConnectorTableMetadata.Column("id", PangrovaType.INTEGER)), Map.of());
@@ -41,10 +40,14 @@ class LanceFactoryWiringTest {
     @Test
     void rejectsUnsupportedWarehouseAndMissingPersistentCatalog() {
         var factory = new LanceConnectorFactory();
-        assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("warehouse", "s3://warehouse"), Optional::empty))
-                .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("jdbc.url", CONFIG.get("jdbc.url"),
-                "warehouse", "s3://warehouse/path/../other"), Optional::empty))
+        var workerConnector = factory.create("lance_catalog", Map.of("warehouse", "s3://warehouse"), Optional::empty);
+        assertThatThrownBy(() -> workerConnector.getMetadata(LanceSplitManagerTest.session("tenant-a"))
+                .listSchemaNames(LanceSplitManagerTest.session("tenant-a")))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("owner process");
+        assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("jdbc.url", "jdbc:postgresql://127.0.0.1:1/never_opened",
+                "warehouse", "s3://warehouse"), Optional::empty)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("shared metadata authority");
+        assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("warehouse", "s3://warehouse/path/../other"), Optional::empty))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -52,16 +55,13 @@ class LanceFactoryWiringTest {
     void localWarehouseRequiresAbsolutePathOrCanonicalFileUriWithoutRewriting() {
         var factory = new LanceConnectorFactory();
         for (String warehouse : List.of("/warehouse/lance", "file:///warehouse/lance")) {
-            assertThat(factory.create("lance_catalog", Map.of("jdbc.url", CONFIG.get("jdbc.url"),
-                    "warehouse", warehouse), Optional::empty)).isInstanceOf(LanceConnector.class);
+            assertThat(factory.create("lance_catalog", Map.of("warehouse", warehouse), Optional::empty)).isInstanceOf(LanceConnector.class);
         }
-        assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("jdbc.url", CONFIG.get("jdbc.url"),
-                "warehouse", "file:/warehouse/lance"), Optional::empty))
+        assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("warehouse", "file:/warehouse/lance"), Optional::empty))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("canonical file:///");
         for (String warehouse : List.of("relative/lance", "file://remote/warehouse/lance",
                 "/warehouse/%2e%2e/lance", "/warehouse/lance?credential=secret")) {
-            assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("jdbc.url", CONFIG.get("jdbc.url"),
-                    "warehouse", warehouse), Optional::empty)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> factory.create("lance_catalog", Map.of("warehouse", warehouse), Optional::empty)).isInstanceOf(IllegalArgumentException.class);
         }
     }
 }

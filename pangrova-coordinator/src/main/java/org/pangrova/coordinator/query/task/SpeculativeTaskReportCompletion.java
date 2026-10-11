@@ -150,9 +150,7 @@ final class SpeculativeTaskReportCompletion {
     }
 
     private void cleanupLoserTask(String queryId, String taskId) {
-        var receipt = taskTracker.executionDrainReceipt(taskId);
-        if (receipt.isPresent()) {
-            taskTracker.unregisterDrainedTask(receipt.orElseThrow());
+        if (taskTracker.unregisterRecordedDrainedTask(taskId)) {
             sequences.clearTaskSequence(taskId);
         }
     }

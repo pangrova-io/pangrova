@@ -5,8 +5,6 @@ import org.pangrova.metadata.cache.CacheStats;
 import org.pangrova.metadata.cache.MetadataCache;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.event.MetadataEventDispatcher;
-import org.pangrova.metadata.model.ColumnMetadata;
-import org.pangrova.metadata.model.ColumnType;
 import org.pangrova.metadata.model.QualifiedTableRef;
 import org.pangrova.metadata.model.TableMetadata;
 import org.pangrova.metadata.store.MetadataStore;
@@ -75,85 +73,6 @@ class MetadataSyncFallbackAndDriftTest {
         assertThat(result.syncType()).isEqualTo("INCREMENTAL");
     }
 
-    // ── Schema drift tests ──
-
-    @Test
-    @DisplayName("validateSyncedSample detects column drift and corrects it")
-    void schemaDriftDetectedAndCorrected() {
-        // Store has stale metadata with old columns
-        TableMetadata staleStored = tableWithColumns("cat", "sch", "t1",
-                List.of(col("id", "BIGINT"), col("name", "VARCHAR")));
-        store.saveTable(staleStored);
-
-        // Catalog has updated metadata with new column
-        TableMetadata actualInCatalog = tableWithColumns("cat", "sch", "t1",
-                List.of(col("id", "BIGINT"), col("name", "VARCHAR"), col("email", "VARCHAR")));
-
-        // Create a change that references the drifted table
-        MetadataChange change = new MetadataChange(
-                MetadataChange.ChangeType.UPDATE,
-                new QualifiedTableRef("cat", "sch", "t1"), actualInCatalog);
-
-        var adapter = new DriftAdapter(actualInCatalog);
-
-        // Force 100% sample rate by calling validateSyncedSample with the change
-        // The method uses ThreadLocalRandom with 10% rate, so we call it in a loop
-        // to ensure at least one validation. Alternatively, test the drift detection
-        // by directly calling with a list that will be sampled.
-        // Since the sample rate is 10%, we use a deterministic approach:
-        // call validateSyncedSample with enough changes to statistically guarantee coverage.
-        List<MetadataChange> changes = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
-            changes.add(change);
-        }
-
-        syncService.validateSyncedSample("cat", adapter, changes);
-
-        // Drift should have been detected and corrected
-        assertThat(syncService.getSchemaDriftDetectedCount())
-                .as("Schema drift should be detected at least once with 100 samples at 10% rate")
-                .isGreaterThan(0);
-
-        // Verify the store was updated with the correct metadata
-        Optional<TableMetadata> corrected = store.loadTable("cat", "sch", "t1");
-        assertThat(corrected).isPresent();
-        assertThat(corrected.get().columns()).hasSize(3);
-    }
-
-    @Test
-    @DisplayName("validateSyncedSample skips DELETE changes")
-    void schemaDriftSkipsDeletes() {
-        MetadataChange deleteChange = new MetadataChange(
-                MetadataChange.ChangeType.DELETE,
-                new QualifiedTableRef("cat", "sch", "t1"), null);
-
-        syncService.validateSyncedSample("cat", new DriftAdapter(null), List.of(deleteChange));
-
-        assertThat(syncService.getSchemaDriftDetectedCount()).isZero();
-    }
-
-    @Test
-    @DisplayName("validateSyncedSample does not flag drift when columns match")
-    void noDriftWhenColumnsMatch() {
-        TableMetadata meta = tableWithColumns("cat", "sch", "t1",
-                List.of(col("id", "BIGINT"), col("name", "VARCHAR")));
-        store.saveTable(meta);
-
-        MetadataChange change = new MetadataChange(
-                MetadataChange.ChangeType.UPDATE,
-                new QualifiedTableRef("cat", "sch", "t1"), meta);
-
-        var adapter = new DriftAdapter(meta);
-        List<MetadataChange> changes = new ArrayList<>();
-        for (int i = 0; i < 100; i++) {
-            changes.add(change);
-        }
-
-        syncService.validateSyncedSample("cat", adapter, changes);
-
-        assertThat(syncService.getSchemaDriftDetectedCount()).isZero();
-    }
-
     // ── Helpers ──
 
     private static TableMetadata table(String catalog, String schema, String name) {
@@ -161,18 +80,6 @@ class MetadataSyncFallbackAndDriftTest {
                 catalog, schema, name,
                 List.of(), Map.of(), List.of(), Map.of(),
                 Instant.now(), Instant.now());
-    }
-
-    private static TableMetadata tableWithColumns(String catalog, String schema, String name,
-                                                   List<ColumnMetadata> columns) {
-        return new TableMetadata(
-                catalog, schema, name,
-                columns, Map.of(), List.of(), Map.of(),
-                Instant.now(), Instant.now());
-    }
-
-    private static ColumnMetadata col(String name, String type) {
-        return new ColumnMetadata(name, ColumnType.of(type), true, null, null);
     }
 
     // ── Test doubles ──
@@ -221,25 +128,6 @@ class MetadataSyncFallbackAndDriftTest {
             if (callCount <= failCount) throw new RuntimeException("Fail #" + callCount);
             return List.of();
         }
-        @Override public void close() {}
-    }
-
-    /** Adapter that returns a specific table for drift validation. */
-    static final class DriftAdapter implements FederatedCatalog {
-        private final TableMetadata tableToReturn;
-
-        DriftAdapter(TableMetadata tableToReturn) { this.tableToReturn = tableToReturn; }
-
-        @Override public List<String> listSchemas() { return List.of(); }
-        @Override public List<String> listTables(String schema) { return List.of(); }
-        @Override public TableMetadata getTable(String schema, String table) {
-            if (tableToReturn == null) throw new RuntimeException("Not found");
-            return tableToReturn;
-        }
-        @Override public TableStatistics getTableStatistics(String schema, String table) {
-            return TableStatistics.UNKNOWN;
-        }
-        @Override public List<MetadataChange> getChangesSince(Instant since) { return List.of(); }
         @Override public void close() {}
     }
 

@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "artifact/ArtifactWorkReportState.h"
+#include "resource/TaskObjectReadBudget.h"
 #include "pangrova/protocol/v2/execution_binding.pb.h"
 #include "text/bm25/Bm25Segment.h"
 #include "vector/diskann/VamanaGraph.h"
@@ -37,6 +38,7 @@ struct ArtifactBuildTaskContext {
   uint64_t max_object_store_read_bytes{0};
   uint64_t max_object_store_write_bytes{0};
   std::shared_ptr<artifact::ArtifactWorkReportState> report_state;
+  std::shared_ptr<resource::TaskObjectReadBudget> read_budget;
 };
 
 enum class ArtifactBuildKind : uint8_t {

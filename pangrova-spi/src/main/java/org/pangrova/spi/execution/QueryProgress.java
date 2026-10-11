@@ -48,12 +48,12 @@ public record QueryProgress(
 
     /**
      * Returns whether the query has reached a terminal state
-     * ({@link QueryState#FINISHED} or {@link QueryState#FAILED}).
+     * ({@link QueryState#FINISHED}, {@link QueryState#FAILED}, or {@link QueryState#CANCELLED}).
      *
      * @return true if the query is in a terminal state
      */
     public boolean isTerminal() {
-        return state == QueryState.FINISHED || state == QueryState.FAILED;
+        return state == QueryState.FINISHED || state == QueryState.FAILED || state == QueryState.CANCELLED;
     }
 
     /**

@@ -17,6 +17,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CanonicalExpressionSqlProtocolTest {
 
     @Test
+    void mapConstructorUsesTypedCanonicalLiteral() throws Exception {
+        var map = expression("SELECT MAP['width', 100, 'height', 200]");
+        assertThat(map.hasLiteral()).isTrue();
+        assertThat(map.getLiteral().hasMap()).isTrue();
+        assertThat(map.getLiteral().getMap().getKeyValuesList()).hasSize(2)
+                .allMatch(pair -> pair.getKey().hasString() && pair.getValue().hasI32());
+        assertThat(map.getLiteral().getMap().getKeyValuesList())
+                .extracting(pair -> pair.getKey().getString())
+                .containsExactlyInAnyOrder("width", "height");
+    }
+
+    @Test
+    void mapConstructorPreservesExplicitTrailingSpaceInStringKey() throws Exception {
+        var map = expression("SELECT MAP['width ', 100, 'height', 200]");
+        assertThat(map.getLiteral().getMap().getKeyValuesList())
+                .extracting(pair -> pair.getKey().getString())
+                .containsExactlyInAnyOrder("width ", "height");
+    }
+
+    @Test
     void ordinaryDecimalArrayPreservesCommonPrecisionScaleAndTypedNulls() throws Exception {
         var expression = expression("SELECT ARRAY[1.23, CAST(NULL AS DECIMAL(10,2)), 2]");
         assertThat(expression.hasLiteral()).isTrue();
@@ -174,6 +194,26 @@ class CanonicalExpressionSqlProtocolTest {
             assertThat(invocation.getArguments(1).getValue().hasCast()).isTrue();
             assertThat(invocation.getArguments(1).getValue().getCast().getType().hasI32()).isTrue();
         }
+    }
+
+    @Test
+    void roundDoubleKeepsAnIntegerPositionAfterNumericPromotion() throws Exception {
+        var invocation = expression("SELECT ROUND(CAST(x AS DOUBLE), CAST(y AS BIGINT)) "
+                + "FROM (SELECT 1 AS x, 0 AS y) t").getScalarFunction();
+        assertThat(invocation.getOutputType().hasFp64()).isTrue();
+        assertThat(invocation.getArguments(0).getValue().getCast().getType().hasFp64()).isTrue();
+        assertThat(invocation.getArguments(1).getValue().getCast().getType().hasI32()).isTrue();
+    }
+
+    @Test
+    void dayIntervalLiteralPreservesExactMillisecondsInCanonicalComponents() throws Exception {
+        var invocation = expression("SELECT dt + INTERVAL '30' DAY "
+                + "FROM (SELECT DATE '2024-01-01' AS dt) t").getScalarFunction();
+        var interval = invocation.getArguments(1).getValue().getLiteral().getIntervalDayToSecond();
+        assertThat(interval.getDays()).isEqualTo(30);
+        assertThat(interval.getSeconds()).isZero();
+        assertThat(interval.getSubseconds()).isZero();
+        assertThat(interval.getPrecision()).isEqualTo(6);
     }
 
     private static void assertDecimal(Type type, int precision, int scale) {

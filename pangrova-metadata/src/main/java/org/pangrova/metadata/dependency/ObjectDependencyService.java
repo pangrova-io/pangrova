@@ -64,11 +64,6 @@ public final class ObjectDependencyService {
         return hooks.remove(hook);
     }
 
-    /** Returns the underlying store for direct lineage queries. */
-    public ObjectDependencyStore store() {
-        return store;
-    }
-
     /**
      * Convenience: records a single dependency edge.
      */

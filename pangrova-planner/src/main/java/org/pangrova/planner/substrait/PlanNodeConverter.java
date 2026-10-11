@@ -317,7 +317,11 @@ public final class PlanNodeConverter {
                         field.getType().getSqlTypeName()))) {
             return java.util.Optional.empty();
         }
-        List<Integer> stableKeys = java.util.stream.IntStream.range(0, fields.size())
+        boolean physicalIdentity = fields.size() >= 4 && sort.getInput().getRowType().getFieldNames()
+                .subList(fields.size() - 4, fields.size()).equals(
+                        org.pangrova.protocol.retrieval.RetrievalCandidateIdentity.PHYSICAL_FIELDS);
+        List<Integer> stableKeys = java.util.stream.IntStream.range(
+                        physicalIdentity ? fields.size() - 4 : 0, fields.size())
                 .filter(index -> index != scoreIndex)
                 .boxed()
                 .toList();

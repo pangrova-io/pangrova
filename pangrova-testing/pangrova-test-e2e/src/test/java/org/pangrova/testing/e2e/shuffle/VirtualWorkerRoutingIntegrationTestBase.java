@@ -10,7 +10,6 @@ import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
-import org.pangrova.spi.transport.DataTicket;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.HealthState;
@@ -28,7 +27,6 @@ import org.pangrova.testing.e2e.E2ETestFramework;
 import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.runner.SqlTestRunner;
 import org.pangrova.testing.e2e.setup.TestDataSetup;
-import org.pangrova.worker.transport.TransportClient;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -287,7 +285,8 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
             throw new IllegalStateException(
                     "Routing query did not publish a result endpoint: " + queryId);
         }
-        String canonicalTaskId = endpoint.ticket();
+        String canonicalTaskId = hasControlPlaneResult(queryId) ? null
+                : requireNativeResultTaskId(endpoint, queryId, routingTaskTracker);
         String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
         List<TypedRow> rows;
         try {
@@ -331,7 +330,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
     private static List<TypedRow> fetchRoutingResultsViaTransport(
             ResultEndpoint endpoint, String queryId) {
         if (endpoint == null) {
-            return List.of();
+            throw new IllegalStateException("Missing routing result endpoint: queryId=" + queryId);
         }
         // Direct buffer read — same as parent SqlE2ETestBase
         if (coordinatorResultBuffer != null) {
@@ -343,17 +342,16 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         // Native SELECT results are served via C++ FlightResultServer.
         // Use routingTaskTracker to resolve the native task ID for this
         // routing pipeline (not the parent's taskTracker).
-        if (sharedResultServerPort > 0 && routingTaskTracker != null) {
-            return SqlE2ETestBase.fetchResultsViaFlight(
-                    endpoint, queryId, routingTaskTracker);
+        String taskId = requireNativeResultTaskId(endpoint, queryId, routingTaskTracker);
+        String workerId = routingTaskTracker.getWorkerForTask(taskId);
+        var worker = workerId == null ? null : routingWorkerManager.getWorker(workerId);
+        if (worker == null || worker.resultServerPort() <= 0
+                || !worker.host().equals(endpoint.host())
+                || worker.resultServerPort() != endpoint.port()) {
+            throw new IllegalStateException("Routing result endpoint does not match task placement: queryId="
+                    + queryId + " taskId=" + taskId);
         }
-        DataTicket ticket = new DataTicket(
-                queryId, "result", 0, DataTicket.TicketType.RESULT);
-        try (TransportClient client = new TransportClient(
-                endpoint.host(), endpoint.port())) {
-            byte[] resultBytes = client.doGet(ticket);
-            return SqlE2ETestBase.decodeResultBytes(resultBytes);
-        }
+        return SqlE2ETestBase.fetchResultsViaFlight(endpoint, queryId, routingTaskTracker);
     }
 
     // -----------------------------------------------------------------------

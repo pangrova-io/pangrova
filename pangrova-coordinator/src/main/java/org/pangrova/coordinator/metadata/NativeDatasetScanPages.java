@@ -14,15 +14,22 @@ final class NativeDatasetScanPages {
     private NativeDatasetScanPages() {}
 
     static NativeDatasetScanPage decode(RuntimeCommandResponse response, CatalogExecutionBinding catalog,
-            long version, byte[] schema, OptionalLong after, int pageSize) {
+            org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot, OptionalLong after, int pageSize) {
+        long version = snapshot.version(); byte[] schema = snapshot.schemaSha256();
+        var expected = org.pangrova.protocol.SourceSnapshotBindings.encode(snapshot, catalog);
         try {
             var result = response.getPayload().unpack(DatasetScanPartitionsResult.class);
             requireSha256(result.getManifestSha256());
             requireSha256(result.getPhysicalSchemaSha256());
-            if (result.getVersion() != version || result.getTotalPartitions() < 0
+            if (!result.hasAcceptedSnapshot() || !result.getAcceptedSnapshot().equals(expected)
+                    || !MessageDigest.isEqual(snapshot.manifestSha256(), result.getManifestSha256().getDigest().toByteArray())
+                    || result.getVersion() != version || result.getTotalPartitions() < 0
                     || result.getPartitionsCount() > pageSize
                     || !MessageDigest.isEqual(schema, result.getPhysicalSchemaSha256().getDigest().toByteArray())) {
                 throw new IllegalArgumentException("Native scan page differs from its pinned request");
+            }
+            if (result.getPartitionsList().stream().anyMatch(partition -> !partition.getAcceptedSnapshot().equals(expected))) {
+                throw new IllegalArgumentException("Partition omitted or changed its accepted membership");
             }
             var partitions = descriptors(result, after);
             OptionalLong next = result.getHasMore()

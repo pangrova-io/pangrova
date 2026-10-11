@@ -16,6 +16,7 @@ import java.sql.SQLException;
 public final class ArtifactCurrentAuthority {
     private ArtifactCurrentAuthority() {}
 
+    /** Loads the scoped dispatch specification and checks its current authority on this transaction. */
     public static ArtifactBuildDispatchSpec requireCurrent(Connection connection, String tenantId, String jobId)
             throws SQLException {
         AuthorizationTransactionGate.lockPublication(connection);
@@ -32,6 +33,7 @@ public final class ArtifactCurrentAuthority {
         return spec;
     }
 
+    /** Checks the current tenant, security, and model authority under the publication lock. */
     public static void requireCurrent(Connection connection, ArtifactBuildDispatchSpec spec) throws SQLException {
         AuthorizationTransactionGate.lockPublication(connection);
         JdbcTenantStore.requireDeferredTenant(connection, spec.principal(), spec.tenantId(), spec.authorizationScope());

@@ -229,9 +229,9 @@ public final class CoordinatorBootstrap {
             MetadataStore store = new JdbcMetadataStore(metadataDataSource);
             ClassLoader cl = getClass().getClassLoader();
             nativeDatasetControl = new NativeDatasetControlBootstrap(config.internalAuthSecret(),
-                    () -> query, () -> ha == null ? null : ha.haService());
+                    () -> query, () -> ha == null ? null : ha.haService(), metadataDataSource);
             connectorHandleFactory = new PluginConnectorHandleFactory(
-                    cl, secretResolver, nativeDatasetControl::forCatalog);
+                    cl, secretResolver, nativeDatasetControl::forCatalog, nativeDatasetControl::sourceForCatalog);
             var federationFactory = new PluginFederationHandleFactory(cl, secretResolver);
             metadataBootstrap = MetadataBootstrap.initialize(store, connectorHandleFactory, federationFactory);
             // P2-3: persist column governance tags across restarts now that a metadata
@@ -432,7 +432,7 @@ public final class CoordinatorBootstrap {
         maintenanceLeadership.start();
     }
 
-    private org.pangrova.spi.coordination.DistributedLease ensureDistributedLease() {
+    org.pangrova.spi.coordination.DistributedLease ensureDistributedLease() {
         if (distributedLease != null) {
             return distributedLease;
         }

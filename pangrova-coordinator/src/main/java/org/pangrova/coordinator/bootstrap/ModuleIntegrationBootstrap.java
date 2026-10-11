@@ -6,15 +6,14 @@ import org.pangrova.governance.classification.InMemoryAuditConfigStore;
 import org.pangrova.governance.classification.InMemoryColumnMaskStore;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageEventEmitter;
-import org.pangrova.governance.lineage.LogLineageBackend;
+import org.pangrova.governance.lineage.LineageBackendConfiguration;
 import org.pangrova.governance.quality.schedule.CronScheduler;
 import org.pangrova.governance.quality.alert.AlertChannelRegistry;
 import org.pangrova.governance.quality.alert.DataQualityAlerter;
 import org.pangrova.governance.quality.alert.LogAlertChannel;
 import org.pangrova.governance.quality.rule.DefaultQualityRuleExecutor;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
-import org.pangrova.governance.quality.rule.InMemoryQualityRuleStore;
-import org.pangrova.governance.quality.rule.JdbcQualityRuleStore;
+import org.pangrova.metadata.governance.JdbcQualityRuleStore;
 import org.pangrova.governance.quality.rule.QualityRuleStore;
 
 import org.pangrova.resilience.ResilienceRegistry;
@@ -272,17 +271,14 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             LOG.info("Phase skipped: governance not enabled");
             return;
         }
-        lineageEmitter = new LineageEventEmitter(new LogLineageBackend());
-        QualityRuleStore ruleStore;
-        if (dataSource != null) {
-            ruleStore = new JdbcQualityRuleStore(dataSource);
-            LOG.info("Phase: governance — using JDBC-backed quality rule store");
-        } else {
-            LOG.warn("Phase: governance — no datasource configured; using InMemoryQualityRuleStore. "
-                    + "Quality rules are NOT persisted and will not survive restart. "
-                    + "Configure a datasource for production governance.");
-            ruleStore = new InMemoryQualityRuleStore();
+        if (dataSource == null) {
+            throw new IllegalStateException("Enabled governance requires the durable metadata datasource");
         }
+        JdbcQualityRuleStore jdbcRuleStore = new JdbcQualityRuleStore(dataSource);
+        jdbcRuleStore.initSchema();
+        QualityRuleStore ruleStore = jdbcRuleStore;
+        lineageEmitter = LineageBackendConfiguration.createEmitter(
+                new org.pangrova.metadata.coordination.JdbcQueryLineageOutbox(dataSource));
         AlertChannelRegistry channelRegistry = new AlertChannelRegistry();
         channelRegistry.register(new LogAlertChannel());
         DataQualityAlerter alerter = new DataQualityAlerter(channelRegistry);
@@ -434,11 +430,10 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
      * operations → tenant → resilience → governance → streaming → indexing.
      */
     @Override
-    public void close() {
+    public synchronized void close() {
         if (closed) {
             return;
         }
-        closed = true;
         stopMetadataSyncSchedule();
         stopInvalidationCleanupSchedule();
         if (metadataSyncScheduler != null) {
@@ -455,6 +450,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         closeStreaming();
         closeIndexing();
         closeIndexQuery();
+        closed = true;
     }
 
     private void closeModule(AutoCloseable resource, String moduleName) {
@@ -463,7 +459,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
             resource.close();
             LOG.info("event=module_closed module={}", moduleName);
         } catch (Exception e) {
-            LOG.warn("event=module_close_failed module={} error={}", moduleName, e.getMessage(), e);
+            throw new IllegalStateException("Module owner has not actually closed: " + moduleName, e);
         }
     }
 

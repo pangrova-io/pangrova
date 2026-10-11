@@ -14,6 +14,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.awaitility.Awaitility.await;
@@ -107,7 +108,7 @@ public final class SharedTestContainers {
                     .pollDelay(Duration.ZERO)
                     .pollInterval(Duration.ofMillis(200))
                     .atMost(timeout)
-                    .until(() -> isJdbcReady(pg, lastFailure));
+                    .until(new JdbcReadinessProbe(pg, lastFailure));
         } catch (ConditionTimeoutException timeoutFailure) {
             IllegalStateException failure = new IllegalStateException(
                     "PostgreSQL container did not become JDBC-ready within " + timeout,
@@ -123,16 +124,28 @@ public final class SharedTestContainers {
         }
     }
 
-    private static boolean isJdbcReady(
-            PostgreSQLContainer<?> postgres, AtomicReference<SQLException> lastFailure) {
-        try (Connection connection = DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             Statement statement = connection.createStatement();
-             ResultSet rows = statement.executeQuery("SELECT 1")) {
-            return rows.next() && rows.getInt(1) == 1;
-        } catch (SQLException failure) {
-            lastFailure.set(failure);
-            return false;
+    /** Runs independently of the enclosing class's initialization monitor. */
+    private static final class JdbcReadinessProbe implements Callable<Boolean> {
+        private final PostgreSQLContainer<?> postgres;
+        private final AtomicReference<SQLException> lastFailure;
+
+        private JdbcReadinessProbe(PostgreSQLContainer<?> postgres,
+                                  AtomicReference<SQLException> lastFailure) {
+            this.postgres = postgres;
+            this.lastFailure = lastFailure;
+        }
+
+        @Override
+        public Boolean call() {
+            try (Connection connection = DriverManager.getConnection(
+                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+                 Statement statement = connection.createStatement();
+                 ResultSet rows = statement.executeQuery("SELECT 1")) {
+                return rows.next() && rows.getInt(1) == 1;
+            } catch (SQLException failure) {
+                lastFailure.set(failure);
+                return false;
+            }
         }
     }
 

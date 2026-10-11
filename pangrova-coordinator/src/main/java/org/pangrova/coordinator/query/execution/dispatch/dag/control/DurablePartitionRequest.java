@@ -33,6 +33,13 @@ public final class DurablePartitionRequest {
 
     /** Builds no alternate protocol: all task security, budgets, options and attempt fields use the common factory. */
     public static SubmitTaskRequest prepare(PreparedPartition partition, ExchangeAccess exchange, Instant now) {
+        return prepare(partition, exchange, now,
+                org.pangrova.observability.tracing.ExecutionTraceContext.capture());
+    }
+
+    /** Retains the same correlation snapshot across all partitions of one admitted replay. */
+    public static SubmitTaskRequest prepare(PreparedPartition partition, ExchangeAccess exchange, Instant now,
+            org.pangrova.observability.tracing.ExecutionTraceContext traceContext) {
         StageExchangeAccessValidator.validate(partition, exchange);
         var lease = partition.lease();
         var spec = partition.authority().dispatchSpec();
@@ -46,7 +53,7 @@ public final class DurablePartitionRequest {
         var plan = new StageNode(stage.stageId(), new PersistedStagePlan(stage),
                 stage.parallelism(), taskType, List.of());
         return TaskRequestFactory.buildLeafTaskRequest(new TaskRequestFactory.LeafTask(
-                new StageExecutionContext.Deferred(partition.authority(), lease), bound.planBytes(), plan,
+                new StageExecutionContext.Deferred(partition.authority(), lease, traceContext), bound.planBytes(), plan,
                 lease.partitionId(), resourceGrant(partition, bound.operatorBindings()), exchange.inputs(), List.of(),
                 exchange.output(), lease.splits().stream().map(split -> split.canonicalSplitBase64()).toList(),
                 StageTaskDeadline.forPartition(lease, spec, now),

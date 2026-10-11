@@ -75,11 +75,14 @@ std::shared_ptr<const facebook::velox::core::PlanNode>
 VeloxPlanConverter::convertTopKRetrieval(
     const pangrova::protocol::v2::RetrievalSourceDetail& detail,
     std::shared_ptr<const facebook::velox::core::PlanNode> input,
-    const facebook::velox::RowTypePtr& input_type) {
+    const facebook::velox::RowTypePtr& input_type,
+    const std::vector<split::SplitConfig>& splits) {
   const auto& logical_input = logicalNodeType(input);
   const bool exact = pangrova::capability::isExactTopKRetrieval(
       detail.invocation().capability());
-  const bool diskann = pangrova::capability::isDiskAnnRetrieval(
+  const bool filtered = pangrova::capability::isFilteredDiskAnnRetrieval(
+      detail.invocation().capability());
+  const bool diskann = filtered || pangrova::capability::isDiskAnnRetrieval(
       detail.invocation().capability());
   const bool hnsw = pangrova::capability::isHnswRetrieval(
       detail.invocation().capability());
@@ -108,25 +111,27 @@ VeloxPlanConverter::convertTopKRetrieval(
       execution_policy.retry_class() !=
           pangrova::protocol::v2::RETRY_CLASS_IDEMPOTENT ||
       !execution_policy.has_approximation() ||
+      !std::isfinite(execution_policy.approximation().required_recall_at_k()) ||
       execution_policy.approximation().candidate_limit() !=
           detail.candidate_limit() ||
       execution_policy.approximation().exact_rescore_limit() !=
           (exact ? detail.candidate_limit() : detail.exact_rescore_limit()) ||
       (exact &&
        (execution_policy.approximation().required_recall_at_k() != 1.0 ||
-        execution_policy.approximation().recall_k() != detail.candidate_limit())) ||
+        execution_policy.approximation().recall_k() != detail.output_limit())) ||
       (ann &&
        (execution_policy.approximation().required_recall_at_k() <= 0.0 ||
         execution_policy.approximation().required_recall_at_k() > 1.0 ||
         execution_policy.approximation().recall_k() == 0 ||
-        execution_policy.approximation().recall_k() > detail.candidate_limit())) ||
+        execution_policy.approximation().recall_k() != detail.output_limit())) ||
       (bm25 &&
        (execution_policy.approximation().required_recall_at_k() != 1.0 ||
-        execution_policy.approximation().recall_k() != detail.candidate_limit()))) {
+        execution_policy.approximation().recall_k() != detail.output_limit()))) {
     throw std::runtime_error(
         "VeloxPlanConverter: retrieval OperatorBinding policy mismatch");
   }
-  if (detail.candidate_limit() == 0 ||
+  if (detail.output_limit() == 0 || detail.output_limit() > detail.candidate_limit() ||
+      detail.candidate_limit() == 0 ||
       detail.candidate_limit() >
           pangrova::capability::kExactTopKMaxCandidateRows ||
       (exact && detail.exact_rescore_limit() != 0) ||
@@ -243,7 +248,10 @@ VeloxPlanConverter::convertTopKRetrieval(
     sorting_orders.emplace_back(true, true);
   }
 
-  int32_t k = static_cast<int32_t>(detail.candidate_limit());
+  if (filtered) {
+    input = convertFilteredRetrievalInput(detail, operator_binding, input, splits);
+  }
+  int32_t k = static_cast<int32_t>(detail.output_limit());
 
   auto partial_topn = std::make_shared<facebook::velox::core::TopNNode>(
       nextNodeId(),

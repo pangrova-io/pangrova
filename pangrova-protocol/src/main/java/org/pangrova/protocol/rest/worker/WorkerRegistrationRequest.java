@@ -1,6 +1,9 @@
 package org.pangrova.protocol.rest.worker;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
@@ -24,7 +27,14 @@ public record WorkerRegistrationRequest(
         @JsonProperty("rack_id") String rackId,
         @JsonProperty("data_locality") List<String> dataLocality,
         @JsonProperty("shuffle_mode") String shuffleMode,
-        @JsonProperty("capability_inventory") String capabilityInventory) {
+        @JsonProperty(WorkerRegistrationRequest.INVENTORY_PROPERTY) String capabilityInventory) {
+
+    public static final String INVENTORY_PROPERTY = "capability_inventory";
+    public static final int MAX_METADATA_JSON_BYTES = 1024 * 1024;
+    /** Maximum serialized body: bounded metadata plus Base64 inventory and its JSON field. */
+    public static final int MAX_REGISTRATION_BODY_BYTES = MAX_METADATA_JSON_BYTES
+            + CapabilityInventoryCodec.MAX_ENCODED_BYTES
+            + (",\"" + INVENTORY_PROPERTY + "\":\"\"").length();
 
     public WorkerRegistrationRequest {
         requireNonBlank(workerId, "workerId");
@@ -39,6 +49,19 @@ public record WorkerRegistrationRequest(
         CapabilityInventoryCodec.decode(capabilityInventory);
         // rackId is nullable — no validation needed
         dataLocality = copyList(dataLocality);
+    }
+
+    /** Checks the actual JSON representation of every registration field except the inventory. */
+    public void requireBoundedMetadata(ObjectMapper mapper) {
+        ObjectNode metadata = mapper.valueToTree(this);
+        metadata.remove(INVENTORY_PROPERTY);
+        try {
+            if (mapper.writeValueAsBytes(metadata).length > MAX_METADATA_JSON_BYTES) {
+                throw new IllegalArgumentException("Worker registration metadata exceeds maximum JSON size");
+            }
+        } catch (JsonProcessingException failure) {
+            throw new IllegalArgumentException("Worker registration metadata is not serializable", failure);
+        }
     }
 
     private static void requireNonBlank(String value, String name) {

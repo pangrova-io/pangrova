@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -311,6 +312,13 @@ class VectorSearchSqlE2ETest extends PangrovaE2ETestBase {
                     + "(2, ARRAY[0.0, 1.0, 0.0, 0.0])");
             executeDdl("CREATE INDEX idx_lifecycle ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
+            org.awaitility.Awaitility.await("initial vector index published")
+                    .atMost(Duration.ofSeconds(60))
+                    .pollInterval(Duration.ofMillis(500))
+                    .untilAsserted(() -> assertThat(executeQuery("SHOW INDEXES FROM " + fqn()).stream()
+                            .filter(row -> "idx_lifecycle".equals(row.getRaw("index_name")))
+                            .map(row -> row.getRaw("state")))
+                            .containsExactly("READY"));
 
             // Insert new data after index creation
             executeDml("INSERT INTO " + fqn() + " VALUES "

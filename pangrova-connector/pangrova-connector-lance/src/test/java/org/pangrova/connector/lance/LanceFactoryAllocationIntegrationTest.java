@@ -1,6 +1,12 @@
 package org.pangrova.connector.lance;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.protocol.v2.LanceWriteOperation;
+import org.pangrova.spi.connector.ConnectorContext;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
+import java.nio.file.Path;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
 import org.pangrova.testing.ContainerTestBase;
@@ -14,16 +20,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real durable catalog evidence for allocation; no Native dataset publication is claimed. */
 class LanceFactoryAllocationIntegrationTest extends ContainerTestBase {
+    @TempDir Path warehouse;
+
     @Test
-    void emptyTableAllocationsKeepSqlInsertAndOverwriteSeparateFromPhysicalCreate() {
-        var postgres = LanceCatalogTestDatabase.instance();
-        var store = new LanceCatalogStore(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-        store.createSchema("lance_catalog", "tenant-a", "db");
-        var table = LanceOutputHandleCodecTest.table("tenant-a", "empty_" + UUID.randomUUID());
-        store.create(table);
-        var connector = new LanceConnectorFactory().create("lance_catalog", Map.of(
-                "jdbc.url", postgres.getJdbcUrl(), "jdbc.user", postgres.getUsername(),
-                "jdbc.password", postgres.getPassword(), "warehouse", "s3://warehouse"), Optional::empty);
+    void emptyTableAllocationsKeepSqlInsertAndOverwriteSeparateFromPhysicalCreate() throws Exception {
+        String name = "allocation_" + UUID.randomUUID();
+        var fixture = new LanceManagedSourceFixture(name, warehouse);
+        var sdk = new LanceNativeSdkFixture(fixture, warehouse);
+        var input = LancePgSdkTestInputs.stream(warehouse, "empty-allocation", 1);
+        var allocated = sdk.allocate(input, warehouse.resolve("empty.lance").toString(), "empty-allocation",
+                LanceWriteOperation.LANCE_WRITE_OPERATION_CREATE, 0, 0, LancePgSdkTestInputs.SCHEMA);
+        var table = allocated.output().table();
+        var store = fixture.store();
+        var connector = new LanceConnectorFactory().create(name, Map.of("warehouse", warehouse.toString()), new ConnectorContext() {
+            @Override public Optional<NativeDatasetControlPlane> nativeDatasetControlPlane() { return Optional.empty(); }
+            @Override public Optional<ManagedSourceCatalog> managedSourceCatalog() { return Optional.of(fixture.authority()); }
+        });
         var session = LanceSplitManagerTest.session("tenant-a");
         var metadata = connector.getMetadata(session);
         var actual = metadata.getTableHandle(session, table.table());

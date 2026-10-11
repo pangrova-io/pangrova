@@ -160,7 +160,7 @@ public final class ReservedWordPolicy {
                 // Grouping
                 "GROUPING", "SETS", "CUBE", "ROLLUP",
                 // Lateral
-                "LATERAL", "EXPLODE", "POSEXPLODE",
+                "LATERAL", "EXPLODE", "POSEXPLODE", "UNNEST", "ORDINALITY",
                 // Index
                 "INDEX", "INDEXES", "REBUILD", "FORCE",
                 // Clustering

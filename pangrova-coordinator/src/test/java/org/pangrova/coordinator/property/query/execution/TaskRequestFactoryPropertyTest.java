@@ -48,6 +48,8 @@ class TaskRequestFactoryPropertyTest {
         assertThat(taskId).isNotBlank();
         assertThat(java.util.UUID.fromString(taskId)).isNotNull();
         assertThat(request.taskRequest().getSplitsList()).isEmpty();
+        assertThat(request.taskRequest().getTraceContext().getTraceId()).isEqualTo(session.traceContext().traceId());
+        assertThat(request.taskRequest().getTraceContext().getSpanId()).isEqualTo(session.traceContext().spanId());
     }
 
     /**
@@ -95,6 +97,8 @@ class TaskRequestFactoryPropertyTest {
             SubmitTaskRequest request = TaskRequestFactory.buildLeafTaskRequest(
                     leafTask(session, planBytes, createStageNode(0), 0, limit));
             taskIds.add(request.taskRequest().getAttempt().getTaskId());
+            assertThat(request.taskRequest().getTraceContext().getTraceId())
+                    .isEqualTo(session.traceContext().traceId());
         }
 
         assertThat(taskIds).hasSize(count);

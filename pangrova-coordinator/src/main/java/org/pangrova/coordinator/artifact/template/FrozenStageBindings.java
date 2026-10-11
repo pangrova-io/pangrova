@@ -6,6 +6,7 @@ import org.pangrova.coordinator.artifact.PublishedArtifactBindingResolver;
 import org.pangrova.metadata.artifact.build.ArtifactStageGraph.StagePlan;
 import org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate;
 import org.pangrova.protocol.BoundExecutionPlan;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
@@ -37,8 +38,7 @@ public final class FrozenStageBindings {
     /** Replays only graph-pinned bytes; model resolution and publication discovery are not replay operations. */
     public static BoundExecutionPlan read(StagePlan stage, List<ModelSnapshot> models) {
         var bindings = parse(stage.bindingSetBytes(), OperatorBindingSet.parser()).getBindingsList();
-        var types = stage.template().resultTypeBytes().stream()
-                .map(bytes -> parse(bytes, ResultColumnLogicalType.parser())).toList();
+        var types = resultColumnTypes(stage);
         validate(bindings, types, models);
         var reads = bindings.stream().flatMap(binding -> binding.getArtifactsList().stream())
                 .map(PublishedArtifactBindingResolver::publicationRead).collect(java.util.stream.Collectors.toSet());
@@ -46,6 +46,17 @@ public final class FrozenStageBindings {
             throw new IllegalArgumentException("Frozen stage publication pointers differ from its binding bytes");
         }
         return new BoundExecutionPlan(stage.planBytes(), bindings, types);
+    }
+
+    /** Reads only the exact declared output contracts; this does not grant model or execution authority. */
+    public static List<ResultColumnLogicalType> resultColumnTypes(StagePlan stage) {
+        var types = stage.template().resultTypeBytes().stream()
+                .map(bytes -> parse(bytes, ResultColumnLogicalType.parser())).toList();
+        validateOutputTypes(types);
+        if (types.stream().anyMatch(type -> type.getColumnIndex() >= stage.outputNames().size())) {
+            throw new IllegalArgumentException("Frozen logical output ordinal exceeds its declared stage width");
+        }
+        return types;
     }
 
     private static OperatorBinding withoutAttempt(OperatorBinding binding) {
@@ -82,6 +93,7 @@ public final class FrozenStageBindings {
         for (var type : types) {
             requireKnown(type);
             requireLogicalType(type.getLogicalType());
+            VectorLogicalType.requireStorageDimension(type.getLogicalType());
             if (type.getColumnIndex() < 0 || !columns.add(type.getColumnIndex())) {
                 throw new IllegalArgumentException("Frozen stage logical output ordinals must be exact and unique");
             }

@@ -4,6 +4,7 @@
 // group statistics-based pruning. Iceberg delete filter is applied as
 // post-processing on RowVector + SelectivityVector level.
 #include "velox/connector/PangrovaVeloxConnector.h"
+#include "resource/TaskBudgetReadFile.h"
 
 #include <algorithm>
 #include <charconv>
@@ -42,6 +43,9 @@
 #if PANGROVA_HAS_VELOX_DWIO
 #include "velox/common/file/File.h"
 #include "velox/common/file/FileSystems.h"
+#if PANGROVA_HAS_CACHED_BUFFERED_INPUT && PANGROVA_HAS_VELOX_ASYNC_CACHE
+#include "velox/common/caching/FileIds.h"
+#endif
 #include "velox/dwio/common/Options.h"
 #include "velox/dwio/common/ReaderFactory.h"
 #include "velox/dwio/common/ScanSpec.h"
@@ -188,7 +192,9 @@ void PangrovaVeloxDataSource::addSplit(
     std::shared_ptr<facebook::velox::connector::ConnectorSplit> split) {
   auto pangrovaSplit =
       std::dynamic_pointer_cast<PangrovaConnectorSplit>(split);
-  if (!pangrovaSplit) return;
+  if (!pangrovaSplit) {
+    throw std::invalid_argument("Native source requires its bound connector split");
+  }
 
   const auto& splitConfig = pangrovaSplit->splitConfig;
 
@@ -256,16 +262,18 @@ void PangrovaVeloxDataSource::addSplit(
 
 void PangrovaVeloxDataSource::prepareSplitState(
     const split::SplitConfig& config) {
+  checkCancelled();
   file_evolution_output_type_.reset();
   physical_lance_file_ = config.physical_lance_file;
   current_data_object_id_ = config.data_object_id;
+  current_source_id_ = config.table_name;
+  current_source_snapshot_ = config.source_snapshot;
   source_object_identity_requested_ = false;
   for (size_t channel = 0; channel < output_type_->size(); ++channel) {
-    if (output_type_->nameOf(channel) != kSourceObjectIdColumnName) {
+    if (!isSourceIdentityConstant(output_type_->nameOf(channel))) {
       continue;
     }
-    if (source_object_identity_requested_ ||
-        output_type_->childAt(channel)->kind() !=
+    if (output_type_->childAt(channel)->kind() !=
             facebook::velox::TypeKind::VARCHAR) {
       throw std::runtime_error(
           "Native source-object identity column must occur once and be VARCHAR");
@@ -425,21 +433,29 @@ void PangrovaVeloxDataSource::createReaderPair(
   }
   std::shared_ptr<facebook::velox::ReadFile> readFile(
       fileSystem->openFileForRead(cleanPath));
+  if (read_budget_) {
+    readFile = std::make_shared<resource::TaskBudgetReadFile>(
+        std::move(readFile), read_budget_, cancellation_token_);
+  }
   std::unique_ptr<facebook::velox::dwio::common::BufferedInput> input;
 #if PANGROVA_HAS_CACHED_BUFFERED_INPUT && PANGROVA_HAS_VELOX_ASYNC_CACHE
   auto* cache = facebook::velox::cache::AsyncDataCache::getInstance();
   if (cache) {
-    // Pass a shared IoStatistics instance for cache hit/miss observability.
-    // ScanTracker and StringIdLease remain empty — scan-level tracking is
-    // not yet wired to NativeMetricsCollector.
+    // CachedBufferedInput uses these IDs as actual cache keys. Empty leases
+    // carry kNoId and fail when a coalesced load retains the file reference.
+    // Match Velox FileHandle's path and directory identity for the full reader
+    // lifetime; scan-level tracking remains optional.
+    const auto separator = cleanPath.rfind('/');
+    const auto group = separator == std::string::npos
+        ? cleanPath : cleanPath.substr(0, separator);
     auto ioStats = std::make_shared<facebook::velox::dwio::common::IoStatistics>();
     input = std::make_unique<facebook::velox::dwio::common::CachedBufferedInput>(
         readFile,
         facebook::velox::dwio::common::MetricsLog::voidLog(),
-        facebook::velox::StringIdLease(),
+        facebook::velox::StringIdLease(facebook::velox::fileIds(), cleanPath),
         cache,
         std::shared_ptr<facebook::velox::cache::ScanTracker>(),
-        facebook::velox::StringIdLease(),
+        facebook::velox::StringIdLease(facebook::velox::fileIds(), group),
         ioStats,
         std::shared_ptr<facebook::velox::IoStats>(),
         nullptr,
@@ -454,6 +470,13 @@ void PangrovaVeloxDataSource::createReaderPair(
       facebook::velox::dwio::common::getReaderFactory(format)
           ->createReader(std::move(input), readerOpts);
 
+  if (source_object_identity_requested_) {
+    for (const auto& name : outReader->rowType()->names()) {
+      if (isSourceIdentityConstant(name) || name == kPhysicalRowPositionColumnName) {
+        throw std::runtime_error("Physical source file shadows a reserved identity column");
+      }
+    }
+  }
   facebook::velox::dwio::common::RowReaderOptions rowOpts;
 
   // Schema evolution: when column mappings are present, build a "reader type"
@@ -477,7 +500,7 @@ void PangrovaVeloxDataSource::createReaderPair(
   bool score_column_requested = false;
   for (size_t i = 0; i < target_type->size(); ++i) {
     auto col_name = target_type->nameOf(i);
-    if (col_name == kSourceObjectIdColumnName) {
+    if (isSourceIdentityConstant(col_name)) {
       continue;
     }
     if (col_name == kMaterializedRetrievalScoreColumnName) {
@@ -524,11 +547,8 @@ void PangrovaVeloxDataSource::createReaderPair(
   auto readerType = facebook::velox::ROW(
       std::move(reader_names), std::move(reader_types));
 
-  if (artifact_candidate_filter_enabled_) {
-    if (readerType->containsChild(kPhysicalRowPositionColumnName)) {
-      throw std::runtime_error(
-          "Artifact retrieval hidden row-position column collides with query schema");
-    }
+  if (artifact_candidate_filter_enabled_ &&
+      !readerType->containsChild(kPhysicalRowPositionColumnName)) {
     auto reader_names = readerType->names();
     auto reader_types = readerType->children();
     reader_names.emplace_back(kPhysicalRowPositionColumnName);
@@ -631,7 +651,9 @@ void PangrovaVeloxDataSource::createReaderPair(
     *outScanSpec = scanSpec;
   }
 
+  checkCancelled();
   outRowReader = outReader->createRowReader(rowOpts);
+  checkCancelled();
 #else
   throw std::runtime_error(
       "Velox DWIO readers not available. Cannot open: " + filePath);
@@ -732,7 +754,7 @@ void PangrovaVeloxDataSource::openLanceReader(
   std::vector<facebook::velox::TypePtr> dataTypes;
   for (uint32_t index = 0; index < output_type_->size(); ++index) {
     const auto& targetName = output_type_->nameOf(index);
-    if (targetName == kPhysicalRowPositionColumnName || targetName == kSourceObjectIdColumnName) {
+    if (targetName == kPhysicalRowPositionColumnName || isSourceIdentityConstant(targetName)) {
       continue;
     }
     if (current_partition_values_.contains(targetName)) {
@@ -936,6 +958,7 @@ PangrovaVeloxDataSource::nextFromMergeReader(uint64_t batchSize) {
 std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     uint64_t size,
     facebook::velox::ContinueFuture& future) {
+  checkCancelled();
 #if PANGROVA_HAS_VELOX_DWIO
   // Use adaptive batch size, respecting Velox's requested upper bound.
   auto effectiveSize =
@@ -944,6 +967,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
 
   if (metadata_reader_) {
     auto rowVector = metadata_reader_->next(batchSize);
+    checkCancelled();
     if (!rowVector) {
       metadata_reader_.reset();
       return facebook::velox::RowVectorPtr(nullptr);
@@ -958,6 +982,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   // primary file's mapping here could misbind a newly-added reused column name.
   if (merge_reader_) {
     auto merged = nextFromMergeReader(batchSize);
+    checkCancelled();
     if (!merged.value()) {
       // Merge reader exhausted — propagate split completion signal (nullptr).
       return merged;
@@ -976,6 +1001,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       return facebook::velox::RowVectorPtr(nullptr);
     }
     auto rowVector = lance_reader_->next(batchSize);
+    checkCancelled();
     if (!rowVector || rowVector->size() == 0) {
       lance_reader_.reset();
       return facebook::velox::RowVectorPtr(nullptr);
@@ -1015,6 +1041,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       0,
       pool_);
   uint64_t rowsRead = velox_row_reader_->next(batchSize, result);
+  checkCancelled();
   auto io_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::steady_clock::now() - io_start).count();
 
@@ -1029,9 +1056,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   auto rowVector =
       std::dynamic_pointer_cast<facebook::velox::RowVector>(result);
   if (!rowVector) {
-    reader_exhausted_ = true;
-    // Cast failed — treat as exhausted, signal split completion.
-    return facebook::velox::RowVectorPtr(nullptr);
+    throw std::runtime_error("Native source reader returned a non-row vector");
   }
 
   if (source_object_identity_requested_) {
@@ -1048,8 +1073,8 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       requested_reader_names.emplace_back(kPhysicalRowPositionColumnName);
       requested_reader_types.push_back(facebook::velox::BIGINT());
     }
-    rowVector = injectSourceObjectIdentity(
-        rowVector, current_data_object_id_,
+    rowVector = injectPhysicalSourceIdentity(
+        rowVector, {current_source_id_, current_source_snapshot_, current_data_object_id_},
         facebook::velox::ROW(
             std::move(requested_reader_names),
             std::move(requested_reader_types)),
@@ -1190,19 +1215,29 @@ PangrovaVeloxDataSource::applyArtifactCandidateFilter(
   }
   auto reader_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
       rowVector->type());
-  const size_t expected_reader_size = output_type_->size() +
-      (materialized_retrieval_score_enabled_ ? 0 : 1);
+  const bool output_has_position =
+      output_type_->containsChild(kPhysicalRowPositionColumnName);
+  // The score is synthesized here. The position is supplied by DWIO and may
+  // already be a requested output field; only an internal-only position adds
+  // a trailing reader column.
+  const size_t expected_reader_size = output_type_->size() -
+      (materialized_retrieval_score_enabled_ ? 1 : 0) +
+      (output_has_position ? 0 : 1);
   if (!reader_type || reader_type->size() != expected_reader_size ||
-      reader_type->nameOf(reader_type->size() - 1) !=
-          kPhysicalRowPositionColumnName ||
-      reader_type->childAt(reader_type->size() - 1)->kind() !=
-          facebook::velox::TypeKind::BIGINT) {
+      std::count(reader_type->names().begin(), reader_type->names().end(),
+          kPhysicalRowPositionColumnName) != 1) {
     throw std::runtime_error(
         "Artifact retrieval reader did not produce the physical row-position column");
   }
 
-  facebook::velox::DecodedVector positions(
-      *rowVector->childAt(reader_type->size() - 1));
+  const auto position_channel = reader_type->getChildIdx(kPhysicalRowPositionColumnName);
+  if (reader_type->childAt(position_channel)->kind() != facebook::velox::TypeKind::BIGINT ||
+      (!output_has_position && position_channel != reader_type->size() - 1)) {
+    throw std::runtime_error(
+        "Artifact retrieval physical row-position column has an invalid type or layout");
+  }
+  const size_t output_reader_size = reader_type->size() - (output_has_position ? 0 : 1);
+  facebook::velox::DecodedVector positions(*rowVector->childAt(position_channel));
   facebook::velox::SelectivityVector selected(rowVector->size(), false);
   for (facebook::velox::vector_size_t row = 0; row < rowVector->size(); ++row) {
     if (positions.isNullAt(row)) {
@@ -1251,7 +1286,9 @@ PangrovaVeloxDataSource::applyArtifactCandidateFilter(
       children[index] = std::move(scores);
       continue;
     }
-    if (reader_channel >= reader_type->size() - 1) {
+    if (reader_channel >= output_reader_size ||
+        (output_type_->nameOf(index) == kPhysicalRowPositionColumnName &&
+            reader_channel != position_channel)) {
       throw std::runtime_error(
           "Artifact retrieval output column is absent from the reader schema");
     }
@@ -1320,7 +1357,7 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyLanceIdentity(
   std::vector<facebook::velox::VectorPtr> children(output_type_->size());
   for (size_t channel = 0; channel < output_type_->size(); ++channel) {
     const auto& name = names[channel];
-    if (name == kPhysicalRowPositionColumnName || name == kSourceObjectIdColumnName) continue;
+    if (name == kPhysicalRowPositionColumnName || isSourceIdentityConstant(name)) continue;
     const auto inputChannel = inputType.getChildIdxIfExists(name);
     if (!inputChannel || !rows->childAt(*inputChannel) ||
         !rows->childAt(*inputChannel)->type()->equivalent(*types[channel])) {
@@ -1346,6 +1383,11 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyLanceIdentity(
     if (names[channel] == kSourceObjectIdColumnName) {
       children[channel] = facebook::velox::BaseVector::createConstant(
           facebook::velox::VARCHAR(), facebook::velox::variant(current_data_object_id_), size, pool_);
+    } else if (names[channel] == kSourceIdColumnName || names[channel] == kSourceSnapshotColumnName) {
+      const auto& value = names[channel] == kSourceIdColumnName ? current_source_id_ : current_source_snapshot_;
+      if (value.empty()) throw std::runtime_error("Lance identity has no signed source authority");
+      children[channel] = facebook::velox::BaseVector::createConstant(
+          facebook::velox::VARCHAR(), facebook::velox::variant(value), size, pool_);
     }
   }
   rows = std::make_shared<facebook::velox::RowVector>(pool_, facebook::velox::ROW(names, types),
@@ -1450,6 +1492,25 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyDynamicFilters(
       std::move(rowVector), filters, output_type_, pool_);
 }
 
+void PangrovaVeloxDataSource::setCancellationToken(folly::CancellationToken token) {
+  cancellation_token_ = std::move(token);
+}
+
+void PangrovaVeloxDataSource::setReadBudget(std::shared_ptr<resource::TaskObjectReadBudget> budget) {
+  read_budget_ = std::move(budget);
+}
+
+void PangrovaVeloxDataSource::cancel() {
+  cancellation_requested_.store(true, std::memory_order_release);
+}
+
+void PangrovaVeloxDataSource::checkCancelled() const {
+  if (cancellation_requested_.load(std::memory_order_acquire) ||
+      cancellation_token_.isCancellationRequested()) {
+    throw std::runtime_error("Native source read cancelled");
+  }
+}
+
 uint64_t PangrovaVeloxDataSource::getCompletedRows() {
   return completed_rows_;
 }
@@ -1485,6 +1546,7 @@ PangrovaVeloxConnector::createDataSource(
   std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter;
   facebook::velox::RowTypePtr scanSchema;
   std::string planNodeId;
+  std::shared_ptr<resource::TaskObjectReadBudget> readBudget;
   if (tableHandle) {
     auto pangrovaHandle =
         std::dynamic_pointer_cast<const PangrovaTableHandle>(tableHandle);
@@ -1492,6 +1554,7 @@ PangrovaVeloxConnector::createDataSource(
       remainingFilter = pangrovaHandle->remainingFilter();
       planNodeId = pangrovaHandle->planNodeId();
       scanSchema = pangrovaHandle->scanSchema();
+      readBudget = pangrovaHandle->readBudget();
     }
   }
 
@@ -1523,6 +1586,8 @@ PangrovaVeloxConnector::createDataSource(
       assignedSourceFilter(remainingFilter, outputType, sourceType),
       preferredBatchBytes,
       eagerFirstStripeThreshold);
+  source->setCancellationToken(connectorQueryCtx->cancellationToken());
+  source->setReadBudget(std::move(readBudget));
   return std::make_unique<ColumnAssignmentDataSource>(
       std::move(source), outputType, sourceType);
 }

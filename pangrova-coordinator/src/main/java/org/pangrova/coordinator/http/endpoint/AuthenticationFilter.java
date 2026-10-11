@@ -52,7 +52,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
      * endpoints (e.g., /v1/query) where it would bypass user identity resolution.
      */
     private static final String[] INTERNAL_ROUTE_PREFIXES = {
-            "v1/worker", "v1/task"
+            "v1/worker", "v1/workers", "v1/task", "v1/internal/catalog-deployments"
     };
 
     private final AuthenticationManager authenticationManager;
@@ -222,7 +222,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
             path = path.substring(1);
         }
         for (String prefix : INTERNAL_ROUTE_PREFIXES) {
-            if (path.startsWith(prefix)) {
+            if (path.equals(prefix) || path.startsWith(prefix + "/")) {
                 return true;
             }
         }

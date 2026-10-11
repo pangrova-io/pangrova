@@ -15,6 +15,7 @@
 #include <string>
 #include <string_view>
 
+#include "resource/TaskObjectReadBudget.h"
 #include "velox/connectors/Connector.h"
 #include "velox/core/Expressions.h"
 
@@ -27,6 +28,13 @@ inline constexpr std::string_view kPhysicalRowPositionColumnName =
     "$pangrova$row_position";
 inline constexpr std::string_view kSourceObjectIdColumnName =
     "$pangrova$source_object_id";
+inline constexpr std::string_view kSourceIdColumnName = "$pangrova$source_id";
+inline constexpr std::string_view kSourceSnapshotColumnName = "$pangrova$source_snapshot";
+
+inline bool isSourceIdentityConstant(std::string_view name) {
+  return name == kSourceObjectIdColumnName || name == kSourceIdColumnName ||
+      name == kSourceSnapshotColumnName;
+}
 inline constexpr std::string_view kMaterializedRetrievalScoreColumnName =
     "$pangrova$retrieval_score";
 
@@ -58,13 +66,14 @@ class PangrovaTableHandle
       std::string planNodeId,
       facebook::velox::RowTypePtr scanSchema,
       std::shared_ptr<const facebook::velox::core::ITypedExpr>
-          remainingFilter = nullptr)
+          remainingFilter = nullptr,
+      std::shared_ptr<resource::TaskObjectReadBudget> readBudget = nullptr)
       : facebook::velox::connector::ConnectorTableHandle(
             std::move(connectorId)),
         tableName_(std::move(tableName)),
         planNodeId_(std::move(planNodeId)),
         scanSchema_(std::move(scanSchema)),
-        remainingFilter_(std::move(remainingFilter)) {}
+        remainingFilter_(std::move(remainingFilter)), readBudget_(std::move(readBudget)) {}
 
   const std::string& name() const override {
     return tableName_;
@@ -81,12 +90,14 @@ class PangrovaTableHandle
     return planNodeId_;
   }
   const facebook::velox::RowTypePtr& scanSchema() const { return scanSchema_; }
+  const std::shared_ptr<resource::TaskObjectReadBudget>& readBudget() const { return readBudget_; }
 
  private:
   std::string tableName_;
   std::string planNodeId_;
   facebook::velox::RowTypePtr scanSchema_;
   std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter_;
+  std::shared_ptr<resource::TaskObjectReadBudget> readBudget_;
 };
 
 }  // namespace pangrova::velox

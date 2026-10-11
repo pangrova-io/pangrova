@@ -16,8 +16,6 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
-import net.jqwik.api.lifecycle.AfterProperty;
-import net.jqwik.api.lifecycle.BeforeProperty;
 
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
@@ -49,16 +47,19 @@ class TaskTrackerRegistrationPropertyTest {
             "test-user", Set.of("public"), Map.of(), Instant.EPOCH);
 
     private WorkerHttpServer workerHttpServer;
+    private TaskManager workerTaskManager;
     private QueryDispatcher orchestrator;
     private CoordinatorTaskTracker taskTracker;
 
-    @BeforeProperty
     void setUp() throws Exception {
-        TaskManager workerTaskManager = TaskManager.forHttpWiringOnly();
+        workerTaskManager = TaskManager.forHttpWiringOnly();
         var config = new WorkerHttpServer.WorkerHttpConfig(
                 0, "localhost", TRANSPORT_PORT);
+        byte[] signingKey = new byte[32];
+        new java.security.SecureRandom().nextBytes(signingKey);
         workerHttpServer = new WorkerHttpServer(
-                config, workerTaskManager, TestExchangeTransport.INSTANCE);
+                config, workerTaskManager, TestExchangeTransport.INSTANCE,
+                null, null, new org.pangrova.worker.result.ResultReadTickets(signingKey));
         workerHttpServer.start();
 
         taskTracker = new CoordinatorTaskTracker();
@@ -70,10 +71,15 @@ class TaskTrackerRegistrationPropertyTest {
                         report.state(), report.error()));
     }
 
-    @AfterProperty
     void tearDown() throws Exception {
-        if (workerHttpServer != null) {
-            workerHttpServer.stop();
+        try {
+            if (workerHttpServer != null) {
+                workerHttpServer.stop();
+            }
+        } finally {
+            if (workerTaskManager != null) {
+                workerTaskManager.close();
+            }
         }
     }
 
@@ -88,15 +94,20 @@ class TaskTrackerRegistrationPropertyTest {
     @Property(tries = 10)
     @Tag("Feature: e2e-pipeline-integration, Property 13: Task tracker registration after dispatch")
     void dispatchedTaskIsRegisteredAsScheduled(
-            @ForAll("queryIds") String queryId) {
-        QueryStateMachine sm = new QueryStateMachine();
-        CoordinatorSessionContext session = new CoordinatorSessionContext(
-                queryId, Map.of(), TEST_IDENTITY, "test-tenant");
+            @ForAll("queryIds") String queryId) throws Exception {
+        try {
+            setUp();
+            QueryStateMachine sm = new QueryStateMachine();
+            CoordinatorSessionContext session = new CoordinatorSessionContext(
+                    queryId, Map.of(), TEST_IDENTITY, "test-tenant");
 
-        DispatchResult result = orchestrator.execute(sm, "SELECT 1", session);
+            DispatchResult result = orchestrator.execute(sm, "SELECT 1", session);
 
-        String taskId = result.taskId();
-        assertTaskInScheduledState(queryId, taskId);
+            String taskId = result.taskId();
+            assertTaskInScheduledState(queryId, taskId);
+        } finally {
+            tearDown();
+        }
     }
 
     private void assertTaskInScheduledState(String queryId, String taskId) {

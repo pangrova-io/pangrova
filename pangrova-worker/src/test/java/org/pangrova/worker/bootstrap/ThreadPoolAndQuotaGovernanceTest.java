@@ -3,6 +3,8 @@ package org.pangrova.worker.bootstrap;
 import org.pangrova.resource.ResourceManager;
 import org.pangrova.resource.memory.MemoryArbitrator;
 import org.pangrova.resource.spill.SpillManager;
+import org.pangrova.resource.spill.DiskSpillableBuffer;
+import org.pangrova.resource.spill.SpillManager.SpillCandidate;
 import org.pangrova.resource.thread.ThreadBudgetTracker;
 import org.pangrova.worker.bootstrap.lifecycle.WorkerShutdownSequence;
 import org.junit.jupiter.api.AfterAll;
@@ -10,6 +12,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Path;
+
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -27,6 +32,26 @@ import static org.assertj.core.api.Assertions.assertThatCode;
  */
 @Tag("native-required")
 class ThreadPoolAndQuotaGovernanceTest {
+
+    @TempDir
+    Path spillDirectory;
+
+    private final java.util.List<DiskSpillableBuffer> actualBuffers = new java.util.ArrayList<>();
+
+    private SpillCandidate actualCandidate(String id, int priority, int bytes) {
+        DiskSpillableBuffer buffer = new DiskSpillableBuffer(id, priority, spillDirectory);
+        buffer.addBatch(new byte[bytes]);
+        actualBuffers.add(buffer);
+        return buffer.toSpillCandidate();
+    }
+
+    @AfterEach
+    void closeActualBuffers() {
+        for (DiskSpillableBuffer buffer : actualBuffers) {
+            buffer.close();
+        }
+    }
+
 
     private static StubCoordinatorServer stubCoordinator;
     private WorkerBootstrap workerBootstrap;
@@ -208,9 +233,9 @@ class ThreadPoolAndQuotaGovernanceTest {
     void spillManagerSelectsCandidatesUnderPressure() {
         SpillManager spillManager = new SpillManager();
 
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("scan-1", 1, 1024));
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("shuffle-1", 2, 2048));
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("join-1", 5, 4096));
+        spillManager.registerCandidate(actualCandidate("scan-1", 1, 1024));
+        spillManager.registerCandidate(actualCandidate("shuffle-1", 2, 2048));
+        spillManager.registerCandidate(actualCandidate("join-1", 5, 4096));
 
         // MEDIUM pressure: only priority ≤ 1 candidates
         var mediumCandidates = spillManager.selectCandidates(
@@ -232,8 +257,8 @@ class ThreadPoolAndQuotaGovernanceTest {
     @Test
     void spillManagerHandlesMemoryPressureByReclaimingResources() {
         SpillManager spillManager = new SpillManager();
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("buf-1", 1, 512));
-        spillManager.registerCandidate(new SpillManager.SpillCandidate("buf-2", 2, 1024));
+        spillManager.registerCandidate(actualCandidate("buf-1", 1, 512));
+        spillManager.registerCandidate(actualCandidate("buf-2", 2, 1024));
 
         long reclaimed = spillManager.handleMemoryPressure(org.pangrova.resource.MemoryPressure.HIGH);
         assertThat(reclaimed).isEqualTo(512 + 1024);

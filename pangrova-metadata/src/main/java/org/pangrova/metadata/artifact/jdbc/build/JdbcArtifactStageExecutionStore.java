@@ -49,7 +49,7 @@ public final class JdbcArtifactStageExecutionStore extends JdbcArtifactBuildStor
                     "Persisted Native winner is missing original evidence; explicit rebuild required").clone();
             Objects.requireNonNull(executionOwner, "executionOwner");
             if (originalWireBytes.length == 0 || originalWireBytes.length > 4 * 1024 * 1024
-                    || !org.pangrova.common.util.DigestUtils.sha256Hex(originalWireBytes).equals(wireSha256)) {
+                    || !org.pangrova.common.util.DigestUtils.matchesSha256(originalWireBytes, wireSha256)) {
                 throw new IllegalStateException("Persisted Native winner has missing or corrupted original evidence");
             }
         }
@@ -81,7 +81,8 @@ public final class JdbcArtifactStageExecutionStore extends JdbcArtifactBuildStor
             }
             var winner = "SUCCEEDED".equals(row.state())
                     ? Optional.of(new NativeWinner(row.pageId(), row.attemptId(), row.fencingToken(), row.ownerEpoch(),
-                            row.executionOwner(), row.reportBytes(), row.reportSha256())) : Optional.<NativeWinner>empty();
+                            row.executionOwner(), row.reportBytes(), row.reportSha256()))
+                    : Optional.<NativeWinner>empty();
             return new PartitionProgress(row.pageOrdinal(), row.kind(), row.state(), winner);
         });
     }
@@ -264,7 +265,8 @@ public final class JdbcArtifactStageExecutionStore extends JdbcArtifactBuildStor
             }
             var evidence = prepareEvidence(connection, authority, job, lease);
             requireConsumerEvidence(evidence);
-            return Objects.requireNonNull(prepare.apply(evidence), "partition preparation must return immutable metadata");
+            return Objects.requireNonNull(
+                    prepare.apply(evidence), "partition preparation must return immutable metadata");
         });
     }
 

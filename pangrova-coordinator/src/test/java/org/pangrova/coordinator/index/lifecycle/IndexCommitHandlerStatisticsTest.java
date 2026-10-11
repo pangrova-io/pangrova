@@ -37,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that {@link IndexCommitHandler#collectFileStatistics} extracts
@@ -63,6 +64,17 @@ class IndexCommitHandlerStatisticsTest {
 
         assertThat(env.store.insertedStats).hasSize(1);
         assertThat(env.store.insertedStats.get(0).dataFilePath()).isEqualTo("f1.parquet");
+    }
+
+    @Test
+    void unscopedMaintenanceCannotSilentlyAcceptCommit() {
+        var env = createEnv(statsFor("f1.parquet"));
+        var files = merged(CommitEventType.APPEND, List.of("f1.parquet"), List.of());
+
+        assertThatThrownBy(() -> env.handler.processTableCommit(files))
+                .isInstanceOf(org.pangrova.spi.security.AccessDeniedException.class)
+                .hasMessageContaining("trusted authorization scope");
+        assertThat(env.store.insertedStats).isEmpty();
     }
 
     @Test

@@ -1,5 +1,8 @@
 package org.pangrova.worker.task;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -10,9 +13,6 @@ import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.nativefixture.ActualNativeTaskPlans;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 /** Actual canonical output admission, JNI execution, Flight values and buffer ownership. */
 @Tag("native-required")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
@@ -20,12 +20,13 @@ class TaskManagerOutputConfigWiringTest {
     @Test
     void taskWithCustomBufferGrantCompletesWithItsActualValues() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
-             var tasks = new ActualTaskManagerFixture(runtime, "output-custom-grant")) {
+                var tasks = new ActualTaskManagerFixture(runtime, "output-custom-grant")) {
             var request = request(true, 4L * 1024 * 1024, 3);
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
-            assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
+            assertThat(info.allocatedBufferMemory())
+                    .isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(0L, 1L, 2L);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
         }
     }
@@ -33,9 +34,9 @@ class TaskManagerOutputConfigWiringTest {
     @Test
     void taskWithoutDirectResultOutputUsesTheActualComputeCompletionPath() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
-             var tasks = new ActualTaskManagerFixture(runtime, "output-no-result")) {
-            var request = request(false, 8L * 1024 * 1024, 2).toBuilder()
-                    .clearExecutionOptions().build();
+                var tasks = new ActualTaskManagerFixture(runtime, "output-no-result")) {
+            var request =
+                    request(false, 8L * 1024 * 1024, 2).toBuilder().clearExecutionOptions().build();
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(request.getExecutionOptions().getDirectResultOutput()).isFalse();
@@ -52,48 +53,54 @@ class TaskManagerOutputConfigWiringTest {
     @Test
     void outputReservationRespectsTheExactCanonicalByteGrant() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
-             var tasks = new ActualTaskManagerFixture(runtime, "output-exact-budget")) {
+                var tasks = new ActualTaskManagerFixture(runtime, "output-exact-budget")) {
             var request = request(true, 1024L * 1024, 1);
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(info.allocatedBufferMemory()).isEqualTo(1024L * 1024);
-            assertThat(runtime.arbitrator().snapshot())
+            assertThat(runtime.arbitrator().queryAllocationsSnapshot())
                     .containsEntry("buffer:" + info.taskId(), 1024L * 1024);
             assertThat(tasks.consume(info).values()).containsExactly(0L);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(info.allocatedBufferMemory()).isZero();
+            assertThat(runtime.arbitrator().queryAllocationsSnapshot())
+                    .doesNotContainKey("buffer:" + info.taskId());
         }
     }
 
     @Test
     void computeWithoutOutputGrantDoesNotInventADefaultReservation() {
         try (var runtime = new ActualNativeTaskFixture();
-             var tasks = new ActualTaskManagerFixture(runtime, "output-no-budget")) {
+                var tasks = new ActualTaskManagerFixture(runtime, "output-no-budget")) {
             var request = request(false, 0, 1);
             var info = tasks.submit(request);
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(info.allocatedBufferMemory()).isZero();
             assertThat(info.executorHandle()).isZero();
-            assertThat(runtime.arbitrator().snapshot()).doesNotContainKey("buffer:" + info.taskId());
+            assertThat(runtime.arbitrator().queryAllocationsSnapshot())
+                    .doesNotContainKey("buffer:" + info.taskId());
         }
     }
 
     @Test
-    void fixtureDefaultGrantIsCarriedByTheAdmittedRequestNotAJavaBufferConstructor() throws Exception {
+    void fixtureDefaultGrantIsCarriedByTheAdmittedRequestNotAJavaBufferConstructor()
+            throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
-             var tasks = new ActualTaskManagerFixture(runtime, "output-default-request")) {
+                var tasks = new ActualTaskManagerFixture(runtime, "output-default-request")) {
             var request = runtime.valuesRequest(true);
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
-            assertThat(request.getResourceGrant().getShuffleBufferBytes()).isEqualTo(8L * 1024 * 1024);
-            assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
+            assertThat(request.getResourceGrant().getShuffleBufferBytes())
+                    .isEqualTo(8L * 1024 * 1024);
+            assertThat(info.allocatedBufferMemory())
+                    .isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(42L);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
         }
     }
 
     @Test
     void zeroDirectResultGrantFailsClosedBeforeNativeRegistration() {
         try (var runtime = new ActualNativeTaskFixture();
-             var tasks = new ActualTaskManagerFixture(runtime, "output-zero-budget")) {
+                var tasks = new ActualTaskManagerFixture(runtime, "output-zero-budget")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             assertThatThrownBy(() -> tasks.submit(request(true, 0, 1)))
                     .isInstanceOf(IllegalArgumentException.class)
@@ -105,9 +112,13 @@ class TaskManagerOutputConfigWiringTest {
     }
 
     private static TaskRequest request(boolean result, long bufferBytes, int rows) {
-        var request = ActualNativeTaskFixture.planTaskRequest(result, ActualNativeTaskPlans.values(1, rows)).toBuilder();
+        var request =
+                ActualNativeTaskFixture.planTaskRequest(
+                        result, ActualNativeTaskPlans.values(1, rows))
+                        .toBuilder();
         request.getResourceGrantBuilder().setShuffleBufferBytes(bufferBytes);
-        request.setExecutionOptions(TaskExecutionOptions.newBuilder().setDirectResultOutput(result));
+        request.setExecutionOptions(
+                TaskExecutionOptions.newBuilder().setDirectResultOutput(result));
         return request.build();
     }
 }

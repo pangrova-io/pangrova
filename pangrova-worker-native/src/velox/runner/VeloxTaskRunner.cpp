@@ -15,7 +15,9 @@
 #include "shuffle/ShuffleBatchSerializer.h"
 
 #include "jni/command/StatusSerializer.h"
+#include "jni/registry/HandleRegistry.h"
 #include "result/FlightResultServer.h"
+#include "capability/LogicalTypeContract.h"
 
 // Logging for dynamic filter injection warnings.
 #if __has_include(<glog/logging.h>)
@@ -163,6 +165,12 @@ void VeloxTaskRunner::start() {
 
   // Build QueryConfig map with spill settings and advanced features.
   std::unordered_map<std::string, std::string> query_config_values;
+  // Distinct volatile expression sites must retain separate invocation identities.
+  query_config_values[facebook::velox::core::QueryConfig::kExprDedupNonDeterministic] = "false";
+  // Each occurrence of a non-deterministic SQL function must be evaluated
+  // independently. The pinned SDK defaults to sharing these expressions;
+  // this is a semantic invariant, not a session performance override.
+  query_config_values[facebook::velox::core::QueryConfig::kExprDedupNonDeterministic] = "false";
   if (config_.is_result_task || config_.is_shuffle_task) {
     if (config_.serialized_output_buffer_threshold_bytes <= 0) {
       throw std::runtime_error("Serialized output requires a positive serialized-buffer grant");
@@ -205,6 +213,8 @@ void VeloxTaskRunner::start() {
   // internally authenticated coordinator task request, not user SQL, and are
   // consumed by JVM-backed AI functions for authorization, deadline and audit.
   query_config_values["pangrova.task_id"] = config_.task_id;
+  query_config_values["pangrova.executor_handle"] =
+      std::to_string(config_.executor_handle);
   query_config_values["pangrova.query_id"] = config_.query_id;
   query_config_values["pangrova.tenant_id"] = config_.tenant_id;
   query_config_values["pangrova.principal"] = config_.principal;
@@ -716,10 +726,31 @@ void VeloxTaskRunner::start() {
           velox_task_->pool()->addLeafChild("result-stream"));
       info.wire_schema = canonicalArrowSchema(
           *config_.canonical_output_schema, info.pool->source().get());
+      if (config_.result_output_schema) {
+        info.result_schema = canonicalArrowSchema(
+            *config_.result_output_schema, info.pool->source().get());
+      }
       // Check exact nested types/names while permitting task-local ordinal aliases.
       physicalArrowSchema(info.wire_schema, *config_.canonical_output_schema, output_type);
+      for (const auto& column : info.result_column_types) {
+        if (column.column_index >= static_cast<uint32_t>(info.wire_schema->num_fields()) ||
+            column.logical_type.substrait_type().SerializeAsString() !=
+                config_.canonical_output_schema->struct_().types(column.column_index).SerializeAsString()) {
+          throw std::invalid_argument("VECTOR result declaration differs from canonical output schema");
+        }
+        capability::validateVectorResultField(column.logical_type, *info.wire_schema->field(column.column_index));
+      }
       result_ownership_ = std::make_shared<pangrova::result::ResultOwnershipState>();
       info.ownership = result_ownership_;
+      result_buffers_ = facebook::velox::exec::OutputBufferManager::getInstanceRef();
+      info.buffers = result_buffers_;
+      // Direct runner tests have no executor registry owner. Canonical Task
+      // execution always binds a positive handle before the runner is built.
+      if (config_.executor_handle > 0) {
+        info.report_stream_failure = [handle = config_.executor_handle](const std::string& failure) {
+          pangrova::jni::HandleRegistry::instance().acquire(handle)->recordResultStreamFailure(failure);
+        };
+      }
       if (!info.authority.ParseFromString(config_.callback_context)) {
         throw std::runtime_error("Result task lacks its admitted callback authority");
       }
@@ -1102,10 +1133,10 @@ void VeloxTaskRunner::finalizeShuffleOutput() {
 
 void VeloxTaskRunner::revokeResultOutput() {
   if (config_.is_result_task) {
+    if (result_ownership_) result_ownership_->revokeAuthority();
     pangrova::result::FlightResultServer::unregisterTaskOutputType(config_.task_id);
-    const auto& buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-    if (buffers) {
-      buffers->deleteResults(config_.task_id, 0);
+    if (result_buffers_) {
+      result_buffers_->deleteResults(config_.task_id, 0);
       if (result_ownership_) result_ownership_->revokeAndClearQueue();
     }
   }

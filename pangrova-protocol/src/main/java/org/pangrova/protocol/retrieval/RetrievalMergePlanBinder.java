@@ -32,7 +32,7 @@ import org.pangrova.spi.annotation.Internal;
 @Internal
 public final class RetrievalMergePlanBinder {
 
-    private static final int CANDIDATE_SCHEMA_VERSION = 1;
+    private static final int CANDIDATE_SCHEMA_VERSION = RetrievalCandidateIdentity.SCHEMA_VERSION;
 
     private RetrievalMergePlanBinder() {}
 
@@ -113,7 +113,8 @@ public final class RetrievalMergePlanBinder {
         }
         try {
             Plan plan = Plan.parseFrom(planBytes);
-            return bindFinalTopK(plan, binding, expectedFinalLimit, planNodeId);
+            var scope = RetrievalOutputProjection.peel(plan);
+            return scope.restore(bindFinalTopK(scope.inner(), binding, expectedFinalLimit, planNodeId));
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException(
                     "invalid Substrait output-stage merge plan", failure);
@@ -316,6 +317,7 @@ public final class RetrievalMergePlanBinder {
             RetrievalMergeBinding binding) {
         CandidateContract.Builder contract = CandidateContract.newBuilder()
                 .setSchemaVersion(CANDIDATE_SCHEMA_VERSION)
+                .setIdentityKind(RetrievalCandidateIdentity.kind(schema, binding.stableKeyFieldIndexes()))
                 .setSchema(schema)
                 .setScoreDirection(direction);
         for (int index : binding.stableKeyFieldIndexes()) {

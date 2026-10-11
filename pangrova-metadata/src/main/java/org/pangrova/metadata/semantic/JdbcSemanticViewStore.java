@@ -38,6 +38,7 @@ import static org.pangrova.metadata.store.JdbcSupport.setInstant;
 
 /** PostgreSQL implementation of immutable Semantic View metadata and fenced publication. */
 public final class JdbcSemanticViewStore implements SemanticViewStore {
+    private static final int VERSION_CREATED_AT_PARAMETER = 11;
 
     private final DataSource dataSource;
 
@@ -61,7 +62,7 @@ public final class JdbcSemanticViewStore implements SemanticViewStore {
             statement.setString(8, version.definitionSha256().toLowerCase(Locale.ROOT));
             statement.setString(9, version.validationState().name());
             statement.setString(10, version.validationMessage());
-            setInstant(statement, 11, version.createdAt());
+            setInstant(statement, VERSION_CREATED_AT_PARAMETER, version.createdAt());
             statement.executeUpdate();
         } catch (SQLException failure) {
             throw new MetastoreException("Failed to create Semantic View version", failure);

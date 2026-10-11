@@ -61,7 +61,9 @@ class QueryPackageSplitEquivalencePropertyTest {
             "audit", Set.of(
                     "QueryAuditEmitter.java"),
             "security", Set.of(
-                    "AccessControlEnforcer.java")
+                    "AccessControlEnforcer.java"),
+            "session", Set.of(
+                    "CoordinatorSessionContext.java")
     );
 
     /**
@@ -69,8 +71,7 @@ class QueryPackageSplitEquivalencePropertyTest {
      */
     private static final Set<String> EXPECTED_ROOT_CLASSES = Set.of(
             "QueryManager.java",
-            "QueryStateMachine.java",
-            "CoordinatorSessionContext.java"
+            "QueryStateMachine.java"
     );
 
     /**

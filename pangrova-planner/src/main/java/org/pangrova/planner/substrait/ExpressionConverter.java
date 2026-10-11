@@ -143,6 +143,7 @@ final class ExpressionConverter {
             case SEARCH -> convertSearch(call);
             case SINGLE_VALUE -> convert(call.getOperands().get(0));
             case ARRAY_VALUE_CONSTRUCTOR -> convertArrayConstructor(call);
+            case MAP_VALUE_CONSTRUCTOR -> convertMapConstructor(call);
             case ROW -> convertStructConstructor(call, call.getType());
             case EXTRACT -> convertExtract(call);
             case TRIM -> convertTrim(call);
@@ -189,7 +190,15 @@ final class ExpressionConverter {
                     operand);
             default -> throw unsupported("truth predicate: " + call.getKind());
         };
-        return convert(rewritten);
+        Expression value = convert(rewritten);
+        // The truth table above always yields TRUE or FALSE, including when
+        // the operand is NULL. Generic AND/OR inference is conservatively
+        // nullable, so retain Calcite's exact non-null IS TRUE/FALSE contract
+        // across a distributed exchange.
+        Type outputType = typeMapper.map(call.getType());
+        return outputType.equals(value.getType()) ? value : ImmutableExpression.Cast.builder()
+                .input(value).type(outputType)
+                .failureBehavior(Expression.FailureBehavior.THROW_EXCEPTION).build();
     }
 
     /**
@@ -272,6 +281,48 @@ final class ExpressionConverter {
         return convertArrayConstructor(call, call.getType());
     }
 
+    private Expression convertMapConstructor(RexCall call) {
+        RelDataType mapType = call.getType();
+        RelDataType keyType = mapType.getKeyType();
+        RelDataType valueType = mapType.getValueType();
+        if (keyType == null || valueType == null || call.getOperands().size() % 2 != 0) {
+            throw unsupported("MAP constructor has no valid key/value types");
+        }
+        if (call.getOperands().isEmpty()) {
+            return ImmutableExpression.EmptyMapLiteral.builder()
+                    .nullable(mapType.isNullable())
+                    .keyType(typeMapper.map(keyType))
+                    .valueType(typeMapper.map(valueType))
+                    .build();
+        }
+        var builder = ImmutableExpression.MapLiteral.builder().nullable(mapType.isNullable());
+        var keys = new java.util.HashSet<Expression.Literal>();
+        for (int i = 0; i < call.getOperands().size(); i += 2) {
+            Expression key = convertMapElement(call.getOperands().get(i), keyType);
+            Expression value = convertMapElement(call.getOperands().get(i + 1), valueType);
+            if (!(key instanceof Expression.Literal keyLiteral)
+                    || !(value instanceof Expression.Literal valueLiteral)
+                    || keyLiteral instanceof Expression.NullLiteral) {
+                throw unsupported("MAP constructor requires non-null literal keys and literal values");
+            }
+            if (!keys.add(keyLiteral)) {
+                throw unsupported("MAP constructor has duplicate keys");
+            }
+            builder.putValues(keyLiteral, valueLiteral);
+        }
+        return builder.build();
+    }
+
+    private Expression convertMapElement(RexNode operand, RelDataType componentType) {
+        if (operand instanceof RexCall cast
+                && cast.getKind() == org.apache.calcite.sql.SqlKind.CAST
+                && cast.getOperands().get(0) instanceof RexLiteral literal
+                && componentType.getSqlTypeName() == SqlTypeName.VARCHAR) {
+            return literalConverter.convert(literal, componentType);
+        }
+        return convertArrayElement(operand, componentType);
+    }
+
     private Expression convertArrayConstructor(RexCall call, RelDataType arrayType) {
         RelDataType componentType = arrayType.getComponentType();
         if (componentType == null) throw unsupported("array constructor without a component type");
@@ -292,7 +343,8 @@ final class ExpressionConverter {
 
     private Expression convertArrayElement(RexNode operand, RelDataType componentType) {
         if (operand instanceof RexLiteral literal) return literalConverter.convert(literal, componentType);
-        if (operand instanceof RexCall nested && nested.getKind() == org.apache.calcite.sql.SqlKind.ARRAY_VALUE_CONSTRUCTOR) {
+        if (operand instanceof RexCall nested
+                && nested.getKind() == org.apache.calcite.sql.SqlKind.ARRAY_VALUE_CONSTRUCTOR) {
             return convertArrayConstructor(nested, componentType);
         }
         if (operand instanceof RexCall row && row.getKind() == org.apache.calcite.sql.SqlKind.ROW) {
@@ -324,17 +376,69 @@ final class ExpressionConverter {
         FunctionReference ref = functionMapper.map(call.getOperator());
         var variant = functionMapper.resolveScalarVariant(ref);
         List<Expression> args = call.getOperands().stream().map(this::convert).toList();
+        if ("comparison".equals(ref.namespace()) && args.size() == 2) {
+            SqlTypeName left = call.getOperands().get(0).getType().getSqlTypeName();
+            SqlTypeName right = call.getOperands().get(1).getType().getSqlTypeName();
+            int widest = Math.max(integralRank(left), integralRank(right));
+            if (widest > 0 && integralRank(left) > 0 && integralRank(right) > 0
+                    && left != right) {
+                SqlTypeName target = switch (widest) {
+                    case 4 -> SqlTypeName.BIGINT;
+                    case 3 -> SqlTypeName.INTEGER;
+                    case 2 -> SqlTypeName.SMALLINT;
+                    default -> SqlTypeName.TINYINT;
+                };
+                args = call.getOperands().stream().map(operand -> {
+                    if (operand.getType().getSqlTypeName() == target) return convert(operand);
+                    var type = rexBuilder.getTypeFactory().createTypeWithNullability(
+                            rexBuilder.getTypeFactory().createSqlType(target),
+                            operand.getType().isNullable());
+                    return convert(rexBuilder.makeCast(type, operand));
+                }).toList();
+            }
+        }
+        if ("arithmetic".equals(ref.namespace()) && !"round".equals(ref.name()) && args.size() == 2
+                && call.getType().getSqlTypeName() == SqlTypeName.DOUBLE) {
+            // Calcite may retain an exact integer literal beside a DOUBLE
+            // column (for example 1 - discount). Velox resolves only exact
+            // homogeneous numeric overloads, so materialize SQL promotion.
+            args = call.getOperands().stream().map(operand -> {
+                if (operand.getType().getSqlTypeName() == SqlTypeName.DOUBLE) return convert(operand);
+                var doubleType = rexBuilder.getTypeFactory().createTypeWithNullability(
+                        rexBuilder.getTypeFactory().createSqlType(SqlTypeName.DOUBLE),
+                        operand.getType().isNullable());
+                return convert(rexBuilder.makeCast(doubleType, operand));
+            }).toList();
+        }
+        if ("round".equals(ref.name()) && args.size() == 2) {
+            var position = call.getOperands().get(1);
+            var integerType = rexBuilder.getTypeFactory().createTypeWithNullability(
+                    rexBuilder.getTypeFactory().createSqlType(SqlTypeName.INTEGER),
+                    position.getType().isNullable());
+            args = List.of(args.get(0), convert(rexBuilder.makeCast(integerType, position)));
+        }
         args = argumentNormalizer.normalize(ref, call, args);
         args = aiInvocationBinder.bind(ref, call, opName, args);
         Type outputType = typeMapper.map(call.getType());
         var rewrite = org.pangrova.protocol.function.declaration.FunctionBindingDeclarations
                 .rewrite(ref.namespace(), ref.name());
-        if (rewrite.isPresent()) return DeclaredScalarProgram.lower(rewrite.orElseThrow(), args, outputType, functionMapper);
+        if (rewrite.isPresent()) return DeclaredScalarProgram.lower(
+                rewrite.orElseThrow(), args, outputType, functionMapper);
         return ImmutableExpression.ScalarFunctionInvocation.builder()
                 .declaration(variant)
                 .outputType(outputType)
                 .arguments(args)
                 .build();
+    }
+
+    private static int integralRank(SqlTypeName type) {
+        return switch (type) {
+            case TINYINT -> 1;
+            case SMALLINT -> 2;
+            case INTEGER -> 3;
+            case BIGINT -> 4;
+            default -> 0;
+        };
     }
 
     private Expression convertVariantGet(RexCall call) {

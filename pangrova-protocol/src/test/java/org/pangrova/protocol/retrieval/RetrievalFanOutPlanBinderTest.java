@@ -36,7 +36,7 @@ class RetrievalFanOutPlanBinderTest {
                 1, 40, ScoreDirection.SCORE_DIRECTION_LOWER_IS_BETTER,
                 List.of(0), schema.toByteArray());
         RetrievalTopKBinding text = RetrievalTopKBinding.artifact(
-                1, 80, ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
+                1, 10, 80, ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER,
                 List.of(0), schema.toByteArray(),
                 new RetrievalTopKBinding.ArtifactInput(
                         "catalog.schema.docs",

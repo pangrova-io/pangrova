@@ -11,6 +11,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Connector facades retain exact issued scopes rather than resolving a later query-ID incarnation. */
 class ConnectorIssuedScopeTest {
     @Test
+    void connectorOperationExitNotifiesTerminalCleanupAfterTheLastLease() {
+        var tracker = new CoordinatorTaskTracker();
+        var exits = new java.util.ArrayList<String>();
+        tracker.addQueryOperationExitListener(exits::add);
+        var authority = tracker.openQueryIssuance("connector-query");
+        var first = authority.enterOperation();
+        var second = authority.enterOperation();
+        tracker.sealQueryIssuance("connector-query");
+        first.close();
+        assertThat(exits).isEmpty();
+        second.close();
+        assertThat(exits).containsExactly("connector-query");
+        tracker.requireQueryExecutionDrained("connector-query");
+        tracker.retireQueryIssuance("connector-query");
+    }
+
+    @Test
     void connectorCleanupClaimsTheSameIssuedTaskDrainEvidence() {
         var registry = new TaskIdentityRegistry();
         var state = new QueryStateMachine();

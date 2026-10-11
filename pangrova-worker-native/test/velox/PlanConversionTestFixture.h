@@ -81,7 +81,7 @@ inline void registerGovernedAiSignature(
     EXPECT_EQ(std::string(signature.returnType), output_type);
     registry.registerScalar(pangrova::udf::makeJvmScalarFunctionSpec(name,
         std::vector<std::string>(signature.arguments.begin(), signature.arguments.end()),
-        signature.returnType, signature.deterministic));
+        signature.returnType, signature.deterministic, signature.defaultNullBehavior));
   }
   registry.registerAllWithVelox();
 }

@@ -2,6 +2,9 @@ package org.pangrova.metadata.artifact.contract;
 
 /** One version-pinned input to an immutable artifact generation. */
 public record ArtifactDependency(String kind, String id, String version) {
+    private static final int C0_CONTROL_END = 0x1f;
+    private static final int DELETE_AND_C1_CONTROL_START = 0x7f;
+    private static final int C1_CONTROL_END = 0x9f;
 
     public ArtifactDependency {
         kind = requireText(kind, "kind");
@@ -24,7 +27,8 @@ public record ArtifactDependency(String kind, String id, String version) {
                 throw invalidUnicode(name);
             }
             int codePoint = value.codePointAt(offset);
-            if (codePoint <= 0x1f || codePoint >= 0x7f && codePoint <= 0x9f) {
+            if (codePoint <= C0_CONTROL_END
+                    || codePoint >= DELETE_AND_C1_CONTROL_START && codePoint <= C1_CONTROL_END) {
                 throw new IllegalArgumentException(
                         "artifact dependency " + name
                                 + " must not contain Unicode control characters");

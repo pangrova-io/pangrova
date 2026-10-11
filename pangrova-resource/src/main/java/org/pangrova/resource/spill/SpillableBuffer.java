@@ -4,9 +4,8 @@ package org.pangrova.resource.spill;
  * SPI interface for buffers that can be spilled to disk under memory pressure.
  *
  * <p>Implementations register themselves as {@link SpillManager.SpillCandidate}
- * instances via {@link SpillManager#registerCandidate}, supplying a
- * {@link SpillManager.SpillCandidate#reclaimAction()} that delegates to
- * {@link #spillToDisk(long)}. The SpillManager selects candidates by priority
+ * instances via {@link SpillManager#registerCandidate}, retaining their live
+ * reclaimable byte count and actual spill result. The SpillManager selects candidates by priority
  * and invokes the reclaim action synchronously during the allocation-time
  * reclaim handshake (Task 94/97) or the periodic pressure response.</p>
  *
@@ -71,14 +70,12 @@ public interface SpillableBuffer {
     long spillToDisk(long targetBytes);
 
     /**
-     * Builds a {@link SpillManager.SpillCandidate} from this buffer's state,
+     * Builds a {@link SpillManager.SpillCandidate} retaining this buffer as its owner,
      * suitable for registration with {@link SpillManager#registerCandidate}.
+     * Register again when adding new data after the manager drains and removes the candidate.
      */
     default SpillManager.SpillCandidate toSpillCandidate() {
         return new SpillManager.SpillCandidate(
-                spillId(),
-                spillPriority(),
-                reclaimableBytes(),
-                () -> spillToDisk(reclaimableBytes()));
+                this);
     }
 }

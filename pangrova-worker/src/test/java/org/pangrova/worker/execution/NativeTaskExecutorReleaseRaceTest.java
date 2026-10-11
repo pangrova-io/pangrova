@@ -48,6 +48,18 @@ class NativeTaskExecutorReleaseRaceTest {
     }
 
     @Test
+    void malformedCommandOnLiveOwnerRejectsWithoutRetiringItsActualHandle() throws Exception {
+        try (var fixture = new ActualNativeTaskFixture()) {
+            long handle = fixture.createPending(fixture.valuesRequest(false));
+            assertThatThrownBy(() -> fixture.executor().executeCommand(handle, new byte[]{1}))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Malformed");
+            assertThat(fixture.executor().getTaskStatus(handle)).isNotEmpty();
+            assertThat(fixture.executor().releaseTask(handle)).isPresent();
+            assertNativeHandleGone(handle);
+        }
+    }
+
+    @Test
     void operationOnReleasedHandleThrows() {
         try (var fixture = new ActualNativeTaskFixture()) {
             long handle = fixture.createPending(fixture.valuesRequest(false));

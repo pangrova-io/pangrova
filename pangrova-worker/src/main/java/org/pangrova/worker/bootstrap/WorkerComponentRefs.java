@@ -23,14 +23,13 @@ import org.pangrova.observability.metrics.NativeMetricsPublisher;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
- * Mutable holder for components created during Worker bootstrap phases.
- * Each sub-bootstrap writes its outputs here; downstream phases read them.
+ * Mutable holder for components created during Worker bootstrap phases. Each sub-bootstrap writes
+ * its outputs here; downstream phases read them.
  *
- * <p>This class is intentionally mutable and NOT thread-safe — it is only
- * accessed sequentially during the single-threaded bootstrap sequence.
- * After bootstrap completes, the refs are read-only.</p>
+ * <p>This class is intentionally mutable and NOT thread-safe — it is only accessed sequentially
+ * during the single-threaded bootstrap sequence. After bootstrap completes, the refs are read-only.
  *
- * <p>Package-private — not part of the public API.</p>
+ * <p>Package-private — not part of the public API.
  */
 public final class WorkerComponentRefs {
 
@@ -59,34 +58,69 @@ public final class WorkerComponentRefs {
 
     // -- Accessors --
 
-    public boolean nativeAvailable() { return nativeAvailable; }
-    public void setNativeAvailable(boolean v) { this.nativeAvailable = v; }
+    public boolean nativeAvailable() {
+        return nativeAvailable;
+    }
 
-    public ResourceManager resourceManager() { return resourceManager; }
-    public void setResourceManager(ResourceManager v) { this.resourceManager = v; }
+    public void setNativeAvailable(boolean v) {
+        this.nativeAvailable = v;
+    }
 
-    public ResourceMonitor resourceMonitor() { return resourceMonitor; }
-    public void setResourceMonitor(ResourceMonitor v) { this.resourceMonitor = v; }
+    public ResourceManager resourceManager() {
+        return resourceManager;
+    }
 
-    public RootMemoryPool rootMemoryPool() { return rootMemoryPool; }
-    public void setRootMemoryPool(RootMemoryPool v) { this.rootMemoryPool = v; }
+    public void setResourceManager(ResourceManager v) {
+        this.resourceManager = v;
+    }
 
-    public NodeMemoryPool nodeMemoryPool() { return nodeMemoryPool; }
-    public void setNodeMemoryPool(NodeMemoryPool v) { this.nodeMemoryPool = v; }
+    public ResourceMonitor resourceMonitor() {
+        return resourceMonitor;
+    }
 
-    public org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease shuffleServiceMemoryLease() {
+    public void setResourceMonitor(ResourceMonitor v) {
+        this.resourceMonitor = v;
+    }
+
+    public RootMemoryPool rootMemoryPool() {
+        return rootMemoryPool;
+    }
+
+    public void setRootMemoryPool(RootMemoryPool v) {
+        this.rootMemoryPool = v;
+    }
+
+    public NodeMemoryPool nodeMemoryPool() {
+        return nodeMemoryPool;
+    }
+
+    public void setNodeMemoryPool(NodeMemoryPool v) {
+        this.nodeMemoryPool = v;
+    }
+
+    public org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease
+            shuffleServiceMemoryLease() {
         return shuffleServiceMemoryLease;
     }
+
     public void setShuffleServiceMemoryLease(
             org.pangrova.worker.bootstrap.phase.ShuffleServiceMemoryLease v) {
         this.shuffleServiceMemoryLease = v;
     }
 
-    public TaskManager taskManager() { return taskManager; }
-    public void setTaskManager(TaskManager v) { this.taskManager = v; }
+    public TaskManager taskManager() {
+        return taskManager;
+    }
 
-    public WorkerTaskOwnership taskOwnership() { return taskOwnership; }
+    public void setTaskManager(TaskManager v) {
+        this.taskManager = v;
+    }
 
+    public WorkerTaskOwnership taskOwnership() {
+        return taskOwnership;
+    }
+
+    /** Retains the new task bootstrap owner only after the previous owner has drained. */
     public void installTaskOwnership(WorkerTaskOwnership ownership) {
         if (taskOwnership != null && !taskOwnership.isDrained()) {
             throw new IllegalStateException("Previous task bootstrap owners have not drained");
@@ -94,47 +128,117 @@ public final class WorkerComponentRefs {
         taskOwnership = java.util.Objects.requireNonNull(ownership, "ownership");
     }
 
-    public WorkerHttpServer httpServer() { return httpServer; }
-    public void setHttpServer(WorkerHttpServer v) { this.httpServer = v; }
+    public WorkerHttpServer httpServer() {
+        return httpServer;
+    }
 
-    public HeartbeatSender heartbeatSender() { return heartbeatSender; }
-    public void setHeartbeatSender(HeartbeatSender v) { this.heartbeatSender = v; }
+    public void setHttpServer(WorkerHttpServer v) {
+        this.httpServer = v;
+    }
 
-    public ScheduledExecutorService heartbeatExecutor() { return heartbeatExecutor; }
-    public void setHeartbeatExecutor(ScheduledExecutorService v) { this.heartbeatExecutor = v; }
+    public HeartbeatSender heartbeatSender() {
+        return heartbeatSender;
+    }
 
-    public ScheduledExecutorService metricsExecutor() { return metricsExecutor; }
-    public void setMetricsExecutor(ScheduledExecutorService v) { this.metricsExecutor = v; }
+    public void setHeartbeatSender(HeartbeatSender v) {
+        this.heartbeatSender = v;
+    }
 
-    public PangrovaWorker worker() { return worker; }
-    public void setWorker(PangrovaWorker v) { this.worker = v; }
+    public ScheduledExecutorService heartbeatExecutor() {
+        return heartbeatExecutor;
+    }
 
-    public WorkerRegistrationClient registrationClient() { return registrationClient; }
-    public void setRegistrationClient(WorkerRegistrationClient v) { this.registrationClient = v; }
+    public void setHeartbeatExecutor(ScheduledExecutorService v) {
+        this.heartbeatExecutor = v;
+    }
 
-    public NativeMetricsPublisher nativeMetricsPublisher() { return nativeMetricsPublisher; }
-    public void setNativeMetricsPublisher(NativeMetricsPublisher v) { this.nativeMetricsPublisher = v; }
+    public ScheduledExecutorService metricsExecutor() {
+        return metricsExecutor;
+    }
 
-    public CacheMetricsPublisher cacheMetricsPublisher() { return cacheMetricsPublisher; }
-    public void setCacheMetricsPublisher(CacheMetricsPublisher v) { this.cacheMetricsPublisher = v; }
+    public void setMetricsExecutor(ScheduledExecutorService v) {
+        this.metricsExecutor = v;
+    }
 
-    public ShuffleBufferManager shuffleBufferManager() { return shuffleBufferManager; }
-    public void setShuffleBufferManager(ShuffleBufferManager v) { this.shuffleBufferManager = v; }
+    public PangrovaWorker worker() {
+        return worker;
+    }
 
-    public ActiveOutputBuffer activeOutputBuffer() { return activeOutputBuffer; }
-    public void setActiveOutputBuffer(ActiveOutputBuffer v) { this.activeOutputBuffer = v; }
+    public void setWorker(PangrovaWorker v) {
+        this.worker = v;
+    }
 
-    public ResultExpirationScheduler resultExpirationScheduler() { return resultExpirationScheduler; }
-    public void setResultExpirationScheduler(ResultExpirationScheduler v) { this.resultExpirationScheduler = v; }
+    public WorkerRegistrationClient registrationClient() {
+        return registrationClient;
+    }
 
-    public TransportServer transportServer() { return transportServer; }
-    public void setTransportServer(TransportServer v) { this.transportServer = v; }
+    public void setRegistrationClient(WorkerRegistrationClient v) {
+        this.registrationClient = v;
+    }
 
-    public AutoCloseable cdcConsumer() { return cdcConsumer; }
-    public void setCdcConsumer(AutoCloseable v) { this.cdcConsumer = v; }
+    public NativeMetricsPublisher nativeMetricsPublisher() {
+        return nativeMetricsPublisher;
+    }
 
-    public int resultServerPort() { return resultServerPort; }
-    public void setResultServerPort(int v) { this.resultServerPort = v; }
+    public void setNativeMetricsPublisher(NativeMetricsPublisher v) {
+        this.nativeMetricsPublisher = v;
+    }
+
+    public CacheMetricsPublisher cacheMetricsPublisher() {
+        return cacheMetricsPublisher;
+    }
+
+    public void setCacheMetricsPublisher(CacheMetricsPublisher v) {
+        this.cacheMetricsPublisher = v;
+    }
+
+    public ShuffleBufferManager shuffleBufferManager() {
+        return shuffleBufferManager;
+    }
+
+    public void setShuffleBufferManager(ShuffleBufferManager v) {
+        this.shuffleBufferManager = v;
+    }
+
+    public ActiveOutputBuffer activeOutputBuffer() {
+        return activeOutputBuffer;
+    }
+
+    public void setActiveOutputBuffer(ActiveOutputBuffer v) {
+        this.activeOutputBuffer = v;
+    }
+
+    public ResultExpirationScheduler resultExpirationScheduler() {
+        return resultExpirationScheduler;
+    }
+
+    public void setResultExpirationScheduler(ResultExpirationScheduler v) {
+        this.resultExpirationScheduler = v;
+    }
+
+    public TransportServer transportServer() {
+        return transportServer;
+    }
+
+    public void setTransportServer(TransportServer v) {
+        this.transportServer = v;
+    }
+
+    public AutoCloseable cdcConsumer() {
+        return cdcConsumer;
+    }
+
+    public void setCdcConsumer(AutoCloseable v) {
+        this.cdcConsumer = v;
+    }
+
+    public int resultServerPort() {
+        return resultServerPort;
+    }
+
+    public void setResultServerPort(int v) {
+        this.resultServerPort = v;
+    }
 
     // F-CHAIN-CACHE-02: bounded LRU of recently-accessed file paths,
     // sampled into the heartbeat so the coordinator scheduler can route
@@ -155,14 +259,24 @@ public final class WorkerComponentRefs {
     public org.pangrova.worker.jni.NativeFunctionBridge nativeFunctionBridge() {
         return nativeFunctionBridge;
     }
+
     public void setNativeFunctionBridge(org.pangrova.worker.jni.NativeFunctionBridge v) {
         this.nativeFunctionBridge = v;
     }
-    public java.util.List<AutoCloseable> nativeFunctionResources() { return nativeFunctionResources.snapshot(); }
+
+    public java.util.List<AutoCloseable> nativeFunctionResources() {
+        return nativeFunctionResources.snapshot();
+    }
+
     /** Retains a discovered factory before invoking any of its initialization methods. */
-    public void retainNativeFunctionResource(AutoCloseable resource) { nativeFunctionResources.retain(resource); }
+    public void retainNativeFunctionResource(AutoCloseable resource) {
+        nativeFunctionResources.retain(resource);
+    }
+
     /** Removes only successfully closed factories; failed owners remain retryable. */
-    public void closeNativeFunctionResources() { nativeFunctionResources.close(); }
+    public void closeNativeFunctionResources() {
+        nativeFunctionResources.close();
+    }
 
     private ExchangeTransport exchangeTransport;
 
@@ -174,17 +288,37 @@ public final class WorkerComponentRefs {
     // protobuf payload for Coordinator scheduling and HA registry recovery.
     private volatile String nativeCapabilityInventory;
 
-    public ExchangeTransport exchangeTransport() { return exchangeTransport; }
-    public void setExchangeTransport(ExchangeTransport v) { this.exchangeTransport = v; }
+    public ExchangeTransport exchangeTransport() {
+        return exchangeTransport;
+    }
 
-    public NativeWriteExecutor nativeWriteExecutor() { return nativeWriteExecutor; }
-    public void setNativeWriteExecutor(NativeWriteExecutor v) { this.nativeWriteExecutor = v; }
+    public void setExchangeTransport(ExchangeTransport v) {
+        this.exchangeTransport = v;
+    }
 
-    public CatalogResourceResolver catalogResourceResolver() { return catalogResourceResolver; }
-    public void setCatalogResourceResolver(CatalogResourceResolver v) { this.catalogResourceResolver = v; }
+    public NativeWriteExecutor nativeWriteExecutor() {
+        return nativeWriteExecutor;
+    }
 
-    public String nativeCapabilityInventory() { return nativeCapabilityInventory; }
-    public void setNativeCapabilityInventory(String v) { this.nativeCapabilityInventory = v; }
+    public void setNativeWriteExecutor(NativeWriteExecutor v) {
+        this.nativeWriteExecutor = v;
+    }
+
+    public CatalogResourceResolver catalogResourceResolver() {
+        return catalogResourceResolver;
+    }
+
+    public void setCatalogResourceResolver(CatalogResourceResolver v) {
+        this.catalogResourceResolver = v;
+    }
+
+    public String nativeCapabilityInventory() {
+        return nativeCapabilityInventory;
+    }
+
+    public void setNativeCapabilityInventory(String v) {
+        this.nativeCapabilityInventory = v;
+    }
 
     // Process-local HMAC key material for producer-issued shuffle tickets.
     // The Coordinator and consuming workers never receive these raw bytes.
@@ -194,6 +328,7 @@ public final class WorkerComponentRefs {
     public byte[] shuffleHmacCurrentKey() {
         return shuffleHmacCurrentKey == null ? null : shuffleHmacCurrentKey.clone();
     }
+
     public void setShuffleHmacCurrentKey(byte[] v) {
         this.shuffleHmacCurrentKey = v == null ? null : v.clone();
     }
@@ -201,19 +336,30 @@ public final class WorkerComponentRefs {
     public byte[] shuffleHmacPreviousKey() {
         return shuffleHmacPreviousKey == null ? null : shuffleHmacPreviousKey.clone();
     }
+
     public void setShuffleHmacPreviousKey(byte[] v) {
         this.shuffleHmacPreviousKey = v == null ? null : v.clone();
     }
 
     private TenantResourceTracker tenantResourceTracker;
 
-    public TenantResourceTracker tenantResourceTracker() { return tenantResourceTracker; }
-    public void setTenantResourceTracker(TenantResourceTracker v) { this.tenantResourceTracker = v; }
+    public TenantResourceTracker tenantResourceTracker() {
+        return tenantResourceTracker;
+    }
+
+    public void setTenantResourceTracker(TenantResourceTracker v) {
+        this.tenantResourceTracker = v;
+    }
 
     // Task 148: shared MemoryArbitrator so NativeMemoryCoordinator and
     // WorkerResourceBootstrap use a single unified memory budget.
     private org.pangrova.resource.memory.MemoryArbitrator memoryArbitrator;
 
-    public org.pangrova.resource.memory.MemoryArbitrator memoryArbitrator() { return memoryArbitrator; }
-    public void setMemoryArbitrator(org.pangrova.resource.memory.MemoryArbitrator v) { this.memoryArbitrator = v; }
+    public org.pangrova.resource.memory.MemoryArbitrator memoryArbitrator() {
+        return memoryArbitrator;
+    }
+
+    public void setMemoryArbitrator(org.pangrova.resource.memory.MemoryArbitrator v) {
+        this.memoryArbitrator = v;
+    }
 }

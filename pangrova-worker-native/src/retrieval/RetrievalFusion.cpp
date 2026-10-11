@@ -150,6 +150,9 @@ std::vector<FusedCandidate> finish(
   std::vector<FusedCandidate> result;
   result.reserve(aggregates.size());
   for (auto& [key, aggregate] : aggregates) {
+    if (!std::isfinite(aggregate.score)) {
+      throw std::invalid_argument("retrieval fusion produced a non-finite score");
+    }
     result.push_back(FusedCandidate{
         std::move(key), aggregate.score, aggregate.representative_ordinal});
   }
@@ -173,12 +176,27 @@ double normalizedScore(double score, const SourceStats& source) {
   if (source.max_score == source.min_score) {
     return 1.0;
   }
-  if (source.direction == ScoreDirection::kHigherIsBetter) {
-    return (score - source.min_score) /
-        (source.max_score - source.min_score);
+  double low = source.min_score;
+  double high = source.max_score;
+  const double half_max = std::numeric_limits<double>::max() / 2.0;
+  if (low < 0.0 && high > 0.0 && (low < -half_max || high > half_max)) {
+    // A common power-of-two scale preserves min/max normalization while
+    // bounding every difference by DOUBLE_MAX, even for [-DOUBLE_MAX, +DOUBLE_MAX].
+    // Apply it only to huge opposite-sign endpoints: tiny ranges must retain
+    // their subnormal differences. No wider long double is required.
+    low *= 0.5;
+    high *= 0.5;
+    score *= 0.5;
   }
-  return (source.max_score - score) /
-      (source.max_score - source.min_score);
+  const double range = high - low;
+  const double normalized =
+      source.direction == ScoreDirection::kHigherIsBetter
+          ? (score - low) / range
+          : (high - score) / range;
+  if (!std::isfinite(normalized) || normalized < 0.0 || normalized > 1.0) {
+    throw std::invalid_argument("retrieval fusion normalized score is invalid");
+  }
+  return normalized;
 }
 
 }  // namespace
@@ -219,12 +237,20 @@ std::vector<FusedCandidate> RetrievalFusion::linear(
   SourceMap source_map = validateInputs(
       candidates, sources, output_limit, max_candidate_rows, max_fan_in);
   auto ranks = globalSourceRanks(candidates, source_map);
-  double total_weight = 0.0;
+  double max_weight = 0.0;
   for (const auto& [source_id, source] : source_map) {
     (void)source_id;
-    total_weight += source.weight;
+    max_weight = std::max(max_weight, source.weight);
   }
-  if (!std::isfinite(total_weight) || total_weight <= 0.0) {
+  // Each configured weight is positive and finite. Scaling by the maximum
+  // preserves their relative shares without overflowing or losing an entire
+  // subnormal total. Absent sources still participate in the denominator.
+  double total_scaled_weight = 0.0;
+  for (const auto& [source_id, source] : source_map) {
+    (void)source_id;
+    total_scaled_weight += source.weight / max_weight;
+  }
+  if (!std::isfinite(total_scaled_weight) || total_scaled_weight <= 0.0) {
     throw std::invalid_argument("retrieval fusion weights are invalid");
   }
 
@@ -235,7 +261,8 @@ std::vector<FusedCandidate> RetrievalFusion::linear(
     const auto& source = source_map.at(candidate.source_id);
     auto& aggregate = aggregates[candidate.stable_key];
     aggregate.score +=
-        (source.weight / total_weight) * normalizedScore(candidate.score, source);
+        ((source.weight / max_weight) / total_scaled_weight) *
+        normalizedScore(candidate.score, source);
     considerRepresentative(aggregate, candidate, ranks[index]);
   }
   return finish(std::move(aggregates), output_limit);

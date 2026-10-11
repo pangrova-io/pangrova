@@ -17,6 +17,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Property 9: CoordinatorBootstrap split behavior equivalence.
@@ -36,7 +37,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Property(tries = 10)
     void bootstrapInitializesAllCoreComponents(
             @ForAll("minimalConfigs") CoordinatorBootstrapConfig config) {
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         try {
             bootstrap.start();
             assertThat(bootstrap.isStarted()).isTrue();
@@ -56,7 +57,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Property(tries = 10)
     void disabledObservabilityUsesNoOpProvider(
             @ForAll("minimalConfigs") CoordinatorBootstrapConfig config) {
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         try {
             bootstrap.start();
             assertThat(bootstrap.getTracingProvider()).isInstanceOf(NoOpTracingProvider.class);
@@ -72,7 +73,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Property(tries = 10)
     void shutdownIsIdempotent(
             @ForAll("minimalConfigs") CoordinatorBootstrapConfig config) {
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
         bootstrap.shutdown();
         assertThat(bootstrap.isStarted()).isFalse();
@@ -87,7 +88,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.coordinator.tes
     @Test
     void httpHealthEndpointRegistered() throws Exception {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-health", 0);
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(withAuthority(config));
         try {
             bootstrap.start();
             int port = bootstrap.getHttpPort();

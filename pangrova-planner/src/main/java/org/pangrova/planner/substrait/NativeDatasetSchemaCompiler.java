@@ -6,11 +6,9 @@ import io.substrait.type.TypeCreator;
 import io.substrait.type.proto.TypeProtoConverter;
 import org.pangrova.planner.type.ConnectorColumnTypeMapper;
 import org.pangrova.planner.type.PlannerTypeFactory;
-import org.pangrova.protocol.type.VectorLogicalType;
+import org.pangrova.planner.type.StorageVectorRelDataType;
 import org.pangrova.protocol.v2.LogicalType;
-import org.pangrova.protocol.v2.TypeConstraint;
 import org.pangrova.spi.connector.data.type.PangrovaType;
-import org.pangrova.spi.connector.data.type.VectorType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 
 import java.util.HashSet;
@@ -36,7 +34,8 @@ public final class NativeDatasetSchemaCompiler {
         var struct = NamedStruct.of(SubstraitFieldNames.flatten(row, List.of()), TypeCreator.of(false).struct(
                 row.getFieldList().stream().map(field -> mapper.map(field.getType())).toList())).toProto(converter);
         List<LogicalType> logical = java.util.stream.IntStream.range(0, columns.size())
-                .mapToObj(index -> logicalType(columns.get(index), struct.getStruct().getTypes(index))).toList();
+                .mapToObj(index -> logicalType(columns.get(index), row.getFieldList().get(index).getType(),
+                        struct.getStruct().getTypes(index))).toList();
         return new CompiledSchema(struct, logical);
     }
 
@@ -62,17 +61,15 @@ public final class NativeDatasetSchemaCompiler {
         };
     }
 
-    private static LogicalType logicalType(ConnectorTableMetadata.Column column, io.substrait.proto.Type physical) {
-        if (column.parameterizedType() instanceof VectorType vector) {
-            if (vector.elementType() == VectorType.ElementType.FLOAT) {
-                return VectorLogicalType.create(vector.dimension());
+    private static LogicalType logicalType(ConnectorTableMetadata.Column column,
+            org.apache.calcite.rel.type.RelDataType sqlType, io.substrait.proto.Type physical) {
+        if (sqlType instanceof StorageVectorRelDataType vector) {
+            LogicalType type = vector.logicalType();
+            if (!type.getSubstraitType().equals(physical)) {
+                throw new IllegalArgumentException(
+                        "VECTOR physical schema differs from its canonical logical declaration");
             }
-            return LogicalType.newBuilder()
-                    .setCanonicalSql(vector.getDisplayName()).setSubstraitType(physical)
-                    .addConstraints(TypeConstraint.newBuilder().setName("dimension")
-                            .setIntegerValue(vector.dimension()))
-                    .addConstraints(TypeConstraint.newBuilder().setName("element_type")
-                            .setStringValue("FLOAT64")).build();
+            return type;
         }
         String name = column.parameterizedType() == null
                 ? column.type().name() : column.parameterizedType().getDisplayName();

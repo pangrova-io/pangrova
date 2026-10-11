@@ -53,6 +53,31 @@ TEST(CanonicalFailureEvidenceTest, ActualSerializerRetainsAcceptedFailureFields)
   EXPECT_EQ(failed.attempt().task_id(), config.task_id);
 }
 
+TEST(CanonicalFailureEvidenceTest, ProviderUnknownOutcomeRemainsTerminalAndNonRetryable) {
+  TaskExecutorConfig config;
+  config.function_registry =
+      facebook::velox::exec::FunctionRegistrySnapshot::capture();
+  config.task_id = "model-unknown-task";
+  config.query_id = "model-unknown-query";
+  TaskExecutor executor(config);
+  protocol::v2::ExecutionError uncertain;
+  uncertain.set_error_class(protocol::v2::ERROR_CLASS_PROVIDER_OUTCOME_UNCERTAIN);
+  uncertain.set_code("AI_PROVIDER_OUTCOME_UNCERTAIN");
+  uncertain.set_message("model outcome unknown after response loss");
+  uncertain.set_retryable(false);
+  uncertain.set_failed_component("ai-invocation");
+
+  executor.recordExecutionError(uncertain);
+  executor.notifyTaskFailed("Velox propagated model callback failure");
+
+  const auto failed = report(executor);
+  ASSERT_EQ(failed.state(), protocol::v2::TASK_STATE_FAILED);
+  ASSERT_TRUE(failed.has_error());
+  EXPECT_EQ(failed.error().SerializeAsString(), uncertain.SerializeAsString());
+  EXPECT_FALSE(failed.error().retryable());
+  EXPECT_EQ(failed.coverage().completed_work_units(), 0);
+}
+
 TEST(CanonicalFailureEvidenceTest, AcceptedIngressFailureRecordsBeforeConsumption) {
   const auto deadline = static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(

@@ -4,6 +4,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
+import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -144,14 +145,26 @@ final class IcebergValueCoercion {
     private static Object coerceStruct(Object value, Types.StructType structType) {
         if (value instanceof GenericRecord) return value;
         List<Types.NestedField> structFields = structType.fields();
-        // Arrow StructVector.getObject() yields a Map<fieldName, value> (native
-        // write path via PageDecoder); the coordinator direct-write path yields
-        // a positional List. Support both — anything else passes through and
-        // fails loud in the Iceberg writer.
+        // Arrow StructVector.getObject() yields a Map. Native ROW constructors
+        // use canonical anonymous field names; SQL INSERT binds them to target
+        // STRUCT fields by position. Named maps may omit nullable target fields,
+        // but cannot supply unknown fields or omit required target fields.
         if (value instanceof java.util.Map<?, ?> map) {
+            boolean named = map.keySet().stream().allMatch(key -> key instanceof String name
+                    && structFields.stream().anyMatch(field -> field.name().equals(name)))
+                    && structFields.stream().allMatch(field -> field.isOptional() || map.containsKey(field.name()));
+            boolean positional = map.size() == structFields.size();
+            for (int i = 0; i < structFields.size() && positional; i++) {
+                positional = map.containsKey(FunctionBindingDeclarations.anonymousComputedField(i));
+            }
+            if (!named && !positional) {
+                throw new IllegalArgumentException("STRUCT source fields do not match target names or canonical positions");
+            }
             GenericRecord record = GenericRecord.create(structType);
-            for (Types.NestedField field : structFields) {
-                Object fieldValue = map.get(field.name());
+            for (int i = 0; i < structFields.size(); i++) {
+                Types.NestedField field = structFields.get(i);
+                Object fieldValue = map.get(named ? field.name()
+                        : FunctionBindingDeclarations.anonymousComputedField(i));
                 record.setField(field.name(), coerceValue(fieldValue, field.type()));
             }
             return record;

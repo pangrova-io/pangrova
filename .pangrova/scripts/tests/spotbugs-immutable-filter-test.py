@@ -89,10 +89,12 @@ public final class ImmutableFilterBoundary {
             check(borrowed, owner, method, params, result, field, type, "HARD_CODE_KEY", false);
         }
         verifyJdbcForwards(args[5], args[6]);
-        verifyJdbcIdentities(args[7], args[6]);
+        verifyImmutableAccessors(args[7], args[6]);
+        verifyImmutableAccessors(args[8], args[6]);
+        verifyImmutableAccessors(args[9], args[6]);
     }
 
-    private static void verifyJdbcIdentities(String manifest, String fullFilterPath) throws Exception {
+    private static void verifyImmutableAccessors(String manifest, String fullFilterPath) throws Exception {
         Filter full = Filter.parseFilter(fullFilterPath);
         for (String line : java.nio.file.Files.readAllLines(java.nio.file.Path.of(manifest))) {
             String[] part = line.split(java.util.regex.Pattern.quote("|"), -1);
@@ -354,6 +356,75 @@ def main():
             identity_cases.append('|'.join([str(classification_file), *case]))
         identity_manifest = temporary / 'jdbc-identity-cases.txt'
         identity_manifest.write_text('\n'.join(identity_cases), encoding='utf-8')
+        expected_metadata = {
+            ('org.pangrova.metadata.artifact.build.ArtifactExchangeFinalization', 'partitions', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactExchangeRegistration', 'endpoints', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'stages', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'exchanges', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.ArtifactStageGraph', 'modelSnapshots', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate', 'publicationReads', 'java.util.List'),
+            ('org.pangrova.metadata.artifact.contract.ArtifactDependencySet', 'dependencies', 'java.util.List'),
+            ('org.pangrova.metadata.model.TableMetadata', 'columns', 'java.util.List'),
+            ('org.pangrova.metadata.model.TableMetadata', 'partitionSpec', 'java.util.Map'),
+            ('org.pangrova.metadata.model.TableMetadata', 'sortOrder', 'java.util.List'),
+            ('org.pangrova.metadata.model.TableMetadata', 'properties', 'java.util.Map'),
+        }
+        metadata_owners = {owner for owner, _, _ in expected_metadata}
+        metadata_matches = [match for match in full_filter.getroot()
+                            if any(child.tag.endswith('Class') and child.get('name') in metadata_owners
+                                   for child in match)
+                            and any(child.tag.endswith('Bug') and child.get('pattern') == 'EI_EXPOSE_REP'
+                                    for child in match)]
+        if len(metadata_matches) != len(expected_metadata):
+            raise RuntimeError('Expected 11 exact immutable metadata collection classifications')
+        metadata_cases = []
+        actual_metadata = set()
+        for index, match in enumerate(metadata_matches):
+            elements = {child.tag.rsplit('}', 1)[-1]: child for child in match}
+            if len(match) != 4 or set(elements) != {'Class', 'Method', 'Field', 'Bug'}:
+                raise RuntimeError('Metadata collection classification is not a flat exact Match')
+            owner, method, field = (elements[key] for key in ('Class', 'Method', 'Field'))
+            case = (owner.attrib['name'], method.attrib['name'], method.attrib['returns'])
+            if (case not in expected_metadata or case in actual_metadata or method.attrib['params'] != ''
+                    or field.attrib['name'] != method.attrib['name']
+                    or field.attrib['type'] != method.attrib['returns']):
+                raise RuntimeError(f'Unexpected or duplicate metadata collection classification: {case}')
+            actual_metadata.add(case)
+            isolated_metadata = ET.Element('FindBugsFilter')
+            isolated_metadata.append(deepcopy(match))
+            for element in isolated_metadata.iter():
+                element.tag = element.tag.rsplit('}', 1)[-1]
+            classification_file = temporary / f'metadata-collection-{index}.xml'
+            ET.ElementTree(isolated_metadata).write(classification_file, encoding='utf-8', xml_declaration=True)
+            metadata_cases.append('|'.join([str(classification_file), case[0], case[1], '', case[2],
+                                           field.attrib['name'], field.attrib['type']]))
+        metadata_manifest = temporary / 'metadata-collection-cases.txt'
+        metadata_manifest.write_text('\n'.join(metadata_cases), encoding='utf-8')
+        vector_owner = 'org.pangrova.planner.type.StorageVectorRelDataType'
+        vector_matches = [match for match in full_filter.getroot()
+                          if any(child.tag.endswith('Class') and child.get('name') == vector_owner
+                                 for child in match)]
+        if len(vector_matches) != 1:
+            raise RuntimeError('Expected one exact immutable canonical VECTOR declaration classification')
+        elements = {child.tag.rsplit('}', 1)[-1]: child for child in vector_matches[0]}
+        if len(vector_matches[0]) != 4 or set(elements) != {'Class', 'Method', 'Field', 'Bug'}:
+            raise RuntimeError('VECTOR declaration classification is not a flat exact Match')
+        if (elements['Method'].attrib != {'name': 'logicalType', 'params': '',
+                                        'returns': 'org.pangrova.protocol.v2.LogicalType'}
+                or elements['Field'].attrib != {'name': 'logicalType',
+                                               'type': 'org.pangrova.protocol.v2.LogicalType'}
+                or elements['Bug'].attrib != {'pattern': 'EI_EXPOSE_REP'}):
+            raise RuntimeError('VECTOR declaration classification changed its immutable boundary')
+        vector_filter = ET.Element('FindBugsFilter')
+        vector_filter.append(deepcopy(vector_matches[0]))
+        for element in vector_filter.iter():
+            element.tag = element.tag.rsplit('}', 1)[-1]
+        vector_classification = temporary / 'vector-declaration.xml'
+        ET.ElementTree(vector_filter).write(vector_classification, encoding='utf-8', xml_declaration=True)
+        vector_manifest = temporary / 'vector-declaration-cases.txt'
+        vector_manifest.write_text('|'.join([str(vector_classification), vector_owner, 'logicalType', '',
+                                           'org.pangrova.protocol.v2.LogicalType', 'logicalType',
+                                           'org.pangrova.protocol.v2.LogicalType']), encoding='utf-8')
         source = temporary / 'ImmutableFilterBoundary.java'
         source.write_text(SOURCE, encoding='utf-8')
         subprocess.run([javac, '-Xlint:all', '-Werror', '-cp', classpath,
@@ -362,7 +433,7 @@ def main():
                         'ImmutableFilterBoundary', str(classification), str(runner_classification),
                         str(security_plugin), str(jitter_classification), str(borrowed_manifest),
                         str(jdbc_manifest), str(ROOT / 'config/spotbugs/exclude-filter.xml'),
-                        str(identity_manifest)], check=True)
+                        str(identity_manifest), str(metadata_manifest), str(vector_manifest)], check=True)
     print('PASS: exact immutable hash classified; this Match rejects 8 changed-type/method/field/class/bug cases.')
     print('PASS: exact keytool runner classified; this Match rejects 7 class/method/signature/bug changes.')
     print('PASS: exact non-security retry jitter classified; this Match rejects 7 owner/method/signature/bug changes.')
@@ -371,6 +442,8 @@ def main():
     print('PASS: complete filter does not exclude PreparedStatement SQL construction or Boolean-null finding.')
     print('PASS: four JDBC identity getters classified; isolated/full filters each reject 12 changed boundaries.')
     print('PASS: complete filter does not exclude obsolete PreparedStatement identity getter findings.')
+    print('PASS: 11 immutable metadata collection getters classified; isolated/full filters each reject 12 changed boundaries.')
+    print('PASS: canonical immutable VECTOR getter classified; isolated/full filters reject 12 changed boundaries.')
 
 
 if __name__ == '__main__':

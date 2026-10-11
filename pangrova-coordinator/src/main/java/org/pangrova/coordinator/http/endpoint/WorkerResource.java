@@ -20,6 +20,7 @@ import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.resource.MemoryPressure;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +62,7 @@ public final class WorkerResource {
         this(workerManager, coordinatorShuffleMode, () -> 1L);
     }
 
+    /** Creates the authenticated registration resource with the current Coordinator epoch. */
     public WorkerResource(WorkerManager workerManager, String coordinatorShuffleMode,
                           LongSupplier coordinatorEpochSupplier) {
         this.workerManager = checkNotNull(workerManager, "workerManager must not be null");
@@ -123,6 +125,15 @@ public final class WorkerResource {
     }
 
     private Response doRegister(WorkerRegistrationRequest request) {
+        try {
+            request.requireBoundedMetadata(JsonMapperFactory.shared());
+        } catch (IllegalArgumentException failure) {
+            LOG.warn("event=worker_registration_rejected workerId={} reason=oversized_metadata",
+                    request.workerId());
+            return Response.status(HTTP_STATUS_BAD_REQUEST)
+                    .entity(Map.of("status", "error", "message", failure.getMessage()))
+                    .build();
+        }
         if (!isCanonicalProtocolVersion(request.protocolVersion())) {
             return rejectIncompatibleProtocol(request);
         }

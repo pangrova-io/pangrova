@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.task;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
@@ -94,13 +95,18 @@ class TaskIdentityRegistryDrainContractTest {
         registry.recordExecutionDrain(request, actual);
         assertThat(registry.acknowledgesDrain(retry)).isFalse();
         // This is the actual publication lease/acceptance/exit contract, not Native drain proof.
-        try (var publication = registry.enterReport(request, retry, false, () -> { })) {
+        AtomicBoolean operationExitObserved = new AtomicBoolean();
+        try (var publication = registry.enterReport(request, retry, false, () -> { }, () -> {
+            assertThat(registry.queryOperationsDrained("query")).isTrue();
+            operationExitObserved.set(true);
+        })) {
             assertThat(publication.report()).isSameAs(retry);
             publication.accepted();
             assertThat(registry.acknowledgesDrain(retry)).isFalse();
             assertThatThrownBy(() -> registry.retireQuery("query"))
                     .hasMessageContaining("operations have not exited");
         }
+        assertThat(operationExitObserved).isTrue();
         registry.retireQuery("query");
         assertThat(registry.acknowledgesDrain(retry)).isTrue();
         clock.addAndGet(TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos() - 1);

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Integration tests for observability bootstrap in Coordinator.
@@ -26,7 +27,7 @@ class CoordinatorObservabilityBootstrapTest {
     @Test
     void disabledObservabilityUsesNoOp() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-obs-1", 0);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -44,7 +45,7 @@ class CoordinatorObservabilityBootstrapTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -64,7 +65,7 @@ class CoordinatorObservabilityBootstrapTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, obsCfg);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
@@ -84,7 +85,7 @@ class CoordinatorObservabilityBootstrapTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, obsCfg);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThatCode(() -> bootstrap.shutdown()).doesNotThrowAnyException();

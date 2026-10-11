@@ -212,6 +212,24 @@
         </dependency>
 
         <!-- Test dependencies -->
+        <!-- Actual PG + fixed SDK source-authority fixtures; no production connector dependency. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-lance</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+        <!-- Actual JNI lifecycle fixtures have a separate, non-production package owner. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-worker</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <classifier>native-fixtures</classifier>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>

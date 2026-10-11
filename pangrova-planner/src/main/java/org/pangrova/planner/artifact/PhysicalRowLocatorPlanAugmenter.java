@@ -92,7 +92,8 @@ public final class PhysicalRowLocatorPlanAugmenter {
                 .addNames(PHYSICAL_ROW_POSITION_COLUMN)
                 .setStruct(read.getBaseSchema().getStruct().toBuilder().addTypes(position));
         Rel result = relation.toBuilder().setRead(read.toBuilder().setBaseSchema(schema)
-                .setCommon(SubstraitRelationLayout.withAppendedInput(read.getCommon(), inputFields, 0, 1, true))).build();
+                .setCommon(SubstraitRelationLayout.withAppendedInput(
+                        read.getCommon(), inputFields, 0, 1, true))).build();
         return new Augmented(result, outputFields);
     }
 

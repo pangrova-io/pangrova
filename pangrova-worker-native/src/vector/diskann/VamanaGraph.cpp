@@ -402,41 +402,14 @@ std::vector<SearchResult> VamanaIndex::search(
 
   if (beamWidth <= 0) beamWidth = config_.beamWidth;
 
-  // Beam search using PQ distances for navigation.
-  std::priority_queue<DistEntry, std::vector<DistEntry>, std::greater<>> frontier;
-  std::unordered_set<int64_t> visited;
-
-  const uint8_t* medPQ =
-      pqCodes_.data() +
-      static_cast<size_t>(medoid_) * static_cast<size_t>(pqCodeSize_);
-  float medDist = computePQDistance(medPQ, query);
-  frontier.push({medoid_, medDist});
-  visited.insert(medoid_);
-
   std::vector<DistEntry> resultCandidates;
-  int64_t budget = searchListSize > 0
-      ? searchListSize
-      : config_.searchListSize;
-
-  while (!frontier.empty() && budget > 0) {
-    auto top = frontier.top();
-    frontier.pop();
-    budget--;
-
-    resultCandidates.push_back(top);
-
-    auto& neighbors = adjList_[static_cast<size_t>(top.nodeId)];
-    for (auto& nb : neighbors) {
-      if (visited.count(nb.nodeId)) continue;
-      visited.insert(nb.nodeId);
-
-      const uint8_t* nbPQ =
-          pqCodes_.data() +
-          static_cast<size_t>(nb.nodeId) * static_cast<size_t>(pqCodeSize_);
-      float d = computePQDistance(nbPQ, query);
-      frontier.push({nb.nodeId, d});
-    }
-  }
+  const int64_t budget = searchListSize > 0
+      ? searchListSize : config_.searchListSize;
+  traverse(query, static_cast<uint64_t>(budget),
+      pangrova::resource::standaloneHeapResource(), [] {},
+      [&](int64_t node, float distance) {
+        resultCandidates.push_back({node, distance});
+      });
 
   // Sort candidates by PQ distance, take topK * beamWidth for rerank.
   std::sort(resultCandidates.begin(), resultCandidates.end(),

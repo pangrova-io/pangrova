@@ -16,16 +16,19 @@ public final class ResultReadTickets {
     private static final String DOMAIN = "pangrova.result.read.v1:";
     private final byte[] key;
 
+    /** Retains a defensive copy of the producer-local signing key. */
     public ResultReadTickets(byte[] key) {
         if (key == null || key.length < 32) {
-            throw new IllegalArgumentException("Result tickets require a producer-local 256-bit key");
+            throw new IllegalArgumentException(
+                    "Result tickets require a producer-local 256-bit key");
         }
         this.key = key.clone();
     }
 
     public org.pangrova.protocol.rest.query.ResultEndpoint endpoint(
             TaskRequest request, String host, int port, String protocol) {
-        return new org.pangrova.protocol.rest.query.ResultEndpoint(host, port, issue(request), protocol);
+        return new org.pangrova.protocol.rest.query.ResultEndpoint(
+                host, port, issue(request), protocol);
     }
 
     /** A completed task remains readable only while its exact live registration is retained. */
@@ -33,12 +36,16 @@ public final class ResultReadTickets {
         CanonicalTaskRequests.validateForAdmission(request);
         if (!request.getExecutionOptions().getDirectResultOutput()
                 || request.getDeadlineEpochMs() <= System.currentTimeMillis()) {
-            throw new IllegalArgumentException("Result ticket requires a live admitted result task deadline");
+            throw new IllegalArgumentException(
+                    "Result ticket requires a live admitted result task deadline");
         }
-        ResultReadGrant grant = ResultReadGrant.newBuilder()
-                .setSecurity(request.getSecurity()).setAttempt(request.getAttempt())
-                .setScope(ResultReadScope.RESULT_READ_SCOPE_RESULT_STREAM)
-                .setExpiresAtEpochMs(request.getDeadlineEpochMs()).build();
+        ResultReadGrant grant =
+                ResultReadGrant.newBuilder()
+                        .setSecurity(request.getSecurity())
+                        .setAttempt(request.getAttempt())
+                        .setScope(ResultReadScope.RESULT_READ_SCOPE_RESULT_STREAM)
+                        .setExpiresAtEpochMs(request.getDeadlineEpochMs())
+                        .build();
         String payload = DOMAIN + Base64.getEncoder().encodeToString(grant.toByteArray());
         String message = payload + "|" + grant.getExpiresAtEpochMs();
         return message + "|" + signature(message);

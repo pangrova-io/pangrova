@@ -226,7 +226,8 @@ VeloxPlanConverter::convertRetrievalMerge(
     auto source_type = convertNamedStruct(source.contract().schema());
     validateContractSchema(
         source.contract(), logical_input, source_type, "merge input");
-    if (source.contract().stable_key_fields_size() !=
+    if (source.contract().identity_kind() != output_contract.identity_kind() ||
+        source.contract().stable_key_fields_size() !=
             output_contract.stable_key_fields_size() ||
         !std::equal(
             source.contract().stable_key_fields().begin(),
@@ -265,7 +266,9 @@ VeloxPlanConverter::convertRetrievalMerge(
       pangrova::capability::kRetrievalMergeMaxCandidateRows,
       pangrova::capability::kRetrievalMergeMaxCandidateBytes,
       detail.max_fan_in(),
-      rrf_k};
+      rrf_k,
+      output_contract.identity_kind() ==
+          pangrova::protocol::v2::CANDIDATE_IDENTITY_KIND_PHYSICAL_SOURCE_ROW};
   return std::make_shared<RetrievalMergeNode>(
       detail.plan_node_id(), std::move(config), std::move(input));
 }

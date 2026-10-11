@@ -1,9 +1,12 @@
 //! Canonical manifest partition metadata and exact single-partition readers.
 use crate::{
-    canonical_schema_fingerprint, committed_manifest_digest, open_atomic_dataset,
+    canonical_schema_fingerprint, managed,
     remaining_commit_time, CanonicalChecksum, StorageContext,
 };
+use arrow_array::RecordBatch;
 use arrow_schema::Schema;
+use futures::StreamExt;
+use lance_io::stream::BatchStream;
 use lance::Dataset;
 use lance_table::format::Fragment;
 use prost::Message;
@@ -59,39 +62,26 @@ pub(crate) async fn enumerate(storage: &StorageContext, bytes: &[u8]) -> Result<
 }
 
 async fn enumerate_page(storage: &StorageContext, request: Request) -> Result<Vec<u8>, String> {
-    let dataset = open_atomic_dataset(&request.dataset_uri, storage)
-        .await
-        .map_err(|error| format!("Failed to open partition dataset: {error}"))?
-        .checkout_version(request.version)
-        .await
-        .map_err(|error| format!("Pinned scan version is unavailable: {error}"))?;
+    let reference = request.accepted_snapshot.as_ref().ok_or("Dataset scan lacks accepted membership")?;
+    managed::validate(reference, &request.dataset_uri, request.version)?;
+    if reference.catalog != request.catalog || reference.tenant_id != request.security.as_ref().unwrap().tenant_id
+        || reference.physical_schema_sha256 != request.physical_schema_sha256 {
+        return Err("Dataset scan differs from its accepted identity, deployment or schema".into());
+    }
+    let dataset = managed::open(storage, reference).await?;
     let schema: Schema = dataset.schema().into();
     let schema = canonical_schema_fingerprint(&schema);
     require_checksum(request.physical_schema_sha256.as_ref(), &schema)?;
-    let manifest =
-        committed_manifest_digest(storage, &request.dataset_uri, request.version).await?;
-    let mut fragments: Vec<&Fragment> = dataset.manifest().fragments.iter().collect();
-    fragments.sort_unstable_by_key(|fragment| fragment.id);
-    if fragments.windows(2).any(|pair| pair[0].id == pair[1].id) {
-        return Err("Pinned manifest contains duplicate physical partition IDs".into());
-    }
-    if request.has_cursor
-        && !fragments
-            .iter()
-            .any(|fragment| fragment.id == request.after_partition_id)
-    {
-        return Err("Dataset partition cursor is absent from the exact manifest".into());
-    }
+    let manifest = reference.manifest_sha256.as_ref().unwrap().digest.as_slice();
+    let fragments = dataset.manifest().fragments.as_slice();
     let total_partitions = fragments.len() as u64;
-    let selected: Vec<_> = fragments
-        .into_iter()
-        .filter(|fragment| !request.has_cursor || fragment.id > request.after_partition_id)
-        .take(request.page_size as usize + 1)
-        .collect();
-    let has_more = selected.len() > request.page_size as usize;
+    let (selected, has_more) = fragment_page(
+        fragments,
+        request.has_cursor.then_some(request.after_partition_id),
+        request.page_size as usize,
+    )?;
     let partitions: Result<Vec<_>, String> = selected
-        .into_iter()
-        .take(request.page_size as usize)
+        .iter()
         .map(|fragment| {
             Ok(Partition {
                 partition_id: fragment.id,
@@ -101,6 +91,7 @@ async fn enumerate_page(storage: &StorageContext, request: Request) -> Result<Ve
                     as u64,
                 manifest_sha256: Some(checksum(&manifest)),
                 physical_schema_sha256: Some(checksum(&schema)),
+                accepted_snapshot: Some(reference.clone()),
             })
         })
         .collect();
@@ -121,8 +112,37 @@ async fn enumerate_page(storage: &StorageContext, request: Request) -> Result<Ve
         partitions,
         has_more,
         next_partition_id,
+        accepted_snapshot: Some(reference.clone()),
     }
     .encode_to_vec())
+}
+
+/// The SDK manifest stores fragments in ID order, with gaps allowed. Borrow its
+/// bounded page directly; sorting a second full manifest on every RPC is redundant
+/// and would conceal a malformed manifest order. Validate once before searching.
+fn fragment_page(
+    fragments: &[Fragment],
+    after: Option<u64>,
+    page_size: usize,
+) -> Result<(&[Fragment], bool), String> {
+    if page_size == 0 || page_size > 256 {
+        return Err("Dataset partition page size violates its bound".into());
+    }
+    if fragments.windows(2).any(|pair| pair[0].id >= pair[1].id) {
+        return Err("Pinned manifest partition IDs are duplicated or not strictly ordered".into());
+    }
+    let start = match after {
+        Some(id) => fragments
+            .binary_search_by_key(&id, |fragment| fragment.id)
+            .map(|index| index + 1)
+            .map_err(|_| "Dataset partition cursor is absent from the exact manifest")?,
+        None => 0,
+    };
+    let end = start
+        .checked_add(page_size)
+        .ok_or("Dataset partition page offset overflow")?
+        .min(fragments.len());
+    Ok((&fragments[start..end], end < fragments.len()))
 }
 
 pub(crate) async fn select(
@@ -132,15 +152,26 @@ pub(crate) async fn select(
     dataset: &Dataset,
     partition: &Partition,
 ) -> Result<Fragment, String> {
+    let reference = partition.accepted_snapshot.as_ref().ok_or("Scan partition lacks accepted membership")?;
+    managed::validate(reference, uri, version)?;
+    storage.require_binding(reference.catalog.as_ref().unwrap(), &reference.tenant_id)?;
+    if dataset.version().version != reference.version || dataset.manifest().tag.as_ref() != Some(&reference.membership_id) {
+        return Err("Reader Dataset differs from accepted membership".into());
+    }
+    select_manifest_fragment(dataset, reference.version,
+        &reference.manifest_sha256.as_ref().unwrap().digest, partition)
+}
+
+/// Physical SDK metadata validation after the caller has established snapshot authority.
+/// This function cannot open a Dataset or establish accepted source membership.
+pub(crate) fn select_manifest_fragment(dataset: &Dataset, version: u64, manifest_digest: &[u8],
+        partition: &Partition) -> Result<Fragment, String> {
+    if dataset.version().version != version {
+        return Err("Dataset version differs from its pinned manifest".into());
+    }
     let schema: Schema = dataset.schema().into();
-    require_checksum(
-        partition.physical_schema_sha256.as_ref(),
-        &canonical_schema_fingerprint(&schema),
-    )?;
-    require_checksum(
-        partition.manifest_sha256.as_ref(),
-        &committed_manifest_digest(storage, uri, version).await?,
-    )?;
+    require_checksum(partition.physical_schema_sha256.as_ref(), &canonical_schema_fingerprint(&schema))?;
+    require_checksum(partition.manifest_sha256.as_ref(), manifest_digest)?;
     let mut matches = dataset
         .manifest()
         .fragments
@@ -158,3 +189,38 @@ pub(crate) async fn select(
     }
     Ok(fragment.clone())
 }
+
+/// Starts the single physical partition scanner used by the accepted reader.
+/// Snapshot identity and catalog authorization remain the caller's mandatory admission.
+pub(crate) async fn start_dataset_scan(dataset: &Dataset, partition: &Fragment,
+        columns: Option<&[String]>) -> Result<BatchStream, String> {
+    let mut scanner = dataset.scan();
+    scanner.with_fragments(vec![partition.clone()]);
+    if crate::scan_identity::requested(columns) {
+        let schema: Schema = dataset.schema().into();
+        if schema.index_of(crate::scan_identity::POSITION).is_ok()
+                || schema.index_of(lance_core::ROW_ADDR).is_ok() {
+            return Err("Dataset schema collides with reserved physical identity metadata".into());
+        }
+        scanner.with_row_address().scan_in_order(true).use_scalar_index(false);
+    }
+    if let Some(columns) = columns {
+        let projected: Vec<&str> = columns.iter()
+            .filter(|column| column.as_str() != crate::scan_identity::POSITION)
+            .map(String::as_str).collect();
+        scanner.project(&projected).map_err(|error| format!("projection error: {error}"))?;
+    }
+    scanner.batch_size(8192);
+    scanner.try_into_stream().await.map(|stream| stream.boxed())
+        .map_err(|error| format!("scan error: {error}"))
+}
+
+/// Shares Arrow buffers while preserving the caller's current batch limit and remainder.
+pub(crate) fn bounded_batch(batch: RecordBatch, requested: usize) -> (RecordBatch, Option<RecordBatch>) {
+    let returned = batch.num_rows().min(requested);
+    let remainder = (returned < batch.num_rows()).then(|| batch.slice(returned, batch.num_rows() - returned));
+    (batch.slice(0, returned), remainder)
+}
+
+#[cfg(test)]
+mod tests;

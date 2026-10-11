@@ -22,8 +22,12 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
     private boolean finalized;
 
     AiPhysicalInvocationAdmission(
-            AiTaskBudget task, AiTaskBudget.Binding budgets, AiModelBudgetRegistry.Lease model,
-            AiInvocationReservation reservation, AiRequestConstraints constraints, Instant deadline,
+            AiTaskBudget task,
+            AiTaskBudget.Binding budgets,
+            AiModelBudgetRegistry.Lease model,
+            AiInvocationReservation reservation,
+            AiRequestConstraints constraints,
+            Instant deadline,
             Runnable onFinalized) {
         this.task = task;
         this.budgets = budgets;
@@ -36,14 +40,22 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
 
     AiProviderCallContext.PhysicalAttempt openAttempt(long requestBytes) {
         constraints.requireRequestBytes(requestBytes);
-        synchronized (this) { requireOpen(); }
-        AiInvocationPermits permits = AiInvocationPermits.acquire(
-                task, deadline, task.concurrency, budgets.operator().concurrency, model.concurrency());
+        synchronized (this) {
+            requireOpen();
+        }
+        AiInvocationPermits permits =
+                AiInvocationPermits.acquire(
+                        task,
+                        deadline,
+                        task.concurrency,
+                        budgets.operator().concurrency,
+                        model.concurrency());
         try {
             synchronized (this) {
                 requireOpen();
                 if (attempts >= reservation.maxAttempts()) {
-                    throw budgetExceeded("AI provider exceeded its exact invocation retry envelope");
+                    throw budgetExceeded(
+                            "AI provider exceeded its exact invocation retry envelope");
                 }
                 task.chargeAttempt(budgets, requestBytes, reservation, attempts == 0);
                 attempts++;
@@ -56,14 +68,19 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
         }
     }
 
-    synchronized long physicalAttempts() { return attempts; }
+    synchronized long physicalAttempts() {
+        return attempts;
+    }
 
     private void requireOpen() {
-        if (closed) { throw budgetExceeded("AI provider invocation is closed"); }
+        if (closed) {
+            throw budgetExceeded("AI provider invocation is closed");
+        }
         task.requireActive();
     }
 
-    @Override public synchronized void close() {
+    @Override
+    public synchronized void close() {
         closed = true;
         finalizeIfIdle();
     }
@@ -71,10 +88,14 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
     private void finalizeIfIdle() {
         if (closed && liveAttempts == 0 && !finalized) {
             finalized = true;
-            try { task.finishLogical(budgets, reservation, attempts != 0); }
-            finally {
-                try { model.close(); }
-                finally { onFinalized.run(); }
+            try {
+                task.finishLogical(budgets, reservation, attempts != 0);
+            } finally {
+                try {
+                    model.close();
+                } finally {
+                    onFinalized.run();
+                }
             }
         }
     }
@@ -84,10 +105,15 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
         private long responseBytes;
         private boolean finished;
 
-        Attempt(AiInvocationPermits permits) { this.permits = permits; }
+        Attempt(AiInvocationPermits permits) {
+            this.permits = permits;
+        }
 
-        @Override public synchronized void acceptResponseBytes(long bytes) {
-            if (finished) { throw new IllegalStateException("AI transport attempt is closed"); }
+        @Override
+        public synchronized void acceptResponseBytes(long bytes) {
+            if (finished) {
+                throw new IllegalStateException("AI transport attempt is closed");
+            }
             task.observeResponseBytes(bytes);
             if (bytes < 0 || bytes > constraints.maxResponseBytes() - responseBytes) {
                 throw budgetExceeded("AI response body exceeds its exact request constraints");
@@ -96,7 +122,8 @@ final class AiPhysicalInvocationAdmission implements AutoCloseable {
             responseBytes += bytes;
         }
 
-        @Override public synchronized void close() {
+        @Override
+        public synchronized void close() {
             if (!finished) {
                 finished = true;
                 permits.close();

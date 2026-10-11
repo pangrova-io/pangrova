@@ -44,8 +44,12 @@ final class FragmentSourceParallelism {
 
     private static boolean hasUnknownSourceCardinality(RelNode node) {
         if (node instanceof TableScan scan) {
-            var table = scan.getTable().unwrap(org.apache.calcite.schema.Table.class);
-            if (table == null || table.getStatistic().getRowCount() == null) return true;
+            var relTable = scan.getTable();
+            if (relTable == null) return true;
+            var table = relTable.unwrap(org.apache.calcite.schema.Table.class);
+            if (table == null) return true;
+            var statistic = table.getStatistic();
+            if (statistic == null || statistic.getRowCount() == null) return true;
         }
         return node.getInputs().stream().anyMatch(FragmentSourceParallelism::hasUnknownSourceCardinality);
     }

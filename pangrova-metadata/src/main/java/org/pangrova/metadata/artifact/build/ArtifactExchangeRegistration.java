@@ -13,9 +13,16 @@ public record ArtifactExchangeRegistration(
         long planEpoch, String graphSha256, String stagePlanSha256, String sourceSnapshot,
         int producerCount, String producerSetSha256, int partitionCount,
         List<Endpoint> endpoints, Address commitAddress, ArtifactExecutionOwner registeredOwner) {
+    private static final int MAX_PORT = 65535;
+
     public ArtifactExchangeRegistration {
-        requireText(exchangeId); requireText(executionId); requireText(shuffleId); requireText(sourceSnapshot);
-        requireSha256(graphSha256); requireSha256(stagePlanSha256); requireSha256(producerSetSha256);
+        requireText(exchangeId);
+        requireText(executionId);
+        requireText(shuffleId);
+        requireText(sourceSnapshot);
+        requireSha256(graphSha256);
+        requireSha256(stagePlanSha256);
+        requireSha256(producerSetSha256);
         Objects.requireNonNull(commitAddress, "commitAddress");
         Objects.requireNonNull(registeredOwner, "registeredOwner");
         if (producerStageId < 0 || planEpoch <= 0 || producerCount <= 0 || partitionCount <= 0) {
@@ -36,7 +43,7 @@ public record ArtifactExchangeRegistration(
         public Address {
             requireText(host);
             Objects.requireNonNull(tlsIdentity, "tlsIdentity");
-            if (port <= 0 || port > 65535) throw new IllegalArgumentException("Invalid exchange port");
+            if (port <= 0 || port > MAX_PORT) throw new IllegalArgumentException("Invalid exchange port");
         }
     }
 
@@ -58,7 +65,7 @@ public record ArtifactExchangeRegistration(
 
     static byte[] encode(Object value) {
         try {
-            return MetadataJsonMapper.instance().writeValueAsBytes(value);
+            return MetadataJsonMapper.writeValueAsBytes(value);
         } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
             throw new IllegalStateException("Cannot encode durable exchange evidence", failure);
         }
@@ -67,11 +74,11 @@ public record ArtifactExchangeRegistration(
     static <T> T decode(byte[] bytes, String sha256, Class<T> type) {
         requireSha256(sha256);
         if (bytes == null || bytes.length == 0 || bytes.length > 16 * 1024 * 1024
-                || !DigestUtils.sha256Hex(bytes).equals(sha256)) {
+                || !DigestUtils.matchesSha256(bytes, sha256)) {
             throw new IllegalArgumentException("Durable exchange evidence checksum or size is invalid");
         }
         try {
-            T value = MetadataJsonMapper.instance().readValue(bytes, type);
+            T value = MetadataJsonMapper.readValue(bytes, type);
             if (!java.util.Arrays.equals(bytes, encode(value))) {
                 throw new IllegalArgumentException("Durable exchange evidence is not canonical");
             }

@@ -196,7 +196,7 @@ VeloxPlanConverter::convertExtensionSingleRel(
     }
     if (envelope.has_retrieval_source()) {
       return convertTopKRetrieval(
-          envelope.retrieval_source(), input, input_type);
+          envelope.retrieval_source(), input, input_type, *effective_splits);
     }
     if (envelope.has_retrieval_merge()) {
       if (!isCompleteSingletonExchangeInput(ext_rel.input())) {

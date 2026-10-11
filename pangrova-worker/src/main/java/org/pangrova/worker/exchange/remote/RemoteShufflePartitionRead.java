@@ -1,28 +1,35 @@
 package org.pangrova.worker.exchange.remote;
 
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.ArrayDeque;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.CancellationException;
 
 import io.grpc.stub.ClientCallStreamObserver;
 import io.grpc.stub.ClientResponseObserver;
+import org.pangrova.common.concurrent.GuardedBy;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionRequest;
 import org.pangrova.protocol.v2.shuffle.ShuffleServiceGrpc;
 
 /** Bounded, demand-driven, cancellable external-shuffle partition stream. */
+@ThreadSafe
 public final class RemoteShufflePartitionRead implements AutoCloseable {
 
-    private static final Object COMPLETED = new Object();
-    private static final Object REVOKED = new Object();
-    private final BlockingQueue<Object> events = new ArrayBlockingQueue<>(2);
+    private static final int MAX_BUFFERED_FRAMES = 2;
+    private static final int RPC_EXIT_TIMEOUT_SECONDS = 5;
+    private final Object readState = new Object();
+    @GuardedBy("readState")
+    private final ArrayDeque<ReadBatchResponse> frames = new ArrayDeque<>(MAX_BUFFERED_FRAMES);
     private final CountDownLatch rpcExited = new CountDownLatch(1);
     private volatile ClientCallStreamObserver<ReadPartitionRequest> call;
-    private volatile boolean closed;
-    private volatile boolean completed;
-    private volatile Throwable terminalError;
+    @GuardedBy("readState")
+    private boolean closed;
+    @GuardedBy("readState")
+    private boolean completed;
+    @GuardedBy("readState")
+    private Throwable terminalError;
 
     RemoteShufflePartitionRead(
             ShuffleServiceGrpc.ShuffleServiceStub stub,
@@ -32,64 +39,75 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
 
     /** Returns the next frame, or {@code null} after clean RPC completion. */
     public ReadBatchResponse next() {
-        if (closed && !completed) {
-            throw readFailure();
-        }
-        if (events.isEmpty() && terminalError != null) {
-            throw new RemoteShuffleClientException(
-                    "External shuffle read failed", terminalError);
-        }
-        if (events.isEmpty() && completed) {
-            return null;
-        }
-        final Object event;
+        final ReadBatchResponse frame;
         try {
-            event = events.take();
+            frame = awaitFrame();
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             revoke();
             throw new RemoteShuffleClientException(
                     "External shuffle read interrupted", failure);
         }
-        if (event == REVOKED || (closed && !completed)) {
-            throw readFailure();
+        if (frame != null) {
+            ClientCallStreamObserver<ReadPartitionRequest> activeCall = call;
+            if (activeCall != null && acceptsFrames()) {
+                activeCall.request(1);
+            }
         }
-        if (event == COMPLETED) {
-            return null;
+        return frame;
+    }
+
+    private ReadBatchResponse awaitFrame() throws InterruptedException {
+        synchronized (readState) {
+            while (frames.isEmpty() && !closed && !completed) {
+                readState.wait();
+            }
+            if (closed) {
+                throw readFailure();
+            }
+            return frames.pollFirst();
         }
-        if (event instanceof Throwable failure) {
-            throw new RemoteShuffleClientException(
-                    "External shuffle read failed", failure);
+    }
+
+    private boolean acceptsFrames() {
+        synchronized (readState) {
+            return !closed && !completed;
         }
-        ClientCallStreamObserver<ReadPartitionRequest> activeCall = call;
-        if (activeCall != null && !closed) {
-            activeCall.request(1);
-        }
-        return (ReadBatchResponse) event;
     }
 
     @Override
     public void close() {
         revoke();
         awaitRpcExit();
-        events.clear();
+        synchronized (readState) {
+            frames.clear();
+            readState.notifyAll();
+        }
     }
 
     /** Revokes inbound ownership immediately; cancellation is never clean EOF. */
     public void revoke() {
-        if (completed) return;
-        closed = true;
+        synchronized (readState) {
+            if (completed) {
+                return;
+            }
+            closed = true;
+            frames.clear();
+            readState.notifyAll();
+        }
+        cancelCall();
+    }
+
+    private void cancelCall() {
         ClientCallStreamObserver<ReadPartitionRequest> activeCall = call;
         if (activeCall != null) {
             activeCall.cancel("external shuffle consumer closed", null);
         }
-        events.clear();
-        events.offer(REVOKED);
     }
 
     private void awaitRpcExit() {
         try {
-            if (!rpcExited.await(5, TimeUnit.SECONDS)) {
+            if (!rpcExited.await(RPC_EXIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 throw new RemoteShuffleClientException(
                         "External shuffle RPC did not reach its terminal callback");
             }
@@ -100,6 +118,7 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
         }
     }
 
+    @GuardedBy("readState")
     private RemoteShuffleClientException readFailure() {
         return new RemoteShuffleClientException("External shuffle read failed",
                 terminalError == null
@@ -113,27 +132,40 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
         @Override
         public void beforeStart(
                 ClientCallStreamObserver<ReadPartitionRequest> requestStream) {
-            call = requestStream;
             requestStream.disableAutoRequestWithInitial(1);
-            if (closed) {
+            final boolean revoked;
+            synchronized (readState) {
+                call = requestStream;
+                revoked = closed;
+            }
+            if (revoked) {
                 requestStream.cancel("external shuffle consumer already closed", null);
             }
         }
 
         @Override
         public void onNext(ReadBatchResponse value) {
-            if (closed) return;
-            if (!events.offer(value)) {
-                closeWithFailure(new IllegalStateException(
+            synchronized (readState) {
+                if (closed || completed) {
+                    return;
+                }
+                if (frames.size() < MAX_BUFFERED_FRAMES) {
+                    frames.addLast(value);
+                    readState.notifyAll();
+                    return;
+                }
+                failRead(new IllegalStateException(
                         "external shuffle server violated inbound flow control"));
-                revoke();
             }
+            cancelCall();
         }
 
         @Override
         public void onError(Throwable failure) {
             try {
-                closeWithFailure(failure);
+                synchronized (readState) {
+                    failRead(failure);
+                }
             } finally {
                 rpcExited.countDown();
             }
@@ -142,19 +174,23 @@ public final class RemoteShufflePartitionRead implements AutoCloseable {
         @Override
         public void onCompleted() {
             try {
-                if (!closed) {
-                    completed = true;
-                    events.offer(COMPLETED);
+                synchronized (readState) {
+                    if (!closed) {
+                        completed = true;
+                    }
+                    readState.notifyAll();
                 }
             } finally {
                 rpcExited.countDown();
             }
         }
+    }
 
-        private void closeWithFailure(Throwable failure) {
-            terminalError = failure;
-            closed = true;
-            events.offer(failure);
-        }
+    @GuardedBy("readState")
+    private void failRead(Throwable failure) {
+        terminalError = failure;
+        closed = true;
+        frames.clear();
+        readState.notifyAll();
     }
 }

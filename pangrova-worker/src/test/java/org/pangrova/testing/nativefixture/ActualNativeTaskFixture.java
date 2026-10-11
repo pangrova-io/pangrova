@@ -53,11 +53,17 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     private final ResultReadTickets tickets;
 
     public ActualNativeTaskFixture() {
+        this(NativeFunctionConfig.DISABLED);
+    }
+
+    /** Uses the production registration lifecycle for the supplied real deployment. */
+    public ActualNativeTaskFixture(NativeFunctionConfig functionConfig) {
+        java.util.Objects.requireNonNull(functionConfig, "functionConfig");
         if (NativeRuntime.isInitialized()) {
             throw new IllegalStateException("A different fixture still owns the Native runtime");
         }
         var config = TestShuffleServiceConfig.config(WorkerBootstrapConfig.withDefaults("actual-jni-fixture"));
-        var endpoints = initializeRuntime(config);
+        var endpoints = initializeRuntime(config, functionConfig);
         executor = endpoints.executor();
         results = endpoints.results();
         exchange = endpoints.exchange();
@@ -65,7 +71,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
         transports = new TransportRefs(new NativeShuffleTransport(executor, "127.0.0.1", ""), results, exchange);
     }
 
-    private Endpoints initializeRuntime(WorkerBootstrapConfig config) {
+    private Endpoints initializeRuntime(WorkerBootstrapConfig config, NativeFunctionConfig functionConfig) {
         NativeTaskExecutor startingExecutor = null;
         NativeResultTransport startingResults = null;
         NativeExchangeTransport startingExchange = null;
@@ -73,8 +79,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
             nativeRefs.setMemoryArbitrator(arbitrator);
             nativeRefs.setNodeMemoryPool(nodePool);
             NativeRuntimeBootstrap.initialize(config, nativeRefs, NativeCacheConfig.DISABLED);
-            // This fixture owns core functions only, but still performs the real startup publication.
-            NativeFunctionBootstrap.initialize(nativeRefs, NativeFunctionConfig.DISABLED);
+            NativeFunctionBootstrap.initialize(nativeRefs, functionConfig);
             startingExecutor = new NativeTaskExecutor();
             var resultTickets = initializeTickets();
             startingResults = new NativeResultTransport(startingExecutor, "127.0.0.1");
@@ -116,6 +121,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
     public NodeMemoryPool nodePool() { return nodePool; }
     public TransportRefs transports() { return transports; }
     public int resultPort() { return results.boundPort(); }
+    public ResultReadTickets resultTickets() { return tickets; }
     public String resultTicket(TaskRequest request) { return tickets.issue(request); }
 
     /** Uses the authoritative generated Substrait payload, not a synthetic plan decoder. */

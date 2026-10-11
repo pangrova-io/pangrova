@@ -41,17 +41,28 @@ final class AiTaskBudget {
         this.context = context;
         this.deadlineEpochMs = context.deadlineEpochMs();
         this.concurrency = new Semaphore(context.maxProviderConcurrency(), true);
-        this.resources = new AiResourceLedger(new AiResourceAmounts(
-                context.maxProviderItems(), context.maxProviderAttempts(), context.maxProviderRequestBytes(),
-                context.maxProviderResponseBytes(), context.maxMediaBytes()));
-        this.admittedBindings = admittedBindings.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                OperatorBinding::getPlanNodeId, java.util.function.Function.identity()));
+        this.resources =
+                new AiResourceLedger(
+                        new AiResourceAmounts(
+                                context.maxProviderItems(),
+                                context.maxProviderAttempts(),
+                                context.maxProviderRequestBytes(),
+                                context.maxProviderResponseBytes(),
+                                context.maxMediaBytes()));
+        this.admittedBindings =
+                admittedBindings.stream()
+                        .collect(
+                                java.util.stream.Collectors.toUnmodifiableMap(
+                                        OperatorBinding::getPlanNodeId,
+                                        java.util.function.Function.identity()));
     }
 
     synchronized OperatorBinding admittedBinding(String invocationId) {
         requireActive();
         OperatorBinding binding = admittedBindings.get(invocationId);
-        if (binding == null) { throw authorization("AI invocation has no admitted canonical OperatorBinding"); }
+        if (binding == null) {
+            throw authorization("AI invocation has no admitted canonical OperatorBinding");
+        }
         return binding;
     }
 
@@ -62,21 +73,34 @@ final class AiTaskBudget {
     }
 
     synchronized Binding reserveLogical(
-            BoundAiInvocation binding, AiInvocationRequest request,
-            AiCapabilityDescriptor capability, AiInvocationReservation reservation) {
+            BoundAiInvocation binding,
+            AiInvocationRequest request,
+            AiCapabilityDescriptor capability,
+            AiInvocationReservation reservation) {
         requireActive();
         if (!org.pangrova.worker.ai.context.GovernedAiBindings.fromAdmitted(
-                admittedBinding(binding.invocationId())).equals(binding)) {
-            throw authorization("AI callback binding differs from the actual admitted OperatorBinding");
+                        admittedBinding(binding.invocationId()))
+                .equals(binding)) {
+            throw authorization(
+                    "AI callback binding differs from the actual admitted OperatorBinding");
         }
-        OperatorBudget operator = operators.computeIfAbsent(binding.invocationId(), ignored -> new OperatorBudget(binding));
+        OperatorBudget operator =
+                operators.computeIfAbsent(
+                        binding.invocationId(), ignored -> new OperatorBudget(binding));
         operator.requireSameBinding(binding);
-        ModelKey key = new ModelKey(request.modelName(), request.modelVersion(),
-                HexFormat.of().formatHex(request.modelSignatureSha256()), capability.capabilityId());
-        ModelTaskBudget model = models.computeIfAbsent(key, ignored -> new ModelTaskBudget(capability.resourceLimits()));
+        ModelKey key =
+                new ModelKey(
+                        request.modelName(),
+                        request.modelVersion(),
+                        HexFormat.of().formatHex(request.modelSignatureSha256()),
+                        capability.capabilityId());
+        ModelTaskBudget model =
+                models.computeIfAbsent(
+                        key, ignored -> new ModelTaskBudget(capability.resourceLimits()));
         model.requireSameLimits(capability.resourceLimits());
         Binding budgets = new Binding(operator, model);
-        AiResourceAmounts charge = new AiResourceAmounts(reservation.items(), 0, 0, 0, reservation.mediaBytes());
+        AiResourceAmounts charge =
+                new AiResourceAmounts(reservation.items(), 0, 0, 0, reservation.mediaBytes());
         debit(budgets, charge);
         reservedItems = Math.addExact(reservedItems, charge.items());
         reservedMediaBytes = Math.addExact(reservedMediaBytes, charge.mediaBytes());
@@ -85,7 +109,10 @@ final class AiTaskBudget {
     }
 
     synchronized void chargeAttempt(
-            Binding budgets, long requestBytes, AiInvocationReservation reservation, boolean first) {
+            Binding budgets,
+            long requestBytes,
+            AiInvocationReservation reservation,
+            boolean first) {
         requireActive();
         debit(budgets, new AiResourceAmounts(0, 1, requestBytes, 0, 0));
         providerAttempts++;
@@ -99,8 +126,21 @@ final class AiTaskBudget {
     }
 
     synchronized void observeResponseBytes(long bytes) {
-        if (bytes < 0) { throw new IllegalArgumentException("response bytes must not be negative"); }
+        if (bytes < 0) {
+            throw new IllegalArgumentException("response bytes must not be negative");
+        }
         observedProviderResponseBytes = Math.addExact(observedProviderResponseBytes, bytes);
+    }
+
+    /** Charges a governed FILE publication against the exact task's shared media grant. */
+    synchronized void chargeGovernedFileBytes(long bytes) {
+        requireActive();
+        if (bytes < 0) {
+            throw new IllegalArgumentException("FILE media bytes must not be negative");
+        }
+        long next = Math.addExact(mediaBytes, bytes);
+        resources.debit(new AiResourceAmounts(0, 0, 0, 0, bytes));
+        mediaBytes = next;
     }
 
     synchronized void retainResponseBytes(Binding budgets, long bytes) {
@@ -109,8 +149,10 @@ final class AiTaskBudget {
         providerResponseBytes = Math.addExact(providerResponseBytes, bytes);
     }
 
-    synchronized void finishLogical(Binding budgets, AiInvocationReservation reservation, boolean sent) {
-        AiResourceAmounts charge = new AiResourceAmounts(reservation.items(), 0, 0, 0, reservation.mediaBytes());
+    synchronized void finishLogical(
+            Binding budgets, AiInvocationReservation reservation, boolean sent) {
+        AiResourceAmounts charge =
+                new AiResourceAmounts(reservation.items(), 0, 0, 0, reservation.mediaBytes());
         if (!sent) {
             reservedItems -= charge.items();
             reservedMediaBytes -= charge.mediaBytes();
@@ -133,13 +175,20 @@ final class AiTaskBudget {
     }
 
     synchronized ResourceUsage usage() {
-        return ResourceUsage.newBuilder().setProviderItems(providerItems)
-                .setProviderAttempts(providerAttempts).setProviderRequestBytes(providerRequestBytes)
+        return ResourceUsage.newBuilder()
+                .setProviderItems(providerItems)
+                .setProviderAttempts(providerAttempts)
+                .setProviderRequestBytes(providerRequestBytes)
                 .setProviderResponseBytes(providerResponseBytes)
-                .setObservedProviderResponseBytes(observedProviderResponseBytes).setMediaBytes(mediaBytes).build();
+                .setObservedProviderResponseBytes(observedProviderResponseBytes)
+                .setMediaBytes(mediaBytes)
+                .build();
     }
 
-    synchronized boolean isIdle() { return activeAdmissions == 0; }
+    synchronized boolean isIdle() {
+        return activeAdmissions == 0;
+    }
+
     synchronized void revoke() {
         revoked = true;
         permitWaiters.forEach(Thread::interrupt);
@@ -150,7 +199,9 @@ final class AiTaskBudget {
         retired = true;
     }
 
-    synchronized boolean isTerminated() { return retired; }
+    synchronized boolean isTerminated() {
+        return retired;
+    }
 
     synchronized PermitWaiter registerPermitWaiter() {
         requireActive();
@@ -163,25 +214,33 @@ final class AiTaskBudget {
 
     synchronized void requireActive() {
         if (revoked) {
-            throw authorization("AI task attempt was revoked or released before provider admission");
+            throw authorization(
+                    "AI task attempt was revoked or released before provider admission");
         }
     }
 
     final class PermitWaiter implements AutoCloseable {
         private final Thread thread;
 
-        private PermitWaiter(Thread thread) { this.thread = thread; }
+        private PermitWaiter(Thread thread) {
+            this.thread = thread;
+        }
 
-        @Override public void close() {
-            synchronized (AiTaskBudget.this) { permitWaiters.remove(thread); }
+        @Override
+        public void close() {
+            synchronized (AiTaskBudget.this) {
+                permitWaiters.remove(thread);
+            }
         }
     }
 
     private static AiInvocationException authorization(String message) {
-        return new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false, message);
+        return new AiInvocationException(
+                AiInvocationException.Category.AUTHORIZATION, false, message);
     }
 
     record Binding(OperatorBudget operator, ModelTaskBudget model) {}
+
     private record ModelKey(String name, String version, String signature, String capability) {}
 
     static final class OperatorBudget {
@@ -192,14 +251,20 @@ final class AiTaskBudget {
         OperatorBudget(BoundAiInvocation binding) {
             this.binding = binding;
             this.concurrency = new Semaphore(binding.maxProviderConcurrency(), true);
-            this.resources = new AiResourceLedger(new AiResourceAmounts(
-                    binding.maxProviderItems(), binding.maxProviderAttempts(), binding.maxProviderRequestBytes(),
-                    binding.maxProviderResponseBytes(), binding.maxMediaBytes()));
+            this.resources =
+                    new AiResourceLedger(
+                            new AiResourceAmounts(
+                                    binding.maxProviderItems(),
+                                    binding.maxProviderAttempts(),
+                                    binding.maxProviderRequestBytes(),
+                                    binding.maxProviderResponseBytes(),
+                                    binding.maxMediaBytes()));
         }
 
         void requireSameBinding(BoundAiInvocation expected) {
             if (!binding.equals(expected)) {
-                throw authorization("AI operator identity was reused with a different exact binding");
+                throw authorization(
+                        "AI operator identity was reused with a different exact binding");
             }
         }
     }
@@ -210,14 +275,20 @@ final class AiTaskBudget {
 
         ModelTaskBudget(AiCapabilityDescriptor.ResourceLimits limits) {
             this.limits = limits;
-            this.resources = new AiResourceLedger(new AiResourceAmounts(
-                    limits.maxProviderItemsPerTask(), limits.maxProviderAttemptsPerTask(),
-                    Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE));
+            this.resources =
+                    new AiResourceLedger(
+                            new AiResourceAmounts(
+                                    limits.maxProviderItemsPerTask(),
+                                    limits.maxProviderAttemptsPerTask(),
+                                    Long.MAX_VALUE,
+                                    Long.MAX_VALUE,
+                                    Long.MAX_VALUE));
         }
 
         void requireSameLimits(AiCapabilityDescriptor.ResourceLimits expected) {
             if (!limits.equals(expected)) {
-                throw authorization("Exact model capability changed its resource limits within a task attempt");
+                throw authorization(
+                        "Exact model capability changed its resource limits within a task attempt");
             }
         }
     }

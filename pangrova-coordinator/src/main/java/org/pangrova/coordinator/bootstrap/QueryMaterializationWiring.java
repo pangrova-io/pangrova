@@ -20,7 +20,6 @@ import org.pangrova.spi.security.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Set;
 import java.util.function.Function;
 
 /** Wires durable generated-value and feature-view materialization services. */
@@ -35,8 +34,12 @@ final class QueryMaterializationWiring {
     }
 
     GeneratedValueMaterializationCoordinator createGeneratedValue(CatalogRegistry catalog) {
+        IndexingBootstrap indexing = dependencies.moduleWiring() == null
+                ? null : dependencies.moduleWiring().getIndexingBootstrap();
         if (catalog == null || dependencies.metadataDataSource() == null
-                || dependencies.artifactBuildStore() == null) {
+                || dependencies.artifactBuildStore() == null || indexing == null) {
+            LOG.info("event=generated_value_materialization_inactive "
+                    + "reason=durable_commit_processor_unavailable");
             return null;
         }
         var metadataStore = new JdbcGeneratedValueArtifactPublicationStore(
@@ -48,10 +51,7 @@ final class QueryMaterializationWiring {
         var coordinator = new GeneratedValueMaterializationCoordinator(catalog, service,
                 dependencies.metadataDataSource(), new org.pangrova.metadata.coordination.JdbcWriteCommitJournal(
                         dependencies.metadataDataSource()));
-        IndexingBootstrap indexing = dependencies.moduleWiring() == null
-                ? null : dependencies.moduleWiring().getIndexingBootstrap();
-        Set<String> registeredCatalogs = indexing == null
-                ? inactiveGeneratedValues() : indexing.registerDurableCommitProcessor(coordinator);
+        var registeredCatalogs = indexing.registerDurableCommitProcessor(coordinator);
         coordinator.activateCatalogs(registeredCatalogs);
         LOG.info("event=generated_value_materialization_wired catalogs={}", registeredCatalogs);
         return coordinator;
@@ -88,12 +88,6 @@ final class QueryMaterializationWiring {
                 dependencies.workerManager(), dependencies.taskScheduler(),
                 dependencies.splitAssignmentManager(), dependencies.config().spillBudget(),
                 dependencies.embeddingModelRegistry());
-    }
-
-    private static Set<String> inactiveGeneratedValues() {
-        LOG.warn("event=generated_value_materialization_inactive "
-                + "reason=durable_commit_log_unavailable");
-        return Set.of();
     }
 
     record Dependencies(

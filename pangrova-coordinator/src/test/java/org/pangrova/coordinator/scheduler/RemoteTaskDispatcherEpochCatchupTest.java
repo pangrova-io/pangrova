@@ -21,7 +21,6 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.worker.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.observability.noop.NoOpTracingProvider;
-import org.pangrova.protocol.rest.query.ResultEndpoint;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.SubmitTaskResponse;
@@ -91,8 +90,7 @@ class RemoteTaskDispatcherEpochCatchupTest {
                 return new Reply(425, "epoch ahead");
             }
             second.set(body);
-            var accepted = new SubmitTaskResponse(true, null, "task-epoch",
-                    new ResultEndpoint("127.0.0.1", 1, "ticket", "ARROW_FLIGHT"), null);
+            var accepted = new SubmitTaskResponse(true, null, "task-epoch", null, null);
             return new Reply(200, JsonMapperFactory.shared().writeValueAsString(accepted));
         });
         try (RemoteTaskDispatcher dispatcher = dispatcher(new AtomicLong(2))) {

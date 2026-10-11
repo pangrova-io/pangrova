@@ -14,9 +14,12 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "resource/OwnerMemoryResource.h"
 
 namespace pangrova::vector::diskann {
 
@@ -52,6 +55,12 @@ struct SearchResult {
   float distance;
 };
 
+/** Actual graph work, independent of the number of SQL result rows. */
+struct GraphTraversalStats {
+  uint64_t expanded = 0;
+  bool frontier_exhausted = false;
+};
+
 class VamanaIndex {
  public:
   VamanaIndex(VamanaConfig config, std::string indexPath);
@@ -67,6 +76,20 @@ class VamanaIndex {
       int64_t topK,
       int64_t beamWidth = 0,
       int64_t searchListSize = 0) const;
+
+  /**
+   * Visits nodes in the genuine PQ-guided graph walk. The visitor decides
+   * candidate eligibility; ineligible nodes still expose their neighbors.
+   * Both frontier and visited allocations belong to the caller's resource.
+   * checkpoint must propagate cancellation/deadline failures; neither this
+   * function nor its callers may switch to another execution plan.
+   */
+  GraphTraversalStats traverse(
+      const float* query,
+      uint64_t max_expanded,
+      pangrova::resource::OwnerMemoryResource& resource,
+      const std::function<void()>& checkpoint,
+      const std::function<void(int64_t, float)>& visitor) const;
 
   /** Reads the immutable graph's declared process-resident footprint. */
   static std::optional<uint64_t> residentBytesFromDisk(

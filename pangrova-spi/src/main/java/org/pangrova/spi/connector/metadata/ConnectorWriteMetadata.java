@@ -163,6 +163,16 @@ public interface ConnectorWriteMetadata {
     }
 
     /**
+     * Installs a durable abort barrier for the exact journaled intent. Returning proves
+     * that this intent can never become visible; it does not authorize object deletion.
+     */
+    default DistributedWriteAbortReceipt abortDistributedWrite(ConnectorSession session,
+            ConnectorOutputTableHandle outputHandle, java.util.List<byte[]> fragments,
+            DistributedWriteCommitContext context) {
+        throw new UnsupportedOperationException("Durable distributed write abort is not implemented");
+    }
+
+    /**
      * A-COMMIT-01: reconstructs a distributed-write output handle for {@code tableName} from the
      * live table metadata, so a coordinator recovering a {@code PENDING} write intent can re-drive
      * {@link #finishDistributedWrite} without the original in-memory handle (which died with the

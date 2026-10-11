@@ -90,6 +90,7 @@ substrait::Rel exactTopKRelation() {
   detail->set_plan_node_id("retrieval-source-1");
   detail->set_source_id("vector-exact-1");
   detail->set_candidate_limit(7);
+  detail->set_output_limit(7);
   *detail->mutable_invocation()->mutable_capability() =
       pangrova::capability::exactTopKRetrievalDescriptor().ref();
 
@@ -105,6 +106,7 @@ substrait::Rel exactTopKRelation() {
   auto* contract = detail->mutable_output_contract();
   contract->set_schema_version(
       pangrova::capability::kRetrievalCandidateSchemaVersion);
+  contract->set_identity_kind(pangrova::protocol::v2::CANDIDATE_IDENTITY_KIND_VALUE_FIELDS);
   contract->set_score_direction(
       pangrova::protocol::v2::SCORE_DIRECTION_LOWER_IS_BETTER);
   contract->add_stable_key_fields("id");
@@ -166,6 +168,7 @@ substrait::Rel retrievalMergeRelation(bool linear = false) {
                               pangrova::protocol::v2::ScoreDirection direction) {
     contract->set_schema_version(
         pangrova::capability::kRetrievalCandidateSchemaVersion);
+  contract->set_identity_kind(pangrova::protocol::v2::CANDIDATE_IDENTITY_KIND_VALUE_FIELDS);
     contract->set_score_direction(direction);
     contract->add_stable_key_fields("id");
     addI64Column(contract->mutable_schema(), "id");
@@ -219,6 +222,7 @@ substrait::Rel rerankRelation() {
   auto* contract = detail->mutable_output_contract();
   contract->set_schema_version(
       pangrova::capability::kRetrievalCandidateSchemaVersion);
+  contract->set_identity_kind(pangrova::protocol::v2::CANDIDATE_IDENTITY_KIND_VALUE_FIELDS);
   contract->set_score_direction(
       pangrova::protocol::v2::SCORE_DIRECTION_HIGHER_IS_BETTER);
   contract->add_stable_key_fields("id");
@@ -536,6 +540,37 @@ TEST(TypedRetrievalPlanConversionTest, UnknownOptionFailsClosed) {
   EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
 }
 
+TEST(TypedRetrievalPlanConversionTest, CandidateEpochAndIdentityCannotBeImplicitOrDowngraded) {
+  for (const uint32_t version : {0U, 1U, 3U}) {
+    auto rel = exactTopKRelation();
+    pangrova::protocol::v2::RelationDetailEnvelope envelope;
+    ASSERT_TRUE(rel.extension_single().detail().UnpackTo(&envelope));
+    envelope.mutable_retrieval_source()->mutable_output_contract()->set_schema_version(version);
+    rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
+    VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+    EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
+  }
+  auto rel = exactTopKRelation();
+  pangrova::protocol::v2::RelationDetailEnvelope envelope;
+  ASSERT_TRUE(rel.extension_single().detail().UnpackTo(&envelope));
+  envelope.mutable_retrieval_source()->mutable_output_contract()->clear_identity_kind();
+  rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
+  VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+  EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
+}
+
+TEST(TypedRetrievalPlanConversionTest, VisibleKCannotBeMissingOrExceedWorkGrant) {
+  for (const uint32_t limit : {0U, 8U}) {
+    auto rel = exactTopKRelation();
+    pangrova::protocol::v2::RelationDetailEnvelope envelope;
+    ASSERT_TRUE(rel.extension_single().detail().UnpackTo(&envelope));
+    envelope.mutable_retrieval_source()->set_output_limit(limit);
+    rel.mutable_extension_single()->mutable_detail()->PackFrom(envelope);
+    VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+    EXPECT_THROW(convertRelation(converter, rel), std::runtime_error);
+  }
+}
+
 TEST(TypedRetrievalPlanConversionTest, CandidateSchemaDriftFailsClosed) {
   auto rel = exactTopKRelation();
   pangrova::protocol::v2::RelationDetailEnvelope envelope;
@@ -673,7 +708,7 @@ TEST(TypedRetrievalPlanConversionTest, CrossEncoderRerankBuildsGovernedBoundedPl
            pangrova::capability::kGovernedRerankFunction)) {
     registry.registerScalar(pangrova::udf::makeJvmScalarFunctionSpec(declared.name,
         std::vector<std::string>(declared.arguments.begin(), declared.arguments.end()),
-        declared.returnType, declared.deterministic));
+        declared.returnType, declared.deterministic, declared.defaultNullBehavior));
   }
   registry.registerAllWithVelox();
   const auto converter_registry =

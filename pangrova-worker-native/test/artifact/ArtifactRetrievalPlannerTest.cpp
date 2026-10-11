@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -169,6 +170,7 @@ std::vector<uint8_t> buildPlan(
   detail->set_plan_node_id(annName(algorithm) + "-1");
   detail->set_source_id("catalog.schema.items");
   detail->set_candidate_limit(candidate_limit);
+  detail->set_output_limit(2);
   detail->set_exact_rescore_limit(2);
   auto* invocation = detail->mutable_invocation();
   *invocation->mutable_capability() = annRetrieval(algorithm).ref();
@@ -183,6 +185,7 @@ std::vector<uint8_t> buildPlan(
   auto* contract = detail->mutable_output_contract();
   contract->set_schema_version(
       pangrova::capability::kRetrievalCandidateSchemaVersion);
+  contract->set_identity_kind(pangrova::protocol::v2::CANDIDATE_IDENTITY_KIND_VALUE_FIELDS);
   contract->set_score_direction(proto::SCORE_DIRECTION_LOWER_IS_BETTER);
   contract->add_stable_key_fields("id");
   contract->mutable_schema()->add_names("id");
@@ -242,6 +245,7 @@ std::vector<uint8_t> buildBm25Plan() {
   detail->set_plan_node_id("bm25-1");
   detail->set_source_id("catalog.schema.items");
   detail->set_candidate_limit(2);
+  detail->set_output_limit(2);
   detail->set_exact_rescore_limit(2);
   auto* invocation = detail->mutable_invocation();
   *invocation->mutable_capability() =
@@ -584,6 +588,50 @@ TEST(ArtifactRetrievalPlannerTest, AnnMetricFencesQueryBindingAndPersistedBytes)
         buildPlan(algorithm), {{plan_node, binding}}, {split},
         16 * 1024 * 1024), std::runtime_error);
   }
+}
+
+TEST(ArtifactRetrievalPlannerTest, RejectsNonfiniteRecallBeforeReadingActualArtifacts) {
+  TestDirectory directory;
+  buildArtifacts(directory.path());
+  split::SplitConfig split;
+  split.table_name = "catalog.schema.items";
+  split.source_snapshot = "snapshot-1";
+  split.data_object_id = "object-1";
+  for (double invalid : {std::numeric_limits<double>::quiet_NaN(),
+      std::numeric_limits<double>::infinity()}) {
+    auto binding = buildBinding(directory.path());
+    binding.mutable_execution_policy()->mutable_approximation()->set_required_recall_at_k(invalid);
+    EXPECT_THROW(ArtifactRetrievalPlanner::prepare(buildPlan(), {{"diskann-1", binding}},
+        {split}, 16 * 1024 * 1024), std::runtime_error);
+  }
+}
+
+TEST(ArtifactRetrievalPlannerTest, SharedSourceRangesRetainOneActualMaterializationAndLocatorDomain) {
+  TestDirectory directory;
+  buildArtifacts(directory.path());
+  ImmutableArtifactCache::instance().configure((directory.path() / "cache").string(), 16 * 1024 * 1024);
+  vector::diskann::DiskAnnIndexCache::instance().configure(16 * 1024 * 1024);
+  split::SplitConfig first;
+  first.split_id = "range-a";
+  first.table_name = "catalog.schema.items";
+  first.source_snapshot = "snapshot-1";
+  first.data_object_id = "object-1";
+  first.start_offset = 0;
+  first.length = 100;
+  auto second = first;
+  second.split_id = "range-b";
+  second.start_offset = 100;
+  auto prepared = ArtifactRetrievalPlanner::prepare(buildPlan(),
+      {{"diskann-1", buildBinding(directory.path())}}, {first, second}, 16 * 1024 * 1024);
+  // Split byte ranges are protocol input here. Actual Parquet range reading is
+  // covered separately, not inferred from this graph preparation component.
+  const auto& selected = prepared->split_overrides.at("diskann-1");
+  ASSERT_EQ(selected.size(), 2);
+  EXPECT_EQ(selected[0].row_position_allowlist, selected[1].row_position_allowlist);
+  EXPECT_EQ(selected[0].row_position_allowlist.size(), 2);
+  EXPECT_EQ(prepared->leases.size(), 3);
+  EXPECT_EQ(prepared->vector_search_owners.size(), 1);
+  EXPECT_GT(prepared->downloaded_bytes, 0);
 }
 
 TEST(ArtifactRetrievalPlannerTest, FailsClosedOnDimensionDrift) {

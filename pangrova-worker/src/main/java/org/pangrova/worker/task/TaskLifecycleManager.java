@@ -307,19 +307,26 @@ final class TaskLifecycleManager {
         if (handle == 0) {
             return;
         }
+        RuntimeException failure = null;
         if (exchangeTransport != null) {
             try {
                 exchangeTransport.releaseInputs(handle);
-            } catch (RuntimeException failure) {
-                LOG.warn("event=cancel_exchange_inputs_release_failed taskId={} handle={}",
-                        info.taskId(), handle, failure);
+            } catch (RuntimeException observed) {
+                failure = observed;
             }
         }
+        // Cancellation must still reach the actual Native owner if reader revocation failed.
         try {
             deps.taskExecutor().cancelTask(handle);
-        } catch (Exception e) {
-            LOG.error("event=native_cancel_failed taskId={} handle={}",
-                    info.taskId(), handle, e);
+        } catch (RuntimeException observed) {
+            if (failure == null) {
+                failure = observed;
+            } else if (failure != observed) {
+                failure.addSuppressed(observed);
+            }
+        }
+        if (failure != null) {
+            throw failure;
         }
     }
 
@@ -441,14 +448,14 @@ final class TaskLifecycleManager {
                         () -> releaseAllResources(info, taskId)));
     }
 
-    /**
-     * Releases the native executor for a finished result task whose executor was
-     * intentionally kept alive for result data retrieval. Called during inter-class drain
-     * to prevent executor handle leaks across test classes.
-     */
+    /** Releases the actual owner retained for a terminal result. */
     void releaseFinishedTaskExecutor(TaskInfo info) {
         releaseAllResources(info, info.taskId());
         statusCollector.reportReleasedTerminal(info);
+    }
+
+    void releaseRetiredTaskExecutor(TaskInfo info, LifecycleCallback callback) {
+        TaskRetirement.release(info, callback, statusCollector, () -> releaseAllResources(info, info.taskId()));
     }
 
     boolean resultResourcesDrained(TaskInfo info) {

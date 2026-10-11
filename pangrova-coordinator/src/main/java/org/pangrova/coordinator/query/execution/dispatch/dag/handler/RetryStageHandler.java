@@ -3,108 +3,88 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 import io.github.resilience4j.retry.Retry;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.coordinator.query.stage.Stage;
+import org.pangrova.coordinator.query.stage.StageStateMachine;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.resilience.ResilienceRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
-/**
- * Registers stages with the retry policy on scheduling and evaluates
- * retry eligibility on failure. When a stage qualifies for retry, resets
- * its state machine to PLANNED for re-scheduling.
- *
- * <p>Uses {@link ResilienceRegistry} to obtain retry configuration (max attempts)
- * and tracks per-stage retry counts locally.</p>
- */
+/** Classifies stage failures and advances the retry budget of the actual query stage owner. */
 public final class RetryStageHandler implements StageLifecycleHandler {
-
     private static final Logger LOG = LoggerFactory.getLogger(RetryStageHandler.class);
     private static final String RETRY_SERVICE_NAME = "coordinator-to-worker";
-    private static final int DEFAULT_MAX_RETRIES = 2;
-
     private static final Set<PangrovaErrorCode> RETRYABLE_ERRORS = Set.of(
             PangrovaErrorCode.EXCHANGE_SOURCE_UNAVAILABLE,
             PangrovaErrorCode.RUNTIME_TASK_FAILED);
-
-    private final ResilienceRegistry resilienceRegistry;
-    private final ConcurrentHashMap<String, AtomicInteger> retryCounters = new ConcurrentHashMap<>();
     private final int maxRetries;
 
+    /** Uses the real Resilience4j attempt limit without retaining a second shared stage counter. */
     public RetryStageHandler(ResilienceRegistry resilienceRegistry) {
-        this.resilienceRegistry = checkNotNull(
-                resilienceRegistry, "resilienceRegistry must not be null");
+        checkNotNull(resilienceRegistry, "resilienceRegistry must not be null");
         Retry retry = resilienceRegistry.getRetry(RETRY_SERVICE_NAME);
-        this.maxRetries = retry.getRetryConfig().getMaxAttempts() - 1;
+        maxRetries = retry.getRetryConfig().getMaxAttempts() - 1;
     }
 
+    /** Checks the actual execution owner without creating a parallel retry ledger. */
     @Override
     public void onScheduling(StageLifecycleEvent event) {
-        Stage stage = event.stage();
-        retryCounters.putIfAbsent(
-                String.valueOf(stage.stageId()), new AtomicInteger(0));
+        requireOwner(event);
     }
 
-    /**
-     * Evaluates whether a failed stage should be retried.
-     * If retry is initiated, resets the stage state for re-scheduling.
-     * The DAG engine detects the reset and re-schedules the stage.
-     */
+    /** A duplicate failure cannot clear or advance the already prepared next attempt. */
     @Override
     public void onFailed(StageLifecycleEvent event) {
+        Stage failed = requireOwner(event);
+        synchronized (failed) {
+            retryFailedOwner(event, failed);
+        }
+    }
+
+    private static Stage requireOwner(StageLifecycleEvent event) {
         Stage failed = event.stage();
-        String stageId = String.valueOf(failed.stageId());
-        PangrovaErrorCode errorCode = resolveErrorCode(failed.lastError());
+        if (!event.queryId().equals(failed.stateMachine().getQueryId())
+                || event.dag().findStage(failed.stageId()) != failed) {
+            throw new IllegalArgumentException("Retry event differs from its actual query stage owner");
+        }
+        return failed;
+    }
 
-        if (!isRetryable(errorCode)) {
+    private void retryFailedOwner(StageLifecycleEvent event, Stage failed) {
+        if (failed.stateMachine().getState() != StageStateMachine.State.FAILED) return;
+        var classified = resolveErrorCode(failed.lastError());
+        if (classified.isEmpty()) {
+            LOG.info("event=stage_retry_declined queryId={} stageId={} reason=unclassified_error",
+                    event.queryId(), failed.stageId());
+            return;
+        }
+        PangrovaErrorCode code = classified.orElseThrow();
+        if (!RETRYABLE_ERRORS.contains(code)) {
             LOG.info("event=stage_retry_declined queryId={} stageId={} errorCode={} reason=non_retryable",
-                    event.queryId(), stageId, errorCode.getCode());
+                    event.queryId(), failed.stageId(), code.getCode());
             return;
         }
-
-        AtomicInteger counter = retryCounters.computeIfAbsent(stageId, k -> new AtomicInteger(0));
-        int currentCount = counter.get();
-        if (currentCount >= maxRetries) {
-            LOG.info("event=stage_retry_declined queryId={} stageId={} errorCode={} reason=max_retries_exhausted",
-                    event.queryId(), stageId, errorCode.getCode());
+        if (failed.retryCount() >= maxRetries || !failed.tryPrepareRetry()) {
+            LOG.info("event=stage_retry_declined queryId={} stageId={} reason=max_retries_exhausted",
+                    event.queryId(), failed.stageId());
             return;
         }
-
-        counter.incrementAndGet();
+        if (!failed.stateMachine().reset()) {
+            throw new IllegalStateException("Prepared stage retry lost its terminal state owner");
+        }
         LOG.info("event=stage_retry_initiated queryId={} stageId={} errorCode={} retryCount={}",
-                event.queryId(), stageId, errorCode.getCode(), counter.get());
-
-        if (!failed.tryPrepareRetry()) {
-            LOG.info("event=stage_retry_exhausted queryId={} stageId={}", event.queryId(), stageId);
-            return;
-        }
-        failed.stateMachine().reset();
+                event.queryId(), failed.stageId(), code.getCode(), failed.retryCount());
     }
 
-    /** Returns the current retry count for a stage. */
-    public int getRetryCount(String stageId) {
-        AtomicInteger counter = retryCounters.get(stageId);
-        return counter != null ? counter.get() : 0;
-    }
-
-    private static boolean isRetryable(PangrovaErrorCode errorCode) {
-        return RETRYABLE_ERRORS.contains(errorCode);
-    }
-
-    private static PangrovaErrorCode resolveErrorCode(ErrorDetail err) {
-        if (err == null || err.errorCode() == null) {
-            return PangrovaErrorCode.RUNTIME_TASK_FAILED;
-        }
+    private static Optional<PangrovaErrorCode> resolveErrorCode(ErrorDetail error) {
+        if (error == null || error.errorCode() == null) return Optional.empty();
         for (PangrovaErrorCode code : PangrovaErrorCode.values()) {
-            if (code.getCode().equals(err.errorCode())) {
-                return code;
-            }
+            if (code.getCode().equals(error.errorCode())) return Optional.of(code);
         }
-        return PangrovaErrorCode.RUNTIME_TASK_FAILED;
+        return Optional.empty();
     }
 }

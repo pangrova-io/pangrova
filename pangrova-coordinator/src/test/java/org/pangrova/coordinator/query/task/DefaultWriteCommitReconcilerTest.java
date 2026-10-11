@@ -36,7 +36,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Verifies recovery uses the exact Worker binding, never live-table reconstruction.
  */
-class DefaultWriteCommitReconcilerTest {
+class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.ContainerTestBase {
+    @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory;
 
     private static final String CATALOG = "iceberg";
     private static final String TABLE = "sales.orders";
@@ -135,14 +136,14 @@ class DefaultWriteCommitReconcilerTest {
     }
 
     @Test
-    void tableGone_aborted() {
+    void tableGoneWithoutDurableAbortReceiptIsQuarantined() {
         RecordingMetadata md = new RecordingMetadata();
         md.tableGone = true;
         var reconciler = new DefaultWriteCommitReconciler(c -> catalog(md));
 
         var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "DELETE"));
 
-        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.ABORTED);
+        assertThat(outcome).isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
         assertThat(md.finishCount.get()).isZero();
     }
 
@@ -195,71 +196,66 @@ class DefaultWriteCommitReconcilerTest {
     }
 
     @Test
-    void nativeAllocationUsesTheSameExactDecoderForNormalCommitAndRecovery() {
-        var metadata = new RecordingMetadata();
-        var catalog = catalog(metadata);
-        var output = new TestOutputHandle(new SchemaTableName("sales", "orders"), "INSERT", true);
-        var binding = ConnectorWriteBindingFactory.create(catalog, output);
-        assertThat(binding.hasLance()).isTrue();
-        var intent = nativeIntent(binding.toByteArray());
-        assertThat(DefaultWriteCommitReconciler.decodeExactHandle(intent, output.table(), catalog)).isEqualTo(output);
-        assertThat(new DefaultWriteCommitReconciler(ignored -> catalog).reconcile(intent))
+    void nativeAllocationUsesTheSameExactDecoderForNormalCommitAndRecovery() throws Exception {
+        var execution = org.pangrova.connector.lance.LanceManagedSourceTestExecution.append(directory);
+        var accepted = execution.accept();
+        var actual = actualCatalog(execution);
+        var intent = execution.intent(); var output = execution.output();
+        var binding = org.pangrova.protocol.v2.WriteOutputBinding.parseFrom(intent.writeOutputBinding());
+        assertThat(binding.hasLance()).isTrue(); assertThat(binding.getLance().hasBaseSnapshot()).isTrue();
+        var decoded = DefaultWriteCommitReconciler.decodeExactHandle(intent, output.targetTable().orElseThrow(), actual);
+        assertThat(decoded).usingRecursiveComparison().isEqualTo(output);
+        assertThat(actual.getOutputHandleCodec().serialize(decoded)).isEqualTo(actual.getOutputHandleCodec().serialize(output));
+        assertThat(new DefaultWriteCommitReconciler(ignored -> actual).reconcile(intent))
                 .isEqualTo(WriteCommitReconciler.RecoveryOutcome.COMMITTED);
-        assertThat(metadata.finishCount).hasValue(1);
+        assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.COMMITTED);
+        assertThat(execution.intent().publication().publishedVersion()).isEqualTo(accepted.getVersion());
+        assertThat(execution.intent().publication().manifestSha256()).isEqualTo(accepted.getManifestSha256().getDigest().toByteArray());
     }
 
     @Test
-    void nativeBindingCannotSubstituteAllocationEvenWhenJournalFingerprintMatches() {
-        var metadata = new RecordingMetadata();
-        var catalog = catalog(metadata);
-        var output = new TestOutputHandle(new SchemaTableName("sales", "orders"), "INSERT", true);
-        var canonical = ConnectorWriteBindingFactory.create(catalog, output);
+    void nativeBindingCannotSubstituteAllocationEvenWhenJournalFingerprintMatches() throws Exception {
+        var execution = org.pangrova.connector.lance.LanceManagedSourceTestExecution.append(directory);
+        var actual = actualCatalog(execution); var entry = execution.intent();
+        var canonical = org.pangrova.protocol.v2.WriteOutputBinding.parseFrom(entry.writeOutputBinding());
         var changed = canonical.toBuilder().setLance(canonical.getLance().toBuilder()
                 .setDatasetUri("file:///warehouse/another-table")).build();
-        assertThat(new DefaultWriteCommitReconciler(ignored -> catalog)
-                .reconcile(nativeIntent(changed.toByteArray())))
+        var fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(entry.queryId(), entry.tenantId(),
+                entry.catalogName(), entry.tableName(), entry.writeMode(), entry.baseSnapshotId(), changed.toByteArray(),
+                entry.principal(), entry.authorizationReceipt()), entry.fragments());
+        var forged = new WriteCommitEntry(entry.queryId(), entry.catalogName(), entry.tableName(), entry.state(), entry.timestampMs(),
+                entry.fragments(), entry.writeMode(), fingerprint, entry.tenantId(), entry.principal(), entry.authorizationReceipt(),
+                entry.baseSnapshotId(), changed.toByteArray(), fingerprint, entry.ownerId(), entry.ownerIncarnation(), entry.executionFencingToken(), null);
+        assertThat(new DefaultWriteCommitReconciler(ignored -> actual).reconcile(forged))
                 .isEqualTo(WriteCommitReconciler.RecoveryOutcome.QUARANTINED);
+        assertThat(execution.intent().state()).isEqualTo(WriteCommitEntry.State.PENDING);
+        assertThat(execution.intent().publication()).isNull();
+        execution.accept();
+    }
+
+    @Test
+    void originalPositiveVersionNativeAppendWithoutAcceptedBaseIsRejected() {
+        var metadata = new RecordingMetadata();
+        var output = new TestOutputHandle(new SchemaTableName("sales", "orders"), "INSERT", true);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> ConnectorWriteBindingFactory.create(catalog(metadata), output))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThat(metadata.finishCount).hasValue(0);
     }
 
-    private static WriteCommitEntry nativeIntent(byte[] binding) {
-        var fragments = List.of(new byte[]{1});
-        String fingerprint = WriteCommitFingerprint.compute(
-                new org.pangrova.spi.coordination.WriteCommitFingerprint.Intent(
-                        "q1",
-                        "tenant-a",
-                        CATALOG,
-                        TABLE,
-                        "INSERT",
-                        37L,
-                        binding,
-                        "alice",
-                        org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt()),
-                fragments);
-        return new WriteCommitEntry(
-                "q1",
-                CATALOG,
-                TABLE,
-                WriteCommitEntry.State.PENDING,
-                1L,
-                fragments,
-                "INSERT",
-                fingerprint,
-                "tenant-a",
-                "alice",
-                org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
-                37L,
-                binding,
-                fingerprint,
-                null,
-                null,
-                0L,
-                null);
+    private ConnectorCatalogHandle actualCatalog(org.pangrova.connector.lance.LanceManagedSourceTestExecution execution) throws Exception {
+        var properties = new java.util.Properties();
+        try (var input = java.nio.file.Files.newInputStream(execution.databaseConnectionFile(
+                directory.resolve("reconciler-database.properties")))) { properties.load(input); }
+        var dataSource = new org.postgresql.ds.PGSimpleDataSource(); dataSource.setURL(properties.getProperty("url"));
+        dataSource.setUser(properties.getProperty("user")); dataSource.setPassword(properties.getProperty("password"));
+        var descriptor = new org.pangrova.metadata.store.JdbcMetadataStore(dataSource)
+                .getCatalogDescriptor(execution.catalog().getCatalogName()).orElseThrow();
+        return new ConnectorCatalogHandle(descriptor, execution.connector());
     }
 
     // --- test doubles ---
 
-    /** Simple-name contains "NoSuchTable" so the reconciler's table-gone heuristic matches. */
+    /** A table-gone signal can request a barrier; its class name cannot establish durable ABORTED truth. */
     private static final class NoSuchTableException extends RuntimeException {
         NoSuchTableException() {
             super("table does not exist");

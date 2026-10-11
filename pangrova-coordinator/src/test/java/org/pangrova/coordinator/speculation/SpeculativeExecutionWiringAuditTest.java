@@ -48,9 +48,8 @@ class SpeculativeExecutionWiringAuditTest {
     // ── Req 64.2: SpeculativeTaskLauncher wired into TaskStatusReceiver ──
 
     @Test
-    void speculativeTaskLauncherWiredIntoTaskStatusReceiver() {
-        Set<String> receiverFieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
-        assertThat(receiverFieldTypes)
+    void speculativeTaskLauncherWiredIntoTaskStatusReceiver() throws ClassNotFoundException {
+        assertThat(speculationCompletionFields())
                 .as("SpeculativeTaskLauncher should be wired into TaskStatusReceiver")
                 .contains("SpeculativeTaskLauncher");
     }
@@ -67,9 +66,8 @@ class SpeculativeExecutionWiringAuditTest {
     // ── Req 64.3: DuplicateTaskResolver wired into TaskStatusReceiver ──
 
     @Test
-    void duplicateTaskResolverWiredIntoTaskStatusReceiver() {
-        Set<String> receiverFieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
-        assertThat(receiverFieldTypes)
+    void duplicateTaskResolverWiredIntoTaskStatusReceiver() throws ClassNotFoundException {
+        assertThat(speculationCompletionFields())
                 .as("DuplicateTaskResolver should be wired into TaskStatusReceiver")
                 .contains("DuplicateTaskResolver");
     }
@@ -89,9 +87,8 @@ class SpeculativeExecutionWiringAuditTest {
     // ── Req 64.4: Resource cleanup path exists ──
 
     @Test
-    void speculationAwareResourceCleanupPathExists() {
-        Set<String> receiverFieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
-        assertThat(receiverFieldTypes)
+    void speculationAwareResourceCleanupPathExists() throws ClassNotFoundException {
+        assertThat(speculationCompletionFields())
                 .as("TaskStatusReceiver should have speculation components for cleanup")
                 .contains("SpeculativeTaskLauncher", "DuplicateTaskResolver");
     }
@@ -111,5 +108,12 @@ class SpeculativeExecutionWiringAuditTest {
                 .map(Field::getType)
                 .map(Class::getSimpleName)
                 .collect(Collectors.toSet());
+    }
+
+    private static Set<String> speculationCompletionFields() throws ClassNotFoundException {
+        assertThat(getFieldTypeNames(TaskStatusReceiver.class))
+                .contains("SpeculativeTaskReportCompletion");
+        return getFieldTypeNames(Class.forName(
+                "org.pangrova.coordinator.query.task.SpeculativeTaskReportCompletion"));
     }
 }

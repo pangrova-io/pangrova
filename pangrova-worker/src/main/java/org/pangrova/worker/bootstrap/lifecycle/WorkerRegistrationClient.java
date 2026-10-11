@@ -181,7 +181,12 @@ public final class WorkerRegistrationClient implements AutoCloseable {
      */
     public byte[] serialize(WorkerRegistrationRequest request) {
         try {
-            return mapper.writeValueAsBytes(request);
+            request.requireBoundedMetadata(mapper);
+            byte[] body = mapper.writeValueAsBytes(request);
+            if (body.length > WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES) {
+                throw new IllegalArgumentException("Worker registration exceeds maximum JSON body size");
+            }
+            return body;
         } catch (Exception e) {
             LOG.error("event=registration_serialize_failed errorCode={} workerId={} error={}",
                     PangrovaErrorCode.WORKER_REGISTRATION_SERIALIZATION_FAILED.getCode(),

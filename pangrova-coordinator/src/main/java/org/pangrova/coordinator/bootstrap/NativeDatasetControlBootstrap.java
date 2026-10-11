@@ -14,10 +14,12 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
 
     private final NativeDatasetControlClient client;
     private final WorkerNativeDatasetControl.Dependencies dependencies;
+    private final javax.sql.DataSource metadataDataSource;
     private boolean closed;
 
     NativeDatasetControlBootstrap(String secret, Supplier<QueryBootstrap> queries,
-                                 Supplier<HighAvailabilityCoordinationService> coordination) {
+                                 Supplier<HighAvailabilityCoordinationService> coordination, javax.sql.DataSource metadataDataSource) {
+        this.metadataDataSource = java.util.Objects.requireNonNull(metadataDataSource);
         client = new NativeDatasetControlClient(secret);
         dependencies = new WorkerNativeDatasetControl.Dependencies(
                 () -> requireStarted(requireStarted(queries.get()).workerManager()).getActiveWorkers(),
@@ -30,7 +32,19 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
         if (closed) {
             throw new IllegalStateException("Native metadata control bootstrap is closed");
         }
-        return Optional.of(new WorkerNativeDatasetControl(catalog, dependencies, client));
+        return Optional.of(new WorkerNativeDatasetControl(catalog, dependencies, client, sourceCatalog(catalog)));
+    }
+
+    synchronized Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> sourceForCatalog(CatalogDescriptor catalog) {
+        if (closed) throw new IllegalStateException("Native metadata control bootstrap is closed");
+        return Optional.of(sourceCatalog(catalog));
+    }
+
+    private org.pangrova.spi.connector.metadata.ManagedSourceCatalog sourceCatalog(CatalogDescriptor catalog) {
+        return new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(metadataDataSource,
+                new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
+                        catalog.name(), catalog.incarnationId(), catalog.revision()),
+                executionId -> requireStarted(dependencies.fencer().get()).currentAnchor(executionId));
     }
 
     private static <T> T requireStarted(T service) {

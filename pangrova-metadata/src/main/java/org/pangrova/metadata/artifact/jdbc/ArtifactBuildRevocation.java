@@ -13,6 +13,7 @@ import static org.pangrova.metadata.store.JdbcSupport.setInstant;
 public final class ArtifactBuildRevocation {
     private ArtifactBuildRevocation() {}
 
+    /** Locks and cancels one exact scoped job only while it is still cancellable. */
     public static boolean cancel(Connection connection, String tenantId, String jobId, String reason, Instant now)
             throws SQLException {
         try (var statement = connection.prepareStatement(
@@ -48,7 +49,8 @@ public final class ArtifactBuildRevocation {
     private static void cancelLocked(Connection connection, String tenantId, String jobId,
             String reason, Instant now) throws SQLException {
         try (var job = connection.prepareStatement(
-                "UPDATE artifact_build_jobs SET state='CANCELLED',failure_reason=COALESCE(?,failure_reason),updated_at=?,"
+                "UPDATE artifact_build_jobs SET state='CANCELLED',"
+                        + "failure_reason=COALESCE(?,failure_reason),updated_at=?,"
                         + "publication_lease_expires_at=NULL WHERE tenant_id=? AND job_id=? "
                         + "AND state IN ('QUEUED','RUNNING','READY_TO_PUBLISH')")) {
             job.setString(1, reason);

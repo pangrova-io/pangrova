@@ -22,6 +22,7 @@ public final class DefaultWorkerSelector implements WorkerSelector {
 
     private static final long MIN_TASK_MEMORY_BYTES = 64L * 1024 * 1024;
     private static final long MAX_SHUFFLE_BUFFER_BYTES = 32L * 1024 * 1024;
+    private static final long MAX_GOVERNED_MEDIA_BYTES_PER_TASK = 64L * 1024 * 1024;
 
     private final WorkerManager workerManager;
     private final TaskScheduler taskScheduler;
@@ -96,6 +97,7 @@ public final class DefaultWorkerSelector implements WorkerSelector {
                 .setSpillBytes(spillBudget.maxSpillBytes())
                 .setObjectStoreReadBytes(perTaskMemory)
                 .setObjectStoreWriteBytes(spillBudget.maxSpillBytes())
+                .setMediaBytes(Math.min(perTaskMemory, MAX_GOVERNED_MEDIA_BYTES_PER_TASK))
                 .build();
     }
 

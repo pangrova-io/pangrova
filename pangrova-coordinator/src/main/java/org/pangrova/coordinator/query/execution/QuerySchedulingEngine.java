@@ -134,7 +134,8 @@ final class QuerySchedulingEngine {
                 session.sessionProperties());
         properties.put(POLICY_CONTEXT_PROPERTY, signature);
         return new CoordinatorSessionContext(
-                session.queryId(), properties, session.userIdentity(), session.tenantId(), session.queryAuthority());
+                session.queryId(), properties, session.userIdentity(), session.tenantId(), session.queryAuthority(),
+                session.traceContext());
     }
 
     // ── Worker dispatch ──
@@ -321,7 +322,10 @@ final class QuerySchedulingEngine {
             CoordinatorSessionContext session,
             PlannedQuery plannedQuery,
             DispatchQueryContext ctx) {
-        StageDAG rawDag = StageDAG.fromFragmentedPlan(plannedQuery.fragment());
+        var artifactIntents = retrievalIntents.collectRetrievalArtifactIntents(ctx, session.tenantId());
+        var fragments = artifactIntents.isEmpty() ? plannedQuery.fragment()
+                : plannedQuery.fragmentWithPhysicalRetrievalIdentity();
+        StageDAG rawDag = StageDAG.fromFragmentedPlan(fragments);
         StageDAG dag = rawDag.withStages(session.queryId());
         registerStageListeners(dag, sm);
         registerRuntimeFilterTargets(
@@ -337,7 +341,7 @@ final class QuerySchedulingEngine {
                 new org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Live(session),
                 ctx.snapshotOverrides(), ctx.originalSql(),
                 ctx.preOptColumnNames(), writeConfig,
-                retrievalIntents.collectRetrievalArtifactIntents(ctx, session.tenantId()),
+                artifactIntents,
                 retrievalIntents.collectRetrievalMergeIntent(ctx),
                 rerank);
 

@@ -53,4 +53,16 @@ class ActivationSmokeE2ETest extends PangrovaE2ETestBase {
             executeDdl("DROP TABLE " + tbl);
         }
     }
+
+    @Test
+    void tablelessNativeRelationsPreserveMultiplicityAndNullSemantics() {
+        var rows = executeQuery("SELECT COALESCE(CAST(NULL AS BIGINT), CAST(7 AS BIGINT)) AS answer "
+                + "FROM (SELECT 1 AS x UNION ALL SELECT 2 AS x) t");
+        assertThat(rows).hasSize(2);
+        assertThat(rows).extracting(row -> org.pangrova.spi.connector.data.ColumnValue.toRaw(
+                row.values().values().iterator().next())).containsExactly(7L, 7L);
+        assertScalarEquals("SELECT CASE WHEN CAST(NULL AS BOOLEAN) THEN CAST(9 AS BIGINT) "
+                + "ELSE CAST(3 AS BIGINT) END", 3L);
+        assertQueryReturnsEmpty("SELECT CAST(7 AS BIGINT) WHERE CAST(NULL AS BOOLEAN)");
+    }
 }

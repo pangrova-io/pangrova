@@ -28,7 +28,8 @@ public interface ArtifactBuildStore {
     List<ArtifactBuildJobKey> listReadyForPublication(int limit, Instant now);
 
     Optional<ArtifactBuildLease> claimNextPage(
-            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            String tenantId, String jobId,
+            org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now);
 
     boolean renewPage(ArtifactBuildLease lease, Duration leaseDuration, Instant now);
@@ -75,18 +76,22 @@ public interface ArtifactBuildStore {
             String tenantId, String jobId, java.util.Set<String> sourceObjectIds);
 
     /**
-     * Compares query splits with the exact canonical splits used to build a
-     * published generation without returning their payloads. This prevents an
-     * artifact built for a different file range/layout from being attached to
-     * a query merely because the source object name is equal.
+     * Compares exact canonical split bytes for durable stage dependencies.
+     * Query scans may add predicates or projection detail and instead compare
+     * immutable source ranges using {@link #loadPublishedSourceSplits}.
      */
     boolean matchesPublishedSplits(
             String tenantId, String jobId,
             java.util.Map<String, String> sourceSplitSha256);
 
+    /** Loads checksummed build splits for immutable source-range comparison by the Coordinator. */
+    java.util.Map<String, ArtifactBuildSplit> loadPublishedSourceSplits(
+            String tenantId, String jobId, java.util.Set<String> sourceObjectIds);
+
     /** Claims the metadata-only publication lease for a job whose every page succeeded. */
     Optional<ArtifactBuildJob> claimReadyForPublication(
-            String tenantId, String jobId, org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
+            String tenantId, String jobId,
+            org.pangrova.spi.coordination.ExecutionAnchor executionAnchor, long ownerEpoch,
             Duration leaseDuration, Instant now);
 
     /**

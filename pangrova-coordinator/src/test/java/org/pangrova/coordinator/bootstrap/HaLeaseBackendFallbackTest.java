@@ -74,22 +74,20 @@ class HaLeaseBackendFallbackTest {
     }
 
     @Test
-    @DisplayName("Single-node deployment with loopback host uses InMemory without failing")
+    @DisplayName("Single-node deployment with loopback host selects InMemory lease")
     void singleNodeLoopbackHostUsesInMemorySuccessfully() {
         // Default config with loopback host, no metadata → single-node, should succeed
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults("coord-3", 0);
 
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
-        bootstrap.start();
-        try {
-            assertThat(bootstrap.isStarted()).isTrue();
-        } finally {
-            bootstrap.shutdown();
-        }
+        var lease = bootstrap.ensureDistributedLease();
+        assertThat(lease).isInstanceOf(
+                org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease.class);
+        assertThat(bootstrap.ensureDistributedLease()).isSameAs(lease);
     }
 
     @Test
-    @DisplayName("Single-node localhost deployment with empty shuffle endpoints uses InMemory safely")
+    @DisplayName("Single-node localhost deployment with empty shuffle endpoints selects InMemory")
     void singleNodeEmptyShuffleEndpointsUsesInMemory() {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
@@ -104,11 +102,9 @@ class HaLeaseBackendFallbackTest {
                 null, null, null);
 
         CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
-        bootstrap.start();
-        try {
-            assertThat(bootstrap.isStarted()).isTrue();
-        } finally {
-            bootstrap.shutdown();
-        }
+        var lease = bootstrap.ensureDistributedLease();
+        assertThat(lease).isInstanceOf(
+                org.pangrova.coordinator.coordination.inmemory.InMemoryDistributedLease.class);
+        assertThat(bootstrap.ensureDistributedLease()).isSameAs(lease);
     }
 }

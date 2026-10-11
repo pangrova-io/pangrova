@@ -53,6 +53,7 @@ proto::RuntimeCommandResponse success(const Result& result) {
   proto::RuntimeCommandResponse response;
   response.set_success(true);
   response.mutable_payload()->PackFrom(result);
+  if (response.ByteSizeLong() > kMaxMetadataBytes) throw std::invalid_argument("Dataset control response exceeds its canonical envelope bound");
   return response;
 }
 }  // namespace
@@ -82,18 +83,28 @@ proto::RuntimeCommandResponse NativeDatasetControl::schemaFingerprint(const prot
   }
 }
 
-proto::RuntimeCommandResponse NativeDatasetControl::finalizeDistributedWrite(const proto::RuntimeCommand& command) {
+proto::RuntimeCommandResponse NativeDatasetControl::prepareDistributedWrite(const proto::RuntimeCommand& command) {
   try {
-    const auto request = unpack<proto::FinalizeDistributedWriteRequest>(command);
+    const auto request = unpack<proto::PrepareDistributedWriteRequest>(command);
     const auto storage = workerLocalStorage(command.worker_local_storage_bindings(),
         request.output_binding().lance().catalog(), request.security().tenant_id(),
         request.output_binding().lance().dataset_uri());
-    return success(lance::LanceDatasetPublication::finalizeWrite(request, storage));
+    return success(lance::LanceDatasetPublication::prepareWrite(request, storage));
   } catch (const std::invalid_argument& error) {
     return failure(error, true);
   } catch (const std::exception& error) {
     return failure(error, false);
   }
+}
+
+proto::RuntimeCommandResponse NativeDatasetControl::cleanupObjects(const proto::RuntimeCommand& command) {
+  try {
+    const auto request = unpack<proto::CleanupSourceObjectsRequest>(command);
+    const auto storage = workerLocalStorage(command.worker_local_storage_bindings(), request.catalog(),
+        request.security().tenant_id(), request.dataset_uri());
+    return success(lance::LanceDatasetPublication::cleanupObjects(request, storage));
+  } catch (const std::invalid_argument& error) { return failure(error, true); }
+    catch (const std::exception& error) { return failure(error, false); }
 }
 
 proto::RuntimeCommandResponse NativeDatasetControl::scanPartitions(const proto::RuntimeCommand& command) {

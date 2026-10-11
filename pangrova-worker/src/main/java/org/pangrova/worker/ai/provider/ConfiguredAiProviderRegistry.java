@@ -455,8 +455,4 @@ public final class ConfiguredAiProviderRegistry implements AutoCloseable {
         return new IllegalArgumentException(message);
     }
 
-    private static IllegalArgumentException configurationFailure(
-            String message, RuntimeException cause) {
-        return new IllegalArgumentException(message, cause);
-    }
 }

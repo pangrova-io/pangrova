@@ -29,6 +29,8 @@ public record TableFunctionRef(
     public enum TableFunctionType {
         EXPLODE,
         POSEXPLODE,
+        UNNEST,
+        UNNEST_WITH_ORDINALITY,
         GENERATE_SERIES
     }
 

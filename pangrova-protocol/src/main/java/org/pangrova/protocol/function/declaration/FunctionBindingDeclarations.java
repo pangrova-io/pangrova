@@ -178,13 +178,22 @@ public final class FunctionBindingDeclarations {
         return callbackMetadata("ai", name);
     }
 
+    /** Declared callback semantics for a SQL name; this does not admit an actual Native implementation. */
+    public static Optional<FunctionMetadata> callbackMetadataForSqlName(String name) {
+        return sqlBinding(FunctionKind.FUNCTION_KIND_SCALAR, name, "")
+                .filter(reference -> binding("SCALAR", reference.namespace(), reference.name())
+                        .has("runtimeSignature"))
+                .map(reference -> callbackMetadata(reference.namespace(), reference.name()));
+    }
+
     /** Same callback contract entry point for FILE and other declared namespaces. */
     public static FunctionMetadata callbackMetadata(String namespace, String name) {
         JsonNode entry = binding("SCALAR", namespace, name);
         JsonNode runtime = runtimeSignature(entry);
         return new FunctionMetadata(BindingDeclarationJson.text(entry, "implementation"),
                 BindingDeclarationJson.text(runtime, "returnType"), callbackArgumentSignatures(namespace, name).get(0),
-                runtime.get("deterministic").booleanValue(), BindingDeclarationJson.text(runtime, "description"));
+                runtime.get("deterministic").booleanValue(), runtime.get("defaultNullBehavior").booleanValue(),
+                BindingDeclarationJson.text(runtime, "description"));
     }
 
     /** Public normalized overloads only; governed hidden layout is a separate exact contract. */
@@ -221,7 +230,8 @@ public final class FunctionBindingDeclarations {
         if (!entry.has("registrationDependency") || runtime == null) {
             throw new IllegalArgumentException("No declared actual callback registration dependency");
         }
-        BindingDeclarationJson.keys(runtime, Set.of("returnType", "deterministic", "description"),
+        BindingDeclarationJson.keys(runtime,
+                Set.of("returnType", "deterministic", "defaultNullBehavior", "description"),
                 Set.of("argumentSignatures", "argumentLayout"));
         if (runtime.has("argumentSignatures") == runtime.has("argumentLayout")) {
             throw new IllegalArgumentException("Callback requires exactly one declared argument source");
@@ -230,8 +240,8 @@ public final class FunctionBindingDeclarations {
                 .equals(BindingDeclarationJson.text(entry, "governedLayout"))) {
             throw new IllegalArgumentException("Callback argument layout differs from the binding declaration");
         }
-        if (!runtime.get("deterministic").isBoolean()) {
-            throw new IllegalArgumentException("Callback determinism must be explicit");
+        if (!runtime.get("deterministic").isBoolean() || !runtime.get("defaultNullBehavior").isBoolean()) {
+            throw new IllegalArgumentException("Callback determinism and NULL-input policy must be explicit");
         }
         return runtime;
     }

@@ -110,8 +110,12 @@ public final class PangrovaResultSet implements ResultSet {
     @Override
     public String getString(int columnIndex) throws SQLException {
         Object value = getObjectInternal(columnIndex);
-        return value == null ? null
-                : value instanceof float[] vector ? Arrays.toString(vector) : value.toString();
+        if (value == null) return null;
+        if (value instanceof float[] vector) return Arrays.toString(vector);
+        if (value instanceof double[] vector) return Arrays.toString(vector);
+        if (value instanceof Float[] vector) return Arrays.toString(vector);
+        if (value instanceof Double[] vector) return Arrays.toString(vector);
+        return value.toString();
     }
 
     @Override

@@ -13,10 +13,17 @@ final class WorkerBootstrapCleanup {
     private final WorkerComponentRefs refs;
     private final WorkerCleanupSteps steps = new WorkerCleanupSteps();
 
-    WorkerBootstrapCleanup(WorkerComponentRefs refs) { this.refs = refs; }
+    WorkerBootstrapCleanup(WorkerComponentRefs refs) {
+        this.refs = refs;
+    }
 
-    void close(WorkerBootstrapConfig config, WorkerObservabilitySetup observability, boolean deregister) {
-        if (deregister) steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
+    void close(
+            WorkerBootstrapConfig config,
+            WorkerObservabilitySetup observability,
+            boolean deregister) {
+        if (deregister) {
+            steps.attempt(() -> WorkerHeartbeatBootstrap.deregister(refs, config.workerId()));
+        }
         steps.attempt(this::closeHeartbeat);
         steps.attempt(() -> WorkerHttpBootstrap.stopHttp(refs));
         steps.attempt(this::closeCdc);
@@ -32,21 +39,31 @@ final class WorkerBootstrapCleanup {
     private void closeHeartbeat() {
         WorkerHeartbeatBootstrap.stopHeartbeat(refs);
         var client = refs.registrationClient();
-        if (client == null) return;
+        if (client == null) {
+            return;
+        }
         client.close();
         refs.setRegistrationClient(null);
     }
 
     private void closeTasks() {
-        if (refs.taskOwnership() != null) refs.taskOwnership().close();
-        else if (refs.taskManager() != null) refs.taskManager().close();
+        if (refs.taskOwnership() != null) {
+            refs.taskOwnership().close();
+        } else if (refs.taskManager() != null) {
+            refs.taskManager().close();
+        }
     }
 
     private void closeCdc() {
         var consumer = refs.cdcConsumer();
-        if (consumer == null) return;
-        try { consumer.close(); }
-        catch (Exception closeFailure) { throw new IllegalStateException("Failed to close CDC consumer", closeFailure); }
+        if (consumer == null) {
+            return;
+        }
+        try {
+            consumer.close();
+        } catch (Exception closeFailure) {
+            throw new IllegalStateException("Failed to close CDC consumer", closeFailure);
+        }
         refs.setCdcConsumer(null);
     }
 
@@ -57,12 +74,13 @@ final class WorkerBootstrapCleanup {
             refs.setNativeWriteExecutor(null);
             refs.setCatalogResourceResolver(null);
         } else if (refs.catalogResourceResolver() instanceof AutoCloseable closeable) {
-            try { closeable.close(); }
-            catch (Exception closeFailure) {
-                throw new IllegalStateException("Failed to close Worker catalog runtime", closeFailure);
+            try {
+                closeable.close();
+            } catch (Exception closeFailure) {
+                throw new IllegalStateException(
+                        "Failed to close Worker catalog runtime", closeFailure);
             }
             refs.setCatalogResourceResolver(null);
         }
     }
-
 }

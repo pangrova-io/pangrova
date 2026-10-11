@@ -7,6 +7,7 @@ import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.metadata.index.IndexMetadataStore;
+import org.pangrova.indexing.eval.IndexEvaluationFailures;
 import org.pangrova.planner.PlanFragment;
 import org.pangrova.planner.PlanSplitSourceExtractor;
 import org.pangrova.planner.PlannedQuery;
@@ -196,6 +197,7 @@ public final class IndexAwareSplitFetcher {
         } catch (org.pangrova.spi.security.AccessDeniedException | SecurityException authorityFailure) {
             throw authorityFailure;
         } catch (Exception e) {
+            IndexEvaluationFailures.propagateIfTerminal(e);
             LOG.warn("event=index_filtering_failed queryId={} error={} action=skip_filtering",
                     queryId, e.getMessage());
             return splits;

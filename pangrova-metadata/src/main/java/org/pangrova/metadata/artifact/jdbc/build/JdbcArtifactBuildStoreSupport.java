@@ -22,7 +22,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 import static org.pangrova.metadata.store.JdbcSupport.setInstant;
@@ -395,7 +394,8 @@ abstract class JdbcArtifactBuildStoreSupport extends JdbcArtifactBuildStoreMappi
                 && page.fencingToken() == lease.fencingToken()
                 && page.ownerEpoch() == lease.ownerEpoch()
                 && Objects.equals(page.leaseOwner(), lease.leaseOwner())
-                && Objects.equals(page.executionOwner(), org.pangrova.metadata.artifact.build.ArtifactExecutionOwner.from(lease.executionAnchor()))
+                && Objects.equals(page.executionOwner(),
+                        org.pangrova.metadata.artifact.build.ArtifactExecutionOwner.from(lease.executionAnchor()))
                 && page.leaseExpiresAt() != null && !page.leaseExpiresAt().isBefore(now);
     }
 

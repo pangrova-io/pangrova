@@ -23,6 +23,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.pangrova.planner.extension.UnnestRelDetail;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 
 import java.util.ArrayList;

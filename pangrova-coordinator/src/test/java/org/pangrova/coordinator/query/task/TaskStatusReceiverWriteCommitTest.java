@@ -112,6 +112,7 @@ class TaskStatusReceiverWriteCommitTest {
         // Reproduces a status arriving after identity preparation but before
         // the old post-HTTP task-state registration. The same report must be
         // retryable after registration instead of being rejected as stale.
+        tracker.openQueryIssuance(QUERY_ID);
         registerCanonicalRequest("t-early");
         TaskStatusReport running = new TaskStatusReport(
                 "t-early", QUERY_ID, 0, 0, "WRITE", WORKER_ID, "RUNNING",

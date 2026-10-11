@@ -109,10 +109,16 @@ class TaskSubmitDedupTest {
     }
 
     private static SubmitTaskRequest buildRequest(String taskId, String queryId) {
-        return org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.request(
-                taskId, queryId, 0, 0,
-                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
-                new byte[]{0x01});
+        return SubmitTaskRequest.from(
+                org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture.builder(
+                                taskId, queryId, 0, 0,
+                                org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
+                                new byte[]{0x01})
+                        .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                                .setGrantId(taskId + ":grant")
+                                .setCpuSlots(1)
+                                .setNativeMemoryBytes(64L * 1024 * 1024))
+                        .build());
     }
 
     private static TaskDescriptor toDescriptor(SubmitTaskRequest request) {

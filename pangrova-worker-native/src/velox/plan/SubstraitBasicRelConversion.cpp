@@ -13,6 +13,7 @@
 
 #include "velox/connector/PangrovaTableHandle.h"
 #include "velox/connector/PangrovaVeloxConnector.h"
+#include "velox/plan/ArtifactBuildOperator.h"
 #include "velox/plan/CanonicalOrdinalIdentity.h"
 
 namespace pangrova::velox {
@@ -224,7 +225,8 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertReadRel(
     }
     const auto scanId = nextNodeId();
     auto handle = std::make_shared<const PangrovaTableHandle>(
-        PangrovaVeloxConnector::kConnectorId, tableName, scanId, logicalType, filter);
+        PangrovaVeloxConnector::kConnectorId, tableName, scanId, logicalType, filter,
+        artifact_build_context_ ? artifact_build_context_->read_budget : nullptr);
     source = std::make_shared<core::TableScanNode>(
         scanId, physicalType, std::move(handle), std::move(assignments));
     // External dynamic filters use logical names and these exact scan ordinals.

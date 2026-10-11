@@ -57,6 +57,7 @@ public abstract class JdbcArtifactBuildStoreMappings {
         }
     }
 
+    /** Reads the immutable scoped dispatch contract without synthesizing missing state. */
     public static Optional<ArtifactBuildDispatchSpec> findDispatchSpec(
             Connection connection, String tenantId, String jobId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -108,6 +109,7 @@ public abstract class JdbcArtifactBuildStoreMappings {
                 getInstant(result, "updated_at"));
     }
 
+    /** Loads the exact version-pinned input dependencies in their canonical ordinal order. */
     public static List<ArtifactDependency> loadArtifactDependencies(
             Connection connection, String tenantId, String jobId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -297,6 +299,16 @@ public abstract class JdbcArtifactBuildStoreMappings {
             String leaseOwner, long ownerEpoch, Instant leaseExpiresAt,
             int maxAttempts, byte[] reportBytes, String reportSha256,
             org.pangrova.metadata.artifact.build.ArtifactExecutionOwner executionOwner) {
+        /** Owns the nullable persisted report independently of the JDBC buffer. */
+        protected PageRow {
+            reportBytes = reportBytes == null ? null : reportBytes.clone();
+        }
+
+        /** Exports a report snapshot without permitting mutation of the page fact. */
+        @Override
+        public byte[] reportBytes() {
+            return reportBytes == null ? null : reportBytes.clone();
+        }
     }
 
     protected record PublicationLease(String owner, long ownerEpoch, Instant expiresAt) {

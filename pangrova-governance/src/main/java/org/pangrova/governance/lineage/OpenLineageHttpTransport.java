@@ -20,44 +20,108 @@ import java.util.UUID;
  * via the OpenLineage Java SDK HTTP transport.
  *
  * <p>Translates internal {@link LineageEvent} records into OpenLineage RunEvents
- * and emits them through the configured HTTP endpoint. Configuration is loaded
- * from the standard OpenLineage YAML config file or environment variables.</p>
+ * and emits them through the configured HTTP endpoint. The environment constructor consumes
+ * OPENLINEAGE_URL and OPENLINEAGE_API_KEY;
+ * an explicit SDK HttpConfig supports programmatic deployment configuration.</p>
  */
-public final class OpenLineageHttpTransport implements LineageBackend {
+public final class OpenLineageHttpTransport implements LineageBackend, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(OpenLineageHttpTransport.class);
+    private static final int DEFAULT_HTTP_TIMEOUT_MS = 5000;
+    private static final int HTTP_SUCCESS_MIN = 200;
+    private static final int HTTP_SUCCESS_LIMIT = 300;
+    private static final int MILLIS_PER_SECOND = 1000;
     private static final String PRODUCER = "https://github.com/pangrova/pangrova-governance";
 
     private final OpenLineageClient client;
     private final OpenLineage openLineage;
     private final String namespace;
+    private final HttpTransport ownedTransport;
 
     /**
      * Creates an HTTP transport using the default OpenLineage client configuration.
-     * The client reads transport settings from {@code openlineage.yml} or environment
-     * variables ({@code OPENLINEAGE_URL}, {@code OPENLINEAGE_API_KEY}).
+     * Reads {@code OPENLINEAGE_URL} and optional {@code OPENLINEAGE_API_KEY}; a missing URL fails startup.
      *
      * @param namespace default namespace for datasets
      */
     public OpenLineageHttpTransport(String namespace) {
+        this(environmentConfiguration(), namespace);
+    }
+
+    /** Owns the SDK HTTP transport configured for one deployment. */
+    public OpenLineageHttpTransport(HttpConfig config, String namespace) {
+        Objects.requireNonNull(config, "config");
+        URI url = Objects.requireNonNull(config.getUrl(), "OpenLineage HTTP URL");
+        if (!url.isAbsolute() || url.getHost() == null
+                || !("https".equals(url.getScheme()) || "http".equals(url.getScheme()))
+                || url.getUserInfo() != null) {
+            throw new IllegalArgumentException("OpenLineage requires an absolute HTTP(S) URL without credentials");
+        }
+        if (url.getPath() != null && !url.getPath().isEmpty()
+                && config.getEndpoint() != null && !config.getEndpoint().isBlank()) {
+            throw new IllegalArgumentException("OpenLineage URL path and endpoint cannot both be configured");
+        }
         this.namespace = Objects.requireNonNull(namespace, "namespace must not be null");
-        HttpConfig httpConfig = new HttpConfig();
-        HttpTransport transport = new HttpTransport(httpConfig);
-        this.client = new OpenLineageClient(transport);
+        this.ownedTransport = ownedHttpTransport(config);
+        this.client = new OpenLineageClient(ownedTransport);
         this.openLineage = new OpenLineage(URI.create(PRODUCER));
     }
 
-    /**
-     * Creates an HTTP transport with an explicit pre-configured client.
-     * Useful for testing or when programmatic configuration is preferred.
-     *
-     * @param client    pre-configured OpenLineage client
-     * @param namespace default namespace for datasets
-     */
-    public OpenLineageHttpTransport(OpenLineageClient client, String namespace) {
-        this.client = Objects.requireNonNull(client, "client must not be null");
-        this.namespace = Objects.requireNonNull(namespace, "namespace must not be null");
-        this.openLineage = new OpenLineage(URI.create(PRODUCER));
+    private static HttpTransport ownedHttpTransport(HttpConfig config) {
+        double configured = DEFAULT_HTTP_TIMEOUT_MS;
+        if (config.getTimeout() != null) {
+            configured = config.getTimeout() * MILLIS_PER_SECOND;
+        } else if (config.getTimeoutInMillis() != null) {
+            configured = config.getTimeoutInMillis().doubleValue();
+        }
+        if (!Double.isFinite(configured) || configured < 1 || configured > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("OpenLineage requires a finite positive HTTP timeout");
+        }
+        int timeoutMs = (int) configured;
+        var request = org.apache.http.client.config.RequestConfig.custom()
+                .setConnectTimeout(timeoutMs).setConnectionRequestTimeout(timeoutMs)
+                .setSocketTimeout(timeoutMs).build();
+        var http = org.apache.http.impl.client.HttpClientBuilder.create()
+                .setDefaultRequestConfig(request).disableRedirectHandling().disableAutomaticRetries()
+                .addInterceptorLast((org.apache.http.HttpResponseInterceptor) (response, context) -> {
+                    int status = response.getStatusLine().getStatusCode();
+                    if (status < HTTP_SUCCESS_MIN || status >= HTTP_SUCCESS_LIMIT) {
+                        throw new java.io.IOException("OpenLineage ingestion was not accepted: HTTP " + status);
+                    }
+                }).build();
+        try {
+            return new HttpTransport(http, config);
+        } catch (RuntimeException | Error failure) {
+            try {
+                http.close();
+            } catch (java.io.IOException cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+    }
+
+    private static HttpConfig environmentConfiguration() {
+        String url = System.getenv("OPENLINEAGE_URL");
+        if (url == null || url.isBlank()) {
+            throw new IllegalStateException("HTTP lineage requires OPENLINEAGE_URL");
+        }
+        var config = new HttpConfig();
+        config.setUrl(URI.create(url));
+        config.setTimeoutInMillis(DEFAULT_HTTP_TIMEOUT_MS);
+        String apiKey = System.getenv("OPENLINEAGE_API_KEY");
+        if (apiKey != null && !apiKey.isBlank()) {
+            var token = new io.openlineage.client.transports.ApiKeyTokenProvider();
+            token.setApiKey(apiKey);
+            config.setAuth(token);
+        }
+        return config;
+    }
+
+    /** Called by the emitter consumer after its final physical send/drain. */
+    @Override
+    public void close() throws java.io.IOException {
+        ownedTransport.close();
     }
 
     @Override
@@ -104,14 +168,21 @@ public final class OpenLineageHttpTransport implements LineageBackend {
     }
 
     private OpenLineage.RunEvent toRunEvent(LineageEvent event) {
-        OpenLineage.Run run = openLineage.newRunBuilder()
-                .runId(normalizeRunId(event.runId()))
-                .build();
+        var runBuilder = openLineage.newRunBuilder().runId(normalizeRunId(event.runId()));
+        String error = event.facets().get("error");
+        if (error != null) {
+            runBuilder.facets(openLineage.newRunFacetsBuilder().errorMessage(
+                    openLineage.newErrorMessageRunFacetBuilder().message(error)
+                            .programmingLanguage("SQL").build()).build());
+        }
+        OpenLineage.Run run = runBuilder.build();
 
-        OpenLineage.Job job = openLineage.newJobBuilder()
-                .namespace(namespace)
-                .name(event.jobName())
-                .build();
+        var jobBuilder = openLineage.newJobBuilder().namespace(namespace).name(event.jobName());
+        if (event.sql() != null) {
+            jobBuilder.facets(openLineage.newJobFacetsBuilder().sql(
+                    openLineage.newSQLJobFacetBuilder().query(event.sql()).build()).build());
+        }
+        OpenLineage.Job job = jobBuilder.build();
 
         List<OpenLineage.InputDataset> inputs = event.inputDatasets().stream()
                 .map(this::toInputDataset)
@@ -169,10 +240,15 @@ public final class OpenLineageHttpTransport implements LineageBackend {
                             .map(this::toInputField)
                             .toList();
 
+            String transformation = switch (col.derivation()) {
+                case DIRECT -> "IDENTITY";
+                case TRANSFORM -> "TRANSFORMATION";
+                case AGGREGATE -> "AGGREGATION";
+            };
             OpenLineage.ColumnLineageDatasetFacetFieldsAdditional fieldAdditional =
                     openLineage.newColumnLineageDatasetFacetFieldsAdditionalBuilder()
                             .inputFields(inputFields)
-                            .transformationType("IDENTITY")
+                            .transformationType(transformation)
                             .build();
 
             fieldsBuilder.put(col.outputColumn(), fieldAdditional);
@@ -201,6 +277,7 @@ public final class OpenLineageHttpTransport implements LineageBackend {
             case START -> OpenLineage.RunEvent.EventType.START;
             case COMPLETE -> OpenLineage.RunEvent.EventType.COMPLETE;
             case FAIL -> OpenLineage.RunEvent.EventType.FAIL;
+            case ABORT -> OpenLineage.RunEvent.EventType.ABORT;
         };
     }
 }

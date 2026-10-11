@@ -89,11 +89,13 @@ public final class PlannedQuery {
     }
 
     /**
-     * Returns the output column names from the top-level query plan.
-     * Equivalent to the plan's row type field names.
+     * Returns the SQL output names preserved before optimization removes alias projects.
      */
     public List<String> queryOutputColumns() {
-        return plan.getRowType().getFieldNames();
+        if (columnNames.size() != plan.getRowType().getFieldCount()) {
+            throw new IllegalStateException("SQL output names differ from the planned column count");
+        }
+        return List.copyOf(columnNames);
     }
 
     /**
@@ -107,6 +109,9 @@ public final class PlannedQuery {
     }
 
     private static String mapSqlTypeName(org.apache.calcite.rel.type.RelDataType type) {
+        if (type instanceof org.pangrova.planner.type.StorageVectorRelDataType vector) {
+            return vector.logicalType().getCanonicalSql();
+        }
         org.apache.calcite.sql.type.SqlTypeName sqlType = type.getSqlTypeName();
         return switch (sqlType) {
             case INTEGER -> "INT";
@@ -282,17 +287,9 @@ public final class PlannedQuery {
 
     // ── Column-level lineage (planner-internal Calcite analysis) ──
 
-    /**
-     * Extracts column-level derivations from the plan.
-     * Returns an empty list if extraction fails.
-     */
+    /** Extracts complete column derivations; unknown origins reject the compiled query. */
     public List<ColumnDerivation> columnLineage() {
-        try {
-            return LINEAGE_EXTRACTOR.extract(plan);
-        } catch (Exception e) {
-            LOG.debug("event=column_lineage_extraction_failed error={}", e.getMessage());
-            return List.of();
-        }
+        return LINEAGE_EXTRACTOR.extract(plan);
     }
 
     // ── DML write target (for DML context registration) ──
@@ -355,17 +352,34 @@ public final class PlannedQuery {
         return PlanFragmenter.fragment(plan, -1);
     }
 
+    /** Carries physical identity through producer/exchange/merge and trims only final output. */
+    public FragmentedPlan fragmentWithPhysicalRetrievalIdentity() {
+        RelNode extended = org.pangrova.planner.retrieval.PhysicalRetrievalIdentityRewriter.rewrite(plan);
+        FragmentedPlan fragments = PlanFragmenter.fragment(extended, -1);
+        int visibleCount = plan.getRowType().getFieldCount();
+        var stages = fragments.stages().stream().map(stage -> {
+            if (!stage.taskType().equals("OUTPUT")) {
+                return stage;
+            }
+            RelNode output = stage.fragment().planNode;
+            List<org.apache.calcite.rex.RexNode> expressions = java.util.stream.IntStream
+                    .range(0, visibleCount).mapToObj(index ->
+                            (org.apache.calcite.rex.RexNode) org.apache.calcite.rex.RexInputRef.of(
+                                    index, output.getRowType())).toList();
+            var visible = org.apache.calcite.rel.logical.LogicalProject.create(
+                    output, List.of(), expressions, plan.getRowType().getFieldNames());
+            return new PlanStage(stage.stageId(), new PlanFragment(visible,
+                    stage.fragment().estimatedShuffleBytes(), stage.fragment().estimatedShuffleRows()),
+                    stage.parallelism(), stage.taskType());
+        }).toList();
+        return new FragmentedPlan(stages, fragments.transfers(), fragments.stageDependencies());
+    }
+
     /** Serializes only this protected plan's exchange stages; no original SQL retry or persisted node is needed. */
     public AuthorizedStageGraph serializeAuthorizedStageGraph(SqlCompiler compiler, int parallelism) {
         var purpose = AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT;
         return AuthorizedStageGraph.compile(PlanFragmenter.fragment(plan, parallelism, purpose),
                 compiler, columnNames, purpose);
-    }
-
-    // ── Constant plan evaluation ──
-
-    public ConstantPlanEvaluator.EvaluatedConstant evaluateConstant() {
-        return ConstantPlanEvaluator.evaluateExpression(plan);
     }
 
     // ── AQE re-optimization ──

@@ -32,8 +32,9 @@ class TaskManagerExecutionPropertyTest {
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
             var request = ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 3));
             var info = tasks.submit(request);
-            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
             var received = tasks.consume(info);
+            tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             assertThat(received.batches()).isEqualTo(batches);
             assertThat(received.rows()).isEqualTo(batches * 3L);
             assertThat(received.values().stream().sorted())
@@ -53,7 +54,8 @@ class TaskManagerExecutionPropertyTest {
             tasks.awaitState(info, TaskManager.TaskState.FAILED);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
-            assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+            assertThat(report.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
+            assertThat(report.getCoverage().getCompletedWorkUnits()).isZero();
             assertThat(report.getAttempt()).isEqualTo(request.getAttempt());
             assertThat(report.getError().getMessage()).contains("not-an-integer");
             assertThat(info.executorHandle()).isZero();
@@ -68,6 +70,8 @@ class TaskManagerExecutionPropertyTest {
              var tasks = new ActualTaskManagerFixture(runtime, WORKER_ID)) {
             var request = ActualNativeTaskFixture.planTaskRequest(true, ActualNativeTaskPlans.values(batches, 1));
             var info = tasks.submit(request);
+            tasks.awaitState(info, TaskManager.TaskState.RUNNING);
+            assertThat(tasks.consume(info).rows()).isEqualTo(batches);
             tasks.awaitState(info, TaskManager.TaskState.FINISHED);
             var reports = tasks.reports().reports();
             assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
@@ -79,7 +83,6 @@ class TaskManagerExecutionPropertyTest {
             assertThat(finished.state()).isEqualTo("FINISHED");
             assertThat(finished.reportSequence()).isGreaterThan(reports.get(0).reportSequence());
             assertThat(TaskReport.parseFrom(finished.canonicalTaskReport()).getAttempt()).isEqualTo(request.getAttempt());
-            assertThat(tasks.consume(info).rows()).isEqualTo(batches);
         }
     }
 

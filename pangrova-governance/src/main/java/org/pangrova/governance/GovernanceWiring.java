@@ -1,6 +1,5 @@
 package org.pangrova.governance;
 
-import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
@@ -36,6 +35,6 @@ public class GovernanceWiring implements AutoCloseable {
 
     @Override
     public void close() {
-        ResourceCloser.closeQuietly(context);
+        context.close();
     }
 }

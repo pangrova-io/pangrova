@@ -2,6 +2,7 @@ package org.pangrova.coordinator.http.endpoint;
 
 import org.pangrova.common.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.coordinator.http.RequestLimitConfig;
 import org.pangrova.security.authn.AuthenticationManager;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
@@ -66,6 +67,25 @@ class WorkerResourceVersionCheckTest {
     }
 
     @Test
+    void registeredWorkerAcceptsValidInventoryLargerThanGenericHttpLimit() throws Exception {
+        var inventory = TestWorkerInfoBuilder.canonicalInventory().toBuilder()
+                .addSupportedRelationTypeUrls("x".repeat(1024 * 1024)).build();
+        var request = new WorkerRegistrationRequest("worker-large-inventory", "host-2", 8080,
+                9090, 0, 2, null, List.of(), null, CapabilityInventoryCodec.encode(inventory));
+        assertThat(JsonMapperFactory.writer().writeValueAsBytes(request).length)
+                .isGreaterThan(RequestLimitConfig.DEFAULT_MAX_REQUEST_SIZE_BYTES);
+        assertThat(registerOverHttp(request, INTERNAL_SECRET).statusCode()).isEqualTo(200);
+    }
+
+    @Test
+    void registeredWorkerRejectsOversizedMetadataEvenWhenInventoryIsSmall() throws Exception {
+        var request = new WorkerRegistrationRequest("worker-large-metadata", "host-2", 8080,
+                9090, 0, 2, "x".repeat(WorkerRegistrationRequest.MAX_METADATA_JSON_BYTES),
+                List.of(), null, canonicalInventory());
+        assertThat(registerOverHttp(request, INTERNAL_SECRET).statusCode()).isEqualTo(400);
+    }
+
+    @Test
     void compatibleInventoryCannotReplaceInternalServiceAuthentication() throws Exception {
         var request = new WorkerRegistrationRequest(
                 "worker-unauthenticated", "host-2", 8080, 9090, 0,
@@ -77,6 +97,7 @@ class WorkerResourceVersionCheckTest {
             WorkerRegistrationRequest request, String secret) throws Exception {
         try (var authentication = new AuthenticationManager(List.of())) {
             var config = new ResourceConfig().register(resource).register(JacksonFeature.class)
+                    .register(new RequestLimitFilter(RequestLimitConfig.defaults()))
                     .register(new AuthenticationFilter(authentication, INTERNAL_SECRET));
             var handler = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
             handler.setContextPath("/");

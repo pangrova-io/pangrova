@@ -479,6 +479,19 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
         return TableRef.derived(subquery, alias);
     }
     @Override
+    public TableRef visitValuesTableRef(PangrovaSqlParser.ValuesTableRefContext ctx) {
+        List<String> columns = ctx.columnNameList() == null ? List.of()
+                : ctx.columnNameList().identifier().stream()
+                        .map(this::extractIdentifierText).toList();
+        List<List<Expression>> rows = ctx.valuesList().valueTuple().stream()
+                .map(tuple -> tuple.expression().stream()
+                        .map(value -> (Expression) visit(value)).toList())
+                .toList();
+        Optional<String> alias = ctx.alias == null
+                ? Optional.empty() : Optional.of(extractIdentifierText(ctx.alias));
+        return TableRef.values(new ValuesTable(rows, columns), alias);
+    }
+    @Override
     public TableRef visitLateralTableFunctionRef(PangrovaSqlParser.LateralTableFunctionRefContext ctx) {
         var funcRef = buildTableFunctionRef(ctx.tableFunctionCall(),
                 ctx.identifier() != null ? Optional.of(extractIdentifierText(ctx.identifier())) : Optional.empty(),
@@ -536,6 +549,20 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
                 : List.of();
         var funcRef = new TableFunctionRef(TableFunctionRef.TableFunctionType.POSEXPLODE, argument, alias, columnAliases);
         return TableRef.lateralTableFunction(funcRef);
+    }
+    @Override
+    public TableRef visitUnnestTableRef(PangrovaSqlParser.UnnestTableRefContext ctx) {
+        Expression argument = (Expression) visit(ctx.expression());
+        Optional<String> alias = ctx.alias == null
+                ? Optional.empty() : Optional.of(extractIdentifierText(ctx.alias));
+        List<String> columnAliases = ctx.columnNameList() == null
+                ? List.of() : ctx.columnNameList().identifier().stream()
+                        .map(this::extractIdentifierText).toList();
+        var kind = ctx.ORDINALITY() == null
+                ? TableFunctionRef.TableFunctionType.UNNEST
+                : TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY;
+        return TableRef.lateralTableFunction(
+                new TableFunctionRef(kind, argument, alias, columnAliases));
     }
     @Override
     public TableRef visitLateralDerivedTableRef(PangrovaSqlParser.LateralDerivedTableRefContext ctx) {

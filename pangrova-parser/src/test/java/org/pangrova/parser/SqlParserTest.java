@@ -30,6 +30,30 @@ class SqlParserTest {
         assertThat(stmt).isInstanceOf(Query.class);
     }
 
+    @Test
+    void valuesDerivedTablePreservesRowsAndDeclaredColumnNames() {
+        Query query = (Query) parser.parse(
+                "SELECT X FROM (VALUES (1, 2), (3, 4)) AS t(X, Y)");
+        TableRef source = query.from().get(0);
+        assertThat(source.alias()).contains("t");
+        ValuesTable values = source.valuesTable().orElseThrow();
+        assertThat(values.rows()).hasSize(2);
+        assertThat(values.columnAliases()).containsExactly("X", "Y");
+        assertThat(new AstPrinter().print(query)).contains("VALUES (1, 2), (3, 4)");
+    }
+
+    @Test
+    void valuesDerivedTableRejectsRaggedRows() {
+        assertThatThrownBy(() -> parser.parse("SELECT X FROM (VALUES (1, 2), (3)) AS t(X, Y)"))
+                .hasMessageContaining("rows must have equal width");
+    }
+
+    @Test
+    void valuesDerivedTableRejectsWrongColumnAliasCount() {
+        assertThatThrownBy(() -> parser.parse("SELECT X FROM (VALUES (1, 2)) AS t(X)"))
+                .hasMessageContaining("column alias count");
+    }
+
     // ── Error reporting ──
 
     @Test

@@ -3,6 +3,10 @@ package org.pangrova.planner.optimization;
 import org.apache.calcite.plan.RelOptRule;
 import org.apache.calcite.plan.hep.HepProgramBuilder;
 import org.apache.calcite.rel.rules.CoreRules;
+import org.apache.calcite.rel.core.Filter;
+import org.apache.calcite.rel.core.Project;
+import org.apache.calcite.rel.rules.ProjectMergeRule;
+import org.apache.calcite.rex.RexUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -32,25 +36,6 @@ public final class HepRuleRegistry {
     public static void registerAll(HepProgramBuilder builder) {
         registerSubqueryDecorrelation(builder);
         registerExpressionReduction(builder);
-        registerProjectRules(builder);
-        registerFilterRules(builder);
-        registerJoinRules(builder);
-        registerAggregateRules(builder);
-        registerSortRules(builder);
-        registerSetOperationRules(builder);
-        registerCalcRules(builder);
-        registerWindowRules(builder);
-        registerExchangeRules(builder);
-        registerCorrelateRules(builder);
-    }
-
-    /**
-     * Registers all standard HEP rules except expression reduction (REDUCE_EXPRESSIONS).
-     * Used as a safe fallback when expression reduction produces invalid field references.
-     */
-    public static void registerAllSafe(HepProgramBuilder builder) {
-        registerSubqueryDecorrelation(builder);
-        // Skip expression reduction rules (the unsafe ones)
         registerProjectRules(builder);
         registerFilterRules(builder);
         registerJoinRules(builder);
@@ -106,7 +91,7 @@ public final class HepRuleRegistry {
         );
     }
 
-    // ---- Expression Reduction (5 rules) ----
+    // ---- Expression Reduction ----
 
     public static void registerExpressionReduction(HepProgramBuilder builder) {
         for (RelOptRule rule : expressionReductionRules()) {
@@ -120,7 +105,11 @@ public final class HepRuleRegistry {
                 CoreRules.FILTER_REDUCE_EXPRESSIONS,
                 CoreRules.CALC_REDUCE_EXPRESSIONS,
                 CoreRules.JOIN_REDUCE_EXPRESSIONS,
-                CoreRules.WINDOW_REDUCE_EXPRESSIONS
+                CoreRules.WINDOW_REDUCE_EXPRESSIONS,
+                CoreRules.PROJECT_FILTER_VALUES_MERGE,
+                CoreRules.FILTER_VALUES_MERGE,
+                CoreRules.PROJECT_VALUES_MERGE,
+                org.apache.calcite.rel.rules.PruneEmptyRules.PROJECT_INSTANCE
         );
     }
 
@@ -134,7 +123,10 @@ public final class HepRuleRegistry {
 
     static List<RelOptRule> projectRules() {
         return List.of(
-                CoreRules.PROJECT_MERGE,
+                CoreRules.PROJECT_MERGE.config.withOperandSupplier(top -> top.operand(Project.class)
+                        .oneInput(bottom -> bottom.operand(Project.class)
+                                .predicate(HepRuleRegistry::stableProjection).anyInputs()))
+                        .as(ProjectMergeRule.Config.class).toRule(),
                 CoreRules.PROJECT_REMOVE,
                 CoreRules.PROJECT_FILTER_TRANSPOSE,
                 CoreRules.PROJECT_JOIN_TRANSPOSE,
@@ -154,12 +146,19 @@ public final class HepRuleRegistry {
         return List.of(
                 CoreRules.FILTER_MERGE,
                 CoreRules.FILTER_INTO_JOIN,
-                CoreRules.FILTER_PROJECT_TRANSPOSE,
+                CoreRules.FILTER_PROJECT_TRANSPOSE.config.withOperandFor(Filter.class,
+                        filter -> !RexUtil.containsCorrelation(filter.getCondition()),
+                        Project.class, HepRuleRegistry::stableProjection).toRule(),
                 CoreRules.FILTER_AGGREGATE_TRANSPOSE,
                 CoreRules.FILTER_SET_OP_TRANSPOSE,
                 CoreRules.FILTER_SCAN,
                 CoreRules.JOIN_DERIVE_IS_NOT_NULL_FILTER_RULE
         );
+    }
+
+    /** Substitution must preserve the producer slot and evaluation domain of volatile calls. */
+    private static boolean stableProjection(Project project) {
+        return project.getProjects().stream().allMatch(RexUtil::isDeterministic);
     }
 
     // ---- Join Rules (4 rules) ----

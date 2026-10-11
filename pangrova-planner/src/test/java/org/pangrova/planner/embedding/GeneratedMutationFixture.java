@@ -18,7 +18,7 @@ import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.spi.connector.data.type.PangrovaType;
 import org.pangrova.spi.connector.data.type.VectorType;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
@@ -36,7 +36,7 @@ public final class GeneratedMutationFixture {
         return GeneratedColumnDefinition.newBuilder().setTargetColumn("vector")
                 .setCapability(BuiltInCapabilityCatalog.aiEmbeddingPlanRef()).setLogicalModelName("embedding_model")
                 .addSourceColumns("title").addSourceColumns("body").setExecutionMode(ExecutionMode.EXECUTION_MODE_SYNC)
-                .setOutputType(LogicalType.newBuilder().setCanonicalSql("VECTOR(3, COSINE)")).build();
+                .setOutputType(VectorLogicalType.create(3)).build();
     }
 
     public static LogicalTableModify plan(String sql) { return plan(sql, definition(), false); }

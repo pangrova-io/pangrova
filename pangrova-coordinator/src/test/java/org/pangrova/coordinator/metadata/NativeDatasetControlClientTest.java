@@ -42,11 +42,29 @@ class NativeDatasetControlClientTest {
     }
 
     @Test
+    void fullCanonicalEnvelopePreservesItsExactBytesAndCancelsTheNextByte() {
+        var body = new NativeDatasetControlClient.BoundedResponse();
+        var subscription = new Subscription(); body.onSubscribe(subscription);
+        byte[] first = new byte[8 * 1024 * 1024]; first[0] = 17;
+        byte[] second = new byte[NativeDatasetControlClient.MAX_RESPONSE_BYTES - first.length]; second[second.length - 1] = 23;
+        body.onNext(List.of(ByteBuffer.wrap(first), ByteBuffer.wrap(second)));
+        assertThat(subscription.cancelled).isFalse(); body.onComplete();
+        byte[] actual = body.getBody().toCompletableFuture().join();
+        assertThat(actual).hasSize(NativeDatasetControlClient.MAX_RESPONSE_BYTES);
+        assertThat(actual[0]).isEqualTo((byte) 17); assertThat(actual[actual.length - 1]).isEqualTo((byte) 23);
+        var over = new NativeDatasetControlClient.BoundedResponse();
+        var overSubscription = new Subscription(); over.onSubscribe(overSubscription);
+        over.onNext(List.of(ByteBuffer.wrap(first), ByteBuffer.wrap(second), ByteBuffer.wrap(new byte[] {1})));
+        assertThat(overSubscription.cancelled).isTrue();
+        assertThatThrownBy(() -> over.getBody().toCompletableFuture().join()).hasCauseInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void oversizedResponseCancelsBeforeBuffering() {
         var body = new NativeDatasetControlClient.BoundedResponse();
         var subscription = new Subscription();
         body.onSubscribe(subscription);
-        body.onNext(List.of(ByteBuffer.allocate(128 * 1024 + 1)));
+        body.onNext(List.of(ByteBuffer.allocate(NativeDatasetControlClient.MAX_RESPONSE_BYTES + 1)));
         assertThat(subscription.cancelled).isTrue();
         assertThatThrownBy(() -> body.getBody().toCompletableFuture().join())
                 .hasCauseInstanceOf(IllegalArgumentException.class);

@@ -6,6 +6,10 @@ import org.pangrova.metadata.coordination.JdbcWriteCommitJournal;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
+import org.pangrova.spi.connector.ConnectorTransactionHandle;
+import org.pangrova.spi.connector.metadata.Constraint;
+import org.pangrova.spi.connector.metadata.DynamicFilter;
+import org.pangrova.spi.connector.metadata.table.ConnectorReadBinding;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.testing.E2ETest;
 import org.pangrova.testing.e2e.PangrovaE2ETestBase;
@@ -17,6 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Public SQL, real Worker/JNI dataset writes and journaled manifest publication. */
 @E2ETest
@@ -27,8 +32,7 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
         return List.of(new ConnectorTestConfig(CATALOG, SCHEMA, "lance", Map.of(
-                "warehouse", tempDir.resolve("lance-sql-warehouse").toString(),
-                "jdbc.url", pgJdbcUrl(), "jdbc.user", pgUsername(), "jdbc.password", pgPassword())));
+                "warehouse", tempDir.resolve("lance-sql-warehouse").toString())));
     }
 
     @Test
@@ -55,6 +59,42 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
         assertThat(intent.publication().manifestSha256())
                 .containsExactly(CanonicalTaskRequests.sha256(manifest).getDigest().toByteArray());
         assertThat(pinned.rowCount()).isEqualTo(2);
+        var accepted = snapshot(pinned);
+        assertThat(accepted.version()).isEqualTo(intent.publication().publishedVersion());
+        assertThat(accepted.membershipId()).isEqualTo(intent.commitFingerprint());
+        assertThat(accepted.manifestSha256()).isEqualTo(intent.publication().manifestSha256());
+        assertThat(accepted.schemaSha256()).isEqualTo(pinned.schemaFence());
+    }
+
+    @Test
+    void selectedEmptySnapshotStaysEmptyAfterFirstPublicSqlPublication() {
+        String table = uniqueTable();
+        String name = CATALOG + "." + SCHEMA + "." + table;
+        executeDdl("CREATE TABLE " + name + " (id BIGINT)");
+        var session = authenticatedCatalogSession(CATALOG);
+        var catalog = metadataBootstrap.catalogRegistry().getCatalog(CATALOG);
+        var metadata = catalog.getMetadata(session);
+        var selected = metadata.bindRead(session, metadata.getTableHandle(session, new SchemaTableName(SCHEMA, table)));
+        assertThat(selected.state()).isEqualTo(ConnectorReadBinding.SnapshotState.EMPTY);
+        executeDml("INSERT INTO " + name + " VALUES (7)");
+        assertThat(executeQuery("SELECT id FROM " + name)).extracting(row -> row.getLong("id"))
+                .containsExactly(7L);
+        assertThat(table(table).version()).isEqualTo(1);
+        metadata.validateReadBinding(session, selected);
+        var splits = catalog.getSplitManager().getSplits(ConnectorTransactionHandle.EMPTY, session,
+                selected.handle(), DynamicFilter.ALL, Constraint.EMPTY);
+        try {
+            assertThat(splits.isFinished()).isTrue();
+            assertThat(splits.getNextBatch(1)).isEmpty();
+            assertThat(metadata.getTableStatistics(session, selected.handle()).rowCount()).isZero();
+        } finally {
+            splits.close();
+        }
+        executeDdl("DROP TABLE " + name);
+        executeDdl("CREATE TABLE " + name + " (id BIGINT)");
+        assertThatThrownBy(() -> catalog.getSplitManager().getSplits(ConnectorTransactionHandle.EMPTY, session,
+                selected.handle(), DynamicFilter.ALL, Constraint.EMPTY))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("incarnation");
     }
 
     @Test
@@ -75,6 +115,17 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
         assertThat(table(table).version()).isEqualTo(3);
         assertThat(table(table).rowCount()).isEqualTo(1);
         assertThat(old.version()).isEqualTo(1);
+        assertThat(executeQuery("SELECT id FROM " + name + " FOR VERSION AS OF 1 ORDER BY id"))
+                .extracting(row -> row.getLong("id")).containsExactly(1L);
+        assertThat(executeQuery("SELECT id FROM " + name + " FOR VERSION AS OF 2 ORDER BY id"))
+                .extracting(row -> row.getLong("id")).containsExactly(1L, 2L);
+        var historical = snapshot(old);
+        var current = snapshot(table(table));
+        assertThat(historical.version()).isEqualTo(1);
+        assertThat(current.version()).isEqualTo(3);
+        assertThat(historical.membershipId()).isNotEqualTo(current.membershipId());
+        assertThat(historical.tableId()).isEqualTo(current.tableId());
+        assertThat(historical.generation()).isEqualTo(current.generation());
     }
 
     private static LanceTableHandle table(String name) {
@@ -84,11 +135,33 @@ class LanceSqlPublicationE2ETest extends PangrovaE2ETestBase {
     }
 
     private static byte[] firstManifest(LanceTableHandle table) throws java.io.IOException {
-        try (var paths = Files.list(Path.of(table.datasetUri()).resolve("_versions"))) {
+        var accepted = snapshot(table);
+        assertThat(Files.exists(Path.of(table.datasetUri()).resolve("_versions"))).isFalse();
+        Path actual = Path.of(accepted.datasetUri()).resolve(accepted.manifestRelativePath());
+        try (var paths = Files.list(actual.getParent())) {
             var manifests = paths.filter(path -> path.getFileName().toString().endsWith(".manifest")).toList();
             assertThat(manifests).hasSize(1);
-            return Files.readAllBytes(manifests.get(0));
+            assertThat(manifests).containsExactly(actual);
+            byte[] bytes = Files.readAllBytes(actual);
+            assertThat(bytes.length).isEqualTo(accepted.manifestSize());
+            assertThat(CanonicalTaskRequests.sha256(bytes).getDigest().toByteArray()).isEqualTo(accepted.manifestSha256());
+            return bytes;
         }
+    }
+
+    private static org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot(LanceTableHandle table) {
+        var descriptor = metadataBootstrap.catalogRegistry().getCatalog(CATALOG).getDescriptor();
+        var authority = new org.pangrova.metadata.source.jdbc.JdbcManagedSourceCatalog(stateStoreDataSource(),
+                new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.Deployment(
+                        descriptor.name(), descriptor.incarnationId(), descriptor.revision()),
+                execution -> e2eCoordinationForTest().requireExecutionAnchor(execution));
+        var key = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableKey(table.tenantId(), table.table());
+        var actual = authority.load(key).orElseThrow();
+        assertThat(actual.tableId()).isEqualTo(table.tableId());
+        var selector = new org.pangrova.spi.connector.metadata.ManagedSourceCatalog.TableState(actual.key(), actual.tableId(),
+                actual.datasetUri(), actual.generation(), actual.revision(), table.version(), actual.rows(),
+                actual.schemaSha256(), actual.payload());
+        return authority.snapshot(selector).reference();
     }
 
     private static String uniqueTable() { return "sql_" + UUID.randomUUID().toString().replace("-", ""); }

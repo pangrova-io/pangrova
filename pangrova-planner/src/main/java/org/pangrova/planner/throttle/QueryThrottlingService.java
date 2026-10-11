@@ -19,7 +19,7 @@ import java.util.concurrent.Semaphore;
  * On rejection: release all previously acquired permits in reverse order.
  */
 @ThreadSafe
-public class QueryThrottlingService {
+public final class QueryThrottlingService {
 
     private final Semaphore globalConcurrency;
     private final ConcurrentMap<String, RateLimiter> tenantLimiters;

@@ -49,7 +49,7 @@ public final class CatalogDeploymentClient {
                         + "&revision=" + revision);
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(REQUEST_TIMEOUT)
-                .header("X-Internal-Auth", internalAuthSecret)
+                .header("Authorization", "Bearer " + internalAuthSecret)
                 .GET()
                 .build();
         try {

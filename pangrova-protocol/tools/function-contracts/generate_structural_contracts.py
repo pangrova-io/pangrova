@@ -109,7 +109,8 @@ def render_callback_signatures(declarations):
     layouts = {layout["id"]: [argument["type"] for argument in layout["arguments"]]
                for layout in declarations["governedLayouts"]}
     lines = ["struct RuntimeCallbackSignature {", "  const char* name;", "  const char* returnType;",
-             "  std::span<const char* const> arguments;", "  bool deterministic;", "};"]
+             "  std::span<const char* const> arguments;", "  bool deterministic;",
+             "  bool defaultNullBehavior;", "};"]
     callbacks = []
     for binding in declarations["bindings"]:
         runtime = binding.get("runtimeSignature")
@@ -129,13 +130,18 @@ def render_callback_signatures(declarations):
         lines.append(f"inline constexpr std::array<RuntimeCallbackSignature, {len(signatures)}> {name}_signatures = {{{{")
         for ordinal in range(len(signatures)):
             lines.append("  {" + canonical_json(name) + ", " + canonical_json(runtime["returnType"])
-                         + f", {name}_arguments_{ordinal}, " + canonical_json(runtime["deterministic"]) + "},")
+                         + f", {name}_arguments_{ordinal}, " + canonical_json(runtime["deterministic"])
+                         + ", " + canonical_json(runtime["defaultNullBehavior"]) + "},")
         lines.append("}};")
         callbacks.append(name)
-    lines.append("inline std::span<const RuntimeCallbackSignature> runtimeCallbackSignatures(std::string_view name) {")
+    lines.append("inline std::span<const RuntimeCallbackSignature> findRuntimeCallbackSignatures(std::string_view name) {")
     for name in callbacks:
         lines.append(f"  if (name == {canonical_json(name)}) return {name}_signatures;")
-    lines.extend(['  throw std::invalid_argument("Unknown declared callback registration dependency");', "}"])
+    lines.extend(["  return {};", "}",
+                  "inline std::span<const RuntimeCallbackSignature> runtimeCallbackSignatures(std::string_view name) {",
+                  "  const auto signatures = findRuntimeCallbackSignatures(name);",
+                  '  if (signatures.empty()) throw std::invalid_argument("Unknown declared callback registration dependency");',
+                  "  return signatures;", "}"])
     return lines
 
 

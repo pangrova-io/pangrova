@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class LancePartitionSplitSource implements ConnectorSplitSource {
     private final LanceTableHandle table;
     private final ConnectorSession session;
+    private final org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot;
     private final Optional<NativeDatasetControlPlane> control;
     private final AtomicBoolean fetching = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -24,8 +25,11 @@ final class LancePartitionSplitSource implements ConnectorSplitSource {
     private long enumerated;
 
     LancePartitionSplitSource(LanceTableHandle table, ConnectorSession session,
-            Optional<NativeDatasetControlPlane> control) {
+            Optional<NativeDatasetControlPlane> control,
+            org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot) {
         this.table = table;
+        this.snapshot = snapshot;
+        if ((table.version() == 0) != (snapshot == null)) throw new IllegalArgumentException("Scan membership is required");
         this.session = session;
         this.control = control;
         finished = table.version() == 0;
@@ -39,21 +43,21 @@ final class LancePartitionSplitSource implements ConnectorSplitSource {
         if (finished || closed.get()) return List.of();
         if (!fetching.compareAndSet(false, true)) throw new IllegalStateException("Concurrent split enumeration");
         try {
-            var page = control.orElseThrow().scanPartitions(session, table.datasetUri(), table.version(),
-                    table.schemaFence(), after, Math.min(maxSize, 256));
+            var page = control.orElseThrow().scanPartitions(session, snapshot, after, Math.min(maxSize, 256));
             validate(page);
             if (closed.get()) return List.of();
             after = page.nextAfter();
             finished = after.isEmpty();
             return page.partitions().stream().<ConnectorSplit>map(partition -> new LanceDataSplit(
-                    table, partition, page.serializedCatalogBinding(), page.manifestSha256())).toList();
+                    table, partition, page.serializedCatalogBinding(), page.manifestSha256(), snapshot)).toList();
         } finally {
             fetching.set(false);
         }
     }
 
     private void validate(NativeDatasetScanPage page) {
-        if (page.version() != table.version()
+        if (!MessageDigest.isEqual(page.manifestSha256(), snapshot.manifestSha256())
+                || page.version() != table.version()
                 || !MessageDigest.isEqual(page.schemaFingerprint(), table.schemaFence())) {
             throw new IllegalArgumentException("Scan page differs from the pinned table version/schema");
         }

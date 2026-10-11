@@ -16,8 +16,8 @@ import org.pangrova.protocol.v2.DatasetScanPartitionsRequest;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintResult;
 import org.pangrova.protocol.v2.DistributedWriteFragment;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
-import org.pangrova.protocol.v2.FinalizeDistributedWriteRequest;
-import org.pangrova.protocol.v2.FinalizeDistributedWriteResult;
+import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
+import org.pangrova.protocol.v2.PrepareDistributedWriteResult;
 import org.pangrova.protocol.v2.LanceWriteBinding;
 import org.pangrova.protocol.v2.LanceWriteFragment;
 import org.pangrova.protocol.v2.LanceWriteOperation;
@@ -30,7 +30,12 @@ import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle;
 import org.pangrova.spi.connector.metadata.DistributedWriteCommitContext;
 import org.pangrova.spi.connector.metadata.NativeDatasetControlPlane;
-import org.pangrova.spi.connector.metadata.NativeWriteFinalization;
+import org.pangrova.spi.connector.metadata.NativeWritePreparation;
+import org.pangrova.spi.connector.metadata.PreparedSourcePublication;
+import org.pangrova.spi.connector.metadata.SourceObjectPage;
+import org.pangrova.spi.connector.metadata.SourcePublicationReservation;
+import org.pangrova.spi.connector.metadata.ManagedSourceCatalog;
+import org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot;
 import org.pangrova.spi.connector.metadata.NativeWriteAllocation;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.coordination.ExecutionAnchor;
@@ -66,12 +71,14 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
     private final CatalogDescriptor catalog;
     private final Dependencies dependencies;
     private final NativeDatasetControlClient client;
+    private final ManagedSourceCatalog sourceCatalog;
 
     /** Pins the unresolved catalog deployment; the Worker resolves credentials locally. */
     public WorkerNativeDatasetControl(CatalogDescriptor catalog, Dependencies dependencies,
-                                     NativeDatasetControlClient client) {
+                                     NativeDatasetControlClient client, ManagedSourceCatalog sourceCatalog) {
         this.catalog = Objects.requireNonNull(catalog);
         this.dependencies = Objects.requireNonNull(dependencies);
+        this.sourceCatalog = Objects.requireNonNull(sourceCatalog);
         this.client = Objects.requireNonNull(client);
     }
 
@@ -95,8 +102,10 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
 
     @Override
     public org.pangrova.spi.connector.metadata.NativeDatasetScanPage scanPartitions(
-            ConnectorSession session, String datasetUri, long version, byte[] schemaFingerprint,
+            ConnectorSession session, AcceptedSourceSnapshot snapshot,
             java.util.OptionalLong afterPartitionId, int pageSize) {
+        long version = snapshot.version(); byte[] schemaFingerprint = snapshot.schemaSha256();
+        if (!security(session).getTenantId().equals(snapshot.tenant())) throw new SecurityException("Scan membership tenant differs");
         if (version <= 0 || schemaFingerprint.length != 32 || pageSize < 1 || pageSize > 256
                 || (afterPartitionId.isPresent() && afterPartitionId.getAsLong() < 0)) {
             throw new IllegalArgumentException("Invalid dataset scan pagination");
@@ -104,95 +113,148 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
         long deadline = deadline();
         var binding = catalogBinding();
         var request = DatasetScanPartitionsRequest.newBuilder().setCatalog(binding).setSecurity(security(session))
-                .setDatasetUri(datasetUri).setVersion(version).setPhysicalSchemaSha256(Checksum.newBuilder()
+                .setDatasetUri(snapshot.datasetUri()).setVersion(version).setPhysicalSchemaSha256(Checksum.newBuilder()
                         .setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
                         .setDigest(ByteString.copyFrom(schemaFingerprint)))
+                .setAcceptedSnapshot(org.pangrova.protocol.SourceSnapshotBindings.encode(snapshot, binding))
                 .setDeadlineEpochMs(deadline).setPageSize(pageSize).setHasCursor(afterPartitionId.isPresent());
         afterPartitionId.ifPresent(request::setAfterPartitionId);
         var response = client.call(endpoint(), command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_DATASET_SCAN_PARTITIONS,
                 request.build()), deadline);
-        return NativeDatasetScanPages.decode(response, binding, version, schemaFingerprint, afterPartitionId, pageSize);
+        return NativeDatasetScanPages.decode(response, binding, snapshot, afterPartitionId, pageSize);
+    }
+
+    @Override public void cleanupSourceObjects(ConnectorSession session, SourcePublicationReservation reservation) {
+        if (!security(session).getTenantId().equals(reservation.base().key().tenant())) {
+            throw new SecurityException("Source cleanup tenant differs from its authority");
+        }
+        for (int page = 0; page < SourceObjectPage.MAX_PAGES; page++) {
+            var selected = sourceCatalog.reserveCleanup(reservation);
+            if (selected.isEmpty()) return;
+            var batch = selected.orElseThrow();
+            var anchor = dependencies.fencer().get().currentAnchor(reservation.executionId());
+            requireOwner(dependencies.fencer().get(), anchor, reservation.executionId());
+            long deadline = Math.min(deadline(), anchor.expiresAt().toEpochMilli());
+            var request = org.pangrova.protocol.v2.CleanupSourceObjectsRequest.newBuilder()
+                    .setCatalog(catalogBinding()).setSecurity(security(session)).setExecutionId(batch.executionId())
+                    .setCommitFingerprint(batch.fingerprint()).setExecutionOwner(ExecutionOwnerIdentity.newBuilder()
+                            .setOwnerId(anchor.ownerId()).setOwnerIncarnation(anchor.ownerIncarnation()).setFencingToken(anchor.fencingToken()))
+                    .setControlEpoch(dependencies.controlEpoch().getAsLong()).setDeadlineEpochMs(deadline)
+                    .setCleanupId(batch.cleanupId()).setDatasetUri(batch.datasetUri())
+                    .setObjectsSha256(Checksum.newBuilder().setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
+                            .setDigest(ByteString.copyFrom(batch.sha256())));
+            for (var object : batch.objects()) request.addObjects(org.pangrova.protocol.v2.PreparedSourceObject.newBuilder()
+                    .setRelativePath(object.relativePath()).setSizeBytes(object.sizeBytes())
+                    .setPurpose(object.purpose() == SourceObjectPage.Purpose.SOURCE
+                            ? org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_SOURCE
+                            : org.pangrova.protocol.v2.SourceObjectPurpose.SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR));
+            try {
+                var response = client.call(endpoint(), command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_CLEANUP_SOURCE_OBJECTS,
+                        request.build()), deadline);
+                var result = response.getPayload().unpack(org.pangrova.protocol.v2.CleanupSourceObjectsResult.class);
+                if (!result.getCleanupId().equals(batch.cleanupId()) || !result.getSdkJoined()
+                        || result.getDeletedCount() != batch.objects().size()
+                        || !result.getObjectsSha256().equals(request.getObjectsSha256())) {
+                    throw new IllegalArgumentException("Source cleanup response differs from its authoritative deletion set");
+                }
+                sourceCatalog.completeCleanup(reservation, batch);
+            } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+                throw new IllegalArgumentException("Source cleanup response is malformed", malformed);
+            }
+        }
+        throw new IllegalStateException("Source cleanup exceeded its admitted page bound");
     }
 
     @Override
-    public NativeWriteFinalization finalizeWrite(ConnectorSession session, ConnectorOutputTableHandle output,
-            List<byte[]> fragments, DistributedWriteCommitContext context) {
-        WriteCommitJournal journal = dependencies.journal().get();
-        WriteCommitEntry intent = journal.getEntry(context.executionId()).orElseThrow(
-                () -> new IllegalStateException("Native publication requires a durable write intent"));
-        validateIntent(intent, fragments, context);
-        validateOutput(intent, output, catalog.name());
-        WriteCommitFencer fencer = Objects.requireNonNull(dependencies.fencer().get(),
-                "Native publication requires durable ownership");
+    public NativeWritePreparation prepareWrite(ConnectorSession session, ConnectorOutputTableHandle output,
+            List<byte[]> fragments, DistributedWriteCommitContext context, SourcePublicationReservation reservation) {
+        WriteCommitEntry intent = dependencies.journal().get().getEntry(context.executionId()).orElseThrow(
+                () -> new IllegalStateException("Native preparation requires a durable write intent"));
+        validateIntent(intent, fragments, context); validateOutput(intent, output, catalog.name());
+        WriteCommitFencer fencer = Objects.requireNonNull(dependencies.fencer().get(), "Preparation requires durable ownership");
         ExecutionAnchor anchor = fencer.currentAnchor(context.executionId());
         requireOwner(fencer, anchor, context.executionId());
         long deadline = Math.min(deadline(), anchor.expiresAt().toEpochMilli());
-        var request = finalizeRequest(security(session), intent, anchor, deadline,
-                dependencies.controlEpoch().getAsLong());
+        var request = prepareRequest(security(session), intent, anchor, deadline,
+                dependencies.controlEpoch().getAsLong(), reservation);
         if (!request.getSecurity().getTenantId().equals(intent.tenantId())
                 || !request.getOutputBinding().hasLance()
                 || !catalogBinding().equals(request.getOutputBinding().getLance().getCatalog())) {
-            throw new SecurityException("Publication catalog deployment or tenant differs from durable intent");
+            throw new SecurityException("Preparation deployment or tenant differs from durable intent");
         }
-        NativeWriteFinalization publication;
-        try {
-            publication = publish(request, deadline, context.commitFingerprint());
-        } catch (NativeDatasetControlRpcException uncertain) {
-            LOG.warn("event=native_publication_unknown queryId={} fingerprint={}",
-                    context.executionId(), context.commitFingerprint(), uncertain);
-            return new NativeWriteFinalization(NativeWriteFinalization.Outcome.UNKNOWN, 0, new byte[0]);
+        PreparedSourcePublication first = null;
+        String after = "";
+        for (int pageIndex = 0; pageIndex < SourceObjectPage.MAX_PAGES; pageIndex++) {
+            var pageRequest = request.toBuilder().setObjectPageIndex(pageIndex).setAfterObjectPath(after)
+                    .setObjectPageSize(SourceObjectPage.MAX_PAGE_OBJECTS).build();
+            URI worker = endpoint();
+            var invocation = sourceCatalog.issuePreparation(reservation, pageIndex, after, worker.toString(),
+                    CanonicalTaskRequests.sha256(pageRequest.toByteArray()).getDigest().toByteArray());
+            pageRequest = pageRequest.toBuilder().setInvocationId(invocation.invocationId()).build();
+            PreparationPage page;
+            try {
+                var response = client.call(worker, command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE,
+                        pageRequest), deadline);
+                page = decodePreparation(response, context.commitFingerprint(), catalogBinding());
+                var evidence = response.getPayload().unpack(PrepareDistributedWriteResult.class);
+                if (!evidence.getInvocationId().equals(invocation.invocationId())) {
+                    throw new IllegalArgumentException("Preparation response differs from its durable SDK invocation");
+                }
+                if (!evidence.getSdkJoined()) {
+                    if (page != null) throw new IllegalArgumentException("Prepared candidate has no actual SDK join proof");
+                    return new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+                }
+                sourceCatalog.acknowledgePreparation(reservation, invocation,
+                        CanonicalTaskRequests.sha256(evidence.toByteArray()).getDigest().toByteArray());
+            } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+                throw new IllegalArgumentException("Preparation join response is malformed", malformed);
+            } catch (NativeDatasetControlRpcException uncertain) {
+                LOG.warn("event=native_preparation_unknown queryId={} fingerprint={} page={}",
+                        context.executionId(), context.commitFingerprint(), pageIndex, uncertain);
+                return new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+            }
+            if (page == null) return new NativeWritePreparation(NativeWritePreparation.Outcome.UNKNOWN, java.util.Optional.empty());
+            requireOwner(fencer, anchor, context.executionId());
+            if (page.objects().index() != pageIndex || !page.objects().afterPath().equals(after)) {
+                throw new IllegalArgumentException("SDK object page sequence or cursor differs");
+            }
+            if (first == null) first = page.publication();
+            else requireSamePreparation(first, page.publication());
+            sourceCatalog.registerObjects(reservation, page.publication(), page.objects());
+            if (page.objects().last()) return new NativeWritePreparation(NativeWritePreparation.Outcome.PREPARED,
+                    java.util.Optional.of(page.publication()));
+            after = page.objects().lastPath();
         }
-        requireOwner(fencer, anchor, context.executionId());
-        if (publication.outcome() == NativeWriteFinalization.Outcome.COMMITTED) {
-            journal.recordPublication(context.executionId(), context.commitFingerprint(), publication);
-        }
-        return publication;
+        throw new IllegalStateException("SDK object registration exceeds its admitted page bound");
     }
 
-    private NativeWriteFinalization publish(
-            FinalizeDistributedWriteRequest request, long deadline, String fingerprint) {
-        var response = client.call(endpoint(),
-                command(RuntimeCommandType.RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE, request), deadline);
-        try {
-            return decodePublication(response, fingerprint);
-        } catch (IllegalArgumentException invalidEvidence) {
-            throw new NativeDatasetControlRpcException("Native publication response cannot establish outcome",
-                    invalidEvidence);
-        }
-    }
-
-    static FinalizeDistributedWriteRequest finalizeRequest(SecurityContext security, WriteCommitEntry intent,
-            ExecutionAnchor anchor, long deadline, long controlEpoch) {
-        if (controlEpoch <= 0 || deadline <= System.currentTimeMillis()) {
-            throw new IllegalArgumentException("Publication control term/deadline is invalid");
-        }
-        if (intent.ownerId() == null || intent.executionFencingToken() <= 0) {
-            throw new IllegalArgumentException("Native publication requires durably owned winner provenance");
-        }
+    static PrepareDistributedWriteRequest prepareRequest(SecurityContext security, WriteCommitEntry intent,
+            ExecutionAnchor anchor, long deadline, long controlEpoch, SourcePublicationReservation reservation) {
+        if (controlEpoch <= 0 || deadline <= System.currentTimeMillis()) throw new IllegalArgumentException("Invalid preparation term/deadline");
+        if (intent.ownerId() == null || intent.executionFencingToken() <= 0) throw new IllegalArgumentException("Winners lack durable provenance");
         validateIntentOwner(intent, anchor, deadline);
         try {
             var binding = WriteOutputBinding.parseFrom(intent.writeOutputBinding());
-            var request = FinalizeDistributedWriteRequest.newBuilder().setSecurity(security).setOutputBinding(binding)
-                    .setExecutionId(intent.queryId()).setCommitFingerprint(intent.commitFingerprint())
+            var allocation = org.pangrova.protocol.v2.SourcePublicationReservation.newBuilder()
+                    .setTableId(reservation.base().tableId()).setTableGeneration(reservation.base().generation())
+                    .setTenantId(reservation.base().key().tenant()).setManifestRelativePath(reservation.manifestRelativePath());
+            reservation.baseSnapshot().ifPresent(base -> allocation.setBaseSnapshot(
+                    org.pangrova.protocol.SourceSnapshotBindings.encode(base, binding.getLance().getCatalog())));
+            var request = PrepareDistributedWriteRequest.newBuilder().setSecurity(security).setOutputBinding(binding)
+                    .setExecutionId(intent.queryId()).setCommitFingerprint(intent.commitFingerprint()).setReservation(allocation)
                     .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId(anchor.ownerId())
                             .setOwnerIncarnation(anchor.ownerIncarnation()).setFencingToken(anchor.fencingToken()))
                     .setIntentExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId(intent.ownerId())
-                            .setOwnerIncarnation(intent.ownerIncarnation())
-                            .setFencingToken(intent.executionFencingToken()))
-                    .setControlEpoch(controlEpoch).setDeadlineEpochMs(deadline).setRecovering(true);
+                            .setOwnerIncarnation(intent.ownerIncarnation()).setFencingToken(intent.executionFencingToken()))
+                    .setControlEpoch(controlEpoch).setDeadlineEpochMs(deadline);
             for (byte[] bytes : intent.fragments()) {
                 var fragment = LanceWriteFragment.parseFrom(bytes);
                 request.addFragments(DistributedWriteFragment.newBuilder().setTaskAttempt(fragment.getTaskAttempt())
                         .setCommitMetadata(ByteString.copyFrom(bytes)).setSha256(CanonicalTaskRequests.sha256(bytes)));
             }
-            if (intent.publication() != null) {
-                request.setKnownPublishedVersion(intent.publication().publishedVersion())
-                        .setKnownManifestSha256(Checksum.newBuilder().setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
-                                .setDigest(ByteString.copyFrom(intent.publication().manifestSha256())));
-            }
             return request.build();
         } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            throw new IllegalArgumentException("Durable Native write metadata is malformed", malformed);
+            throw new IllegalArgumentException("Durable Native preparation metadata is malformed", malformed);
         }
     }
 
@@ -213,6 +275,8 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
         if (!intent.queryId().equals(context.executionId())
                 || !intent.commitFingerprint().equals(context.commitFingerprint())
                 || !intent.tenantId().equals(context.tenantId())
+                || !intent.principal().equals(context.principal())
+                || !intent.authorizationReceipt().equals(context.authorizationReceipt())
                 || intent.baseSnapshotId() != context.baseSnapshotId()
                 || !Arrays.equals(intent.writeOutputBinding(), context.writeOutputBinding())
                 || !sameFragments(intent.fragments(), fragments)) {
@@ -237,6 +301,12 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
                 throw new IllegalArgumentException("Durable Native output binding is missing");
             }
             validateAllocation(allocation, binding.getLance());
+            var acceptedBase = output.acceptedWriteBaseSnapshot();
+            if ((base > 0) != acceptedBase.isPresent() || binding.getLance().hasBaseSnapshot() != acceptedBase.isPresent()
+                    || (acceptedBase.isPresent() && !org.pangrova.protocol.SourceSnapshotBindings.encode(
+                            acceptedBase.orElseThrow(), binding.getLance().getCatalog()).equals(binding.getLance().getBaseSnapshot()))) {
+                throw new IllegalArgumentException("Native output accepted base differs from durable intent");
+            }
         } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
             throw new IllegalArgumentException("Durable Native output binding is malformed", malformed);
         }
@@ -289,25 +359,54 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
         }
     }
 
-    static NativeWriteFinalization decodePublication(RuntimeCommandResponse response, String fingerprint) {
+    record PreparationPage(PreparedSourcePublication publication, SourceObjectPage objects) {}
+
+    static PreparationPage decodePreparation(RuntimeCommandResponse response, String fingerprint, CatalogExecutionBinding catalog) {
         try {
-            var result = response.getPayload().unpack(FinalizeDistributedWriteResult.class);
-            if (!fingerprint.equals(result.getCommitFingerprint())) {
-                throw new IllegalArgumentException("Publication fingerprint differs");
+            var result = response.getPayload().unpack(PrepareDistributedWriteResult.class);
+            if (!result.getUnknownFields().asMap().isEmpty() || !fingerprint.equals(result.getCommitFingerprint())) throw new IllegalArgumentException("Preparation fingerprint differs");
+            if (result.getOutcome() == org.pangrova.protocol.v2.WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_UNKNOWN) {
+                if (result.hasPublication() || result.hasObjectPage()) throw new IllegalArgumentException("UNKNOWN has no prepared evidence");
+                return null;
             }
-            var outcome = switch (result.getOutcome()) {
-                case WRITE_PUBLICATION_OUTCOME_COMMITTED -> NativeWriteFinalization.Outcome.COMMITTED;
-                case WRITE_PUBLICATION_OUTCOME_NOT_COMMITTED -> NativeWriteFinalization.Outcome.NOT_COMMITTED;
-                case WRITE_PUBLICATION_OUTCOME_UNKNOWN -> NativeWriteFinalization.Outcome.UNKNOWN;
-                default -> throw new IllegalArgumentException("Native publication outcome is missing");
-            };
-            if (outcome == NativeWriteFinalization.Outcome.COMMITTED) {
-                requireSha256(result.getManifestSha256());
+            if (result.getOutcome() != org.pangrova.protocol.v2.WritePreparationOutcome.WRITE_PREPARATION_OUTCOME_PREPARED
+                    || !result.hasPublication() || !result.hasObjectPage()) throw new IllegalArgumentException("Missing SDK preparation evidence");
+            var header = result.getPublication();
+            if (!header.getUnknownFields().asMap().isEmpty()) throw new IllegalArgumentException("Unknown source preparation header fields");
+            requireSha256(header.getObjectsSha256());
+            var reference = org.pangrova.protocol.SourceSnapshotBindings.decode(header.getCandidate(), catalog);
+            if (!reference.membershipId().equals(fingerprint) || reference.acceptedOriginRevision() != catalog.getCatalogRevision()) throw new IllegalArgumentException("Candidate membership differs");
+            var publication = new PreparedSourcePublication(reference, header.getRowCount(), header.getObjectsCount(),
+                    header.getObjectsSha256().getDigest().toByteArray(), header.getInheritedMembership());
+            var page = result.getObjectPage();
+            if (!page.getUnknownFields().asMap().isEmpty() || page.getObjectsList().stream()
+                    .anyMatch(object -> !object.getUnknownFields().asMap().isEmpty())) {
+                throw new IllegalArgumentException("Unknown source object page fields");
             }
-            return new NativeWriteFinalization(outcome, result.getPublishedVersion(),
-                    result.getManifestSha256().getDigest().toByteArray());
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            throw new IllegalArgumentException("Native publication response is malformed", malformed);
+            requireSha256(page.getSha256());
+            var objects = new SourceObjectPage(page.getPageIndex(), page.getAfterPath(), page.getObjectsList().stream()
+                    .map(object -> new SourceObjectPage.ObjectReference(object.getRelativePath(), object.getSizeBytes(), objectPurpose(object.getPurpose()))).toList(),
+                    page.getSha256().getDigest().toByteArray(), page.getIsLast());
+            return new PreparationPage(publication, objects);
+        } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException malformed) {
+            throw new NativeDatasetControlRpcException("Native preparation response is unconfirmed", malformed);
+        }
+    }
+
+    private static void requireSamePreparation(PreparedSourcePublication first, PreparedSourcePublication next) {
+        var left = first.candidate(); var right = next.candidate();
+        if (!left.deployment().equals(right.deployment()) || left.acceptedOriginRevision() != right.acceptedOriginRevision()
+                || !left.tenant().equals(right.tenant())
+                || !left.tableId().equals(right.tableId()) || left.generation() != right.generation()
+                || !left.datasetUri().equals(right.datasetUri()) || left.version() != right.version()
+                || !left.manifestRelativePath().equals(right.manifestRelativePath())
+                || !Arrays.equals(left.manifestSha256(), right.manifestSha256())
+                || !Arrays.equals(left.schemaSha256(), right.schemaSha256()) || left.manifestSize() != right.manifestSize()
+                || !left.namingScheme().equals(right.namingScheme()) || !left.membershipId().equals(right.membershipId())
+                || first.rows() != next.rows() || first.objectsCount() != next.objectsCount()
+                || !Arrays.equals(first.objectsSha256(), next.objectsSha256())
+                || !first.inheritedMembership().equals(next.inheritedMembership())) {
+            throw new IllegalArgumentException("SDK preparation header changed across pages");
         }
     }
 
@@ -347,8 +446,16 @@ public final class WorkerNativeDatasetControl implements NativeDatasetControlPla
     }
 
     private static void requireSha256(Checksum digest) {
-        if (digest.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256 || digest.getDigest().size() != 32) {
+        if (!digest.getUnknownFields().asMap().isEmpty() || digest.getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256 || digest.getDigest().size() != 32) {
             throw new IllegalArgumentException("Native metadata requires exact SHA-256 evidence");
         }
     }
+    private static SourceObjectPage.Purpose objectPurpose(org.pangrova.protocol.v2.SourceObjectPurpose value) {
+        return switch (value) {
+            case SOURCE_OBJECT_PURPOSE_SOURCE -> SourceObjectPage.Purpose.SOURCE;
+            case SOURCE_OBJECT_PURPOSE_WINNER_SIDECAR -> SourceObjectPage.Purpose.WINNER_SIDECAR;
+            default -> throw new IllegalArgumentException("SDK object purpose is absent or unknown");
+        };
+    }
+
 }

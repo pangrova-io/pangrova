@@ -85,6 +85,13 @@ VeloxPlanConverter::convertGeneratedValuesOverlay(
         "VeloxPlanConverter: generated-values overlay binding is unsafe");
   }
 
+  if (!artifact_build_context_ || !artifact_build_context_->read_budget ||
+      binding.resources().object_store_read_bytes() >
+          artifact_build_context_->max_object_store_read_bytes) {
+    throw std::runtime_error(
+        "VeloxPlanConverter: generated-values overlay requires its admitted task read owner");
+  }
+
   std::unordered_map<std::string, size_t> channels;
   for (const auto& argument : detail.invocation().arguments()) {
     if ((argument.name() != "source_object_id" &&
@@ -309,10 +316,10 @@ VeloxPlanConverter::convertGeneratedValuesOverlay(
   for (const auto& source_id : ordered_sources) {
     const auto& bundle = bundles.at(source_id);
     auto values_object = artifact::ImmutableArtifactCache::instance().materialize(
-        *bundle.values, remaining_read_bytes);
+        *bundle.values, remaining_read_bytes, artifact_build_context_->read_budget);
     remaining_read_bytes -= bundle.values->size_bytes();
     auto locator_object = artifact::ImmutableArtifactCache::instance().materialize(
-        *bundle.locators, remaining_read_bytes);
+        *bundle.locators, remaining_read_bytes, artifact_build_context_->read_budget);
     remaining_read_bytes -= bundle.locators->size_bytes();
     auto segment = artifact::GeneratedValueSegment::read(
         values_object.local_path, bundle.values->row_count(), dimension,

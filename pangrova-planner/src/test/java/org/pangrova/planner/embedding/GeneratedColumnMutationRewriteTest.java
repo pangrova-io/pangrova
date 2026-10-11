@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.protocol.v2.ExecutionMode;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 
 import java.util.List;
 
@@ -131,7 +131,7 @@ class GeneratedColumnMutationRewriteTest {
     void frozenDimensionAndCapabilityMismatchFailClosedBeforeDispatch() {
         String sql = "INSERT INTO documents (id, tenant, title, body) VALUES (1, 1, 'a', 'b')";
         var wrongType = GeneratedMutationFixture.definition().toBuilder()
-                .setOutputType(LogicalType.newBuilder().setCanonicalSql("VECTOR(4, COSINE)")).build();
+                .setOutputType(VectorLogicalType.create(4)).build();
         assertThatThrownBy(() -> GeneratedMutationFixture.plan(sql, wrongType, false))
                 .hasMessageContaining("compiled storage declaration");
         var wrongCapability = GeneratedMutationFixture.definition().toBuilder().setCapability(

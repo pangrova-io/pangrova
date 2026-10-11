@@ -43,7 +43,9 @@ public final class RetrievalIntentCollector {
             if (node.indexId() != null && !node.indexId().isBlank()
                     && node.indexGeneration() >= 0
                     && !node.indexSnapshot().isBlank()
-                    && node.serializedPreFilters().isEmpty()) {
+                    && (node.serializedPreFilters().isEmpty()
+                        || node.retrievalCapability().getCapabilityId().equals(
+                                BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID))) {
                 int candidateLimit = vectorCandidateLimit(ctx, node);
                 String sourceKey = "VECTOR:" + node.vectorColumn();
                 intents.put(sourceKey, new RetrievalArtifactIntent(
@@ -408,7 +410,8 @@ public final class RetrievalIntentCollector {
             parameterName = "ef_search";
         } else if (BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId)) {
             parameterName = "nprobes";
-        } else if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+        } else if (BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
             parameterName = "search_list_size";
         } else {
             throw new IllegalArgumentException(

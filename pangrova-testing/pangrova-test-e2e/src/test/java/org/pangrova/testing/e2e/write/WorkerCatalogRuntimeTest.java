@@ -39,8 +39,7 @@ class WorkerCatalogRuntimeTest extends NativeWriteLifecycleTestBase {
         var configs = new ArrayList<>(super.connectorConfigs());
         configs.add(ConnectorTestConfig.paimon(PLAIN, SCHEMA,
                 tempDir.resolve("catalog-runtime-paimon").toString()));
-        Map<String, String> dataset = Map.of("warehouse", tempDir.resolve("catalog-runtime-dataset").toString(),
-                "jdbc.url", pgJdbcUrl(), "jdbc.user", pgUsername(), "jdbc.password", pgPassword());
+        Map<String, String> dataset = Map.of("warehouse", tempDir.resolve("catalog-runtime-dataset").toString());
         configs.add(new ConnectorTestConfig(DATASET, SCHEMA, "lance", dataset));
         var invalid = new HashMap<>(dataset);
         invalid.put("warehouse", "s3://catalog-runtime-invalid-storage");

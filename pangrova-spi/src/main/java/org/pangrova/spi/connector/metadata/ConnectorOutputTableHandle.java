@@ -53,6 +53,11 @@ public interface ConnectorOutputTableHandle {
         return Optional.empty();
     }
 
+    /** Exact catalog-accepted base required by a positive Native Dataset write allocation. */
+    default Optional<AcceptedSourceSnapshot> acceptedWriteBaseSnapshot() {
+        return Optional.empty();
+    }
+
     /** Exact physical-file authority; mutually exclusive with a Native Dataset allocation. */
     default Optional<NativePhysicalWriteAllocation> nativePhysicalWriteAllocation() {
         return Optional.empty();

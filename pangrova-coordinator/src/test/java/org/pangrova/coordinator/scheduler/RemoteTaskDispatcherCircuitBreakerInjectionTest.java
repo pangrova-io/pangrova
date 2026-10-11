@@ -9,6 +9,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Verifies that CoordinatorBootstrap injects an external CircuitBreakerPolicy
@@ -38,7 +39,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         CircuitBreakerPolicy cb = bootstrap.getCircuitBreaker();
@@ -53,7 +54,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-cb-disabled", 0);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.getCircuitBreaker()).isNull();
@@ -70,7 +71,7 @@ class RemoteTaskDispatcherCircuitBreakerInjectionTest {
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
 
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         CircuitBreakerPolicy cb = bootstrap.getCircuitBreaker();

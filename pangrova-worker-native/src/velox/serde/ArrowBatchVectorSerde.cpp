@@ -16,6 +16,7 @@
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
+#include <arrow/util/bitmap_ops.h>
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/ByteStream.h"
@@ -90,6 +91,30 @@ struct ExportedColumnarData {
   }
 };
 
+// Velox may retain an old cached null count after an expression clears its
+// nulls. Arrow's C Data Interface requires the count to describe the exported
+// validity bitmap, so derive it from that bitmap at the transport boundary.
+void reconcileExportedNullCounts(ArrowArray& array) {
+  VELOX_CHECK_GE(array.length, 0);
+  VELOX_CHECK_GE(array.offset, 0);
+  VELOX_CHECK_GT(array.n_buffers, 0);
+  VELOX_CHECK_NOT_NULL(array.buffers);
+  if (const auto* validity = static_cast<const uint8_t*>(array.buffers[0])) {
+    array.null_count = array.length -
+        arrow::internal::CountSetBits(validity, array.offset, array.length);
+  } else {
+    VELOX_CHECK_EQ(array.null_count, 0,
+        "Exported Arrow array has nulls but no validity bitmap");
+  }
+  VELOX_CHECK_GE(array.n_children, 0);
+  for (int64_t i = 0; i < array.n_children; ++i) {
+    VELOX_CHECK_NOT_NULL(array.children);
+    VELOX_CHECK_NOT_NULL(array.children[i]);
+    reconcileExportedNullCounts(*array.children[i]);
+  }
+  if (array.dictionary) reconcileExportedNullCounts(*array.dictionary);
+}
+
 // Validates that all column types in the RowVector are representable in Arrow
 // IPC format. Throws ArrowBatchUnsupportedTypeException for opaque types.
 void validateExportType(const facebook::velox::TypePtr& type) {
@@ -114,6 +139,7 @@ std::shared_ptr<arrow::RecordBatch> exportToBatch(
   arrow_opts.flattenConstant = true;
   facebook::velox::exportToArrow(vector, data.array, pool, arrow_opts);
   facebook::velox::exportToArrow(vector, data.schema, arrow_opts);
+  reconcileExportedNullCounts(data.array);
 
   auto result = arrow::ImportRecordBatch(&data.array, &data.schema);
   VELOX_CHECK(
@@ -398,7 +424,8 @@ void ArrowBatchVectorSerde::deserialize(
   int64_t rows = resultOffset;
   for (const auto& batch : *decoded) {
     VELOX_USER_CHECK(batch->schema()->Equals(*wireSchema, true),
-        "Arrow wire schema differs from its admitted canonical schema");
+        "Arrow wire schema differs from its admitted canonical schema; actual: {}; admitted: {}",
+        batch->schema()->ToString(), wireSchema->ToString());
     // Arrow cardinality is int64; validate before the SDK narrows to vector_size_t.
     VELOX_USER_CHECK_LE(batch->num_rows(),
         std::numeric_limits<facebook::velox::vector_size_t>::max() - rows,

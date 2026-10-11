@@ -91,6 +91,25 @@ std::string RetrievalMergeOperator::encodeStableKey(
     const facebook::velox::RowVectorPtr& input,
     facebook::velox::vector_size_t row) const {
   std::string result;
+  if (config_.physical_identity) {
+    VELOX_USER_CHECK_EQ(config_.stable_key_channels.size(), 4,
+                       "Physical retrieval identity requires four channels");
+    for (size_t ordinal = 0; ordinal < 4; ++ordinal) {
+      facebook::velox::DecodedVector value(*input->childAt(config_.stable_key_channels[ordinal]));
+      VELOX_USER_CHECK(!value.isNullAt(row), "Physical retrieval identity must be non-null");
+      if (ordinal == 3) {
+        const int64_t position = value.valueAt<int64_t>(row);
+        VELOX_USER_CHECK_GE(position, 0, "Physical retrieval position must be nonnegative");
+        appendLength(result, static_cast<size_t>(position));
+      } else {
+        const auto text = value.valueAt<facebook::velox::StringView>(row);
+        VELOX_USER_CHECK(!text.empty(), "Physical retrieval authority must be nonempty");
+        appendLength(result, text.size());
+        result.append(text.data(), text.size());
+      }
+    }
+    return result;
+  }
   for (size_t channel : config_.stable_key_channels) {
     const auto& value = input->childAt(channel);
     if (value->isNullAt(row)) {

@@ -103,10 +103,9 @@ class OpenAiCompatibleEmbeddingProviderTest {
     }
 
     @Test
-    void rateLimitAndServiceFailuresAreRetryable() {
+    void providerResponsesDoNotAuthorizePostReplay() {
         for (int status : List.of(408, 429, 500, 503, 504, 599)) {
-            assertThat(OpenAiCompatibleEmbeddingProvider.isRetryable(status)).isTrue();
-            assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).retryable()).isTrue();
+            assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).retryable()).isFalse();
         }
         assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(429).category())
                 .isEqualTo(AiInvocationException.Category.RATE_LIMIT);
@@ -119,7 +118,7 @@ class OpenAiCompatibleEmbeddingProviderTest {
         assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(403).category())
                 .isEqualTo(AiInvocationException.Category.AUTHORIZATION);
         for (int status : List.of(400, 401, 403, 404)) {
-            assertThat(OpenAiCompatibleEmbeddingProvider.isRetryable(status)).isFalse();
+            assertThat(OpenAiCompatibleEmbeddingProvider.responseFailure(status).retryable()).isFalse();
         }
     }
 

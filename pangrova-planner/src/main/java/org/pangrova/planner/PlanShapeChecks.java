@@ -23,8 +23,8 @@ final class PlanShapeChecks {
     /**
      * Checks whether the plan is a tableless constant expression (no TableScan,
      * TableModify, or Exchange anywhere in the tree). This covers both fully-folded
-     * LogicalValues and partially-folded LogicalProject-over-LogicalValues plans
-     * where the Calcite Interpreter could not evaluate certain functions.
+     * LogicalValues and expressions that the registered reduction rules retain
+     * for the sole Native execution path.
      */
     static boolean isTablelessConstant(RelNode node) {
         if (node instanceof org.apache.calcite.rel.core.TableScan

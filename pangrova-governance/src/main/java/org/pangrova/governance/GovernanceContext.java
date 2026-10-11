@@ -1,6 +1,5 @@
 package org.pangrova.governance;
 
-import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.governance.classification.ColumnTagService;
 import org.pangrova.governance.classification.TagBasedSecurityPolicy;
 import org.pangrova.governance.lineage.LineageEventEmitter;
@@ -59,7 +58,11 @@ public class GovernanceContext implements AutoCloseable {
 
     @Override
     public void close() {
-        ResourceCloser.closeQuietly(lineageEmitter);
-        ResourceCloser.closeQuietly(cronScheduler);
+        // Stop actual quality producers before joining the lineage consumer.
+        cronScheduler.close();
+        lineageEmitter.close();
+        if (lineageEmitter.shutdownTimedOut()) {
+            throw new IllegalStateException("Governance lineage owner has not actually terminated");
+        }
     }
 }

@@ -135,7 +135,7 @@ public final class RetrievalPlanBinder {
             RetrievalTopKPlanHint hint, RetrievalMergeIntent merge) {
         RetrievalTopKBinding representative = toProtocolBinding(
                 hint, toScoreDirection(hint), Optional.empty(),
-                hint.candidateLimit());
+                hint.candidateLimit(), hint.candidateLimit());
         NamedStruct candidateSchema =
                 RetrievalFanOutPlanBinder.candidateSchema(representative);
         int sourceIdField = candidateSchema.getStruct().getTypesCount() - 1;
@@ -192,7 +192,7 @@ public final class RetrievalPlanBinder {
                 ? hint.candidateLimit() : artifact.intent().candidateLimit();
         return toProtocolBinding(
                 hint, toScoreDirection(hint), Optional.ofNullable(artifact),
-                candidateLimit);
+                candidateLimit, hint.candidateLimit());
     }
 
     private static RetrievalTopKBinding toFanOutBinding(
@@ -204,7 +204,7 @@ public final class RetrievalPlanBinder {
         requireCapabilityKind(source, artifact);
         return toProtocolBinding(
                 hint, source.scoreDirection(), Optional.ofNullable(artifact),
-                source.candidateLimit());
+                source.candidateLimit(), source.candidateLimit());
     }
 
     private static void requireFullTextArtifact(
@@ -242,28 +242,42 @@ public final class RetrievalPlanBinder {
             RetrievalTopKPlanHint hint,
             ScoreDirection direction,
             Optional<ResolvedRetrievalArtifact> retrievalArtifact,
-            int candidateLimit) {
-        if (candidateLimit < hint.candidateLimit()) {
+            int candidateLimit, int outputLimit) {
+        if (candidateLimit < outputLimit) {
             throw validationFailure(
                     "Retrieval source candidate limit cannot be below output Top-K");
         }
         if (retrievalArtifact.isEmpty()) {
             return RetrievalTopKBinding.exact(
-                    hint.scoreFieldIndex(), candidateLimit, direction,
+                    hint.scoreFieldIndex(), outputLimit, direction,
                     hint.stableKeyFieldIndexes(), hint.candidateSchema());
         }
         ResolvedRetrievalArtifact artifact = retrievalArtifact.orElseThrow();
+        boolean filtered = artifact.intent().capability().getCapabilityId().equals(
+                BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID);
+        if (filtered) {
+            // One task-wide expansion/rescore ceiling, not K multiplied once per file.
+            long perSource = artifact.intent().invocationOptions().stream()
+                    .filter(option -> option.getName().equals("search_list_size"))
+                    .findFirst().orElseThrow().getValue().getInt64Value();
+            long sourceObjects = artifact.bindingTemplate().getSplitObjectsList().stream()
+                    .map(org.pangrova.protocol.v2.ArtifactObject::getSourceObjectId).distinct().count();
+            candidateLimit = Math.toIntExact(Math.multiplyExact(perSource, sourceObjects));
+            if (candidateLimit < outputLimit || candidateLimit > 100_000) {
+                throw validationFailure("Filtered retrieval work exceeds the bounded task contract");
+            }
+        }
         RetrievalProfile profile = retrievalProfile(
                 artifact.intent().capability().getCapabilityId(), candidateLimit);
         return RetrievalTopKBinding.artifact(
-                hint.scoreFieldIndex(), candidateLimit, direction,
+                hint.scoreFieldIndex(), outputLimit, candidateLimit, direction,
                 hint.stableKeyFieldIndexes(), hint.candidateSchema(),
                 new RetrievalTopKBinding.ArtifactInput(
                         artifact.intent().sourceId(), artifact.intent().capability(),
                         artifact.intent().invocationOptions(),
                         artifact.bindingTemplate(), profile.profileId(),
                         profile.exactRescoreLimit(), profile.requiredRecallAtK(),
-                        profile.recallK()));
+                        outputLimit));
     }
 
     private static RerankBinding toRerankBinding(
@@ -315,6 +329,10 @@ public final class RetrievalPlanBinder {
                     "diskann-l2-exact-rescore", candidateLimit,
                     GRAPH_RECALL, candidateLimit);
         }
+        if (BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)) {
+            return new RetrievalProfile("diskann-filtered-l2-exact-rescore", candidateLimit,
+                    GRAPH_RECALL, candidateLimit);
+        }
         if (BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)) {
             return new RetrievalProfile(
                     "hnsw-metric-exact-rescore", candidateLimit,
@@ -336,6 +354,7 @@ public final class RetrievalPlanBinder {
 
     private static boolean isVectorRetrievalCapability(String capabilityId) {
         return BuiltInCapabilityCatalog.DISKANN_RETRIEVAL_ID.equals(capabilityId)
+                || BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID.equals(capabilityId)
                 || BuiltInCapabilityCatalog.HNSW_RETRIEVAL_ID.equals(capabilityId)
                 || BuiltInCapabilityCatalog.IVF_PQ_RETRIEVAL_ID.equals(capabilityId);
     }

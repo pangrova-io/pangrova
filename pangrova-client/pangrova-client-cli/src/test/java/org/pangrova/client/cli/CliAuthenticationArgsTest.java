@@ -21,8 +21,19 @@ class CliAuthenticationArgsTest {
     @Test
     void missingAndConflictingAuthOptionsCannotSilentlySelectAnonymous() {
         for (String[] args : new String[][]{{"--token"}, {"--user", "reader"}, {"--password", "secret"},
-                {"--token", "signed", "--user", "reader", "--password", "secret"}}) {
+                {"--token", "signed", "--user", "reader", "--password", "secret"},
+                {"--token", "signed", "--token-env", "PANGROVA_TOKEN"},
+                {"--token-env", "PANGROVA_TOKEN", "--user", "reader", "--password", "secret"}}) {
             assertThatThrownBy(() -> PangrovaCli.parseArgs(args)).isInstanceOf(RuntimeException.class);
+        }
+    }
+
+    @Test
+    void environmentTokenSourcesCannotBecomeAnonymousOrRevealValues() {
+        for (String name : new String[]{"", "invalid-name", "PANGROVA_CLI_TEST_ABSENT_TOKEN_7C427804"}) {
+            assertThatThrownBy(() -> PangrovaCli.parseArgs(new String[]{"--token-env", name}))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Bearer token environment variable");
         }
     }
 

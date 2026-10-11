@@ -237,6 +237,7 @@ message FileSplitDetail {
 }
 
 message ScanPartitionDetail {
+  AcceptedSourceSnapshotRef accepted_snapshot = 5;
   uint64 partition_id = 1;
   uint64 physical_rows = 2;
   Checksum manifest_sha256 = 3;
@@ -275,4 +276,35 @@ message SystemTableSplitDetail {
     ICEBERG_HISTORY = 2;
   }
   Kind kind = 1;
+}
+
+// Immutable identity of the exact catalog deployment authorized by the
+// Coordinator. Catalog properties and resolved secrets are deliberately not
+// carried in TaskRequest; Workers fetch the exact revision over the trusted
+// internal control channel and resolve secrets locally.
+message CatalogExecutionBinding {
+  string catalog_name = 1;
+  string connector_provider = 2;
+  string catalog_incarnation_id = 3;
+  uint64 catalog_revision = 4;
+  Checksum configuration_fingerprint = 5;
+}
+
+// Frozen accepted membership issued by the single metadata source catalog.
+message AcceptedSourceSnapshotRef {
+  // Current execution deployment, reauthorized by the actual PG catalog.
+  CatalogExecutionBinding catalog = 1;
+  string table_id = 2;
+  uint64 table_generation = 3;
+  string dataset_uri = 4;
+  uint64 version = 5;
+  string manifest_relative_path = 6;
+  Checksum manifest_sha256 = 7;
+  Checksum physical_schema_sha256 = 8;
+  uint64 size_bytes = 9;
+  string naming_scheme = 10;
+  string membership_id = 11;
+  string tenant_id = 12;
+  // Immutable accepting revision; reauthorization never rewrites this audit identity.
+  uint64 accepted_origin_catalog_revision = 13;
 }

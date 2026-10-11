@@ -5,11 +5,14 @@
 #include <folly/executors/CPUThreadPoolExecutor.h>
 
 #include "executor/driver/TaskExecutor.h"
+#include "resource/TaskObjectReadBudget.h"
 #include "jni/RuntimeInitializer.h"
+#include "jni/command/StatusSerializer.h"
 #include "lance/LanceBatchWriter.h"
 #include "lance/LancePhysicalBatchWriter.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/filter/DynamicFilterConverter.h"
+#include "velox/exec/Task.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
 #include "velox/runner/VeloxTaskRunner.h"
 #include "velox/runtime/NativeEngineLifecycle.h"
@@ -58,13 +61,14 @@ PlanExecutionDriver::~PlanExecutionDriver() {
   // Completion can precede the final Driver's Task release. Join that actual
   // destruction before tearing down this driver's execution resources.
   std::shared_ptr<velox::VeloxTaskRunner> runner;
+  std::shared_ptr<resource::TaskObjectReadBudget> read_budget;
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);
     runner = active_runner_;
+    read_budget = task_read_budget_;
   }
-  if (runner) {
-    runner->releaseTaskAndWaitForDeletion();
-  }
+  if (read_budget) read_budget->stopAndDrain();
+  if (runner) runner->releaseTaskAndWaitForDeletion();
 }
 
 void PlanExecutionDriver::executeAsync() {
@@ -104,16 +108,26 @@ void PlanExecutionDriver::release() {
     std::lock_guard<std::mutex> lock(runner_mutex_);
     runner = active_runner_;
   }
-  if (!runner) return;
+  std::shared_ptr<resource::TaskObjectReadBudget> read_budget;
+  {
+    std::lock_guard<std::mutex> lock(runner_mutex_);
+    read_budget = task_read_budget_;
+  }
+  if (read_budget) read_budget->requestCancel();
+  if (!runner) {
+    if (read_budget) read_budget->stopAndDrain();
+    return;
+  }
   runner->cancel();
   if (runner->hasResultOutput() && !runner->resultDrainEvidence().drained()) {
     throw std::runtime_error("Result RPC readers or exported buffers still own task resources");
   }
-  auto stats = runner->collectTaskStats();
+  auto stats = collectTaskStats();
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);
     if (!stats.empty()) final_task_stats_ = std::move(stats);
   }
+  if (read_budget) read_budget->stopAndDrain();
   runner->releaseTaskAndWaitForDeletion();
 }
 
@@ -142,13 +156,15 @@ void PlanExecutionDriver::closeDatasetWriter() {
 }
 
 std::vector<uint8_t> PlanExecutionDriver::collectTaskStats() const {
-  std::shared_ptr<velox::VeloxTaskRunner> runner;
-  {
-    std::lock_guard<std::mutex> lock(runner_mutex_);
-    if (!final_task_stats_.empty()) return final_task_stats_;
-    runner = active_runner_;
-  }
-  return runner ? runner->collectTaskStats() : std::vector<uint8_t>{};
+  // Hold the runner fence until this actual snapshot is observed/serialized;
+  // release publishes final_task_stats_ under the same fence before deletion.
+  std::lock_guard<std::mutex> lock(runner_mutex_);
+  if (!final_task_stats_.empty()) return final_task_stats_;
+  auto* task = active_runner_ ? active_runner_->veloxTask() : nullptr;
+  if (!task) return {};
+  const auto stats = task->taskStats();
+  metrics_.observeColumnarReadTaskStats(stats);
+  return pangrova::jni::serializeNativeTaskStats(stats);
 }
 
 bool PlanExecutionDriver::hasFinalTaskStats() const {
@@ -166,6 +182,7 @@ void PlanExecutionDriver::cancel() {
   // Propagate cancel to active VeloxTaskRunner if present.
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);
+    if (task_read_budget_) task_read_budget_->requestCancel();
     if (active_runner_) {
       active_runner_->cancel();
     }

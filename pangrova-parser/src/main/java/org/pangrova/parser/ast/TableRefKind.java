@@ -9,6 +9,8 @@ public enum TableRefKind {
     NAMED,
     /** A derived table reference (subquery in FROM clause). */
     DERIVED,
+    /** An inline VALUES table constructor. */
+    VALUES,
     /** A LATERAL derived table reference. */
     LATERAL_DERIVED,
     /** A LATERAL TABLE function reference (EXPLODE/POSEXPLODE). */

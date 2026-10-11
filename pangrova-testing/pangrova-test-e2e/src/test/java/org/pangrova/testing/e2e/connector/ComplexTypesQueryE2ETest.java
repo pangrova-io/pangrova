@@ -24,8 +24,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.groups.Tuple.tuple;
 
 /**
  * Full-stack E2E tests for complex types (ARRAY, MAP, STRUCT) queries.
@@ -94,6 +96,9 @@ class ComplexTypesQueryE2ETest extends PangrovaE2ETestBase {
             List<TypedRow> rows = executeQuery(
                     "SELECT id, nums[1] AS first_elem FROM " + fqn());
             assertThat(rows).hasSize(2);
+            assertThat(rows).extracting(
+                    row -> row.getRaw("id"), row -> row.getRaw("first_elem"))
+                    .containsExactlyInAnyOrder(tuple(1L, 10), tuple(2L, 40));
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -146,6 +151,8 @@ class ComplexTypesQueryE2ETest extends PangrovaE2ETestBase {
                     "SELECT id FROM " + fqn()
                     + " WHERE ARRAY_CONTAINS(tags, 'java')");
             assertThat(rows).hasSize(2);
+            assertThat(rows).extracting(row -> row.getRaw("id"))
+                    .containsExactlyInAnyOrder(1L, 3L);
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -170,6 +177,11 @@ class ComplexTypesQueryE2ETest extends PangrovaE2ETestBase {
 
             List<TypedRow> rows = executeQuery("SELECT * FROM " + fqn());
             assertThat(rows).hasSize(2);
+            assertThat(rows).extracting(
+                    row -> row.getRaw("id"), row -> row.getRaw("props"))
+                    .containsExactlyInAnyOrder(
+                            tuple(1L, Map.of("color", "red", "size", "large")),
+                            tuple(2L, Map.of("color", "blue", "weight", "10kg")));
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -185,6 +197,25 @@ class ComplexTypesQueryE2ETest extends PangrovaE2ETestBase {
             List<TypedRow> rows = executeQuery(
                     "SELECT id, attrs['width'] AS w FROM " + fqn());
             assertThat(rows).hasSize(1);
+            assertThat(rows.get(0).getRaw("id")).isEqualTo(1L);
+            assertThat(rows.get(0).getRaw("w")).isEqualTo(100);
+
+            executeDdl("DROP TABLE " + fqn());
+        }
+
+        @Test
+        @DisplayName("MAP VARCHAR keys preserve explicit trailing spaces")
+        void mapKeyPreservesTrailingSpace() {
+            executeDdl("CREATE TABLE " + fqn()
+                    + " (id BIGINT, attrs MAP(VARCHAR, INT))");
+            executeDml("INSERT INTO " + fqn()
+                    + " VALUES (1, MAP['width ', 100, 'height', 200])");
+
+            List<TypedRow> rows = executeQuery(
+                    "SELECT attrs['width '] AS exact_key, attrs['width'] AS other_key FROM " + fqn());
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0).getRaw("exact_key")).isEqualTo(100);
+            assertThat(rows.get(0).getRaw("other_key")).isNull();
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -201,6 +232,10 @@ class ComplexTypesQueryE2ETest extends PangrovaE2ETestBase {
                     "SELECT id, k, v FROM " + fqn()
                     + ", LATERAL EXPLODE(props) AS t(k, v)");
             assertThat(rows).hasSize(3);
+            assertThat(rows).extracting(
+                    row -> row.getRaw("k"), row -> row.getRaw("v"))
+                    .containsExactlyInAnyOrder(
+                            tuple("a", "1"), tuple("b", "2"), tuple("c", "3"));
 
             executeDdl("DROP TABLE " + fqn());
         }
@@ -237,6 +272,21 @@ class ComplexTypesQueryE2ETest extends PangrovaE2ETestBase {
             executeDml("INSERT INTO " + fqn() + " VALUES "
                     + "(1, ROW('Alice', 30)),"
                     + "(2, ROW('Bob', 25))");
+
+            List<TypedRow> stored = executeQuery("SELECT id, info FROM " + fqn());
+            assertThat(stored).hasSize(2);
+            assertThat(stored.stream().map(row -> row.getRaw("info")))
+                    .as("stored rows: %s", stored)
+                    .containsExactlyInAnyOrder(
+                            Map.of("name", "Alice", "age", 30),
+                            Map.of("name", "Bob", "age", 25));
+
+            List<TypedRow> projected = executeQuery(
+                    "SELECT id, info.name AS name, info.age AS age FROM " + fqn());
+            assertThat(projected).hasSize(2);
+            assertThat(projected.stream().map(row -> row.getRaw("age")))
+                    .as("projected rows: %s", projected)
+                    .containsExactlyInAnyOrder(30, 25);
 
             List<TypedRow> rows = executeQuery(
                     "SELECT id, info.name, info.age FROM " + fqn()

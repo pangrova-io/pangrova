@@ -22,8 +22,6 @@ import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
-import org.pangrova.governance.lineage.DatasetRef;
-import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.observability.tracing.QueryTracer;
 import org.pangrova.spi.observability.TracingProvider;
 import org.pangrova.shuffle.ShuffleLifecycleManager;
@@ -58,7 +56,6 @@ public class QueryDispatcher {
     private final QuerySchedulingEngine schedulingEngine;
     private final QueryOwnershipTracker ownershipTracker;
     private final QueryLineageCapture lineageCapture;
-    private final LineageEventEmitter lineageEmitter;
     private final CoordinatorTaskTracker taskTracker;
     private final TaskDispatcher dispatcher;
     private final ShuffleLifecycleManager shuffleLifecycleManager;
@@ -75,7 +72,6 @@ public class QueryDispatcher {
         checkNotNull(deps, "deps must not be null");
 
         this.lineageCapture = new QueryLineageCapture();
-        this.lineageEmitter = deps.lineageEmitter();
         this.taskTracker = deps.taskTracker();
         this.dispatcher = deps.dispatcher();
         this.shuffleLifecycleManager = deps.shuffleLifecycleManager();
@@ -125,7 +121,6 @@ public class QueryDispatcher {
         try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
             DispatchResult result = pipelineExecutor.doExecute(
                     sm, sql, session);
-            emitQueryStartedLineage(session.queryId(), sql);
             return result;
         } catch (Exception e) {
             LOG.error("event=execute_crash queryId={} error={}",
@@ -245,6 +240,10 @@ public class QueryDispatcher {
 
     public void addExecutionDrainListener(java.util.function.Consumer<String> listener) {
         taskTracker.addExecutionDrainListener(report -> listener.accept(report.getAttempt().getQueryOrJobId()));
+    }
+
+    public void addQueryOperationExitListener(java.util.function.Consumer<String> listener) {
+        taskTracker.addQueryOperationExitListener(listener);
     }
 
     public void cleanupQuery(String queryId) {
@@ -394,29 +393,6 @@ public class QueryDispatcher {
     }
 
     // ── Internal helpers ──
-
-    private void emitQueryStartedLineage(String queryId, String sql) {
-        if (lineageEmitter == null) {
-            return;
-        }
-        try {
-            QueryLineageInfo info = lineageCapture.peekLineageInfo(queryId);
-            List<DatasetRef> inputs = info != null
-                    ? toDatasetRefs(info.sourceTables()) : List.of();
-            List<DatasetRef> outputs = info != null
-                    ? toDatasetRefs(info.targetTables()) : List.of();
-            lineageEmitter.emitStartEvent(queryId, sql, inputs, outputs);
-        } catch (Exception e) {
-            LOG.debug("event=lineage_query_started_failed queryId={} "
-                    + "error={}", queryId, e.getMessage());
-        }
-    }
-
-    private static List<DatasetRef> toDatasetRefs(List<String> tableNames) {
-        return tableNames.stream()
-                .map(name -> new DatasetRef("pangrova", name, List.of()))
-                .toList();
-    }
 
     private static RuntimeException wrapIfNeeded(Exception e,
                                                   String queryId) {

@@ -16,6 +16,7 @@
 #include "velox/connector/PangrovaTableHandle.h"
 #include "velox/plan/ArtifactBuildOperator.h"
 #include "velox/plan/CanonicalOrdinalIdentity.h"
+#include "velox/plan/GeneratedVectorShape.h"
 #include "velox/core/Expressions.h"
 #include "velox/plan/VeloxPlanConverter.h"
 
@@ -206,7 +207,7 @@ protocol::v2::OperatorBinding generatedValuesArtifactBinding() {
     property->mutable_value()->set_string_value(value);
   };
   add_string("target_column", "embedding");
-  add_string("output_type", "VECTOR(2, COSINE)");
+  add_string("output_type", "VECTOR(2)");
   auto* dimension = output->add_properties();
   dimension->set_name("vector_dimension");
   dimension->mutable_value()->set_int64_value(2);
@@ -309,6 +310,15 @@ std::shared_ptr<ArtifactBuildTaskContext> runtimeContext() {
 }
 
 }  // namespace
+
+TEST(ArtifactBuildPlanConversionTest, GeneratedVectorShapeUsesCanonicalFloat32Type) {
+  EXPECT_EQ(parseGeneratedVectorDimension("VECTOR(2)"), 2);
+  EXPECT_EQ(parseGeneratedVectorDimension("VECTOR(65535)"), 65535);
+  for (const auto type : {"VECTOR(0)", "VECTOR(65536)", "VECTOR(2, COSINE)",
+                          "VECTOR(2,DOUBLE)", "VECTOR(2) trailing", "VECTOR()"}) {
+    EXPECT_EQ(parseGeneratedVectorDimension(type), 0) << type;
+  }
+}
 
 TEST(ArtifactBuildPlanConversionTest, BuildsTypedNativeSink) {
   auto rel = artifactRelation();

@@ -30,6 +30,7 @@
 
 namespace facebook::velox::exec {
 class Task;
+class OutputBufferManager;
 class FunctionRegistrySnapshot;
 class HashPartitionFunction;
 struct TaskStats;
@@ -41,6 +42,7 @@ namespace pangrova::velox {
 struct VeloxTaskRunnerConfig {
   std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry;
   std::shared_ptr<const substrait::NamedStruct> canonical_output_schema;
+  std::shared_ptr<const substrait::NamedStruct> result_output_schema;
   std::unordered_map<std::string, substrait::NamedStruct> serde_schema_bindings;
   int64_t executor_handle = 0;
   std::string callback_context;
@@ -264,6 +266,8 @@ class VeloxTaskRunner
   std::vector<split::SplitConfig> splits_;
   std::unordered_map<std::string, std::vector<split::SplitConfig>>
       scan_split_overrides_;
+  // Declared before Task so the SDK buffer owner outlives Task destruction.
+  std::shared_ptr<facebook::velox::exec::OutputBufferManager> result_buffers_;
   std::shared_ptr<facebook::velox::exec::Task> velox_task_;
   pangrova::executor::OutputQueue* output_queue_;
   pangrova::shuffle::SerializedShuffleQueue* shuffle_queue_{nullptr};

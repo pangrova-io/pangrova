@@ -33,7 +33,7 @@ import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.security.authz.DeferredAuthorizationScope;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
 import org.pangrova.security.authz.DynamicRbacAccessControl;
@@ -201,7 +201,7 @@ final class SchedulingWriteFixture implements AutoCloseable {
                 .addDefinitions(GeneratedColumnDefinition.newBuilder().setTargetColumn("embedding")
                         .setCapability(BuiltInCapabilityCatalog.aiEmbeddingPlanRef()).setLogicalModelName("model")
                         .addSourceColumns("title").setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
-                        .setOutputType(LogicalType.newBuilder().setCanonicalSql("VECTOR(768, COSINE)"))).build();
+                        .setOutputType(VectorLogicalType.create(768))).build();
     }
 
     @Override public void close() throws IOException { catalog.close(); }

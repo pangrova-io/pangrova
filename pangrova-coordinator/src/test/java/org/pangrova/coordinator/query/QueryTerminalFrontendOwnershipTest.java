@@ -96,7 +96,7 @@ class QueryTerminalFrontendOwnershipTest {
     }
 
     @Test
-    void terminalRetryBatchIsBoundedAndBacksOff() {
+    void pendingTerminalQueriesStayOwnedUntilOperationsExit() {
         for (int i = 0; i < 10; i++) {
             String id = registerRunningQuery();
             enter(id);
@@ -105,15 +105,9 @@ class QueryTerminalFrontendOwnershipTest {
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
         advanceRetry(); // Four actual attempts remain blocked on the still-owned frontend.
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
+        manager.retryPendingTerminalCompletions();
+        assertThat(manager.getActiveQueryCount()).isEqualTo(10);
         operations.forEach(org.pangrova.coordinator.task.QueryIssuanceOperation::close);
-        manager.retryPendingTerminalCompletions();
-        assertThat(manager.getActiveQueryCount()).isEqualTo(6);
-        manager.retryPendingTerminalCompletions();
-        assertThat(manager.getActiveQueryCount()).isEqualTo(4);
-        manager.retryPendingTerminalCompletions();
-        assertThat(manager.getActiveQueryCount()).isEqualTo(4); // Retried failures are not due yet.
-        clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(200));
-        manager.retryPendingTerminalCompletions();
         assertThat(manager.getActiveQueryCount()).isZero();
     }
 
@@ -134,7 +128,7 @@ class QueryTerminalFrontendOwnershipTest {
     }
 
     @Test
-    void concurrentTerminalRetryQueueIsBounded() throws Exception {
+    void concurrentTerminalQueriesReleaseOnExactOperationExit() throws Exception {
         var ids = new ArrayList<String>();
         for (int i = 0; i < 12; i++) {
             String id = registerRunningQuery();
@@ -157,12 +151,11 @@ class QueryTerminalFrontendOwnershipTest {
         }
         assertThat(manager.getActiveQueryCount()).isEqualTo(12);
         operations.forEach(org.pangrova.coordinator.task.QueryIssuanceOperation::close);
-        advanceRetry();
-        assertThat(manager.getActiveQueryCount()).isEqualTo(8);
+        assertThat(manager.getActiveQueryCount()).isZero();
     }
 
     @Test
-    void stoppedSchedulerDoesNotLosePendingRetry() throws Exception {
+    void stoppedSchedulerStillReleasesOnOperationExit() throws Exception {
         String id = registerRunningQuery();
         var operation = enter(id);
         manager.onAllTasksFinished(id);
@@ -172,8 +165,6 @@ class QueryTerminalFrontendOwnershipTest {
             manager.stopPeriodicCleanup();
             operation.close();
             scheduler.submit(() -> { }).get(3, TimeUnit.SECONDS);
-            assertThat(manager.getActiveQueryCount()).isEqualTo(1);
-            advanceRetry();
             assertThat(manager.getActiveQueryCount()).isZero();
         } finally {
             manager.stopPeriodicCleanup();

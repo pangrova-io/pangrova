@@ -225,6 +225,23 @@ class CoordinatorTaskTrackerDrainNotificationTest {
         assertThat(calls).hasValue(1);
     }
 
+    @Test
+    void recordedRetirementIsAtomicButCallerSuppliedReceiptRemainsExact() {
+        var tracker = new CoordinatorTaskTracker();
+        var request = issue(tracker);
+        var retained = receipt(request);
+        tracker.recordExecutionDrain(request, retained);
+        var altered = retained.toBuilder().setCoverage(
+                org.pangrova.protocol.v2.CoverageReport.newBuilder()
+                        .setExpectedWorkUnits(1).build()).build();
+
+        assertThatThrownBy(() -> tracker.unregisterDrainedTask(altered))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Execution drain receipt changed");
+        assertThat(tracker.unregisterRecordedDrainedTask("task")).isTrue();
+        assertThat(tracker.unregisterRecordedDrainedTask("task")).isTrue();
+    }
+
     private static SubmitTaskRequest issue(CoordinatorTaskTracker tracker) {
         var request = CanonicalTaskRequestTestFixture.request("task", "query", 0, 0,
                 TaskKind.TASK_KIND_READ, new byte[]{1});

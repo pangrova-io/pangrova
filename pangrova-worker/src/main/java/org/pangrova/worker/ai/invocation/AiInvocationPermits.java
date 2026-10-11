@@ -12,9 +12,12 @@ final class AiInvocationPermits implements AutoCloseable {
     private final Semaphore[] semaphores;
     private int acquired;
 
-    private AiInvocationPermits(Semaphore... semaphores) { this.semaphores = semaphores; }
+    private AiInvocationPermits(Semaphore... semaphores) {
+        this.semaphores = semaphores;
+    }
 
-    static AiInvocationPermits acquire(AiTaskBudget task, Instant deadline, Semaphore... semaphores) {
+    static AiInvocationPermits acquire(
+            AiTaskBudget task, Instant deadline, Semaphore... semaphores) {
         AiInvocationPermits permits = new AiInvocationPermits(semaphores);
         try (var waiter = task.registerPermitWaiter()) {
             for (Semaphore semaphore : semaphores) {
@@ -49,10 +52,14 @@ final class AiInvocationPermits implements AutoCloseable {
     }
 
     private static AiInvocationException timeout(String message, Throwable cause) {
-        return new AiInvocationException(AiInvocationException.Category.TIMEOUT, false, message, cause);
+        return new AiInvocationException(
+                AiInvocationException.Category.TIMEOUT, false, message, cause);
     }
 
-    @Override public void close() {
-        while (acquired > 0) { semaphores[--acquired].release(); }
+    @Override
+    public void close() {
+        while (acquired > 0) {
+            semaphores[--acquired].release();
+        }
     }
 }

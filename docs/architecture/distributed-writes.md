@@ -47,6 +47,14 @@ collection still require a trusted service/descriptor authority from the securit
 assembly. An unbound accessor explicitly rejects these operations. Scheduled Native
 generation/rebuild entry points also reject missing current authorization; persisted
 DDL-era groups, bearer tokens or synthetic system principals are not a substitute.
+Commit-triggered file statistics now propagate authorization denial so the durable
+commit-log entry remains pending instead of being acknowledged without statistics.
+The remaining design must persist the maintenance subject and exact table/column
+scope, recheck current grants and row/column policy before connector access, then
+bind the resulting session to the accessor. Administrative and table operations
+need explicit authorization at the relevant scope, consistent with
+[Trino's access-control model](https://trino.io/docs/current/security/file-system-access-control.html)
+and its [current-policy authorization requests](https://trino.io/docs/current/security/opa-access-control.html).
 
 > **Accuracy scope.** This is a living architecture document. Content explicitly marked
 > draft, proposed, planned, phase, target, or remaining work is design intent rather

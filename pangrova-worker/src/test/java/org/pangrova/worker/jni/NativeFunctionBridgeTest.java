@@ -1,6 +1,9 @@
 package org.pangrova.worker.jni;
 
 import org.pangrova.spi.connector.data.ColumnValue;
+import org.pangrova.spi.ai.AiInvocationException;
+import org.pangrova.protocol.v2.ErrorClass;
+import org.pangrova.protocol.v2.ExecutionError;
 import org.pangrova.spi.function.AggregateFunction;
 import org.pangrova.spi.function.BatchableScalarFunction;
 import org.pangrova.spi.function.FunctionMetadata;
@@ -25,6 +28,39 @@ class NativeFunctionBridgeTest {
     @BeforeEach
     void setUp() {
         bridge = new NativeFunctionBridge();
+    }
+
+    @Test
+    void uncertainProviderOutcomeProjectsToNonRetryableNativeTaskFailure() throws Exception {
+        var failure = new AiInvocationException(
+                AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                true,
+                "response lost after provider accepted POST");
+
+        var projected = ExecutionError.parseFrom(bridge.describeAiFailure(failure));
+
+        assertThat(projected.getErrorClass()).isEqualTo(ErrorClass.ERROR_CLASS_PROVIDER_OUTCOME_UNCERTAIN);
+        assertThat(projected.getCode()).isEqualTo("AI_PROVIDER_OUTCOME_UNCERTAIN");
+        assertThat(projected.getMessage()).isEqualTo(failure.getMessage());
+        assertThat(projected.getRetryable()).isFalse();
+        assertThat(projected.getFailedComponent()).isEqualTo("ai-invocation");
+        assertThat(bridge.describeAiFailure(new IllegalStateException("ordinary UDF error"))).isNull();
+    }
+
+    @Test
+    void largeProviderMessageKeepsTheCanonicalNativeFailureBounded() throws Exception {
+        var failure = new AiInvocationException(
+                AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                false,
+                "x".repeat(100_000));
+
+        byte[] encoded = bridge.describeAiFailure(failure);
+        var projected = ExecutionError.parseFrom(encoded);
+
+        assertThat(encoded.length).isLessThan(65_536);
+        assertThat(projected.getErrorClass()).isEqualTo(ErrorClass.ERROR_CLASS_PROVIDER_OUTCOME_UNCERTAIN);
+        assertThat(projected.getMessage()).endsWith("[truncated]");
+        assertThat(projected.getRetryable()).isFalse();
     }
 
     // ---- Scalar registration ----

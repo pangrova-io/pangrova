@@ -90,6 +90,19 @@ void RowLocatorSidecar::writePhysicalRowPositions(
 std::vector<uint64_t> RowLocatorSidecar::readPhysicalRowPositions(
     const std::string& path,
     uint64_t max_entries) {
+  std::vector<uint64_t> result;
+  visitPhysicalRowPositions(path, max_entries,
+      [&](uint64_t, uint64_t position) { result.push_back(position); });
+  return result;
+}
+
+uint64_t RowLocatorSidecar::visitPhysicalRowPositions(
+    const std::string& path,
+    uint64_t max_entries,
+    const std::function<void(uint64_t, uint64_t)>& visitor) {
+  if (!visitor) {
+    throw std::invalid_argument("Row-locator visitation requires its owner");
+  }
   if (path.empty() || max_entries == 0) {
     throw std::invalid_argument(
         "Row-locator sidecar path and max_entries must be valid");
@@ -119,12 +132,10 @@ std::vector<uint64_t> RowLocatorSidecar::readPhysicalRowPositions(
       file_size != kHeaderBytes + count * 8) {
     throw std::runtime_error("Invalid row-locator sidecar entry count or size");
   }
-  std::vector<uint64_t> result;
-  result.reserve(static_cast<size_t>(count));
   for (uint64_t index = 0; index < count; ++index) {
-    result.push_back(readLittleEndian64(input));
+    visitor(index, readLittleEndian64(input));
   }
-  return result;
+  return count;
 }
 
 }  // namespace pangrova::artifact

@@ -101,6 +101,19 @@ class JdbcQueryEventListenerTest {
     }
 
     @Test
+    void cancellationRemainsDistinctAcrossFreshConnection() {
+        QueryCompletedEvent event = new QueryCompletedEvent(
+                "q-cancel", "SELECT 1", "alice", QueryState.CANCELLED,
+                2_000L, 2_050L, QueryStatistics.wallTimeOnly(50L), Optional.empty());
+        listener.queryCompleted(event);
+        QueryCompletedEvent restored = new JdbcQueryEventListener(dataSource)
+                .findByQueryId("q-cancel").orElseThrow();
+        assertThat(restored.finalState()).isEqualTo(QueryState.CANCELLED);
+        assertThat(restored.succeeded()).isFalse();
+        assertThat(restored.failureMessage()).isEmpty();
+    }
+
+    @Test
     void findByQueryIdReturnsEmptyWhenAbsent() {
         assertThat(listener.findByQueryId("missing")).isEmpty();
     }

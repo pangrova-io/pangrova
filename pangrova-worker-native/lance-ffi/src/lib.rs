@@ -5,7 +5,7 @@
 //! runtime knowledge. All Arrow data crosses the boundary as ArrowArray +
 //! ArrowSchema structs (zero-copy when possible).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr;
@@ -20,22 +20,20 @@ use arrow::array::{Array, RecordBatch, RecordBatchReader};
 use arrow::error::ArrowError;
 use arrow::ffi::{FFI_ArrowArray, FFI_ArrowSchema};
 use arrow_schema::{DataType, Field, Schema, UnionFields};
-use async_trait::async_trait;
 use futures::StreamExt;
-use lance::dataset::builder::DatasetBuilder;
 use lance::dataset::transaction::{Operation, Transaction};
-use lance::dataset::{CommitBuilder, Dataset, InsertBuilder, WriteMode, WriteParams};
+use lance::dataset::{Dataset, InsertBuilder, WriteMode, WriteParams};
 use lance_io::object_store::{ObjectStore, ObjectStoreParams, ObjectStoreRegistry};
 use lance_io::stream::BatchStream;
 use lance_table::format::pb as lance_pb;
-use lance_table::format::{Index, Manifest};
-use lance_table::io::commit::{
-    CommitError, CommitHandler, ManifestNamingScheme, ManifestWriter, RenameCommitHandler,
-};
+use lance_table::io::commit::CommitError;
 use object_store::{path::Path, Error as ObjectStoreError, PutMode, PutOptions, PutPayload};
 use prost::Message;
 use sha2::{Digest, Sha256};
 use tokio::runtime::Runtime;
+mod managed;
+mod preparation;
+mod cleanup;
 mod physical;
 mod physical_schema;
 mod scan;
@@ -47,7 +45,7 @@ pub mod canonical {
     include!(concat!(env!("OUT_DIR"), "/canonical.rs"));
 }
 #[cfg(test)]
-use canonical::pangrova::protocol::v2::ExecutionOwnerIdentity as CanonicalExecutionOwnerIdentity;
+mod sdk_read_test_support;
 use canonical::pangrova::protocol::v2::{
     checksum::Algorithm as ChecksumAlgorithm, file_split_detail::ReadUnit,
     Checksum as CanonicalChecksum, FileFormat, FileSplitDetail, LanceTransactionReference,
@@ -122,82 +120,7 @@ impl AtomicCommitStore {
         params
     }
 
-    fn commit_handler(self) -> Arc<dyn CommitHandler> {
-        match self {
-            Self::Local => Arc::new(RenameCommitHandler),
-            Self::S3ConditionalPut => Arc::new(ConditionalPutCommitHandler),
-        }
-    }
-}
 
-async fn open_atomic_dataset(uri: &str, storage: &StorageContext) -> Result<Dataset, lance::Error> {
-    let store = AtomicCommitStore::for_uri(uri).map_err(|error| std::io::Error::other(error))?;
-    let mut builder = DatasetBuilder::from_uri(uri).with_commit_handler(store.commit_handler());
-    if let Some(options) = storage.params(store.store_params()).storage_options {
-        builder = builder.with_storage_options(options);
-    }
-    builder.load().await
-}
-
-#[derive(Debug)]
-struct ConditionalPutCommitHandler;
-
-#[async_trait]
-impl CommitHandler for ConditionalPutCommitHandler {
-    async fn commit(
-        &self,
-        manifest: &mut Manifest,
-        indices: Option<Vec<Index>>,
-        base_path: &Path,
-        object_store: &ObjectStore,
-        manifest_writer: ManifestWriter,
-        naming_scheme: ManifestNamingScheme,
-    ) -> Result<Path, CommitError> {
-        verify_conditional_create(object_store, base_path).await?;
-        let path = naming_scheme.manifest_path(base_path, manifest.version);
-        let staged_path = Path::from(format!("{}-pangrova-staged-{}", path, uuid::Uuid::new_v4()));
-        let commit = async {
-            manifest_writer(object_store, manifest, indices, &staged_path).await?;
-            let metadata = object_store
-                .inner
-                .head(&staged_path)
-                .await
-                .map_err(|error| CommitError::OtherError(error.into()))?;
-            if metadata.size == 0 || metadata.size > MAX_MANIFEST_BYTES {
-                return Err(CommitError::OtherError(
-                    std::io::Error::other(format!(
-                        "Lance manifest size {} violates the {}-byte conditional-commit limit",
-                        metadata.size, MAX_MANIFEST_BYTES
-                    ))
-                    .into(),
-                ));
-            }
-            let payload = object_store
-                .inner
-                .get(&staged_path)
-                .await
-                .map_err(|error| CommitError::OtherError(error.into()))?
-                .bytes()
-                .await
-                .map_err(|error| CommitError::OtherError(error.into()))?;
-            match object_store
-                .inner
-                .put_opts(
-                    &path,
-                    PutPayload::from(payload),
-                    PutOptions::from(PutMode::Create),
-                )
-                .await
-            {
-                Ok(_) => Ok(path),
-                Err(ObjectStoreError::AlreadyExists { .. }) => Err(CommitError::CommitConflict),
-                Err(error) => Err(CommitError::OtherError(error.into())),
-            }
-        }
-        .await;
-        let _ = object_store.inner.delete(&staged_path).await;
-        commit
-    }
 }
 
 async fn verify_conditional_create(
@@ -205,7 +128,7 @@ async fn verify_conditional_create(
     base_path: &Path,
 ) -> Result<(), CommitError> {
     let probe_path = Path::from(format!(
-        "{base_path}/_versions/.pangrova-conditional-put-probe-{}",
+        "{base_path}/_pangrova/prepared/.conditional-put-probe-{}",
         uuid::Uuid::new_v4()
     ));
     let first_payload = b"pangrova-cas-probe-first";
@@ -263,39 +186,6 @@ async fn verify_conditional_create(
     verified
 }
 
-#[derive(Debug)]
-struct ExactVersionCommitHandler {
-    expected_next_version: u64,
-    inner: Arc<dyn CommitHandler>,
-}
-
-#[async_trait]
-impl CommitHandler for ExactVersionCommitHandler {
-    async fn commit(
-        &self,
-        manifest: &mut Manifest,
-        indices: Option<Vec<Index>>,
-        base_path: &Path,
-        object_store: &ObjectStore,
-        manifest_writer: ManifestWriter,
-        naming_scheme: ManifestNamingScheme,
-    ) -> Result<Path, CommitError> {
-        if manifest.version != self.expected_next_version {
-            return Err(CommitError::CommitConflict);
-        }
-        self.inner
-            .commit(
-                manifest,
-                indices,
-                base_path,
-                object_store,
-                manifest_writer,
-                naming_scheme,
-            )
-            .await
-    }
-}
-
 impl LanceWriteOperation {
     fn parse(value: i32) -> Result<Self, String> {
         Self::try_from(value)
@@ -348,14 +238,6 @@ pub struct LanceCBuffer {
     pub data: *mut u8,
     pub len: usize,
     pub capacity: usize,
-}
-
-/// Borrowed buffer used by the connector-owned aggregate commit call.
-#[repr(C)]
-pub struct LanceCCommitFragment {
-    pub data: *const u8,
-    pub len: usize,
-    pub expected_staging_prefix: *const c_char,
 }
 
 /// Immutable scoped storage authority decoded from the canonical Worker-local contract.
@@ -516,6 +398,7 @@ pub struct LanceCWriter {
     schema: Arc<Schema>,
     operation: LanceWriteOperation,
     expected_read_version: u64,
+    accepted_base_snapshot: Option<canonical::pangrova::protocol::v2::AcceptedSourceSnapshotRef>,
     schema_fence_sha256: [u8; SHA256_DIGEST_SIZE],
     write_id: String,
     tenant_id: String,
@@ -750,34 +633,7 @@ async fn read_transaction_sidecar(
     Ok(bytes.to_vec())
 }
 
-async fn delete_transaction_sidecar(
-    storage: &StorageContext,
-    dataset_uri: &str,
-    relative_key: &str,
-) -> Result<(), String> {
-    let (store, base) = ObjectStore::from_uri_and_params(
-        Arc::new(ObjectStoreRegistry::default()),
-        dataset_uri,
-        &storage.params(AtomicCommitStore::for_uri(dataset_uri)?.store_params()),
-    )
-    .await
-    .map_err(|error| format!("failed to open Lance transaction object store: {error}"))?;
-    let path = object_path(&base, relative_key)?;
-    match store.delete(&path).await {
-        Ok(()) | Err(lance::Error::NotFound { .. }) => Ok(()),
-        Err(lance::Error::IO { source, .. })
-            if matches!(
-                source.downcast_ref::<object_store::Error>(),
-                Some(object_store::Error::NotFound { .. })
-            ) =>
-        {
-            Ok(())
-        }
-        Err(error) => Err(format!(
-            "failed to delete Lance transaction sidecar: {error}"
-        )),
-    }
-}
+
 
 fn start_writer(writer: &mut LanceCWriter) -> Result<(), String> {
     if writer.finished || writer.drained || writer.cancelled.load(Ordering::Acquire) {
@@ -798,6 +654,7 @@ fn start_writer(writer: &mut LanceCWriter) -> Result<(), String> {
     let operation = writer.operation;
     let expected_read_version = writer.expected_read_version;
     let expected_schema_fence = writer.schema_fence_sha256;
+    let accepted_base = writer.accepted_base_snapshot.clone();
     let storage = writer.storage.clone();
     let thread = std::thread::Builder::new()
         .name("lance-ffi-writer".to_owned())
@@ -812,7 +669,7 @@ fn start_writer(writer: &mut LanceCWriter) -> Result<(), String> {
             let params = WriteParams {
                 mode: operation.write_mode(),
                 store_params: Some(storage.params(store.store_params())),
-                commit_handler: Some(store.commit_handler()),
+                commit_handler: Some(Arc::new(managed::CatalogCommitHandler { accepted: accepted_base.clone(), candidate: None })),
                 ..Default::default()
             };
             runtime.block_on(async move {
@@ -822,20 +679,6 @@ fn start_writer(writer: &mut LanceCWriter) -> Result<(), String> {
                             return Err(format!(
                                 "CREATE requires expected_read_version=0, got {expected_read_version}"
                             ));
-                        }
-                        match open_atomic_dataset(&uri, &storage).await {
-                            Ok(dataset) => {
-                                return Err(format!(
-                                    "CREATE target already exists at version {}: {uri}",
-                                    dataset.version().version
-                                ));
-                            }
-                            Err(lance::Error::DatasetNotFound { .. } | lance::Error::NotFound { .. }) => {}
-                            Err(error) => {
-                                return Err(format!(
-                                    "failed to fence CREATE target {uri}: {error}"
-                                ));
-                            }
                         }
                         InsertBuilder::new(uri.as_str())
                             .with_params(&params)
@@ -850,23 +693,8 @@ fn start_writer(writer: &mut LanceCWriter) -> Result<(), String> {
                                 operation
                             ));
                         }
-                        let dataset = open_atomic_dataset(&uri, &storage)
-                            .await
-                            .map_err(|error| format!("failed to open fenced target {uri}: {error}"))?;
-                        let latest_version = dataset.version().version;
-                        if latest_version < expected_read_version {
-                            return Err(format!(
-                                "target version {latest_version} is older than expected version {expected_read_version}"
-                            ));
-                        }
-                        let fenced_dataset = dataset
-                            .checkout_version(expected_read_version)
-                            .await
-                            .map_err(|error| {
-                                format!(
-                                    "failed to checkout expected version {expected_read_version}: {error}"
-                                )
-                            })?;
+                        let fenced_dataset = managed::open(&storage, accepted_base.as_ref()
+                            .ok_or("Positive Dataset write lacks its accepted base")?).await?;
                         if operation == LanceWriteOperation::Append {
                             let existing_schema: Schema = fenced_dataset.schema().into();
                             if canonical_schema_fingerprint(&existing_schema)
@@ -1032,109 +860,6 @@ fn transaction_row_count(transaction: &Transaction) -> Result<u64, String> {
         })
 }
 
-fn recovery_scan_versions(
-    expected_read_version: u64,
-    latest_version: u64,
-    known_committed_version: u64,
-) -> Result<std::iter::Rev<std::ops::RangeInclusive<u64>>, String> {
-    if known_committed_version > 0 {
-        if known_committed_version > latest_version
-            || known_committed_version <= expected_read_version
-        {
-            return Err(format!(
-                "commit journal version {known_committed_version} is newer than dataset version {latest_version}"
-            ));
-        }
-        return Ok((known_committed_version..=known_committed_version).rev());
-    }
-    if latest_version <= expected_read_version {
-        return Ok((1..=0).rev());
-    }
-    Ok((expected_read_version + 1..=latest_version).rev())
-}
-
-async fn find_committed_write(
-    dataset: &Dataset,
-    expected_read_version: u64,
-    known_committed_version: u64,
-    tag_prefix: &str,
-    exact_tag: &str,
-) -> Result<Option<u64>, String> {
-    let latest = dataset.version().version;
-    let versions = recovery_scan_versions(expected_read_version, latest, known_committed_version)?;
-    for version in versions {
-        let versioned = dataset
-            .checkout_version(version)
-            .await
-            .map_err(|error| format!("failed to inspect Lance version {version}: {error}"))?;
-        let Some(transaction) = versioned.read_transaction().await.map_err(|error| {
-            format!("failed to read Lance transaction at version {version}: {error}")
-        })?
-        else {
-            continue;
-        };
-        match transaction.tag.as_deref() {
-            Some(tag) if tag == exact_tag => return Ok(Some(version)),
-            Some(tag) if tag.starts_with(tag_prefix) => {
-                return Err(format!(
-                    "write_id was already committed with different fragment metadata at version {version}"
-                ));
-            }
-            _ => {}
-        }
-    }
-    if known_committed_version > 0 {
-        return Err(format!(
-            "commit journal version {known_committed_version} does not contain the expected write identity"
-        ));
-    }
-    Ok(None)
-}
-
-async fn committed_manifest_digest(
-    storage: &StorageContext,
-    uri: &str,
-    version: u64,
-) -> Result<[u8; SHA256_DIGEST_SIZE], String> {
-    let atomic_store = AtomicCommitStore::for_uri(uri)?;
-    let (store, base) = ObjectStore::from_uri_and_params(
-        Arc::new(ObjectStoreRegistry::default()),
-        uri,
-        &storage.params(atomic_store.store_params()),
-    )
-    .await
-    .map_err(|error| format!("failed to open committed manifest store: {error}"))?;
-    let location = atomic_store
-        .commit_handler()
-        .resolve_version_location(&base, version, store.inner.as_ref())
-        .await
-        .map_err(|error| {
-            format!("failed to resolve committed manifest version {version}: {error}")
-        })?;
-    let metadata = store
-        .inner
-        .head(&location.path)
-        .await
-        .map_err(|error| format!("failed to inspect committed manifest: {error}"))?;
-    if metadata.size == 0 || metadata.size > MAX_MANIFEST_BYTES {
-        return Err("committed Lance manifest violates metadata size limit".to_owned());
-    }
-    let bytes = store
-        .inner
-        .get(&location.path)
-        .await
-        .map_err(|error| format!("failed to read committed manifest: {error}"))?
-        .bytes()
-        .await
-        .map_err(|error| format!("failed to read committed manifest bytes: {error}"))?;
-    if bytes.len() != metadata.size || bytes.len() > MAX_MANIFEST_BYTES {
-        return Err("committed Lance manifest changed while reading".to_owned());
-    }
-    sha256(&bytes)
-        .try_into()
-        .map_err(|_| "invalid manifest SHA-256 length".to_owned())
-}
-
 fn remaining_commit_time(deadline_epoch_ms: u64) -> Result<Duration, String> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1154,16 +879,6 @@ struct ValidatedFragmentReference {
     transaction_digest: Vec<u8>,
     relative_object_key: String,
     transaction_size: usize,
-}
-
-struct RecoveryFence<'a> {
-    dataset_uri: &'a str,
-    write_id: &'a str,
-    tenant_id: &'a str,
-    generation: &'a str,
-    operation: LanceWriteOperation,
-    expected_read_version: u64,
-    schema_fence_sha256: &'a [u8; SHA256_DIGEST_SIZE],
 }
 
 fn validate_fragment_reference(
@@ -1242,344 +957,9 @@ fn validate_fragment_reference(
     })
 }
 
-fn append_digest_field(output: &mut Vec<u8>, value: &[u8]) {
-    output.extend_from_slice(&(value.len() as u64).to_be_bytes());
-    output.extend_from_slice(value);
-}
 
-fn fragment_recovery_identity(
-    fragments: &mut [ValidatedFragmentReference],
-    fence: &RecoveryFence<'_>,
-) -> (String, String) {
-    fragments.sort_by_key(|entry| {
-        entry
-            .fragment
-            .task_attempt
-            .as_ref()
-            .expect("validated fragment has task_attempt")
-            .encode_to_vec()
-    });
-    let mut digest_input = b"pangrova.lance.write-commit.v2\0".to_vec();
-    append_digest_field(&mut digest_input, fence.dataset_uri.as_bytes());
-    append_digest_field(&mut digest_input, fence.write_id.as_bytes());
-    append_digest_field(&mut digest_input, fence.tenant_id.as_bytes());
-    append_digest_field(&mut digest_input, fence.generation.as_bytes());
-    digest_input.extend_from_slice(&(fence.operation as i32).to_be_bytes());
-    digest_input.extend_from_slice(&fence.expected_read_version.to_be_bytes());
-    digest_input.extend_from_slice(fence.schema_fence_sha256);
-    digest_input.extend_from_slice(&(fragments.len() as u64).to_be_bytes());
-    for entry in fragments {
-        append_digest_field(
-            &mut digest_input,
-            &entry
-                .fragment
-                .task_attempt
-                .as_ref()
-                .expect("validated fragment has task_attempt")
-                .encode_to_vec(),
-        );
-        digest_input.extend_from_slice(&entry.transaction_digest);
-    }
-    let aggregate_digest = sha256(&digest_input);
-    let tag_prefix = format!(
-        "pangrova-write:{}:",
-        hex_digest(&sha256(fence.write_id.as_bytes()))
-    );
-    let exact_tag = format!("{}{}", tag_prefix, hex_digest(&aggregate_digest));
-    (tag_prefix, exact_tag)
-}
 
-async fn commit_fragments_impl(
-    storage: &StorageContext,
-    dataset_uri: String,
-    write_id: String,
-    tenant_id: String,
-    generation: String,
-    operation: LanceWriteOperation,
-    expected_read_version: u64,
-    schema_fence_sha256: [u8; SHA256_DIGEST_SIZE],
-    fragment_inputs: Vec<(Vec<u8>, String)>,
-    max_retries: u32,
-    recovering: bool,
-    known_committed_version: u64,
-) -> Result<u64, String> {
-    if fragment_inputs.is_empty() {
-        return Err("at least one Lance write fragment is required".to_owned());
-    }
-    let store = AtomicCommitStore::for_uri(&dataset_uri)?;
 
-    let mut references = Vec::with_capacity(fragment_inputs.len());
-    let mut attempts = HashSet::with_capacity(fragment_inputs.len());
-    let mut aggregate_transaction_bytes = 0_usize;
-    for (bytes, expected_staging_prefix) in fragment_inputs {
-        let reference = validate_fragment_reference(
-            &bytes,
-            &expected_staging_prefix,
-            &dataset_uri,
-            &write_id,
-            &tenant_id,
-            &generation,
-            operation,
-            expected_read_version,
-            &schema_fence_sha256,
-        )?;
-        let attempt = reference
-            .fragment
-            .task_attempt
-            .as_ref()
-            .expect("validated fragment has task_attempt")
-            .encode_to_vec();
-        if !attempts.insert(attempt) {
-            return Err("Lance write fragments contain a duplicate task attempt".to_owned());
-        }
-        aggregate_transaction_bytes = aggregate_transaction_bytes
-            .checked_add(reference.transaction_size)
-            .filter(|size| *size <= MAX_AGGREGATE_TRANSACTION_BYTES)
-            .ok_or_else(|| {
-                "aggregate Lance transaction metadata exceeds the 256 MiB hard limit".to_owned()
-            })?;
-        references.push(reference);
-    }
-
-    let recovery_fence = RecoveryFence {
-        dataset_uri: &dataset_uri,
-        write_id: &write_id,
-        tenant_id: &tenant_id,
-        generation: &generation,
-        operation,
-        expected_read_version,
-        schema_fence_sha256: &schema_fence_sha256,
-    };
-    let (tag_prefix, exact_tag) = fragment_recovery_identity(&mut references, &recovery_fence);
-    let existing = match open_atomic_dataset(&dataset_uri, storage).await {
-        Ok(dataset) => Some(dataset),
-        Err(lance::Error::DatasetNotFound { .. } | lance::Error::NotFound { .. }) => None,
-        Err(error) => return Err(format!("failed to open Lance commit target: {error}")),
-    };
-    if recovering {
-        if let Some(dataset) = existing.as_ref() {
-            if let Some(version) = find_committed_write(
-                dataset,
-                expected_read_version,
-                known_committed_version,
-                &tag_prefix,
-                &exact_tag,
-            )
-            .await?
-            {
-                return Ok(version);
-            }
-        }
-    }
-
-    let mut combined_fragments = Vec::new();
-    let mut overwrite_schema = None;
-    for reference in references {
-        let lance_transaction = read_transaction_sidecar(
-            storage,
-            &dataset_uri,
-            &reference.relative_object_key,
-            reference.transaction_size,
-        )
-        .await?;
-        if sha256(&lance_transaction) != reference.transaction_digest {
-            return Err("Lance transaction sidecar checksum mismatch".to_owned());
-        }
-        let transaction = decode_transaction(&lance_transaction)?;
-        if transaction.read_version != expected_read_version || transaction.blobs_op.is_some() {
-            return Err(
-                "Lance transaction version/blob operation violates the commit fence".to_owned(),
-            );
-        }
-        if transaction_row_count(&transaction)? != reference.fragment.rows_written {
-            return Err(
-                "Lance write fragment row count does not match transaction metadata".to_owned(),
-            );
-        }
-        match (&transaction.operation, operation) {
-            (Operation::Append { .. }, LanceWriteOperation::Append)
-            | (Operation::Overwrite { .. }, LanceWriteOperation::Create)
-            | (Operation::Overwrite { .. }, LanceWriteOperation::Overwrite) => {}
-            _ => return Err("Lance transaction operation does not match commit mode".to_owned()),
-        }
-        match transaction.operation {
-            Operation::Append { fragments } => combined_fragments.extend(fragments),
-            Operation::Overwrite {
-                fragments,
-                schema,
-                config_upsert_values,
-            } => {
-                if config_upsert_values
-                    .as_ref()
-                    .is_some_and(|values| !values.is_empty())
-                {
-                    return Err(
-                        "Lance SQL write fragments may not mutate dataset config".to_owned()
-                    );
-                }
-                if let Some(existing) = overwrite_schema.as_ref() {
-                    if existing != &schema {
-                        return Err("Lance overwrite fragments disagree on schema".to_owned());
-                    }
-                } else {
-                    overwrite_schema = Some(schema);
-                }
-                combined_fragments.extend(fragments);
-            }
-            _ => unreachable!("validated above"),
-        }
-    }
-    let aggregate_digest = exact_tag
-        .strip_prefix(&tag_prefix)
-        .expect("exact recovery tag has prefix");
-    let aggregate_operation = match operation {
-        LanceWriteOperation::Append => Operation::Append {
-            fragments: combined_fragments,
-        },
-        LanceWriteOperation::Create | LanceWriteOperation::Overwrite => Operation::Overwrite {
-            fragments: combined_fragments,
-            schema: overwrite_schema.ok_or_else(|| {
-                "Lance create/overwrite fragments did not contain a schema".to_owned()
-            })?,
-            config_upsert_values: None,
-        },
-        LanceWriteOperation::Unspecified => unreachable!("validated before use"),
-    };
-    let mut aggregate = Transaction::new(expected_read_version, aggregate_operation, None, None);
-    aggregate.uuid = aggregate_digest.to_owned();
-    aggregate.tag = Some(exact_tag.clone());
-
-    let committed = match (operation, existing) {
-        (LanceWriteOperation::Create, None) => CommitBuilder::new(dataset_uri.as_str())
-            .with_commit_handler(store.commit_handler())
-            .with_store_params(storage.params(store.store_params()))
-            .with_max_retries(max_retries)
-            .execute(aggregate)
-            .await,
-        (LanceWriteOperation::Create, Some(dataset)) => {
-            return Err(format!(
-                "CREATE target already exists at version {}",
-                dataset.version().version
-            ));
-        }
-        (LanceWriteOperation::Append | LanceWriteOperation::Overwrite, Some(dataset)) => {
-            if dataset.version().version < expected_read_version {
-                return Err(format!(
-                    "commit target version {} is older than expected version {expected_read_version}",
-                    dataset.version().version
-                ));
-            }
-            dataset
-                .checkout_version(expected_read_version)
-                .await
-                .map_err(|error| {
-                    format!("expected Lance version {expected_read_version} is unavailable: {error}")
-                })?;
-            let next_version = expected_read_version
-                .checked_add(1)
-                .ok_or_else(|| "Lance version overflow".to_owned())?;
-            CommitBuilder::new(dataset_uri.as_str())
-                .with_commit_handler(Arc::new(ExactVersionCommitHandler {
-                    expected_next_version: next_version,
-                    inner: store.commit_handler(),
-                }))
-                .with_store_params(storage.params(store.store_params()))
-                .with_max_retries(1)
-                .execute(aggregate)
-                .await
-        }
-        (LanceWriteOperation::Append | LanceWriteOperation::Overwrite, None) => {
-            return Err("APPEND/OVERWRITE target does not exist".to_owned());
-        }
-        (LanceWriteOperation::Unspecified, _) => unreachable!("validated before use"),
-    }
-    .map_err(|error| format!("atomic Lance commit failed: {error}"))?;
-    Ok(committed.version().version)
-}
-
-async fn discard_fragments_impl(
-    storage: &StorageContext,
-    dataset_uri: String,
-    write_id: String,
-    tenant_id: String,
-    generation: String,
-    operation: LanceWriteOperation,
-    expected_read_version: u64,
-    schema_fence_sha256: [u8; SHA256_DIGEST_SIZE],
-    fragment_inputs: Vec<(Vec<u8>, String)>,
-) -> Result<(), String> {
-    if fragment_inputs.is_empty() {
-        return Err("at least one Lance write fragment is required".to_owned());
-    }
-    let mut references = Vec::with_capacity(fragment_inputs.len());
-    let mut attempts = HashSet::with_capacity(fragment_inputs.len());
-    for (bytes, expected_staging_prefix) in fragment_inputs {
-        let reference = validate_fragment_reference(
-            &bytes,
-            &expected_staging_prefix,
-            &dataset_uri,
-            &write_id,
-            &tenant_id,
-            &generation,
-            operation,
-            expected_read_version,
-            &schema_fence_sha256,
-        )?;
-        let attempt = reference
-            .fragment
-            .task_attempt
-            .as_ref()
-            .expect("validated fragment has task_attempt")
-            .encode_to_vec();
-        if !attempts.insert(attempt) {
-            return Err("Lance write fragments contain a duplicate task attempt".to_owned());
-        }
-        references.push(reference);
-    }
-    for reference in references {
-        delete_transaction_sidecar(storage, &dataset_uri, &reference.relative_object_key).await?;
-    }
-    Ok(())
-}
-
-unsafe fn copy_commit_fragment_views(
-    fragments: *const LanceCCommitFragment,
-    fragment_count: usize,
-) -> Result<Vec<(Vec<u8>, String)>, String> {
-    if fragments.is_null() || fragment_count == 0 {
-        return Err("fragments and a positive fragment_count are required".to_owned());
-    }
-    if fragment_count > 1_000_000 {
-        return Err("fragment_count exceeds the hard safety limit".to_owned());
-    }
-    let views = unsafe { slice::from_raw_parts(fragments, fragment_count) };
-    let mut owned = Vec::with_capacity(fragment_count);
-    let mut total_bytes = 0_usize;
-    for (index, view) in views.iter().enumerate() {
-        if view.data.is_null() || view.len == 0 || view.len > MAX_INLINE_FRAGMENT_BYTES {
-            return Err(format!(
-                "fragment {index} is empty or exceeds the 64 KiB hard limit"
-            ));
-        }
-        let expected_staging_prefix = parse_required_string(
-            view.expected_staging_prefix,
-            "expected_staging_prefix",
-            2048,
-        )
-        .map_err(|error| format!("fragment {index}: {error}"))?;
-        total_bytes = total_bytes
-            .checked_add(view.len)
-            .filter(|value| *value <= MAX_AGGREGATE_TRANSACTION_BYTES)
-            .ok_or_else(|| {
-                "aggregate fragment metadata exceeds the 256 MiB hard limit".to_owned()
-            })?;
-        owned.push((
-            unsafe { slice::from_raw_parts(view.data, view.len) }.to_vec(),
-            expected_staging_prefix,
-        ));
-    }
-    Ok(owned)
-}
 
 // =============================================================================
 // Error handling
@@ -1623,7 +1003,7 @@ pub extern "C" fn lance_ffi_last_error() -> *const c_char {
 /// Exact ABI implemented by this pinned Rust crate.
 #[no_mangle]
 pub extern "C" fn lance_ffi_abi_version() -> u32 {
-    12
+    13
 }
 
 // =============================================================================
@@ -1758,17 +1138,16 @@ pub extern "C" fn lance_ffi_reader_open(
                     set_last_error("Dataset manifest partition is not a physical file byte range");
                     return ptr::null_mut();
                 }
-                let dataset = match runtime.block_on(async {
-                    open_atomic_dataset(&uri_str, &storage)
-                        .await?
-                        .checkout_version(version)
-                        .await
-                }) {
-                    Ok(ds) => ds,
-                    Err(e) => {
-                        set_last_error(&format!("failed to open dataset: {e}"));
-                        return ptr::null_mut();
-                    }
+                let reference = match partition.accepted_snapshot.as_ref() {
+                    Some(value) => value,
+                    None => { set_last_error("Dataset reader requires accepted source membership"); return ptr::null_mut(); }
+                };
+                if let Err(error) = managed::validate(reference, &uri_str, version) {
+                    set_last_error(&error); return ptr::null_mut();
+                }
+                let dataset = match runtime.block_on(managed::open(&storage, reference)) {
+                    Ok(dataset) => dataset,
+                    Err(error) => { set_last_error(&error); return ptr::null_mut(); }
                 };
                 let partition = match runtime.block_on(scan::select(
                     &storage, &uri_str, version, &dataset, &partition,
@@ -1832,136 +1211,6 @@ pub extern "C" fn lance_ffi_scan_partitions(
             }
             Err(error) => {
                 set_last_error(&error);
-                -1
-            }
-        }
-    })
-}
-
-/// Resolve the latest visible dataset version for connector write allocation.
-#[no_mangle]
-pub extern "C" fn lance_ffi_dataset_version(
-    storage: *const LanceCStorage,
-    uri: *const c_char,
-    out_version: *mut u64,
-) -> i32 {
-    ffi_guard!("dataset_version", -1, {
-        if out_version.is_null() {
-            set_last_error("out_version must not be NULL");
-            return -1;
-        }
-        let uri = match parse_required_string(uri, "uri", 8192) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let runtime = get_or_create_runtime();
-        let storage = require_storage!(storage, &uri, None, -1);
-        match runtime.block_on(open_atomic_dataset(&uri, &storage)) {
-            Ok(dataset) => {
-                unsafe {
-                    *out_version = dataset.version().version;
-                }
-                0
-            }
-            Err(error) => {
-                set_last_error(&format!("failed to resolve Lance dataset version: {error}"));
-                -1
-            }
-        }
-    })
-}
-
-/// Resolve version and schema fence from one opened snapshot so connector
-/// allocation cannot observe a version/schema pair split by a concurrent commit.
-#[no_mangle]
-pub extern "C" fn lance_ffi_dataset_info(
-    storage: *const LanceCStorage,
-    uri: *const c_char,
-    version: u64,
-    out_version: *mut u64,
-    out_schema_sha256: *mut u8,
-    schema_sha256_len: usize,
-) -> i32 {
-    ffi_guard!("dataset_info", -1, {
-        if out_version.is_null()
-            || out_schema_sha256.is_null()
-            || schema_sha256_len != SHA256_DIGEST_SIZE
-        {
-            set_last_error("out_version and 32-byte out_schema_sha256 are required");
-            return -1;
-        }
-        let uri = match parse_required_string(uri, "uri", 8192) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let runtime = get_or_create_runtime();
-        let storage = require_storage!(storage, &uri, None, -1);
-        match runtime.block_on(async {
-            let dataset = open_atomic_dataset(&uri, &storage).await?;
-            dataset.checkout_version(version).await
-        }) {
-            Ok(dataset) => {
-                let schema: Schema = dataset.schema().into();
-                let fingerprint = canonical_schema_fingerprint(&schema);
-                unsafe {
-                    *out_version = dataset.version().version;
-                    ptr::copy_nonoverlapping(
-                        fingerprint.as_ptr(),
-                        out_schema_sha256,
-                        fingerprint.len(),
-                    );
-                }
-                0
-            }
-            Err(error) => {
-                set_last_error(&format!("failed to resolve Lance dataset info: {error}"));
-                -1
-            }
-        }
-    })
-}
-
-/// Resolve the canonical schema fence of the latest visible dataset version.
-#[no_mangle]
-pub extern "C" fn lance_ffi_dataset_schema_fingerprint(
-    storage: *const LanceCStorage,
-    uri: *const c_char,
-    out_sha256: *mut u8,
-    out_len: usize,
-) -> i32 {
-    ffi_guard!("dataset_schema_fingerprint", -1, {
-        if out_sha256.is_null() || out_len != SHA256_DIGEST_SIZE {
-            set_last_error("a 32-byte out_sha256 is required");
-            return -1;
-        }
-        let uri = match parse_required_string(uri, "uri", 8192) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let runtime = get_or_create_runtime();
-        let storage = require_storage!(storage, &uri, None, -1);
-        match runtime.block_on(open_atomic_dataset(&uri, &storage)) {
-            Ok(dataset) => {
-                let schema: Schema = dataset.schema().into();
-                let fingerprint = canonical_schema_fingerprint(&schema);
-                unsafe {
-                    ptr::copy_nonoverlapping(fingerprint.as_ptr(), out_sha256, fingerprint.len());
-                }
-                0
-            }
-            Err(error) => {
-                set_last_error(&format!(
-                    "failed to resolve Lance dataset schema fingerprint: {error}"
-                ));
                 -1
             }
         }
@@ -2101,44 +1350,12 @@ pub extern "C" fn lance_ffi_reader_next(
                     }
                 }
                 LanceReadSource::Dataset { dataset, partition } => {
-                    let mut scanner = dataset.scan();
-                    scanner.with_fragments(vec![partition.clone()]);
-                    let positions = scan_identity::requested(reader.projected_columns.as_deref());
-                    if positions {
-                        let schema: Schema = dataset.schema().into();
-                        if schema.index_of(scan_identity::POSITION).is_ok()
-                            || schema.index_of(lance_core::ROW_ADDR).is_ok()
-                        {
-                            set_last_error(
-                                "Dataset schema collides with reserved physical identity metadata",
-                            );
-                            return -1;
-                        }
-                        scanner
-                            .with_row_address()
-                            .scan_in_order(true)
-                            .use_scalar_index(false);
-                    }
-                    if let Some(ref cols) = reader.projected_columns {
-                        let col_refs: Vec<&str> = cols
-                            .iter()
-                            .filter(|column| column.as_str() != scan_identity::POSITION)
-                            .map(|s| s.as_str())
-                            .collect();
-                        if let Err(e) = scanner.project(&col_refs) {
-                            set_last_error(&format!("projection error: {e}"));
-                            return -1;
-                        }
-                    }
-
-                    // arrow-rs 53 / lance 0.20: batch_size() is a builder method returning
-                    // &mut Scanner (no Result).
-                    scanner.batch_size(8192);
-
-                    match reader.runtime.block_on(scanner.try_into_stream()) {
-                        Ok(stream) => stream.boxed(),
-                        Err(e) => {
-                            set_last_error(&format!("scan error: {e}"));
+                    match reader.runtime.block_on(scan::start_dataset_scan(
+                        dataset, partition, reader.projected_columns.as_deref(),
+                    )) {
+                        Ok(stream) => stream,
+                        Err(error) => {
+                            set_last_error(&error);
                             return -1;
                         }
                     }
@@ -2162,13 +1379,8 @@ pub extern "C" fn lance_ffi_reader_next(
         };
         match next_batch {
             Some(Ok(batch)) => {
-                let returned_rows = batch.num_rows().min(requested_rows);
-                let remainder = if returned_rows < batch.num_rows() {
-                    Some(batch.slice(returned_rows, batch.num_rows() - returned_rows))
-                } else {
-                    None
-                };
-                let batch = batch.slice(0, returned_rows);
+                let (batch, remainder) = scan::bounded_batch(batch, requested_rows);
+                let returned_rows = batch.num_rows();
                 let batch = match &reader.source {
                     LanceReadSource::Dataset { partition, .. }
                         if scan_identity::requested(reader.projected_columns.as_deref()) =>
@@ -2253,6 +1465,8 @@ pub extern "C" fn lance_ffi_writer_open(
     schema_ptr: *const FFI_ArrowSchema,
     operation: i32,
     expected_read_version: u64,
+    accepted_base_snapshot: *const u8,
+    accepted_base_snapshot_len: usize,
     schema_fence_sha256: *const u8,
     schema_fence_len: usize,
     write_id: *const c_char,
@@ -2364,14 +1578,48 @@ pub extern "C" fn lance_ffi_writer_open(
             return ptr::null_mut();
         }
 
+        let base = if expected_read_version == 0 {
+            if accepted_base_snapshot_len != 0 {
+                set_last_error("CREATE Dataset write must not carry an accepted base");
+                return ptr::null_mut();
+            }
+            None
+        } else {
+            if accepted_base_snapshot.is_null() || accepted_base_snapshot_len == 0 || accepted_base_snapshot_len > 64 * 1024 {
+                set_last_error("Positive Dataset write requires bounded accepted base metadata");
+                return ptr::null_mut();
+            }
+            let bytes = unsafe { slice::from_raw_parts(accepted_base_snapshot, accepted_base_snapshot_len) };
+            let reference = match canonical::pangrova::protocol::v2::AcceptedSourceSnapshotRef::decode(bytes) {
+                Ok(reference) => reference,
+                Err(error) => { set_last_error(&error.to_string()); return ptr::null_mut(); }
+            };
+            if reference.encode_to_vec() != bytes || reference.tenant_id != tenant_id
+                || reference.physical_schema_sha256.as_ref().is_none_or(|digest| digest.digest != schema_fence_sha256)
+            {
+                set_last_error("Dataset accepted base tenant/schema or canonical encoding differs");
+                return ptr::null_mut();
+            }
+            if let Err(error) = managed::validate(&reference, &uri_str, expected_read_version) {
+                set_last_error(&error); return ptr::null_mut();
+            }
+            Some(reference)
+        };
+        let context = require_storage!(storage, &uri_str, Some(&tenant_id), ptr::null_mut());
+        if let Some(reference) = &base {
+            if let Err(error) = context.require_binding(reference.catalog.as_ref().unwrap(), &tenant_id) {
+                set_last_error(&error); return ptr::null_mut();
+            }
+        }
         let runtime = get_or_create_runtime();
         let writer = Box::new(LanceCWriter {
             runtime,
-            storage: require_storage!(storage, &uri_str, Some(&tenant_id), ptr::null_mut()),
+            storage: context,
             uri: uri_str,
             schema,
             operation,
             expected_read_version,
+            accepted_base_snapshot: base,
             schema_fence_sha256,
             write_id,
             tenant_id,
@@ -2624,257 +1872,90 @@ pub extern "C" fn lance_ffi_buffer_free(buffer: LanceCBuffer) {
     })
 }
 
-/// Atomically publish a deterministic aggregate of uncommitted worker fragments.
-///
-/// This is the sole manifest-publishing primitive. It is intended to be called
-/// by ConnectorMetadata.finishDistributedWrite, never by a worker task.
+/// Prepare an immutable SDK manifest at its reserved private path. This cannot publish source visibility.
 #[no_mangle]
-pub extern "C" fn lance_ffi_commit_fragments(
+pub extern "C" fn lance_ffi_prepare_write(
     storage: *const LanceCStorage,
-    uri: *const c_char,
-    write_id: *const c_char,
-    tenant_id: *const c_char,
-    generation: *const c_char,
-    operation: i32,
-    expected_read_version: u64,
-    schema_fence_sha256: *const u8,
-    schema_fence_len: usize,
-    fragments: *const LanceCCommitFragment,
-    fragment_count: usize,
-    max_retries: u32,
-    recovering: i32,
-    known_committed_version: u64,
-    deadline_epoch_ms: u64,
-    out_committed_version: *mut u64,
-    out_manifest_sha256: *mut u8,
-    manifest_sha256_len: usize,
+    request_bytes: *const u8,
+    request_len: usize,
+    out_result: *mut LanceCBuffer,
 ) -> i32 {
-    ffi_guard!("commit_fragments", -1, {
-        if fragments.is_null()
-            || fragment_count == 0
-            || out_committed_version.is_null()
-            || out_manifest_sha256.is_null()
-            || manifest_sha256_len != SHA256_DIGEST_SIZE
-        {
-            set_last_error(
-                "fragments, a positive count, version output and 32-byte manifest digest output are required",
-            );
+    ffi_guard!("prepare_write", -1, {
+        if request_bytes.is_null() || request_len == 0 || request_len > 16 * 1024 * 1024 || out_result.is_null() {
+            set_last_error("Canonical bounded preparation request and output are required");
             return -1;
         }
-        unsafe {
-            *out_committed_version = 0;
-            ptr::write_bytes(out_manifest_sha256, 0, SHA256_DIGEST_SIZE);
+        unsafe { *out_result = LanceCBuffer { data: ptr::null_mut(), len: 0, capacity: 0 }; }
+        let bytes = unsafe { slice::from_raw_parts(request_bytes, request_len) };
+        let request = match canonical::pangrova::protocol::v2::PrepareDistributedWriteRequest::decode(bytes) {
+            Ok(value) if value.encode_to_vec() == bytes => value,
+            _ => { set_last_error("Preparation request is not canonical protobuf"); return -1; }
+        };
+        let uri = match request.output_binding.as_ref().and_then(|output| output.binding.as_ref()) {
+            Some(canonical::pangrova::protocol::v2::write_output_binding::Binding::Lance(binding)) => binding.dataset_uri.clone(),
+            _ => { set_last_error("Preparation requires a Lance allocation"); return -1; }
+        };
+        let tenant = match request.security.as_ref() {
+            Some(security) => security.tenant_id.clone(),
+            None => { set_last_error("Preparation requires security"); return -1; }
+        };
+        if let Err(error) = remaining_commit_time(request.deadline_epoch_ms) {
+            set_last_error(&error); return -1;
         }
-        match remaining_commit_time(deadline_epoch_ms) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let uri = match parse_required_string(uri, "uri", 8192) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let write_id = match parse_required_string(write_id, "write_id", 512) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let tenant_id = match parse_required_string(tenant_id, "tenant_id", 512) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let generation = match parse_required_string(generation, "generation", 512) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let operation = match LanceWriteOperation::parse(operation) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        if (operation == LanceWriteOperation::Create && expected_read_version != 0)
-            || (operation != LanceWriteOperation::Create && expected_read_version == 0)
-        {
-            set_last_error(
-                "CREATE requires version 0; APPEND/OVERWRITE require a non-zero version",
-            );
-            return -1;
+        if request.invocation_id.len() != 32 || !request.invocation_id.bytes()
+            .all(|value| value.is_ascii_digit() || (b'a'..=b'f').contains(&value)) {
+            set_last_error("Preparation requires a durable invocation nonce"); return -1;
         }
-        let schema_fence_sha256 =
-            match parse_sha256(schema_fence_sha256, schema_fence_len, "schema_fence_sha256") {
-                Ok(value) => value,
-                Err(error) => {
-                    set_last_error(&error);
-                    return -1;
+        let fingerprint = request.commit_fingerprint.clone();
+        let invocation_id = request.invocation_id.clone();
+        // An RPC deadline only bounds admission. Dropping the SDK future on timeout
+        // cannot prove object-store calls have drained. Wait for its actual return;
+        // a lost HTTP reply leaves the durable issuance held for later reconciliation.
+        let result = get_or_create_runtime().block_on(async {
+            let scoped = scoped_storage(storage, &uri, Some(&tenant))?;
+            preparation::prepare(&scoped, request).await
+        });
+        let mut result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                set_last_error(&error);
+                canonical::pangrova::protocol::v2::PrepareDistributedWriteResult {
+                    outcome: canonical::pangrova::protocol::v2::WritePreparationOutcome::Unknown as i32,
+                    commit_fingerprint: fingerprint, publication: None, object_page: None,
+                    invocation_id: invocation_id.clone(), sdk_joined: false,
                 }
-            };
-        let owned = match unsafe { copy_commit_fragment_views(fragments, fragment_count) } {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
             }
         };
-        let runtime = get_or_create_runtime();
-        let remaining = match remaining_commit_time(deadline_epoch_ms) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        match runtime.block_on(async {
-            tokio::time::timeout(remaining, async {
-                let storage = scoped_storage(storage, &uri, Some(&tenant_id))?;
-                let version = commit_fragments_impl(
-                    &storage,
-                    uri.clone(),
-                    write_id,
-                    tenant_id,
-                    generation,
-                    operation,
-                    expected_read_version,
-                    schema_fence_sha256,
-                    owned,
-                    max_retries.clamp(1, 64),
-                    recovering != 0,
-                    known_committed_version,
-                )
-                .await?;
-                let digest = committed_manifest_digest(&storage, &uri, version).await?;
-                Ok::<_, String>((version, digest))
-            })
-            .await
-            .map_err(|_| {
-                "Lance publication deadline exceeded; commit outcome is unknown".to_owned()
-            })?
-        }) {
-            Ok((version, digest)) => {
-                unsafe {
-                    *out_committed_version = version;
-                    ptr::copy_nonoverlapping(
-                        digest.as_ptr(),
-                        out_manifest_sha256,
-                        SHA256_DIGEST_SIZE,
-                    );
-                }
-                0
-            }
-            Err(error) => {
-                set_last_error(&error);
-                -1
-            }
-        }
+        result.invocation_id = invocation_id;
+        unsafe { *out_result = into_c_buffer(result.encode_to_vec()); }
+        0
     })
 }
 
-/// Idempotently delete fenced transaction sidecars after commit or abort.
+/// Actual joined deletion of the exact catalog-reserved object page.
 #[no_mangle]
-pub extern "C" fn lance_ffi_discard_fragments(
-    storage: *const LanceCStorage,
-    uri: *const c_char,
-    write_id: *const c_char,
-    tenant_id: *const c_char,
-    generation: *const c_char,
-    operation: i32,
-    expected_read_version: u64,
-    schema_fence_sha256: *const u8,
-    schema_fence_len: usize,
-    fragments: *const LanceCCommitFragment,
-    fragment_count: usize,
+pub extern "C" fn lance_ffi_cleanup_objects(
+    storage: *const LanceCStorage, request_bytes: *const u8, request_len: usize, out_result: *mut LanceCBuffer,
 ) -> i32 {
-    ffi_guard!("discard_fragments", -1, {
-        let uri = match parse_required_string(uri, "uri", 8192) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let write_id = match parse_required_string(write_id, "write_id", 512) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let tenant_id = match parse_required_string(tenant_id, "tenant_id", 512) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let generation = match parse_required_string(generation, "generation", 512) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        let operation = match LanceWriteOperation::parse(operation) {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
-        };
-        if (operation == LanceWriteOperation::Create && expected_read_version != 0)
-            || (operation != LanceWriteOperation::Create && expected_read_version == 0)
-        {
-            set_last_error(
-                "CREATE requires version 0; APPEND/OVERWRITE require a non-zero version",
-            );
-            return -1;
+    ffi_guard!("cleanup_objects", -1, {
+        if request_bytes.is_null() || request_len == 0 || request_len > 8 * 1024 * 1024 || out_result.is_null() {
+            set_last_error("Canonical bounded cleanup request and output are required"); return -1;
         }
-        let schema_fence_sha256 =
-            match parse_sha256(schema_fence_sha256, schema_fence_len, "schema_fence_sha256") {
-                Ok(value) => value,
-                Err(error) => {
-                    set_last_error(&error);
-                    return -1;
-                }
-            };
-        let owned = match unsafe { copy_commit_fragment_views(fragments, fragment_count) } {
-            Ok(value) => value,
-            Err(error) => {
-                set_last_error(&error);
-                return -1;
-            }
+        unsafe { *out_result = LanceCBuffer { data: ptr::null_mut(), len: 0, capacity: 0 }; }
+        let bytes = unsafe { slice::from_raw_parts(request_bytes, request_len) };
+        let request = match canonical::pangrova::protocol::v2::CleanupSourceObjectsRequest::decode(bytes) {
+            Ok(value) if value.encode_to_vec() == bytes => value,
+            _ => { set_last_error("Cleanup request is not canonical protobuf"); return -1; }
         };
-        let runtime = get_or_create_runtime();
-        let storage = require_storage!(storage, &uri, Some(&tenant_id), -1);
-        match runtime.block_on(discard_fragments_impl(
-            &storage,
-            uri,
-            write_id,
-            tenant_id,
-            generation,
-            operation,
-            expected_read_version,
-            schema_fence_sha256,
-            owned,
-        )) {
-            Ok(()) => 0,
-            Err(error) => {
-                set_last_error(&error);
-                -1
-            }
+        if let Err(error) = remaining_commit_time(request.deadline_epoch_ms) { set_last_error(&error); return -1; }
+        let tenant = request.security.as_ref().map(|value| value.tenant_id.clone()).unwrap_or_default();
+        let uri = request.dataset_uri.clone();
+        match get_or_create_runtime().block_on(async {
+            let scoped = scoped_storage(storage, &uri, Some(&tenant))?;
+            cleanup::cleanup(&scoped, request).await
+        }) {
+            Ok(result) => { unsafe { *out_result = into_c_buffer(result.encode_to_vec()); } 0 }
+            Err(error) => { set_last_error(&error); -1 }
         }
     })
 }
@@ -2923,6 +2004,8 @@ pub extern "C" fn lance_ffi_reader_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lance::dataset::CommitBuilder;
+    use lance_table::io::commit::CommitHandler;
     use std::process::Command;
     use std::time::Duration;
 
@@ -3056,6 +2139,8 @@ mod tests {
             ptr::null(),
             0,
             ptr::null(),
+            0,
+            ptr::null(),
             ptr::null(),
             ptr::null(),
             ptr::null(),
@@ -3069,66 +2154,107 @@ mod tests {
         assert!(error.contains("atomic manifest commit is not configured"));
     }
 
-    fn test_manifest_writer<'a>(
-        store: &'a ObjectStore,
-        manifest: &'a mut Manifest,
-        _indices: Option<Vec<Index>>,
-        path: &'a Path,
-    ) -> futures::future::BoxFuture<'a, lance::Result<()>> {
-        let marker = manifest.tag.as_deref().unwrap_or("test-manifest");
-        Box::pin(async move { store.put(path, marker.as_bytes()).await })
+    fn sdk_prepared_transaction(name: &str, fingerprint: &str) -> Transaction {
+        let schema = lance_core::datatypes::Schema::try_from(&Schema::new(vec![
+            Field::new(name, DataType::Int64, false),
+        ])).unwrap();
+        let mut transaction = Transaction::new(0, Operation::Overwrite {
+            fragments: Vec::new(), schema, config_upsert_values: None,
+        }, None, None);
+        transaction.uuid = name.to_owned();
+        transaction.tag = Some(fingerprint.to_owned());
+        transaction
+    }
+
+    async fn sdk_prepare(store: ObjectStore, uri: &str, params: &ObjectStoreParams, name: &str, fingerprint: &str) -> lance::Result<Dataset> {
+        CommitBuilder::new(uri).with_store_params(params.clone()).with_object_store(Arc::new(store))
+            .with_commit_handler(Arc::new(managed::CatalogCommitHandler {
+                accepted: None, candidate: Some((format!("_pangrova/prepared/{fingerprint}.manifest"), 1, fingerprint.into())),
+            })).with_max_retries(1).enable_v2_manifest_paths(true)
+            .execute(sdk_prepared_transaction(name, fingerprint)).await
+    }
+
+    async fn assert_sdk_candidate_race(first_store: ObjectStore, second_store: ObjectStore,
+            base: Path, uri: &str, params: ObjectStoreParams, supports_conditional_create: bool) {
+        let fingerprint = hex_digest(&sha256(b"actual-sdk-candidate-race"));
+        let (first, second) = futures::join!(
+            sdk_prepare(first_store.clone(), uri, &params, "writer-one", &fingerprint),
+            sdk_prepare(second_store, uri, &params, "writer-two", &fingerprint),
+        );
+        let path = object_path(&base, &format!("_pangrova/prepared/{fingerprint}.manifest")).unwrap();
+        if supports_conditional_create {
+            assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+            assert_eq!(usize::from(matches!(first, Err(lance::Error::DatasetAlreadyExists { .. })))
+                + usize::from(matches!(second, Err(lance::Error::DatasetAlreadyExists { .. }))), 1);
+            let expected = if first.is_ok() { "writer-one" } else { "writer-two" };
+            let winner = first.or(second).unwrap();
+            assert_eq!(winner.version().version, 1);
+            assert_eq!(winner.manifest().tag.as_deref(), Some(fingerprint.as_str()));
+            assert_eq!(winner.read_transaction().await.unwrap().unwrap().uuid, expected);
+            let arrow_schema: Schema = winner.schema().into();
+            assert_eq!(arrow_schema.field(0).name(), expected);
+            let payload = first_store.inner.get(&path).await.unwrap().bytes().await.unwrap();
+            assert!(!payload.is_empty());
+            let late = sdk_prepare(first_store.clone(), uri, &params, "late-writer", &fingerprint).await;
+            assert!(matches!(late, Err(lance::Error::DatasetAlreadyExists { .. })));
+            let unchanged = first_store.inner.get(&path).await.unwrap().bytes().await.unwrap();
+            assert_eq!(unchanged, payload);
+            assert!(matches!(first_store.inner.head(&object_path(&base, "_versions/1.manifest").unwrap()).await,
+                Err(ObjectStoreError::NotFound { .. })));
+        } else {
+            for result in [first, second] {
+                let error = result.expect_err("unsafe MinIO conditional PUT must fail closed");
+                assert!(format!("{error:?}").contains("ignored conditional create"));
+            }
+            assert!(matches!(first_store.inner.head(&path).await, Err(ObjectStoreError::NotFound { .. })));
+        }
     }
 
     #[test]
-    fn conditional_manifest_commit_has_one_winner_for_same_version() {
-        let runtime = get_or_create_runtime();
-        runtime.block_on(async {
+    fn conditional_prepared_manifest_has_one_winner_for_same_candidate() {
+        get_or_create_runtime().block_on(async {
             let store = ObjectStore::memory();
-            let handler = ConditionalPutCommitHandler;
-            let mut first_manifest = Manifest::new(
-                lance_core::datatypes::Schema::default(),
-                Arc::new(Vec::new()),
-                lance_table::format::DataStorageFormat::default(),
-                None,
-            );
-            first_manifest.version = 1;
-            first_manifest.tag = Some("writer-one".to_owned());
-            let mut second_manifest = first_manifest.clone();
-            second_manifest.tag = Some("writer-two".to_owned());
-            let base = Path::from("test-dataset");
-            let (first, second) = futures::join!(
-                handler.commit(
-                    &mut first_manifest,
-                    None,
-                    &base,
-                    &store,
-                    test_manifest_writer,
-                    ManifestNamingScheme::V2,
-                ),
-                handler.commit(
-                    &mut second_manifest,
-                    None,
-                    &base,
-                    &store,
-                    test_manifest_writer,
-                    ManifestNamingScheme::V2,
-                )
-            );
-            assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-            assert_eq!(
-                usize::from(matches!(first, Err(CommitError::CommitConflict)))
-                    + usize::from(matches!(second, Err(CommitError::CommitConflict))),
-                1
-            );
-            let path = ManifestNamingScheme::V2.manifest_path(&base, 1);
-            let payload = store.inner.get(&path).await.unwrap().bytes().await.unwrap();
-            let expected = if first.is_ok() {
-                b"writer-one".as_slice()
-            } else {
-                b"writer-two".as_slice()
-            };
-            assert_eq!(payload.as_ref(), expected);
+            assert_sdk_candidate_race(store.clone(), store, Path::from("test-dataset"),
+                "memory:///test-dataset", ObjectStoreParams::default(), true).await;
         });
+    }
+
+    #[test]
+    fn sdk_prepared_manifest_and_sidecar_preserve_physical_directory_hierarchy() {
+        let root = std::env::temp_dir().join(format!("pangrova-lance-path-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let uri = root.to_str().unwrap();
+        let fingerprint = hex_digest(&sha256(b"actual-sdk-nested-path"));
+        get_or_create_runtime().block_on(async {
+            let params = ObjectStoreParams::default();
+            let (store, base) = ObjectStore::from_uri_and_params(Arc::new(ObjectStoreRegistry::default()),
+                uri, &params).await.unwrap();
+            let dataset = sdk_prepare(store.clone(), uri, &params, "nested-writer", &fingerprint).await.unwrap();
+            let relative = format!("_pangrova/prepared/{fingerprint}.manifest");
+            let manifest = object_path(&base, &relative).unwrap();
+            assert_eq!(manifest.as_ref(), format!("{base}/{relative}"));
+            assert!(root.join(&relative).is_file());
+            assert!(store.inner.head(&manifest).await.unwrap().size > 0);
+            assert!(matches!(store.inner.head(&base.child(relative.as_str())).await,
+                Err(ObjectStoreError::NotFound { .. })));
+            let transaction_file = dataset.manifest().transaction_file.as_ref().unwrap();
+            assert!(root.join("_transactions").join(transaction_file).is_file());
+            assert_eq!(dataset.read_transaction().await.unwrap().unwrap().uuid, "nested-writer");
+            let storage = StorageContext::test_local(uri);
+            let sidecar = "_pangrova/write-staging/nested-writer/attempt-1/transaction-test.pb";
+            write_transaction_sidecar(&storage, uri, sidecar, b"exact-sidecar").await.unwrap();
+            assert!(root.join(sidecar).is_file());
+            let path = object_path(&base, sidecar).unwrap();
+            assert_eq!(path.as_ref(), format!("{base}/{sidecar}"));
+            assert_eq!(store.inner.head(&path).await.unwrap().size, 13);
+            assert_eq!(read_transaction_sidecar(&storage, uri, sidecar, 13).await.unwrap(), b"exact-sidecar");
+            assert!(matches!(store.inner.head(&base.child(sidecar)).await,
+                Err(ObjectStoreError::NotFound { .. })));
+            assert!(object_path(&base, "../transaction-test.pb").is_err());
+            assert!(object_path(&base, "_pangrova%2Fwrite-staging/transaction-test.pb").is_err());
+            assert!(object_path(&base, "_pangrova//write-staging/transaction-test.pb").is_err());
+        });
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn assert_minio_conditional_commit(image: &str, supports_conditional_create: bool) {
@@ -3144,93 +2270,12 @@ mod tests {
             ("aws_secret_access_key".to_owned(), "minioadmin".to_owned()),
             ("aws_allow_http".to_owned(), "true".to_owned()),
         ]);
-        let runtime = get_or_create_runtime();
-        runtime.block_on(async {
-            let (store, base) = ObjectStore::from_uri_and_params(
-                Arc::new(ObjectStoreRegistry::default()),
-                &uri,
-                &params,
-            )
-            .await
-            .unwrap();
-            let (second_store, _) = ObjectStore::from_uri_and_params(
-                Arc::new(ObjectStoreRegistry::default()),
-                &uri,
-                &params,
-            )
-            .await
-            .unwrap();
-            let handler = ConditionalPutCommitHandler;
-            let mut first_manifest = Manifest::new(
-                lance_core::datatypes::Schema::default(),
-                Arc::new(Vec::new()),
-                lance_table::format::DataStorageFormat::default(),
-                None,
-            );
-            first_manifest.version = 1;
-            first_manifest.tag = Some("writer-one".to_owned());
-            let mut second_manifest = first_manifest.clone();
-            second_manifest.tag = Some("writer-two".to_owned());
-            let (first, second) = futures::join!(
-                handler.commit(
-                    &mut first_manifest,
-                    None,
-                    &base,
-                    &store,
-                    test_manifest_writer,
-                    ManifestNamingScheme::V2,
-                ),
-                handler.commit(
-                    &mut second_manifest,
-                    None,
-                    &base,
-                    &second_store,
-                    test_manifest_writer,
-                    ManifestNamingScheme::V2,
-                )
-            );
-            let path = ManifestNamingScheme::V2.manifest_path(&base, 1);
-            if supports_conditional_create {
-                assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-                assert_eq!(
-                    usize::from(matches!(first, Err(CommitError::CommitConflict)))
-                        + usize::from(matches!(second, Err(CommitError::CommitConflict))),
-                    1
-                );
-                let expected = if first.is_ok() {
-                    b"writer-one".as_slice()
-                } else {
-                    b"writer-two".as_slice()
-                };
-                let payload = store.inner.get(&path).await.unwrap().bytes().await.unwrap();
-                assert_eq!(payload.as_ref(), expected);
-                let mut late_manifest = first_manifest.clone();
-                late_manifest.tag = Some("late-writer".to_owned());
-                assert!(matches!(
-                    handler
-                        .commit(
-                            &mut late_manifest,
-                            None,
-                            &base,
-                            &store,
-                            test_manifest_writer,
-                            ManifestNamingScheme::V2,
-                        )
-                        .await,
-                    Err(CommitError::CommitConflict)
-                ));
-                let unchanged = store.inner.get(&path).await.unwrap().bytes().await.unwrap();
-                assert_eq!(unchanged.as_ref(), expected);
-            } else {
-                for result in [first, second] {
-                    let error = result.expect_err("unsafe MinIO conditional PUT must fail closed");
-                    assert!(format!("{error:?}").contains("ignored conditional create"));
-                }
-                assert!(matches!(
-                    store.inner.head(&path).await,
-                    Err(ObjectStoreError::NotFound { .. })
-                ));
-            }
+        get_or_create_runtime().block_on(async {
+            let (store, base) = ObjectStore::from_uri_and_params(Arc::new(ObjectStoreRegistry::default()),
+                &uri, &params).await.unwrap();
+            let (second_store, _) = ObjectStore::from_uri_and_params(Arc::new(ObjectStoreRegistry::default()),
+                &uri, &params).await.unwrap();
+            assert_sdk_candidate_race(store, second_store, base, &uri, params, supports_conditional_create).await;
         });
     }
 
@@ -3253,123 +2298,45 @@ mod tests {
         lance_ffi_runtime_shutdown();
     }
 
-    fn recovery_test_reference(task_id: &str, digest: u8) -> ValidatedFragmentReference {
-        let attempt = CanonicalTaskAttemptId {
-            query_or_job_id: "query".to_owned(),
-            stage_id: 1,
-            partition_id: digest as i32,
-            plan_epoch: 1,
-            attempt_id: 0,
-            fencing_token: 1,
-            task_id: task_id.to_owned(),
-            control_epoch: 1,
-            execution_owner: Some(CanonicalExecutionOwnerIdentity {
-                owner_id: "coordinator".to_owned(),
-                owner_incarnation: "incarnation".to_owned(),
-                fencing_token: 1,
-            }),
-        };
-        ValidatedFragmentReference {
-            fragment: LanceWriteFragment {
-                contract_version: LANCE_WRITE_FRAGMENT_VERSION,
-                dataset_uri: "dataset".to_owned(),
-                write_id: "write".to_owned(),
-                task_attempt: Some(attempt),
-                operation: LanceWriteOperation::Append as i32,
-                read_version: 1,
-                schema_fence_sha256: vec![7; SHA256_DIGEST_SIZE],
-                transaction: None,
-                rows_written: 1,
-                input_bytes: 1,
-            },
-            transaction_digest: vec![digest; SHA256_DIGEST_SIZE],
-            relative_object_key: "unused".to_owned(),
-            transaction_size: 1,
-        }
-    }
-
-    fn recovery_test_identity(
-        generation: &str,
-        mut references: Vec<ValidatedFragmentReference>,
-    ) -> (String, String) {
-        let schema = [7; SHA256_DIGEST_SIZE];
-        fragment_recovery_identity(
-            &mut references,
-            &RecoveryFence {
-                dataset_uri: "dataset",
-                write_id: "write",
-                tenant_id: "tenant",
-                generation,
-                operation: LanceWriteOperation::Append,
-                expected_read_version: 1,
-                schema_fence_sha256: &schema,
-            },
-        )
+    #[test]
+    fn resolver_without_accepted_membership_never_discovers_filesystem_history() {
+        get_or_create_runtime().block_on(async {
+            let store = ObjectStore::memory();
+            let base = Path::from("test-history");
+            for version in [2, 42, 10_000_000] {
+                store.put(&object_path(&base, &format!("_versions/{version}.manifest")).unwrap(), b"unaccepted-object").await.unwrap();
+            }
+            let resolver = managed::CatalogCommitHandler { accepted: None, candidate: None };
+            assert!(resolver.resolve_latest_version(&base, &store).await.is_err());
+            assert!(resolver.resolve_latest_location(&base, &store).await.is_err());
+            assert!(resolver.resolve_latest_version_id(&base, &store).await.is_err());
+            assert!(resolver.list_manifests(&base, store.inner.as_ref()).await.unwrap().collect::<Vec<_>>().await.is_empty());
+        });
     }
 
     #[test]
-    fn recovery_scan_is_lazy_and_covers_the_full_version_history() {
-        let mut versions = recovery_scan_versions(1, 10_000_000, 0).unwrap();
-        assert_eq!(versions.next(), Some(10_000_000));
-        assert_eq!(versions.next_back(), Some(2));
-        assert_eq!(
-            recovery_scan_versions(1, 100, 0)
-                .unwrap()
-                .find(|version| *version == 2),
-            Some(2)
-        );
+    fn resolver_cannot_treat_recorded_version_as_an_accepted_membership() {
+        get_or_create_runtime().block_on(async {
+            let store = ObjectStore::memory(); let base = Path::from("test-history-hint");
+            store.put(&object_path(&base, "_versions/42.manifest").unwrap(), b"unaccepted-object").await.unwrap();
+            let resolver = managed::CatalogCommitHandler { accepted: None, candidate: None };
+            for version in [1, 41, 42, 100, 10_000_000] {
+                assert!(resolver.resolve_version(&base, version, store.inner.as_ref()).await.is_err());
+                assert!(resolver.resolve_version_location(&base, version, store.inner.as_ref()).await.is_err());
+            }
+        });
     }
 
     #[test]
-    fn recovery_journal_hint_checks_only_the_recorded_version() {
-        assert_eq!(
-            recovery_scan_versions(1, 10_000_000, 42)
-                .unwrap()
-                .collect::<Vec<_>>(),
-            vec![42]
-        );
-        assert!(recovery_scan_versions(1, 41, 42).is_err());
-        assert!(recovery_scan_versions(42, 100, 42).is_err());
-    }
-
-    #[test]
-    fn recovery_scan_never_precedes_the_read_version() {
-        assert_eq!(
-            recovery_scan_versions(999_995, 1_000_000, 0)
-                .unwrap()
-                .collect::<Vec<_>>(),
-            vec![1_000_000, 999_999, 999_998, 999_997, 999_996]
-        );
-        assert_eq!(recovery_scan_versions(7, 7, 0).unwrap().next(), None);
-    }
-
-    #[test]
-    fn recovery_identity_is_order_independent_and_fences_generation() {
-        let first = recovery_test_identity(
-            "generation-1",
-            vec![
-                recovery_test_reference("task-b", 2),
-                recovery_test_reference("task-a", 1),
-            ],
-        );
-        let reordered = recovery_test_identity(
-            "generation-1",
-            vec![
-                recovery_test_reference("task-a", 1),
-                recovery_test_reference("task-b", 2),
-            ],
-        );
-        let next_generation = recovery_test_identity(
-            "generation-2",
-            vec![
-                recovery_test_reference("task-a", 1),
-                recovery_test_reference("task-b", 2),
-            ],
-        );
-
-        assert_eq!(first, reordered);
-        assert_eq!(first.0, next_generation.0);
-        assert_ne!(first.1, next_generation.1);
+    fn resolver_has_no_implicit_latest_or_prior_base_fallback() {
+        get_or_create_runtime().block_on(async {
+            let store = ObjectStore::memory(); let base = Path::from("test-history-base");
+            for version in [7, 999_995, 999_996, 999_997, 999_998, 999_999, 1_000_000] {
+                store.put(&object_path(&base, &format!("_versions/{version}.manifest")).unwrap(), b"unaccepted-object").await.unwrap();
+                let resolver = managed::CatalogCommitHandler { accepted: None, candidate: None };
+                assert!(resolver.resolve_version(&base, version, store.inner.as_ref()).await.is_err());
+            }
+        });
     }
 
     #[test]

@@ -19,7 +19,6 @@ import org.pangrova.planner.PangrovaPlanner;
 import org.pangrova.planner.SqlCompiler;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
-import org.pangrova.coordinator.query.audit.QueryLineageInfo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -61,7 +60,8 @@ class QueryManagerLineageTest {
         emitter.close();
 
         assertThat(qm.getQueryState("q-1")).contains(QueryStateMachine.State.FAILED);
-        assertThat(capturedEvents).isEmpty();
+        assertThat(capturedEvents).extracting(LineageEvent::eventType)
+                .containsExactly(LineageEvent.EventType.START, LineageEvent.EventType.FAIL);
     }
 
     @Test
@@ -85,15 +85,13 @@ class QueryManagerLineageTest {
 
         assertThatThrownBy(() -> qm.submitQuery("q-3", "SELECT 1", session))
                 .isInstanceOf(NoAvailableWorkerException.class);
-        QueryLineageInfo compiled = orchestrator.removeLineageInfo("q-3");
-
-        // Compilation captures lineage before dispatch, even when admission
-        // later fails because no Worker is available.
-        assertThat(compiled).isNotNull();
-        assertThat(compiled.sourceTables()).isEmpty();
-        assertThat(compiled.targetTables()).isEmpty();
         emitter.close();
-        assertThat(capturedEvents).isEmpty();
+        assertThat(capturedEvents).extracting(LineageEvent::eventType)
+                .containsExactly(LineageEvent.EventType.START, LineageEvent.EventType.FAIL);
+        assertThat(capturedEvents).allSatisfy(event -> {
+            assertThat(event.inputDatasets()).isEmpty();
+            assertThat(event.outputDatasets()).isEmpty();
+        });
     }
 
     private QueryManager buildQueryManagerWithLineage(LineageEventEmitter lineageEmitter) {

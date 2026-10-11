@@ -2,7 +2,7 @@ package org.pangrova.resilience.backpressure;
 
 import java.time.Duration;
 
-public class BackpressureController {
+public final class BackpressureController {
 
     public enum Action { PROCEED, SLOW_DOWN, REJECT }
 

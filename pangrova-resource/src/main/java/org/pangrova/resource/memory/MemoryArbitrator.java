@@ -6,6 +6,8 @@ import org.pangrova.resource.tenant.TenantResourceTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -13,19 +15,15 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
-import java.time.Instant;
-import java.time.Duration;
-
 /**
  * Single source of truth for all memory accounting in the resource SPI layer.
  *
- * <p>All memory pools created via {@link #subPool(String, MemoryPool)} delegate
- * their reserve/release operations through this arbitrator. This eliminates
- * dual-ledger inconsistency by ensuring exactly one authoritative counter
- * for global memory usage.</p>
+ * <p>All memory pools created via {@link #subPool(String, MemoryPool)} delegate their
+ * reserve/release operations through this arbitrator. This eliminates dual-ledger inconsistency by
+ * ensuring exactly one authoritative counter for global memory usage.
  *
- * <p>Concurrency strategy: all mutable state is managed via {@link AtomicLong}
- * with CAS loops, ensuring thread-safe allocation and release without locks.</p>
+ * <p>Concurrency strategy: all mutable state is managed via {@link AtomicLong} with CAS loops,
+ * ensuring thread-safe allocation and release without locks.
  */
 @ThreadSafe
 public class MemoryArbitrator {
@@ -36,13 +34,15 @@ public class MemoryArbitrator {
     private final long systemPoolReserved;
     private final long allocatableBudget;
     private final AtomicLong usedMemory = new AtomicLong(0);
-    private final ConcurrentHashMap<String, AtomicLong> queryAllocations = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicLong> queryAllocations =
+            new ConcurrentHashMap<>();
 
     /** Per-pool tracking for sub-pools created via {@link #subPool}. */
     private final ConcurrentHashMap<String, AtomicLong> poolAllocations = new ConcurrentHashMap<>();
 
     /** Tracks when each query allocation was last updated, for stale allocation detection. */
-    private final ConcurrentHashMap<String, Instant> queryAllocationTimestamps = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Instant> queryAllocationTimestamps =
+            new ConcurrentHashMap<>();
 
     /** Maximum age for a query allocation before it is considered stale. */
     private static final Duration STALE_ALLOCATION_THRESHOLD = Duration.ofMinutes(60);
@@ -54,7 +54,8 @@ public class MemoryArbitrator {
     private final ConcurrentHashMap<String, String> queryTenantMap = new ConcurrentHashMap<>();
 
     /** Registered shrinkable consumers that can release memory on demand. */
-    private final ConcurrentHashMap<String, ShrinkableMemoryConsumer> consumers = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ShrinkableMemoryConsumer> consumers =
+            new ConcurrentHashMap<>();
 
     public MemoryArbitrator(long totalBudget, long systemPoolReserved) {
         this(totalBudget, systemPoolReserved, null);
@@ -63,27 +64,32 @@ public class MemoryArbitrator {
     /**
      * Creates a memory arbitrator with optional tenant quota enforcement.
      *
-     * @param totalBudget        total memory budget in bytes
+     * @param totalBudget total memory budget in bytes
      * @param systemPoolReserved bytes reserved for system pool
-     * @param tenantTracker      per-tenant resource tracker (null disables tenant enforcement)
+     * @param tenantTracker per-tenant resource tracker (null disables tenant enforcement)
      */
-    public MemoryArbitrator(long totalBudget, long systemPoolReserved, TenantResourceTracker tenantTracker) {
+    public MemoryArbitrator(
+            long totalBudget, long systemPoolReserved, TenantResourceTracker tenantTracker) {
         this.totalBudget = totalBudget;
         this.systemPoolReserved = systemPoolReserved;
         this.allocatableBudget = totalBudget - systemPoolReserved;
         this.tenantTracker = tenantTracker;
-        LOG.info("MemoryArbitrator initialized: totalBudget={}, reserved={}, allocatable={}, tenantAware={}",
-                totalBudget, systemPoolReserved, allocatableBudget, tenantTracker != null);
+        LOG.info(
+                "MemoryArbitrator initialized: totalBudget={}, reserved={}, allocatable={},"
+                    + " tenantAware={}",
+                totalBudget,
+                systemPoolReserved,
+                allocatableBudget,
+                tenantTracker != null);
     }
 
     // --- Sub-pool management (single source of truth API) ---
 
     /**
-     * Creates a sub-pool backed by this arbitrator. The returned pool delegates
-     * all reserve/release operations through this arbitrator, ensuring a single
-     * authoritative ledger.
+     * Creates a sub-pool backed by this arbitrator. The returned pool delegates all reserve/release
+     * operations through this arbitrator, ensuring a single authoritative ledger.
      *
-     * @param name   human-readable pool name
+     * @param name human-readable pool name
      * @param parent parent pool (used for hierarchy tracking; may be null for root-level)
      * @return a new ArbitratedMemoryPool that delegates to this arbitrator
      */
@@ -96,11 +102,10 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Reserves bytes for a specific pool, enforcing both the pool's local cap
-     * and the global budget. This is the unified entry point for pool-based
-     * memory accounting.
+     * Reserves bytes for a specific pool, enforcing both the pool's local cap and the global
+     * budget. This is the unified entry point for pool-based memory accounting.
      *
-     * @param pool  the pool requesting memory
+     * @param pool the pool requesting memory
      * @param bytes requested byte count (positive)
      * @return actual bytes reserved (0 if denied)
      */
@@ -120,7 +125,7 @@ public class MemoryArbitrator {
     /**
      * Releases bytes from a specific pool back to the global budget.
      *
-     * @param pool  the pool releasing memory
+     * @param pool the pool releasing memory
      * @param bytes byte count to release (positive)
      */
     public void release(MemoryPool pool, long bytes) {
@@ -137,16 +142,24 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Returns a snapshot of per-pool memory usage. Keys are pool names,
-     * values are currently allocated bytes.
+     * Returns a snapshot of per-pool memory usage. Keys are pool names, values are currently
+     * allocated bytes.
      *
      * @return unmodifiable map of pool name to allocated bytes
      */
     public Map<String, Long> snapshot() {
         return poolAllocations.entrySet().stream()
-                .collect(Collectors.toUnmodifiableMap(
-                        Map.Entry::getKey,
-                        e -> e.getValue().get()));
+                .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, e -> e.getValue().get()));
+    }
+
+    /**
+     * Returns an immutable snapshot of actual query-key allocations, including serialized buffers.
+     */
+    public Map<String, Long> queryAllocationsSnapshot() {
+        return queryAllocations.entrySet().stream()
+                .collect(
+                        Collectors.toUnmodifiableMap(
+                                Map.Entry::getKey, entry -> entry.getValue().get()));
     }
 
     // --- Query-based allocation API (existing) ---
@@ -156,9 +169,7 @@ public class MemoryArbitrator {
         return MemoryPressure.fromRatio(ratio);
     }
 
-    /**
-     * Requests memory for a query against the global allocatable budget.
-     */
+    /** Requests memory for a query against the global allocatable budget. */
     public long requestMemory(String queryId, long bytes) {
         if (bytes <= 0) {
             return 0;
@@ -171,8 +182,8 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Requests memory for a query with per-tenant quota enforcement.
-     * Checks tenant budget before global allocation.
+     * Requests memory for a query with per-tenant quota enforcement. Checks tenant budget before
+     * global allocation.
      *
      * @return allocated bytes (0 if rejected by tenant quota or global budget)
      */
@@ -187,8 +198,8 @@ public class MemoryArbitrator {
         return requestMemory(queryId, bytes);
     }
 
-    private long allocateWithTenantQuota(String queryId, String tenantId, long bytes,
-                                         TenantResourceTracker tracker) {
+    private long allocateWithTenantQuota(
+            String queryId, String tenantId, long bytes, TenantResourceTracker tracker) {
         if (!tracker.tryAllocateMemory(tenantId, bytes)) {
             return 0;
         }
@@ -197,8 +208,12 @@ public class MemoryArbitrator {
         return allocated;
     }
 
-    private void adjustTenantAfterAllocation(String queryId, String tenantId, long requested,
-                                             long allocated, TenantResourceTracker tracker) {
+    private void adjustTenantAfterAllocation(
+            String queryId,
+            String tenantId,
+            long requested,
+            long allocated,
+            TenantResourceTracker tracker) {
         if (allocated > 0) {
             queryTenantMap.putIfAbsent(queryId, tenantId);
             trackQueryAllocation(queryId, allocated);
@@ -209,10 +224,7 @@ public class MemoryArbitrator {
         }
     }
 
-    /**
-     * Releases memory for a query. Uses CAS loop to ensure usedMemory
-     * never goes below zero.
-     */
+    /** Releases memory for a query. Uses CAS loop to ensure usedMemory never goes below zero. */
     public void release(String queryId, long bytes) {
         if (bytes <= 0) {
             return;
@@ -249,8 +261,8 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Clears all query and pool allocations and resets used memory to zero.
-     * Called during shutdown to release all tracked resources.
+     * Clears all query and pool allocations and resets used memory to zero. Called during shutdown
+     * to release all tracked resources.
      */
     public void clearAllocations() {
         int cleared = queryAllocations.size() + poolAllocations.size();
@@ -263,13 +275,11 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Detects and releases query allocations that have not been updated
-     * within {@link #STALE_ALLOCATION_THRESHOLD}. This acts as a watchdog
-     * against leaked allocations from queries that terminated abnormally
-     * without calling {@link #release(String, long)}.
+     * Detects and releases query allocations that have not been updated within {@link
+     * #STALE_ALLOCATION_THRESHOLD}. This acts as a watchdog against leaked allocations from queries
+     * that terminated abnormally without calling {@link #release(String, long)}.
      *
-     * <p>Intended to be called periodically by an external scheduler
-     * (e.g., every 10 minutes).</p>
+     * <p>Intended to be called periodically by an external scheduler (e.g., every 10 minutes).
      *
      * @return the number of stale query allocations evicted
      */
@@ -286,7 +296,10 @@ public class MemoryArbitrator {
                         releaseGlobalMemory(leaked);
                         releaseTenantMemory(queryId, leaked);
                     }
-                    LOG.warn("event=stale_allocation_evicted queryId={} leakedBytes={}", queryId, leaked);
+                    LOG.warn(
+                            "event=stale_allocation_evicted queryId={} leakedBytes={}",
+                            queryId,
+                            leaked);
                     evicted++;
                 }
                 queryTenantMap.remove(queryId);
@@ -299,9 +312,9 @@ public class MemoryArbitrator {
     // --- Shrinkable consumer registration and global reserve API ---
 
     /**
-     * Registers a shrinkable memory consumer. When memory pressure is high
-     * and a new reservation cannot be satisfied, the arbitrator will invoke
-     * {@link ShrinkableMemoryConsumer#shrink(long)} on registered consumers.
+     * Registers a shrinkable memory consumer. When memory pressure is high and a new reservation
+     * cannot be satisfied, the arbitrator will invoke {@link ShrinkableMemoryConsumer#shrink(long)}
+     * on registered consumers.
      */
     public void registerConsumer(ShrinkableMemoryConsumer consumer) {
         if (consumer == null) {
@@ -311,9 +324,7 @@ public class MemoryArbitrator {
         LOG.info("event=consumer_registered consumerId={}", consumer.consumerId());
     }
 
-    /**
-     * Unregisters a previously registered consumer.
-     */
+    /** Unregisters a previously registered consumer. */
     public void unregisterConsumer(String consumerId) {
         if (consumerId == null) {
             return;
@@ -323,12 +334,11 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Reserves memory from the global budget. If insufficient space is available,
-     * triggers shrink callbacks on registered consumers to reclaim memory.
+     * Reserves memory from the global budget. If insufficient space is available, triggers shrink
+     * callbacks on registered consumers to reclaim memory.
      *
-     * <p>This method is the unified entry point for all memory consumers
-     * (native off-heap, Java heap buffers) to participate in a single global
-     * memory cap, preventing OS-level OOM.
+     * <p>This method is the unified entry point for all memory consumers (native off-heap, Java
+     * heap buffers) to participate in a single global memory cap, preventing OS-level OOM.
      *
      * @param bytes requested byte count (positive)
      * @return actual bytes reserved (0 if denied even after shrink attempts)
@@ -356,8 +366,8 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Releases a previously reserved amount back to the global budget.
-     * Used by non-query consumers (e.g., native memory coordinator).
+     * Releases a previously reserved amount back to the global budget. Used by non-query consumers
+     * (e.g., native memory coordinator).
      *
      * @param bytes byte count to release (positive)
      */
@@ -369,9 +379,9 @@ public class MemoryArbitrator {
     }
 
     /**
-     * Triggers shrink callbacks on all registered consumers to reclaim
-     * at least {@code targetBytes}. Consumers are invoked in order of
-     * descending current usage (largest consumer first).
+     * Triggers shrink callbacks on all registered consumers to reclaim at least {@code
+     * targetBytes}. Consumers are invoked in order of descending current usage (largest consumer
+     * first).
      *
      * @param targetBytes desired bytes to reclaim
      * @return total bytes actually reclaimed across all consumers
@@ -389,8 +399,11 @@ public class MemoryArbitrator {
             long reclaimed = consumer.shrink(remaining);
             if (reclaimed > 0) {
                 totalReclaimed += reclaimed;
-                LOG.info("event=consumer_shrink consumerId={} reclaimed={} target={}",
-                        consumer.consumerId(), reclaimed, remaining);
+                LOG.info(
+                        "event=consumer_shrink consumerId={} reclaimed={} target={}",
+                        consumer.consumerId(),
+                        reclaimed,
+                        remaining);
             }
         }
         return totalReclaimed;
@@ -426,9 +439,7 @@ public class MemoryArbitrator {
     }
 
     private void trackQueryAllocation(String queryId, long bytes) {
-        queryAllocations
-                .computeIfAbsent(queryId, k -> new AtomicLong(0))
-                .addAndGet(bytes);
+        queryAllocations.computeIfAbsent(queryId, k -> new AtomicLong(0)).addAndGet(bytes);
         queryAllocationTimestamps.put(queryId, Instant.now());
     }
 

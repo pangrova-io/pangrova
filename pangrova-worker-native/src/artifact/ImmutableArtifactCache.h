@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 
+namespace pangrova::resource { class TaskObjectReadBudget; }
+
 #include "pangrova/protocol/v2/execution_binding.pb.h"
 
 namespace pangrova::artifact {
@@ -54,7 +56,8 @@ class ImmutableArtifactCache final {
 
   MaterializedArtifact materialize(
       const protocol::v2::ArtifactObject& object,
-      uint64_t remaining_object_store_read_bytes);
+      uint64_t remaining_object_store_read_bytes,
+      std::shared_ptr<resource::TaskObjectReadBudget> task_budget = nullptr);
 
  private:
   struct State;

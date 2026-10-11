@@ -15,12 +15,15 @@
 
 namespace pangrova::artifact {
 
+class ArtifactVectorSearch;
+
 /** Task-local result of resolving immutable retrieval artifacts in Native. */
 struct ArtifactRetrievalPreparation final {
   std::vector<split::SplitConfig> splits;
   std::unordered_map<std::string, std::vector<split::SplitConfig>>
       split_overrides;
   std::vector<MaterializedArtifact> leases;
+  std::vector<std::shared_ptr<ArtifactVectorSearch>> vector_search_owners;
   uint64_t downloaded_bytes{0};
 };
 
@@ -36,7 +39,8 @@ class ArtifactRetrievalPlanner final {
       const std::unordered_map<
           std::string, protocol::v2::OperatorBinding>& operator_bindings,
       const std::vector<split::SplitConfig>& splits,
-      uint64_t max_object_store_read_bytes);
+      uint64_t max_object_store_read_bytes,
+      std::shared_ptr<resource::TaskObjectReadBudget> task_budget = nullptr);
 };
 
 }  // namespace pangrova::artifact

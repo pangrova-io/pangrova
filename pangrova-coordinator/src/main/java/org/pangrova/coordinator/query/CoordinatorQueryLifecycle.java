@@ -18,7 +18,7 @@ import org.pangrova.spi.execution.SessionContext;
  * <p>Delegates to {@link QueryManager} for query submission, state retrieval,
  * and cancellation. Maps internal {@link QueryStateMachine.State} to SPI
  * {@link QueryState}, collapsing states absent from the SPI contract:
- * {@code SCHEDULING → PLANNING}, {@code CANCELLED → FAILED}.</p>
+ * {@code SCHEDULING → PLANNING}. Terminal cancellation remains distinct from failure.</p>
  */
 public class CoordinatorQueryLifecycle implements QueryLifecycle {
 
@@ -59,10 +59,9 @@ public class CoordinatorQueryLifecycle implements QueryLifecycle {
     /**
      * Maps {@link QueryStateMachine.State} to SPI {@link QueryState}.
      *
-     * <p>SPI {@code QueryState} lacks {@code SCHEDULING} and {@code CANCELLED}:
+     * <p>SPI {@code QueryState} lacks {@code SCHEDULING}:
      * <ul>
      *   <li>{@code SCHEDULING → PLANNING} — still in planning phase from SPI perspective</li>
-     *   <li>{@code CANCELLED → FAILED} — SPI treats cancellation as failure</li>
      * </ul>
      * Uses exhaustive switch expression for compile-time safety.</p>
      */
@@ -74,7 +73,8 @@ public class CoordinatorQueryLifecycle implements QueryLifecycle {
             case RUNNING -> QueryState.RUNNING;
             case FINISHING -> QueryState.FINISHING;
             case FINISHED -> QueryState.FINISHED;
-            case FAILED, CANCELLED -> QueryState.FAILED;
+            case FAILED -> QueryState.FAILED;
+            case CANCELLED -> QueryState.CANCELLED;
         };
     }
 }

@@ -35,23 +35,16 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
 /** OpenAI-compatible {@code /v1/rerank} provider with ordered result validation. */
-public final class OpenAiCompatibleRerankingProvider
-        implements RerankingProvider, Closeable {
+public final class OpenAiCompatibleRerankingProvider implements RerankingProvider, Closeable {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int HTTP_OK = 200;
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
-    private static final int HTTP_SERVICE_UNAVAILABLE = 503;
-    private static final int MAX_ATTEMPTS = 4;
-    private static final long INITIAL_BACKOFF_MILLIS = 500;
-    private static final long MAX_BACKOFF_MILLIS = 4_000;
 
     private final URI endpoint;
     private final String modelName;
@@ -70,11 +63,14 @@ public final class OpenAiCompatibleRerankingProvider
             int maxBatchSize,
             double maxRequestsPerSecond,
             int timeoutSeconds) {
-        this(endpoint, modelName, apiKey, maxBatchSize, maxRequestsPerSecond,
+        this(
+                endpoint,
+                modelName,
+                apiKey,
+                maxBatchSize,
+                maxRequestsPerSecond,
                 timeoutSeconds,
-                HttpClient.newBuilder()
-                        .connectTimeout(Duration.ofSeconds(10))
-                        .build());
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
     }
 
     OpenAiCompatibleRerankingProvider(
@@ -90,22 +86,23 @@ public final class OpenAiCompatibleRerankingProvider
         if (apiKey == null) {
             throw new IllegalArgumentException("apiKey must not be null");
         }
-        if (maxBatchSize <= 0 || !Double.isFinite(maxRequestsPerSecond)
-                || maxRequestsPerSecond <= 0 || timeoutSeconds <= 0) {
-            throw new IllegalArgumentException(
-                    "reranking limits must be positive and finite");
+        if (maxBatchSize <= 0
+                || !Double.isFinite(maxRequestsPerSecond)
+                || maxRequestsPerSecond <= 0
+                || timeoutSeconds <= 0) {
+            throw new IllegalArgumentException("reranking limits must be positive and finite");
         }
         this.modelName = modelName;
         this.apiKey = apiKey;
         this.maxBatchSize = maxBatchSize;
         this.timeout = Duration.ofSeconds(timeoutSeconds);
-        this.httpClient = java.util.Objects.requireNonNull(
-                httpClient, "httpClient required");
+        this.httpClient = java.util.Objects.requireNonNull(httpClient, "httpClient required");
         int permits = Math.max(1, (int) Math.ceil(maxRequestsPerSecond));
         this.rateLimiter = new Semaphore(permits, true);
-        this.rateReplenisher = ManagedExecutorFactory
-                .newSingleThreadScheduledExecutor("ai-rerank-rate-replenish");
-        long intervalNanos = Math.max(1L, (long) Math.ceil(1_000_000_000.0 / maxRequestsPerSecond));
+        this.rateReplenisher =
+                ManagedExecutorFactory.newSingleThreadScheduledExecutor("ai-rerank-rate-replenish");
+        long intervalNanos = Math.max(1L,
+                (long) Math.ceil((double) TimeUnit.SECONDS.toNanos(1) / maxRequestsPerSecond));
         rateReplenisher.scheduleAtFixedRate(
                 () -> {
                     int missing = permits - rateLimiter.availablePermits();
@@ -123,44 +120,32 @@ public final class OpenAiCompatibleRerankingProvider
         requireText(query, "query");
         requireDocuments(documents);
         String body = requestBody(query, documents);
-        long backoffMillis = INITIAL_BACKOFF_MILLIS;
-        AiInvocationException lastFailure = null;
-        for (int attempt = 1; attempt <= MAX_ATTEMPTS; ++attempt) {
-            acquirePermit();
-            try {
-                HttpResponse<String> response = send(body);
-                if (response.statusCode() == HTTP_OK) {
-                    return parseResponse(response, documents.size());
-                }
-                lastFailure = responseFailure(response.statusCode());
-                if (!lastFailure.retryable()) {
-                    throw lastFailure;
-                }
-            } catch (InterruptedException failure) {
-                Thread.currentThread().interrupt();
-                throw new AiInvocationException(
-                        AiInvocationException.Category.TIMEOUT,
-                        false,
-                        "Reranking request was interrupted",
-                        failure);
-            } catch (IOException failure) {
-                lastFailure = new AiInvocationException(
-                        AiInvocationException.Category.PROVIDER_UNAVAILABLE,
-                        true,
-                        "Reranking provider transport failed",
-                        failure);
+        acquirePermit();
+        try {
+            HttpResponse<String> response = send(body);
+            if (response.statusCode() == HTTP_OK) {
+                return parseResponse(response, documents.size());
             }
-            if (attempt < MAX_ATTEMPTS) {
-                sleepWithJitter(backoffMillis);
-                backoffMillis = Math.min(
-                        MAX_BACKOFF_MILLIS, Math.multiplyExact(backoffMillis, 2));
-            }
+            throw responseFailure(response.statusCode());
+        } catch (IOException failure) {
+            throw new AiInvocationException(
+                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    false,
+                    "Reranking provider POST outcome is unknown",
+                    failure);
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AiInvocationException(
+                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    false,
+                    "Reranking provider POST was interrupted with unknown outcome",
+                    failure);
         }
-        throw requireFailure(lastFailure);
     }
 
     private void requireDocuments(List<String> documents) {
-        if (documents == null || documents.isEmpty()
+        if (documents == null
+                || documents.isEmpty()
                 || documents.size() > maxBatchSize
                 || documents.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException(
@@ -169,37 +154,26 @@ public final class OpenAiCompatibleRerankingProvider
     }
 
     private HttpResponse<String> send(String body) throws IOException, InterruptedException {
-        HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
-                .timeout(AiProviderCallContext.remainingTimeout(timeout))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body));
+        HttpRequest.Builder request =
+                HttpRequest.newBuilder(endpoint)
+                        .timeout(AiProviderCallContext.remainingTimeout(timeout))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(body));
         if (!apiKey.isBlank()) {
             request.header("Authorization", "Bearer " + apiKey);
         }
-        AiProviderCallContext.currentIdempotencyKey().ifPresent(
-                value -> request.header("Idempotency-Key", value));
+        AiProviderCallContext.currentIdempotencyKey()
+                .ifPresent(value -> request.header("Idempotency-Key", value));
         return AiHttpTransport.send(httpClient, request.build());
     }
 
     private static AiInvocationException responseFailure(int statusCode) {
-        boolean retryable = statusCode == HTTP_TOO_MANY_REQUESTS
-                || statusCode == HTTP_SERVICE_UNAVAILABLE;
-        AiInvocationException.Category category = statusCode == HTTP_TOO_MANY_REQUESTS
-                ? AiInvocationException.Category.RATE_LIMIT
-                : AiInvocationException.Category.PROVIDER_UNAVAILABLE;
+        AiInvocationException.Category category =
+                statusCode == HTTP_TOO_MANY_REQUESTS
+                        ? AiInvocationException.Category.RATE_LIMIT
+                        : AiInvocationException.Category.PROVIDER_UNAVAILABLE;
         return new AiInvocationException(
-                category, retryable,
-                "Reranking provider returned HTTP " + statusCode);
-    }
-
-    private static AiInvocationException requireFailure(AiInvocationException failure) {
-        if (failure != null) {
-            return failure;
-        }
-        return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_UNAVAILABLE,
-                false,
-                "Reranking provider failed without a classified error");
+                category, false, "Reranking provider returned HTTP " + statusCode);
     }
 
     private String requestBody(String query, List<String> documents) {
@@ -213,8 +187,7 @@ public final class OpenAiCompatibleRerankingProvider
         try {
             return MAPPER.writeValueAsString(root);
         } catch (JsonProcessingException impossible) {
-            throw new IllegalStateException(
-                    "Failed to serialize reranking request", impossible);
+            throw new IllegalStateException("Failed to serialize reranking request", impossible);
         }
     }
 
@@ -227,15 +200,14 @@ public final class OpenAiCompatibleRerankingProvider
             }
             JsonNode results = root.path("results");
             if (!results.isArray() || results.size() != expectedCount) {
-                throw invalidResponse(
-                        "expected " + expectedCount + " reranking results");
+                throw invalidResponse("expected " + expectedCount + " reranking results");
             }
             Double[] scores = parseScores(results, expectedCount);
-            String providerRequestId = root.path("id").asText(
-                    response.headers().firstValue("x-request-id").orElse(""));
+            String providerRequestId =
+                    root.path("id")
+                            .asText(response.headers().firstValue("x-request-id").orElse(""));
             return new RerankingBatchResult(
-                    new ArrayList<>(Arrays.asList(scores)),
-                    providerRequestId);
+                    new ArrayList<>(Arrays.asList(scores)), providerRequestId);
         } catch (JsonProcessingException failure) {
             throw invalidResponse("reranking response is not valid JSON", failure);
         }
@@ -249,8 +221,10 @@ public final class OpenAiCompatibleRerankingProvider
                 throw invalidResponse("reranking index must be an integral value");
             }
             int index = indexNode.intValue();
-            JsonNode score = result.has("relevance_score")
-                    ? result.get("relevance_score") : result.get("score");
+            JsonNode score =
+                    result.has("relevance_score")
+                            ? result.get("relevance_score")
+                            : result.get("score");
             requireValidScore(index, score, scores);
             scores[index] = score.doubleValue();
         }
@@ -261,8 +235,11 @@ public final class OpenAiCompatibleRerankingProvider
     }
 
     private static void requireValidScore(int index, JsonNode score, Double[] scores) {
-        if (index < 0 || index >= scores.length || scores[index] != null
-                || score == null || !score.isNumber()
+        if (index < 0
+                || index >= scores.length
+                || scores[index] != null
+                || score == null
+                || !score.isNumber()
                 || !Double.isFinite(score.doubleValue())) {
             throw invalidResponse("reranking result indexes/scores are invalid");
         }
@@ -287,35 +264,13 @@ public final class OpenAiCompatibleRerankingProvider
         }
     }
 
-    private static void sleepWithJitter(long backoffMillis) {
-        try {
-            long jitterBound = Math.max(1, backoffMillis / 2);
-            long delay = Math.addExact(
-                    backoffMillis, ThreadLocalRandom.current().nextLong(jitterBound));
-            new CountDownLatch(1).await(
-                    AiProviderCallContext.remainingWaitMillis(delay),
-                    TimeUnit.MILLISECONDS);
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            throw new AiInvocationException(
-                    AiInvocationException.Category.TIMEOUT,
-                    false,
-                    "Reranking retry was interrupted",
-                    failure);
-        }
-    }
-
     private static AiInvocationException invalidResponse(String message) {
         return invalidResponse(message, null);
     }
 
-    private static AiInvocationException invalidResponse(
-            String message, Throwable cause) {
+    private static AiInvocationException invalidResponse(String message, Throwable cause) {
         return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
-                false,
-                message,
-                cause);
+                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID, false, message, cause);
     }
 
     private static void requireText(String value, String name) {
@@ -324,8 +279,15 @@ public final class OpenAiCompatibleRerankingProvider
         }
     }
 
-    @Override public String modelName() { return modelName; }
-    @Override public int maxBatchSize() { return maxBatchSize; }
+    @Override
+    public String modelName() {
+        return modelName;
+    }
+
+    @Override
+    public int maxBatchSize() {
+        return maxBatchSize;
+    }
 
     @Override
     public void close() {

@@ -36,7 +36,7 @@ class DAGDispatchEngineStageRetryTest {
     }
 
     @Test
-    void retryableError_triggersStageRetry_resetsStateMachine() {
+    void retryableErrorTriggersStageRetryResetsStateMachine() {
         ResilienceRegistry registry = buildRegistry();
         RetryStageHandler handler = new RetryStageHandler(registry);
 
@@ -48,12 +48,12 @@ class DAGDispatchEngineStageRetryTest {
 
         handler.onFailed(event(stage, "q-retry-1"));
 
-        assertThat(handler.getRetryCount("1")).isEqualTo(1);
+        assertThat(stage.retryCount()).isEqualTo(1);
         assertThat(stage.stateMachine().getState()).isEqualTo(StageStateMachine.State.PLANNED);
     }
 
     @Test
-    void nonRetryableError_doesNotRetry_staysInFailed() {
+    void nonRetryableErrorDoesNotRetryStaysInFailed() {
         ResilienceRegistry registry = buildRegistry();
         RetryStageHandler handler = new RetryStageHandler(registry);
 
@@ -65,11 +65,11 @@ class DAGDispatchEngineStageRetryTest {
 
         handler.onFailed(event(stage, "q-noretry"));
 
-        assertThat(handler.getRetryCount("1")).isZero();
+        assertThat(stage.retryCount()).isZero();
     }
 
     @Test
-    void stageStateMachine_reset_allowsRetryFromFailed() {
+    void stageStateMachineResetAllowsRetryFromFailed() {
         StageStateMachine sm = new StageStateMachine("s-1", "q-reset");
         sm.transitionTo(StageStateMachine.State.SCHEDULING);
         sm.transitionTo(StageStateMachine.State.RUNNING);
@@ -82,7 +82,7 @@ class DAGDispatchEngineStageRetryTest {
     }
 
     @Test
-    void stageStateMachine_reset_failsFromNonTerminal() {
+    void stageStateMachineResetFailsFromNonTerminal() {
         StageStateMachine sm = new StageStateMachine("s-1", "q-reset-fail");
         sm.transitionTo(StageStateMachine.State.SCHEDULING);
 

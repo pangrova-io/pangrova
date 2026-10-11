@@ -5,7 +5,11 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.spi.ai.embedding.BlobReference;
+import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.worker.ai.context.AiExecutionContext;
+import org.pangrova.worker.ai.context.AiTestTaskAuthority;
+import org.pangrova.worker.ai.invocation.AiInvocationService;
+import org.pangrova.protocol.v2.StageResourceGrant;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,6 +25,7 @@ import java.time.ZoneOffset;
 import java.util.Set;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -55,6 +60,36 @@ class GovernedBlobStoreTest {
         assertThat(first.mimeType()).isEqualTo("text/plain");
         assertThat(actual).isEqualTo(content);
         assertThat(publishedFiles()).hasSize(1);
+    }
+
+    @Test
+    void cumulativeFileWritesCannotExceedTheAdmittedTaskMediaGrant() {
+        GovernedBlobStore store = store(1024);
+        String taskId = "task-" + UUID.randomUUID();
+        var request = AiTestTaskAuthority.request(
+                new AiTestTaskAuthority.Identity("tenant-a", "alice", "query-1", taskId,
+                        "trace-1", Instant.now().plus(Duration.ofHours(1)).toEpochMilli()),
+                StageResourceGrant.newBuilder().setGrantId(taskId + ":grant")
+                        .setCpuSlots(1).setNativeMemoryBytes(1048576)
+                        .setMediaBytes(5).build());
+        AiExecutionContext context = AiExecutionContext.fromTaskRequest(request);
+        AiInvocationService.registerTask(request);
+        try {
+            AiExecutionContext.callWith(context, () -> {
+                store.persist(new byte[] {1, 2, 3}, "image/png");
+                assertThatThrownBy(() -> store.persist(new byte[] {4, 5, 6}, "image/png"))
+                        .isInstanceOfSatisfying(AiInvocationException.class, failure ->
+                                assertThat(failure.category())
+                                        .isEqualTo(AiInvocationException.Category.BUDGET_EXCEEDED));
+                return null;
+            });
+            assertThat(AiInvocationService.resourceUsage(context.tenantId(), context.taskAttempt())
+                    .getMediaBytes()).isEqualTo(3);
+            assertThat(publishedFiles()).hasSize(1);
+            assertThat(stagedFiles()).isEmpty();
+        } finally {
+            AiInvocationService.releaseTask(context.tenantId(), context.taskAttempt());
+        }
     }
 
     @Test
@@ -329,9 +364,7 @@ class GovernedBlobStoreTest {
 
     private static <T> T as(
             String tenant, String principal, long maxMediaBytes, Supplier<T> action) {
-        AiExecutionContext context = org.pangrova.worker.ai.context.AiTestTaskAuthority.context(
-                tenant, principal, "query-1", "task-1", "trace-1",
-                NOW.plus(Duration.ofHours(1)).toEpochMilli(), maxMediaBytes);
-        return AiExecutionContext.callWith(context, action);
+        return AiTestTaskAuthority.callWithRegisteredTask(tenant, principal,
+                Instant.now().plus(Duration.ofHours(1)).toEpochMilli(), maxMediaBytes, action);
     }
 }

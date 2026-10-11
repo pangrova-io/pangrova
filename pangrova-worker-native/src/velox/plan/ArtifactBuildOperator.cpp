@@ -77,9 +77,18 @@ void populateObject(protocol::v2::ArtifactObject* output,
                     const std::string& role, const std::string& scope_id,
                     protocol::v2::ArtifactObjectScope scope, uint32_t ordinal,
                     uint64_t rows) {
-  output->set_object_id(binding.artifact_id() + ":" + binding.generation() +
-                        ":" + scope_id + ":" + role + ":" +
-                        toHex(stored.sha256));
+  std::string identity = "artifact-object-v1:";
+  const auto append_identity_field = [&identity](std::string_view field) {
+    identity.append(std::to_string(field.size()));
+    identity.push_back(':');
+    identity.append(field);
+  };
+  append_identity_field(binding.artifact_id());
+  append_identity_field(binding.generation());
+  append_identity_field(scope_id);
+  append_identity_field(role);
+  append_identity_field(stored.sha256);
+  output->set_object_id("artifact-object-sha256:" + toHex(sha256(identity)));
   output->set_opaque_uri(stored.uri);
   output->set_size_bytes(stored.size_bytes);
   output->mutable_checksum()->set_algorithm(
@@ -635,7 +644,7 @@ void ArtifactBuildOperator::mergeBm25Statistics() {
         std::min(config_.task.max_object_store_read_bytes, downloaded_bytes);
     auto materialized =
         artifact::ImmutableArtifactCache::instance().materialize(input,
-                                                                 remaining);
+                                                                 remaining, config_.task.read_budget);
     downloaded_bytes += materialized.downloaded_bytes;
     input_paths.push_back(materialized.local_path);
     leases.push_back(std::move(materialized));

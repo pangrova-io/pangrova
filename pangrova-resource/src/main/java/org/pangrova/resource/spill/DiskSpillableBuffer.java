@@ -23,6 +23,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Iterator;
+import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -45,13 +47,18 @@ public final class DiskSpillableBuffer implements SpillableBuffer, AutoCloseable
 
     private final Deque<byte[]> memoryBatches = new ArrayDeque<>();
     private final Deque<Path> spilledFiles = new ArrayDeque<>();
+    private final Deque<Path> cleanupFiles = new ArrayDeque<>();
     private volatile long memoryBytes;
     private boolean closed;
 
+    /** Creates a buffer owning unique spill files under the configured directory. */
     public DiskSpillableBuffer(String id, int priority, Path spillDirectory) {
-        this.id = id;
+        this.id = Objects.requireNonNull(id, "id");
         this.priority = priority;
-        this.spillDirectory = spillDirectory;
+        if (priority <= 0) {
+            throw new IllegalArgumentException("priority must be positive");
+        }
+        this.spillDirectory = Objects.requireNonNull(spillDirectory, "spillDirectory");
     }
 
     /**
@@ -63,8 +70,10 @@ public final class DiskSpillableBuffer implements SpillableBuffer, AutoCloseable
             if (closed) {
                 throw new IllegalStateException("Buffer " + id + " is closed");
             }
+            Objects.requireNonNull(batch, "batch");
+            long updatedMemoryBytes = Math.addExact(memoryBytes, batch.length);
             memoryBatches.addLast(batch);
-            memoryBytes += batch.length;
+            memoryBytes = updatedMemoryBytes;
         } finally {
             lock.unlock();
         }
@@ -89,24 +98,34 @@ public final class DiskSpillableBuffer implements SpillableBuffer, AutoCloseable
     public long spillToDisk(long targetBytes) {
         lock.lock();
         try {
-            if (closed || memoryBatches.isEmpty()) {
+            if (closed || targetBytes <= 0 || memoryBatches.isEmpty()) {
                 return 0;
             }
             ensureSpillDirectory();
             long freed = 0;
             while (!memoryBatches.isEmpty() && freed < targetBytes) {
-                byte[] batch = memoryBatches.pollFirst();
-                Path spillFile = spillDirectory.resolve(id + "-" + spilledFiles.size() + ".spill");
+                byte[] batch = memoryBatches.peekFirst();
+                Path spillFile = null;
                 try {
+                    // Unique owner files avoid collisions and never incorporate caller-supplied ids.
+                    spillFile = Files.createTempFile(spillDirectory, "pangrova-", ".spill");
                     Files.write(spillFile, batch);
                 } catch (IOException e) {
-                    memoryBatches.addFirst(batch);
-                    throw new UncheckedIOException("Failed to spill batch to " + spillFile, e);
+                    if (spillFile != null) {
+                        try {
+                            Files.deleteIfExists(spillFile);
+                        } catch (IOException cleanupFailure) {
+                            cleanupFiles.addLast(spillFile);
+                            e.addSuppressed(cleanupFailure);
+                        }
+                    }
+                    throw new UncheckedIOException("Failed to spill buffer " + id, e);
                 }
                 spilledFiles.addLast(spillFile);
+                memoryBatches.removeFirst();
+                memoryBytes -= batch.length;
                 freed += batch.length;
             }
-            memoryBytes -= freed;
             LOG.debug("event=spill_to_disk id={} freedBytes={} remainingMemory={} spilledFiles={}",
                     id, freed, memoryBytes, spilledFiles.size());
             return freed;
@@ -126,21 +145,25 @@ public final class DiskSpillableBuffer implements SpillableBuffer, AutoCloseable
                 throw new IllegalStateException("Buffer " + id + " is closed");
             }
             Deque<byte[]> restored = new ArrayDeque<>();
+            long restoredBytes = 0;
+            // Read the whole prefix before deleting any files or publishing restored batches.
             for (Path spillFile : spilledFiles) {
                 try {
                     byte[] data = Files.readAllBytes(spillFile);
                     restored.addLast(data);
-                    Files.deleteIfExists(spillFile);
+                    restoredBytes = Math.addExact(restoredBytes, data.length);
                 } catch (IOException e) {
                     throw new UncheckedIOException("Failed to read back " + spillFile, e);
                 }
             }
+            long totalMemory = Math.addExact(memoryBytes, restoredBytes);
             while (!restored.isEmpty()) {
-                byte[] batch = restored.pollFirst();
-                memoryBatches.addFirst(batch);
-                memoryBytes += batch.length;
+                memoryBatches.addFirst(restored.removeLast());
             }
+            memoryBytes = totalMemory;
+            cleanupFiles.addAll(spilledFiles);
             spilledFiles.clear();
+            cleanupSpillFiles();
             LOG.debug("event=read_back id={} memoryBytes={} batches={}",
                     id, memoryBytes, memoryBatches.size());
         } finally {
@@ -164,33 +187,43 @@ public final class DiskSpillableBuffer implements SpillableBuffer, AutoCloseable
     public void close() {
         lock.lock();
         try {
-            if (closed) {
-                return;
-            }
             closed = true;
             memoryBatches.clear();
             memoryBytes = 0;
-            for (Path spillFile : spilledFiles) {
-                try {
-                    Files.deleteIfExists(spillFile);
-                } catch (IOException e) {
-                    LOG.warn("event=spill_file_cleanup_failed file={} error={}",
-                            spillFile, e.getMessage());
-                }
-            }
+            cleanupFiles.addAll(spilledFiles);
             spilledFiles.clear();
+            // A failed cleanup remains owned; subsequent close retries it and reports failures.
+            cleanupSpillFiles();
         } finally {
             lock.unlock();
         }
     }
 
-    private void ensureSpillDirectory() {
-        if (!Files.exists(spillDirectory)) {
+    private void cleanupSpillFiles() {
+        IOException failure = null;
+        for (Iterator<Path> files = cleanupFiles.iterator(); files.hasNext();) {
+            Path spillFile = files.next();
             try {
-                Files.createDirectories(spillDirectory);
+                Files.deleteIfExists(spillFile);
+                files.remove();
             } catch (IOException e) {
-                throw new UncheckedIOException("Cannot create spill directory: " + spillDirectory, e);
+                if (failure == null) {
+                    failure = e;
+                } else {
+                    failure.addSuppressed(e);
+                }
             }
+        }
+        if (failure != null) {
+            throw new UncheckedIOException("Failed to clean spill files for " + id, failure);
+        }
+    }
+
+    private void ensureSpillDirectory() {
+        try {
+            Files.createDirectories(spillDirectory);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot create spill directory: " + spillDirectory, e);
         }
     }
 }

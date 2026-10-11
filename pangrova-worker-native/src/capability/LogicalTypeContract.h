@@ -13,6 +13,7 @@
 
 namespace arrow {
 class Field;
+class Array;
 }  // namespace arrow
 
 namespace pangrova::capability {
@@ -22,6 +23,14 @@ namespace pangrova::capability {
 // VECTOR dimensions, bounded scalars, or ordered nested field names.
 void validateStorageLogicalType(
     const protocol::v2::LogicalType& logical_type, const arrow::Field& field);
+
+// Result vectors retain the canonical storage declaration, including FLOAT64
+// and both nullability levels. AI/model output retains its stricter validator below.
+uint32_t requireStorageVectorDimension(const protocol::v2::LogicalType& logical_type);
+void validateVectorResultField(
+    const protocol::v2::LogicalType& logical_type, const arrow::Field& field);
+void validateVectorResultArray(
+    const protocol::v2::LogicalType& logical_type, const arrow::Array& array);
 
 inline uint32_t requireFloatVectorDimension(
     const protocol::v2::LogicalType& logical_type) {

@@ -7,28 +7,44 @@ import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
+import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.io.DataWriter;
 import org.apache.iceberg.jdbc.JdbcCatalog;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.types.TypeUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
+import org.pangrova.connector.iceberg.schema.IcebergSchemaBuilder;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
 import org.pangrova.spi.connector.ConnectorSession;
+import org.pangrova.spi.connector.data.type.ArrayType;
+import org.pangrova.spi.connector.data.type.MapType;
+import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.RowField;
+import org.pangrova.spi.connector.data.type.RowType;
+import org.pangrova.spi.connector.data.type.primitive.BigIntType;
+import org.pangrova.spi.connector.data.type.primitive.VarcharType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 import org.pangrova.testing.ContainerTestBase;
 
@@ -36,8 +52,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,6 +103,99 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
         } finally {
             if (first != null) first.close();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void createdNestedSchemaUsesSdkCanonicalIdsBeforeAllocation(boolean jdbc) throws Exception {
+        try (var local = new HadoopCatalog(new Configuration(), warehouse.resolve("nested-hadoop").toString())) {
+            Catalog selected = jdbc ? first : local;
+            if (!jdbc) local.createNamespace(Namespace.of("db"));
+            var declared = nestedTableMetadata();
+            var original = IcebergSchemaBuilder.buildIcebergSchema(declared.typedColumns(), declared.properties());
+            var expected = TypeUtil.assignIncreasingFreshIds(original);
+            var actualMetadata = new IcebergMetadata(selected, "created_schema");
+            var output = (IcebergOutputTableHandle) actualMetadata.createTable(SESSION, declared);
+            Table created = selected.loadTable(TableIdentifier.of("db", "nested_events"));
+            var persisted = ((HasTableOperations) created).operations().refresh();
+
+            assertThat(output.schemaJson()).isEqualTo(SchemaParser.toJson(expected))
+                    .isEqualTo(SchemaParser.toJson(persisted.schema()));
+            assertThat(SchemaParser.toJson(original)).isNotEqualTo(output.schemaJson());
+            assertThat(output.tableUuid()).isEqualTo(persisted.uuid());
+            assertThat(output.partitionSpecJson()).isEqualTo(PartitionSpecParser.toJson(persisted.spec()));
+            assertThat(created.spec().fields()).singleElement().satisfies(field ->
+                    assertThat(created.schema().findColumnName(field.sourceId())).isEqualTo("id"));
+            assertThat(created.sortOrder().fields()).extracting(field ->
+                    created.schema().findColumnName(field.sourceId())).containsExactly("title", "id");
+            assertThat(created.sortOrder().fields().get(0).direction())
+                    .isEqualTo(org.apache.iceberg.SortDirection.DESC);
+            assertThat(created.sortOrder().fields().get(1).direction())
+                    .isEqualTo(org.apache.iceberg.SortDirection.ASC);
+            assertNestedTypes(created.schema());
+            assertThat(created.properties()).containsAllEntriesOf(
+                    IcebergSchemaBuilder.extractIcebergTableProperties(declared.properties()));
+            assertThat(output.declarationProperties()).containsAllEntriesOf(
+                    GeneratedColumnMetadataCodec.encode(nestedDefinitions()));
+            assertThat(output.declarationProperties()).containsEntry("pangrova.vector.dimension.embedding", "3");
+            assertThat(created.currentSnapshot()).isNull();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void realAlterStillRejectsTheExactCreatedSchemaAllocation(boolean jdbc) throws Exception {
+        try (var local = new HadoopCatalog(new Configuration(), warehouse.resolve("nested-hadoop").toString())) {
+            Catalog selected = jdbc ? first : local;
+            if (!jdbc) local.createNamespace(Namespace.of("db"));
+            var actualMetadata = new IcebergMetadata(selected, "created_schema");
+            var output = (IcebergOutputTableHandle) actualMetadata.createTable(SESSION, nestedTableMetadata());
+            var expected = SchemaParser.fromJson(output.schemaJson());
+            Table created = selected.loadTable(TableIdentifier.of("db", "nested_events"));
+            created.updateSchema().renameColumn("title", "changed_title").commit();
+            assertThat(created.uuid().toString()).isEqualTo(output.tableUuid());
+            assertThatThrownBy(() -> IcebergTableHandleFactory.outputFromTable(
+                    "db", "nested_events", created, expected)).isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Iceberg created write schema changed before allocation");
+            assertThat(created.currentSnapshot()).isNull();
+        }
+    }
+
+    private static ConnectorTableMetadata nestedTableMetadata() {
+        var columns = List.of(
+                new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR),
+                new ConnectorTableMetadata.Column("items", PangrovaType.ARRAY, OptionalInt.empty(),
+                        new ArrayType(BigIntType.INSTANCE)),
+                new ConnectorTableMetadata.Column("attributes", PangrovaType.MAP, OptionalInt.empty(),
+                        new MapType(VarcharType.UNBOUNDED, BigIntType.INSTANCE)),
+                new ConnectorTableMetadata.Column("detail", PangrovaType.STRUCT, OptionalInt.empty(),
+                        new RowType(List.of(new RowField("entries", new ArrayType(BigIntType.INSTANCE))))),
+                new ConnectorTableMetadata.Column("title", PangrovaType.VARCHAR),
+                new ConnectorTableMetadata.Column("id", PangrovaType.BIGINT));
+        Map<String, String> properties = new LinkedHashMap<>(GeneratedColumnMetadataCodec.encode(nestedDefinitions()));
+        properties.put("pangrova.vector.dimension.embedding", "3");
+        properties.put("pangrova.array.element.items", "BIGINT");
+        properties.put("partition-by", "id");
+        properties.put("sorted-by", "title:desc,id:asc");
+        return new ConnectorTableMetadata(new SchemaTableName("db", "nested_events"),
+                columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, properties);
+    }
+
+    private static GeneratedColumnSet nestedDefinitions() {
+        return GeneratedColumnSet.newBuilder().setSchemaVersion(1)
+                .addDefinitions(GeneratedColumnDefinition.newBuilder().setTargetColumn("embedding")
+                        .setCapability(BuiltInCapabilityCatalog.aiEmbeddingPlanRef()).setLogicalModelName("first-model")
+                        .addSourceColumns("title").setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
+                        .setOutputType(org.pangrova.protocol.type.VectorLogicalType.create(3))).build();
+    }
+
+    private static void assertNestedTypes(Schema actual) {
+        assertThat(actual.findType("embedding").asListType().elementType()).isEqualTo(Types.FloatType.get());
+        assertThat(actual.findType("embedding").asListType().isElementRequired()).isTrue();
+        assertThat(actual.findType("items").asListType().elementType()).isEqualTo(Types.LongType.get());
+        assertThat(actual.findType("attributes").asMapType().keyType()).isEqualTo(Types.StringType.get());
+        assertThat(actual.findType("attributes").asMapType().valueType()).isEqualTo(Types.LongType.get());
+        assertThat(actual.findType("detail.entries").asListType().elementType()).isEqualTo(Types.LongType.get());
     }
 
     @Test
@@ -244,7 +355,7 @@ class IcebergJdbcWriteDeclarationIntegrationTest extends ContainerTestBase {
                 .addDefinitions(GeneratedColumnDefinition.newBuilder().setTargetColumn("embedding")
                         .setCapability(BuiltInCapabilityCatalog.aiEmbeddingPlanRef()).setLogicalModelName(model)
                         .addSourceColumns("title").setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
-                        .setOutputType(LogicalType.newBuilder().setCanonicalSql("VECTOR(3, COSINE)"))).build();
+                        .setOutputType(org.pangrova.protocol.type.VectorLogicalType.create(3))).build();
         var update = target.updateProperties();
         GeneratedColumnMetadataCodec.encode(definitions).forEach(update::set);
         update.commit();

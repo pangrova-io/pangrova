@@ -10,6 +10,8 @@ import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.protocol.BuiltInCapabilityCatalog;
@@ -17,9 +19,11 @@ import org.pangrova.protocol.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.data.type.PangrovaType;
+import org.pangrova.spi.connector.data.type.VectorType;
+import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
 import org.pangrova.spi.connector.metadata.table.SchemaTableName;
 
 import java.nio.file.Path;
@@ -95,6 +99,32 @@ class PaimonDeclarationMetadataIntegrationTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(VectorType.ElementType.class)
+    void connectorCreateAndSdkMetadataReadbackRetainVectorCoordinatePrecision(VectorType.ElementType element)
+            throws Exception {
+        var options = new Options();
+        options.setString("warehouse", warehouse.toString());
+        try (var catalog = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            catalog.createDatabase("db", false);
+            var metadata = new PaimonMetadata(catalog, "paimon", new PaimonSplitRegistry());
+            var declared = new ConnectorTableMetadata(new SchemaTableName("db", "vectors"),
+                    List.of("id", "embedding"), List.of(
+                            new ConnectorTableMetadata.Column("id", PangrovaType.BIGINT),
+                            new ConnectorTableMetadata.Column("embedding", PangrovaType.VECTOR,
+                                    java.util.OptionalInt.empty(), new VectorType(3, element))),
+                    Map.of("bucket", "1", "bucket-key", "id"));
+            metadata.createTable(SESSION, declared);
+            var sdk = catalog.getTable(Identifier.create("db", "vectors"));
+            assertThat(sdk.rowType().getTypeAt(1)).isEqualTo(DataTypes.ARRAY(
+                    element == VectorType.ElementType.DOUBLE ? DataTypes.DOUBLE() : DataTypes.FLOAT()));
+            assertThat(sdk.options()).containsEntry("pangrova.vector.dimension.embedding", "3");
+            var actual = metadata.getTableMetadata(SESSION, metadata.getTableHandle(SESSION, declared.table()));
+            assertThat(actual.typedColumns().get(1).type()).isEqualTo(PangrovaType.VECTOR);
+            assertThat(actual.typedColumns().get(1).parameterizedType()).isEqualTo(new VectorType(3, element));
+        }
+    }
+
     private static void assertGeneratedAdmissionRejected(PaimonMetadata metadata, PaimonTableHandle handle) {
         assertThatThrownBy(() -> metadata.beginInsert(SESSION, handle))
                 .isInstanceOf(org.pangrova.spi.connector.base.ConnectorException.class)
@@ -117,7 +147,7 @@ class PaimonDeclarationMetadataIntegrationTest {
                 .addDefinitions(GeneratedColumnDefinition.newBuilder().setTargetColumn("embedding")
                         .setCapability(BuiltInCapabilityCatalog.aiEmbeddingPlanRef()).setLogicalModelName("embedding")
                         .addSourceColumns("title").setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
-                        .setOutputType(LogicalType.newBuilder().setCanonicalSql("VECTOR(3, COSINE)")))
+                        .setOutputType(VectorLogicalType.create(3)))
                 .build();
     }
 }

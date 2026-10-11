@@ -6,7 +6,6 @@ import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.coordinator.http.CoordinatorHttpServerContext;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.query.task.TaskStatusReceiverContext;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -18,7 +17,6 @@ import org.pangrova.metadata.schema.SchemaChange;
 import org.pangrova.metadata.service.MetadataService;
 import org.pangrova.metadata.service.MetadataSessionContext;
 import org.pangrova.metadata.service.ResolvedTable;
-import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -53,10 +51,10 @@ class CatalogRestResourceTest {
     void setUp() throws Exception {
         MetadataService stubService = new StubMetadataService();
 
-        var tracing = new NoOpTracingProvider();
-        var queryManager = new QueryManager(QueryManagerContext.minimal(null, tracing));
         var taskTracker = new CoordinatorTaskTracker();
         var workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        var queryManager = org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture.create(
+                workerManager, taskTracker);
 
         var receiverContext = TaskStatusReceiverContext.withoutSpeculation(
                 queryManager, taskTracker, workerManager);

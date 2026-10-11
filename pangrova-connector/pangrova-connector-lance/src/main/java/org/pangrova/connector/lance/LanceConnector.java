@@ -20,15 +20,16 @@ import org.pangrova.common.concurrent.ThreadSafe;
 /** Lance plugin: durable catalog metadata in Java and all dataset rows in Native. */
 @ThreadSafe
 public final class LanceConnector implements Connector {
-    private final Map<String, String> config;
+    private final Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> authority;
     private final LanceMetadata metadata;
     private final LanceSplitManager splits;
     private final LanceOutputHandleCodec codec = new LanceOutputHandleCodec();
     private final AtomicReference<CompletableFuture<LanceCatalogStore>> catalogStore = new AtomicReference<>();
 
     LanceConnector(String catalog, String warehouse, Map<String, String> config,
-            Optional<NativeDatasetControlPlane> controlPlane) {
-        this.config = Map.copyOf(config);
+            Optional<NativeDatasetControlPlane> controlPlane,
+            Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> authority) {
+        this.authority = java.util.Objects.requireNonNull(authority);
         metadata = new LanceMetadata(catalog, warehouse, this::store, controlPlane);
         splits = new LanceSplitManager(controlPlane, this::store, catalog, warehouse);
     }
@@ -40,8 +41,8 @@ public final class LanceConnector implements Connector {
             if (catalogStore.compareAndSet(null, creating)) {
                 ready = creating;
                 try {
-                    creating.complete(new LanceCatalogStore(
-                            config.get("jdbc.url"), config.get("jdbc.user"), config.get("jdbc.password")));
+                    creating.complete(new LanceCatalogStore(authority.orElseThrow(() ->
+                            new IllegalStateException("Lance catalog authority is available only in the owner process"))));
                 } catch (RuntimeException | Error failure) {
                     creating.completeExceptionally(failure);
                 }

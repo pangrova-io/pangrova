@@ -3,8 +3,15 @@
 
 #include <gtest/gtest.h>
 
+#include <unistd.h>
+#include <stdexcept>
+
+#include <boost/multiprecision/cpp_bin_float.hpp>
+
 #include <chrono>
+#include <cmath>
 #include <filesystem>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -18,9 +25,19 @@ namespace {
 class TestFile final {
  public:
   TestFile() {
-    path_ = std::filesystem::temp_directory_path() /
-        ("pangrova-bm25-" + std::to_string(
-            std::chrono::steady_clock::now().time_since_epoch().count()));
+    // CTest executes one case per process concurrently. A clock value is not
+    // a filesystem reservation; another owner could truncate/remove our file.
+    auto pattern = (std::filesystem::temp_directory_path() / "pangrova-bm25-XXXXXX").string();
+    std::vector<char> name(pattern.begin(), pattern.end());
+    name.push_back('\0');
+    const int descriptor = ::mkstemp(name.data());
+    if (descriptor < 0) throw std::runtime_error("Cannot reserve BM25 test file");
+    path_ = name.data();
+    if (::close(descriptor) != 0) {
+      std::error_code ignored;
+      std::filesystem::remove(path_, ignored);
+      throw std::runtime_error("Cannot close reserved BM25 test file");
+    }
   }
   ~TestFile() {
     std::error_code ignored;
@@ -95,6 +112,156 @@ TEST(Bm25SegmentTest, RejectsTruncatedSegment) {
   EXPECT_THROW(
       Bm25Segment::load(file.path(), 1024 * 1024),
       std::runtime_error);
+}
+
+// Independent 100-decimal-digit arithmetic evaluates the unreduced BM25
+// equation, including log, from exact counts and the original binary64 inputs.
+// These fixture scores are numerical oracles, never performance measurements.
+double bm25Oracle(uint64_t documents, uint64_t tokens, uint64_t document_frequency,
+    uint64_t term_frequency, uint64_t document_length, double k1, double b) {
+  using Precise = boost::multiprecision::cpp_bin_float_100;
+  const Precise average = Precise(tokens) / Precise(documents);
+  const Precise inverse_document_frequency = log(Precise(1) +
+      (Precise(documents) - Precise(document_frequency) + Precise(0.5)) /
+      (Precise(document_frequency) + Precise(0.5)));
+  const Precise frequency(term_frequency);
+  const Precise score = inverse_document_frequency * frequency * (Precise(k1) + 1) /
+      (frequency + Precise(k1) * (Precise(1) - Precise(b) +
+          Precise(b) * Precise(document_length) / average));
+  return score.convert_to<double>();
+}
+
+TEST(Bm25SegmentTest, SparseGlobalAverageUsesActualMergedZeroLengthDocuments) {
+  Bm25SegmentBuilder indexed;
+  indexed.addDocument("alpha alpha beta beta");
+  indexed.addDocument("alpha");
+  Bm25SegmentBuilder empty_documents;
+  for (int index = 0; index < 10; ++index) {
+    empty_documents.addDocument("");
+  }
+  TestFile segment_file;
+  TestFile indexed_statistics;
+  TestFile empty_statistics;
+  TestFile merged_statistics;
+  indexed.write(segment_file.path());
+  indexed.writeStatistics(indexed_statistics.path());
+  empty_documents.writeStatistics(empty_statistics.path());
+  Bm25CorpusStats::mergeSortedShards(
+      {indexed_statistics.path(), empty_statistics.path()}, merged_statistics.path());
+  auto segment = Bm25Segment::load(segment_file.path(),
+      Bm25Segment::residentBytesFromDisk(segment_file.path()));
+  auto corpus = Bm25CorpusStats::load(merged_statistics.path(),
+      Bm25CorpusStats::residentBytesFromDisk(merged_statistics.path()));
+
+  ASSERT_EQ(corpus.documentCount(), 12);
+  ASSERT_EQ(corpus.totalDocumentLength(), 5);
+  ASSERT_EQ(corpus.documentFrequency("alpha"), 2);
+  ASSERT_EQ(corpus.documentFrequency("beta"), 1);
+  EXPECT_DOUBLE_EQ(corpus.averageDocumentLength(), 5.0 / 12.0);
+  const auto matches = segment.search({"alpha"}, 2, 1.2, 0.75, corpus);
+  ASSERT_EQ(matches.size(), 2);
+  EXPECT_EQ(matches[0].document, 1);
+  EXPECT_EQ(matches[1].document, 0);
+  for (const auto& match : matches) {
+    const double expected = bm25Oracle(12, 5, 2,
+        match.document == 0 ? 2 : 1, match.document == 0 ? 4 : 1, 1.2, 0.75);
+    EXPECT_TRUE(std::isfinite(match.score));
+    EXPECT_NEAR(match.score, expected, expected * 1e-13);
+  }
+}
+
+TEST(Bm25SegmentTest, FiniteSaturationBoundariesPreserveTheSameHighPrecisionEquation) {
+  Bm25SegmentBuilder builder;
+  builder.addDocument("alpha alpha beta beta");
+  builder.addDocument("alpha");
+  TestFile segment_file;
+  TestFile statistics_file;
+  builder.write(segment_file.path());
+  builder.writeStatistics(statistics_file.path());
+  auto segment = Bm25Segment::load(segment_file.path(),
+      Bm25Segment::residentBytesFromDisk(segment_file.path()));
+  auto corpus = Bm25CorpusStats::load(statistics_file.path(),
+      Bm25CorpusStats::residentBytesFromDisk(statistics_file.path()));
+  ASSERT_EQ(corpus.documentCount(), 2);
+  ASSERT_EQ(corpus.totalDocumentLength(), 5);
+  EXPECT_DOUBLE_EQ(corpus.averageDocumentLength(), 2.5);
+  for (double k1 : {std::numeric_limits<double>::denorm_min(),
+      std::numeric_limits<double>::min(), 1.2,
+      std::numeric_limits<double>::max()}) {
+    for (double b : {0.0, 0.75, 1.0}) {
+      const auto matches = segment.search({"alpha", "alpha"}, 2, k1, b, corpus);
+      ASSERT_EQ(matches.size(), 2);
+      EXPECT_GE(matches[0].score, matches[1].score);
+      if (matches[0].score == matches[1].score) {
+        EXPECT_LT(matches[0].document, matches[1].document);
+      }
+      for (const auto& match : matches) {
+        const double expected = bm25Oracle(2, 5, 2,
+            match.document == 0 ? 2 : 1, match.document == 0 ? 4 : 1, k1, b);
+        EXPECT_TRUE(std::isfinite(match.score));
+        EXPECT_NEAR(match.score, expected, expected * 1e-13);
+      }
+    }
+  }
+}
+
+TEST(Bm25SegmentTest, UnitAverageRetainsTheExactCorpusDefinition) {
+  Bm25SegmentBuilder builder;
+  builder.addDocument("alpha alpha");
+  builder.addDocument("");
+  TestFile segment_file;
+  TestFile statistics_file;
+  builder.write(segment_file.path());
+  builder.writeStatistics(statistics_file.path());
+  auto segment = Bm25Segment::load(segment_file.path(),
+      Bm25Segment::residentBytesFromDisk(segment_file.path()));
+  auto corpus = Bm25CorpusStats::load(statistics_file.path(),
+      Bm25CorpusStats::residentBytesFromDisk(statistics_file.path()));
+  EXPECT_DOUBLE_EQ(corpus.averageDocumentLength(), 1.0);
+  const auto matches = segment.search({"alpha"}, 2, 1.2, 0.75, corpus);
+  ASSERT_EQ(matches.size(), 1);
+  EXPECT_EQ(matches[0].document, 0);
+  const double expected = bm25Oracle(2, 2, 1, 2, 2, 1.2, 0.75);
+  EXPECT_NEAR(matches[0].score, expected, expected * 1e-13);
+}
+
+TEST(Bm25SegmentTest, AllZeroLengthDocumentsRemainLegalEmptyResults) {
+  Bm25SegmentBuilder builder;
+  for (int index = 0; index < 4; ++index) {
+    builder.addDocument("");
+  }
+  TestFile segment_file;
+  TestFile statistics_file;
+  builder.write(segment_file.path());
+  builder.writeStatistics(statistics_file.path());
+  auto segment = Bm25Segment::load(segment_file.path(),
+      Bm25Segment::residentBytesFromDisk(segment_file.path()));
+  auto corpus = Bm25CorpusStats::load(statistics_file.path(),
+      Bm25CorpusStats::residentBytesFromDisk(statistics_file.path()));
+  EXPECT_EQ(corpus.documentCount(), 4);
+  EXPECT_EQ(corpus.totalDocumentLength(), 0);
+  EXPECT_DOUBLE_EQ(corpus.averageDocumentLength(), 0);
+  EXPECT_TRUE(segment.search({"alpha"}, 2, 1.2, 0.75, corpus).empty());
+  EXPECT_TRUE(segment.search({}, 2, 1.2, 0.75, corpus).empty());
+}
+
+TEST(Bm25SegmentTest, ContradictoryGlobalTokenCountsFailWithoutFabricatingScores) {
+  Bm25SegmentBuilder builder;
+  builder.addDocument("alpha alpha beta beta");
+  builder.addDocument("alpha");
+  TestFile segment_file;
+  builder.write(segment_file.path());
+  auto segment = Bm25Segment::load(segment_file.path(),
+      Bm25Segment::residentBytesFromDisk(segment_file.path()));
+  for (uint64_t tokens : {uint64_t{0}, uint64_t{4}}) {
+    TestFile statistics_file;
+    Bm25CorpusStats::writeShard(statistics_file.path(), 2, tokens,
+        {{"alpha", 2}, {"beta", 1}});
+    auto corpus = Bm25CorpusStats::load(statistics_file.path(),
+        Bm25CorpusStats::residentBytesFromDisk(statistics_file.path()));
+    EXPECT_THROW(segment.search({"alpha"}, 2, 1.2, 0.75, corpus), std::invalid_argument);
+    EXPECT_THROW(segment.search({"absent"}, 2, 1.2, 0.75, corpus), std::invalid_argument);
+  }
 }
 
 TEST(Bm25CorpusStatsTest, MergesSortedShardsWithBoundedFanIn) {

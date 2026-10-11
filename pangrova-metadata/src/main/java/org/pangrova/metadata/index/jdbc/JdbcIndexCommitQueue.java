@@ -18,6 +18,7 @@ import static org.pangrova.metadata.store.JdbcSupport.setInstant;
 
 /** Maintains the durable per-table commit-event queue and its fenced head. */
 final class JdbcIndexCommitQueue extends JdbcStoreSupport {
+    private static final int TABLE_SEQUENCE_PARAMETER = 11;
 
     private static final String TABLE_KEY =
             "tenant_id=? AND catalog_name=? AND schema_name=? AND table_name=?";
@@ -184,7 +185,7 @@ final class JdbcIndexCommitQueue extends JdbcStoreSupport {
             ps.setString(8, request.eventType());
             setInstant(ps, 9, request.createdAt());
             ps.setString(10, request.commitFingerprint());
-            ps.setLong(11, sequence);
+            ps.setLong(TABLE_SEQUENCE_PARAMETER, sequence);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getLong(1) : null;
             }

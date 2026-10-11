@@ -17,6 +17,7 @@ import io.substrait.relation.ImmutableProject;
 import io.substrait.relation.ImmutableSort;
 import io.substrait.relation.Extension;
 import io.substrait.relation.ExtensionLeaf;
+import io.substrait.relation.ExtensionSingle;
 import io.substrait.relation.Rel;
 import io.substrait.relation.RelProtoConverter;
 import io.substrait.type.NamedStruct;
@@ -25,6 +26,7 @@ import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.planner.extension.UnnestRelDetail;
 
 import java.util.List;
 import java.util.Set;
@@ -79,6 +81,36 @@ class SubstraitPlanValidatorTest {
     }
 
     @Test
+    void canonicalUnnestExtensionSingleIsSupported() {
+        NamedStruct schema = NamedStruct.of(
+                List.of("value"), TypeCreator.REQUIRED.struct(List.of(NULLABLE.I64)));
+        Rel unnest = ExtensionSingle.from(
+                new UnnestRelDetail("unnest_0", 0, false, false, schema),
+                namedScan("t1", "collection")).build();
+
+        assertThat(validator.validate(planOf(unnest)).status())
+                .isEqualTo(ValidationStatus.FULLY_NATIVE);
+    }
+
+    @Test
+    void unknownExtensionSingleDetailRemainsUnsupported() {
+        Type.Struct rowType = NULLABLE.struct(NULLABLE.I64);
+        Extension.SingleRelDetail unknownDetail = new Extension.SingleRelDetail() {
+            @Override public Type.Struct deriveRecordType(Rel input) { return rowType; }
+            @Override public Any toProto(RelProtoConverter converter) {
+                return Any.getDefaultInstance();
+            }
+        };
+        Rel unknown = ExtensionSingle.from(unknownDetail, namedScan("t1", "id")).build();
+
+        assertThat(validator.validate(planOf(unknown)).unsupportedNodes())
+                .singleElement().satisfies(node -> {
+                    assertThat(node.kind()).isEqualTo(UnsupportedNode.Kind.RELATION);
+                    assertThat(node.reason()).contains("detail not supported");
+                });
+    }
+
+    @Test
     void fullyNativeForFilterOverRead() {
         Rel scan = namedScan("t1", "id");
         Expression condition = ExpressionCreator.bool(false, true);
@@ -112,6 +144,26 @@ class SubstraitPlanValidatorTest {
         PlanValidationResult result = validator.validate(plan);
 
         assertThat(result.status()).isEqualTo(ValidationStatus.FULLY_NATIVE);
+    }
+
+    @Test
+    void nestedConstructorsValidateTheirChildren() {
+        Expression field = FieldReference.newRootStructReference(0, NULLABLE.I64);
+        Expression list = ImmutableExpression.NestedList.builder()
+                .nullable(true).addValues(field).build();
+        Expression row = ImmutableExpression.NestedStruct.builder()
+                .nullable(true).addFields(list).build();
+        Rel project = ImmutableProject.builder().input(namedScan("t1", "id"))
+                .addExpressions(row).build();
+
+        assertThat(validator.validate(planOf(project)).unsupportedNodes()).isEmpty();
+
+        NativeCapabilityRegistry withoutFields = NativeCapabilityRegistry.defaults();
+        withoutFields.update(Set.of("ReadRel", "ProjectRel"), Set.of("Nested"), Set.of());
+        PlanValidationResult rejected = new SubstraitPlanValidator(withoutFields)
+                .validate(planOf(project));
+        assertThat(rejected.unsupportedNodes()).singleElement().satisfies(node ->
+                assertThat(node.nodeType()).isEqualTo("FieldReference"));
     }
 
     @Test

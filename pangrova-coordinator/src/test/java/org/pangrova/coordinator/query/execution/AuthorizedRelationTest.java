@@ -4,6 +4,13 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.security.authz.DeferredAuthorizationScope.PolicySnapshot;
 import org.pangrova.planner.AuthorizedStageGraph;
 import org.pangrova.planner.SerializedPlanFragment;
+import io.substrait.proto.NamedStruct;
+import io.substrait.proto.Plan;
+import io.substrait.proto.PlanRel;
+import io.substrait.proto.ReadRel;
+import io.substrait.proto.Rel;
+import io.substrait.proto.RelRoot;
+import io.substrait.proto.Type;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -49,9 +56,17 @@ class AuthorizedRelationTest {
     }
 
     private static AuthorizedStageGraph graph() {
+        var schema = NamedStruct.newBuilder().addNames("id")
+                .setStruct(Type.Struct.newBuilder().addTypes(Type.newBuilder()
+                        .setI64(Type.I64.newBuilder()
+                                .setNullability(Type.Nullability.NULLABILITY_REQUIRED)))).build();
+        var read = Rel.newBuilder().setRead(ReadRel.newBuilder().setBaseSchema(schema)
+                .setNamedTable(ReadRel.NamedTable.newBuilder().addNames("orders"))).build();
+        var plan = Plan.newBuilder().addRelations(PlanRel.newBuilder()
+                .setRoot(RelRoot.newBuilder().setInput(read).addNames("id"))).build();
         return new AuthorizedStageGraph(AuthorizedStageGraph.TerminalPurpose.RELATIONAL_EXPORT,
                 List.of(new AuthorizedStageGraph.SerializedStage(
-                0, 1, "OUTPUT", new SerializedPlanFragment(new byte[] {1}, List.of(), List.of()),
-                List.of(), List.of("id"), List.of(), 0, 0)), List.of());
+                0, 1, "OUTPUT", new SerializedPlanFragment(plan.toByteArray(), List.of(), List.of()),
+                List.of(), List.of("id"), List.of(), List.of(), 0, 0)), List.of());
     }
 }

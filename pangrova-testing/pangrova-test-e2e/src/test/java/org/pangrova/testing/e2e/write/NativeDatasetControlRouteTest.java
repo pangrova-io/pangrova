@@ -3,7 +3,7 @@ package org.pangrova.testing.e2e.write;
 import com.google.protobuf.Any;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
-import org.pangrova.protocol.v2.FinalizeDistributedWriteRequest;
+import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;
 import org.pangrova.protocol.v2.DatasetSchemaFingerprintResult;
 import org.pangrova.protocol.v2.Checksum;
@@ -49,7 +49,7 @@ class NativeDatasetControlRouteTest extends DatasetControlTestBase {
                 assertThat(denied.statusCode()).isEqualTo(403);
                 assertThat(RuntimeCommandResponse.parseFrom(denied.body()).getError().getCode())
                         .isEqualTo("CATALOG_TENANT_DENIED");
-                var stale = post(client, endpoint, E2E_INTERNAL_AUTH_SECRET, staleFinalize().toByteArray());
+                var stale = post(client, endpoint, E2E_INTERNAL_AUTH_SECRET, stalePrepare().toByteArray());
                 assertThat(stale.statusCode()).isEqualTo(409);
                 assertThat(RuntimeCommandResponse.parseFrom(stale.body()).getError().getCode())
                         .isEqualTo("EPOCH_MISMATCH");
@@ -108,10 +108,10 @@ class NativeDatasetControlRouteTest extends DatasetControlTestBase {
         return result.getPayload().unpack(DatasetSchemaFingerprintResult.class);
     }
 
-    private static RuntimeCommand staleFinalize() {
+    private static RuntimeCommand stalePrepare() {
         return RuntimeCommand.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
-                .setCommandType(RuntimeCommandType.RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE)
-                .setPayload(Any.pack(FinalizeDistributedWriteRequest.newBuilder().setControlEpoch(1).build())).build();
+                .setCommandType(RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE)
+                .setPayload(Any.pack(PrepareDistributedWriteRequest.newBuilder().setControlEpoch(1).build())).build();
     }
 
     private static HttpResponse<byte[]> post(HttpClient client, URI endpoint, String auth, byte[] bytes)

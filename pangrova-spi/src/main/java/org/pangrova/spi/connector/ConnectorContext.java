@@ -15,4 +15,9 @@ import java.util.Optional;
 public interface ConnectorContext {
     /** Metadata-only Native control port, present only in the catalog owner process. */
     Optional<NativeDatasetControlPlane> nativeDatasetControlPlane();
+
+    /** Sole durable source authority, available only in the catalog owner process. */
+    default Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> managedSourceCatalog() {
+        return Optional.empty();
+    }
 }

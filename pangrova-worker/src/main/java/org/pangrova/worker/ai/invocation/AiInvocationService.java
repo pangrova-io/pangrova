@@ -110,6 +110,14 @@ public final class AiInvocationService {
         return BUDGET_MANAGER.usage(tenantId, attempt);
     }
 
+    /** Charges a FILE publication before the object-store send under the current task authority. */
+    public static void chargeGovernedFileBytes(long bytes) {
+        var context = AiExecutionContext.current().orElseThrow(() ->
+                new AiInvocationException(AiInvocationException.Category.AUTHORIZATION, false,
+                        "FILE callback has no trusted task context"));
+        BUDGET_MANAGER.chargeGovernedFileBytes(context, bytes);
+    }
+
     /** Executes one governed invocation and reports its audited outcome. */
     public AiInvocationResult invoke(AiInvocationRequest request) {
         Objects.requireNonNull(request, "request must not be null");

@@ -184,9 +184,9 @@ public class SpeculativeTaskLauncher {
             // Only the copy identity is removed here. The original logical
             // slot is still needed by the original winner/DAG lifecycle.
             if (pair.copyIssued && taskTracker.getTaskRequest(pair.copyId) != null) {
-                var receipt = taskTracker.executionDrainReceipt(pair.copyId).orElseThrow(() ->
-                        new IllegalStateException("Speculative copy has no actual drain receipt"));
-                taskTracker.unregisterDrainedTask(receipt);
+                if (!taskTracker.unregisterRecordedDrainedTask(pair.copyId)) {
+                    throw new IllegalStateException("Speculative copy has no actual drain receipt");
+                }
             }
             synchronized (this) {
                 speculativePairs.remove(pair.originalId, pair);

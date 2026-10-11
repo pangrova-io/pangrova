@@ -61,6 +61,8 @@ class SpeculativeExecutionWiringTest {
         wm.registerWorker(w(WA, "ha"));
         wm.registerWorker(w(WB, "hb"));
         launcher.setDispatchDependencies(rec, wm, tracker);
+        launcher.setCancelRetrier(new org.pangrova.coordinator.task.TaskCancelRetrier(rec, tracker));
+        tracker.addExecutionDrainListener(launcher::executionDrained);
         receiver = new TaskStatusReceiver(new TaskStatusReceiverContext(            qm(), tracker, wm, launcher, resolver, rec, null, null, null, null, null, null));
     }
     @Test void slowTask_specLaunched_winnerKept_loserCancelled() {
@@ -76,8 +78,10 @@ class SpeculativeExecutionWiringTest {
         assertThat(launcher.getOriginalTasksWithCopies()).contains("ts");
         String si = launcher.getSpeculativeTaskId("ts").orElseThrow();
         receiver.onTaskStatus(fin(si, WB));
+        assertThat(tracker.getTaskRequest("ts")).isNotNull();
+        receiver.onTaskStatus(fin("ts", WA));
         assertThat(resolver.getWinner(QID, SID, 0))
-                .as("terminal query releases its speculative election").isEmpty();
+                .as("winner stays fenced until query retirement").hasValue(si);
         assertThat(tracker.getTaskIds(QID)).doesNotContain("ts");
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(rec.last).isEqualTo("ts");
@@ -93,8 +97,10 @@ class SpeculativeExecutionWiringTest {
         tracker.assignWorker("to", WA);
         String si = launcher.launchSpeculative("to", WA, QID);
         receiver.onTaskStatus(fin("to", WA));
+        assertThat(tracker.getTaskRequest(si)).isNotNull();
+        receiver.onTaskStatus(fin(si, WB));
         assertThat(resolver.getWinner(QID, "1", 0))
-                .as("terminal query releases its speculative election").isEmpty();
+                .as("winner stays fenced until query retirement").hasValue("to");
         assertThat(rec.last).isEqualTo(si);
         assertThat(tracker.getTaskIds(QID)).doesNotContain(si);
         assertThat(tracker.hasFailedTask(QID)).isFalse();
@@ -120,8 +126,10 @@ class SpeculativeExecutionWiringTest {
         assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
         assertThat(completedTask.get()).isEqualTo("to");
         assertThat(failedTask.get()).isNull();
+        assertThat(tracker.getTaskRequest("to")).isNotNull();
+        receiver.onTaskStatus(fin("to", WA));
         assertThat(tracker.getTaskIds(QID)).doesNotContain("to");
-        assertThat(tracker.allTasksFinished(QID)).isTrue();
+        assertThat(tracker.getTaskIds(QID)).isEmpty();
     }
     @Test void failedCopyDoesNotFailOriginalLogicalTask() {
         String copy = runningPair();
@@ -142,7 +150,7 @@ class SpeculativeExecutionWiringTest {
         assertThat(receiver.onTaskStatus(failed("to", WA))).isTrue();
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
-        assertThat(tracker.allTasksFinished(QID)).isTrue();
+        assertThat(tracker.getTaskIds(QID)).isEmpty();
         assertThat(failures.get()).isZero();
     }
     @Test void bothFailedAttemptsFailTheirLogicalTaskOnce() {
@@ -264,14 +272,23 @@ class SpeculativeExecutionWiringTest {
             }
         };
         launcher.setDispatchDependencies(rejectingDispatcher, wm, tracker);
+        launcher.setCancelRetrier(new org.pangrova.coordinator.task.TaskCancelRetrier(
+                rejectingDispatcher, tracker));
         run("to");
         tracker.assignWorker("to", WA);
         AtomicInteger failures = new AtomicInteger();
         tracker.setTaskFailureCallback((queryId, taskId) -> failures.incrementAndGet());
 
         assertThat(launcher.launchSpeculative("to", WA, QID)).isNull();
+        assertThat(launcher.getOriginalTasksWithCopies()).contains("to");
+        assertThat(tracker.getTaskIds(QID)).contains("to");
+        assertThat(tracker.getTaskIds(QID).stream().filter(id -> id.startsWith("spec-")))
+                .as("ambiguous dispatch remains tracked until actual Worker drain")
+                .hasSize(1);
+        String copy = tracker.getTaskIds(QID).stream()
+                .filter(id -> id.startsWith("spec-")).findFirst().orElseThrow();
+        assertThat(receiver.onTaskStatus(fin(copy, WB))).isTrue();
         assertThat(launcher.getOriginalTasksWithCopies()).isEmpty();
-        assertThat(tracker.getTaskIds(QID)).containsExactly("to");
         assertThat(tracker.hasFailedTask(QID)).isFalse();
         assertThat(failures.get()).isZero();
         assertThat(rejectingDispatcher.last).startsWith("spec-");
@@ -295,6 +312,8 @@ class SpeculativeExecutionWiringTest {
         tracker.setDeadline("to", Instant.now().plusSeconds(300));
         String si = launcher.launchSpeculative("to", WA, QID);
         receiver.onTaskStatus(fin(si, WB));
+        assertThat(tracker.getTimedOutTasks(Instant.now().plusSeconds(600))).containsKey("to");
+        receiver.onTaskStatus(fin("to", WA));
         assertThat(tracker.getTimedOutTasks(Instant.now().plusSeconds(600))).doesNotContainKey("to");
     }
     private void run(String id) {
@@ -339,6 +358,8 @@ class SpeculativeExecutionWiringTest {
                 .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
                         .TASK_REPORT_ORIGIN_NATIVE)
                 .setAttempt(request.taskRequest().getAttempt())
+                .setExecutionDrainState(org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED)
                 .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED)
                 .setCoverage(org.pangrova.protocol.v2.CoverageReport.newBuilder()
                         .setCompletionState(
@@ -370,6 +391,8 @@ class SpeculativeExecutionWiringTest {
                 .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
                         .TASK_REPORT_ORIGIN_NATIVE)
                 .setAttempt(request.taskRequest().getAttempt())
+                .setExecutionDrainState(org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED)
                 .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED)
                 .setCoverage(org.pangrova.protocol.v2.CoverageReport.newBuilder()
                         .setCompletionState(org.pangrova.protocol.v2.CompletionState
@@ -380,6 +403,7 @@ class SpeculativeExecutionWiringTest {
                         .setErrorClass(org.pangrova.protocol.v2.ErrorClass
                                 .ERROR_CLASS_INTERNAL)
                         .setCode("NATIVE_TASK_FAILED")
+                        .setFailedComponent("native-execution")
                         .setMessage("attempt failed"))
                 .build();
         return new TaskStatusReport(

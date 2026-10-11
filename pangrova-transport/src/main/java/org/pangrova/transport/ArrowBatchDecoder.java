@@ -13,6 +13,10 @@
  */
 package org.pangrova.transport;
 
+import org.pangrova.protocol.type.VectorLogicalType;
+import org.pangrova.protocol.v2.LogicalType;
+import io.substrait.proto.Type;
+
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
@@ -29,6 +33,7 @@ import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.arrow.vector.util.Text;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -37,6 +42,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Decodes Arrow IPC stream bytes into a type-erased {@link ResultBatch}.
@@ -108,11 +114,11 @@ public final class ArrowBatchDecoder {
     }
 
     private static Object extractValue(FieldVector vector, int row) {
-        if (vector.isNull(row)) {
-            return null;
-        }
         if (isVectorField(vector.getField())) {
             return decodeVectorField(vector, row);
+        }
+        if (vector.isNull(row)) {
+            return null;
         }
         if (vector instanceof IntVector iv) return iv.get(row);
         if (vector instanceof BigIntVector bv) return bv.get(row);
@@ -139,22 +145,77 @@ public final class ArrowBatchDecoder {
      *
      * @param vector Arrow vector with the Pangrova VECTOR extension
      * @param row zero-based row index
-     * @return FP32 coordinates, or {@code null} for an Arrow null
+     * @return primitive coordinates for required children, boxed coordinates for nullable children, or null
      */
-    public static float[] decodeVectorField(FieldVector vector, int row) {
+    public static Object decodeVectorField(FieldVector vector, int row) {
         if (!isVectorField(vector.getField())) {
             throw invalidVector("field does not declare the Pangrova VECTOR extension");
         }
-        int dimension = vectorDimension(vector.getField());
-        return vector.isNull(row) ? null : extractVectorValue(vector, row, dimension);
+        LogicalType declaration = vectorDeclaration(vector.getField());
+        if (vector.isNull(row)) {
+            if (declaration.getSubstraitType().getList().getNullability() == Type.Nullability.NULLABILITY_REQUIRED) {
+                throw invalidVector("required VECTOR row is null");
+            }
+            return null;
+        }
+        return extractVectorValue(vector, row, VectorLogicalType.requireStorageDimension(declaration));
     }
 
     private static Object extractComplexValue(FieldVector vector, int row) {
         if (vector instanceof BitVector bv) return bv.get(row) != 0;
-        return vector.getObject(row);
+        return normalizeComplexValue(vector.getObject(row), vector.getField());
     }
 
-    private static float[] extractVectorValue(
+    /** Converts Arrow nested values using the declared field type, including MAP entries. */
+    public static Object normalizeComplexValue(Object value, Field field) {
+        if (value == null) return null;
+        if (value instanceof Text || value instanceof CharSequence && !(value instanceof String)) {
+            return value.toString();
+        }
+        if (field.getType() instanceof ArrowType.Map) {
+            return normalizeMapValue(value, field);
+        }
+        if (value instanceof Map<?, ?> struct) {
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            for (Field child : field.getChildren()) {
+                result.put(child.getName(), normalizeComplexValue(struct.get(child.getName()), child));
+            }
+            return result;
+        }
+        if (value instanceof List<?> list) {
+            if (field.getChildren().size() != 1) {
+                throw new TransportException("DECODE_FAILED", "Arrow list has no unique element field", null);
+            }
+            Field element = field.getChildren().get(0);
+            return list.stream().map(item -> normalizeComplexValue(item, element)).toList();
+        }
+        return value;
+    }
+
+    private static Map<Object, Object> normalizeMapValue(Object value, Field field) {
+        if (!(value instanceof List<?> entries) || field.getChildren().size() != 1
+                || field.getChildren().get(0).getChildren().size() != 2) {
+            throw new TransportException("DECODE_FAILED", "Arrow MAP has invalid entries", null);
+        }
+        Field pair = field.getChildren().get(0);
+        Field keyField = pair.getChildren().get(0);
+        Field valueField = pair.getChildren().get(1);
+        Map<Object, Object> result = new java.util.LinkedHashMap<>();
+        for (Object entry : entries) {
+            if (!(entry instanceof Map<?, ?> item)) {
+                throw new TransportException("DECODE_FAILED", "Arrow MAP entry is not a key-value struct", null);
+            }
+            Object key = normalizeComplexValue(item.get(keyField.getName()), keyField);
+            Object element = normalizeComplexValue(item.get(valueField.getName()), valueField);
+            if (key == null || result.containsKey(key)) {
+                throw new TransportException("DECODE_FAILED", "Arrow MAP contains null or duplicate key", null);
+            }
+            result.put(key, element);
+        }
+        return result;
+    }
+
+    private static Object extractVectorValue(
             FieldVector vector, int row, int dimension) {
         List<?> values;
         if (vector instanceof ListVector || vector instanceof FixedSizeListVector) {
@@ -165,14 +226,50 @@ public final class ArrowBatchDecoder {
         if (values == null || values.size() != dimension) {
             throw invalidVector("VECTOR value length differs from declared dimension " + dimension);
         }
-        float[] result = new float[dimension];
-        for (int i = 0; i < dimension; i++) {
-            if (!(values.get(i) instanceof Float coordinate) || !Float.isFinite(coordinate)) {
-                throw invalidVector("VECTOR coordinates must be finite Float32 values");
+        ArrowType.FloatingPoint element = (ArrowType.FloatingPoint)
+                vector.getField().getChildren().get(0).getType();
+        boolean nullable = vector.getField().getChildren().get(0).isNullable();
+        if (element.getPrecision() == org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE) {
+            return floatCoordinates(values, nullable);
+        }
+        return doubleCoordinates(values, nullable);
+    }
+
+    private static Object floatCoordinates(List<?> values, boolean nullable) {
+        if (nullable) {
+            Float[] result = new Float[values.size()];
+            for (int index = 0; index < values.size(); index++) {
+                result[index] = (Float) coordinate(values.get(index), Float.class, true);
             }
-            result[i] = coordinate;
+            return result;
+        }
+        float[] result = new float[values.size()];
+        for (int index = 0; index < values.size(); index++) {
+            result[index] = (Float) coordinate(values.get(index), Float.class, false);
         }
         return result;
+    }
+
+    private static Object doubleCoordinates(List<?> values, boolean nullable) {
+        if (nullable) {
+            Double[] result = new Double[values.size()];
+            for (int index = 0; index < values.size(); index++) {
+                result[index] = (Double) coordinate(values.get(index), Double.class, true);
+            }
+            return result;
+        }
+        double[] result = new double[values.size()];
+        for (int index = 0; index < values.size(); index++) {
+            result[index] = (Double) coordinate(values.get(index), Double.class, false);
+        }
+        return result;
+    }
+
+    private static Object coordinate(Object value, Class<?> precision, boolean nullable) {
+        if (!precision.isInstance(value) && !(nullable && value == null)) {
+            throw invalidVector("VECTOR coordinates must match declared " + precision.getSimpleName() + " nullability");
+        }
+        return value;
     }
 
     private static List<ColumnDescriptor> buildColumns(Schema schema) {
@@ -188,16 +285,26 @@ public final class ArrowBatchDecoder {
         ArrowType type = field.getType();
         int vectorDimension = vectorDimension(field);
         if (vectorDimension > 0) {
+            LogicalType declaration = vectorDeclaration(field);
             return new ColumnDescriptor(
                     field.getName(), Types.ARRAY,
-                    "VECTOR(" + vectorDimension + ")", vectorDimension, 0);
+                    declaration.getCanonicalSql(), vectorDimension, 0, Optional.of(declaration));
         }
         return new ColumnDescriptor(
                 field.getName(),
                 mapSqlType(type),
                 type.toString(),
                 resolvePrecision(type),
-                resolveScale(type));
+                resolveScale(type), Optional.empty());
+    }
+
+    private static LogicalType vectorDeclaration(Field field) {
+        int dimension = vectorDimension(field);
+        ArrowType.FloatingPoint element = (ArrowType.FloatingPoint) field.getChildren().get(0).getType();
+        return VectorLogicalType.create(dimension,
+                element.getPrecision() == org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE
+                        ? VectorLogicalType.FLOAT64 : VectorLogicalType.FLOAT32,
+                field.isNullable(), field.getChildren().get(0).isNullable());
     }
 
     private static int vectorDimension(Field field) {
@@ -209,9 +316,9 @@ public final class ArrowBatchDecoder {
                 || field.getType() instanceof ArrowType.FixedSizeList)
                 || field.getChildren().size() != 1
                 || !(field.getChildren().get(0).getType() instanceof ArrowType.FloatingPoint fp)
-                || fp.getPrecision()
-                        != org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE) {
-            throw invalidVector("VECTOR extension requires List<Float32> storage");
+                || (fp.getPrecision() != org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE
+                        && fp.getPrecision() != org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)) {
+            throw invalidVector("VECTOR extension requires List<Float32|Float64> storage");
         }
         String encodedDimension = metadata.get(EXTENSION_METADATA_KEY);
         if (encodedDimension == null || !encodedDimension.matches("[1-9][0-9]*")) {
@@ -219,6 +326,9 @@ public final class ArrowBatchDecoder {
         }
         try {
             int dimension = Integer.parseInt(encodedDimension);
+            if (dimension > VectorLogicalType.MAX_DIMENSION) {
+                throw invalidVector("VECTOR extension dimension exceeds canonical storage maximum 65535");
+            }
             if (field.getType() instanceof ArrowType.FixedSizeList fixed
                     && fixed.getListSize() != dimension) {
                 throw invalidVector("VECTOR extension dimension differs from storage width");

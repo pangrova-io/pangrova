@@ -20,30 +20,31 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Reports task status to Coordinator via real HTTP POST /v1/task/status-report.
- * Uses java.net.http.HttpClient (JDK 11+), Jackson for JSON serialization.
- * Injects W3C trace context into outgoing HTTP headers for distributed tracing.
- * Client side only — no Jetty dependency needed.
+ * Reports task status to Coordinator via real HTTP POST /v1/task/status-report. Uses
+ * java.net.http.HttpClient (JDK 11+), Jackson for JSON serialization. Injects W3C trace context
+ * into outgoing HTTP headers for distributed tracing. Client side only — no Jetty dependency
+ * needed.
  *
- * <p>Final-state reports (FAILED/FINISHED/CANCELLED) use bounded exponential
- * backoff retry. Delivery may still fail after the retry budget is exhausted;
- * non-final-state reports (RUNNING etc.)
- * remain best-effort — loss is compensated by the next heartbeat cycle.</p>
+ * <p>Final-state reports (FAILED/FINISHED/CANCELLED) use bounded exponential backoff retry.
+ * Delivery may still fail after the retry budget is exhausted; non-final-state reports (RUNNING
+ * etc.) remain best-effort — loss is compensated by the next heartbeat cycle.
  *
- * <p>Each status report carries a {@code reportSequence} field that serves as
- * an idempotency key. The Coordinator deduplicates by {@code taskId + reportSequence},
- * making retried deliveries safe.</p>
+ * <p>Each status report carries a {@code reportSequence} field that serves as an idempotency key.
+ * The Coordinator deduplicates by {@code taskId + reportSequence}, making retried deliveries safe.
  *
- * <p>HTTP 409 means the Coordinator has not registered this Worker. A terminal
- * report remains undelivered and is retried while registration can recover.</p>
+ * <p>HTTP 409 means the Coordinator has not registered this Worker. A terminal report remains
+ * undelivered and is retried while registration can recover.
  */
 public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(RemoteTaskStatusReporter.class);
 
-    static final int MAX_RETRY_ATTEMPTS = org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ATTEMPTS_PER_ROUND;
-    static final long INITIAL_BACKOFF_MS = org.pangrova.protocol.task.TerminalReportDeliveryPolicy.INITIAL_BACKOFF.toMillis();
-    static final long MAX_BACKOFF_MS = org.pangrova.protocol.task.TerminalReportDeliveryPolicy.MAX_BACKOFF.toMillis();
+    static final int MAX_RETRY_ATTEMPTS =
+            org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ATTEMPTS_PER_ROUND;
+    static final long INITIAL_BACKOFF_MS =
+            org.pangrova.protocol.task.TerminalReportDeliveryPolicy.INITIAL_BACKOFF.toMillis();
+    static final long MAX_BACKOFF_MS =
+            org.pangrova.protocol.task.TerminalReportDeliveryPolicy.MAX_BACKOFF.toMillis();
     private static final String FINAL_STATE_FAILED = "FAILED";
     private static final String FINAL_STATE_FINISHED = "FINISHED";
     private static final String FINAL_STATE_CANCELLED = "CANCELLED";
@@ -60,12 +61,10 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
      * Constructs reporter with default HTTP client and NoOp metrics.
      *
      * @param coordinatorBaseUrl full base URL including scheme (e.g. "https://coordinator:8443")
-     * @param tracingProvider    tracing context propagation
+     * @param tracingProvider tracing context propagation
      */
     public RemoteTaskStatusReporter(
-            String coordinatorBaseUrl,
-            TracingProvider tracingProvider,
-            String internalAuthSecret) {
+            String coordinatorBaseUrl, TracingProvider tracingProvider, String internalAuthSecret) {
         org.pangrova.common.http.ManagedHttpClient managed =
                 org.pangrova.common.http.HttpClientFactory.createDefault();
         this.managedClient = managed;
@@ -76,17 +75,18 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         this.mapper = JsonMapperFactory.shared();
         this.tracingProvider = tracingProvider;
         this.internalAuthSecret = normalizeSecret(internalAuthSecret);
-        this.reportFailedCounter = new org.pangrova.observability.noop.NoOpMetricsProvider()
-                .createCounter("noop", "noop", "1");
+        this.reportFailedCounter =
+                new org.pangrova.observability.noop.NoOpMetricsProvider()
+                        .createCounter("noop", "noop", "1");
     }
 
     /**
      * Constructs reporter with custom HTTP client and metrics provider.
      *
      * @param coordinatorBaseUrl full base URL including scheme (e.g. "https://coordinator:8443")
-     * @param httpClient         JDK HttpClient for sending requests
-     * @param tracingProvider    tracing context propagation
-     * @param metricsProvider    metrics recording (nullable — uses no-op counter if null)
+     * @param httpClient JDK HttpClient for sending requests
+     * @param tracingProvider tracing context propagation
+     * @param metricsProvider metrics recording (nullable — uses no-op counter if null)
      */
     public RemoteTaskStatusReporter(
             String coordinatorBaseUrl,
@@ -103,18 +103,18 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         this.mapper = JsonMapperFactory.shared();
         this.tracingProvider = tracingProvider;
         this.internalAuthSecret = normalizeSecret(internalAuthSecret);
-        this.reportFailedCounter = metricsProvider != null
-                ? metricsProvider.createCounter(
-                        "task_status_report_failed",
-                        "Number of final-state task status reports that failed after all retries",
-                        "reports")
-                : NoOpCounter.INSTANCE;
+        this.reportFailedCounter =
+                metricsProvider != null
+                        ? metricsProvider.createCounter(
+                                "task_status_report_failed",
+                                "Number of final-state task status reports that failed after all retries",
+                                "reports")
+                        : NoOpCounter.INSTANCE;
     }
 
     /**
-     * Updates the Coordinator target address for status reporting.
-     * Thread-safe: baseUrl is volatile, so subsequent report() calls
-     * will use the new target without synchronization.
+     * Updates the Coordinator target address for status reporting. Thread-safe: baseUrl is
+     * volatile, so subsequent report() calls will use the new target without synchronization.
      *
      * @param newBaseUrl full base URL including scheme (e.g. "https://coordinator:8443")
      */
@@ -125,8 +125,8 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     }
 
     /**
-     * Shuts down the managed HTTP client thread pool if this reporter owns it.
-     * No-op if the HttpClient was externally provided.
+     * Shuts down the managed HTTP client thread pool if this reporter owns it. No-op if the
+     * HttpClient was externally provided.
      */
     @Override
     public void close() {
@@ -143,9 +143,13 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
             if (isFinalState(report.state())) {
                 reportFailedCounter.add(1);
                 LOG.error("event=final_state_report_serialize_failed taskId={} queryId={} state={} "
-                        + "reportSequence={}", report.taskId(), report.queryId(),
-                        report.state(), report.reportSequence());
-                throw new IllegalStateException("Cannot serialize terminal task report: " + report.taskId());
+                                + "reportSequence={}",
+                        report.taskId(),
+                        report.queryId(),
+                        report.state(),
+                        report.reportSequence());
+                throw new IllegalStateException(
+                        "Cannot serialize terminal task report: " + report.taskId());
             }
             return;
         }
@@ -166,9 +170,9 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     }
 
     /**
-     * Sends a final-state report with bounded exponential backoff retry.
-     * Initial backoff: 1s, max backoff: 30s, max attempts: 5.
-     * On exhaustion, records {@code task_status_report_failed} metric.
+     * Sends a final-state report with bounded exponential backoff retry. Initial backoff: 1s, max
+     * backoff: 30s, max attempts: 5. On exhaustion, records {@code task_status_report_failed}
+     * metric.
      */
     private void sendWithRetry(byte[] body, TaskStatusReport report) {
         BackoffStrategy backoff = BackoffStrategy.retry(INITIAL_BACKOFF_MS, MAX_BACKOFF_MS);
@@ -177,27 +181,38 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
             if (success) {
                 if (attempt > 1) {
                     LOG.info("event=final_state_report_retry_succeeded taskId={} queryId={} "
-                            + "state={} reportSequence={} attempt={}",
-                            report.taskId(), report.queryId(), report.state(),
-                            report.reportSequence(), attempt);
+                                    + "state={} reportSequence={} attempt={}",
+                            report.taskId(),
+                            report.queryId(),
+                            report.state(),
+                            report.reportSequence(),
+                            attempt);
                 }
                 return;
             }
             if (attempt < MAX_RETRY_ATTEMPTS) {
                 long backoffMs = backoff.next();
                 LOG.warn("event=final_state_report_retry taskId={} queryId={} state={} "
-                        + "reportSequence={} attempt={} nextBackoffMs={}",
-                        report.taskId(), report.queryId(), report.state(),
-                        report.reportSequence(), attempt, backoffMs);
+                                + "reportSequence={} attempt={} nextBackoffMs={}",
+                        report.taskId(),
+                        report.queryId(),
+                        report.state(),
+                        report.reportSequence(),
+                        attempt,
+                        backoffMs);
                 sleep(backoffMs);
             }
         }
         reportFailedCounter.add(1);
         LOG.error("event=final_state_report_exhausted taskId={} queryId={} state={} "
-                + "reportSequence={} maxAttempts={}",
-                report.taskId(), report.queryId(), report.state(),
-                report.reportSequence(), MAX_RETRY_ATTEMPTS);
-        throw new IllegalStateException("Terminal task report was not acknowledged: " + report.taskId());
+                        + "reportSequence={} maxAttempts={}",
+                report.taskId(),
+                report.queryId(),
+                report.state(),
+                report.reportSequence(),
+                MAX_RETRY_ATTEMPTS);
+        throw new IllegalStateException(
+                "Terminal task report was not acknowledged: " + report.taskId());
     }
 
     private byte[] serializeReport(TaskStatusReport report) {
@@ -205,7 +220,8 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
             return mapper.writeValueAsBytes(report);
         } catch (IOException e) {
             LOG.warn("event=status_report_serialize_failed taskId={} error={}",
-                    report.taskId(), e.getMessage());
+                    report.taskId(),
+                    e.getMessage());
             return null;
         }
     }
@@ -213,11 +229,14 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     /** Sends a single HTTP POST. Returns true only when the Coordinator accepts it. */
     private boolean sendPost(byte[] body, TaskStatusReport report) {
         String url = baseUrl + "/v1/task/status-report";
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(org.pangrova.protocol.task.TerminalReportDeliveryPolicy.REQUEST_TIMEOUT)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+        HttpRequest.Builder builder =
+                HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(
+                                org.pangrova.protocol.task.TerminalReportDeliveryPolicy
+                                        .REQUEST_TIMEOUT)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 
         if (internalAuthSecret != null) {
             builder.header("Authorization", "Bearer " + internalAuthSecret);
@@ -226,17 +245,18 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         injectTraceContext(builder);
 
         try {
-            HttpResponse<String> response = httpClient.send(
-                    builder.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response =
+                    httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
             return handleResponseStatus(response, report);
         } catch (IOException e) {
             LOG.warn("event=status_report_failed taskId={} url={} error={}",
-                    report.taskId(), url, e.getMessage());
+                    report.taskId(),
+                    url,
+                    e.getMessage());
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            LOG.warn("event=status_report_interrupted taskId={} url={}",
-                    report.taskId(), url);
+            LOG.warn("event=status_report_interrupted taskId={} url={}", report.taskId(), url);
             return false;
         }
     }
@@ -252,9 +272,12 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         int statusCode = response.statusCode();
         if (statusCode == HTTP_OK) {
             try {
-                var accepted = mapper.readValue(response.body(),
-                        org.pangrova.protocol.rest.task.TaskStatusReportResponse.class);
-                return report.taskId().equals(accepted.taskId()) && "CONTINUE".equals(accepted.command());
+                var accepted =
+                        mapper.readValue(
+                                response.body(),
+                                org.pangrova.protocol.rest.task.TaskStatusReportResponse.class);
+                return report.taskId().equals(accepted.taskId())
+                        && "CONTINUE".equals(accepted.command());
             } catch (IOException malformed) {
                 LOG.warn("event=status_report_ack_malformed taskId={}", report.taskId(), malformed);
                 return false;
@@ -262,12 +285,15 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         }
         if (statusCode == HTTP_CONFLICT) {
             LOG.warn("event=status_report_rejected reason=worker_not_registered "
-                    + "taskId={} statusCode=409 body={}",
-                    report.taskId(), response.body());
+                            + "taskId={} statusCode=409 body={}",
+                    report.taskId(),
+                    response.body());
             return false;
         }
         LOG.warn("event=status_report_error taskId={} statusCode={} body={}",
-                report.taskId(), statusCode, response.body());
+                report.taskId(),
+                statusCode,
+                response.body());
         return false;
     }
 
@@ -280,20 +306,17 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     }
 
     static boolean isFinalState(String state) {
-        return FINAL_STATE_FAILED.equals(state) || FINAL_STATE_FINISHED.equals(state)
+        return FINAL_STATE_FAILED.equals(state)
+                || FINAL_STATE_FINISHED.equals(state)
                 || FINAL_STATE_CANCELLED.equals(state);
     }
 
-    /**
-     * Sleeps for the given duration. Extracted for testability.
-     */
+    /** Sleeps for the given duration. Extracted for testability. */
     void sleep(long millis) {
         ThreadUtils.sleepQuietly(millis);
     }
 
-    /**
-     * No-op counter for when no MetricsProvider is supplied.
-     */
+    /** No-op counter for when no MetricsProvider is supplied. */
     private enum NoOpCounter implements LongCounter {
         INSTANCE;
 

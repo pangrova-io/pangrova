@@ -34,8 +34,8 @@ substrait::Plan nestedRows() {
   substrait::Plan plan;
   auto* root = plan.add_relations()->mutable_root();
   root->add_names("result");
-  root->add_names("field_0");
-  root->add_names("field_1");
+  root->add_names("first");
+  root->add_names("second");
   auto* project = root->mutable_input()->mutable_project();
   auto* read = project->mutable_input()->mutable_read();
   read->mutable_base_schema()->add_names("x");
@@ -78,6 +78,10 @@ TEST(CanonicalNestedExecutionTest, DynamicRowArrayPreservesOrdinalValuesDecimalA
   const auto& rowType = node->outputType()->childAt(0)->asArray().elementType()->asRow();
   EXPECT_EQ(rowType.nameOf(0), "field_0");
   EXPECT_EQ(rowType.nameOf(1), "field_1");
+  ASSERT_EQ(converter.resultOutputSchema().names_size(), 3);
+  EXPECT_EQ(converter.resultOutputSchema().names(1), "first");
+  EXPECT_EQ(converter.resultOutputSchema().names(2), "second");
+  EXPECT_EQ(converter.canonicalOutputSchema().names(1), "field_0");
   EXPECT_TRUE(rowType.childAt(1)->equivalent(*DECIMAL(12, 2)));
   auto task = exec::Task::create("canonical-nested-oracle", core::PlanFragment{node}, 0,
       core::QueryCtx::create(pangrova::jni::globalExecutor().get(),

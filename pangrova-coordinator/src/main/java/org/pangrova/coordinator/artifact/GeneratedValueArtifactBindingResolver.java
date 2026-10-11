@@ -61,8 +61,8 @@ public final class GeneratedValueArtifactBindingResolver {
     private OperatorBinding template(String tenant, String node, org.pangrova.protocol.v2.ArtifactBinding artifact) {
         var manifest = buildStore.findPublishedGeneration(tenant, artifact.getArtifactId(), artifact.getGeneration(),
                 artifact.getSourceSnapshot()).orElseThrow();
-        if (manifest.rowCount() <= 0 || manifest.rowCount() % 2 != 0 || manifest.totalBytes() <= 0) {
-            throw new IllegalStateException("Generated publication has invalid source-role resource totals");
+        if (manifest.rowCount() <= 0 || manifest.totalBytes() <= 0) {
+            throw new IllegalStateException("Generated publication has invalid source-row resource totals");
         }
         return OperatorBinding.newBuilder().setPlanNodeId(node)
                 .setCapability(BuiltInCapabilityCatalog.generatedValuesOverlayPlanRef()).addArtifacts(artifact)
@@ -71,7 +71,7 @@ public final class GeneratedValueArtifactBindingResolver {
                         .setFallbackPolicy(org.pangrova.protocol.v2.FallbackPolicy.FALLBACK_POLICY_FORBID)
                         .setRetryClass(org.pangrova.protocol.v2.RetryClass.RETRY_CLASS_IDEMPOTENT))
                 .setResources(org.pangrova.protocol.v2.OperatorResourceRequirement.newBuilder()
-                        .setFillKeys(manifest.rowCount() / 2).setObjectStoreReadBytes(manifest.totalBytes()))
+                        .setFillKeys(manifest.rowCount()).setObjectStoreReadBytes(manifest.totalBytes()))
                 .build();
     }
 

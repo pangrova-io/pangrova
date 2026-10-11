@@ -103,17 +103,27 @@ final class TaskStatusCollector {
         if (reporter == null) {
             return;
         }
-        if (info.resourcesReleased()) {
-            info.publishReleasedTerminal(() -> buildReport(info, state, error, terminalReport), reporter::report);
+        if ("FINISHED".equals(state) || "FAILED".equals(state) || "CANCELLED".equals(state)) {
+            boolean released = info.resourcesReleased();
+            info.publishTerminalStatus(released,
+                    () -> prepareTerminalReport(info, state, error, terminalReport, released), reporter::report);
         } else {
             reporter.report(buildReport(info, state, error, terminalReport));
         }
     }
 
+    private TaskStatusReport prepareTerminalReport(
+            TaskInfo info, String state, ErrorDetail error, byte[] terminalReport, boolean released) {
+        if (!released) return buildReport(info, state, error, terminalReport);
+        if (terminalReport == null) return releasedReport(info);
+        // Preserve classified Worker failures as well as Native terminal status; drain comes only from the actual exit.
+        return buildReport(info, state, error, withActualDrain(info, terminalReport));
+    }
+
     /** Publishes the actual later release, without cancelling a successfully consumed result. */
     void reportReleasedTerminal(TaskInfo info) {
         if (reporter == null) return;
-        info.publishReleasedTerminal(() -> releasedReport(info), reporter::report);
+        info.publishTerminalStatus(true, () -> releasedReport(info), reporter::report);
     }
 
     private TaskStatusReport releasedReport(TaskInfo info) {
@@ -282,7 +292,7 @@ final class TaskStatusCollector {
                 ? req.taskRequest().getAttempt().getTaskId() : info.taskId();
         byte[] metadata = executor.drainCommitMetadataForTask(taskId);
         LOG.debug("event=collect_write_result_drained taskId={} bytes={}",
-                taskId, metadata != null ? metadata.length : 0);
+                taskId, metadata.length);
         return metadata;
     }
 

@@ -3,12 +3,20 @@
 
 #pragma once
 
+#include <array>
 #include <string>
 
 #include "velox/type/Type.h"
 #include "velox/vector/ComplexVector.h"
 
 namespace pangrova::velox {
+
+/** Inserts requested virtual constants from the canonical signed split only. */
+facebook::velox::RowVectorPtr injectPhysicalSourceIdentity(
+    const facebook::velox::RowVectorPtr& input,
+    const std::array<std::string, 3>& source_values,
+    const facebook::velox::RowTypePtr& requested_output_type,
+    facebook::velox::memory::MemoryPool* pool);
 
 /**
  * Inserts the canonical split data-object identity as a Native constant

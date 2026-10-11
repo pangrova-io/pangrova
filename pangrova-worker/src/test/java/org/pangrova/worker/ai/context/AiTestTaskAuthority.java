@@ -14,10 +14,30 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TraceContext;
 import org.pangrova.testing.nativefixture.CanonicalTaskRequestTestFixture;
+import org.pangrova.worker.ai.invocation.AiInvocationService;
+
+import java.util.UUID;
+import java.util.function.Supplier;
 
 /** Canonical authority for component tests; this does not execute a Native task. */
 public final class AiTestTaskAuthority {
     private AiTestTaskAuthority() {}
+
+    public static <T> T callWithRegisteredTask(String tenant, String principal,
+            long deadline, long mediaBytes, Supplier<T> action) {
+        String taskId = "task-" + UUID.randomUUID();
+        var request = request(new Identity(tenant, principal, "query-1", taskId,
+                "trace-1", deadline), StageResourceGrant.newBuilder()
+                .setGrantId(taskId + ":grant").setCpuSlots(1)
+                .setNativeMemoryBytes(1048576).setMediaBytes(mediaBytes).build());
+        AiExecutionContext context = AiExecutionContext.fromTaskRequest(request);
+        AiInvocationService.registerTask(request);
+        try {
+            return AiExecutionContext.callWith(context, action);
+        } finally {
+            AiInvocationService.releaseTask(context.tenantId(), context.taskAttempt());
+        }
+    }
 
     public static AiExecutionContext context(String tenant, String principal, String query,
             String task, String trace, long deadline, long mediaBytes) {

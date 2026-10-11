@@ -80,7 +80,8 @@ class TypedCapabilityPlanBindingTest {
                 .build();
         Rel fetch = Rel.newBuilder().setFetch(io.substrait.proto.FetchRel.newBuilder()
                 .setInput(sort)
-                .setCount(10))
+                .setCountExpr(Expression.newBuilder().setLiteral(
+                        Expression.Literal.newBuilder().setI64(10))))
                 .build();
         return Plan.newBuilder().addRelations(io.substrait.proto.PlanRel.newBuilder()
                 .setRoot(io.substrait.proto.RelRoot.newBuilder()
@@ -96,9 +97,11 @@ class TypedCapabilityPlanBindingTest {
                 .addNames("score")
                 .setStruct(io.substrait.proto.Type.Struct.newBuilder()
                         .addTypes(io.substrait.proto.Type.newBuilder().setI64(
-                                io.substrait.proto.Type.I64.newBuilder()))
+                                io.substrait.proto.Type.I64.newBuilder().setNullability(
+                                        io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED)))
                         .addTypes(io.substrait.proto.Type.newBuilder().setFp64(
-                                io.substrait.proto.Type.FP64.newBuilder())))
+                                io.substrait.proto.Type.FP64.newBuilder().setNullability(
+                                        io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED))))
                 .build();
     }
 

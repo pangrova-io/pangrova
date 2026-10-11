@@ -16,6 +16,7 @@ import java.util.Objects;
  * @param argumentTypes  ordered list of argument type names
  * @param deterministic  whether repeated calls with the same arguments produce
  *                       the same result; defaults to {@code true}
+ * @param defaultNullBehavior whether any NULL input returns NULL before invoking the implementation
  * @param description    optional human-readable description for SHOW FUNCTIONS
  */
 @Experimental(reason = "G-SPI-08: function/UDF plugin SPI")
@@ -24,7 +25,10 @@ public record FunctionMetadata(
         String returnType,
         List<String> argumentTypes,
         boolean deterministic,
+        boolean defaultNullBehavior,
         String description) {
+
+    private static final boolean DEFAULT_NULL_BEHAVIOR = true;
 
     public FunctionMetadata {
         Objects.requireNonNull(name, "name must not be null");
@@ -33,10 +37,16 @@ public record FunctionMetadata(
         description = description == null ? "" : description;
     }
 
+    /** Pure functions use the same strict NULL-input default as the execution engine. */
+    public FunctionMetadata(String name, String returnType, List<String> argumentTypes,
+                            boolean deterministic, String description) {
+        this(name, returnType, argumentTypes, deterministic, DEFAULT_NULL_BEHAVIOR, description);
+    }
+
     /**
      * Convenience constructor for a deterministic function with no description.
      */
     public FunctionMetadata(String name, String returnType, List<String> argumentTypes) {
-        this(name, returnType, argumentTypes, true, "");
+        this(name, returnType, argumentTypes, true, DEFAULT_NULL_BEHAVIOR, "");
     }
 }

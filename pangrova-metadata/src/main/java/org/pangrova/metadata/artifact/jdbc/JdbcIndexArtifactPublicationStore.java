@@ -71,6 +71,9 @@ public final class JdbcIndexArtifactPublicationStore
                     completeBuildingGeneration(connection, job, now);
                 }
                 publishArtifactJob(connection, job, aggregate, owner, ownerEpoch, now);
+                // Recheck after every potentially blocking publication write, before commit.
+                // Expiry here rolls back the generation, descriptor pointer and job together.
+                ArtifactExecutionFence.requirePublication(connection, claimedJob.tenantId(), claimedJob.jobId());
                 connection.commit();
                 return manifest;
             } catch (SQLException | RuntimeException failure) {

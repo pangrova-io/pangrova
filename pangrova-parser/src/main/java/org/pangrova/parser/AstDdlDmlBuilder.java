@@ -377,7 +377,10 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
                     org.pangrova.common.exception.PangrovaErrorCode.PARSER_SYNTAX_ERROR,
                     "Invalid vector dimension: '" + ctx.vectorDim.getText() + "'", loc, e);
         }
-        return new DataTypeSpec.VectorType(dimension, DistanceMetric.COSINE);
+        var element = ctx.vectorElementType != null && ctx.vectorElementType.getType() == PangrovaSqlParser.DOUBLE
+                ? org.pangrova.spi.connector.data.type.VectorType.ElementType.DOUBLE
+                : org.pangrova.spi.connector.data.type.VectorType.ElementType.FLOAT;
+        return new DataTypeSpec.VectorType(dimension, DistanceMetric.COSINE, element);
     }
 
     private DataTypeSpec.DecimalType buildDecimalType(PangrovaSqlParser.ColumnTypeContext ctx) {
@@ -414,6 +417,7 @@ class AstDdlDmlBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     private BaseType resolvePrimitiveBaseType(PangrovaSqlParser.ColumnTypeContext ctx) {
         if (ctx.VARCHAR() != null) return BaseType.VARCHAR;
+        if (ctx.VARBINARY() != null) return BaseType.VARBINARY;
         if (ctx.BIGINT() != null) return BaseType.BIGINT;
         if (ctx.INT() != null || ctx.INTEGER() != null) return BaseType.INTEGER;
         if (ctx.DOUBLE() != null) return BaseType.DOUBLE;

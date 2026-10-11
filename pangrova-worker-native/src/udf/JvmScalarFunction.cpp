@@ -6,20 +6,19 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <shared_mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include <openssl/evp.h>
-
-#include "cache/SemanticResultCache.h"
 #include "jni/bridge/JniBridge.h"
-#include "observability/PangrovaLog.h"
+#include "jni/registry/HandleRegistry.h"
+#include "pangrova/protocol/v2/common.pb.h"
+#include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/expression/DecodedArgs.h"
 #include "velox/expression/VectorFunction.h"
 #include "velox/type/Type.h"
@@ -39,7 +38,6 @@ constexpr size_t kGovernedHiddenArguments = pangrova::capability::generated::AI_
 constexpr size_t governedOffset(std::string_view name) {
   return pangrova::capability::generated::governedOrdinal(pangrova::capability::generated::AI_MODEL, name);
 }
-constexpr size_t kReuseEnabledOffset = governedOffset("reuse_enabled");
 constexpr size_t kVectorDimensionOffset = governedOffset("output_vector_dimension");
 
 std::string upper(std::string value) {
@@ -112,6 +110,7 @@ class ScopedJniEnv {
 struct CallbackSnapshot {
   jobject callback = nullptr;
   jmethodID evaluateBatch = nullptr;
+  jmethodID describeAiFailure = nullptr;
   jclass objectClass = nullptr;
   jclass objectArrayClass = nullptr;
   jclass stringClass = nullptr;
@@ -173,6 +172,8 @@ class JvmFunctionCallbacks {
       evaluateBatch_ = requireMethod(
           env, callbackClass_, "evaluateBatch",
           "(Ljava/lang/String;[[Ljava/lang/Object;[B)[Ljava/lang/Object;");
+      describeAiFailure_ = requireMethod(
+          env, callbackClass_, "describeAiFailure", "(Ljava/lang/Throwable;)[B");
       stringConstructor_ = requireMethod(
           env, stringClass_, "<init>", "([BLjava/lang/String;)V");
       stringGetBytes_ = requireMethod(
@@ -199,7 +200,7 @@ class JvmFunctionCallbacks {
   }
 
   CallbackSnapshot snapshot(JNIEnv* env) const {
-    if (!callback_ || !evaluateBatch_) {
+    if (!callback_ || !evaluateBatch_ || !describeAiFailure_) {
       throw std::runtime_error("JVM function callback is not installed");
     }
     CallbackSnapshot result;
@@ -208,6 +209,7 @@ class JvmFunctionCallbacks {
       throw std::runtime_error("Failed to retain JVM function callback");
     }
     result.evaluateBatch = evaluateBatch_;
+    result.describeAiFailure = describeAiFailure_;
     result.objectClass = objectClass_;
     result.objectArrayClass = objectArrayClass_;
     result.stringClass = stringClass_;
@@ -291,6 +293,7 @@ class JvmFunctionCallbacks {
     deleteClass(env, floatClass_);
     deleteClass(env, doubleClass_);
     evaluateBatch_ = nullptr;
+    describeAiFailure_ = nullptr;
     stringConstructor_ = nullptr;
     stringGetBytes_ = nullptr;
     booleanValueOf_ = nullptr;
@@ -316,6 +319,7 @@ class JvmFunctionCallbacks {
   jclass floatClass_ = nullptr;
   jclass doubleClass_ = nullptr;
   jmethodID evaluateBatch_ = nullptr;
+  jmethodID describeAiFailure_ = nullptr;
   jmethodID stringConstructor_ = nullptr;
   jmethodID stringGetBytes_ = nullptr;
   jmethodID booleanValueOf_ = nullptr;
@@ -683,7 +687,7 @@ std::string decodedString(
   if (decoded.isNullAt(row) ||
       decoded.base()->typeKind() != TypeKind::VARCHAR) {
     throw std::invalid_argument(
-        std::string("Semantic cache ") + field + " must be VARCHAR");
+        std::string("JVM callback ") + field + " must be VARCHAR");
   }
   const auto value = decoded.valueAt<StringView>(row);
   return std::string(value.data(), value.size());
@@ -697,99 +701,13 @@ uint64_t positiveUint64(const std::string& value, const char* field) {
     return parsed;
   } catch (const std::exception&) {
     throw std::invalid_argument(
-        std::string("Semantic cache ") + field + " must be positive");
+        std::string("JVM callback ") + field + " must be positive");
   }
 }
-
-double reuseThreshold(const std::string& value) {
-  try {
-    size_t consumed = 0;
-    const double parsed = std::stod(value, &consumed);
-    if (consumed != value.size() || !std::isfinite(parsed) ||
-        parsed < 0.90 || parsed > 1.0) {
-      throw std::invalid_argument("threshold");
-    }
-    return parsed;
-  } catch (const std::exception&) {
-    throw std::invalid_argument("Semantic cache threshold is invalid");
-  }
-}
-
-void appendCanonical(std::string& target, std::string_view value) {
-  const uint64_t size = value.size();
-  target.append(reinterpret_cast<const char*>(&size), sizeof(size));
-  target.append(value);
-}
-
-std::string sha256Hex(const std::string& value) {
-  unsigned char digest[EVP_MAX_MD_SIZE];
-  unsigned int size = 0;
-  if (EVP_Digest(
-          value.data(), value.size(), digest, &size, EVP_sha256(), nullptr) != 1 ||
-      size != 32) {
-    throw std::runtime_error("Semantic cache key SHA-256 failed");
-  }
-  constexpr char digits[] = "0123456789abcdef";
-  std::string result(size * 2, '\0');
-  for (unsigned int index = 0; index < size; ++index) {
-    result[index * 2] = digits[digest[index] >> 4U];
-    result[index * 2 + 1] = digits[digest[index] & 0x0fU];
-  }
-  return result;
-}
-
-void appendArgument(
-    std::string& target,
-    const DecodedVector& decoded,
-    vector_size_t row,
-    const TypePtr& type) {
-  appendCanonical(target, type->toString());
-  if (decoded.isNullAt(row)) {
-    appendCanonical(target, "<null>");
-    return;
-  }
-  switch (type->kind()) {
-    case TypeKind::BOOLEAN:
-      appendCanonical(target, decoded.valueAt<bool>(row) ? "1" : "0");
-      return;
-    case TypeKind::TINYINT:
-      appendCanonical(target, std::to_string(decoded.valueAt<int8_t>(row)));
-      return;
-    case TypeKind::SMALLINT:
-      appendCanonical(target, std::to_string(decoded.valueAt<int16_t>(row)));
-      return;
-    case TypeKind::INTEGER:
-      appendCanonical(target, std::to_string(decoded.valueAt<int32_t>(row)));
-      return;
-    case TypeKind::BIGINT:
-      appendCanonical(target, std::to_string(decoded.valueAt<int64_t>(row)));
-      return;
-    case TypeKind::REAL:
-      appendCanonical(target, std::to_string(decoded.valueAt<float>(row)));
-      return;
-    case TypeKind::DOUBLE:
-      appendCanonical(target, std::to_string(decoded.valueAt<double>(row)));
-      return;
-    case TypeKind::VARCHAR: {
-      const auto value = decoded.valueAt<StringView>(row);
-      appendCanonical(target, std::string_view(value.data(), value.size()));
-      return;
-    }
-    default:
-      throw std::invalid_argument(
-          "Semantic cache parameter type is not canonically encodable: " +
-          type->toString());
-  }
-}
-
-struct CacheBatchContext final {
-  cache::ReuseIdentity identity;
-  cache::ReusePolicy policy;
-  size_t public_arguments{0};
-};
 
 struct JvmCallContext final {
   std::string callback_context;
+  int64_t executor_handle = 0;
 };
 
 class JvmScalarFunction final : public exec::VectorFunction {
@@ -826,31 +744,12 @@ class JvmScalarFunction final : public exec::VectorFunction {
           ? 0
           : exactVectorDimension(decoded, args, requestedRows.front());
       const auto& queryConfig = context.execCtx()->queryCtx()->queryConfig();
-      const auto taskId = queryConfig.get<std::string>("pangrova.task_id", "");
-      auto cacheContext = requestedRows.empty()
-          ? std::optional<CacheBatchContext>{}
-          : buildCacheContext(
-                decoded, args, requestedRows.front(), queryConfig);
-      std::vector<std::optional<cache::CachedValue>> cacheValues(rows.end());
-      std::vector<std::vector<float>> requestKeys(rows.end());
-      std::vector<cache::ReuseIdentity> identities(rows.end());
-
       auto batch = env->NewObjectArray(
           rows.countSelected(), callback.objectArrayClass, nullptr);
       std::vector<vector_size_t> selectedRows;
       selectedRows.reserve(rows.countSelected());
       jsize batchRow = 0;
       for (vector_size_t row : requestedRows) {
-        if (cacheContext) {
-          identities[row] = identityForRow(
-              *cacheContext, decoded, args, row);
-          requestKeys[row] = cache::SemanticResultCache::requestKey(
-              decodedString(*decoded.at(1), row, "request text"),
-              cacheContext->policy.key_dimension);
-          cacheValues[row] = cache::SemanticResultCache::instance().lookup(
-              identities[row], requestKeys[row], cacheContext->policy, taskId);
-          if (cacheValues[row].has_value()) continue;
-        }
         auto arguments = env->NewObjectArray(
             static_cast<jsize>(args.size()), callback.objectClass, nullptr);
         for (size_t argument = 0; argument < args.size(); ++argument) {
@@ -868,10 +767,15 @@ class JvmScalarFunction final : public exec::VectorFunction {
       }
       const auto callbackContext = queryConfig.get<std::string>(
           "pangrova.execution_callback_context", "");
+      const auto executorHandle = positiveUint64(queryConfig.get<std::string>(
+          "pangrova.executor_handle", ""), "executor handle");
+      if (executorHandle > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+        throw std::invalid_argument("JVM callback executor handle exceeds int64 range");
+      }
       jobjectArray javaResults = nullptr;
       if (batchRow > 0) {
         javaResults = invokeJava(env, callback, batch, JvmCallContext{
-            callbackContext});
+            callbackContext, static_cast<int64_t>(executorHandle)});
       }
       if (batchRow > 0 &&
           (!javaResults || env->GetArrayLength(javaResults) != batchRow)) {
@@ -879,21 +783,9 @@ class JvmScalarFunction final : public exec::VectorFunction {
             "JVM scalar function '" + name_ +
             "' returned an invalid batch cardinality");
       }
-      if (cacheContext) {
-        cacheMissResults(
-            env, callback, javaResults, selectedRows, identities, requestKeys,
-            cacheValues, cacheContext->policy, taskId);
-        writeCacheResults(cacheValues, rows, context, result);
-        PANGROVA_LOG_INFO << "semantic_cache_batch"
-                          << " task_id=" << taskId
-                          << " function=" << name_
-                          << " requested=" << requestedRows.size()
-                          << " provider_rows=" << selectedRows.size();
-      } else {
-        writeResults(
-            env, callback, javaResults, selectedRows, rows, context, result,
-            expectedVectorDimension);
-      }
+      writeResults(
+          env, callback, javaResults, selectedRows, rows, context, result,
+          expectedVectorDimension);
       env->PopLocalFrame(nullptr);
     } catch (...) {
       env->PopLocalFrame(nullptr);
@@ -921,92 +813,6 @@ class JvmScalarFunction final : public exec::VectorFunction {
     return static_cast<uint32_t>(dimension);
   }
 
-  template <typename QueryConfig>
-  std::optional<CacheBatchContext> buildCacheContext(
-      const exec::DecodedArgs& decoded,
-      const std::vector<VectorPtr>& args,
-      vector_size_t row,
-      const QueryConfig& query_config) const {
-    if (pangrova::capability::generated::governedLayoutForImplementation(name_) != "AI_MODEL") return std::nullopt;
-    if (args.size() < kGovernedHiddenArguments) throw std::invalid_argument("Governed callback hidden layout is incomplete");
-    const size_t offset = args.size() - kGovernedHiddenArguments;
-    const std::string enabled = decodedString(
-        *decoded.at(offset + kReuseEnabledOffset), row, "enabled flag");
-    if (enabled == "false") return std::nullopt;
-    if (enabled != "true" || returnType_->kind() != TypeKind::VARCHAR ||
-        offset < 2) {
-      throw std::invalid_argument(
-          "Semantic cache binding is enabled for an unsupported invocation");
-    }
-    const std::string require_complete = decodedString(
-        *decoded.at(offset + governedOffset("reuse_require_complete")), row, "complete-only flag");
-    if (require_complete != "true") {
-      throw std::invalid_argument("Semantic cache requires complete-only writes");
-    }
-    CacheBatchContext result;
-    result.public_arguments = offset;
-    result.policy.ttl_ms = positiveUint64(decodedString(
-        *decoded.at(offset + governedOffset("reuse_ttl_ms")), row, "ttl_ms"), "ttl_ms");
-    result.policy.max_entries = positiveUint64(decodedString(
-        *decoded.at(offset + governedOffset("reuse_max_entries")), row, "max_entries"), "max_entries");
-    result.policy.max_bytes = positiveUint64(decodedString(
-        *decoded.at(offset + governedOffset("reuse_max_bytes")), row, "max_bytes"), "max_bytes");
-    result.policy.similarity_threshold = reuseThreshold(decodedString(
-        *decoded.at(offset + governedOffset("reuse_similarity_threshold")), row, "similarity_threshold"));
-    result.policy.key_dimension = static_cast<uint32_t>(positiveUint64(
-        decodedString(*decoded.at(offset + governedOffset("reuse_key_dimension")), row, "key_dimension"),
-        "key_dimension"));
-    result.identity.tenant_id = query_config.template get<std::string>(
-        "pangrova.tenant_id", "");
-    result.identity.principal = query_config.template get<std::string>(
-        "pangrova.principal", "");
-    result.identity.policy_context_hash = query_config.template get<std::string>(
-        "pangrova.policy_context_hash", "");
-    result.identity.dependency_scope_hash =
-        query_config.template get<std::string>(
-            "pangrova.dependency_scope_hash", "");
-    result.identity.dependency_version_hash =
-        query_config.template get<std::string>(
-            "pangrova.dependency_version_hash", "");
-    if (result.identity.tenant_id.empty() || result.identity.principal.empty() ||
-        result.identity.policy_context_hash.empty() ||
-        result.identity.dependency_scope_hash.empty() ||
-        result.identity.dependency_version_hash.empty()) {
-      throw std::invalid_argument(
-          "Semantic cache security or dependency identity is incomplete");
-    }
-    std::string model;
-    for (const auto name : {"model_id", "model_version", "model_signature"}) {
-      appendCanonical(model, decodedString(
-          *decoded.at(offset + governedOffset(name)), row, "model identity"));
-    }
-    std::string capability;
-    for (const auto name : {"capability_id", "capability_version", "capability_signature"}) {
-      appendCanonical(capability, decodedString(
-          *decoded.at(offset + governedOffset(name)), row, "capability identity"));
-    }
-    result.identity.model_identity = sha256Hex(model);
-    result.identity.capability_identity = sha256Hex(capability);
-    result.identity.function_name = name_;
-    result.identity.result_type = returnType_->toString();
-    return result;
-  }
-
-  cache::ReuseIdentity identityForRow(
-      const CacheBatchContext& base,
-      const exec::DecodedArgs& decoded,
-      const std::vector<VectorPtr>& args,
-      vector_size_t row) const {
-    cache::ReuseIdentity identity = base.identity;
-    std::string parameters;
-    for (size_t index = 0; index < base.public_arguments; ++index) {
-      if (index == 1) continue;
-      appendArgument(parameters, *decoded.at(index), row, args[index]->type());
-    }
-    identity.parameter_fingerprint = sha256Hex(parameters);
-    return identity;
-  }
-
   jobjectArray invokeJava(
       JNIEnv* env,
       const CallbackSnapshot& callback,
@@ -1024,60 +830,44 @@ class JvmScalarFunction final : public exec::VectorFunction {
     auto results = static_cast<jobjectArray>(env->CallObjectMethod(
         callback.callback, callback.evaluateBatch, function, batch, authority));
     if (env->ExceptionCheck()) {
+      auto failure = env->ExceptionOccurred();
+      env->ExceptionClear();
+      auto encoded = static_cast<jbyteArray>(env->CallObjectMethod(
+          callback.callback, callback.describeAiFailure, failure));
+      if (env->ExceptionCheck()) {
+        throw std::runtime_error("JVM AI failure projection failed: " +
+                                 consumeJavaException(env));
+      }
+      if (encoded) {
+        const jsize length = env->GetArrayLength(encoded);
+        if (length <= 0 || length > 65'536) {
+          throw std::runtime_error("JVM AI failure projection has invalid size");
+        }
+        std::string bytes(static_cast<size_t>(length), '\0');
+        env->GetByteArrayRegion(encoded, 0, length,
+                                reinterpret_cast<jbyte*>(bytes.data()));
+        if (env->ExceptionCheck()) {
+          throw std::runtime_error("JVM AI failure projection could not be read: " +
+                                   consumeJavaException(env));
+        }
+        pangrova::protocol::v2::ExecutionError error;
+        if (!error.ParseFromString(bytes) ||
+            !pangrova::protocol::v2::ErrorClass_IsValid(error.error_class()) ||
+            error.error_class() == pangrova::protocol::v2::ERROR_CLASS_UNSPECIFIED ||
+            error.code().empty() || error.message().empty() ||
+            error.failed_component().empty() ||
+            !error.GetReflection()->GetUnknownFields(error).empty()) {
+          throw std::runtime_error("JVM AI failure projection is not canonical");
+        }
+        pangrova::jni::HandleRegistry::instance()
+            .acquire(call.executor_handle)->recordExecutionError(error);
+      }
+      env->Throw(failure);
       throw std::runtime_error(
           "JVM scalar function '" + name_ + "' failed: " +
           consumeJavaException(env));
     }
     return results;
-  }
-
-  void cacheMissResults(
-      JNIEnv* env,
-      const CallbackSnapshot& callback,
-      jobjectArray java_results,
-      const std::vector<vector_size_t>& missed_rows,
-      const std::vector<cache::ReuseIdentity>& identities,
-      const std::vector<std::vector<float>>& request_keys,
-      std::vector<std::optional<cache::CachedValue>>& values,
-      const cache::ReusePolicy& policy,
-      const std::string& task_id) const {
-    for (jsize index = 0; index < static_cast<jsize>(missed_rows.size()); ++index) {
-      const vector_size_t row = missed_rows[index];
-      jobject result = env->GetObjectArrayElement(java_results, index);
-      if (!result) {
-        throw std::runtime_error(
-            "Semantic cache complete-only invocation returned a null result");
-      }
-      cache::CachedValue value = javaString(env, callback, result);
-      env->DeleteLocalRef(result);
-      const bool admitted = cache::SemanticResultCache::instance().put(
-          identities[row], request_keys[row], value, policy, task_id);
-      if (!admitted) {
-        PANGROVA_LOG_WARN << "semantic_cache_admission_rejected"
-                          << " task_id=" << task_id
-                          << " tenant_id=" << identities[row].tenant_id
-                          << " function=" << name_;
-      }
-      values[row] = std::move(value);
-    }
-  }
-
-  void writeCacheResults(
-      const std::vector<std::optional<cache::CachedValue>>& values,
-      const SelectivityVector& rows,
-      exec::EvalCtx& context,
-      VectorPtr& result) const {
-    auto local = BaseVector::create(returnType_, rows.end(), context.pool());
-    rows.applyToSelected([&](vector_size_t row) {
-      if (!values[row].has_value() ||
-          !std::holds_alternative<std::string>(*values[row])) {
-        throw std::runtime_error(
-            "Semantic cache did not produce a complete VARCHAR result");
-      }
-      const auto& value = std::get<std::string>(*values[row]);
-      local->asFlatVector<StringView>()->set(row, StringView(value));
-    });
-    context.moveOrCopyResult(local, rows, result);
   }
 
   void writeResults(
@@ -1188,10 +978,68 @@ void bindJvmFunctionCallbacks(ScalarUdfSpec& spec, JvmFunctionCallbackOwner owne
 }
 
 ScalarUdfSpec makeJvmScalarFunctionSpec(
+    const protocol::v2::NativeFunctionDescriptor& descriptor) {
+  if (!descriptor.has_default_null_behavior() ||
+      descriptor.GetReflection()->GetUnknownFields(descriptor).field_count() != 0) {
+    throw std::invalid_argument(
+        "Function descriptor requires explicit known NULL-input metadata");
+  }
+  if (descriptor.function_kind() != protocol::v2::NATIVE_FUNCTION_KIND_SCALAR) {
+    throw std::invalid_argument(
+        "JVM aggregate function registration is not supported: " + descriptor.name());
+  }
+  const auto requireCanonicalString = [](const protocol::v2::LogicalType& type) {
+    std::vector<const google::protobuf::FieldDescriptor*> fields;
+    type.GetReflection()->ListFields(type, &fields);
+    if (type.GetReflection()->GetUnknownFields(type).field_count() != 0 ||
+        fields.size() != 1 ||
+        fields.front()->number() != protocol::v2::LogicalType::kCanonicalSqlFieldNumber) {
+      throw std::invalid_argument(
+          "Function descriptor LogicalType must contain exactly its canonical SQL declaration");
+    }
+  };
+  requireCanonicalString(descriptor.return_type());
+  for (const auto& argument : descriptor.argument_types()) {
+    requireCanonicalString(argument);
+  }
+  const auto declared = pangrova::capability::generated::findRuntimeCallbackSignatures(exec::sanitizeName(descriptor.name()));
+  if (!declared.empty()) {
+    const bool matches = std::any_of(declared.begin(), declared.end(), [&](const auto& signature) {
+      if (descriptor.name() != signature.name ||
+          descriptor.return_type().canonical_sql() != signature.returnType ||
+          descriptor.deterministic() != signature.deterministic ||
+          descriptor.default_null_behavior() != signature.defaultNullBehavior ||
+          static_cast<size_t>(descriptor.argument_types_size()) != signature.arguments.size()) {
+        return false;
+      }
+      for (int ordinal = 0; ordinal < descriptor.argument_types_size(); ++ordinal) {
+        if (descriptor.argument_types(ordinal).canonical_sql() != signature.arguments[static_cast<size_t>(ordinal)]) {
+          return false;
+        }
+      }
+      return true;
+    });
+    if (!matches) {
+      throw std::invalid_argument(
+          "Function descriptor differs from its sole canonical callback declaration: " + descriptor.name());
+    }
+  }
+  std::vector<std::string> argumentTypes;
+  argumentTypes.reserve(descriptor.argument_types_size());
+  for (const auto& argument : descriptor.argument_types()) {
+    argumentTypes.push_back(argument.canonical_sql());
+  }
+  return makeJvmScalarFunctionSpec(descriptor.name(), argumentTypes,
+      descriptor.return_type().canonical_sql(), descriptor.deterministic(),
+      descriptor.default_null_behavior());
+}
+
+ScalarUdfSpec makeJvmScalarFunctionSpec(
     const std::string& name,
     const std::vector<std::string>& argumentTypes,
     const std::string& returnType,
-    bool deterministic) {
+    bool deterministic,
+    bool defaultNullBehavior) {
   ScalarUdfSpec spec;
   spec.name = name;
   spec.inputTypes.reserve(argumentTypes.size());
@@ -1201,6 +1049,7 @@ ScalarUdfSpec makeJvmScalarFunctionSpec(
   spec.outputType = parseType(returnType);
   spec.stateful = false;
   spec.deterministic = deterministic;
+  spec.defaultNullBehavior = defaultNullBehavior;
   spec.vectorFunctionFactory =
       [functionName = spec.name,
        output = spec.outputType](

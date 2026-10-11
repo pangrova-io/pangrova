@@ -81,6 +81,23 @@ class AstPrinterTest {
     }
 
     @Test
+    void printCorrelatedUnnest() {
+        assertRoundTrip("SELECT u.value FROM lake.src s CROSS JOIN "
+                + "UNNEST(ARRAY[s.amount, s.id]) AS u(value)");
+    }
+
+    @Test
+    void printUnnestWithOrdinality() {
+        assertRoundTrip("SELECT u.position FROM lake.src s CROSS JOIN "
+                + "UNNEST(ARRAY[s.amount, s.id]) WITH ORDINALITY AS u(value, position)");
+    }
+
+    @Test
+    void printStandaloneUnnest() {
+        assertRoundTrip("SELECT u.value FROM UNNEST(ARRAY[1, 2, 3]) AS u(value)");
+    }
+
+    @Test
     void printGroupByHaving() {
         assertRoundTrip("SELECT a, COUNT(a) FROM t GROUP BY a HAVING (COUNT(a) > 1)");
     }

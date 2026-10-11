@@ -152,9 +152,9 @@
 
         <!-- Native JNI library: in production, loaded from classifier JAR on classpath.
              The dependency is declared in the 'native-runtime' profile below,
-             activated by CI via -Pnative-runtime. Development builds use
-             maven-resources-plugin to copy the dylib to the classpath
-             (see copy-native-lib execution above). -->
+             activated by CI via -Pnative-runtime. Local validation packages
+             the qualified Native library into the canonical Worker resource
+             path before Maven compilation. Tests use that same classpath resource. -->
 
         <dependency>
             <groupId>org.pangrova</groupId>
@@ -232,38 +232,13 @@
                             <classifier>native-fixtures</classifier>
                             <includes>
                                 <include>org/pangrova/testing/nativefixture/**</include>
+                                <include>org/pangrova/worker/transport/TransportServerAllocatorFixture.class</include>
                             </includes>
                             <archive>
                                 <manifestEntries>
                                     <Automatic-Module-Name>org.pangrova.testing.nativefixture</Automatic-Module-Name>
                                 </manifestEntries>
                             </archive>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-            <!-- Copy native library from CMake build dir to classpath for tests.
-                 Same path as production (classpath extraction via NativeLibraryLoader).
-                 Skipped if the dylib doesn't exist (no native build). -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-native-lib</id>
-                        <phase>process-test-resources</phase>
-                        <goals><goal>copy-resources</goal></goals>
-                        <configuration>
-                            <outputDirectory>${project.build.testOutputDirectory}/META-INF/native/${os.detected.name}/${os.detected.arch}</outputDirectory>
-                            <resources>
-                                <resource>
-                                    <directory>${maven.multiModuleProjectDirectory}/pangrova-worker-native/build</directory>
-                                    <includes>
-                                        <include>libpangrova_native.dylib</include>
-                                    </includes>
-                                </resource>
-                            </resources>
-                            <overwrite>true</overwrite>
                         </configuration>
                     </execution>
                 </executions>
@@ -313,7 +288,7 @@
           native-runtime: activated by CI/release builds (-Pnative-runtime) to include
           the per-platform classifier JAR on the runtime classpath. This JAR contains
           libpangrova_native under META-INF/native/{os}/{arch}/ for classpath extraction.
-          Development builds skip this profile and use java.library.path instead.
+          Local validation loads the qualified packaged Worker resource through the same loader.
         -->
         <profile>
             <id>native-runtime</id>

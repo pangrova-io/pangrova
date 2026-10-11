@@ -404,18 +404,40 @@ public final class AstPrinter {
     }
 
     String printRef(TableRef ref) {
+        if (ref.isValues()) {
+            ValuesTable values = ref.valuesTable().orElseThrow();
+            String rows = values.rows().stream()
+                    .map(row -> "(" + row.stream().map(this::printExpr)
+                            .collect(Collectors.joining(", ")) + ")")
+                    .collect(Collectors.joining(", "));
+            var sb = new StringBuilder("(VALUES ").append(rows).append(")");
+            ref.alias().ifPresent(alias -> sb.append(" AS ").append(quote(alias)));
+            if (!values.columnAliases().isEmpty()) {
+                sb.append("(").append(values.columnAliases().stream()
+                        .map(this::quote).collect(Collectors.joining(", "))).append(")");
+            }
+            return sb.toString();
+        }
         if (ref.isTableFunction()) {
             var funcRef = ref.tableFunctionRef().orElseThrow();
             var sb = new StringBuilder();
-            if (ref.lateral()) {
-                sb.append("LATERAL ");
+            if (funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST
+                    || funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY) {
+                sb.append("UNNEST(").append(printExpr(funcRef.argument())).append(")");
+                if (funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY) {
+                    sb.append(" WITH ORDINALITY");
+                }
+            } else {
+                if (ref.lateral()) {
+                    sb.append("LATERAL ");
+                }
+                sb.append("TABLE(");
+                sb.append(funcRef.functionType().name());
+                sb.append("(").append(printExpr(funcRef.argument()));
+                funcRef.endArgument().ifPresent(end ->
+                        sb.append(", ").append(printExpr(end)));
+                sb.append("))");
             }
-            sb.append("TABLE(");
-            sb.append(funcRef.functionType().name());
-            sb.append("(").append(printExpr(funcRef.argument()));
-            funcRef.endArgument().ifPresent(end ->
-                    sb.append(", ").append(printExpr(end)));
-            sb.append("))");
             if (funcRef.alias().isPresent()) {
                 sb.append(" AS ").append(quote(funcRef.alias().get()));
                 if (!funcRef.columnAliases().isEmpty()) {

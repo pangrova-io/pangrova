@@ -34,7 +34,12 @@ public sealed interface MetadataEvent permits
 
     record TableDroppedEvent(QualifiedTableRef tableRef) implements MetadataEvent {}
 
-    record TableAlteredEvent(QualifiedTableRef tableRef, List<SchemaChange> changes) implements MetadataEvent {}
+    record TableAlteredEvent(QualifiedTableRef tableRef, List<SchemaChange> changes) implements MetadataEvent {
+        /** Owns a stable change snapshot before asynchronous dispatch. */
+        public TableAlteredEvent {
+            changes = List.copyOf(changes);
+        }
+    }
 
     record MetadataSyncedEvent(String catalogName, MetadataChange change) implements MetadataEvent {}
 
@@ -67,6 +72,7 @@ public sealed interface MetadataEvent permits
             List<SchemaChange> schemaChanges,
             TenantImpactScope tenantScope) implements MetadataEvent {
         public SchemaEvolutionEvent {
+            schemaChanges = List.copyOf(schemaChanges);
             if (tenantScope == null) {
                 throw new IllegalArgumentException("tenantScope must not be null");
             }

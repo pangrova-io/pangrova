@@ -296,7 +296,8 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         }
         String queryId = session.getProperties().get("queryId");
         if (queryId != null) {
-            snapshotRegistry.pinSnapshotForQuery(queryId, handle.schemaName(), handle.tableName(), snapshot.snapshotId());
+            snapshotRegistry.pinSnapshotForQuery(
+                    queryId, handle.schemaName(), handle.tableName(), snapshot.snapshotId());
         }
     }
 

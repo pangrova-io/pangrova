@@ -80,10 +80,12 @@ final class JdbcArtifactPublishedInputs {
         for (var read : reads) {
             var manifest = findManifest(connection, tenantId, read.artifactId(), read.generation(),
                     read.sourceSnapshot()).orElseThrow(() -> new IllegalStateException("Pinned publication is absent"));
-            if (!manifest.sourceId().equals(read.sourceId()) || !manifest.manifestSha256().equals(read.manifestSha256())) {
+            if (!manifest.sourceId().equals(read.sourceId())
+                    || !manifest.manifestSha256().equals(read.manifestSha256())) {
                 throw new IllegalStateException("Pinned stage publication identity or digest differs");
             }
-            var outputs = JdbcArtifactBuildOutputQueries.loadPublished(connection, tenantId, manifest.jobId(), requested);
+            var outputs = JdbcArtifactBuildOutputQueries.loadPublished(
+                    connection, tenantId, manifest.jobId(), requested);
             Map<String, String> covered = splitChecksums(splits, outputs);
             if (!JdbcArtifactBuildOutputQueries.matchesPublishedSplits(connection, tenantId, manifest.jobId(),
                     List.copyOf(covered.keySet()), covered)) {
@@ -94,7 +96,8 @@ final class JdbcArtifactPublishedInputs {
         return Collections.unmodifiableMap(result);
     }
 
-    private static Map<String, String> splitChecksums(List<ArtifactBuildSplit> splits, List<ArtifactBuildOutput> outputs) {
+    private static Map<String, String> splitChecksums(
+            List<ArtifactBuildSplit> splits, List<ArtifactBuildOutput> outputs) {
         var coveredIds = outputs.stream()
                 .filter(output -> output.scope() == ArtifactBuildOutputScope.SOURCE_OBJECT)
                 .map(ArtifactBuildOutput::sourceObjectId).collect(java.util.stream.Collectors.toSet());

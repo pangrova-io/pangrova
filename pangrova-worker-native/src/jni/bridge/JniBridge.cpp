@@ -446,20 +446,7 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeRegisterFunctions0(
             "Function descriptor at index " + std::to_string(i) +
             " is malformed");
       }
-      if (descriptor.function_kind() !=
-          pangrova::protocol::v2::NATIVE_FUNCTION_KIND_SCALAR) {
-        throw std::invalid_argument(
-            "JVM aggregate function registration is not supported: " +
-            descriptor.name());
-      }
-      std::vector<std::string> argumentTypes;
-      argumentTypes.reserve(descriptor.argument_types_size());
-      for (const auto& argument_type : descriptor.argument_types()) {
-        argumentTypes.push_back(argument_type.canonical_sql());
-      }
-      scalarSpecs.push_back(pangrova::udf::makeJvmScalarFunctionSpec(
-          descriptor.name(), argumentTypes,
-          descriptor.return_type().canonical_sql(), descriptor.deterministic()));
+      scalarSpecs.push_back(pangrova::udf::makeJvmScalarFunctionSpec(descriptor));
     }
 
     // Preflight the entire batch before retaining or publishing a callback.
@@ -550,10 +537,8 @@ JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeReleaseExecutor0(
     JNIEnv* env, jclass, jlong executorHandle) {
   try {
-    // The demuxer borrows the executor's shuffle queue. Quiesce it before
-    // release drains/destroys that queue; otherwise the two consumers can
-    // steal batches from one another and turn a partial stream into EOF.
-    pangrova::jni::cleanupShuffleServerForHandle(executorHandle);
+    // TaskExecutor's actual shuffle owner seals START and quiesces its borrowed
+    // queue before driver/output release. The receipt follows that same exit.
     jbyteArray receipt = nullptr;
     pangrova::jni::HandleRegistry::instance().release(
         executorHandle, [&](pangrova::executor::TaskExecutor& executor) {

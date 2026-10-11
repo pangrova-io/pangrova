@@ -506,6 +506,28 @@ pangrova::protocol::v2::CapabilityDescriptor diskAnnArtifactBuildDescriptor() {
   return descriptor;
 }
 
+namespace {
+constexpr char kFilteredDiskAnnSignature[] = "\xae\x26\xc5\x78\x46\xbf\x73\x27\x44\x79\x75\xab\xda\xef\x0e\xe5\xd4\xe0\x3a\xa8\x55\xb9\x02\xcb\x01\x92\xc8\xb3\x60\x04\x77\x16";
+}
+
+bool isFilteredDiskAnnRetrieval(const pangrova::protocol::v2::CapabilityRef& capability) {
+  return capability.capability_id() == kFilteredDiskAnnRetrievalId &&
+      capability.semantic_version() == "1.0.0" &&
+      capability.signature_sha256() == std::string(kFilteredDiskAnnSignature, 32) &&
+      (capability.implementation_build_id().empty() ||
+       capability.implementation_build_id() == kExactTopKRetrievalBuildId);
+}
+
+pangrova::protocol::v2::CapabilityDescriptor filteredDiskAnnRetrievalDescriptor() {
+  auto descriptor = diskAnnRetrievalDescriptor();
+  auto* ref = descriptor.mutable_ref();
+  ref->set_capability_id(kFilteredDiskAnnRetrievalId);
+  ref->set_semantic_version("1.0.0");
+  ref->set_signature_sha256(kFilteredDiskAnnSignature, 32);
+  descriptor.set_options_schema_sha256(kFilteredDiskAnnSignature, 32);
+  return descriptor;
+}
+
 std::string diskAnnRetrievalSignature() {
   return std::string(kDiskAnnRetrievalSignature, 32);
 }

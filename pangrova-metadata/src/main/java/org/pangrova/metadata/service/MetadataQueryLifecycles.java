@@ -119,7 +119,9 @@ final class MetadataQueryLifecycles {
         }
 
         private void requireSame(ConnectorQueryAuthority requested) {
-            if (authority != requested) throw new IllegalStateException("Metadata query lifetime differs from its owner");
+            if (authority != requested) {
+                throw new IllegalStateException("Metadata query lifetime differs from its owner");
+            }
         }
     }
 }

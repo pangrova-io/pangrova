@@ -90,8 +90,11 @@ class SpeculativeExecutionIntegrationStatusTest {
     }
 
     @Test
-    void duplicateTaskResolverWiredIntoTaskStatusReceiver() {
-        Set<String> fieldTypes = getFieldTypeNames(TaskStatusReceiver.class);
+    void duplicateTaskResolverWiredIntoTaskStatusReceiver() throws ClassNotFoundException {
+        assertThat(getFieldTypeNames(TaskStatusReceiver.class))
+                .contains("SpeculativeTaskReportCompletion");
+        Set<String> fieldTypes = getFieldTypeNames(Class.forName(
+                "org.pangrova.coordinator.query.task.SpeculativeTaskReportCompletion"));
         assertThat(fieldTypes)
                 .as("DuplicateTaskResolver IS wired into TaskStatusReceiver (Task 24 fix)")
                 .contains("DuplicateTaskResolver");

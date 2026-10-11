@@ -14,6 +14,7 @@
 package org.pangrova.client.jdbc;
 
 import org.pangrova.transport.ColumnDescriptor;
+import io.substrait.proto.Type;
 
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
@@ -63,9 +64,12 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
     @Override
     public String getColumnClassName(int column) throws SQLException {
         ColumnDescriptor descriptor = getColumn(column);
-        if (descriptor.sqlType() == Types.ARRAY
-                && descriptor.typeName().startsWith("VECTOR(")) {
-            return float[].class.getName();
+        if (descriptor.logicalType().isPresent()) {
+            var child = descriptor.logicalType().orElseThrow().getSubstraitType().getList().getType();
+            boolean nullable = (child.hasFp64() ? child.getFp64().getNullability() : child.getFp32().getNullability())
+                    == Type.Nullability.NULLABILITY_NULLABLE;
+            if (child.hasFp64()) return nullable ? Double[].class.getName() : double[].class.getName();
+            return nullable ? Float[].class.getName() : float[].class.getName();
         }
         return switch (getColumnType(column)) {
             case Types.BOOLEAN -> Boolean.class.getName();
@@ -90,7 +94,12 @@ public final class PangrovaResultSetMetaData implements ResultSetMetaData {
     public boolean isCurrency(int column) { return false; }
 
     @Override
-    public int isNullable(int column) { return ResultSetMetaData.columnNullable; }
+    public int isNullable(int column) throws SQLException {
+        var logical = getColumn(column).logicalType();
+        return logical.isPresent() && logical.orElseThrow().getSubstraitType().getList().getNullability()
+                == Type.Nullability.NULLABILITY_REQUIRED
+                ? ResultSetMetaData.columnNoNulls : ResultSetMetaData.columnNullable;
+    }
 
     @Override
     public boolean isSigned(int column) throws SQLException {

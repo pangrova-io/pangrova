@@ -26,7 +26,8 @@ public class StatisticsCollector {
     static final int HISTOGRAM_BUCKET_COUNT = 256;
     static final double LOW_CARDINALITY_RATIO = 0.01;
 
-    private final Map<QualifiedTableName, org.pangrova.planner.stats.PlannerTableStatistics> store = new ConcurrentHashMap<>();
+    private final Map<QualifiedTableName, org.pangrova.planner.stats.PlannerTableStatistics> store =
+            new ConcurrentHashMap<>();
     private final ConnectorStatisticsProvider connectorProvider;
 
     /** Creates a collector with a real connector statistics provider. */
@@ -40,7 +41,8 @@ public class StatisticsCollector {
     }
 
     /** Req 7.1 — Full ANALYZE TABLE collection. */
-    public org.pangrova.planner.stats.PlannerTableStatistics analyzeTable(QualifiedTableName tableName, List<String> columns) {
+    public org.pangrova.planner.stats.PlannerTableStatistics analyzeTable(
+            QualifiedTableName tableName, List<String> columns) {
         Map<String, org.pangrova.planner.stats.ColumnStatistics> colStats = new HashMap<>();
         // Try real connector statistics first
         if (connectorProvider != null) {
@@ -68,7 +70,8 @@ public class StatisticsCollector {
     }
 
     /** Req 7.2 — Lightweight incremental collection after write commit. */
-    public org.pangrova.planner.stats.PlannerTableStatistics collectIncremental(QualifiedTableName tableName, long affectedRows) {
+    public org.pangrova.planner.stats.PlannerTableStatistics collectIncremental(
+            QualifiedTableName tableName, long affectedRows) {
         org.pangrova.planner.stats.PlannerTableStatistics existing = store.get(tableName);
         if (existing == null) {
             return analyzeTable(tableName, List.of());

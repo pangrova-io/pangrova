@@ -22,6 +22,69 @@ import static org.awaitility.Awaitility.await;
 class RemoteShuffleClientLifecycleIntegrationTest extends ContainerTestBase {
     @TempDir Path directory;
 
+    @Test void closedActualRpcWakesBlockedConsumerWithoutReportingCleanEof() throws Exception {
+        try (var service = new ActualShuffleService(directory, 1, 1);
+             var pool = service.clientPool()) {
+            var producer = ActualShufflePublication.publish(service);
+            var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
+            service.wire(0).pauseReadOutput = true;
+            var lease = pool.borrow(binding.selectedEndpoint());
+            try (var source = new RemoteShuffleExchangeSource(binding, lease)) {
+                assertThat(service.wire(0).paused.await(5, TimeUnit.SECONDS)).isTrue();
+                var started = new java.util.concurrent.CountDownLatch(1);
+                var actualReader = new java.util.concurrent.atomic.AtomicReference<Thread>();
+                var read = CompletableFuture.supplyAsync(() -> {
+                    actualReader.set(Thread.currentThread());
+                    started.countDown();
+                    return source.nextVerifiedChunk();
+                });
+                assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+                await().atMost(Duration.ofSeconds(5)).until(() ->
+                        actualReader.get().getState() == Thread.State.WAITING);
+                assertThat(read.isDone()).isFalse();
+                source.close();
+                assertThatThrownBy(() -> read.get(5, TimeUnit.SECONDS))
+                        .hasCauseInstanceOf(RemoteShuffleClientException.class);
+                assertThat(source.isFinished()).isFalse();
+                await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                        assertThat(service.wire(0).cancelled).contains("ReadPartition"));
+            }
+            pool.close();
+            assertThat(pool.activeConnectionCount()).isZero();
+        }
+    }
+
+    @Test void actualEmptyCommittedPartitionPublishesVerifiedTerminalAndCleanRpcCompletion()
+            throws Exception {
+        try (var service = new ActualShuffleService(directory, 1, 1)) {
+            var producer = service.registerProducer();
+            var request = producer.request();
+            try (var egress = new org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress(
+                    service.clientPool())) {
+                assertThat(egress.installTask(request)).isTrue();
+                egress.onTaskCompleted(request.getAttempt().getQueryOrJobId(), request.getAttempt().getTaskId());
+            }
+            service.finalizeProducer(producer);
+            var binding = service.delegateRead(producer, ActualExternalShuffleTask.consumer(producer));
+            try (var pool = service.clientPool();
+                 var source = new RemoteShuffleExchangeSource(binding, pool.borrow(binding.selectedEndpoint()))) {
+                assertThat(source.nextVerifiedChunk()).isNull();
+                assertThat(source.isFinished()).isTrue();
+                assertThat(source.nextVerifiedChunk()).isNull();
+                var actualTerminals = service.wire(0).responses.stream()
+                        .map(ShuffleWireRelay.Frame::message)
+                        .filter(org.pangrova.protocol.v2.shuffle.ReadBatchResponse.class::isInstance)
+                        .map(org.pangrova.protocol.v2.shuffle.ReadBatchResponse.class::cast)
+                        .filter(org.pangrova.protocol.v2.shuffle.ReadBatchResponse::hasTerminal).toList();
+                assertThat(actualTerminals).singleElement().satisfies(frame -> {
+                    assertThat(frame.getTerminal().getTotalRows()).isZero();
+                    assertThat(frame.getTerminal().getTotalBytes()).isZero();
+                    assertThat(frame.getTerminal().getCommittedProducerCount()).isEqualTo(1);
+                });
+            }
+        }
+    }
+
     @Test void idleEvictionDoesNotCancelBorrowedActualPartitionRpc() throws Exception {
         try (var service = new ActualShuffleService(directory, 1, 1);
              var pool = service.shortIdleClientPool()) {

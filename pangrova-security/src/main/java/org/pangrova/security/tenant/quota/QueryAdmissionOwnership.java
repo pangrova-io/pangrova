@@ -88,8 +88,8 @@ final class QueryAdmissionOwnership {
     static final class Reservation {
         private Runnable release = () -> {};
 
-        void retain(Runnable release) {
-            this.release = release;
+        void retain(Runnable releaseAction) {
+            this.release = releaseAction;
         }
 
         void returnCapacity() {

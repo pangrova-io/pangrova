@@ -12,6 +12,8 @@ import java.util.Map;
 final class SubstraitProtoNormalizer {
 
     private static final String FETCH_REL = "substrait.FetchRel";
+    private static final String MERGE_JOIN_REL = "substrait.MergeJoinRel";
+    private static final String HASH_JOIN_REL = "substrait.HashJoinRel";
 
     private SubstraitProtoNormalizer() {}
 
@@ -28,7 +30,44 @@ final class SubstraitProtoNormalizer {
                 : message.getAllFields().entrySet()) {
             normalizeField(builder, entry.getKey(), entry.getValue());
         }
+        if (MERGE_JOIN_REL.equals(message.getDescriptorForType().getFullName())
+                || HASH_JOIN_REL.equals(message.getDescriptorForType().getFullName())) {
+            normalizeJoinKeys(builder);
+        }
         return builder.build();
+    }
+
+    private static void normalizeJoinKeys(Message.Builder join) {
+        var descriptor = join.getDescriptorForType();
+        var keysField = descriptor.findFieldByName("keys");
+        var leftField = descriptor.findFieldByName("left_keys");
+        var rightField = descriptor.findFieldByName("right_keys");
+        int legacyLeft = join.getRepeatedFieldCount(leftField);
+        int legacyRight = join.getRepeatedFieldCount(rightField);
+        if (legacyLeft == 0 && legacyRight == 0) return;
+        int canonical = join.getRepeatedFieldCount(keysField);
+        if (canonical == 0 || legacyLeft != canonical || legacyRight != canonical) {
+            throw new IllegalArgumentException("Deprecated join keys differ from canonical keys");
+        }
+        for (int ordinal = 0; ordinal < canonical; ordinal++) {
+            Message key = (Message) join.getRepeatedField(keysField, ordinal);
+            var keyDescriptor = key.getDescriptorForType();
+            Message comparison = (Message) key.getField(
+                    keyDescriptor.findFieldByName("comparison"));
+            var simple = comparison.getDescriptorForType().findFieldByName("simple");
+            if (!comparison.hasField(simple)
+                    || ((Descriptors.EnumValueDescriptor) comparison.getField(simple)).getNumber() != 1) {
+                throw new IllegalArgumentException("Deprecated join keys require canonical EQ comparison");
+            }
+            if (!key.getField(keyDescriptor.findFieldByName("left"))
+                    .equals(join.getRepeatedField(leftField, ordinal))
+                    || !key.getField(keyDescriptor.findFieldByName("right"))
+                    .equals(join.getRepeatedField(rightField, ordinal))) {
+                throw new IllegalArgumentException("Deprecated join keys differ from canonical keys");
+            }
+        }
+        join.clearField(leftField);
+        join.clearField(rightField);
     }
 
     private static void normalizeField(

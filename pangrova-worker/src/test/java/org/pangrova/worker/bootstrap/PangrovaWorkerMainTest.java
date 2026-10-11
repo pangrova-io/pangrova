@@ -17,6 +17,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PangrovaWorkerMainTest {
 
     @Test
+    void loggingSanitizationPreservesTheActualConfiguredFilename(@TempDir Path directory)
+            throws IOException {
+        Path configuration = directory.resolve("worker\r\nextra.yml");
+        Files.writeString(configuration, "worker:\n  id: actual-configured-worker\n");
+        var loaded = PangrovaWorkerMain.loadPangrovaConfiguration(
+                new String[]{"--config", configuration.toString()});
+        assertThat(PangrovaWorkerMain.buildBootstrapConfig(loaded).workerId())
+                .isEqualTo("actual-configured-worker");
+    }
+
+    @Test
     void loadsExactWorkerWideChannelLimitsAndRejectsInvalidAdmissionConfiguration() {
         var config = PangrovaConfiguration.fromYaml(Map.of(
                 "worker.shuffle.client.max-owned-channels", "17",

@@ -51,6 +51,9 @@ public record RetrievalTopKBinding(
 
     public RetrievalTopKBinding {
         validateCore(scoreFieldIndex, candidateLimit, scoreDirection);
+        if (recallK <= 0 || recallK > candidateLimit) {
+            throw new IllegalArgumentException("retrieval output K differs from its recall/work contract");
+        }
         stableKeyFieldIndexes = List.copyOf(stableKeyFieldIndexes);
         validateStableKeys(stableKeyFieldIndexes);
         candidateSchema = candidateSchema.clone();
@@ -212,12 +215,29 @@ public record RetrievalTopKBinding(
             List<Integer> stableKeyFieldIndexes,
             byte[] candidateSchema,
             ArtifactInput input) {
+        return artifact(scoreFieldIndex, candidateLimit, candidateLimit, scoreDirection,
+                stableKeyFieldIndexes, candidateSchema, input);
+    }
+
+    /** Separates visible K from the admitted exploration/rescore bound. */
+    public static RetrievalTopKBinding artifact(
+            int scoreFieldIndex, int outputLimit, int candidateLimit,
+            ScoreDirection scoreDirection, List<Integer> stableKeyFieldIndexes,
+            byte[] candidateSchema, ArtifactInput input) {
+        if (outputLimit != input.recallK()) {
+            throw new IllegalArgumentException("retrieval visible K differs from its recall measurement K");
+        }
         return new RetrievalTopKBinding(
                 scoreFieldIndex, candidateLimit, scoreDirection,
                 stableKeyFieldIndexes, candidateSchema, input.sourceId(), input.capability(),
                 input.invocationOptions(), List.of(input.artifact()),
                 input.approximationProfileId(), input.exactRescoreLimit(),
                 input.requiredRecallAtK(), input.recallK());
+    }
+
+    /** SQL K is the same authoritative measurement K; exploration has its own candidate bound. */
+    public int outputLimit() {
+        return recallK;
     }
 
     /** Returns whether this binding uses the built-in exact Top-K capability. */

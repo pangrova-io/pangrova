@@ -52,6 +52,18 @@ class BindingManifestTest(unittest.TestCase):
         embed["normalizedArguments"][0]["default"] = "QUERY"
         self.assertNotEqual(generated, render_binding_manifest(changed))
 
+    def test_callback_null_policy_changes_the_single_declaration_semantics_identity(self):
+        original = "\n".join(render_binding_manifest(self.declaration))
+        changed = deepcopy(self.declaration)
+        callback = next(entry for entry in changed["bindings"] if entry["name"] == "file_from_url")
+        callback["runtimeSignature"]["defaultNullBehavior"] = True
+        rendered = "\n".join(render_binding_manifest(changed))
+        self.assertNotEqual(original, rendered)
+        # All output topology, ownership and ordered arguments remain in the original declaration.
+        def without_hashes(lines):
+            return [line for line in lines.splitlines() if "sha256" not in line]
+        self.assertEqual(without_hashes(original), without_hashes(rendered))
+
     def test_rewrite_requires_a_unique_declared_direct_dependency(self):
         for ambiguous in (False, True):
             changed = deepcopy(self.declaration)

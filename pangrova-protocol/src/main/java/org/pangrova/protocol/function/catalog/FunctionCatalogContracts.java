@@ -90,8 +90,9 @@ public final class FunctionCatalogContracts {
             require(family == FunctionImplementationFamily.FUNCTION_IMPLEMENTATION_FAMILY_UNSPECIFIED
                     || family == FunctionImplementationFamily.UNRECOGNIZED, "Unknown actual scalar family");
             if (family != FunctionImplementationFamily.FUNCTION_IMPLEMENTATION_FAMILY_SPECIAL_FORM) {
-                require(!entry.hasSignature() || !entry.hasMetadata() || !entry.getMetadata().hasDeterministic(),
-                        "Actual scalar entry has no signature or determinism metadata");
+                require(!entry.hasSignature() || !entry.hasMetadata() || !entry.getMetadata().hasDeterministic()
+                        || !entry.getMetadata().hasDefaultNullBehavior(),
+                        "Actual scalar entry has no signature or execution metadata");
             }
         }
     }
@@ -103,7 +104,8 @@ public final class FunctionCatalogContracts {
             name(companion.getImplementationName());
             require(!names.add(companion.getImplementationName()) || !companion.getUnknownFields().asMap().isEmpty(),
                     "Duplicate or unknown vector companion");
-            require(!companion.hasMetadata() || !companion.getMetadata().hasDeterministic(),
+            require(!companion.hasMetadata() || !companion.getMetadata().hasDeterministic()
+                    || !companion.getMetadata().hasDefaultNullBehavior(),
                     "Companion has no actual metadata");
             require(!companion.getContractSha256().equals(FunctionContractHashes.digest(
                     companion.toBuilder().clearContractSha256().build())), "Vector companion digest mismatch");

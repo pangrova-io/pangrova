@@ -54,9 +54,11 @@ public final class NativeCapabilityRegistry {
                 "ProjectRel",
                 "AggregateRel",
                 "HashJoinRel",
+                "MergeJoinRel",
                 "JoinRel",
                 "ExchangeRel",
                 "ExtensionLeafRel",
+                "ExtensionSingleRel",
                 "SortRel",
                 "FetchRel",
                 "ConsistentPartitionWindowRel",
@@ -69,6 +71,7 @@ public final class NativeCapabilityRegistry {
                 "ScalarFunction",
                 "Cast",
                 "IfThen",
+                "Nested",
                 "WindowFunction"
         );
 
@@ -83,6 +86,9 @@ public final class NativeCapabilityRegistry {
                 // arithmetic
                 "add", "subtract", "multiply", "divide",
                 "abs", "modulus", "power", "sqrt",
+                "round",
+                // Presto date extraction is registered by the packaged Velox runtime.
+                "year", "month", "day", "hour", "minute",
                 // boolean
                 "and", "or", "not", "coalesce",
                 // string
@@ -93,10 +99,12 @@ public final class NativeCapabilityRegistry {
                 // spatial
                 "st_intersects", "st_within", "st_contains",
                 "st_geomfromtext", "st_geographyfromtext",
-                // array
-                "array_contains", "array_contains_all",
+                // Exact canonical names emitted from sql-bindings.json.
+                "subscript", "contains", "array_contains_all",
                 // vector distance
                 "l2_distance", "cosine_distance", "inner_product", "pangrova_cosine_similarity",
+                // packaged Native scalar callbacks registered by the Worker function catalogue
+                "file_from_bytes", "file_from_url",
                 // aggregate
                 "sum", "sum0", "count", "min", "max", "avg",
                 "stddev_pop", "stddev_samp", "variance_pop", "variance_samp",

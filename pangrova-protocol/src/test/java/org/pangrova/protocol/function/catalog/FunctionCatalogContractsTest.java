@@ -7,6 +7,7 @@ import org.pangrova.protocol.CapabilityInventoryCodec;
 import org.pangrova.protocol.v2.CapabilityInventory;
 import org.pangrova.protocol.v2.FunctionAvailability;
 import org.pangrova.protocol.v2.FunctionCatalogManifest;
+import org.pangrova.protocol.v2.FunctionImplementationFamily;
 
 import java.util.Base64;
 
@@ -121,6 +122,55 @@ class FunctionCatalogContractsTest {
         manifest.setRegisteredFunctions(0, manifest.getRegisteredFunctions(0).toBuilder()
                 .setImplementationName("modified_actual_registration"));
         reject(reseal(actual, manifest), "registration digest mismatch");
+    }
+
+    @Test
+    void absentNullInputPolicyCannotAuthorizeAnActualScalarEntryEvenWithFreshDigests() {
+        var actual = actual();
+        var manifest = actual.getFunctionCatalog().toBuilder();
+        for (int ordinal = 0; ordinal < manifest.getRegisteredFunctionsCount(); ordinal++) {
+            var registration = manifest.getRegisteredFunctions(ordinal).toBuilder();
+            for (int entryOrdinal = 0; entryOrdinal < registration.getImplementationsCount(); entryOrdinal++) {
+                var entry = registration.getImplementations(entryOrdinal).toBuilder();
+                if (entry.getFamily() == FunctionImplementationFamily.FUNCTION_IMPLEMENTATION_FAMILY_SPECIAL_FORM) {
+                    continue;
+                }
+                assertThat(entry.getMetadata().hasDefaultNullBehavior()).isTrue();
+                entry.setMetadata(entry.getMetadata().toBuilder().clearDefaultNullBehavior());
+                entry.clearContractSha256();
+                entry.setContractSha256(FunctionContractHashes.digest(entry.build()));
+                registration.setImplementations(entryOrdinal, entry);
+                registration.clearContractSha256();
+                registration.setContractSha256(FunctionContractHashes.digest(registration.build()));
+                manifest.setRegisteredFunctions(ordinal, registration);
+                reject(resealRegistry(actual, manifest), "no signature or execution metadata");
+                return;
+            }
+        }
+        throw new IllegalStateException("The actual Native artifact must retain scalar implementation metadata");
+    }
+
+    @Test
+    void absentNullInputPolicyCannotAuthorizeAnActualCompanionEvenWithFreshDigests() {
+        var actual = actual();
+        var manifest = actual.getFunctionCatalog().toBuilder();
+        assertThat(manifest.getVectorCompanionsCount()).isPositive();
+        var companion = manifest.getVectorCompanions(0).toBuilder();
+        assertThat(companion.getMetadata().hasDefaultNullBehavior()).isTrue();
+        companion.setMetadata(companion.getMetadata().toBuilder().clearDefaultNullBehavior());
+        companion.clearContractSha256();
+        companion.setContractSha256(FunctionContractHashes.digest(companion.build()));
+        manifest.setVectorCompanions(0, companion);
+        reject(resealRegistry(actual, manifest), "Companion has no actual metadata");
+    }
+
+    private static CapabilityInventory resealRegistry(
+            CapabilityInventory actual, FunctionCatalogManifest.Builder manifest) {
+        var projection = FunctionCatalogManifest.newBuilder()
+                .addAllRegisteredFunctions(manifest.getRegisteredFunctionsList())
+                .addAllVectorCompanions(manifest.getVectorCompanionsList()).build();
+        manifest.setRegistrationSha256(FunctionContractHashes.digest(projection));
+        return reseal(actual, manifest);
     }
 
     private static int rewriteOrdinal(FunctionCatalogManifest manifest) {

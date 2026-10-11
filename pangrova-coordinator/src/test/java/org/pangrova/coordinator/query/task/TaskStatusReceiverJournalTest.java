@@ -34,15 +34,16 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
                 fixture.startWithoutConsumingResult();
                 var attempt = actualAttempt(fixture);
                 var report = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
+                var issuedAttempt = fixture.issuedAttempt(report);
                 await("Actual task INSERT waits on table lock").atMost(Duration.ofSeconds(5)).until(store::actualInsertWaiting);
                 await("RUNNING HTTP acknowledgment precedes actual commit").atMost(Duration.ofSeconds(5))
                         .until(() -> attempt.response().get() != null);
                 assertThat(attempt.response().get().statusCode()).isEqualTo(200);
                 assertThat(report.state()).isEqualTo("RUNNING");
-                assertThat(store.committed(report)).isZero();
+                assertThat(store.committed(report, issuedAttempt)).isZero();
                 blocker.rollback();
                 await("Actual asynchronous journal commit").atMost(Duration.ofSeconds(5))
-                        .untilAsserted(() -> assertThat(store.committed(report)).isEqualTo(1));
+                        .untilAsserted(() -> assertThat(store.committed(report, issuedAttempt)).isEqualTo(1));
             } finally { blocker.rollback(); }
             fixture.consumeResult();
             fixture.recoverAndDrain();
@@ -61,15 +62,16 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
             try {
                 var attempt = actualAttempt(fixture);
                 var report = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
+                var issuedAttempt = fixture.issuedAttempt(report);
                 await("Actual task INSERT waits on table lock").atMost(Duration.ofSeconds(5)).until(store::actualInsertWaiting);
                 assertThat(attempt.response().get()).as("Terminal HTTP handler must await the actual journal commit").isNull();
                 assertThat(report.state()).isEqualTo(state);
-                assertThat(store.committed(report)).isZero();
+                assertThat(store.committed(report, issuedAttempt)).isZero();
                 blocker.rollback();
                 await("Terminal acknowledgment follows actual commit").atMost(Duration.ofSeconds(5))
                         .until(() -> attempt.response().get() != null);
                 assertThat(attempt.response().get().statusCode()).isEqualTo(200);
-                assertThat(store.committed(report)).isEqualTo(1);
+                assertThat(store.committed(report, issuedAttempt)).isEqualTo(1);
             } finally { blocker.rollback(); }
             execution.awaitCompletion();
             fixture.recoverAndDrain();

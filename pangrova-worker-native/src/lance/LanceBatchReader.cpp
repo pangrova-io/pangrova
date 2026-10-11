@@ -19,6 +19,8 @@
 #include "lance_c_ffi.h"
 #include "lance/LanceStorageContext.h"
 #include "columnar/ColumnarImportLayout.h"
+#include "observability/ColumnarReadMetrics.h"
+#include "velox/common/base/RuntimeMetrics.h"
 
 namespace pangrova::lance {
 
@@ -283,6 +285,20 @@ facebook::velox::RowVectorPtr LanceBatchReader::importBatch(
   // Report completed allocations/copies even when a later column rejects input.
   columnar_copied_bytes_ += usage.copiedBytes;
   columnar_offset_bytes_ += usage.allocatedOffsetBytes;
+  // Driver's operator scope owns these deltas even if conversion throws or a
+  // split/MOR reader is discarded. Offset construction is not a payload copy.
+  if (usage.copiedBytes > 0) {
+    facebook::velox::addThreadLocalRuntimeStat(
+        observability::kColumnarReadCopiedBytes,
+        facebook::velox::RuntimeCounter(static_cast<int64_t>(usage.copiedBytes),
+            facebook::velox::RuntimeCounter::Unit::kBytes));
+  }
+  if (usage.allocatedOffsetBytes > 0) {
+    facebook::velox::addThreadLocalRuntimeStat(
+        observability::kColumnarReadOffsetBytes,
+        facebook::velox::RuntimeCounter(static_cast<int64_t>(usage.allocatedOffsetBytes),
+            facebook::velox::RuntimeCounter::Unit::kBytes));
+  }
   if (!converted.ok()) throw std::runtime_error(converted.status().ToString());
   auto exported = arrow::ExportRecordBatch(**converted, &arrowArray, &arrowSchema);
   if (!exported.ok()) throw std::runtime_error(exported.ToString());

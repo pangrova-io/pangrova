@@ -12,6 +12,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <sstream>
 #include <functional>
 #include <stdexcept>
@@ -552,22 +553,9 @@ void handleStartResultServer(const proto::RuntimeCommand& cmd,
   }
 
   auto& registry = FlightServerRegistry::instance();
-  auto* existing = registry.resultServer();
-  if (existing && existing->isRunning()) {
-    // Already running — return the existing bound port.
-    proto::StartResultServerResponse result;
-    result.set_bound_port(existing->boundPort());
-    setResponsePayload(resp, result);
-    return;
-  }
-
   pangrova::result::FlightResultServerConfig config;
   config.port = payload.preferred_port();
-  registry.applyTransportSecurity(config);
-
-  auto server = std::make_unique<pangrova::result::FlightResultServer>(config);
-  int bound_port = server->start();
-  registry.setResultServer(std::move(server));
+  const int bound_port = registry.ensureResultServerRunning(std::move(config));
 
   proto::StartResultServerResponse result;
   result.set_bound_port(bound_port);
@@ -578,6 +566,29 @@ void handleStopResultServer(const proto::RuntimeCommand& /*cmd*/,
                             proto::RuntimeCommandResponse& resp) {
   FlightServerRegistry::instance().shutdownResultServer();
   resp = successResponse();
+}
+
+std::optional<int64_t> shuffleTicketTtl(const proto::StartShuffleServerRequest& request,
+    const pangrova::executor::TaskExecutor& executor, proto::RuntimeCommandResponse& resp) {
+  constexpr int64_t kTicketDeadlineGraceMillis = 60'000;
+  constexpr int64_t kMaxTicketTtlMillis = 24LL * 60 * 60 * 1000;
+  int64_t ttl = request.ticket_ttl_millis() > 0
+      ? static_cast<int64_t>(request.ticket_ttl_millis())
+      : pangrova::shuffle::kDefaultTicketTtlMillis;
+  const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  if (executor.deadlineEpochMs() > 0) {
+    if (executor.deadlineEpochMs() <= now) {
+      resp = errorResponse("Cannot mint shuffle tickets for an expired task");
+      return std::nullopt;
+    }
+    ttl = std::max(ttl, executor.deadlineEpochMs() - now + kTicketDeadlineGraceMillis);
+  }
+  if (ttl <= 0 || ttl > kMaxTicketTtlMillis) {
+    resp = errorResponse("Shuffle ticket TTL must be in (0, 24h]");
+    return std::nullopt;
+  }
+  return ttl;
 }
 
 void handleStartShuffleServer(const proto::RuntimeCommand& cmd,
@@ -607,6 +618,7 @@ void handleStartShuffleServer(const proto::RuntimeCommand& cmd,
     return;
   }
 
+  auto task_control = executor->acquireShuffleStart();
   auto* queue = executor->serializedShuffleQueue();
   if (!queue) {
     resp = errorResponse("Executor has no shuffle queue (not a shuffle task)");
@@ -632,40 +644,21 @@ void handleStartShuffleServer(const proto::RuntimeCommand& cmd,
     return;
   }
 
-  constexpr int64_t kTicketDeadlineGraceMillis = 60'000;
-  constexpr int64_t kMaxTicketTtlMillis = 24LL * 60 * 60 * 1000;
-  int64_t ttl_millis = request.ticket_ttl_millis() > 0
-                           ? static_cast<int64_t>(request.ticket_ttl_millis())
-                           : pangrova::shuffle::kDefaultTicketTtlMillis;
-  const auto now_millis =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-  if (executor->deadlineEpochMs() > 0) {
-    if (executor->deadlineEpochMs() <= now_millis) {
-      resp = errorResponse("Cannot mint shuffle tickets for an expired task");
-      return;
-    }
-    const auto required_ttl =
-        executor->deadlineEpochMs() - now_millis + kTicketDeadlineGraceMillis;
-    ttl_millis = std::max(ttl_millis, required_ttl);
-  }
-  if (ttl_millis <= 0 || ttl_millis > kMaxTicketTtlMillis) {
-    resp = errorResponse("Shuffle ticket TTL must be in (0, 24h]");
-    return;
-  }
+  const auto ttl_millis = shuffleTicketTtl(request, *executor, resp);
+  if (!ttl_millis) return;
 
   // Register this handle with the shared multiplexed shuffle server.
   // The server is auto-started on first registration and all handles
   // share a single port, eliminating per-handle port exhaustion.
   auto& registry = FlightServerRegistry::instance();
-  registry.registerShuffleHandle(
+  auto registration = registry.registerShuffleHandle(
       handle, queue, executor->queryId(), executor->stageId(),
       static_cast<int32_t>(request.partition_count()), executor->planEpoch(),
       executor->attemptId(), executor->fencingToken());
-  int bound_port = registry.ensureShuffleServerRunning();
+  executor->installShuffleRegistration(task_control, registration.registration);
+  const int bound_port = registration.bound_port;
 
-  pangrova::shuffle::TicketSigner signer(keys.currentKey(), ttl_millis);
+  pangrova::shuffle::TicketSigner signer(registration.server->signingKey(), *ttl_millis);
 
   proto::StartShuffleServerResponse result;
   result.set_bound_port(bound_port);
@@ -703,7 +696,15 @@ void handleStopShuffleServer(const proto::RuntimeCommand& /*cmd*/,
     return;
   }
 
-  FlightServerRegistry::instance().unregisterShuffleHandle(handle);
+  std::shared_ptr<pangrova::executor::TaskExecutor> executor;
+  try {
+    executor = HandleRegistry::instance().acquire(handle);
+  } catch (const std::runtime_error&) {
+    // Missing/released handles cannot acquire another registration. The
+    // existing route may still own clean buffered data for downstream readers.
+    FlightServerRegistry::instance().unregisterShuffleHandle(handle);
+  }
+  if (executor) executor->closeShuffleRegistration();
 
   PANGROVA_LOG(INFO) << "event=shuffle_handle_unregistered"
                      << " executor_handle=" << handle;
@@ -1038,8 +1039,11 @@ std::vector<uint8_t> dispatchParsedCommand(const proto::RuntimeCommand& cmd,
     case proto::RUNTIME_COMMAND_TYPE_DATASET_SCHEMA_FINGERPRINT:
       resp = NativeDatasetControl::schemaFingerprint(cmd);
       break;
-    case proto::RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE:
-      resp = NativeDatasetControl::finalizeDistributedWrite(cmd);
+    case proto::RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE:
+      resp = NativeDatasetControl::prepareDistributedWrite(cmd);
+      break;
+    case proto::RUNTIME_COMMAND_TYPE_CLEANUP_SOURCE_OBJECTS:
+      resp = NativeDatasetControl::cleanupObjects(cmd);
       break;
     case proto::RUNTIME_COMMAND_TYPE_DATASET_SCAN_PARTITIONS:
       resp = NativeDatasetControl::scanPartitions(cmd);
@@ -1144,13 +1148,6 @@ dispatchCommandWithHandle(const std::vector<uint8_t>& command_proto,
 
 void shutdownFlightResultServer() {
   FlightServerRegistry::instance().shutdownAll();
-}
-
-void cleanupShuffleServerForHandle(int64_t executor_handle) {
-  FlightServerRegistry::instance().unregisterShuffleHandle(executor_handle);
-
-  PANGROVA_LOG(INFO) << "event=shuffle_handle_cleaned_on_release"
-                     << " executor_handle=" << executor_handle;
 }
 
 } // namespace pangrova::jni

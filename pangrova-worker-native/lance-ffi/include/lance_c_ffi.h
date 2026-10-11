@@ -37,7 +37,7 @@ typedef struct LanceCStorage LanceCStorage;
 typedef struct LanceCPhysicalWriter LanceCPhysicalWriter;
 
 /** ABI implemented by the pinned Rust crate and required by Native. */
-#define PANGROVA_LANCE_C_FFI_ABI_VERSION 12u
+#define PANGROVA_LANCE_C_FFI_ABI_VERSION 13u
 #define PANGROVA_LANCE_C_FFI_MAX_BATCH_ROWS 1048576u
 
 typedef enum LanceWriteOperation {
@@ -112,11 +112,7 @@ int32_t lance_ffi_physical_writer_drain(LanceCPhysicalWriter* writer,
 int32_t lance_ffi_physical_writer_destroy(LanceCPhysicalWriter* writer);
 
 /** Borrowed bytes supplied to the connector-owned aggregate commit call. */
-typedef struct LanceCCommitFragment {
-    const uint8_t* data;
-    size_t len;
-    const char* expected_staging_prefix;
-} LanceCCommitFragment;
+
 
 /** Return the exact C ABI version implemented by the linked library. */
 uint32_t lance_ffi_abi_version(void);
@@ -188,31 +184,6 @@ int32_t lance_ffi_storage_read_range(const LanceCStorage* storage, const char* u
 int32_t lance_ffi_scan_partitions(const LanceCStorage* storage,
                                 const uint8_t* canonical_request, size_t request_len,
                                 LanceCBuffer* out_page);
-
-/** Resolve the latest visible dataset version for connector write allocation. */
-int32_t lance_ffi_dataset_version(
-    const LanceCStorage* storage,
-    const char* uri,
-    uint64_t* out_version);
-
-/**
- * Resolve version/schema for the exact non-zero pinned snapshot. Both outputs
- * are populated from the same checked-out Dataset; there is no latest fallback.
- */
-int32_t lance_ffi_dataset_info(
-    const LanceCStorage* storage,
-    const char* uri,
-    uint64_t version,
-    uint64_t* out_version,
-    uint8_t* out_schema_sha256,
-    size_t schema_sha256_len);
-
-/** Resolve the canonical schema fence of the latest visible dataset. */
-int32_t lance_ffi_dataset_schema_fingerprint(
-    const LanceCStorage* storage,
-    const char* uri,
-    uint8_t* out_sha256,
-    size_t out_len);
 
 /**
  * Compute the canonical Lance write schema fence. The contract is SHA-256 of
@@ -305,6 +276,8 @@ LanceCWriter* lance_ffi_writer_open(
     const struct ArrowSchema* schema_ptr,
     int32_t operation,
     uint64_t expected_read_version,
+    const uint8_t* accepted_base_snapshot,
+    size_t accepted_base_snapshot_len,
     const uint8_t* schema_fence_sha256,
     size_t schema_fence_len,
     const char* write_id,
@@ -346,56 +319,26 @@ int32_t lance_ffi_writer_finish(
 void lance_ffi_buffer_free(LanceCBuffer buffer);
 
 /**
- * Atomically publish one aggregate transaction. This is connector-only: a
- * worker task must never call it. Re-driving an identical write_id and exact
- * fragment set returns the already committed version; a different fragment
- * set for the same write_id fails closed. `recovering` must be non-zero only
- * after the durable journal records that a prior commit call may have run.
- * A non-zero known_committed_version
- * from the connector durable journal checks exactly that version in O(1).
- * Zero scans the full relevant history lazily, bounded by deadline_epoch_ms.
- * Both outputs are written only after the exact persisted manifest is read and
- * hashed. An error, including a deadline after publication, is UNKNOWN and
- * leaves both outputs zero; never infer NOT_COMMITTED from an error string.
+ * Prepare the official SDK candidate at its PG-reserved immutable private address.
+ * Accepts canonical PrepareDistributedWriteRequest and returns canonical
+ * PrepareDistributedWriteResult, containing one bounded object membership page.
+ * This never publishes visibility. Errors are UNKNOWN: retain candidate objects
+ * until exact PG reconciliation and persisted prepare drain permit cleanup.
  */
-int32_t lance_ffi_commit_fragments(
+int32_t lance_ffi_prepare_write(
     const LanceCStorage* storage,
-    const char* uri,
-    const char* write_id,
-    const char* tenant_id,
-    const char* generation,
-    int32_t operation,
-    uint64_t expected_read_version,
-    const uint8_t* schema_fence_sha256,
-    size_t schema_fence_len,
-    const LanceCCommitFragment* fragments,
-    size_t fragment_count,
-    uint32_t max_retries,
-    int32_t recovering,
-    uint64_t known_committed_version,
-    uint64_t deadline_epoch_ms,
-    uint64_t* out_committed_version,
-    uint8_t* out_manifest_sha256,
-    size_t manifest_sha256_len);
+    const uint8_t* request_bytes,
+    size_t request_len,
+    LanceCBuffer* out_result);
 
 /**
- * Idempotently delete transaction sidecars after a durable successful commit
- * or an aborted write. Every reference is revalidated against the exact
- * connector-owned dataset, generation, task attempt, and staging prefix before
- * any object is deleted. Live Lance data files and manifests are never touched.
+ * Await actual idempotent SDK deletion of an exact canonical PG-reserved batch.
+ * Accepted-source cleanup contains winner sidecars only. ABORTED source cleanup
+ * requires durable prepare drain and exclusion of all accepted/current/history
+ * and other candidate references in the same source authority transaction.
  */
-int32_t lance_ffi_discard_fragments(
-    const LanceCStorage* storage,
-    const char* uri,
-    const char* write_id,
-    const char* tenant_id,
-    const char* generation,
-    int32_t operation,
-    uint64_t expected_read_version,
-    const uint8_t* schema_fence_sha256,
-    size_t schema_fence_len,
-    const LanceCCommitFragment* fragments,
-    size_t fragment_count);
+int32_t lance_ffi_cleanup_objects(
+    const LanceCStorage* storage, const uint8_t* request_bytes, size_t request_len, LanceCBuffer* out_result);
 
 /**
  * Stops new Dataset input and joins the retained writer thread, whose SDK

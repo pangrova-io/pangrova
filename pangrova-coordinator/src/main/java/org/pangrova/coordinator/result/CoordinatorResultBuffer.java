@@ -5,17 +5,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.util.Arrays;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Coordinator-local buffer for bounded control-plane statement responses.
  *
- * <p>Concurrency strategy: ConcurrentHashMap for result storage.
- * Expiration scheduling is thread-safe via ScheduledExecutorService.</p>
+ * <p>Admission, publication and retirement share one owner monitor. Reads use
+ * ConcurrentHashMap; expiration releases only its exact published entry.</p>
  *
  * <p>Implements {@link Closeable} and tracks buffered byte usage for quota
  * enforcement. Relational query results must never be inserted here.</p>
@@ -27,10 +29,12 @@ public final class CoordinatorResultBuffer implements Closeable {
 
     public static final long DEFAULT_RETENTION_MS = 300_000L;
     public static final int DEFAULT_MAX_ENTRIES = 10_000;
-    public static final long DEFAULT_MAX_OFF_HEAP_BYTES = 512L * 1024 * 1024; // 512 MB
+    public static final long DEFAULT_MAX_BUFFERED_BYTES = 512L * 1024 * 1024; // 512 MB
 
     private static final class ResultEntry {
         private final byte[] serializedBytes;
+        private ScheduledFuture<?> expiration;
+
         private ResultEntry(byte[] serializedBytes) {
             this.serializedBytes = serializedBytes;
         }
@@ -48,7 +52,10 @@ public final class CoordinatorResultBuffer implements Closeable {
         }
 
         void release() {
-            // Heap byte arrays are reclaimed by the GC after removal.
+            if (expiration != null) {
+                expiration.cancel(false);
+                expiration = null;
+            }
         }
     }
 
@@ -56,23 +63,24 @@ public final class CoordinatorResultBuffer implements Closeable {
     private final ScheduledExecutorService expirationExecutor;
     private final long retentionMs;
     private final int maxEntries;
-    private final long maxOffHeapBytes;
-    private final AtomicLong currentOffHeapBytes = new AtomicLong(0);
+    private final long maxBufferedBytes;
+    private final AtomicLong currentBufferedBytes = new AtomicLong(0);
+    private boolean closed;
 
     public CoordinatorResultBuffer(
             ScheduledExecutorService expirationExecutor, long retentionMs) {
-        this(expirationExecutor, retentionMs, DEFAULT_MAX_ENTRIES, DEFAULT_MAX_OFF_HEAP_BYTES);
+        this(expirationExecutor, retentionMs, DEFAULT_MAX_ENTRIES, DEFAULT_MAX_BUFFERED_BYTES);
     }
 
     public CoordinatorResultBuffer(
             ScheduledExecutorService expirationExecutor, long retentionMs, int maxEntries) {
-        this(expirationExecutor, retentionMs, maxEntries, DEFAULT_MAX_OFF_HEAP_BYTES);
+        this(expirationExecutor, retentionMs, maxEntries, DEFAULT_MAX_BUFFERED_BYTES);
     }
 
-    /** Creates a buffer with explicit entry-count and off-heap byte limits. */
+    /** Creates a buffer with explicit entry-count and buffered heap byte limits. */
     public CoordinatorResultBuffer(
             ScheduledExecutorService expirationExecutor,
-            long retentionMs, int maxEntries, long maxOffHeapBytes) {
+            long retentionMs, int maxEntries, long maxBufferedBytes) {
         this.expirationExecutor = Objects.requireNonNull(
                 expirationExecutor, "expirationExecutor");
         if (retentionMs <= 0) {
@@ -83,17 +91,17 @@ public final class CoordinatorResultBuffer implements Closeable {
             throw new IllegalArgumentException(
                     "maxEntries must be positive, got: " + maxEntries);
         }
-        if (maxOffHeapBytes <= 0) {
+        if (maxBufferedBytes <= 0) {
             throw new IllegalArgumentException(
-                    "maxOffHeapBytes must be positive, got: " + maxOffHeapBytes);
+                    "maxBufferedBytes must be positive, got: " + maxBufferedBytes);
         }
         this.retentionMs = retentionMs;
         this.maxEntries = maxEntries;
-        this.maxOffHeapBytes = maxOffHeapBytes;
+        this.maxBufferedBytes = maxBufferedBytes;
     }
 
     /** Buffers serialized result bytes for later client fetch, subject to capacity limits. */
-    public void put(String queryId, byte[] resultBytes) {
+    public synchronized void put(String queryId, byte[] resultBytes) {
         Objects.requireNonNull(queryId, "queryId");
         Objects.requireNonNull(resultBytes, "resultBytes");
         ResultEntry entry = ResultEntry.fromBytes(resultBytes);
@@ -120,13 +128,14 @@ public final class CoordinatorResultBuffer implements Closeable {
         return results.size();
     }
 
-    /** Current tracked off-heap byte usage across all buffered entries. */
-    public long offHeapBytes() {
-        return currentOffHeapBytes.get();
+    /** Current tracked buffered heap byte usage across all buffered entries. */
+    public long bufferedBytes() {
+        return currentBufferedBytes.get();
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
+        closed = true;
         for (String queryId : results.keySet()) {
             releaseEntry(queryId);
         }
@@ -136,52 +145,55 @@ public final class CoordinatorResultBuffer implements Closeable {
     // ── Internal ──
 
     private boolean tryInsert(String queryId, ResultEntry entry) {
+        if (closed) {
+            throw new IllegalStateException("Control result publication is closed");
+        }
+        ResultEntry previous = results.get(queryId);
+        if (previous != null) {
+            if (!Arrays.equals(previous.serializedBytes, entry.serializedBytes)) {
+                throw new IllegalStateException("Control result identity already owns different bytes: " + queryId);
+            }
+            return false;
+        }
         long entryBytes = entry.estimatedBytes();
-        if (!checkBufferQuota(queryId, entryBytes)) {
-            return false;
+        if (results.size() >= maxEntries
+                || entryBytes > maxBufferedBytes - currentBufferedBytes.get()) {
+            throw new IllegalStateException("Control result buffer capacity exceeded for " + queryId);
         }
-        ResultEntry prev = results.putIfAbsent(queryId, entry);
-        if (prev != null) {
-            return false; // idempotent — already buffered
+        boolean accounted = false;
+        boolean published = false;
+        try {
+            results.put(queryId, entry);
+            currentBufferedBytes.addAndGet(entryBytes);
+            accounted = true;
+            entry.expiration = expirationExecutor.schedule(
+                    () -> releaseExactEntry(queryId, entry), retentionMs, TimeUnit.MILLISECONDS);
+            published = true;
+            return true;
+        } finally {
+            if (!published) {
+                results.remove(queryId, entry);
+                if (accounted) {
+                    currentBufferedBytes.addAndGet(-entryBytes);
+                }
+                entry.release();
+            }
         }
-        currentOffHeapBytes.addAndGet(entryBytes);
-        scheduleExpiration(queryId);
-        return true;
     }
 
-    /**
-     * Checks whether the buffer has capacity for a new entry.
-     * Returns false and logs a warning if the buffer is full, instead of
-     * throwing an unchecked exception that callers may not anticipate.
-     */
-    private boolean checkBufferQuota(String queryId, long entryBytes) {
-        if (results.size() >= maxEntries) {
-            LOG.warn("event=result_buffer_full reason=entry_count maxEntries={} queryId={}",
-                    maxEntries, queryId);
-            return false;
+    private synchronized void releaseExactEntry(String queryId, ResultEntry expected) {
+        if (results.get(queryId) == expected) {
+            releaseEntry(queryId);
         }
-        long projectedTotal = currentOffHeapBytes.get() + entryBytes;
-        if (projectedTotal > maxOffHeapBytes) {
-            LOG.warn("event=result_buffer_full reason=off_heap_quota "
-                    + "offHeapBytes={} maxOffHeapBytes={} queryId={}",
-                    projectedTotal, maxOffHeapBytes, queryId);
-            return false;
-        }
-        return true;
     }
 
-    private void releaseEntry(String queryId) {
+    private synchronized void releaseEntry(String queryId) {
         ResultEntry removed = results.remove(queryId);
         if (removed != null) {
-            currentOffHeapBytes.addAndGet(-removed.estimatedBytes());
+            currentBufferedBytes.addAndGet(-removed.estimatedBytes());
             removed.release();
             LOG.debug("event=result_released queryId={}", queryId);
         }
     }
 
-    private void scheduleExpiration(String queryId) {
-        expirationExecutor.schedule(
-                () -> releaseEntry(queryId),
-                retentionMs, TimeUnit.MILLISECONDS);
-    }
 }

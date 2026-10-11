@@ -49,6 +49,7 @@ class DAGDispatchEngineAiBindingTest {
             assertThat(operator.getModel().getRequestLimits().getMaxInputTokens()).isEqualTo(10);
             assertThat(operator.getModel().getRequestLimits().getMaxOutputTokens()).isEqualTo(6);
             assertThat(operator.getResources().getMediaBytes()).isZero();
+            assertThat(operator.hasReusePolicy()).isFalse();
         });
     }
 

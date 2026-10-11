@@ -57,6 +57,8 @@ public final class PlanSplitSourceExtractor {
             Constraint constraint = buildConstraint(ref);
             List<String> columns = ref.scan().getRowType().getFieldList().stream()
                     .map(f -> f.getName())
+                    .filter(name -> !org.pangrova.protocol.retrieval.RetrievalCandidateIdentity
+                            .PHYSICAL_FIELDS.contains(name))
                     .toList();
             descriptors.add(new SplitSourceDescriptor(
                     ref.catalogName(), ref.schemaName(), ref.tableName(),

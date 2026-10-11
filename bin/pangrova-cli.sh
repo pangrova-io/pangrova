@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# pangrova-cli.sh — Pangrova interactive SQL CLI client
+# pangrova-cli.sh — Pangrova interactive and batch SQL CLI client
 #
 # Usage:
 #   bin/pangrova-cli.sh [--host <host>] [--port <port>] [--catalog <name>] [options...]
@@ -29,14 +29,18 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Pangrova interactive SQL CLI client.
+Pangrova interactive and batch SQL CLI client.
 
 Connection Options:
   --host <host>              Coordinator host (default: localhost)
   --port <port>              Coordinator port (default: 8080)
   --catalog <name>           Default catalog to use for queries
   --schema <name>            Default schema within the catalog
-  --query-timeout <ms>       Query timeout in milliseconds
+  --query-timeout <duration> Query timeout, e.g. 30s, 5m or bare seconds
+  --token-env <name>       Read Bearer token from an existing environment variable
+  --file <path>             Execute one UTF-8 SQL statement; failures exit nonzero
+  --output <path>           New batch result output file (default: stdout)
+  --execution-receipt <path> New JSON receipt after FINISHED and result consumption
 
 All options are passed through to PangrovaCli.
 
@@ -50,7 +54,8 @@ Examples:
   $(basename "$0")
   $(basename "$0") --host coordinator.example.com --port 8080
   $(basename "$0") --host localhost --port 8080 --catalog my_iceberg
-  $(basename "$0") --catalog my_iceberg --schema main --query-timeout 60000
+  $(basename "$0") --catalog my_iceberg --schema main --query-timeout 30m
+  $(basename "$0") --file q01.sql --output results.txt --execution-receipt execution.json
   PANGROVA_COORDINATOR_URL=http://coordinator:8080 $(basename "$0") --catalog my_iceberg
 EOF
     exit 0
@@ -94,13 +99,10 @@ if [[ -d "$PANGROVA_HOME/lib" ]]; then
 fi
 
 if [[ -z "$CLASSPATH" ]]; then
-    echo "WARN: No lib/ directory, using Maven target/ (dev mode)" >&2
-    for module_dir in "$PANGROVA_HOME"/pangrova-*/target; do
-        if [[ -d "$module_dir" ]]; then
-            for jar in "$module_dir"/*.jar; do
-                [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
-            done
-        fi
+    # The CLI module lives below the client aggregator. Its shaded artifact
+    # contains the actual REST/Arrow dependencies; unrelated reactor jars do not.
+    for jar in "$PANGROVA_HOME"/pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*.jar; do
+        [[ -f "$jar" ]] && CLASSPATH="${CLASSPATH:+$CLASSPATH:}$jar"
     done
 fi
 
@@ -110,7 +112,7 @@ if [[ -z "$CLASSPATH" ]]; then
 fi
 
 # --- JVM options (lightweight for CLI) ---
-JAVA_OPTS="-Xms256m -Xmx512m"
+JAVA_OPTS="-Xms256m -Xmx512m --add-opens=java.base/java.nio=ALL-UNNAMED"
 
 # --- PANGROVA_COORDINATOR_URL: extract host and port if not in args ---
 URL_ARGS=()

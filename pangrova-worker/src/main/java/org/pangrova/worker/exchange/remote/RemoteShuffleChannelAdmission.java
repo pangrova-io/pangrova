@@ -13,11 +13,15 @@ import org.pangrova.common.concurrent.ThreadSafe;
 /** Worker-wide credits for owned ManagedChannels, including creation and failed joins. */
 @ThreadSafe
 public final class RemoteShuffleChannelAdmission {
+    private static final int MAX_TCP_PORT = 65_535;
+
     public record Limits(int maxOwnedChannels, int maxOwnedChannelsPerEndpoint) {
         public Limits {
-            if (maxOwnedChannels <= 0 || maxOwnedChannelsPerEndpoint <= 0
+            if (maxOwnedChannels <= 0
+                    || maxOwnedChannelsPerEndpoint <= 0
                     || maxOwnedChannelsPerEndpoint > maxOwnedChannels) {
-                throw new IllegalArgumentException("Channel limits require 0 < per-endpoint <= total");
+                throw new IllegalArgumentException(
+                        "Channel limits require 0 < per-endpoint <= total");
             }
         }
     }
@@ -25,20 +29,38 @@ public final class RemoteShuffleChannelAdmission {
     /** An exact TLS-bound address, not a DNS/IP equivalence or an OS socket identity. */
     public record Endpoint(String host, int port, String tlsIdentity) {
         public Endpoint {
-            if (host == null || host.isBlank() || port <= 0 || port > 65535 || tlsIdentity == null) {
-                throw new IllegalArgumentException("Channel endpoint requires host, port and TLS identity");
+            if (host == null
+                    || host.isBlank()
+                    || port <= 0
+                    || port > MAX_TCP_PORT
+                    || tlsIdentity == null) {
+                throw new IllegalArgumentException(
+                        "Channel endpoint requires host, port and TLS identity");
             }
             host = host.toLowerCase(Locale.ROOT);
         }
     }
 
-    public record Snapshot(int ownedAndCreatingChannels, int endpointCount,
-                           Map<Endpoint, Integer> channelsByEndpoint) {}
+    public record Snapshot(
+            int ownedAndCreatingChannels,
+            int endpointCount,
+            Map<Endpoint, Integer> channelsByEndpoint) {
+        /** Captures actual credits without exposing a mutable caller-owned map. */
+        public Snapshot {
+            channelsByEndpoint = Map.copyOf(channelsByEndpoint);
+        }
+    }
 
     private final Limits limits;
-    @GuardedBy("this") private final Set<Reservation> reservations = new HashSet<>();
-    @GuardedBy("this") private final Map<Endpoint, EndpointCredits> counts = new HashMap<>();
-    @GuardedBy("this") private boolean sealed;
+
+    @GuardedBy("this")
+    private final Set<Reservation> reservations = new HashSet<>();
+
+    @GuardedBy("this")
+    private final Map<Endpoint, EndpointCredits> counts = new HashMap<>();
+
+    @GuardedBy("this")
+    private boolean sealed;
 
     public RemoteShuffleChannelAdmission(Limits limits) {
         this.limits = java.util.Objects.requireNonNull(limits, "limits");
@@ -49,20 +71,25 @@ public final class RemoteShuffleChannelAdmission {
         EndpointCredits previous = counts.get(endpoint);
         int endpointCount = previous == null ? 0 : previous.count;
         if (reservations.size() >= limits.maxOwnedChannels()) {
-            throw new RemoteShuffleAdmissionException("TOTAL", reservations.size(), limits.maxOwnedChannels());
+            throw new RemoteShuffleAdmissionException(
+                    "TOTAL", reservations.size(), limits.maxOwnedChannels());
         }
         if (endpointCount >= limits.maxOwnedChannelsPerEndpoint()) {
-            throw new RemoteShuffleAdmissionException("ENDPOINT", endpointCount,
-                    limits.maxOwnedChannelsPerEndpoint());
+            throw new RemoteShuffleAdmissionException(
+                    "ENDPOINT", endpointCount, limits.maxOwnedChannelsPerEndpoint());
         }
         var reservation = new Reservation(this, endpoint);
         var credits = previous == null ? new EndpointCredits() : previous;
         try {
-            if (previous == null) counts.put(endpoint, credits);
+            if (previous == null) {
+                counts.put(endpoint, credits);
+            }
             reservations.add(reservation);
         } catch (RuntimeException | Error failure) {
             reservations.remove(reservation);
-            if (previous == null) counts.remove(endpoint, credits);
+            if (previous == null) {
+                counts.remove(endpoint, credits);
+            }
             throw failure;
         }
         credits.count++;
@@ -75,33 +102,43 @@ public final class RemoteShuffleChannelAdmission {
         return new Snapshot(reservations.size(), counts.size(), Map.copyOf(values));
     }
 
-    public synchronized void seal() { sealed = true; }
-
-    synchronized void requireOpen() {
-        if (sealed) throw new IllegalStateException("Worker shuffle channel admission is sealed");
+    public synchronized void seal() {
+        sealed = true;
     }
 
+    synchronized void requireOpen() {
+        if (sealed) {
+            throw new IllegalStateException("Worker shuffle channel admission is sealed");
+        }
+    }
+
+    /** Requires every real channel construction and termination owner to have exited. */
     public synchronized void requireDrained() {
         if (!reservations.isEmpty()) {
-            throw new IllegalStateException("Worker still owns shuffle channel reservations: " + reservations.size());
+            throw new IllegalStateException(
+                    "Worker still owns shuffle channel reservations: " + reservations.size());
         }
     }
 
     private synchronized void release(Reservation reservation) {
-        if (!reservation.constructionExited || reservation.channel != null && !reservation.channel.isTerminated()) {
-            throw new IllegalStateException("Channel credit requires actual construction exit and termination");
+        if (!reservation.constructionExited
+                || reservation.channel != null && !reservation.channel.isTerminated()) {
+            throw new IllegalStateException(
+                    "Channel credit requires actual construction exit and termination");
         }
         if (reservations.contains(reservation)) {
             // Returning an actual terminated owner must not allocate a boxed
             // counter while already handling an allocation failure.
             var credits = counts.get(reservation.endpoint);
-            if (--credits.count == 0) counts.remove(reservation.endpoint);
+            if (--credits.count == 0) {
+                counts.remove(reservation.endpoint);
+            }
             reservations.remove(reservation);
         }
     }
 
-    private final class EndpointCredits {
-        @GuardedBy("RemoteShuffleChannelAdmission.this")
+    /** Accessed exclusively under the owning admission monitor, like the counts map. */
+    private static final class EndpointCredits {
         private int count;
     }
 
@@ -118,14 +155,27 @@ public final class RemoteShuffleChannelAdmission {
             this.endpoint = endpoint;
         }
 
-        void attach(ManagedChannel channel) {
-            if (this.channel != null || constructionExited) throw new IllegalStateException("Channel already bound");
-            this.channel = java.util.Objects.requireNonNull(channel, "channel");
+        void attach(ManagedChannel actualChannel) {
+            if (this.channel != null || constructionExited) {
+                throw new IllegalStateException("Channel already bound");
+            }
+            this.channel = java.util.Objects.requireNonNull(actualChannel, "channel");
         }
 
-        void constructionExited() { constructionExited = true; }
-        boolean hasConstructionExited() { return constructionExited; }
-        ManagedChannel channel() { return channel; }
-        void releaseTerminated() { admission.release(this); }
+        void constructionExited() {
+            constructionExited = true;
+        }
+
+        boolean hasConstructionExited() {
+            return constructionExited;
+        }
+
+        ManagedChannel channel() {
+            return channel;
+        }
+
+        void releaseTerminated() {
+            admission.release(this);
+        }
     }
 }

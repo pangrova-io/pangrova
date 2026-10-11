@@ -131,16 +131,15 @@ public class StageRetryManager {
     }
 
     /**
-     * Must be called while holding the StageStatus lock.
+     * Reads the compound retry decision while holding the same StageStatus mutation lock.
      */
     private boolean isStageRetryNeeded(StageStatus status) {
-        if (status.retryCount >= MAX_STAGE_RETRIES) {
-            return false;
+        synchronized (status) {
+            if (status.retryCount >= MAX_STAGE_RETRIES || status.totalTasks == 0) {
+                return false;
+            }
+            double failureRatio = (double) status.failedTasks.size() / status.totalTasks;
+            return failureRatio >= FAILURE_RATIO_THRESHOLD;
         }
-        if (status.totalTasks == 0) {
-            return false;
-        }
-        double failureRatio = (double) status.failedTasks.size() / status.totalTasks;
-        return failureRatio >= FAILURE_RATIO_THRESHOLD;
     }
 }

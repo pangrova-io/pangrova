@@ -50,14 +50,13 @@ public final class SemanticViewDefinitionValidator {
             throw invalid("Semantic View definition exceeds 1 MiB", null);
         }
         try {
-            JsonNode root = MetadataJsonMapper.instance().readTree(definitionJson);
+            JsonNode root = MetadataJsonMapper.readTree(definitionJson);
             if (root == null || !root.isObject()) {
                 throw invalid("Semantic View definition must be a JSON object", null);
             }
             List<QualifiedTableName> sources = validateLogicalTables(root);
             validateOptionalArrays(root);
-            String canonicalJson = MetadataJsonMapper.instance()
-                    .writeValueAsString(canonicalize(root));
+            String canonicalJson = MetadataJsonMapper.writeValueAsString(canonicalize(root));
             return new ValidatedSemanticViewDefinition(
                     canonicalJson, DigestUtils.sha256Hex(canonicalJson), sources);
         } catch (JsonProcessingException failure) {
@@ -100,7 +99,7 @@ public final class SemanticViewDefinitionValidator {
 
     private static JsonNode canonicalize(JsonNode node) {
         if (node.isObject()) {
-            ObjectNode sorted = MetadataJsonMapper.instance().createObjectNode();
+            ObjectNode sorted = MetadataJsonMapper.createObjectNode();
             List<String> names = new ArrayList<>();
             node.fieldNames().forEachRemaining(names::add);
             names.stream().sorted(Comparator.naturalOrder())
@@ -108,7 +107,7 @@ public final class SemanticViewDefinitionValidator {
             return sorted;
         }
         if (node.isArray()) {
-            ArrayNode array = MetadataJsonMapper.instance().createArrayNode();
+            ArrayNode array = MetadataJsonMapper.createArrayNode();
             node.forEach(value -> array.add(canonicalize(value)));
             return array;
         }

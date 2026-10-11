@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Verifies QueryTimeoutEnforcer is started and stopped with the
@@ -88,7 +89,7 @@ class QueryTimeoutEnforcerBootstrapTest {
     private CoordinatorBootstrap startCoordinator() {
         CoordinatorBootstrapConfig config = CoordinatorBootstrapConfig.withDefaults(
                 "coord-timeout-test", 0);
-        CoordinatorBootstrap b = new CoordinatorBootstrap(config);
+        CoordinatorBootstrap b = new CoordinatorBootstrap(withAuthority(config));
         b.start();
         return b;
     }

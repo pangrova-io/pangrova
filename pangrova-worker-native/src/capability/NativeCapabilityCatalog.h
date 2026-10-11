@@ -22,7 +22,7 @@ inline constexpr std::string_view kRetrievalMergeBuildId =
     "pangrova-native-0.1.0";
 inline constexpr std::string_view kRelationDetailEnvelopeTypeUrl =
     "type.googleapis.com/pangrova.protocol.v2.RelationDetailEnvelope";
-inline constexpr uint32_t kRetrievalCandidateSchemaVersion = 1;
+inline constexpr uint32_t kRetrievalCandidateSchemaVersion = 2;
 inline constexpr uint64_t kExactTopKMaxCandidateRows = 100'000;
 inline constexpr uint64_t kRetrievalMergeMaxCandidateRows = 1'000'000;
 inline constexpr uint64_t kRetrievalMergeMaxCandidateBytes =
@@ -148,6 +148,11 @@ bool isDiskAnnArtifactBuild(
 pangrova::protocol::v2::ArtifactFormatRef diskAnnArtifactFormat();
 pangrova::protocol::v2::RowLocatorContract physicalRowLocatorContract();
 pangrova::protocol::v2::CapabilityDescriptor diskAnnArtifactBuildDescriptor();
+
+inline constexpr std::string_view kFilteredDiskAnnRetrievalId =
+    "pangrova.retrieval.vector.diskann.filtered";
+bool isFilteredDiskAnnRetrieval(const pangrova::protocol::v2::CapabilityRef& capability);
+pangrova::protocol::v2::CapabilityDescriptor filteredDiskAnnRetrievalDescriptor();
 
 std::string diskAnnRetrievalSignature();
 bool isDiskAnnRetrieval(

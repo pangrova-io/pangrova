@@ -131,6 +131,9 @@ public final class JdbcGeneratedValueArtifactPublicationStore
                 ArtifactExecutionFence.requirePublication(connection, claimedJob.tenantId(), claimedJob.jobId());
                 ArtifactGenerationManifest manifest = publishLocked(
                         connection, claimedJob, owner, ownerEpoch, now);
+                // Recheck after every potentially blocking publication write, before commit.
+                // Expiry here rolls back the generation, descriptor pointer and job together.
+                ArtifactExecutionFence.requirePublication(connection, claimedJob.tenantId(), claimedJob.jobId());
                 connection.commit();
                 return manifest;
             } catch (SQLException | RuntimeException failure) {
@@ -227,12 +230,7 @@ public final class JdbcGeneratedValueArtifactPublicationStore
     }
 
     private static void requireStableIdentity(JobRow row, ArtifactBuildJob claimed) {
-        if (!row.tenantId().equals(claimed.tenantId())
-                || !row.artifactId().equals(claimed.artifactId())
-                || !row.artifactType().equals(claimed.artifactType())
-                || !row.generation().equals(claimed.stagingGeneration())
-                || !row.sourceId().equals(claimed.sourceId())
-                || !row.sourceSnapshot().equals(claimed.sourceSnapshot())
+        if (!matchesSourceIdentity(row, claimed)
                 || row.executionKind() != claimed.executionKind()
                 || !row.dependencySet().equals(claimed.dependencySet())
                 || row.emptyPartitionPolicy() != claimed.emptyPartitionPolicy()
@@ -245,6 +243,15 @@ public final class JdbcGeneratedValueArtifactPublicationStore
                 .equals(claimed.publicationExpectedUpdatedAt())) {
             throw new IllegalStateException("Claimed artifact identity changed before publication");
         }
+    }
+
+    private static boolean matchesSourceIdentity(JobRow row, ArtifactBuildJob claimed) {
+        return row.tenantId().equals(claimed.tenantId())
+                && row.artifactId().equals(claimed.artifactId())
+                && row.artifactType().equals(claimed.artifactType())
+                && row.generation().equals(claimed.stagingGeneration())
+                && row.sourceId().equals(claimed.sourceId())
+                && row.sourceSnapshot().equals(claimed.sourceSnapshot());
     }
 
     private static Aggregate aggregate(
@@ -275,7 +282,7 @@ public final class JdbcGeneratedValueArtifactPublicationStore
                 job.dependencySet(), job.emptyPartitionPolicy(), job.formatId(),
                 job.formatMajor(), job.formatMinor(), job.schemaSha256(),
                 job.writerBuildId(),
-                "metadata://generated-value-generation/" + aggregate.manifestSha256(),
+                "metadata://artifact-generation/" + aggregate.manifestSha256(),
                 aggregate.manifestSha256(), aggregate.objectCount(), aggregate.rowCount(),
                 aggregate.totalBytes(), canonicalInstant(now));
     }

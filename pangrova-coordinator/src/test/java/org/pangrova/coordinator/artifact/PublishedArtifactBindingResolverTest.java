@@ -37,11 +37,12 @@ class PublishedArtifactBindingResolverTest {
     private static final String TENANT = "tenant";
 
     @Test
-    void resolvesMetadataThenLoadsOnlyOneTaskSourceBundle() {
+    void resolvesAcrossQuerySpecificScanDetailThenLoadsOnlyOneTaskSourceBundle() throws Exception {
         StoreStub store = new StoreStub(outputs("object-a"));
         PublishedArtifactBindingResolver resolver =
                 new PublishedArtifactBindingResolver(store);
-        String split = split("split-a", "object-a", "snapshot-1");
+        String split = splitWithScanDetail("object-a", "snapshot-1");
+        assertThat(split).isNotEqualTo(split("object-a", "snapshot-1"));
 
         var resolved = resolver.resolveTemplate(intent(), List.of(split)).orElseThrow();
         assertThat(resolved.bindingTemplate().getSplitObjectsCount()).isZero();
@@ -68,7 +69,7 @@ class PublishedArtifactBindingResolverTest {
         PublishedArtifactBindingResolver resolver =
                 new PublishedArtifactBindingResolver(new StoreStub(outputs("object-a")));
         assertThat(resolver.resolveTemplate(
-                intent(), List.of(split("split-a", "object-a", "snapshot-2"))))
+                intent(), List.of(split("object-a", "snapshot-2"))))
                 .isEmpty();
     }
 
@@ -77,7 +78,7 @@ class PublishedArtifactBindingResolverTest {
         StoreStub store = new StoreStub(outputs("object-a").subList(0, 2));
         PublishedArtifactBindingResolver resolver =
                 new PublishedArtifactBindingResolver(store);
-        String split = split("split-a", "object-a", "snapshot-1");
+        String split = split("object-a", "snapshot-1");
         var template = resolver.resolveTemplate(intent(), List.of(split))
                 .orElseThrow().bindingTemplate();
 
@@ -98,7 +99,7 @@ class PublishedArtifactBindingResolverTest {
         StoreStub store = new StoreStub(bm25Outputs("object-a"), true);
         PublishedArtifactBindingResolver resolver =
                 new PublishedArtifactBindingResolver(store);
-        String split = split("split-a", "object-a", "snapshot-1");
+        String split = split("object-a", "snapshot-1");
 
         var resolved = resolver.resolveTemplate(bm25Intent(), List.of(split)).orElseThrow();
         OperatorBinding taskBinding = resolver.materializeForTask(
@@ -123,7 +124,7 @@ class PublishedArtifactBindingResolverTest {
     @Test
     void purePreparedMaterializationUsesOnlyExactReadEvidenceAndIgnoresOtherSourceLegs() {
         StoreStub store = new StoreStub(outputs("object-a"));
-        String encoded = split("split-a", "object-a", "snapshot-1");
+        String encoded = split("object-a", "snapshot-1");
         var artifact = new PublishedArtifactBindingResolver(store).resolveTemplate(intent(), List.of(encoded))
                 .orElseThrow().bindingTemplate();
         var binding = OperatorBinding.newBuilder().setPlanNodeId("retrieval-1")
@@ -145,7 +146,7 @@ class PublishedArtifactBindingResolverTest {
     @Test
     void purePreparedMaterializationRejectsMissingEvidenceCoverageAndWrongSnapshot() {
         StoreStub store = new StoreStub(outputs("object-a"));
-        String encoded = split("split-a", "object-a", "snapshot-1");
+        String encoded = split("object-a", "snapshot-1");
         var artifact = new PublishedArtifactBindingResolver(store).resolveTemplate(intent(), List.of(encoded))
                 .orElseThrow().bindingTemplate();
         var binding = OperatorBinding.newBuilder().setPlanNodeId("retrieval-1").addArtifacts(artifact).build();
@@ -157,7 +158,7 @@ class PublishedArtifactBindingResolverTest {
                 Map.of(key, new PublishedInput(manifest, outputs("object-a"), Set.of("object-b")))))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("coverage");
         assertThatThrownBy(() -> PublishedArtifactBindingResolver.materializePrepared(List.of(binding),
-                List.of(split("split-a", "object-a", "snapshot-2")),
+                List.of(split("object-a", "snapshot-2")),
                 Map.of(key, new PublishedInput(manifest, outputs("object-a"), Set.of("object-a")))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("source snapshot");
     }
@@ -178,16 +179,29 @@ class PublishedArtifactBindingResolverTest {
                 List.of(), 40);
     }
 
-    private static String split(String splitId, String objectId, String snapshot) {
+    private static String split(String objectId, String snapshot) {
+        String location = "s3://bucket/" + objectId;
         DataSplit value = DataSplit.newBuilder()
-                .setSplitId(splitId)
+                .setSplitId(org.pangrova.protocol.DataSplitProtoCodec.stableSplitId(
+                        "test", "catalog.schema.table", snapshot, objectId, location, 0, 0))
                 .setConnectorId("test")
                 .setSourceId("catalog.schema.table")
                 .setSourceSnapshot(snapshot)
                 .setDataObjectId(objectId)
-                .setOpaqueLocation("s3://bucket/" + objectId)
+                .setOpaqueLocation(location)
                 .build();
         return Base64.getEncoder().encodeToString(value.toByteArray());
+    }
+
+    private static String splitWithScanDetail(String objectId, String snapshot) throws Exception {
+        DataSplit base = DataSplit.parseFrom(Base64.getDecoder().decode(split(objectId, snapshot)));
+        var detail = org.pangrova.protocol.v2.FileSplitDetail.newBuilder()
+                .setFileFormat(org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET)
+                .setSplitConstraint(org.pangrova.protocol.v2.SplitConstraint.newBuilder()
+                        .setPredicate(com.google.protobuf.ByteString.copyFromUtf8("query predicate")))
+                .build();
+        return Base64.getEncoder().encodeToString(
+                org.pangrova.protocol.DataSplitProtoCodec.withFileDetail(base, detail).toByteArray());
     }
 
     private static List<ArtifactBuildOutput> outputs(String sourceObjectId) {
@@ -332,6 +346,16 @@ class PublishedArtifactBindingResolverTest {
                 String tenantId, String jobId,
                 java.util.Map<String, String> sourceSplitSha256) {
             return sourceSplitSha256.keySet().equals(Set.of("object-a"));
+        }
+
+        @Override
+        public java.util.Map<String, org.pangrova.metadata.artifact.build.ArtifactBuildSplit>
+                loadPublishedSourceSplits(String tenantId, String jobId,
+                        java.util.Set<String> sourceObjectIds) {
+            if (!sourceObjectIds.equals(Set.of("object-a"))) return java.util.Map.of();
+            byte[] bytes = java.util.Base64.getDecoder().decode(split("object-a", "snapshot-1"));
+            return java.util.Map.of("object-a",
+                    org.pangrova.metadata.artifact.build.ArtifactBuildSplit.of("object-a", bytes));
         }
 
         @Override public void createJob(ArtifactBuildJob job, ArtifactBuildDispatchSpec spec,

@@ -1,6 +1,8 @@
 package org.pangrova.protocol;
 
 import org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors;
+import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
@@ -23,6 +25,18 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class CapabilityInventoryCodecTest {
 
     @Test
+    void actualExportedNativeInventoryAcceptsOnlyTheCurrentCandidateContractEpoch() {
+        var actual = CanonicalCapabilityInventoryTestFixture.inventory();
+        assertThat(actual.getCandidateSchemaVersion()).isEqualTo(2);
+        assertThat(CapabilityInventoryCodec.decode(CapabilityInventoryCodec.encode(actual))).isEqualTo(actual);
+        for (int invalid : new int[]{0, 1, 3}) {
+            var drifted = actual.toBuilder().setCandidateSchemaVersion(invalid).build();
+            assertThatThrownBy(() -> CapabilityInventoryCodec.encode(drifted))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("typed relation contract");
+        }
+    }
+
+    @Test
     void encodedSizeLimitIsInclusiveAndIdenticalForAllProducerAndConsumerPaths() {
         var exact = inventorySized(3 * 1024 * 1024);
         String encoded = CapabilityInventoryCodec.encode(exact);
@@ -38,6 +52,31 @@ class CapabilityInventoryCodecTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maximum encoded size");
         assertThatThrownBy(() -> CapabilityInventoryCodec.decode(oversizedEncoded))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("maximum encoded size");
+    }
+
+    @Test
+    void maximumCanonicalInventoryFitsTheRegistrationWireContract() throws Exception {
+        String encoded = CapabilityInventoryCodec.encode(inventorySized(3 * 1024 * 1024));
+        var request = new WorkerRegistrationRequest("worker-1", "localhost", 8080, 9090,
+                0, 2, null, java.util.List.of(), null, encoded);
+        var mapper = JsonMapperFactory.shared();
+        request.requireBoundedMetadata(mapper);
+        byte[] body = mapper.writeValueAsBytes(request);
+        assertThat(body.length).isGreaterThan(1024 * 1024);
+        assertThat(body.length).isLessThanOrEqualTo(
+                WorkerRegistrationRequest.MAX_REGISTRATION_BODY_BYTES);
+    }
+
+    @Test
+    void registrationMetadataCannotBorrowUnusedInventoryAllowance() {
+        String encoded = CapabilityInventoryCodec.encode(baseInventory().build());
+        var request = new WorkerRegistrationRequest("worker-1", "localhost", 8080, 9090,
+                0, 2, "x".repeat(WorkerRegistrationRequest.MAX_METADATA_JSON_BYTES),
+                java.util.List.of(), null, encoded);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> request.requireBoundedMetadata(JsonMapperFactory.shared()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("metadata exceeds maximum");
     }
 
     private static CapabilityInventory inventorySized(int bytes) {

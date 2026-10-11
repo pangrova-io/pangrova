@@ -293,6 +293,13 @@ teardown. Queue and Flight retention must both be byte-accounted and bounded;
 the current producer-queue gap is tracked in the
 [AI Native audit](../internal/ai-native-roadmap.md).
 
+The result reader records a Flight stream failure against the exact registered
+Native executor before releasing its output buffer. Both Arrow error statuses
+and C++ exceptions during page allocation or decoding prevent a successful
+TaskReport; the Worker then publishes a failed, zero-completed-coverage
+reconciliation with the Native failure attached. A result stream that returns
+an error is not a successful producer EOF.
+
 ## 6. JNI Boundary
 
 The JNI layer transfers task-control commands, canonical v2 task bytes and

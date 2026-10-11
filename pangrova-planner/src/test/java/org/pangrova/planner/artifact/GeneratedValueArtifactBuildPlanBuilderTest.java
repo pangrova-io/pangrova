@@ -40,6 +40,9 @@ class GeneratedValueArtifactBuildPlanBuilderTest {
 
         var sink = plan.getRelations(0).getRoot().getInput().getExtensionSingle();
         var project = sink.getInput().getProject();
+        assertThat(org.pangrova.protocol.substrait.SubstraitRelationLayout.describe(sink.getInput())
+                .outputSchema().getNamesList())
+                .containsExactly("$pangrova$row_position", "proj_1");
         assertThat(org.pangrova.protocol.substrait.SubstraitRelationLayout.describe(project.getInput())
                 .outputSchema().getNamesList())
                 .containsExactly("$pangrova$row_position", "title", "body");
@@ -66,7 +69,7 @@ class GeneratedValueArtifactBuildPlanBuilderTest {
         assertThat(envelope.getArtifactBuild().getPlanNodeId())
                 .isEqualTo(GeneratedValueArtifactBuildPlanBuilder.ARTIFACT_PLAN_NODE_ID);
         assertThat(envelope.getArtifactBuild().getInputFieldsList())
-                .containsExactly("$pangrova$row_position", "embedding");
+                .containsExactly("$pangrova$row_position", "proj_1");
         assertThat(envelope.getArtifactBuild().getInvocation().getCapability())
                 .isEqualTo(BuiltInCapabilityCatalog.generatedValuesArtifactBuildPlanRef());
     }

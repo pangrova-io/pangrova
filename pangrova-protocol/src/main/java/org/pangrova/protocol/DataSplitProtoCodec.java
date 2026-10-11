@@ -44,6 +44,19 @@ public final class DataSplitProtoCodec {
         }
     }
 
+    /** Verifies the immutable physical range identity independently of scan-only detail. */
+    public static String requireStableSplitId(DataSplit split) {
+        Objects.requireNonNull(split, "split must not be null");
+        String expected = stableSplitId(split.getConnectorId(), split.getSourceId(),
+                split.getSourceSnapshot(), split.getDataObjectId(),
+                split.getOpaqueLocation(), split.getStartOffset(), split.getLength());
+        if (!expected.equals(split.getSplitId()) || split.getDataObjectId().isBlank()
+                || split.getSourceId().isBlank() || split.getOpaqueLocation().isBlank()) {
+            throw new IllegalArgumentException("DataSplit immutable physical identity is invalid");
+        }
+        return expected;
+    }
+
     /**
      * Immutable input for constructing one canonical file split.
      *

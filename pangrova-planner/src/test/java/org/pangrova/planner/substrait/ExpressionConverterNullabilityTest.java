@@ -41,6 +41,53 @@ class ExpressionConverterNullabilityTest {
     }
 
     @Test
+    void bigintIntegerComparisonUsesExactBigintArguments() {
+        RelDataType nullableBigint = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.BIGINT), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.EQUALS,
+                rexBuilder.makeInputRef(nullableBigint, 0),
+                rexBuilder.makeExactLiteral(java.math.BigDecimal.ZERO));
+
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(call);
+        var bigintType = new TypeMapper().map(typeFactory.createSqlType(SqlTypeName.BIGINT));
+        assertThat(result.arguments()).hasSize(2);
+        assertThat(((Expression) result.arguments().get(0)).getType().getClass())
+                .isEqualTo(bigintType.getClass());
+        assertThat(((Expression) result.arguments().get(1)).getType().getClass())
+                .isEqualTo(bigintType.getClass());
+    }
+
+    @Test
+    void isTrueOfNullablePredicateKeepsNonNullTruthTable() {
+        RelDataType nullableBoolean = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.BOOLEAN), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.IS_TRUE,
+                rexBuilder.makeInputRef(nullableBoolean, 0));
+
+        Expression result = converter.convert(call);
+
+        assertThat(result.getType().nullable()).isFalse();
+    }
+
+    @Test
+    void mixedIntegerDoubleArithmeticMaterializesSqlNumericPromotion() {
+        RelDataType nullableDouble = typeFactory.createTypeWithNullability(
+                typeFactory.createSqlType(SqlTypeName.DOUBLE), true);
+        RexNode call = rexBuilder.makeCall(SqlStdOperatorTable.MINUS,
+                rexBuilder.makeExactLiteral(java.math.BigDecimal.ONE),
+                rexBuilder.makeInputRef(nullableDouble, 0));
+
+        var result = (Expression.ScalarFunctionInvocation) converter.convert(call);
+        var doubleType = new TypeMapper().map(typeFactory.createSqlType(SqlTypeName.DOUBLE));
+        assertThat(result.declaration().name()).isEqualTo("subtract");
+        assertThat(result.arguments()).hasSize(2);
+        assertThat(((Expression) result.arguments().get(0)).getType().getClass())
+                .isEqualTo(doubleType.getClass());
+        assertThat(((Expression) result.arguments().get(1)).getType().getClass())
+                .isEqualTo(doubleType.getClass());
+    }
+
+    @Test
     void isNullProducesNonNullableOutput() {
         RelDataType nullableInt = typeFactory.createTypeWithNullability(
                 typeFactory.createSqlType(SqlTypeName.INTEGER), true);

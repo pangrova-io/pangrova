@@ -27,6 +27,7 @@
 #include "velox/plan/GenerateSeriesOperator.h"
 #include "velox/plan/LateralTableFunctionOperator.h"
 #include "velox/plan/RetrievalMergeOperator.h"
+#include "velox/plan/FilteredArtifactRetrievalOperator.h"
 #include "velox/plan/ArtifactBuildOperator.h"
 #include "velox/plan/GeneratedValuesOverlayOperator.h"
 #include "velox/runtime/TableFunctionRegistry.h"
@@ -329,6 +330,7 @@ void NativeEngineLifecycle::registerVeloxFunctions() {
   pangrova::velox::registerGenerateSeriesOperator();
   pangrova::velox::registerLateralTableFunctionOperator();
   pangrova::velox::registerRetrievalMergeOperator();
+  pangrova::velox::registerFilteredArtifactRetrievalOperator();
   pangrova::velox::registerArtifactBuildOperator();
   pangrova::velox::registerGeneratedValuesOverlayOperator();
 

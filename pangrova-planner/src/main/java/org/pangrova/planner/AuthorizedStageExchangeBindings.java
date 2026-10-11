@@ -24,6 +24,52 @@ import java.util.stream.Collectors;
 final class AuthorizedStageExchangeBindings {
     private AuthorizedStageExchangeBindings() {}
 
+    static SerializedPlanFragment bindLive(int stageId, SerializedPlanFragment consumer,
+            List<StageTransfer> incoming, Map<Integer, List<byte[]>> producerPlans) {
+        Fragment target = fragment(stageId, consumer);
+        var edges = incoming.stream().collect(Collectors.toMap(StageTransfer::exchangeId, Function.identity()));
+        requireInputs(target, edges);
+        if (edges.isEmpty()) return consumer;
+        Map<Rel, Rel> replacements = new IdentityHashMap<>();
+        for (Rel relation : target.layout().relations()) {
+            var input = input(relation);
+            if (input == null) continue;
+            var edge = edges.get(input.getExchangeId());
+            validateInput(input, edge);
+            var plans = producerPlans.get(edge.upstreamStageId());
+            if (plans == null || plans.isEmpty()) {
+                throw new IllegalArgumentException("Live exchange has no dispatched producer plan: "
+                        + edge.exchangeId());
+            }
+            NamedStruct schema = null;
+            for (byte[] bytes : plans) {
+                var source = fragment(edge.upstreamStageId(),
+                        new SerializedPlanFragment(bytes, List.of(), List.of()));
+                validateProducer(source, edge);
+                if (schema != null && !schema.equals(source.schema())) {
+                    throw new IllegalArgumentException("Live exchange producer partitions have different schemas: "
+                            + edge.exchangeId());
+                }
+                schema = source.schema();
+            }
+            if (!schema.getStruct().equals(input.getOutputSchema().getStruct())) {
+                throw new IllegalArgumentException("Live exchange input type differs from producer: "
+                        + edge.exchangeId() + " consumer="
+                        + input.getOutputSchema().getStruct().getTypesList()
+                        + " producer=" + schema.getStruct().getTypesList());
+            }
+            var envelope = envelope(relation).toBuilder().setExchangeInput(
+                    input.toBuilder().setOutputSchema(schema)).build();
+            replacements.put(relation, relation.toBuilder().setExtensionLeaf(
+                    relation.getExtensionLeaf().toBuilder().setDetail(Any.pack(envelope))).build());
+        }
+        Rel root = SubstraitRelationLayout.replaceRelations(target.root().getInput(), replacements);
+        var plan = target.plan().toBuilder().setRelations(0, target.plan().getRelations(0).toBuilder()
+                .setRoot(target.root().toBuilder().setInput(root))).build();
+        return new SerializedPlanFragment(plan.toByteArray(), consumer.retrievalTopKHints(),
+                consumer.aiInvocationHints());
+    }
+
     static void validate(List<AuthorizedStageGraph.SerializedStage> stages, List<StageTransfer> transfers) {
         validate(stages.stream().collect(Collectors.toMap(AuthorizedStageGraph.SerializedStage::stageId,
                 AuthorizedStageGraph.SerializedStage::serializedPlan)), transfers);
@@ -48,7 +94,8 @@ final class AuthorizedStageExchangeBindings {
                 var input = fragment.inputs().get(edge.exchangeId());
                 validateInput(input, edge);
                 if (!source.schema().equals(input.getOutputSchema())) {
-                    throw new IllegalArgumentException("Exchange input differs from frozen producer schema: " + edge.exchangeId());
+                    throw new IllegalArgumentException(
+                            "Exchange input differs from frozen producer schema: " + edge.exchangeId());
                 }
             }
         }
@@ -107,6 +154,7 @@ final class AuthorizedStageExchangeBindings {
                 stage.serializedPlan().aiInvocationHints());
         return new AuthorizedStageGraph.SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
                 serialized, stage.sources(), stage.outputNames(), stage.resultColumnModels(),
+                stage.resultColumnTypes(),
                 stage.estimatedShuffleBytes(), stage.estimatedShuffleRows());
     }
 
@@ -174,7 +222,8 @@ final class AuthorizedStageExchangeBindings {
     }
 
     private static void validateProducer(Fragment source, StageTransfer edge) {
-        if (source == null) throw new IllegalArgumentException("Exchange requires a frozen producer: " + edge.exchangeId());
+        if (source == null) throw new IllegalArgumentException(
+                "Exchange requires a frozen producer: " + edge.exchangeId());
         Rel relation = source.root().getInput();
         if (!relation.hasExchange() || relation.getExchange().getPartitionCount() != edge.partitionCount()) {
             throw new IllegalArgumentException("Producer requires its bound terminal exchange: " + edge.exchangeId());
@@ -190,7 +239,8 @@ final class AuthorizedStageExchangeBindings {
                     && !edge.distributionKeys().isEmpty();
             case RANGE, ANY -> false;
         };
-        if (!matches) throw new IllegalArgumentException("Producer distribution differs from graph edge: " + edge.exchangeId());
+        if (!matches) throw new IllegalArgumentException(
+                "Producer distribution differs from graph edge: " + edge.exchangeId());
     }
 
     private static List<Integer> hashKeys(io.substrait.proto.ExchangeRel exchange) {

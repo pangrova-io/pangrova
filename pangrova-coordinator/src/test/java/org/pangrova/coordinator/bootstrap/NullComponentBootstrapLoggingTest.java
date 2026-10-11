@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Verifies that bootstrap emits structured DEBUG logs when optional
@@ -48,7 +49,7 @@ class NullComponentBootstrapLoggingTest {
     void resilienceDisabled_emitsCircuitBreakerSkipLog() {
         CoordinatorBootstrapConfig config =
                 CoordinatorBootstrapConfig.withDefaults("coord-cb-log-test", 0);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(appender.list.stream()

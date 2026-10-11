@@ -1,102 +1,176 @@
 package org.pangrova.governance.lineage;
 
+import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.pangrova.spi.execution.QueryState;
 import org.pangrova.spi.execution.eventlistener.QueryCompletedEvent;
 import org.pangrova.spi.execution.eventlistener.QueryCreatedEvent;
+import org.pangrova.spi.execution.eventlistener.QueryLineageMetadata;
 import org.pangrova.spi.execution.eventlistener.QueryStatistics;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * Tests for {@link LineageQueryEventListener} — verifying the EventListener SPI
- * to lineage bridge (Task 182).
- */
+/** Verifies the query SPI through actual SDK HTTP ingestion and Marquez's PostgreSQL journal. */
+@Tag("integration")
 class LineageQueryEventListenerTest {
+    private static MarquezTestBackend backend;
 
-    @Test
-    void queryCompletedSuccessEmitsCompleteEvent() throws InterruptedException {
-        var backend = new CountingBackend(1);
-        var emitter = new LineageEventEmitter(backend);
-        var listener = new LineageQueryEventListener(emitter);
+    @BeforeAll
+    static void startReferenceBackend() {
+        backend = new MarquezTestBackend();
+    }
 
-        listener.queryCompleted(new QueryCompletedEvent(
-                "q1", "SELECT 1", "alice", QueryState.FINISHED,
-                1000, 1100, QueryStatistics.wallTimeOnly(100), Optional.empty()));
-
-        backend.awaitEvents();
-        assertThat(backend.completeCount.get()).isEqualTo(1);
-        assertThat(backend.failCount.get()).isEqualTo(0);
-        emitter.close();
+    @AfterAll
+    static void closeReferenceBackend() {
+        if (backend != null) backend.close();
     }
 
     @Test
-    void queryCompletedFailureEmitsFailEvent() throws InterruptedException {
-        var backend = new CountingBackend(1);
-        var emitter = new LineageEventEmitter(backend);
+    void queryCompletedSuccessEmitsCompleteEvent() throws Exception {
+        var emitter = new LineageEventEmitter(backend.transport());
         var listener = new LineageQueryEventListener(emitter);
-
-        listener.queryCompleted(new QueryCompletedEvent(
-                "q2", "SELECT bad", "bob", QueryState.FAILED,
-                2000, 2050, QueryStatistics.wallTimeOnly(50),
-                Optional.of("table not found")));
-
-        backend.awaitEvents();
-        assertThat(backend.failCount.get()).isEqualTo(1);
-        assertThat(backend.completeCount.get()).isEqualTo(0);
-        emitter.close();
+        try {
+            listener.queryCreated(new QueryCreatedEvent("q1", "SELECT 1", "alice", 1000));
+            listener.queryCompleted(new QueryCompletedEvent(
+                    "q1", "SELECT 1", "alice", QueryState.FINISHED,
+                    1000, 1100, QueryStatistics.wallTimeOnly(100), Optional.empty()));
+        } finally { emitter.close(); }
+        assertDrained(emitter);
+        var events = backend.events("q1");
+        assertThat(count(events, "COMPLETE")).isEqualTo(1);
+        assertThat(count(events, "FAIL")).isEqualTo(0);
+        assertThat(count(events, "START")).isEqualTo(1);
+        assertThat(events).hasSize(2);
     }
 
     @Test
-    void queryCreatedDoesNotEmitLineage() throws InterruptedException {
-        var backend = new CountingBackend(0);
-        var emitter = new LineageEventEmitter(backend);
+    void queryCompletedFailureEmitsFailEvent() throws Exception {
+        var emitter = new LineageEventEmitter(backend.transport());
         var listener = new LineageQueryEventListener(emitter);
-
-        listener.queryCreated(new QueryCreatedEvent("q3", "SELECT 1", "carol", 3000));
-
-        // Give the async consumer a moment to process (should see nothing)
-        Thread.sleep(200);
-        assertThat(backend.totalCount.get()).isEqualTo(0);
-        emitter.close();
+        try {
+            listener.queryCreated(new QueryCreatedEvent("q2", "SELECT bad", "bob", 2000));
+            listener.queryCompleted(new QueryCompletedEvent(
+                    "q2", "SELECT bad", "bob", QueryState.FAILED,
+                    2000, 2050, QueryStatistics.wallTimeOnly(50), Optional.of("table not found")));
+        } finally { emitter.close(); }
+        assertDrained(emitter);
+        var events = backend.events("q2");
+        assertThat(count(events, "FAIL")).isEqualTo(1);
+        assertThat(count(events, "COMPLETE")).isEqualTo(0);
+        assertThat(count(events, "START")).isEqualTo(1);
+        assertThat(events).hasSize(2);
+        JsonNode terminal = events.stream().filter(event -> "FAIL".equals(event.path("eventType").asText()))
+                .findFirst().orElseThrow();
+        assertThat(terminal.at("/run/facets/errorMessage/message").asText()).isEqualTo("table not found");
+        assertThat(terminal.at("/run/facets/errorMessage/programmingLanguage").asText()).isEqualTo("SQL");
     }
 
-    /** Simple backend that counts events by type with a latch for synchronization. */
-    private static final class CountingBackend implements LineageBackend {
-        final AtomicInteger completeCount = new AtomicInteger();
-        final AtomicInteger failCount = new AtomicInteger();
-        final AtomicInteger totalCount = new AtomicInteger();
-        private final CountDownLatch latch;
+    @Test
+    void queryCreatedEmitsOneStartAndNoTerminal() throws Exception {
+        var emitter = new LineageEventEmitter(backend.transport());
+        var listener = new LineageQueryEventListener(emitter);
+        try { listener.queryCreated(new QueryCreatedEvent("q3", "SELECT 1", "carol", 3000)); }
+        finally { emitter.close(); }
+        assertDrained(emitter);
+        var events = backend.events("q3");
+        assertThat(events).hasSize(1);
+        assertThat(count(events, "START")).isEqualTo(1);
+        assertThat(count(events, "COMPLETE") + count(events, "FAIL") + count(events, "ABORT")).isZero();
+        assertThat(events.get(0).at("/job/facets/sql/query").asText()).isEqualTo("SELECT 1");
+        assertThat(events.get(0).at("/run/runId").asText())
+                .isEqualTo(OpenLineageHttpTransport.normalizeRunId("q3").toString());
+    }
 
-        CountingBackend(int expectedEvents) {
-            this.latch = new CountDownLatch(expectedEvents);
-        }
+    @Test
+    void cancellationEmitsAbortRatherThanCompleteOrFail() throws Exception {
+        var emitter = new LineageEventEmitter(backend.transport());
+        var listener = new LineageQueryEventListener(emitter);
+        try {
+            listener.queryCreated(new QueryCreatedEvent("cancelled-query", "SELECT 1", "alice", 1000));
+            listener.queryCompleted(new QueryCompletedEvent("cancelled-query", "SELECT 1", "alice",
+                    QueryState.CANCELLED, 1000, 1100, QueryStatistics.wallTimeOnly(100), Optional.empty()));
+        } finally { emitter.close(); }
+        assertDrained(emitter);
+        var events = backend.events("cancelled-query");
+        assertThat(events).hasSize(2);
+        assertThat(count(events, "START")).isEqualTo(1);
+        assertThat(count(events, "ABORT")).isEqualTo(1);
+        assertThat(count(events, "COMPLETE") + count(events, "FAIL")).isZero();
+    }
 
-        @Override
-        public void send(LineageEvent event) {
-            totalCount.incrementAndGet();
-            switch (event.eventType()) {
-                case COMPLETE -> completeCount.incrementAndGet();
-                case FAIL -> failCount.incrementAndGet();
-                default -> {}
-            }
-            latch.countDown();
-        }
+    @Test
+    void terminalCapturesDottedDatasetNamesAndActualDerivationKinds() throws Exception {
+        String source = "catalog.schema.quoted.table";
+        var input = new QueryLineageMetadata.Dataset("pangrova", source, List.of());
+        var reference = new QueryLineageMetadata.SourceColumn("pangrova", source, "amount.with.dot");
+        var output = new QueryLineageMetadata.Dataset("pangrova", "catalog.schema.target", List.of(
+                new QueryLineageMetadata.Column("direct", List.of(reference),
+                        QueryLineageMetadata.DerivationKind.DIRECT),
+                new QueryLineageMetadata.Column("computed", List.of(reference),
+                        QueryLineageMetadata.DerivationKind.TRANSFORM),
+                new QueryLineageMetadata.Column("total", List.of(reference),
+                        QueryLineageMetadata.DerivationKind.AGGREGATE)));
+        var emitter = new LineageEventEmitter(backend.transport());
+        var listener = new LineageQueryEventListener(emitter);
+        try {
+            listener.queryCreated(new QueryCreatedEvent(
+                    "dataset-query", "INSERT INTO target SELECT amount", "alice", 1000));
+            listener.queryCompleted(new QueryCompletedEvent("dataset-query", null, "alice", QueryState.FINISHED,
+                    1000, 1100, QueryStatistics.wallTimeOnly(100), Optional.empty(),
+                    new QueryLineageMetadata(List.of(input), List.of(output))));
+        } finally { emitter.close(); }
+        assertDrained(emitter);
+        var events = backend.events("dataset-query");
+        assertThat(events).hasSize(2);
+        var terminal = events.stream().filter(event -> "COMPLETE".equals(event.path("eventType").asText()))
+                .findFirst().orElseThrow();
+        assertThat(terminal.at("/inputs/0/name").asText()).isEqualTo(source);
+        assertThat(terminal.at("/outputs/0/name").asText()).isEqualTo("catalog.schema.target");
+        var fields = terminal.at("/outputs/0/facets/columnLineage/fields");
+        assertThat(fields.path("direct").path("transformationType").asText()).isEqualTo("IDENTITY");
+        assertThat(fields.path("computed").path("transformationType").asText()).isEqualTo("TRANSFORMATION");
+        assertThat(fields.path("total").path("transformationType").asText()).isEqualTo("AGGREGATION");
+        assertThat(fields.at("/total/inputFields/0/name").asText()).isEqualTo(source);
+        assertThat(fields.at("/total/inputFields/0/field").asText()).isEqualTo("amount.with.dot");
+    }
 
-        @Override
-        public boolean isAvailable() {
-            return true;
+    @Test
+    void borrowedDispatcherDoesNotRetainAnotherManagersLineageListener() throws Exception {
+        var parent = org.pangrova.observability.eventlistener.QueryEventDispatcher.of();
+        var first = new LineageEventEmitter(backend.transport());
+        var second = new LineageEventEmitter(backend.transport());
+        var firstOwner = parent.withListener(new LineageQueryEventListener(first));
+        var secondOwner = parent.withListener(new LineageQueryEventListener(second));
+        try {
+            firstOwner.fireQueryCreated(new QueryCreatedEvent("first-manager", "SELECT 1", "alice", 1000));
+            secondOwner.fireQueryCreated(new QueryCreatedEvent("second-manager", "SELECT 2", "bob", 1000));
+            firstOwner.fireQueryCompleted(new QueryCompletedEvent("first-manager", "SELECT 1", "alice",
+                    QueryState.FINISHED, 1000, 1100, QueryStatistics.wallTimeOnly(100), Optional.empty()));
+            secondOwner.fireQueryCompleted(new QueryCompletedEvent("second-manager", "SELECT 2", "bob",
+                    QueryState.FINISHED, 1000, 1100, QueryStatistics.wallTimeOnly(100), Optional.empty()));
+            assertThat(parent.isEmpty()).isTrue();
+        } finally {
+            first.close();
+            second.close();
         }
+        assertDrained(first);
+        assertDrained(second);
+        assertThat(backend.events("first-manager")).hasSize(2);
+        assertThat(backend.events("second-manager")).hasSize(2);
+    }
 
-        void awaitEvents() throws InterruptedException {
-            assertThat(latch.await(5, TimeUnit.SECONDS))
-                    .as("Expected events should arrive within 5 seconds")
-                    .isTrue();
-        }
+    private static long count(List<JsonNode> events, String type) {
+        return events.stream().filter(event -> type.equals(event.path("eventType").asText())).count();
+    }
+
+    private static void assertDrained(LineageEventEmitter emitter) {
+        assertThat(emitter.shutdownTimedOut()).isFalse();
+        assertThat(emitter.eventsDroppedTotal()).isZero();
     }
 }

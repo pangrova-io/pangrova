@@ -188,6 +188,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     void duplicateTerminalNeverRecommitsOrReopensTheSharedStage() throws Exception {
         var finished = status(request, originalWire(request));
         assertThat(receiver.onTaskStatus(finished)).isTrue();
+        assertThat(receiver.onTaskStatus(finished)).isTrue();
         var duplicate = new TaskStatusReport(TASK, KEY.executionId(), 1, 0, "COMPUTE", "worker-1", "FINISHED",
                 null, null, null, 2, System.currentTimeMillis(), null, null,
                 finished.attempt(), finished.canonicalTaskReport());
@@ -295,7 +296,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
 
     private Stage producerStage() {
         var serialized = new AuthorizedStageGraph.SerializedStage(1, 1, "COMPUTE",
-                new SerializedPlanFragment(new byte[]{1}, List.of(), List.of()), List.of(), List.of("id"), List.of(), -1, -1);
+                new SerializedPlanFragment(new byte[]{1}, List.of(), List.of()), List.of(), List.of("id"), List.of(), List.of(), -1, -1);
         var stage = Stage.create(new StageNode(1, serialized, 1, "COMPUTE", List.of()), KEY.executionId());
         stage.stateMachine().tryTransitionTo(StageStateMachine.State.SCHEDULING);
         stage.stateMachine().tryTransitionTo(StageStateMachine.State.RUNNING);

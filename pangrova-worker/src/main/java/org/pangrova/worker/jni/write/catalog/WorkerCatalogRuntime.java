@@ -28,16 +28,15 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Production Worker-local connector runtime. Catalog revisions are fetched
- * from the authenticated Coordinator endpoint, secret references are resolved
- * locally, and exact Coordinator output handles are leased per task.
+ * Production Worker-local connector runtime. Catalog revisions are fetched from the authenticated
+ * Coordinator endpoint, secret references are resolved locally, and exact Coordinator output
+ * handles are leased per task.
  */
 @ThreadSafe
 public final class WorkerCatalogRuntime implements CatalogResourceResolver, AutoCloseable {
 
     static final int MAX_CACHED_CATALOG_REVISIONS = 1024;
-    private static final Pattern SECRET_REFERENCE =
-            Pattern.compile("\\$\\{([A-Z]+):([^{}]+)}");
+    private static final Pattern SECRET_REFERENCE = Pattern.compile("\\$\\{([A-Z]+):([^{}]+)}");
 
     @FunctionalInterface
     public interface DeploymentSource {
@@ -48,12 +47,15 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     private final Map<String, ConnectorFactory> factories;
     private final Map<String, ConnectorSecretResolver> secretResolvers;
     private final Object catalogLock = new Object();
+
     /** Access-ordered cache; all accesses are guarded by catalogLock. */
     private final LinkedHashMap<CatalogRevisionKey, CatalogEntry> catalogs =
             new LinkedHashMap<>(16, 0.75f, true);
+
     /** Eviction transfers ownership here until shutdown actually completes. */
     private final java.util.Set<CatalogEntry> retiringCatalogs =
             java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
     private final ConcurrentHashMap<String, TaskBinding> taskBindings = new ConcurrentHashMap<>();
     private boolean closed;
 
@@ -73,13 +75,16 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     /** Discovers connector and secret-provider plugins from the Worker class loader. */
     public static WorkerCatalogRuntime discover(
             String coordinatorUrl, String internalAuthSecret, ClassLoader classLoader) {
-        CatalogDeploymentClient client = new CatalogDeploymentClient(
-                coordinatorUrl, internalAuthSecret);
-        List<ConnectorFactory> factories = ServiceLoader.load(ConnectorFactory.class, classLoader)
-                .stream().map(ServiceLoader.Provider::get).toList();
-        List<ConnectorSecretResolver> discoveredSecrets = ServiceLoader
-                .load(ConnectorSecretResolver.class, classLoader)
-                .stream().map(ServiceLoader.Provider::get).toList();
+        CatalogDeploymentClient client =
+                new CatalogDeploymentClient(coordinatorUrl, internalAuthSecret);
+        List<ConnectorFactory> factories =
+                ServiceLoader.load(ConnectorFactory.class, classLoader).stream()
+                        .map(ServiceLoader.Provider::get)
+                        .toList();
+        List<ConnectorSecretResolver> discoveredSecrets =
+                ServiceLoader.load(ConnectorSecretResolver.class, classLoader).stream()
+                        .map(ServiceLoader.Provider::get)
+                        .toList();
         java.util.ArrayList<ConnectorSecretResolver> secrets =
                 new java.util.ArrayList<>(discoveredSecrets);
         if (secrets.stream().noneMatch(resolver -> "ENV".equals(resolver.prefix()))) {
@@ -92,12 +97,17 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     public void bindTask(String taskId, TaskRequest request) {
         requireTaskIdentity(taskId, request);
         var write = request.getExecutionOptions().getWrite();
-        if (!write.hasOutputBinding() || write.getOutputBinding().getBindingCase()
-                == org.pangrova.protocol.v2.WriteOutputBinding.BindingCase.BINDING_NOT_SET) {
-            throw new IllegalArgumentException("Write task requires a connector-owned output binding");
+        if (!write.hasOutputBinding()
+                || write.getOutputBinding().getBindingCase()
+                        == org.pangrova.protocol.v2.WriteOutputBinding.BindingCase
+                                .BINDING_NOT_SET) {
+            throw new IllegalArgumentException(
+                    "Write task requires a connector-owned output binding");
         }
-        boolean nativeSink = write.getOutputBinding().hasLance() || write.getOutputBinding().hasPhysical();
-        CatalogExecutionBinding catalogBinding = WorkerWriteOutputs.catalog(write.getOutputBinding());
+        boolean nativeSink =
+                write.getOutputBinding().hasLance() || write.getOutputBinding().hasPhysical();
+        CatalogExecutionBinding catalogBinding =
+                WorkerWriteOutputs.catalog(write.getOutputBinding());
         String tenantId = request.getSecurity().getTenantId();
         // Connector instances hold locally resolved credentials. A deployment
         // shared by tenants must never share the first tenant's connector.
@@ -107,44 +117,79 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
         try {
             CatalogRuntime runtime = awaitCatalog(entry);
             validateTenant(runtime.deployment(), tenantId);
-            TaskConnectorSession session = TaskConnectorSession.from(
-                    request.getSecurity(), request.getAttempt(), catalogBinding.getCatalogName(),
-                    request.getExecutionOptions().getSessionPropertiesMap());
-            SerializedConnectorOutputHandle serialized = WorkerWriteOutputs.outputHandle(write.getOutputBinding());
+            TaskConnectorSession session =
+                    TaskConnectorSession.from(
+                            request.getSecurity(),
+                            request.getAttempt(),
+                            catalogBinding.getCatalogName(),
+                            request.getExecutionOptions().getSessionPropertiesMap());
+            SerializedConnectorOutputHandle serialized =
+                    WorkerWriteOutputs.outputHandle(write.getOutputBinding());
             ConnectorOutputTableHandle outputHandle = decodeHandle(runtime.codec(), serialized);
-            if (!runtime.codec().writeColumnNames(outputHandle).equals(requireWriteColumns(serialized))) {
-                throw new IllegalArgumentException("Output handle columns differ from pinned columns");
+            if (!runtime.codec()
+                    .writeColumnNames(outputHandle)
+                    .equals(requireWriteColumns(serialized))) {
+                throw new IllegalArgumentException(
+                        "Output handle columns differ from pinned columns");
             }
             validateNativeOutput(runtime, session, request, outputHandle);
-            CatalogResources resources = taskResources(runtime, session, outputHandle, serialized, nativeSink);
+            CatalogResources resources =
+                    taskResources(runtime, session, outputHandle, serialized, nativeSink);
             synchronized (catalogLock) {
                 requireOpen();
-                TaskBinding previous = taskBindings.putIfAbsent(taskId,
-                        new TaskBinding(entry, catalogBinding.getCatalogName(), resources));
+                TaskBinding previous =
+                        taskBindings.putIfAbsent(
+                                taskId,
+                                new TaskBinding(entry, catalogBinding.getCatalogName(), resources));
                 if (previous != null) {
-                    throw new IllegalStateException("Task connector binding already exists: " + taskId);
+                    throw new IllegalStateException(
+                            "Task connector binding already exists: " + taskId);
                 }
                 bound = true;
             }
         } finally {
-            if (!bound) releaseCatalog(entry);
+            if (!bound) {
+                releaseCatalog(entry);
+            }
         }
     }
 
-    private static void validateNativeOutput(CatalogRuntime runtime, TaskConnectorSession session,
-            TaskRequest request, ConnectorOutputTableHandle handle) {
+    private static void validateNativeOutput(
+            CatalogRuntime runtime,
+            TaskConnectorSession session,
+            TaskRequest request,
+            ConnectorOutputTableHandle handle) {
         var binding = request.getExecutionOptions().getWrite().getOutputBinding();
-        if (binding.hasLance() || binding.hasPhysical()) NativeOutputAllocationValidation.validateTask(request, handle);
-        if (binding.hasPhysical()) runtime.connector().getNativePhysicalWriteProvider().orElseThrow(() ->
-                new IllegalArgumentException("Connector has no Native physical write metadata provider"))
-                .validateAllocation(session, handle, handle.nativePhysicalWriteAllocation().orElseThrow());
+        if (binding.hasLance() || binding.hasPhysical()) {
+            NativeOutputAllocationValidation.validateTask(request, handle);
+        }
+        if (binding.hasPhysical()) {
+            runtime.connector()
+                    .getNativePhysicalWriteProvider()
+                    .orElseThrow(
+                            () ->
+                                    new IllegalArgumentException(
+                                            "Connector has no Native physical write metadata provider"))
+                    .validateAllocation(
+                            session, handle, handle.nativePhysicalWriteAllocation().orElseThrow());
+        }
     }
 
-    private static CatalogResources taskResources(CatalogRuntime runtime, TaskConnectorSession session,
-            ConnectorOutputTableHandle handle, SerializedConnectorOutputHandle serialized, boolean nativeSink) {
-        if (nativeSink) return null;
-        return new CatalogResources(runtime.connector().getMetadata(session),
-                runtime.connector().getPageSinkProvider(), session, handle, requireWriteColumns(serialized));
+    private static CatalogResources taskResources(
+            CatalogRuntime runtime,
+            TaskConnectorSession session,
+            ConnectorOutputTableHandle handle,
+            SerializedConnectorOutputHandle serialized,
+            boolean nativeSink) {
+        if (nativeSink) {
+            return null;
+        }
+        return new CatalogResources(
+                runtime.connector().getMetadata(session),
+                runtime.connector().getPageSinkProvider(),
+                session,
+                handle,
+                requireWriteColumns(serialized));
     }
 
     @Override
@@ -157,7 +202,8 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
             throw new IllegalStateException("Task connector catalog mismatch");
         }
         if (binding.resources() == null) {
-            throw new IllegalStateException("Native dataset task cannot resolve a connector PageSink");
+            throw new IllegalStateException(
+                    "Native dataset task cannot resolve a connector PageSink");
         }
         return binding.resources();
     }
@@ -165,7 +211,9 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     @Override
     public void releaseTask(String taskId) {
         TaskBinding binding = taskBindings.remove(taskId);
-        if (binding != null) releaseCatalog(binding.entry());
+        if (binding != null) {
+            releaseCatalog(binding.entry());
+        }
     }
 
     @Override
@@ -188,12 +236,19 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
                 entry.shutdown.shutdown();
                 removeClosedEntry(entry);
             } catch (RuntimeException | Error shutdownFailure) {
-                if (failure == null) failure = shutdownFailure;
-                else if (failure != shutdownFailure) failure.addSuppressed(shutdownFailure);
+                if (failure == null) {
+                    failure = shutdownFailure;
+                } else if (failure != shutdownFailure) {
+                    failure.addSuppressed(shutdownFailure);
+                }
             }
         }
-        if (failure instanceof RuntimeException runtime) throw runtime;
-        if (failure instanceof Error error) throw error;
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
     }
 
     private void removeClosedEntry(CatalogEntry entry) {
@@ -210,30 +265,36 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     }
 
     /** Leases an exact tenant deployment for metadata control, without acquiring a PageSink. */
-    public CatalogControlLease leaseControl(CatalogExecutionBinding binding,
+    public CatalogControlLease leaseControl(
+            CatalogExecutionBinding binding,
             org.pangrova.protocol.v2.SecurityContext security,
             java.util.Optional<org.pangrova.protocol.v2.WriteOutputBinding> output) {
         String tenant = security.getTenantId();
         if (tenant.isBlank() || security.getPrincipal().isBlank()) {
-            throw new IllegalArgumentException("Native dataset control requires tenant and principal");
+            throw new IllegalArgumentException(
+                    "Native dataset control requires tenant and principal");
         }
-        CatalogEntry entry = acquireCatalog(CatalogRevisionKey.from(binding, tenant), binding, tenant);
+        CatalogEntry entry =
+                acquireCatalog(CatalogRevisionKey.from(binding, tenant), binding, tenant);
         boolean leased = false;
         try {
             CatalogRuntime runtime = awaitCatalog(entry);
             requireDeploymentIdentity(binding, runtime.deployment());
             validateTenant(runtime.deployment(), tenant);
             output.ifPresent(value -> validateControlOutput(runtime, value));
-            CatalogControlLease lease = new CatalogControlLease(() -> releaseCatalog(entry), runtime.storage());
+            CatalogControlLease lease =
+                    new CatalogControlLease(() -> releaseCatalog(entry), runtime.storage());
             leased = true;
             return lease;
         } finally {
-            if (!leased) releaseCatalog(entry);
+            if (!leased) {
+                releaseCatalog(entry);
+            }
         }
     }
 
-    private static void validateControlOutput(CatalogRuntime runtime,
-            org.pangrova.protocol.v2.WriteOutputBinding binding) {
+    private static void validateControlOutput(
+            CatalogRuntime runtime, org.pangrova.protocol.v2.WriteOutputBinding binding) {
         if (!binding.hasLance() && !binding.hasPhysical()) {
             throw new IllegalArgumentException("Publication requires a Native output binding");
         }
@@ -242,8 +303,11 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
         if (!runtime.codec().writeColumnNames(handle).equals(requireWriteColumns(serialized))) {
             throw new IllegalArgumentException("Output handle columns differ from pinned columns");
         }
-        if (binding.hasPhysical()) NativeOutputAllocationValidation.validate(binding.getPhysical(), handle);
-        else NativeOutputAllocationValidation.validate(binding.getLance(), handle);
+        if (binding.hasPhysical()) {
+            NativeOutputAllocationValidation.validate(binding.getPhysical(), handle);
+        } else {
+            NativeOutputAllocationValidation.validate(binding.getLance(), handle);
+        }
     }
 
     private CatalogEntry acquireCatalog(
@@ -256,7 +320,8 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
             entry = catalogs.get(key);
             if (entry == null) {
                 if (!retiringCatalogs.isEmpty()) {
-                    throw new IllegalStateException("Worker catalog shutdown requires retry before new admission");
+                    throw new IllegalStateException(
+                            "Worker catalog shutdown requires retry before new admission");
                 }
                 if (catalogs.size() >= MAX_CACHED_CATALOG_REVISIONS) {
                     evicted = evictIdleCatalog();
@@ -267,7 +332,9 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
             }
             entry.leases++;
         }
-        if (created) initializeCatalog(key, entry, evicted, binding, tenantId);
+        if (created) {
+            initializeCatalog(key, entry, evicted, binding, tenantId);
+        }
         return entry;
     }
 
@@ -286,8 +353,11 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     }
 
     private void initializeCatalog(
-            CatalogRevisionKey key, CatalogEntry entry, CatalogEntry evicted,
-            CatalogExecutionBinding binding, String tenantId) {
+            CatalogRevisionKey key,
+            CatalogEntry entry,
+            CatalogEntry evicted,
+            CatalogExecutionBinding binding,
+            String tenantId) {
         try {
             if (evicted != null) {
                 evicted.shutdown.shutdown();
@@ -304,7 +374,9 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
                     catalogs.remove(key, entry);
                 }
             } catch (RuntimeException | Error cleanup) {
-                if (failure != cleanup) failure.addSuppressed(cleanup);
+                if (failure != cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
             }
             entry.ready.completeExceptionally(failure);
         }
@@ -314,8 +386,12 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
         try {
             return entry.ready.join();
         } catch (CompletionException failed) {
-            if (failed.getCause() instanceof RuntimeException runtime) throw runtime;
-            if (failed.getCause() instanceof Error error) throw error;
+            if (failed.getCause() instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (failed.getCause() instanceof Error error) {
+                throw error;
+            }
             throw failed;
         }
     }
@@ -327,13 +403,18 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     }
 
     private void requireOpen() {
-        if (closed) throw new IllegalStateException("Worker catalog runtime is closed");
+        if (closed) {
+            throw new IllegalStateException("Worker catalog runtime is closed");
+        }
     }
 
-    private CatalogRuntime loadCatalog(CatalogEntry entry, CatalogExecutionBinding binding, String tenantId) {
-        CatalogDeploymentResponse deployment = deployments.fetch(
-                binding.getCatalogName(), binding.getCatalogIncarnationId(),
-                binding.getCatalogRevision());
+    private CatalogRuntime loadCatalog(
+            CatalogEntry entry, CatalogExecutionBinding binding, String tenantId) {
+        CatalogDeploymentResponse deployment =
+                deployments.fetch(
+                        binding.getCatalogName(),
+                        binding.getCatalogIncarnationId(),
+                        binding.getCatalogRevision());
         requireDeploymentIdentity(binding, deployment);
         validateTenant(deployment, tenantId);
         ConnectorFactory factory = factories.get(deployment.connectorProvider());
@@ -342,12 +423,14 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
                     "Connector plugin is not installed: " + deployment.connectorProvider());
         }
         Map<String, String> resolved = resolveSecrets(deployment.properties(), tenantId);
-        Connector connector = factory.create(
-                deployment.catalogName(), resolved, new WorkerConnectorContext());
+        Connector connector =
+                factory.create(deployment.catalogName(), resolved, new WorkerConnectorContext());
         entry.shutdown.attach(connector);
         ConnectorOutputHandleCodec codec = connector.getOutputHandleCodec();
-        var storage = java.util.Set.of("lance", "paimon").contains(deployment.connectorProvider())
-                ? NativeObjectStoreBindings.create(binding, tenantId, resolved) : null;
+        var storage =
+                java.util.Set.of("lance", "paimon").contains(deployment.connectorProvider())
+                        ? NativeObjectStoreBindings.create(binding, tenantId, resolved)
+                        : null;
         return new CatalogRuntime(deployment, connector, codec, storage);
     }
 
@@ -358,16 +441,21 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     }
 
     private String resolveSecretValue(String value, String tenantId) {
-        if (value == null || !value.contains("${")) return value;
+        if (value == null || !value.contains("${")) {
+            return value;
+        }
         Matcher matcher = SECRET_REFERENCE.matcher(value);
         StringBuffer target = new StringBuffer();
         while (matcher.find()) {
             ConnectorSecretResolver resolver = secretResolvers.get(matcher.group(1));
             if (resolver == null) {
-                throw new IllegalStateException("No Worker secret resolver for prefix " + matcher.group(1));
+                throw new IllegalStateException(
+                        "No Worker secret resolver for prefix " + matcher.group(1));
             }
             String secret = resolver.resolve(tenantId, matcher.group(2));
-            if (secret == null) throw new IllegalStateException("Secret resolver returned null");
+            if (secret == null) {
+                throw new IllegalStateException("Secret resolver returned null");
+            }
             matcher.appendReplacement(target, Matcher.quoteReplacement(secret));
         }
         matcher.appendTail(target);
@@ -391,30 +479,35 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     private static boolean checksumMatches(SerializedConnectorOutputHandle serialized) {
         var checksum = serialized.getPayloadChecksum();
         return checksum.getAlgorithm()
-                == org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256
+                        == org.pangrova.protocol.v2.Checksum.Algorithm.ALGORITHM_SHA256
                 && checksum.getDigest().size() == 32
                 && MessageDigest.isEqual(
                         checksum.getDigest().toByteArray(),
-                        CatalogDeploymentFingerprint.sha256(
-                                serialized.getPayload().toByteArray()).getDigest().toByteArray());
+                        CatalogDeploymentFingerprint.sha256(serialized.getPayload().toByteArray())
+                                .getDigest()
+                                .toByteArray());
     }
 
     private static List<String> requireWriteColumns(SerializedConnectorOutputHandle handle) {
         List<String> names = List.copyOf(handle.getWriteColumnNamesList());
-        if (names.isEmpty() || names.stream().anyMatch(name -> name == null || name.isBlank())
+        if (names.isEmpty()
+                || names.stream().anyMatch(name -> name == null || name.isBlank())
                 || names.stream().distinct().count() != names.size()) {
-            throw new IllegalArgumentException("Connector output handle requires unique write columns");
+            throw new IllegalArgumentException(
+                    "Connector output handle requires unique write columns");
         }
         return names;
     }
 
     private static void requireTaskIdentity(String taskId, TaskRequest request) {
-        if (taskId == null || taskId.isBlank()
+        if (taskId == null
+                || taskId.isBlank()
                 || !taskId.equals(request.getAttempt().getTaskId())
                 || request.getAttempt().getQueryOrJobId().isBlank()
                 || request.getSecurity().getTenantId().isBlank()
                 || request.getSecurity().getPrincipal().isBlank()) {
-            throw new IllegalArgumentException("Connector write requires exact task and security identity");
+            throw new IllegalArgumentException(
+                    "Connector write requires exact task and security identity");
         }
     }
 
@@ -440,7 +533,9 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     private static Map<String, ConnectorFactory> uniqueFactories(List<ConnectorFactory> values) {
         Map<String, ConnectorFactory> result = new LinkedHashMap<>();
         for (ConnectorFactory value : values) {
-            if (value == null || value.getName() == null || value.getName().isBlank()
+            if (value == null
+                    || value.getName() == null
+                    || value.getName().isBlank()
                     || result.putIfAbsent(value.getName(), value) != null) {
                 throw new IllegalStateException("Invalid or duplicate Worker connector factory");
             }
@@ -452,7 +547,9 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
             List<ConnectorSecretResolver> values) {
         Map<String, ConnectorSecretResolver> result = new LinkedHashMap<>();
         for (ConnectorSecretResolver value : values) {
-            if (value == null || value.prefix() == null || value.prefix().isBlank()
+            if (value == null
+                    || value.prefix() == null
+                    || value.prefix().isBlank()
                     || result.putIfAbsent(value.prefix(), value) != null) {
                 throw new IllegalStateException("Invalid or duplicate Worker secret resolver");
             }
@@ -463,7 +560,8 @@ public final class WorkerCatalogRuntime implements CatalogResourceResolver, Auto
     private record CatalogRuntime(
             CatalogDeploymentResponse deployment,
             Connector connector,
-            ConnectorOutputHandleCodec codec, org.pangrova.protocol.v2.ObjectStoreExecutionBinding storage) {}
+            ConnectorOutputHandleCodec codec,
+            org.pangrova.protocol.v2.ObjectStoreExecutionBinding storage) {}
 
     private static final class CatalogEntry {
         private final CompletableFuture<CatalogRuntime> ready = new CompletableFuture<>();

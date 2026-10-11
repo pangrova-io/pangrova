@@ -48,12 +48,16 @@ class OutputTaskMemoryReleaseTest {
 
     @AfterEach
     void closeActualOwners() {
+        Throwable failure = null;
         if (manager != null) {
-            manager.releaseTerminalTaskExecutors();
-            if (runtime != null) runtime.stopTransports();
-            manager.close();
+            failure = closeOwner(manager::releaseTerminalTaskExecutors, failure);
+            // This fixture may own real transports intentionally absent from TaskManager's dependencies.
+            if (runtime != null) failure = closeOwner(runtime::stopTransports, failure);
+            failure = closeOwner(manager::close, failure);
         }
-        if (runtime != null) runtime.close();
+        if (runtime != null) failure = closeOwner(runtime::close, failure);
+        if (failure instanceof Error error) throw error;
+        if (failure instanceof RuntimeException exception) throw exception;
     }
 
     @Test
@@ -62,7 +66,7 @@ class OutputTaskMemoryReleaseTest {
         long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
         TaskRequest request = runtime.valuesRequest(true);
         TaskInfo info = submit(request, "OUTPUT", reports);
-        awaitFinishedReport();
+        awaitUnconsumedResult(info, request);
         long handle = info.executorHandle();
         assertThat(handle).isPositive();
         assertThat(info.allocatedBufferMemory()).isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
@@ -71,6 +75,7 @@ class OutputTaskMemoryReleaseTest {
         assertThat(runtime.drainEvidence(handle, request).getDrained()).isFalse();
 
         consumeActualResult(request);
+        awaitFinishedReport();
         await().atMost(Duration.ofSeconds(20)).until(() -> runtime.drainEvidence(handle, request).getDrained());
         assertThat(manager.cleanupTerminalTasks(Duration.ofHours(1))).isEqualTo(1);
         assertThat(info.executorHandle()).isZero();
@@ -104,8 +109,9 @@ class OutputTaskMemoryReleaseTest {
             }
         };
         TaskInfo info = submit(request, "OUTPUT", observer);
-        awaitFinishedReport();
+        awaitUnconsumedResult(info, request);
         consumeActualResult(request);
+        awaitFinishedReport();
         await().atMost(Duration.ofSeconds(20)).until(() -> runtime.drainEvidence(info.executorHandle(), request).getDrained());
         assertThatThrownBy(() -> manager.cleanupTerminalTasks(Duration.ofHours(1)))
                 .hasMessageContaining("cleanup sweep failed");
@@ -155,6 +161,8 @@ class OutputTaskMemoryReleaseTest {
         runtime = new ActualNativeTaskFixture();
         TaskRequest request = runtime.valuesRequest(true);
         TaskInfo info = submit(request, "OUTPUT", reports);
+        awaitUnconsumedResult(info, request);
+        consumeActualResult(request);
         awaitFinishedReport();
         var finished = reports.reports().stream().filter(report -> "FINISHED".equals(report.state())).toList();
         assertThat(finished).hasSize(1);
@@ -197,13 +205,15 @@ class OutputTaskMemoryReleaseTest {
     void explicitResultRetirementReleasesTheUnclaimedQueueOnce() throws Exception {
         runtime = new ActualNativeTaskFixture();
         long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
-        TaskInfo info = submit(runtime.valuesRequest(true), "OUTPUT", reports);
-        awaitFinishedReport();
+        var request = runtime.valuesRequest(true);
+        TaskInfo info = submit(request, "OUTPUT", reports);
+        awaitUnconsumedResult(info, request);
         assertThat(info.executorHandle()).isPositive();
         assertThat(info.allocatedBufferMemory()).isPositive();
         manager.releaseTaskExecutor(info.taskId());
         long afterFirst = runtime.arbitrator().getAvailableMemory();
         byte[] firstReceipt = info.executorReleaseReport();
+        assertCancelledRetirement(info, request);
         manager.releaseTaskExecutor(info.taskId());
         assertThat(info.executorReleaseReport()).isEqualTo(firstReceipt);
         assertThat(info.executorHandle()).isZero();
@@ -241,9 +251,13 @@ class OutputTaskMemoryReleaseTest {
         long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
         var request = runtime.valuesRequest(true);
         var info = submit(request, "OUTPUT", reports);
-        awaitFinishedReport();
+        awaitUnconsumedResult(info, request);
         assertThat(info.executorHandle()).isPositive();
+        assertThat(info.allocatedBufferMemory()).isPositive();
+        assertThat(runtime.arbitrator().getAvailableMemory())
+                .isLessThanOrEqualTo(availableBeforeTask - info.allocatedBufferMemory());
         manager.close();
+        assertCancelledRetirement(info, request);
         assertThat(info.executorHandle()).isZero();
         assertThat(info.allocatedBufferMemory()).isZero();
         assertThat(runtime.transports().resultTransport().boundPort()).isEqualTo(-1);
@@ -252,6 +266,75 @@ class OutputTaskMemoryReleaseTest {
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("draining");
         manager.close();
         assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
+    }
+
+    @Test
+    void shutdownPreservesTheActuallyConsumedNativeFinish() throws Exception {
+        runtime = new ActualNativeTaskFixture();
+        long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
+        var request = runtime.valuesRequest(true);
+        var info = submit(request, "OUTPUT", reports);
+        awaitUnconsumedResult(info, request);
+        consumeActualResult(request);
+        awaitFinishedReport();
+        assertThat(info.executorHandle()).isPositive();
+        manager.close();
+        var receipt = TaskReport.parseFrom(info.executorReleaseReport());
+        assertThat(info.getState()).isEqualTo(TaskManager.TaskState.FINISHED);
+        assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+        assertThat(receipt.getAttempt()).isEqualTo(request.getAttempt());
+        assertThat(receipt.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+        assertThat(receipt.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
+                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+        assertThat(receipt.hasError()).isFalse();
+        assertThat(receipt.hasNativeTaskStats()).isTrue();
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.allocatedBufferMemory()).isZero();
+        assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
+        assertThat(reports.reports()).noneMatch(report -> "CANCELLED".equals(report.state()));
+        assertThat(reports.reports().stream().filter(OutputTaskMemoryReleaseTest::isNativeReleased))
+                .singleElement().satisfies(report -> assertThat(report.state()).isEqualTo("FINISHED"));
+    }
+
+    private static Throwable closeOwner(Runnable operation, Throwable aggregate) {
+        try {
+            operation.run();
+        } catch (RuntimeException | Error failure) {
+            if (aggregate == null) return failure;
+            if (aggregate != failure) aggregate.addSuppressed(failure);
+        }
+        return aggregate;
+    }
+
+    private void awaitUnconsumedResult(TaskInfo info, TaskRequest request) throws Exception {
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
+            assertThat(info.getState()).isEqualTo(TaskManager.TaskState.RUNNING);
+            assertThat(TaskReport.parseFrom(runtime.executor().getTaskStatus(info.executorHandle())).getState())
+                    .isEqualTo(TaskState.TASK_STATE_RUNNING);
+        });
+        assertThat(reports.reports()).anyMatch(report -> "RUNNING".equals(report.state()));
+        assertThat(reports.reports()).noneMatch(report -> "FINISHED".equals(report.state()));
+        assertThat(runtime.drainEvidence(info.executorHandle(), request).getDrained()).isFalse();
+    }
+
+    private void assertCancelledRetirement(TaskInfo info, TaskRequest request) throws Exception {
+        var actual = TaskReport.parseFrom(info.executorReleaseReport());
+        assertThat(info.getState()).isEqualTo(TaskManager.TaskState.CANCELLED);
+        assertThat(info.resourcesReleased()).isTrue();
+        assertThat(actual.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
+        assertThat(actual.getAttempt()).isEqualTo(request.getAttempt());
+        assertThat(actual.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+        assertThat(actual.getExecutionDrainState()).isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
+                .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+        assertThat(info.allocatedMemory()).isZero();
+        assertThat(reports.reports()).noneMatch(report -> "FINISHED".equals(report.state()));
+        assertThat(reports.reports().stream().filter(OutputTaskMemoryReleaseTest::isNativeReleased))
+                .singleElement().satisfies(report -> {
+                    assertThat(report.state()).isEqualTo("CANCELLED");
+                    assertThat(TaskReport.parseFrom(report.canonicalTaskReport()).getExecutionDrainState())
+                            .isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState
+                                    .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
+                });
     }
 
     private TaskInfo submit(TaskRequest request, String taskType, TaskStatusReporter reporter) {

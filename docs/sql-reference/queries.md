@@ -70,6 +70,17 @@ SELECT DISTINCT region
 FROM prod.analytics.users;
 ```
 
+**Inline VALUES table:**
+
+```sql
+SELECT t.event_id, t.amount
+FROM (VALUES (1, 12.50), (2, 7.25)) AS t(event_id, amount);
+```
+
+Each row must have the same number of fields. A declared column alias list must
+match that width. Pangrova preserves the `VALUES` table constructor in the
+Calcite plan, including duplicate rows.
+
 
 ## JOIN Examples
 

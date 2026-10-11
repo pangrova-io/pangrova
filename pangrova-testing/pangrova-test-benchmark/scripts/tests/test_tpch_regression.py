@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import json
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -20,15 +21,29 @@ compare = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(compare)
 
 
+def oracle_samples(p99=100):
+    """R7 P50=80/P99=p99 with sufficient samples; no performance claim."""
+    return [70] * 499 + [80] * 490 + [p99] * 11
+
+
 def baseline_fixture(scale=100):
     """Synthetic numbers used only to exercise the comparator's arithmetic."""
     return {
+        "benchmark": "tpch", "status": "passed",
+        "percentileMethod": "R7", "timingScope": "cli-end-to-end", "minimumSamples": 1000,
+        "config": {"warmup": 1, "iterations": 1000, "timeout": 600, "queryTimeout": 300},
+        "summary": {"total": 22, "passed": 22, "failed": 0},
         "scaleFactor": scale,
         "lastUpdated": "2026-01-01",
         "regressionThreshold": 0.15,
         "queries": {
             f"Q{i}": {
-                "name": f"Query {i}", "baselineP50Ms": 80, "baselineP99Ms": 100
+                "name": f"Query {i}", "baselineP50Ms": 80, "baselineP99Ms": 100,
+                "sqlSha256": hashlib.sha256(f"arithmetic oracle Q{i}".encode()).hexdigest(),
+                "queryIds": [f"baseline-Q{i}-{n}" for n in range(1000)],
+                "warmupQueryIds": [f"baseline-warmup-Q{i}"],
+                "status": "passed", "sampleCount": 1000, "minimumSamples": 1000,
+                "percentileQualified": True, "warmupCompleted": 1, "samples": oracle_samples(),
             }
             for i in range(1, 23)
         },
@@ -40,12 +55,18 @@ def results_fixture(scale=100):
     return {
         "benchmark": "tpch",
         "scaleFactor": scale,
+        "status": "passed", "percentileMethod": "R7",
+        "timingScope": "cli-end-to-end", "minimumSamples": 1000,
         "timestamp": "2026-01-02T00:00:00Z",
-        "config": {"warmup": 1, "iterations": 3, "timeout": 600},
+        "config": {"warmup": 1, "iterations": 1000, "timeout": 600, "queryTimeout": 300},
         "queries": {
             f"q{i:02d}": {
                 "status": "passed", "p50Ms": 80, "p99Ms": 100,
-                "samples": [100, 80, 70],
+                "samples": oracle_samples(), "sampleCount": 1000, "minimumSamples": 1000,
+                "sqlSha256": hashlib.sha256(f"arithmetic oracle Q{i}".encode()).hexdigest(),
+                "queryIds": [f"current-Q{i}-{n}" for n in range(1000)],
+                "warmupQueryIds": [f"current-warmup-Q{i}"],
+                "percentileQualified": True, "warmupCompleted": 1,
             }
             for i in range(1, 23)
         },
@@ -61,6 +82,20 @@ class ComparisonTest(unittest.TestCase):
     def assert_invalid(self, message):
         with self.assertRaisesRegex(ValueError, message):
             compare.compare_results(self.baseline, self.results)
+
+    def test_query_and_process_deadlines_are_explicit_valid_and_match_calibration(self):
+        for owner in ("baseline", "results"):
+            for value in (None, 0, -1, True, "300", 300.0, 600, 601):
+                with self.subTest(owner=owner, value=value):
+                    self.setUp()
+                    getattr(self, owner)["config"]["queryTimeout"] = value
+                    self.assert_invalid("config\\.(queryTimeout|timeout)")
+            self.setUp()
+            del getattr(self, owner)["config"]["queryTimeout"]
+            self.assert_invalid("config.queryTimeout")
+        self.setUp()
+        self.results["config"]["queryTimeout"] = 299
+        self.assert_invalid("RUN_CONFIG_MISMATCH queryTimeout")
 
     def test_runner_format_and_query_aliases_preserve_valid_comparison(self):
         original = copy.deepcopy((self.baseline, self.results))
@@ -81,9 +116,8 @@ class ComparisonTest(unittest.TestCase):
                 with self.subTest(threshold=threshold, change=change):
                     self.baseline["regressionThreshold"] = threshold
                     query = self.results["queries"]["q01"]
-                    # No samples: an aggregate-only result retains optional P50 semantics.
-                    query.pop("samples", None)
                     query["p99Ms"] = 100 + change * 100
+                    query["samples"] = oracle_samples(query["p99Ms"])
                     comparisons, failed, _ = compare.compare_results(self.baseline, self.results)
                     self.assertEqual(comparisons[0]["status"], expected)
                     self.assertEqual(failed, expected == "FAIL")
@@ -97,15 +131,15 @@ class ComparisonTest(unittest.TestCase):
         self.assertEqual(threshold, 0.15)
         self.assertIsNone(comparisons[0]["changeP50"])
 
-    def test_aggregate_only_results_keep_optional_run_metadata(self):
-        del self.results["config"]
-        del self.results["summary"]
-        for record in self.results["queries"].values():
-            del record["samples"]
-            del record["p50Ms"]
-        comparisons, failed, _ = compare.compare_results(self.baseline, self.results)
-        self.assertFalse(failed)
-        self.assertTrue(all(c["changeP50"] is None for c in comparisons))
+    def test_aggregate_only_results_without_raw_samples_or_metadata_are_rejected(self):
+        for field in ("config", "summary"):
+            with self.subTest(field=field):
+                self.setUp()
+                del self.results[field]
+                self.assert_invalid("INVALID_RESULTS.*" + field)
+        self.setUp()
+        del self.results["queries"]["q01"]["samples"]
+        self.assert_invalid("INVALID_RESULTS.*samples")
 
     def test_lowercase_baseline_and_uppercase_results_are_aligned(self):
         self.baseline["queries"] = {
@@ -250,7 +284,7 @@ class ComparisonTest(unittest.TestCase):
 
     def test_zero_threshold_is_valid_and_detects_any_slowdown(self):
         self.baseline["regressionThreshold"] = 0
-        self.results["queries"]["q01"].update(p99Ms=101, samples=[70, 80, 101])
+        self.results["queries"]["q01"].update(p99Ms=101, samples=oracle_samples(101))
         comparisons, failed, threshold = compare.compare_results(self.baseline, self.results)
         self.assertTrue(failed)
         self.assertEqual(threshold, 0)
@@ -268,7 +302,7 @@ class ComparisonTest(unittest.TestCase):
             with self.subTest(iterations=iterations):
                 self.setUp()
                 self.results["config"]["iterations"] = iterations
-                self.assert_invalid("INVALID_RESULTS.*iterations")
+                self.assert_invalid("INVALID_RESULTS.*iterations|INVALID_RESULTS.*queryIds")
 
     def test_percentile_order_and_sample_median_are_checked(self):
         self.baseline["queries"]["Q1"]["baselineP50Ms"] = 101
@@ -279,20 +313,67 @@ class ComparisonTest(unittest.TestCase):
         self.results["queries"]["q01"]["p50Ms"] = 79
         self.assert_invalid("INVALID_RESULTS.*Q1.*samples")
 
-    def test_even_sample_counts_use_runner_lower_median_and_maximum(self):
-        self.results["config"]["iterations"] = 4
-        for record in self.results["queries"].values():
-            record["samples"] = [90, 100, 70, 80]
-        comparisons, failed, _ = compare.compare_results(self.baseline, self.results)
-        self.assertFalse(failed)
-        self.assertEqual(comparisons[0]["currentP50"], 80)
+    def test_even_sample_counts_use_interpolated_r7_median(self):
+        from tpc_statistics import sample_statistics
+        self.assertEqual(sample_statistics([70, 80, 90, 100])["p50Ms"], 85)
+        self.assertNotIn("p99Ms", sample_statistics([70, 80, 90, 100]))
 
     def test_nonfinite_computed_changes_cannot_reach_reporting(self):
-        self.baseline["queries"]["Q1"] = {
-            "name": "Query 1", "baselineP99Ms": 1e-308
-        }
-        self.results["queries"]["q01"] = {"status": "passed", "p99Ms": 1e308}
+        previous = self.baseline["queries"]["Q1"]
+        previous.update(baselineP99Ms=1e-308, baselineP50Ms=1e-308, samples=[1e-308] * 1000)
+        current = self.results["queries"]["q01"]
+        current.update(p99Ms=1e308, p50Ms=1e308, samples=[1e308] * 1000)
         self.assert_invalid("INVALID_RESULTS.*non-finite")
+
+    def test_historical_maximum_contract_requires_real_recalibration(self):
+        for owner in ("baseline", "results"):
+            for method in (None, "maximum", "nearest-rank", "R6"):
+                with self.subTest(owner=owner, method=method):
+                    self.setUp()
+                    getattr(self, owner)["percentileMethod"] = method
+                    self.assert_invalid("percentileMethod.*recalibrat")
+
+    def test_insufficient_samples_cannot_be_claimed_as_p99(self):
+        for owner, key in (("baseline", "Q1"), ("results", "q01")):
+            with self.subTest(owner=owner):
+                self.setUp()
+                document = getattr(self, owner)
+                document["config"]["iterations"] = 3
+                record = document["queries"][key]
+                record.update(samples=[70, 80, 100], sampleCount=3, queryIds=record["queryIds"][:3])
+                self.assert_invalid("percentileQualified.*insufficient")
+        for field, value in (("sampleCount", 999), ("sampleCount", True),
+                             ("percentileQualified", 1), ("percentileQualified", False),
+                             ("minimumSamples", 3), ("warmupCompleted", 0)):
+            with self.subTest(field=field, value=value):
+                self.setUp()
+                self.results["queries"]["q01"][field] = value
+                self.assert_invalid(field)
+        for minimum in (3, 999, True, "1000", None):
+            self.setUp()
+            self.results["minimumSamples"] = minimum
+            self.assert_invalid("minimumSamples")
+
+    def test_changed_timing_scope_or_warmup_configuration_is_rejected(self):
+        self.results["timingScope"] = "server-execution"
+        self.assert_invalid("timingScope")
+        self.setUp()
+        self.results["config"]["warmup"] = 0
+        self.assert_invalid("RUN_CONFIG_MISMATCH.*warmup")
+
+    def test_exact_sql_digest_and_distinct_execution_ids_are_required(self):
+        self.results["queries"]["q01"]["sqlSha256"] = "0" * 64
+        self.assert_invalid("SQL_INPUT_MISMATCH")
+        for owner, key in (("baseline", "Q1"), ("results", "q01")):
+            for invalid in (None, [], ["repeated"] * 1000, [""] * 1000):
+                with self.subTest(owner=owner, invalid=type(invalid).__name__):
+                    self.setUp()
+                    getattr(self, owner)["queries"][key]["queryIds"] = invalid
+                    self.assert_invalid("queryIds")
+        self.setUp()
+        self.results["queries"]["q02"]["queryIds"][0] = self.results["queries"]["q01"]["queryIds"][0]
+        self.assert_invalid("queryIds.*distinct across")
+
 
 
 class ScriptContractTest(unittest.TestCase):
@@ -340,7 +421,7 @@ class ScriptContractTest(unittest.TestCase):
 
     def test_real_regression_returns_one_and_writes_report(self):
         results = results_fixture()
-        results["queries"]["q22"].update(p99Ms=116, samples=[70, 80, 116])
+        results["queries"]["q22"].update(p99Ms=116, samples=oracle_samples(116))
         self.write_json(self.results_path, results)
         self.environment["REPORT_OUTPUT"] = str(self.report_path)
         process = self.run_check()

@@ -17,7 +17,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * with CAS loops, so no external synchronization is required.
  */
 @ThreadSafe
-public abstract class MemoryPool {
+public abstract sealed class MemoryPool
+        permits RootMemoryPool, NodeMemoryPool, QueryMemoryPool, TaskMemoryPool,
+                OperatorMemoryPool, ArbitratedMemoryPool {
 
     private static final Logger LOG = LoggerFactory.getLogger(MemoryPool.class);
 

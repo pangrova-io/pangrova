@@ -26,8 +26,14 @@ public final class QueryEventDispatcher {
     private static final Logger LOG = LoggerFactory.getLogger(QueryEventDispatcher.class);
 
     private final List<QueryEventListener> listeners;
+    private final QueryEventDispatcher parent;
 
     public QueryEventDispatcher(List<QueryEventListener> listeners) {
+        this(listeners, null);
+    }
+
+    private QueryEventDispatcher(List<QueryEventListener> listeners, QueryEventDispatcher parent) {
+        this.parent = parent;
         Objects.requireNonNull(listeners, "listeners must not be null");
         this.listeners = new CopyOnWriteArrayList<>(listeners);
     }
@@ -37,6 +43,14 @@ public final class QueryEventDispatcher {
         return new QueryEventDispatcher(List.of(listeners));
     }
 
+    /**
+     * Attaches a listener owned by one query manager without mutating a borrowed dispatcher.
+     * Parent registrations remain live; the parent never retains this owner's listener.
+     */
+    public QueryEventDispatcher withListener(QueryEventListener listener) {
+        return new QueryEventDispatcher(List.of(Objects.requireNonNull(listener, "listener")), this);
+    }
+
     /** Registers an additional listener after construction. */
     public void register(QueryEventListener listener) {
         listeners.add(Objects.requireNonNull(listener, "listener must not be null"));
@@ -44,11 +58,12 @@ public final class QueryEventDispatcher {
 
     /** @return true when no listeners are registered (callers may skip event construction) */
     public boolean isEmpty() {
-        return listeners.isEmpty();
+        return listeners.isEmpty() && (parent == null || parent.isEmpty());
     }
 
     /** Fires {@link QueryEventListener#queryCreated} on every listener, fault-isolated. */
     public void fireQueryCreated(QueryCreatedEvent event) {
+        if (parent != null) parent.fireQueryCreated(event);
         for (QueryEventListener listener : listeners) {
             try {
                 listener.queryCreated(event);
@@ -61,6 +76,7 @@ public final class QueryEventDispatcher {
 
     /** Fires {@link QueryEventListener#queryCompleted} on every listener, fault-isolated. */
     public void fireQueryCompleted(QueryCompletedEvent event) {
+        if (parent != null) parent.fireQueryCompleted(event);
         for (QueryEventListener listener : listeners) {
             try {
                 listener.queryCompleted(event);
@@ -73,6 +89,7 @@ public final class QueryEventDispatcher {
 
     /** Fires {@link QueryEventListener#splitCompleted} on every listener, fault-isolated. */
     public void fireSplitCompleted(SplitCompletedEvent event) {
+        if (parent != null) parent.fireSplitCompleted(event);
         for (QueryEventListener listener : listeners) {
             try {
                 listener.splitCompleted(event);

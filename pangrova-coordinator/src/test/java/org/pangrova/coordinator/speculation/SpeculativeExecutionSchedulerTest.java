@@ -11,6 +11,7 @@ import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.coordinator.query.execution.dispatch.DispatchResult;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
+import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.scheduler.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskStateMachine;
@@ -57,10 +58,12 @@ class SpeculativeExecutionSchedulerTest {
         workerManager = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         workerManager.registerWorker(worker("worker-a", "host-a"));
         workerManager.registerWorker(worker("worker-b", "host-b"));
-        launcher.setDispatchDependencies((request, worker) -> new DispatchResult(
+        TaskDispatcher dispatch = (request, worker) -> new DispatchResult(
                 worker.host(), request.taskRequest().getAttempt().getTaskId(),
-                new ResultEndpoint(worker.host(), worker.httpPort(), "result", "grpc")),
-                workerManager, taskTracker);
+                new ResultEndpoint(worker.host(), worker.httpPort(), "result", "grpc"));
+        launcher.setDispatchDependencies(dispatch, workerManager, taskTracker);
+        launcher.setCancelRetrier(new org.pangrova.coordinator.task.TaskCancelRetrier(dispatch, taskTracker));
+        taskTracker.addExecutionDrainListener(launcher::executionDrained);
         queryManager = buildMinimalQueryManager();
     }
 

@@ -2,6 +2,10 @@ package org.pangrova.planner.substrait;
 
 import com.google.common.collect.ImmutableList;
 import io.substrait.plan.Plan;
+import io.substrait.plan.ImmutablePlan;
+import io.substrait.plan.ImmutableRoot;
+import io.substrait.plan.ImmutableExecutionBehavior;
+import io.substrait.plan.PlanProtoConverter;
 import io.substrait.relation.Rel;
 import io.substrait.relation.Sort;
 import io.substrait.relation.physical.BroadcastExchange;
@@ -39,9 +43,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that all physical join operators (HashJoin, SortMergeJoin,
@@ -118,7 +124,7 @@ class JoinSubstraitConversionTest {
     }
 
     @Test
-    void sortMergeJoinPreservesAsymmetricInputSchema() {
+    void sortMergeJoinPreservesAsymmetricInputSchema() throws Exception {
         RelNode left = buildInput(1);
         RelNode right = buildInput(3);
         RexNode condition = buildEquiCondition(left, right, 0, 0);
@@ -132,6 +138,33 @@ class JoinSubstraitConversionTest {
         assertThat(result.getLeft().getRecordType().fields()).hasSize(1);
         assertThat(result.getRight().getRecordType().fields()).hasSize(3);
         assertThat(result.getRecordType().fields()).hasSize(4);
+
+        var plan = ImmutablePlan.builder()
+                .addRoots(ImmutableRoot.builder().input(result)
+                        .addAllNames(List.of("left_key", "right_key", "right_value", "right_extra"))
+                        .build())
+                .executionBehavior(ImmutableExecutionBehavior.builder()
+                        .variableEvaluationMode(Plan.ExecutionBehavior.VariableEvaluationMode.PER_PLAN)
+                        .build())
+                .build();
+        var wire = io.substrait.proto.Plan.parseFrom(new SubstraitPlanSerializer().serialize(plan));
+        var join = wire.getRelations(0).getRoot().getInput().getMergeJoin();
+        assertThat(join.getKeysCount()).isPositive();
+        assertThat(join.getLeftKeysCount()).isZero();
+        assertThat(join.getRightKeysCount()).isZero();
+
+        var sdkWire = new PlanProtoConverter(new PangrovaExtensionProtoConverter()).toProto(plan);
+        var legacyJoin = sdkWire.getRelations(0).getRoot().getInput().getMergeJoin();
+        assertThat(legacyJoin.getLeftKeysCount()).isPositive();
+        var conflicting = sdkWire.toBuilder();
+        conflicting.getRelationsBuilder(0).getRootBuilder().getInputBuilder()
+                .getMergeJoinBuilder().setLeftKeys(0,
+                        io.substrait.proto.Expression.FieldReference.getDefaultInstance());
+        assertThat(conflicting.getRelations(0).getRoot().getInput().getMergeJoin().getLeftKeys(0))
+                .isNotEqualTo(legacyJoin.getLeftKeys(0));
+        assertThatThrownBy(() -> SubstraitProtoNormalizer.normalize(conflicting.build()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("differ from canonical keys");
     }
 
     @ParameterizedTest

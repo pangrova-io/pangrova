@@ -15,6 +15,7 @@ import org.pangrova.parser.ast.expression.FunctionCall;
 import org.pangrova.parser.ast.expression.InExpression;
 import org.pangrova.parser.ast.expression.IsNullExpression;
 import org.pangrova.parser.ast.expression.LikeExpression;
+import org.pangrova.parser.ast.expression.MapConstructor;
 import org.pangrova.parser.ast.expression.NotExpression;
 import org.pangrova.parser.ast.expression.NotInExpression;
 import org.pangrova.parser.ast.expression.NotInSubqueryExpression;
@@ -94,6 +95,7 @@ final class ExpressionToSqlNodeConverter {
                 entry(ExtractExpression.class, e -> convertExtract((ExtractExpression) e)),
                 entry(SubstringExpression.class, e -> convertSubstring((SubstringExpression) e)),
                 entry(ArrayConstructor.class, e -> convertArrayConstructor((ArrayConstructor) e)),
+                entry(MapConstructor.class, e -> convertMapConstructor((MapConstructor) e)),
                 entry(StructConstructor.class, e -> convertStructConstructor((StructConstructor) e)),
                 entry(SubscriptExpression.class, e -> convertSubscript((SubscriptExpression) e))
         );
@@ -400,6 +402,24 @@ final class ExpressionToSqlNodeConverter {
         return constructor.createCall(POS, operands);
     }
 
+    private SqlNode convertMapConstructor(MapConstructor map) {
+        SqlNode[] operands = map.entries().stream()
+                .map(this::convertMapOperand)
+                .toArray(SqlNode[]::new);
+        return SqlStdOperatorTable.MAP_VALUE_CONSTRUCTOR.createCall(POS, operands);
+    }
+
+    private SqlNode convertMapOperand(Expression expression) {
+        SqlNode node = convert(expression);
+        if (expression instanceof Literal literal
+                && literal.value() instanceof LiteralValue.StringValue) {
+            SqlDataTypeSpec varchar = new SqlDataTypeSpec(
+                    new SqlBasicTypeNameSpec(SqlTypeName.VARCHAR, POS), POS);
+            return SqlStdOperatorTable.CAST.createCall(POS, node, varchar);
+        }
+        return node;
+    }
+
     private SqlNode convertStructConstructor(StructConstructor struct) {
         SqlNode[] operands = struct.fields().stream()
                 .map(f -> convert(f.value()))
@@ -416,6 +436,11 @@ final class ExpressionToSqlNodeConverter {
     // ── Type mapping ──
 
     private static SqlDataTypeSpec mapCastType(String typeName) {
+        if (typeName.startsWith("ARRAY(") && typeName.endsWith(")")) {
+            SqlDataTypeSpec element = mapCastType(typeName.substring(6, typeName.length() - 1));
+            return new SqlDataTypeSpec(new org.apache.calcite.sql.SqlCollectionTypeNameSpec(
+                    element.getTypeNameSpec(), SqlTypeName.ARRAY, POS), POS);
+        }
         // Parameterized types: DECIMAL(p,s), NUMERIC(p,s), VARCHAR(n)
         int parenIdx = typeName.indexOf('(');
         String baseName = parenIdx >= 0 ? typeName.substring(0, parenIdx) : typeName;

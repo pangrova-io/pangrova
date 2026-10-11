@@ -22,6 +22,7 @@ import org.pangrova.protocol.v2.NativeFunctionKind;
  * @param returnType    return type name (e.g. "BIGINT", "VARCHAR")
  * @param argumentTypes ordered list of argument type names
  * @param functionType  SCALAR or AGGREGATE
+ * @param defaultNullBehavior whether NULL input skips invocation and produces SQL NULL
  * @param deterministic whether the function is deterministic (enables expression folding)
  */
 public record NativeFunctionDescriptor(
@@ -29,7 +30,16 @@ public record NativeFunctionDescriptor(
         String returnType,
         List<String> argumentTypes,
         FunctionType functionType,
-        boolean deterministic) {
+        boolean deterministic,
+        boolean defaultNullBehavior) {
+
+    /** Pure functions use the unified strict NULL-input default. */
+    public NativeFunctionDescriptor(String name, String returnType, List<String> argumentTypes,
+                                    FunctionType functionType, boolean deterministic) {
+        this(name, returnType, argumentTypes, functionType, deterministic,
+                new org.pangrova.spi.function.FunctionMetadata(name, returnType, argumentTypes)
+                        .defaultNullBehavior());
+    }
 
     public enum FunctionType {
         SCALAR,
@@ -49,10 +59,11 @@ public record NativeFunctionDescriptor(
      * <p>Wire format (proto3-compatible):
      * <ul>
      *   <li>Field 1 (string): name</li>
-     *   <li>Field 2 (string): returnType</li>
-     *   <li>Field 3 (repeated string): argumentTypes</li>
-     *   <li>Field 4 (varint): functionType ordinal (0=SCALAR, 1=AGGREGATE)</li>
+     *   <li>Field 2 (message): canonical LogicalType return type</li>
+     *   <li>Field 3 (repeated message): ordered canonical LogicalType arguments</li>
+     *   <li>Field 4 (enum): canonical NativeFunctionKind</li>
      *   <li>Field 5 (varint): deterministic (0=false, 1=true)</li>
+     *   <li>Field 6 (optional varint): explicit default NULL behavior</li>
      * </ul>
      */
     public byte[] toBytes() {
@@ -62,7 +73,8 @@ public record NativeFunctionDescriptor(
                 .setFunctionKind(functionType == FunctionType.SCALAR
                         ? NativeFunctionKind.NATIVE_FUNCTION_KIND_SCALAR
                         : NativeFunctionKind.NATIVE_FUNCTION_KIND_AGGREGATE)
-                .setDeterministic(deterministic);
+                .setDeterministic(deterministic)
+                .setDefaultNullBehavior(defaultNullBehavior);
         argumentTypes.stream().map(NativeFunctionDescriptor::logicalType)
                 .forEach(builder::addArgumentTypes);
         return builder.build().toByteArray();

@@ -23,5 +23,5 @@ public record LineageEvent(
         facets = facets == null ? Map.of() : Map.copyOf(facets);
     }
 
-    public enum EventType { START, COMPLETE, FAIL }
+    public enum EventType { START, COMPLETE, FAIL, ABORT }
 }

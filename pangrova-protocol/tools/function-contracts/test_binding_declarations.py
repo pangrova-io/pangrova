@@ -109,18 +109,38 @@ class BindingDeclarationsTest(unittest.TestCase):
         declaration = read_declarations(RESOURCE.read_text())
         generated = "\n".join(render_callback_signatures(declaration))
         self.assertIn("bool deterministic;", generated)
-        self.assertIn('{"file_from_url", "ROW", file_from_url_arguments_0, false}', generated)
+        self.assertIn('{"file_from_url", "ROW", file_from_url_arguments_0, false, false}', generated)
         changed = deepcopy(declaration)
         callback = next(entry for entry in changed["bindings"] if entry["name"] == "file_from_url")
         callback["runtimeSignature"]["deterministic"] = True
         normalized = read_declarations(json.dumps(changed))
-        self.assertIn('{"file_from_url", "ROW", file_from_url_arguments_0, true}',
+        self.assertIn('{"file_from_url", "ROW", file_from_url_arguments_0, true, false}',
                       "\n".join(render_callback_signatures(normalized)))
         for value in (None, "false", 0):
             callback["runtimeSignature"]["deterministic"] = value
             with self.assertRaises(ValueError):
                 read_declarations(json.dumps(changed))
         del callback["runtimeSignature"]["deterministic"]
+        with self.assertRaises(ValueError):
+            read_declarations(json.dumps(changed))
+
+    def test_callback_null_policy_is_required_and_generated_without_a_second_list(self):
+        declaration = read_declarations(RESOURCE.read_text())
+        callbacks = [binding for binding in declaration["bindings"] if "runtimeSignature" in binding]
+        self.assertTrue(callbacks)
+        self.assertTrue(all(binding["runtimeSignature"]["defaultNullBehavior"] is False for binding in callbacks))
+        generated = "\n".join(render_callback_signatures(declaration))
+        self.assertIn("bool defaultNullBehavior;", generated)
+        changed = deepcopy(declaration)
+        callback = next(binding for binding in changed["bindings"] if binding["name"] == "file_from_url")
+        callback["runtimeSignature"]["defaultNullBehavior"] = True
+        self.assertIn('{"file_from_url", "ROW", file_from_url_arguments_0, false, true}',
+                      "\n".join(render_callback_signatures(read_declarations(json.dumps(changed)))))
+        for value in (None, "false", 0):
+            callback["runtimeSignature"]["defaultNullBehavior"] = value
+            with self.assertRaises(ValueError):
+                read_declarations(json.dumps(changed))
+        del callback["runtimeSignature"]["defaultNullBehavior"]
         with self.assertRaises(ValueError):
             read_declarations(json.dumps(changed))
 

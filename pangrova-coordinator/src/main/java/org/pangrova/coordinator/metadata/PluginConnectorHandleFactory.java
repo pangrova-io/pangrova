@@ -34,14 +34,23 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
     private final ClassLoader spiClassLoader;
     private final SecretResolver secretResolver;
     private final Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl;
+    private final Function<CatalogDescriptor, Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog>> sourceCatalog;
     private final Map<String, ConnectorFactory> factoryCache = new ConcurrentHashMap<>();
     private final Map<String, PluginClassLoader> classLoaders = new ConcurrentHashMap<>();
 
+    /** Creates a factory for catalogs with no managed source publication capability. */
     public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver,
             Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl) {
+        this(spiClassLoader, secretResolver, nativeControl, descriptor -> Optional.empty());
+    }
+
+    public PluginConnectorHandleFactory(ClassLoader spiClassLoader, SecretResolver secretResolver,
+            Function<CatalogDescriptor, Optional<NativeDatasetControlPlane>> nativeControl,
+            Function<CatalogDescriptor, Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog>> sourceCatalog) {
         this.spiClassLoader = spiClassLoader;
         this.secretResolver = secretResolver;
         this.nativeControl = java.util.Objects.requireNonNull(nativeControl, "nativeControl");
+        this.sourceCatalog = java.util.Objects.requireNonNull(sourceCatalog);
         discoverFactories();
     }
 
@@ -85,7 +94,11 @@ public final class PluginConnectorHandleFactory implements ConnectorHandleFactor
         ensureIsolatedClassLoader(descriptor.provider());
         Map<String, String> resolvedProps = resolveProperties(descriptor.properties());
         Optional<NativeDatasetControlPlane> port = java.util.Objects.requireNonNull(nativeControl.apply(descriptor));
-        ConnectorContext context = () -> port;
+        var source = java.util.Objects.requireNonNull(sourceCatalog.apply(descriptor));
+        ConnectorContext context = new ConnectorContext() {
+            @Override public Optional<NativeDatasetControlPlane> nativeDatasetControlPlane() { return port; }
+            @Override public Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> managedSourceCatalog() { return source; }
+        };
         return factory.create(descriptor.name(), resolvedProps, context);
     }
 

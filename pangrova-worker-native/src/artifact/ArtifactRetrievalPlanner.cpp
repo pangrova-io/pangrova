@@ -14,6 +14,7 @@
 #include <google/protobuf/descriptor.h>
 
 #include "artifact/RowLocatorSidecar.h"
+#include "artifact/ArtifactVectorSearch.h"
 #include "capability/NativeCapabilityCatalog.h"
 #include "pangrova/protocol/v2/plan_extension.pb.h"
 #include "substrait/algebra.pb.h"
@@ -23,7 +24,6 @@
 #include "text/bm25/Bm25SegmentCache.h"
 #include "vector/VectorDistance.h"
 #include "vector/VectorTopKHeap.h"
-#include "vector/diskann/DiskAnnIndexCache.h"
 #include "vector/hnsw/HnswIndex.h"
 #include "vector/ivfpq/IvfPqIndex.h"
 
@@ -42,6 +42,8 @@ void collectRetrievalDetails(
         envelope.schema_version() == 1 &&
         envelope.has_retrieval_source() &&
         (pangrova::capability::isExactTopKRetrieval(
+             envelope.retrieval_source().invocation().capability()) ||
+         pangrova::capability::isFilteredDiskAnnRetrieval(
              envelope.retrieval_source().invocation().capability()) ||
          pangrova::capability::isDiskAnnRetrieval(
              envelope.retrieval_source().invocation().capability()) ||
@@ -132,35 +134,8 @@ const proto::NamedValue& requireOption(
   return *result;
 }
 
-std::vector<float> parseQueryVector(
-    const proto::CapabilityInvocation& invocation) {
-  const auto& value = requireOption(invocation, "query_vector").value();
-  if (!value.has_tensor_value()) {
-    throw std::runtime_error("ANN query_vector must be a typed tensor");
-  }
-  const auto& tensor = value.tensor_value();
-  if (tensor.element_type() != proto::TensorValue::ELEMENT_TYPE_FLOAT32 ||
-      tensor.shape_size() != 1 || tensor.shape(0) == 0 ||
-      tensor.shape(0) > 65'536 ||
-      tensor.packed_little_endian_values().size() !=
-          tensor.shape(0) * sizeof(float)) {
-    throw std::runtime_error("ANN query_vector tensor shape is invalid");
-  }
-  std::vector<float> result(static_cast<size_t>(tensor.shape(0)));
-  const auto& packed = tensor.packed_little_endian_values();
-  for (size_t index = 0; index < result.size(); ++index) {
-    const auto offset = index * sizeof(uint32_t);
-    uint32_t bits = 0;
-    for (size_t byte = 0; byte < sizeof(uint32_t); ++byte) {
-      bits |= static_cast<uint32_t>(
-          static_cast<unsigned char>(packed[offset + byte])) << (byte * 8);
-    }
-    result[index] = std::bit_cast<float>(bits);
-    if (!std::isfinite(result[index])) {
-      throw std::runtime_error("ANN query_vector contains a non-finite value");
-    }
-  }
-  return result;
+std::vector<float> parseQueryVector(const proto::CapabilityInvocation& invocation) {
+  return ArtifactVectorSearch::boundQuery(invocation);
 }
 
 int64_t requireSearchListSize(
@@ -422,7 +397,8 @@ ArtifactRetrievalPlanner::prepare(
     const std::unordered_map<std::string, proto::OperatorBinding>&
         operator_bindings,
     const std::vector<split::SplitConfig>& splits,
-    uint64_t max_object_store_read_bytes) {
+    uint64_t max_object_store_read_bytes,
+    std::shared_ptr<resource::TaskObjectReadBudget> task_budget) {
   auto preparation = std::make_shared<ArtifactRetrievalPreparation>();
   preparation->splits = splits;
 
@@ -450,6 +426,8 @@ ArtifactRetrievalPlanner::prepare(
     if (!prepared_nodes.emplace(detail.plan_node_id()).second) {
       throw std::runtime_error("Artifact retrieval plan_node_id is duplicated");
     }
+    const bool filtered = pangrova::capability::isFilteredDiskAnnRetrieval(
+        detail.invocation().capability());
     const bool diskann = pangrova::capability::isDiskAnnRetrieval(
         detail.invocation().capability());
     const bool hnsw = pangrova::capability::isHnswRetrieval(
@@ -465,6 +443,8 @@ ArtifactRetrievalPlanner::prepare(
         !(exact
               ? pangrova::capability::isExactTopKRetrieval(
                     binding_it->second.capability())
+              : filtered
+              ? pangrova::capability::isFilteredDiskAnnRetrieval(binding_it->second.capability())
               : diskann
               ? pangrova::capability::isDiskAnnRetrieval(
                     binding_it->second.capability())
@@ -481,7 +461,11 @@ ArtifactRetrievalPlanner::prepare(
     }
     const auto& binding = binding_it->second;
     const auto& policy = binding.execution_policy();
-    if (!policy.has_approximation() || detail.candidate_limit() == 0 ||
+    if (!policy.has_approximation() || detail.output_limit() == 0 ||
+        detail.output_limit() > detail.candidate_limit() ||
+        policy.approximation().recall_k() != detail.output_limit() ||
+        !std::isfinite(policy.approximation().required_recall_at_k()) ||
+        detail.candidate_limit() == 0 ||
         (exact && detail.exact_rescore_limit() != 0) ||
         (!exact && (detail.exact_rescore_limit() == 0 ||
                     detail.exact_rescore_limit() > detail.candidate_limit())) ||
@@ -509,6 +493,11 @@ ArtifactRetrievalPlanner::prepare(
       throw std::runtime_error(
           "Artifact retrieval format or source identity differs from the plan");
     }
+    if (filtered) {
+      // The actual active-Task operator owns predicate eligibility, graph work
+      // and hydration. Early unfiltered pruning would change SQL semantics.
+      continue;
+    }
     auto node_splits = splits;
 
     if (bm25) {
@@ -524,7 +513,7 @@ ArtifactRetrievalPlanner::prepare(
       uint64_t remaining = max_object_store_read_bytes -
           std::min(max_object_store_read_bytes, preparation->downloaded_bytes);
       auto corpus_file = ImmutableArtifactCache::instance().materialize(
-          *bm25_artifacts.corpus_stats, remaining);
+          *bm25_artifacts.corpus_stats, remaining, task_budget);
       preparation->downloaded_bytes += corpus_file.downloaded_bytes;
       auto corpus_stats = text::bm25::Bm25CorpusStatsCache::instance().getOrLoad(
           corpus_file.local_path);
@@ -548,12 +537,12 @@ ArtifactRetrievalPlanner::prepare(
         remaining = max_object_store_read_bytes -
             std::min(max_object_store_read_bytes, preparation->downloaded_bytes);
         auto postings = ImmutableArtifactCache::instance().materialize(
-            *bundle.postings, remaining);
+            *bundle.postings, remaining, task_budget);
         preparation->downloaded_bytes += postings.downloaded_bytes;
         remaining = max_object_store_read_bytes -
             std::min(max_object_store_read_bytes, preparation->downloaded_bytes);
         auto locators = ImmutableArtifactCache::instance().materialize(
-            *bundle.locators, remaining);
+            *bundle.locators, remaining, task_budget);
         preparation->downloaded_bytes += locators.downloaded_bytes;
 
         auto segment = text::bm25::Bm25SegmentCache::instance().getOrLoad(
@@ -643,10 +632,21 @@ ArtifactRetrievalPlanner::prepare(
         : requireArtifactMetric(artifact, detail.invocation());
     auto bundles = buildVectorBundles(artifact, index_role);
 
+    std::unordered_map<std::string, std::vector<uint64_t>> diskann_positions;
     for (auto& split : node_splits) {
       if (split.table_name != artifact.source_id() ||
           split.source_snapshot != artifact.source_snapshot()) {
         continue;
+      }
+      if (diskann) {
+        auto previous = diskann_positions.find(split.data_object_id);
+        if (previous != diskann_positions.end()) {
+          // Multiple non-overlapping source ranges share one physical graph,
+          // raw object and locator domain; do not materialize/search it twice.
+          split.row_position_filter_enabled = true;
+          split.row_position_allowlist = previous->second;
+          continue;
+        }
       }
       auto bundle_it = bundles.find(split.data_object_id);
       if (bundle_it == bundles.end()) {
@@ -654,43 +654,45 @@ ArtifactRetrievalPlanner::prepare(
             "ANN artifact does not cover a task source object");
       }
       const auto& bundle = bundle_it->second;
+      if (diskann) {
+        const std::array<proto::ArtifactObject, 3> objects{
+            *bundle.graph, *bundle.vectors, *bundle.locators};
+        auto owner = std::make_shared<ArtifactVectorSearch>(objects, dimension,
+            max_object_store_read_bytes - preparation->downloaded_bytes,
+            pangrova::resource::standaloneHeapResource(), [] {}, task_budget);
+        auto positions = owner->searchUnfiltered(query, detail.candidate_limit(),
+            detail.exact_rescore_limit(), search_parameter, [] {});
+        split.row_position_filter_enabled = true;
+        split.row_position_allowlist.assign(positions.begin(), positions.end());
+        std::sort(split.row_position_allowlist.begin(), split.row_position_allowlist.end());
+        preparation->downloaded_bytes += owner->downloadedBytes();
+        for (const auto& lease : owner->materializedObjects()) {
+          preparation->leases.push_back(lease);  // The same real cache pin, not another download.
+        }
+        diskann_positions.emplace(split.data_object_id, split.row_position_allowlist);
+        preparation->vector_search_owners.push_back(std::move(owner));
+        bundles.erase(bundle_it);
+        continue;
+      }
       uint64_t remaining = max_object_store_read_bytes -
           std::min(max_object_store_read_bytes, preparation->downloaded_bytes);
       auto graph = ImmutableArtifactCache::instance().materialize(
-          *bundle.graph, remaining);
+          *bundle.graph, remaining, task_budget);
       preparation->downloaded_bytes += graph.downloaded_bytes;
       remaining = max_object_store_read_bytes -
           std::min(max_object_store_read_bytes, preparation->downloaded_bytes);
       auto vectors = ImmutableArtifactCache::instance().materialize(
-          *bundle.vectors, remaining);
+          *bundle.vectors, remaining, task_budget);
       preparation->downloaded_bytes += vectors.downloaded_bytes;
       remaining = max_object_store_read_bytes -
           std::min(max_object_store_read_bytes, preparation->downloaded_bytes);
       auto locators = ImmutableArtifactCache::instance().materialize(
-          *bundle.locators, remaining);
+          *bundle.locators, remaining, task_budget);
       preparation->downloaded_bytes += locators.downloaded_bytes;
 
       int64_t node_count = 0;
       std::vector<int64_t> candidate_nodes;
-      if (diskann) {
-        auto index = vector::diskann::DiskAnnIndexCache::instance().getOrLoad(
-            graph.local_path, dimension);
-        if (!index || index->dimension() != dimension ||
-            index->numVectors() <= 0 ||
-            static_cast<uint64_t>(index->numVectors()) !=
-                bundle.graph->row_count()) {
-          throw std::runtime_error(
-              "DiskANN graph metadata differs from its binding");
-        }
-        node_count = index->numVectors();
-        auto approximate = index->search(
-            query.data(), static_cast<int64_t>(detail.candidate_limit()),
-            std::min<int64_t>(64, search_parameter), search_parameter);
-        candidate_nodes.reserve(approximate.size());
-        for (const auto& candidate : approximate) {
-          candidate_nodes.push_back(candidate.nodeId);
-        }
-      } else if (hnsw) {
+      if (hnsw) {
         auto index = vector::hnsw::HnswIndexCache::instance().getOrLoad(
             graph.local_path, dimension);
         if (!index || index->dimension() != dimension || index->metric() != metric ||

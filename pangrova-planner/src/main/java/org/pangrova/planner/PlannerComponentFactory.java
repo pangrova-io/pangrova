@@ -80,6 +80,7 @@ final class PlannerComponentFactory {
         RelOptCluster cluster = RelOptCluster.create(planner, new RexBuilder(typeFactory));
         var metadataProviders = new java.util.ArrayList<
                 org.apache.calcite.rel.metadata.RelMetadataProvider>();
+        metadataProviders.add(new org.pangrova.planner.lineage.PangrovaColumnOriginMetadata().asProvider());
         if (cboEnabled) {
             metadataProviders.add(new PangrovaRelMdJoinCost(costModelConfig).asProvider());
         }
@@ -103,14 +104,4 @@ final class PlannerComponentFactory {
         return builder.build();
     }
 
-    /**
-     * Safe HEP program without REDUCE_EXPRESSIONS rules.
-     * Used as fallback when expression reduction produces invalid RexInputRef
-     * indices (Calcite bug with SUBSTRING/LIKE inside CASE/aggregate).
-     */
-    static HepProgram buildHepProgramSafe() {
-        HepProgramBuilder builder = new HepProgramBuilder();
-        HepRuleRegistry.registerAllSafe(builder);
-        return builder.build();
-    }
 }

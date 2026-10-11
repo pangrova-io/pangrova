@@ -81,7 +81,8 @@ public final class PangrovaWorkerMain {
         String configPath = parseConfigPath(args);
         Map<String, String> flatMap;
         if (configPath != null) {
-            LOG.info("event=config_loading source=cli_yaml path={}", configPath);
+            LOG.info("event=config_loading source=cli_yaml path={}",
+                    configPath.replace('\r', '_').replace('\n', '_'));
             flatMap = YamlConfigLoader.loadWithDefaults(Path.of(configPath), CLASSPATH_DEFAULT);
         } else {
             LOG.info("event=config_loading source=classpath_default resource={}", CLASSPATH_DEFAULT);

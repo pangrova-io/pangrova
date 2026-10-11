@@ -388,6 +388,11 @@ class JdbcArtifactBuildStoreTest {
         assertThat(store.matchesPublishedSplits(TENANT, "job-1", java.util.Map.of(
                 "source-1", "f".repeat(64))))
                 .isFalse();
+        assertThat(store.loadPublishedSourceSplits(TENANT, "job-1", java.util.Set.of("source-0")))
+                .containsEntry("source-0", ArtifactBuildSplit.of("source-0",
+                        "canonical-split-0".getBytes(StandardCharsets.UTF_8)));
+        assertThat(store.loadPublishedSourceSplits(TENANT, "job-1", java.util.Set.of("missing")))
+                .isEmpty();
     }
 
     @Test

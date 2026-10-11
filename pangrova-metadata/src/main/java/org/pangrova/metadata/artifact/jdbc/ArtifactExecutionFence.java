@@ -14,6 +14,7 @@ import java.util.Optional;
 public final class ArtifactExecutionFence {
     private ArtifactExecutionFence() {}
 
+    /** Persists the exact tenant/job route before this job's execution is issued. */
     public static void insertRoute(Connection connection, String tenantId, String jobId) throws SQLException {
         var key = new ArtifactBuildJobKey(tenantId, jobId);
         try (var statement = connection.prepareStatement(
@@ -55,12 +56,11 @@ public final class ArtifactExecutionFence {
             throw new IllegalStateException("artifact execution has no exact durable routing association");
         }
         try (var statement = connection.prepareStatement(
-                "SELECT owner_id,owner_incarnation,fencing_token,acquired_at,expires_at,"
-                        + "expires_at>clock_timestamp() AS live FROM execution_anchor "
+                "SELECT owner_id,owner_incarnation,fencing_token,acquired_at,expires_at FROM execution_anchor "
                         + "WHERE execution_id=? FOR SHARE")) {
             statement.setString(1, key.executionId());
             try (var result = statement.executeQuery()) {
-                if (!result.next() || !result.getBoolean("live")) {
+                if (!result.next()) {
                     throw new LostOwnerException("artifact execution anchor is absent or expired");
                 }
                 var anchor = new ExecutionAnchor(key.executionId(), result.getString("owner_id"),
@@ -68,6 +68,14 @@ public final class ArtifactExecutionFence {
                         result.getTimestamp("acquired_at").toInstant(), result.getTimestamp("expires_at").toInstant());
                 if (!ArtifactExecutionOwner.from(anchor).equals(expected)) {
                     throw new LostOwnerException("artifact execution owner fence was lost");
+                }
+                // LockRows can evaluate target expressions before waiting for the row lock.
+                // Sample wall-clock time in a separate statement after the exact row is held.
+                try (var clock = connection.prepareStatement("SELECT clock_timestamp()");
+                     var time = clock.executeQuery()) {
+                    if (!time.next() || !anchor.expiresAt().isAfter(time.getTimestamp(1).toInstant())) {
+                        throw new LostOwnerException("artifact execution anchor is absent or expired");
+                    }
                 }
                 return anchor;
             }
@@ -77,11 +85,13 @@ public final class ArtifactExecutionFence {
     /** An explicit stale-owner rejection, distinct from unavailable/corrupt authority or invalid input. */
     public static final class LostOwnerException extends IllegalStateException {
         private static final long serialVersionUID = 1L;
+
         private LostOwnerException(String message) {
             super(message);
         }
     }
 
+    /** Checks both the anchor's exact job association and its current execution ownership. */
     public static void requireAnchor(Connection connection, String tenantId, String jobId, ExecutionAnchor anchor)
             throws SQLException {
         if (!new ArtifactBuildJobKey(tenantId, jobId).executionId().equals(anchor.executionId())) {
@@ -95,7 +105,8 @@ public final class ArtifactExecutionFence {
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT publication_execution_owner_id,publication_execution_owner_incarnation,"
-                        + "publication_execution_owner_token FROM artifact_build_jobs WHERE tenant_id=? AND job_id=?")) {
+                        + "publication_execution_owner_token FROM artifact_build_jobs "
+                        + "WHERE tenant_id=? AND job_id=?")) {
             statement.setString(1, tenantId);
             statement.setString(2, jobId);
             try (var result = statement.executeQuery()) {

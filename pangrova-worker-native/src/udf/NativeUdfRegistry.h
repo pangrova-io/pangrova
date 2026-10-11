@@ -35,6 +35,10 @@ struct ScalarUdfSpec {
   /// Non-deterministic callbacks must not participate in constant folding.
   bool deterministic = true;
 
+  /// Pure functions use the strict NULL-input default of the runtime.
+  /// Declared callbacks explicitly select whether NULL reaches their implementation.
+  bool defaultNullBehavior = facebook::velox::exec::VectorFunctionMetadata{}.defaultNullBehavior;
+
   /// Factory for stateless vector functions.
   std::function<std::unique_ptr<facebook::velox::exec::VectorFunction>(
       const std::string& name,
@@ -103,6 +107,7 @@ class NativeUdfRegistry {
   size_t aggregateCount() const;
 
  private:
+  // Keys follow the actual SDK sanitizeName identity; specs retain callback names.
   std::unordered_map<std::string, std::vector<ScalarUdfSpec>> scalarUdfs_;
   std::unordered_map<std::string, AggregateUdfSpec> aggregateUdfs_;
   // P2-UDF-2: Guard against registration after finalization.

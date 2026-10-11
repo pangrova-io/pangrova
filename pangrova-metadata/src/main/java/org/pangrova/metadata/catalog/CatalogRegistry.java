@@ -197,8 +197,7 @@ public class CatalogRegistry {
         loadMissingCatalogs(storeByName, localNames, loaded, loadFailed);
         removeObsoleteCatalogs(storeByName.keySet(), localNames, removed);
 
-        DivergenceReport report = new DivergenceReport(
-                List.copyOf(loaded), List.copyOf(removed), List.copyOf(loadFailed));
+        DivergenceReport report = new DivergenceReport(loaded, removed, loadFailed);
 
         if (!report.isEmpty()) {
             LOG.info("event=catalog_reconcile_complete loaded={} removed={} loadFailed={}",
@@ -223,9 +222,9 @@ public class CatalogRegistry {
     private void loadMissingCatalogs(Map<String, CatalogDescriptor> storeByName,
                                      Set<String> localNames,
                                      List<String> loaded, List<String> loadFailed) {
-        for (String storeName : storeByName.keySet()) {
-            if (!localNames.contains(storeName)) {
-                loadCatalogForReconcile(storeName, storeByName.get(storeName), loaded, loadFailed);
+        for (var descriptor : storeByName.entrySet()) {
+            if (!localNames.contains(descriptor.getKey())) {
+                loadCatalogForReconcile(descriptor.getKey(), descriptor.getValue(), loaded, loadFailed);
             }
         }
     }
@@ -267,6 +266,13 @@ public class CatalogRegistry {
      * @param loadFailed catalog names that failed to load (isolated, did not block others)
      */
     public record DivergenceReport(List<String> loaded, List<String> removed, List<String> loadFailed) {
+        /** Freezes the reconciliation result independently of the producer's working lists. */
+        public DivergenceReport {
+            loaded = List.copyOf(loaded);
+            removed = List.copyOf(removed);
+            loadFailed = List.copyOf(loadFailed);
+        }
+
         /** Returns true if no divergence was found. */
         public boolean isEmpty() {
             return loaded.isEmpty() && removed.isEmpty() && loadFailed.isEmpty();

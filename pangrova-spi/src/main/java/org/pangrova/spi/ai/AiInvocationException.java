@@ -29,6 +29,7 @@ public final class AiInvocationException extends RuntimeException {
         RATE_LIMIT,
         TIMEOUT,
         PROVIDER_UNAVAILABLE,
+        PROVIDER_OUTCOME_UNCERTAIN,
         PROVIDER_RESPONSE_INVALID,
         CONTENT_REJECTED,
         BUDGET_EXCEEDED,

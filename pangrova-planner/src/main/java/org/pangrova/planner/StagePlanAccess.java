@@ -20,6 +20,9 @@ public interface StagePlanAccess {
 
     List<PlanFragment.ResultColumnModel> resultColumnModels();
 
+    /** Exact declared storage types at their final output ordinals, independent of model bindings. */
+    List<org.pangrova.protocol.v2.ResultColumnLogicalType> resultColumnTypes();
+
     SerializedPlanFragment toSerializedPlan(SqlCompiler compiler, List<String> columnNames);
 
     /** Explicit live-only capability; serialized replay must reject access instead of rebuilding SQL. */

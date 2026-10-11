@@ -8,9 +8,13 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStag
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.planner.SqlCompiler;
+import org.pangrova.planner.AuthorizedStageGraph;
+import org.pangrova.planner.StageTransfer;
 import org.pangrova.spi.annotation.Internal;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -44,6 +48,18 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
                 && !context.preOptColumnNames().isEmpty()) {
             columns = context.preOptColumnNames();
         }
-        return plan.stagePlan().toSerializedPlan(compiler, columns);
+        var serialized = plan.stagePlan().toSerializedPlan(compiler, columns);
+        var incoming = dag.stageEdges().stream().filter(edge -> edge.downstreamStageId() == plan.stageId())
+                .map(edge -> new StageTransfer(edge.upstreamStageId(), edge.downstreamStageId(),
+                        edge.shuffleType(), edge.distributionKeys(), edge.exchangeId(), edge.partitionCount(),
+                        edge.batchSerde(), edge.requireComplete())).toList();
+        if (incoming.isEmpty()) return serialized;
+        Map<Integer, List<byte[]>> producerPlans = dispatched.stream()
+                .filter(record -> record.request() != null)
+                .filter(record -> incoming.stream().anyMatch(edge -> edge.upstreamStageId() == record.stageId()))
+                .collect(Collectors.groupingBy(StageDispatchRecord::stageId,
+                        Collectors.mapping(record -> record.request().taskRequest().getSubstraitPlan().toByteArray(),
+                                Collectors.toList())));
+        return AuthorizedStageGraph.bindLiveExchangeInputs(plan.stageId(), serialized, incoming, producerPlans);
     }
 }

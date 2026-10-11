@@ -350,7 +350,7 @@ mod tests {
             super::lance_ffi_physical_writer_destroy(std::ptr::null_mut()),
             -1
         );
-        assert_eq!(crate::lance_ffi_abi_version(), 12);
+        assert_eq!(crate::lance_ffi_abi_version(), 13);
     }
 
     #[test]

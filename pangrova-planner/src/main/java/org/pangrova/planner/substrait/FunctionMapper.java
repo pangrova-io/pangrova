@@ -81,7 +81,8 @@ public class FunctionMapper {
     }
 
     public boolean isAggregate(SqlKind kind) {
-        return FunctionBindingDeclarations.sqlBinding(FunctionKind.FUNCTION_KIND_AGGREGATE, "", kind.name()).isPresent();
+        return FunctionBindingDeclarations.sqlBinding(
+                FunctionKind.FUNCTION_KIND_AGGREGATE, "", kind.name()).isPresent();
     }
 
     public boolean isWindowFunction(String name) {
@@ -109,7 +110,8 @@ public class FunctionMapper {
     private static SimpleExtension.ScalarFunctionVariant buildScalarVariant(FunctionReference ref) {
         return ImmutableSimpleExtension.ScalarFunctionVariant.builder()
                 .name(ref.name())
-                .urn(FunctionBindingDeclarations.canonicalUrn(FunctionKind.FUNCTION_KIND_SCALAR, ref.namespace(), ref.name()))
+                .urn(FunctionBindingDeclarations.canonicalUrn(
+                        FunctionKind.FUNCTION_KIND_SCALAR, ref.namespace(), ref.name()))
                 .returnType(PLACEHOLDER_RETURN_TYPE)
                 .build();
     }
@@ -121,7 +123,8 @@ public class FunctionMapper {
     private static SimpleExtension.AggregateFunctionVariant buildAggregateVariant(FunctionReference ref) {
         return ImmutableSimpleExtension.AggregateFunctionVariant.builder()
                 .name(ref.name())
-                .urn(FunctionBindingDeclarations.canonicalUrn(FunctionKind.FUNCTION_KIND_AGGREGATE, ref.namespace(), ref.name()))
+                .urn(FunctionBindingDeclarations.canonicalUrn(
+                        FunctionKind.FUNCTION_KIND_AGGREGATE, ref.namespace(), ref.name()))
                 .returnType(PLACEHOLDER_RETURN_TYPE)
                 .build();
     }
@@ -133,7 +136,8 @@ public class FunctionMapper {
     private static SimpleExtension.WindowFunctionVariant buildWindowVariant(FunctionReference ref) {
         return ImmutableSimpleExtension.WindowFunctionVariant.builder()
                 .name(ref.name())
-                .urn(FunctionBindingDeclarations.canonicalUrn(FunctionKind.FUNCTION_KIND_WINDOW, ref.namespace(), ref.name()))
+                .urn(FunctionBindingDeclarations.canonicalUrn(
+                        FunctionKind.FUNCTION_KIND_WINDOW, ref.namespace(), ref.name()))
                 .returnType(PLACEHOLDER_RETURN_TYPE)
                 .windowType(SimpleExtension.WindowType.PARTITION)
                 .build();

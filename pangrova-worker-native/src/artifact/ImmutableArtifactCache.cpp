@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include "artifact/ImmutableArtifactCache.h"
+#include "resource/TaskBudgetReadFile.h"
 
 #include <openssl/evp.h>
 
@@ -303,7 +304,8 @@ uint64_t ImmutableArtifactCache::usedBytes() const {
 
 MaterializedArtifact ImmutableArtifactCache::materialize(
     const protocol::v2::ArtifactObject& object,
-    uint64_t remaining_object_store_read_bytes) {
+    uint64_t remaining_object_store_read_bytes,
+    std::shared_ptr<resource::TaskObjectReadBudget> task_budget) {
   if (object.opaque_uri().empty() || object.size_bytes() == 0 ||
       !object.has_checksum() ||
       object.checksum().algorithm() !=
@@ -423,7 +425,11 @@ MaterializedArtifact ImmutableArtifactCache::materialize(
         throw std::runtime_error(
             "No registered filesystem for artifact URI: " + object.opaque_uri());
       }
-      auto input = fs->openFileForRead(object.opaque_uri());
+      std::shared_ptr<facebook::velox::ReadFile> input(fs->openFileForRead(object.opaque_uri()));
+      if (task_budget) {
+        input = std::make_shared<resource::TaskBudgetReadFile>(
+            std::move(input), task_budget, folly::CancellationToken{});
+      }
       if (input->size() != object.size_bytes()) {
         throw std::runtime_error("Remote artifact object size mismatch");
       }

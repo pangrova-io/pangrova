@@ -26,8 +26,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
- * Handles drain, cleanup, and bulk cancel operations for the task registry.
- * Extracted from TaskManager to keep each class under the 500-line limit.
+ * Handles drain, cleanup, and bulk cancel operations for the task registry. Extracted from
+ * TaskManager to keep each class under the 500-line limit.
  */
 final class TaskDrainExecutor {
 
@@ -41,9 +41,10 @@ final class TaskDrainExecutor {
     private volatile CountDownLatch drainLatch;
     private volatile boolean draining;
 
-    TaskDrainExecutor(ConcurrentHashMap<String, TaskInfo> tasks,
-                      TaskLifecycleManager lifecycleManager,
-                      Consumer<String> cancelTask) {
+    TaskDrainExecutor(
+            ConcurrentHashMap<String, TaskInfo> tasks,
+            TaskLifecycleManager lifecycleManager,
+            Consumer<String> cancelTask) {
         this.tasks = tasks;
         this.lifecycleManager = lifecycleManager;
         this.cancelTask = cancelTask;
@@ -88,13 +89,16 @@ final class TaskDrainExecutor {
     }
 
     private static boolean isTerminal(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.FINISHED || state == TaskManager.TaskState.FAILED
+        return state == TaskManager.TaskState.FINISHED
+                || state == TaskManager.TaskState.FAILED
                 || state == TaskManager.TaskState.CANCELLED;
     }
 
     private static boolean isActive(TaskManager.TaskState state) {
-        return state == TaskManager.TaskState.RECEIVED || state == TaskManager.TaskState.INITIALIZING
-                || state == TaskManager.TaskState.RUNNING || state == TaskManager.TaskState.FINISHING
+        return state == TaskManager.TaskState.RECEIVED
+                || state == TaskManager.TaskState.INITIALIZING
+                || state == TaskManager.TaskState.RUNNING
+                || state == TaskManager.TaskState.FINISHING
                 || state == TaskManager.TaskState.CANCELLING;
     }
 
@@ -165,14 +169,21 @@ final class TaskDrainExecutor {
                         lifecycleManager.releaseFinishedTaskExecutor(entry.getValue());
                         released++;
                     } catch (RuntimeException | Error rejected) {
-                        if (failure == null) failure = rejected;
-                        else if (failure != rejected) failure.addSuppressed(rejected);
+                        if (failure == null) {
+                            failure = rejected;
+                        } else if (failure != rejected) {
+                            failure.addSuppressed(rejected);
+                        }
                     }
                 }
             }
         }
-        if (failure instanceof Error fatal) throw fatal;
-        if (failure != null) throw (RuntimeException) failure;
+        if (failure instanceof Error fatal) {
+            throw fatal;
+        }
+        if (failure != null) {
+            throw (RuntimeException) failure;
+        }
         return released;
     }
 
@@ -186,8 +197,8 @@ final class TaskDrainExecutor {
     }
 
     int cleanupTerminalTasks(Duration retention) {
-        return TaskCleanupScheduler.cleanupTerminalTasks(tasks, retention,
-                this::releaseTerminalTask, this::resultResourcesDrained);
+        return TaskCleanupScheduler.cleanupTerminalTasks(
+                tasks, retention, this::releaseTerminalTask, this::resultResourcesDrained);
     }
 
     boolean resultResourcesDrained(TaskInfo info) {
@@ -197,18 +208,29 @@ final class TaskDrainExecutor {
     void releaseTerminalTask(TaskInfo info) {
         if (lifecycleManager != null) {
             lifecycleManager.releaseFinishedTaskExecutor(info);
-        } else if (info.executorHandle() != 0 || info.allocatedMemory() != 0
-                || info.allocatedBufferMemory() != 0 || info.taskMemoryPool() != null) {
-            throw new IllegalStateException("Terminal task owns resources without a release authority");
+        } else if (info.executorHandle() != 0
+                || info.allocatedMemory() != 0
+                || info.allocatedBufferMemory() != 0
+                || info.taskMemoryPool() != null) {
+            throw new IllegalStateException(
+                    "Terminal task owns resources without a release authority");
         }
     }
 
-    void startPeriodicCleanup(ScheduledExecutorService executor,
-                              Duration retention, Duration interval,
-                              Consumer<TaskInfo> removeIndex) {
-        TaskCleanupScheduler.startPeriodicCleanup(executor, tasks, retention, interval, info -> {
-            releaseTerminalTask(info);
-            removeIndex.accept(info);
-        }, this::resultResourcesDrained);
+    void startPeriodicCleanup(
+            ScheduledExecutorService executor,
+            Duration retention,
+            Duration interval,
+            Consumer<TaskInfo> removeIndex) {
+        TaskCleanupScheduler.startPeriodicCleanup(
+                executor,
+                tasks,
+                retention,
+                interval,
+                info -> {
+                    releaseTerminalTask(info);
+                    removeIndex.accept(info);
+                },
+                this::resultResourcesDrained);
     }
 }

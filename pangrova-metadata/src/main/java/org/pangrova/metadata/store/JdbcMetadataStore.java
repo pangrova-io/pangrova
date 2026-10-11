@@ -2,7 +2,7 @@ package org.pangrova.metadata.store;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import org.pangrova.metadata.cache.InvalidationEntry.InvalidationType;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.CatalogState;
 import org.pangrova.metadata.catalog.CatalogType;
@@ -33,15 +33,17 @@ import static org.pangrova.metadata.store.JdbcSupport.setJson;
 public class JdbcMetadataStore implements MetadataStore {
 
     private static final int SEARCH_LIMIT = 100;
+    private static final String CACHE_KEY_SEPARATOR = "\u001F";
+    private static final String INSERT_INVALIDATION =
+            "INSERT INTO invalidation_log (cache_key, invalidation_type, created_at, updated_at) "
+                    + "VALUES (?, ?, NOW(), NOW())";
 
     private final DataSource dataSource;
     private final TableMetadataSerializer serializer;
-    private final ObjectMapper mapper;
 
     public JdbcMetadataStore(DataSource dataSource) {
         this.dataSource = dataSource;
         this.serializer = new TableMetadataSerializer();
-        this.mapper = MetadataJsonMapper.instance();
     }
 
     @Override
@@ -53,7 +55,8 @@ public class JdbcMetadataStore implements MetadataStore {
                 + "columns=EXCLUDED.columns, partition_spec=EXCLUDED.partition_spec, "
                 + "sort_order=EXCLUDED.sort_order, properties=EXCLUDED.properties, "
                 + "table_updated_at=EXCLUDED.table_updated_at, synced_at=EXCLUDED.synced_at";
-        executeUpdate(sql, ps -> bindSaveTable(ps, metadata));
+        executeMutation("save table", tableCacheKey(metadata.catalog(), metadata.schema(), metadata.table()),
+                InvalidationType.TABLE, conn -> executeUpdate(conn, sql, ps -> bindSaveTable(ps, metadata)) > 0);
     }
 
     @Override
@@ -71,11 +74,12 @@ public class JdbcMetadataStore implements MetadataStore {
     @Override
     public void deleteTable(String catalog, String schema, String table) {
         String sql = "DELETE FROM table_metadata WHERE catalog_name=? AND schema_name=? AND table_name=?";
-        executeUpdate(sql, ps -> {
-            ps.setString(1, catalog);
-            ps.setString(2, schema);
-            ps.setString(3, table);
-        });
+        executeMutation("delete table", tableCacheKey(catalog, schema, table), InvalidationType.TABLE,
+                conn -> executeUpdate(conn, sql, ps -> {
+                    ps.setString(1, catalog);
+                    ps.setString(2, schema);
+                    ps.setString(3, table);
+                }) > 0);
     }
 
     @Override
@@ -107,8 +111,7 @@ public class JdbcMetadataStore implements MetadataStore {
         String historySql = "INSERT INTO catalog_descriptor_revisions "
                 + "(name, type, provider, state, properties, comment, allowed_tenants, "
                 + "incarnation_id, revision) VALUES (?,?,?,?,?,?,?,?,?)";
-        try (Connection conn = dataSource.getConnection()) {
-            conn.setAutoCommit(false);
+        executeMutation("save catalog descriptor", descriptor.name(), InvalidationType.CATALOG, conn -> {
             try (PreparedStatement current = conn.prepareStatement(sql);
                     PreparedStatement history = conn.prepareStatement(historySql)) {
                 bindSaveCatalog(current, descriptor);
@@ -118,18 +121,9 @@ public class JdbcMetadataStore implements MetadataStore {
                 }
                 bindSaveCatalog(history, descriptor);
                 history.executeUpdate();
-                conn.commit();
-            } catch (SQLException | RuntimeException e) {
-                try {
-                    conn.rollback();
-                } catch (SQLException rollbackFailure) {
-                    e.addSuppressed(rollbackFailure);
-                }
-                throw e;
+                return true;
             }
-        } catch (SQLException e) {
-            throw new MetastoreException("Catalog descriptor save failed: " + descriptor.name(), e);
-        }
+        });
     }
 
     @Override
@@ -160,7 +154,9 @@ public class JdbcMetadataStore implements MetadataStore {
 
     @Override
     public void deleteCatalogDescriptor(String name) {
-        executeUpdate("DELETE FROM catalog_definitions WHERE name=?", ps -> ps.setString(1, name));
+        executeMutation("delete catalog descriptor", name, InvalidationType.CATALOG,
+                conn -> executeUpdate(conn, "DELETE FROM catalog_definitions WHERE name=?",
+                        ps -> ps.setString(1, name)) > 0);
     }
 
     @Override
@@ -198,21 +194,76 @@ public class JdbcMetadataStore implements MetadataStore {
         String sql = "INSERT INTO schema_metadata (catalog_name, schema_name, synced_at) "
                 + "VALUES (?,?,?) ON CONFLICT (catalog_name, schema_name) DO UPDATE SET synced_at=EXCLUDED.synced_at";
         Timestamp now = Timestamp.from(Instant.now());
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (String schema : schemas) {
-                ps.setString(1, catalogName);
-                ps.setString(2, schema);
-                ps.setTimestamp(3, now);
-                ps.addBatch();
+        executeMutation("save schemas", catalogName, InvalidationType.CATALOG, conn -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (String schema : schemas) {
+                    ps.setString(1, catalogName);
+                    ps.setString(2, schema);
+                    ps.setTimestamp(3, now);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+                return !schemas.isEmpty();
             }
-            ps.executeBatch();
-        } catch (SQLException e) {
-            throw new MetastoreException("Batch saveSchemas failed", e);
-        }
+        });
     }
 
     // --- SQL execution helpers ---
+
+    /** Commits a local projection mutation and its durable cache invalidation together. */
+    private void executeMutation(String operation, String cacheKey, InvalidationType type,
+            JdbcSupport.SqlFunction<Connection, Boolean> mutation) {
+        try (Connection conn = dataSource.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                if (mutation.apply(conn)) {
+                    executeUpdate(conn, INSERT_INVALIDATION, ps -> {
+                        ps.setString(1, cacheKey);
+                        ps.setString(2, type.name());
+                    });
+                }
+                commitMutation(conn, operation, cacheKey);
+            } catch (SQLException | RuntimeException | Error failure) {
+                rollbackMutation(conn, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException(
+                    "Metadata mutation failed: operation=" + operation + " cacheKey=" + cacheKey
+                            + " sqlState=" + failure.getSQLState(), failure);
+        }
+    }
+
+    private static void commitMutation(Connection conn, String operation, String cacheKey) {
+        try {
+            conn.commit();
+        } catch (SQLException failure) {
+            // A failed COMMIT acknowledgment cannot establish whether the database committed.
+            throw new MetastoreException(
+                    "Metadata mutation commit outcome unconfirmed: operation=" + operation
+                            + " cacheKey=" + cacheKey + " sqlState=" + failure.getSQLState(), failure);
+        }
+    }
+
+    private static void rollbackMutation(Connection conn, Throwable failure) {
+        try {
+            conn.rollback();
+        } catch (SQLException rollbackFailure) {
+            failure.addSuppressed(rollbackFailure);
+        }
+    }
+
+    private static int executeUpdate(Connection conn, String sql, JdbcSupport.SqlConsumer binder)
+            throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            binder.accept(ps);
+            return ps.executeUpdate();
+        }
+    }
+
+    private static String tableCacheKey(String catalog, String schema, String table) {
+        return catalog + CACHE_KEY_SEPARATOR + schema + CACHE_KEY_SEPARATOR + table;
+    }
 
     private <T> T executeQuery(String sql, JdbcSupport.SqlConsumer binder,
             JdbcSupport.SqlFunction<ResultSet, T> extractor) {
@@ -228,14 +279,8 @@ public class JdbcMetadataStore implements MetadataStore {
     }
 
     private void executeUpdate(String sql, JdbcSupport.SqlConsumer binder) {
-        executeUpdateCount(sql, binder);
-    }
-
-    private int executeUpdateCount(String sql, JdbcSupport.SqlConsumer binder) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            binder.accept(ps);
-            return ps.executeUpdate();
+        try (Connection conn = dataSource.getConnection()) {
+            executeUpdate(conn, sql, binder);
         } catch (SQLException e) {
             throw new MetastoreException("Update failed: " + sql, e);
         }
@@ -339,7 +384,7 @@ public class JdbcMetadataStore implements MetadataStore {
      */
     private <T> String serializeToJson(T value) {
         try {
-            return mapper.writeValueAsString(value);
+            return MetadataJsonMapper.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON serialization failed", e);
         }
@@ -348,7 +393,7 @@ public class JdbcMetadataStore implements MetadataStore {
     private Map<String, String> fromJsonMap(String json) {
         if (json == null) return Map.of();
         try {
-            return mapper.readValue(json, new TypeReference<>() { });
+            return MetadataJsonMapper.readValue(json, new TypeReference<>() { });
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON deserialization failed", e);
         }
@@ -357,7 +402,7 @@ public class JdbcMetadataStore implements MetadataStore {
     private Set<String> fromJsonSet(String json) {
         if (json == null) return Set.of();
         try {
-            return mapper.readValue(json, new TypeReference<>() { });
+            return MetadataJsonMapper.readValue(json, new TypeReference<>() { });
         } catch (JsonProcessingException e) {
             throw new MetastoreException("JSON deserialization failed", e);
         }

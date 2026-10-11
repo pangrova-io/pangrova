@@ -44,7 +44,8 @@ public class TaskStatusReceiver {
         stageCompletionCallback = deps.stageCompletionCallback(); artifactWorkReportSink = deps.artifactWorkReportSink();
         writes = new NativeTaskWriteCompletion(deps);
         speculation = new SpeculativeTaskReportCompletion(deps, writes, sequences, this::evaluateQueryTransitions);
-        queryCompletion = new TaskQueryCompletion(deps, writes, sequences, speculation);
+        taskTracker.addQueryRetirementListener(speculation::clearQuery);
+        queryCompletion = new TaskQueryCompletion(deps, writes, sequences);
     }
 
     private void evaluateQueryTransitions(String queryId, TaskStatusReport report) {
@@ -85,6 +86,11 @@ public class TaskStatusReceiver {
 
         ReportOwnership ownership = reportOwnership(report, durableWork);
         if (!ownership.accepted()) return false;
+        if (durableWork && isFinishedState(report.state()) && !isScheduledDurableTask(report)) {
+            LOG.warn("event=durable_report_rejected_unsubmitted taskId={} attempt={}",
+                    report.taskId(), report.attempt());
+            return false;
+        }
 
         var sequence = sequences.reserveSequence(
                 report.taskId(), report.reportSequence());
@@ -120,9 +126,8 @@ public class TaskStatusReceiver {
     }
 
     private StatusValidation validateBoundReport(TaskStatusReport report, SubmitTaskRequest expected) {
-        if (("BACKGROUND_BUILD".equals(report.taskType()) || "BACKGROUND_EXPORT".equals(report.taskType()))
-                && expected == null) {
-            LOG.warn("event=status_report_rejected_unbound_background_task taskId={}", report.taskId());
+        if (expected == null) {
+            LOG.warn("event=status_report_rejected_unbound_task taskId={}", report.taskId());
             return StatusValidation.rejected();
         }
         return validateRegisteredTask(report);
@@ -138,6 +143,16 @@ public class TaskStatusReceiver {
             LOG.info("event=status_report_rejected_stale_owner queryId={} taskId={}",
                     report.queryId(), report.taskId());
             return new ReportOwnership(false, null);
+        }
+    }
+
+    private boolean isScheduledDurableTask(TaskStatusReport report) {
+        try {
+            var state = taskTracker.getTaskState(report.queryId(), report.taskId());
+            return state == org.pangrova.coordinator.task.TaskStateMachine.State.SCHEDULED
+                    || state == org.pangrova.coordinator.task.TaskStateMachine.State.RUNNING;
+        } catch (IllegalArgumentException notRegistered) {
+            return false;
         }
     }
 

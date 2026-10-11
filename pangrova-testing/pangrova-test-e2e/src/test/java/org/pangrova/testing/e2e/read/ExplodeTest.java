@@ -76,4 +76,27 @@ class ExplodeTest extends SqlE2ETestBase {
             assertThat(rows).hasSize(3);
         }
     }
+
+    @Nested
+    @DisplayName("SQL UNNEST")
+    class SqlUnnest {
+
+        @Test
+        @DisplayName("correlated UNNEST WITH ORDINALITY preserves values and positions")
+        void correlatedUnnestPreservesValuesAndPositions() {
+            List<TypedRow> rows = sqlRunner.execute(
+                    "SELECT id, u.val, u.position FROM " + FQN
+                    + " CROSS JOIN UNNEST(tags) WITH ORDINALITY AS u(val, position)"
+                    + " ORDER BY id, u.position");
+
+            assertThat(rows).hasSize(4);
+            assertThat(rows.stream().map(row -> List.of(
+                    row.getLong("id"), row.getString("val"), row.getLong("position"))))
+                    .containsExactly(
+                            List.of(1L, "a", 1L),
+                            List.of(1L, "b", 2L),
+                            List.of(1L, "c", 3L),
+                            List.of(2L, "x", 1L));
+        }
+    }
 }

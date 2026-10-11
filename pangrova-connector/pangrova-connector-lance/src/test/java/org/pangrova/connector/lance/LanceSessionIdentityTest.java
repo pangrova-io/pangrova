@@ -20,9 +20,9 @@ class LanceSessionIdentityTest {
     }
 
     @Test
-    void tenantlessSchemaAndDirectoryAccessRejectBeforeOpeningJdbc() {
-        var connector = new LanceConnectorFactory().create("lance_catalog", Map.of(
-                "jdbc.url", "jdbc:postgresql://127.0.0.1:1/unopened", "warehouse", "s3://warehouse"), Optional::empty);
+    void tenantlessSchemaAndDirectoryAccessRejectBeforeOpeningCatalogAuthority() {
+        var connector = new LanceConnectorFactory().create("lance_catalog",
+                Map.of("warehouse", "s3://warehouse"), Optional::empty);
         var session = session(Map.of("pangrova.tenant_id", "spoofed"));
         var metadata = connector.getMetadata(session);
         assertThatThrownBy(() -> metadata.createSchema(session, "db")).isInstanceOf(SecurityException.class);

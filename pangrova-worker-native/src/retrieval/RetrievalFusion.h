@@ -42,6 +42,8 @@ class RetrievalFusion final {
       size_t max_candidate_rows,
       size_t max_fan_in);
 
+  /** Min/max normalized weighted fusion; finite positive weights may exceed
+   * DOUBLE_MAX in aggregate. Returns finite scores or rejects invalid input. */
   static std::vector<FusedCandidate> linear(
       const std::vector<Candidate>& candidates,
       const std::vector<SourceConfig>& sources,

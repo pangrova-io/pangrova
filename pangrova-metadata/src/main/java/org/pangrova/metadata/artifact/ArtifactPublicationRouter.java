@@ -10,6 +10,7 @@ public final class ArtifactPublicationRouter implements ArtifactPublicationStore
 
     private final Map<String, ArtifactPublicationStore> routes;
 
+    /** Freezes the complete, non-empty artifact-type publication routing table. */
     public ArtifactPublicationRouter(Map<String, ArtifactPublicationStore> routes) {
         this.routes = Map.copyOf(routes);
         if (this.routes.isEmpty()

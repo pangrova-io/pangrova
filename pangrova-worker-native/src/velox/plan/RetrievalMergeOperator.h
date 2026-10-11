@@ -30,6 +30,7 @@ struct RetrievalMergeConfig {
   uint64_t max_candidate_bytes;
   uint32_t max_fan_in;
   uint64_t rrf_k;
+  bool physical_identity = false;
 };
 
 /** Unary Native relation that globally fuses canonical candidate rows. */

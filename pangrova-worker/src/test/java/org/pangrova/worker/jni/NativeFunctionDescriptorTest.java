@@ -32,6 +32,17 @@ class NativeFunctionDescriptorTest {
     }
 
     @Test
+    void explicitNullInputPolicyRetainsPresenceForBothBooleanValues() throws Exception {
+        for (boolean strict : List.of(false, true)) {
+            var descriptor = new NativeFunctionDescriptor("file_from_url", "ROW", List.of("VARCHAR"),
+                    NativeFunctionDescriptor.FunctionType.SCALAR, false, strict);
+            var canonical = org.pangrova.protocol.v2.NativeFunctionDescriptor.parseFrom(descriptor.toBytes());
+            assertThat(canonical.hasDefaultNullBehavior()).isTrue();
+            assertThat(canonical.getDefaultNullBehavior()).isEqualTo(strict);
+        }
+    }
+
+    @Test
     void scalarDescriptorPreservesFields() {
         var desc = new NativeFunctionDescriptor(
                 "my_add", "BIGINT", List.of("BIGINT", "BIGINT"),
@@ -42,6 +53,7 @@ class NativeFunctionDescriptorTest {
         assertThat(desc.argumentTypes()).containsExactly("BIGINT", "BIGINT");
         assertThat(desc.functionType()).isEqualTo(NativeFunctionDescriptor.FunctionType.SCALAR);
         assertThat(desc.deterministic()).isTrue();
+        assertThat(desc.defaultNullBehavior()).isTrue();
     }
 
     @Test

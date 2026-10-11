@@ -110,6 +110,7 @@ class VeloxPlanConverter {
   }
 
   const substrait::NamedStruct& canonicalOutputSchema() const { return canonical_output_schema_; }
+  const substrait::NamedStruct& resultOutputSchema() const { return result_output_schema_; }
 
   const std::unordered_map<std::string, substrait::NamedStruct>& serdeSchemaBindings() const {
     return serde_schema_bindings_;
@@ -166,6 +167,7 @@ class VeloxPlanConverter {
   std::unordered_map<std::string, facebook::velox::RowTypePtr> logical_node_types_;
   std::unordered_map<const substrait::Rel*, substrait::NamedStruct> relation_output_schemas_;
   substrait::NamedStruct canonical_output_schema_;
+  substrait::NamedStruct result_output_schema_;
   std::unordered_map<std::string, substrait::NamedStruct> serde_schema_bindings_;
   std::vector<std::string> result_column_labels_;
 
@@ -306,7 +308,14 @@ class VeloxPlanConverter {
   convertTopKRetrieval(
       const pangrova::protocol::v2::RetrievalSourceDetail& detail,
       std::shared_ptr<const facebook::velox::core::PlanNode> input,
-      const facebook::velox::RowTypePtr& input_type);
+      const facebook::velox::RowTypePtr& input_type,
+      const std::vector<split::SplitConfig>& splits);
+
+  facebook::velox::core::PlanNodePtr convertFilteredRetrievalInput(
+      const pangrova::protocol::v2::RetrievalSourceDetail& detail,
+      const pangrova::protocol::v2::OperatorBinding& binding,
+      facebook::velox::core::PlanNodePtr input,
+      const std::vector<split::SplitConfig>& splits);
 
   // Typed, bounded Native RRF / weighted-linear global candidate fusion.
   std::shared_ptr<const facebook::velox::core::PlanNode>
@@ -611,6 +620,8 @@ class VeloxPlanConverter {
   convertDecimalLiteral(const substrait::Expression_Literal_Decimal& decimal);
   std::shared_ptr<const facebook::velox::core::ConstantTypedExpr>
   convertListLiteral(const substrait::Expression_Literal_List& list);
+  std::shared_ptr<const facebook::velox::core::ConstantTypedExpr>
+  convertMapLiteral(const substrait::Expression_Literal_Map& map);
   std::shared_ptr<const facebook::velox::core::ConstantTypedExpr>
   arrayConstant(facebook::velox::VectorPtr elements);
   std::shared_ptr<facebook::velox::memory::MemoryPool> literalPool();

@@ -1620,3 +1620,28 @@ class DynamicMemoryBoundary:
 | 3 | Bidirectional Rebalancing | Allow cache to grow into unused query memory. Full dynamic boundary. |
 
 > **Cross-reference**: Dynamic boundary complements Memory Overcommit (§13 OPT-007) — overcommit handles intra-query-pool borrowing, while dynamic boundary handles inter-pool rebalancing. Cache pool integration with [caching.md §5](./caching.md) CacheManager. The `nativeUpdateQueryPoolSize()` JNI method updates the Velox MemoryArbitrator (§12).
+
+
+### Java spill ownership and actual reclaimed bytes
+
+`SpillManager` retains a live `SpillableBuffer` owner for each candidate. Candidate
+byte counts order work; `handleMemoryPressure` reports only the actual return from
+`spillToDisk(remainingTarget)`. A partial spill retains the owner and its live byte
+count. A drained candidate is removed by exact candidate identity. Each buffer
+serializes its own operations; the manager does not hold a global lock during IO.
+
+`DiskSpillableBuffer` owns unique files under its configured directory, removes
+heap batches only after successful writes, and publishes restored batches only
+after all pending files are read. It restores the original order. Cleanup failures
+remain visible and their paths remain owned for a later `close()` retry. Its byte
+count describes retained payloads, not JVM garbage collection or an arbitrator
+reservation. An implementation charged to an arbitrator must release its actual
+reservation in the same successful spill operation.
+
+The current Worker configures a Java spill manager, but its pressure callback
+serves descriptor-only task admission. Canonical task admission bypasses that
+branch, and there is no production registration of `DiskSpillableBuffer` candidates.
+The Java shuffle classes have a separate optional `ShuffleDiskSpiller` implementation;
+no production construction of those classes is wired to this manager. Native
+operators use their task grant and Velox spill lifecycle. Java component IO tests
+do not qualify those production execution paths.

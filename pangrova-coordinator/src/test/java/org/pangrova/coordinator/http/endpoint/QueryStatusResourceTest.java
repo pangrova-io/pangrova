@@ -7,10 +7,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.coordinator.query.QueryManager;
-import org.pangrova.coordinator.query.QueryManagerContext;
 import org.pangrova.coordinator.query.QueryStateMachine;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
-import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -44,8 +42,10 @@ class QueryStatusResourceTest {
 
     @BeforeAll
     static void startServer() throws Exception {
-        queryManager = new QueryManager(
-                QueryManagerContext.minimal(null, new NoOpTracingProvider()));
+        queryManager = org.pangrova.coordinator.testinfra.StatusOnlyQueryManagerFixture.create(
+                new org.pangrova.coordinator.worker.WorkerManager(20_000, 60_000,
+                        new org.pangrova.spi.coordination.inmemory.InMemoryWorkerRegistry()),
+                new org.pangrova.coordinator.task.CoordinatorTaskTracker());
 
         ResourceConfig config = new ResourceConfig();
         config.register(new QueryStatusResource(queryManager));

@@ -13,6 +13,13 @@
  */
 package org.pangrova.transport;
 
+import org.pangrova.protocol.type.VectorLogicalType;
+import org.pangrova.protocol.v2.LogicalType;
+
+import java.sql.Types;
+import java.util.Objects;
+import java.util.Optional;
+
 /**
  * Type-erased column descriptor carrying metadata needed for JDBC ResultSetMetaData.
  * Populated by {@link ArrowBatchDecoder} from the Arrow schema; contains no Arrow types.
@@ -22,5 +29,22 @@ package org.pangrova.transport;
  * @param typeName  server-side type name string
  * @param precision column precision (0 if not applicable)
  * @param scale     column scale (0 if not applicable)
+ * @param logicalType complete canonical declaration when the field is a VECTOR
  */
-public record ColumnDescriptor(String name, int sqlType, String typeName, int precision, int scale) {}
+public record ColumnDescriptor(String name, int sqlType, String typeName, int precision, int scale,
+                               Optional<LogicalType> logicalType) {
+    /** Requires VECTOR presentation metadata to agree with its complete schema declaration. */
+    public ColumnDescriptor {
+        Objects.requireNonNull(logicalType, "logicalType");
+        if (logicalType.isPresent()) {
+            LogicalType declaration = logicalType.orElseThrow();
+            int dimension = VectorLogicalType.requireStorageDimension(declaration);
+            if (sqlType != Types.ARRAY || !declaration.getCanonicalSql().equals(typeName)
+                    || precision != dimension || scale != 0) {
+                throw new IllegalArgumentException("VECTOR metadata differs from its canonical declaration");
+            }
+        } else if (typeName.startsWith("VECTOR(")) {
+            throw new IllegalArgumentException("VECTOR metadata requires its canonical declaration");
+        }
+    }
+}

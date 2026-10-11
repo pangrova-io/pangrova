@@ -19,6 +19,7 @@ class TaskRequestFactoryResourceGrantTest {
                 .setNativeMemoryBytes(1024)
                 .setObjectStoreReadBytes(1024)
                 .setObjectStoreWriteBytes(1024)
+                .setMediaBytes(64)
                 .build();
 
         StageResourceGrant grant = TaskRequestFactory.bindResourceGrant(
@@ -33,6 +34,7 @@ class TaskRequestFactoryResourceGrantTest {
         assertThat(grant.getProviderRequestBytes()).isEqualTo(80);
         assertThat(grant.getProviderResponseBytes()).isEqualTo(32);
         assertThat(grant.getProviderConcurrency()).isEqualTo(4);
+        assertThat(grant.getMediaBytes()).isEqualTo(64);
     }
 
     private static OperatorBinding operator(

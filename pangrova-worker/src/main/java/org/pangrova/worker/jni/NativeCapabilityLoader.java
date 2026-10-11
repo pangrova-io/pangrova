@@ -75,5 +75,12 @@ public final class NativeCapabilityLoader {
             List<FunctionAvailability> functions,
             FunctionCatalogManifest functionCatalog,
             String engineVersion,
-            CapabilityInventory inventory) {}
+            CapabilityInventory inventory) {
+        /** Captures collection membership; generated protocol messages are immutable. */
+        public ParsedCapabilities {
+            relTypes = Set.copyOf(relTypes);
+            exprTypes = Set.copyOf(exprTypes);
+            functions = List.copyOf(functions);
+        }
+    }
 }

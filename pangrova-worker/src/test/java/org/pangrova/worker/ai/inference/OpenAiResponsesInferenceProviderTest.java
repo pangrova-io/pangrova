@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -127,6 +128,61 @@ class OpenAiResponsesInferenceProviderTest {
                     .isEqualTo(AiInvocationException.Category.CAPABILITY_MISMATCH);
         }
         assertThat(loaded).isFalse();
+    }
+
+    @Test
+    void doesNotReplayPostAfterProviderReceivesRequestAndDisconnects() throws Exception {
+        AtomicInteger received = new AtomicInteger();
+        server = server(exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            received.incrementAndGet();
+            exchange.close();
+        });
+        server.start();
+
+        try (var provider = provider(ignored -> new byte[0])) {
+            assertThatThrownBy(() -> org.pangrova.worker.ai.invocation.AiTransportTestAdmission
+                    .inference(() -> AiProviderCallContext.callWith(
+                            "disconnect-invocation", Instant.now().plusSeconds(10),
+                            () -> provider.completeMultimodal(
+                                    MultimodalPrompt.ofText("hello"), GenerationParameters.DEFAULTS))))
+                    .isInstanceOf(AiInvocationException.class)
+                    .satisfies(failure -> {
+                        AiInvocationException invocation = (AiInvocationException) failure;
+                        assertThat(invocation.category()).isEqualTo(
+                                AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN);
+                        assertThat(invocation.retryable()).isFalse();
+                    });
+        }
+        assertThat(received).hasValue(1);
+    }
+
+    @Test
+    void doesNotReplayPostAfterProviderReturnsServiceUnavailable() throws Exception {
+        AtomicInteger received = new AtomicInteger();
+        server = server(exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            received.incrementAndGet();
+            exchange.sendResponseHeaders(503, -1);
+            exchange.close();
+        });
+        server.start();
+
+        try (var provider = provider(ignored -> new byte[0])) {
+            assertThatThrownBy(() -> org.pangrova.worker.ai.invocation.AiTransportTestAdmission
+                    .inference(() -> AiProviderCallContext.callWith(
+                            "unavailable-invocation", Instant.now().plusSeconds(10),
+                            () -> provider.completeMultimodal(
+                                    MultimodalPrompt.ofText("hello"), GenerationParameters.DEFAULTS))))
+                    .isInstanceOf(AiInvocationException.class)
+                    .satisfies(failure -> {
+                        AiInvocationException invocation = (AiInvocationException) failure;
+                        assertThat(invocation.category()).isEqualTo(
+                                AiInvocationException.Category.PROVIDER_UNAVAILABLE);
+                        assertThat(invocation.retryable()).isFalse();
+                    });
+        }
+        assertThat(received).hasValue(1);
     }
 
     private OpenAiResponsesInferenceProvider provider(

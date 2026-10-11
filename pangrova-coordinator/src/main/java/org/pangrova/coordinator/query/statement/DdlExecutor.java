@@ -97,6 +97,15 @@ public final class DdlExecutor {
 
     private void createTableInternal(ConnectorMetadata metadata, ConnectorSession session,
                                      QualifiedTableName ref, CreateTableStatement stmt) {
+        ConnectorTableMetadata tableMeta = declaredTableMetadata(new SchemaTableName(ref.schema(), ref.table()), stmt);
+        metadata.createTable(session, tableMeta);
+        invalidateSchemaCache();
+        LOG.info("event=table_created table={}", ref);
+    }
+
+    /** Compiles the exact CREATE declaration before any catalog mutation or downstream planning. */
+    public static ConnectorTableMetadata declaredTableMetadata(
+            SchemaTableName tableName, CreateTableStatement stmt) {
         List<ConnectorTableMetadata.Column> typedColumns = stmt.columns().stream()
                 .map(col -> new ConnectorTableMetadata.Column(
                         col.name(), DdlTypeMapper.map(col.type()),
@@ -108,12 +117,9 @@ public final class DdlExecutor {
         Map<String, String> props = mergeStructuralProperties(stmt);
         DdlTypeMapper.injectStructuralProperties(stmt.columns(), props);
         GeneratedColumnDefinitionCompiler.compile(stmt.columns(), props);
-        ConnectorTableMetadata tableMeta = new ConnectorTableMetadata(
-                new SchemaTableName(ref.schema(), ref.table()),
+        return new ConnectorTableMetadata(
+                tableName,
                 columnNames, typedColumns, props);
-        metadata.createTable(session, tableMeta);
-        invalidateSchemaCache();
-        LOG.info("event=table_created table={}", ref);
     }
 
     private static PangrovaException invalidGeneratedColumn(String message) {

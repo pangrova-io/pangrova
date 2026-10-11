@@ -130,6 +130,10 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertRel(
 
 void VeloxPlanConverter::bindResultColumnLabels(
     const substrait::RelRoot& root, const RowTypePtr& type) {
+  result_output_schema_ = canonical_output_schema_;
+  result_output_schema_.clear_names();
+  for (const auto& name : root.names()) result_output_schema_.add_names(name);
+  schema::fields(result_output_schema_);
   int index = 0;
   for (const auto& child : type->children()) {
     if (index >= root.names_size()) throw std::runtime_error("Root names are missing output fields");

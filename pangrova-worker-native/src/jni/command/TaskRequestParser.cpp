@@ -801,6 +801,7 @@ bool isSupportedNativeCapability(
   }
   return pangrova::capability::isExactTopKRetrieval(capability) ||
       pangrova::capability::isDiskAnnRetrieval(capability) ||
+      pangrova::capability::isFilteredDiskAnnRetrieval(capability) ||
       pangrova::capability::isHnswRetrieval(capability) ||
       pangrova::capability::isIvfPqRetrieval(capability) ||
       pangrova::capability::isBm25Retrieval(capability) ||
@@ -1057,7 +1058,8 @@ void validateOperatorBindings(
     if (binding.has_reuse_policy()) {
       const auto& reuse = binding.reuse_policy();
       const bool reusable_capability =
-          pangrova::capability::isAiTextGeneration(binding.capability());
+          pangrova::capability::isAiTextGeneration(binding.capability()) &&
+          pangrova::capability::aiTextGenerationDescriptor().deterministic();
       if (!reuse.enabled() || !reusable_capability || background_artifact ||
           !governed_model || !reuse.require_complete() || reuse.ttl_ms() == 0 ||
           reuse.ttl_ms() > 7ULL * 24 * 60 * 60 * 1000 ||
@@ -1381,6 +1383,18 @@ executor::WriteConfigInfo parseWriteOptions(
   binding.dataset_uri = lance.dataset_uri();
   binding.operation = lance.operation();
   binding.expected_read_version = lance.expected_read_version();
+  if ((lance.expected_read_version() == 0) != !lance.has_base_snapshot()) {
+    throw std::invalid_argument("Native Dataset write requires its exact accepted positive base");
+  }
+  if (lance.has_base_snapshot()) {
+    const auto& base = lance.base_snapshot();
+    if (base.dataset_uri() != lance.dataset_uri() || base.version() != lance.expected_read_version()
+        || base.catalog().SerializeAsString() != lance.catalog().SerializeAsString()
+        || base.physical_schema_sha256().SerializeAsString() != lance.schema_fence_sha256().SerializeAsString()) {
+      throw std::invalid_argument("Native Dataset accepted base differs from its allocation");
+    }
+    binding.accepted_base_snapshot = base.SerializeAsString();
+  }
   std::copy(
       lance.schema_fence_sha256().digest().begin(),
       lance.schema_fence_sha256().digest().end(),
@@ -1675,13 +1689,9 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
       throw std::runtime_error("Result column has no logical type");
     }
     const auto dimension =
-        pangrova::capability::requireFloatVectorDimension(column.logical_type());
-    if (column.logical_type().canonical_sql() !=
-        "VECTOR(" + std::to_string(dimension) + ")") {
-      throw std::runtime_error("Result column VECTOR type is not canonical");
-    }
+        pangrova::capability::requireStorageVectorDimension(column.logical_type());
     config.result_column_types.push_back(
-        {column.column_index(), dimension});
+        {column.column_index(), dimension, column.logical_type()});
   }
   config.callback_context = serializeCallbackContext(request);
   return config;

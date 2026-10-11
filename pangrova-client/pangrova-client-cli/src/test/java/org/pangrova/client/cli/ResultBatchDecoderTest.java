@@ -35,6 +35,39 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ResultBatchDecoderTest {
 
     @Test
+    void nullableCoordinatesRenderValuesAndSqlNullInsteadOfArrayIdentity() throws Exception {
+        for (var precision : List.of(FloatingPointPrecision.SINGLE, FloatingPointPrecision.DOUBLE)) {
+            Field child = new Field("item", FieldType.nullable(new ArrowType.FloatingPoint(precision)), null);
+            Field field = new Field("embedding", new FieldType(true, ArrowType.List.INSTANCE, null,
+                    Map.of("ARROW:extension:name", "pangrova.vector", "ARROW:extension:metadata", "3")), List.of(child));
+            try (BufferAllocator allocator = new RootAllocator();
+                 VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(field)), allocator)) {
+                root.allocateNew();
+                ListVector list = (ListVector) root.getVector(0);
+                list.startNewValue(0);
+                if (precision == FloatingPointPrecision.DOUBLE) {
+                    Float8Vector values = (Float8Vector) list.getDataVector();
+                    values.setSafe(0, 1.0000000000000002);
+                    values.setNull(1);
+                    values.setSafe(2, -123456789.12345679);
+                } else {
+                    Float4Vector values = (Float4Vector) list.getDataVector();
+                    values.setSafe(0, 0.25f);
+                    values.setNull(1);
+                    values.setSafe(2, -0.5f);
+                }
+                list.endValue(0, 3);
+                list.setNull(1);
+                root.setRowCount(2);
+                var decoded = ResultBatchDecoder.decode(serializeToIpc(root));
+                assertThat(decoded.rows().get(0)).containsExactly(precision == FloatingPointPrecision.DOUBLE
+                        ? "[1.0000000000000002, null, -1.2345678912345679E8]" : "[0.25, null, -0.5]");
+                assertThat(decoded.rows().get(1)).containsExactly("NULL");
+            }
+        }
+    }
+
+    @Test
     void actualSchemaDisplaysRowsWhenAsynchronousSubmitHasNoColumns() throws Exception {
         String display = SqlShell.formatResults(buildIpcWithIntAndString(), List.of());
         assertThat(display).contains("id", "name", "Alice", "Bob", "Charlie");
@@ -166,6 +199,28 @@ class ResultBatchDecoderTest {
             ResultBatchDecoder.DecodedResult result = ResultBatchDecoder.decode(serializeToIpc(root));
 
             assertThat(result.rows().get(0)).containsExactly("[0.25, -0.5]");
+        }
+    }
+
+    @Test
+    void formatsDoubleVectorWithoutLosingCoordinatePrecision() throws Exception {
+        Field child = new Field("item", FieldType.notNullable(
+                new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)), null);
+        Field vector = new Field("embedding", new FieldType(true, ArrowType.List.INSTANCE,
+                null, Map.of("ARROW:extension:name", "pangrova.vector",
+                        "ARROW:extension:metadata", "2")), List.of(child));
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(vector)), allocator)) {
+            root.allocateNew();
+            ListVector list = (ListVector) root.getVector(0);
+            list.startNewValue(0);
+            Float8Vector coordinates = (Float8Vector) list.getDataVector();
+            coordinates.setSafe(0, 1.0000000000000002);
+            coordinates.setSafe(1, -123456789.12345679);
+            list.endValue(0, 2);
+            root.setRowCount(1);
+            assertThat(ResultBatchDecoder.decode(serializeToIpc(root)).rows().get(0))
+                    .containsExactly("[1.0000000000000002, -1.2345678912345679E8]");
         }
     }
 

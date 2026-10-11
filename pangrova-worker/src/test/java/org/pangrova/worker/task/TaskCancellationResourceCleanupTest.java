@@ -125,6 +125,9 @@ class TaskCancellationResourceCleanupTest {
                 assertThat(info.executorHandle()).isEqualTo(handle);
                 assertThat(info.allocatedBufferMemory()).isPositive();
                 assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("CANCELLED"));
+                assertThatThrownBy(() -> runtime.executor().startTask(handle))
+                        .isInstanceOf(IllegalStateException.class).hasMessageContaining("sealed");
+                assertThat(runtime.drainEvidence(handle, request).getDrained()).isFalse();
             }
             // The one production cleanup sweep retries the actual failed
             // controller continuation. There is no fake 'next release succeeds'.

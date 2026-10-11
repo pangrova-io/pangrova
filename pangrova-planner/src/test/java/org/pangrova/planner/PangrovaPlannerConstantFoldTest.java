@@ -88,6 +88,19 @@ class PangrovaPlannerConstantFoldTest {
         assertThat(freshPlanner.getConstantFoldedTotal()).isEqualTo(before + 1);
     }
 
+    @Test
+    void registeredReductionPreservesTypedNullAndThreeValuedCase() {
+        var result = planner.plan("SELECT CASE WHEN CAST(NULL AS BOOLEAN) THEN CAST(9 AS BIGINT) "
+                + "ELSE CAST(3 AS BIGINT) END AS answer").plan();
+        assertThat(result).isInstanceOf(LogicalValues.class);
+        var tuples = ((LogicalValues) result).getTuples();
+        assertThat(tuples).hasSize(1);
+        assertThat(tuples.get(0)).hasSize(1);
+        assertThat(tuples.get(0).get(0).getValueAs(Long.class)).isEqualTo(3L);
+        assertThat(result.getRowType().getFieldList().get(0).getType().getSqlTypeName())
+                .isEqualTo(org.apache.calcite.sql.type.SqlTypeName.BIGINT);
+    }
+
     // -- Helper --
 
     private static PangrovaPlanner buildPlannerWithTable() {

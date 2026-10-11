@@ -547,6 +547,24 @@ if(PANGROVA_BUILD_TESTS)
   enable_testing()
   include(GoogleTest)
 
+  # Real SDK prerequisite for Java PG publication tests. It loads no Worker/JNI
+  # classes and does not link the engine, so test-compile -> SDK tool -> CTest
+  # has no Java integration-test/native-test dependency cycle.
+  if(NOT TARGET pangrova_proto)
+    message(FATAL_ERROR "Managed Lance SDK fixture requires canonical pangrova_proto")
+  endif()
+  add_executable(pangrova_lance_fixture_tool
+    "${CMAKE_CURRENT_SOURCE_DIR}/test-tools/LanceManagedSourceFixtureTool.cpp")
+  target_link_libraries(pangrova_lance_fixture_tool PRIVATE
+    lance_c_ffi ${PANGROVA_ARROW_TARGET} pangrova_proto)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(pangrova_lance_fixture_tool PRIVATE
+      -Wall -Wextra -fstack-protector-strong -Wno-unused-parameter -Wno-deprecated-declarations)
+    if(PANGROVA_WERROR)
+      target_compile_options(pangrova_lance_fixture_tool PRIVATE -Werror)
+    endif()
+  endif()
+
   file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp")
 

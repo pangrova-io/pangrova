@@ -15,7 +15,8 @@ final class NativeCreationOwners {
     Owner prepare(TaskRequest request) {
         var owner = new Owner(request);
         if (pending.putIfAbsent(request.getAttempt(), owner) != null) {
-            throw new IllegalStateException("An unresolved creation already owns this exact task attempt");
+            throw new IllegalStateException(
+                    "An unresolved creation already owns this exact task attempt");
         }
         return owner;
     }
@@ -23,8 +24,12 @@ final class NativeCreationOwners {
     Owner forHandle(long handle) {
         var indexed = handles.get(handle);
         if (indexed != null) return indexed;
-        // Only unresolved publication takes this cold recovery lookup. Normal handles use the ordinary index.
-        return pending.values().stream().filter(owner -> owner.handle == handle && handle > 0).findFirst().orElse(null);
+        // Only unresolved publication takes this cold recovery lookup. Normal handles use the
+        // ordinary index.
+        return pending.values().stream()
+                .filter(owner -> owner.handle == handle && handle > 0)
+                .findFirst()
+                .orElse(null);
     }
 
     void publish(Owner owner) {
@@ -33,18 +38,36 @@ final class NativeCreationOwners {
             throw new IllegalStateException("Native handle already has a different creation owner");
         }
     }
-    boolean contains(Owner owner) { return pending.get(owner.request.getAttempt()) == owner; }
-    boolean ownsAttempt(TaskAttemptId attempt) { return pending.containsKey(attempt); }
-    Owner forAttempt(TaskAttemptId attempt) { return pending.get(attempt); }
+
+    boolean contains(Owner owner) {
+        return pending.get(owner.request.getAttempt()) == owner;
+    }
+
+    boolean ownsAttempt(TaskAttemptId attempt) {
+        return pending.containsKey(attempt);
+    }
+
+    Owner forAttempt(TaskAttemptId attempt) {
+        return pending.get(attempt);
+    }
+
     void remove(Owner owner) {
         if (owner.handle > 0) handles.remove(owner.handle, owner);
         pending.remove(owner.request.getAttempt(), owner);
     }
-    boolean isEmpty() { return pending.isEmpty(); }
-    java.util.List<Owner> snapshot() { return java.util.List.copyOf(pending.values()); }
 
-    NativeTaskCreationFailure rollbackWithoutNativeOwner(Owner owner, org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress egress,
-                              Throwable original) {
+    boolean isEmpty() {
+        return pending.isEmpty();
+    }
+
+    java.util.List<Owner> snapshot() {
+        return java.util.List.copyOf(pending.values());
+    }
+
+    NativeTaskCreationFailure rollbackWithoutNativeOwner(
+            Owner owner,
+            org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress egress,
+            Throwable original) {
         try {
             cleanupCallbacks(owner, egress);
             remove(owner);
@@ -55,14 +78,17 @@ final class NativeCreationOwners {
         return new NativeTaskCreationFailure(0, true, original);
     }
 
-    static void cleanupCallbacks(Owner owner, org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress egress) {
+    static void cleanupCallbacks(
+            Owner owner, org.pangrova.worker.exchange.remote.RemoteShuffleByteEgress egress) {
         Throwable failure = null;
         try {
             if (owner.externalRegistered) {
                 egress.releaseTask(owner.request);
                 owner.externalRegistered = false;
             }
-        } catch (Throwable cleanup) { failure = cleanup; }
+        } catch (Throwable cleanup) {
+            failure = cleanup;
+        }
         try {
             if (owner.aiRegistered) {
                 org.pangrova.worker.ai.invocation.AiInvocationService.releaseTask(
@@ -70,7 +96,8 @@ final class NativeCreationOwners {
                 owner.aiRegistered = false;
             }
         } catch (Throwable cleanup) {
-            if (failure == null) failure = cleanup; else failure.addSuppressed(cleanup);
+            if (failure == null) failure = cleanup;
+            else failure.addSuppressed(cleanup);
         }
         if (failure != null) throw new NativeTaskCreationFailure(owner.handle, failure);
     }
@@ -86,13 +113,17 @@ final class NativeCreationOwners {
         volatile boolean aiRegistered;
         volatile boolean externalRegistered;
         volatile byte[] releaseReceipt;
-        final java.util.concurrent.CompletableFuture<Void> constructionExit = new java.util.concurrent.CompletableFuture<>();
+        final java.util.concurrent.CompletableFuture<Void> constructionExit =
+                new java.util.concurrent.CompletableFuture<>();
 
-        Owner(TaskRequest request) { this.request = request; }
+        Owner(TaskRequest request) {
+            this.request = request;
+        }
 
         void awaitConstructionExit() {
             if (!constructionExit.isDone() && constructionThread == Thread.currentThread()) {
-                throw new IllegalStateException("Cannot join a creation transaction from its own entered thread");
+                throw new IllegalStateException(
+                        "Cannot join a creation transaction from its own entered thread");
             }
             constructionExit.join();
         }

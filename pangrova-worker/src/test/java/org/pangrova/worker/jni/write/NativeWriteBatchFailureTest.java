@@ -98,7 +98,7 @@ class NativeWriteBatchFailureTest {
             assertDecodeFailure(failure);
             assertThat(failure.getSuppressed()).containsExactly(sink.abortFailure, sink.closeFailure);
             assertThat(sink.batchCalls).isZero();
-            assertAborted(writer, handle, sink);
+            assertCleanupRetainedUntilRetry(writer, handle, sink);
         }
     }
 
@@ -129,7 +129,7 @@ class NativeWriteBatchFailureTest {
             } else {
                 assertThat(sink.pageCalls).isEqualTo(1);
             }
-            assertAborted(writer, handle, sink);
+            assertCleanupRetainedUntilRetry(writer, handle, sink);
         }
     }
 
@@ -250,6 +250,22 @@ class NativeWriteBatchFailureTest {
         writer.abortWrite(handle);
         writer.closeAllSessions();
         assertThat(sink.events).containsExactly("abort", "close");
+        assertThat(writer.drainCommitMetadataForTask("write-task")).isEmpty();
+    }
+
+    private static void assertCleanupRetainedUntilRetry(NativeWriteExecutor writer, long handle, RowSink sink) {
+        assertThat(writer.activeSessionCount()).isEqualTo(1);
+        assertThat(sink.events).containsExactly("abort", "close");
+        assertThat(writer.drainCommitMetadataForTask("write-task")).isEmpty();
+
+        sink.abortFailure = null;
+        sink.closeFailure = null;
+        writer.abortWrite(handle);
+
+        assertThat(writer.activeSessionCount()).isZero();
+        assertThat(sink.events).containsExactly("abort", "close", "abort", "close");
+        assertThatThrownBy(() -> writer.commitWrite(handle)).isInstanceOfSatisfying(NativeRuntimeException.class,
+                failure -> assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.NATIVE_INVALID_HANDLE));
         assertThat(writer.drainCommitMetadataForTask("write-task")).isEmpty();
     }
 

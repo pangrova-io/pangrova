@@ -20,15 +20,15 @@ class PlanTableTest {
     @Test
     void returnsOnlyTheExactTableRetainedByTheCompiledRelation() {
         var planner = planner();
-        var scan = scan(planner.planSafe("SELECT id FROM documents").plan());
-        var modify = (TableModify) planner.planSafe("INSERT INTO documents VALUES (1)").plan();
+        var scan = scan(planner.plan("SELECT id FROM documents").plan());
+        var modify = (TableModify) planner.plan("INSERT INTO documents VALUES (1)").plan();
         assertThat(PlanTable.require(scan)).isSameAs(scan.getTable());
         assertThat(PlanTable.require(modify)).isSameAs(modify.getTable());
     }
 
     @Test
     void missingAndNonTableRelationsFailWithPlannerValidationBeforeMetadataAccess() {
-        var constant = new PangrovaPlanner().planSafe("SELECT 1").plan();
+        var constant = new PangrovaPlanner().plan("SELECT 1").plan();
         for (var relation : new RelNode[]{null, constant}) {
             assertThatThrownBy(() -> PlanTable.require(relation))
                     .isInstanceOfSatisfying(PangrovaException.class,
@@ -40,8 +40,8 @@ class PlanTableTest {
     @Test
     void missingScanAndMutationTablesAreRejectedBeforeDereferencingMetadata() {
         var planner = planner();
-        var retainedScan = scan(planner.planSafe("SELECT id FROM documents").plan());
-        var retainedModify = (TableModify) planner.planSafe("INSERT INTO documents VALUES (1)").plan();
+        var retainedScan = scan(planner.plan("SELECT id FROM documents").plan());
+        var retainedModify = (TableModify) planner.plan("INSERT INTO documents VALUES (1)").plan();
         for (var malformed : new RelNode[]{new MissingTableScan(retainedScan),
                 new MissingTableMutation(retainedModify)}) {
             assertThatThrownBy(() -> PlanTable.require(malformed))

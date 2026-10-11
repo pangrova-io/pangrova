@@ -19,6 +19,21 @@ class ArtifactStageTemplateTest {
     private static final String SHA = "a".repeat(64);
 
     @Test
+    void bindingDigestRequiresExactLowercaseHexAndSupportsActualEmptyBindings() {
+        byte[] bindings = "stage binding contract".getBytes(StandardCharsets.UTF_8);
+        String encoded = Base64.getEncoder().encodeToString(bindings);
+        String expected = DigestUtils.sha256Hex(bindings);
+        assertThat(new ArtifactStageTemplate(2, encoded, expected, List.of(), List.of()).bindingBytes())
+                .containsExactly(bindings);
+        assertThat(ArtifactStageTemplate.of(new byte[0], List.of(), List.of()).bindingBytes()).isEmpty();
+        for (String invalid : new String[]{null, "", "0".repeat(64), expected.substring(1),
+                expected.toUpperCase(java.util.Locale.ROOT), " " + expected}) {
+            assertThatThrownBy(() -> new ArtifactStageTemplate(2, encoded, invalid, List.of(), List.of()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum differs");
+        }
+    }
+
+    @Test
     void includesCanonicalPointersResultContractsAndExactModelIncarnationInGraphDigest() {
         var a = read("artifact-a");
         var b = read("artifact-b");

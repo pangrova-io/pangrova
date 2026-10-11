@@ -33,7 +33,9 @@ import java.util.concurrent.TimeoutException;
 public final class NativeDatasetControlClient implements AutoCloseable {
 
     private static final int MAX_REQUEST_BYTES = 16 * 1024 * 1024;
-    private static final int MAX_RESPONSE_BYTES = 128 * 1024;
+    // The bound applies to the entire binary RuntimeCommandResponse/Any envelope,
+    // not the page proof alone. The canonical page is at most 8 MiB within this 16 MiB envelope.
+    static final int MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
     private static final int HTTP_THREADS = 4;
     private static final int HTTP_QUEUE_SIZE = 128;
     private static final int CONNECT_TIMEOUT_SECONDS = 5;

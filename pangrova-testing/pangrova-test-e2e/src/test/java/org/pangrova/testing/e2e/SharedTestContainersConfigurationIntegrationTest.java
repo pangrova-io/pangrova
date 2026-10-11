@@ -19,10 +19,17 @@ class SharedTestContainersConfigurationIntegrationTest extends ContainerTestBase
     @Test
     void sharedServerAndReadinessProbeRequireAllDurabilitySettingsOn() throws Exception {
         var postgres = SharedTestContainers.POSTGRES;
+        assertThat(SharedTestContainers.AVAILABLE).isTrue();
+        assertThat(postgres.isRunning()).isTrue();
         SharedTestContainers.probeJdbcReady(postgres, Duration.ofSeconds(30));
         try (Connection connection = DriverManager.getConnection(
                 postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement statement = connection.createStatement()) {
+            try (ResultSet rows = statement.executeQuery("SELECT 1")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(1);
+                assertThat(rows.next()).isFalse();
+            }
             for (String setting : List.of("fsync", "synchronous_commit", "full_page_writes")) {
                 try (ResultSet rows = statement.executeQuery("SHOW " + setting)) {
                     assertThat(rows.next()).as("setting %s exists", setting).isTrue();

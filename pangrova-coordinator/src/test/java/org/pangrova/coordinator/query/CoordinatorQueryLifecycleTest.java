@@ -130,10 +130,10 @@ class CoordinatorQueryLifecycleTest {
     }
 
     @Test
-    void getQueryStateMapsCancelledToFailed() {
+    void getQueryStatePreservesCancelled() {
         QueryId id = createAndForceToRunning();
         forceTransition(id, QueryStateMachine.State.CANCELLED);
-        assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.FAILED);
+        assertThat(lifecycle.getQueryState(id)).isEqualTo(QueryState.CANCELLED);
     }
 
     @Test

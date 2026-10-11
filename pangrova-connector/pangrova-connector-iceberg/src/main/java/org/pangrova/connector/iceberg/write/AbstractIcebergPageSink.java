@@ -195,6 +195,7 @@ abstract class AbstractIcebergPageSink implements ColumnarPageSink {
         OutputFile outputFile = table.io().newOutputFile(filePath);
         try {
             var builder = Parquet.writeData(outputFile)
+                    .forTable(table)
                     .schema(parquetSafeSchema)
                     .createWriterFunc(GenericParquetWriter::create)
                     .overwrite()
@@ -245,12 +246,19 @@ abstract class AbstractIcebergPageSink implements ColumnarPageSink {
             try {
                 deleteWriterFile(path);
             } catch (RuntimeException | Error cleanup) {
-                if (failure == null) failure = cleanup;
-                else if (failure != cleanup) failure.addSuppressed(cleanup);
+                if (failure == null) {
+                    failure = cleanup;
+                } else if (failure != cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
-        if (failure instanceof Error error) throw error;
-        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
     }
 
     private void deleteWriterFile(String path) {
@@ -299,6 +307,7 @@ abstract class AbstractIcebergPageSink implements ColumnarPageSink {
         OutputFile outputFile = table.io().newOutputFile(filePath);
         try {
             var builder = Parquet.writeData(outputFile)
+                    .forTable(table)
                     .schema(parquetSafeSchema)
                     .createWriterFunc(GenericParquetWriter::create)
                     .overwrite()
@@ -325,12 +334,19 @@ abstract class AbstractIcebergPageSink implements ColumnarPageSink {
             try {
                 operation.accept(dataWriter);
             } catch (RuntimeException | Error cleanup) {
-                if (failure == null) failure = cleanup;
-                else if (failure != cleanup) failure.addSuppressed(cleanup);
+                if (failure == null) {
+                    failure = cleanup;
+                } else if (failure != cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
             }
         }
-        if (failure instanceof Error error) throw error;
-        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
     }
 
     /**

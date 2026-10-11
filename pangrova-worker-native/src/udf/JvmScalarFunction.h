@@ -11,6 +11,10 @@
 
 #include "udf/NativeUdfRegistry.h"
 
+namespace pangrova::protocol::v2 {
+class NativeFunctionDescriptor;
+}
+
 namespace pangrova::udf {
 
 class JvmFunctionCallbacks;
@@ -30,12 +34,18 @@ void bindJvmFunctionCallbacks(ScalarUdfSpec& spec, JvmFunctionCallbackOwner owne
 /// Releases the callback target and cached JNI global references.
 void clearJvmFunctionCallbacks(JNIEnv* env);
 
+/// Validates one already-parsed canonical descriptor before owner retention.
+/// Wire absence is rejected; the pure factory's strict default is not a protocol fallback.
+ScalarUdfSpec makeJvmScalarFunctionSpec(
+    const protocol::v2::NativeFunctionDescriptor& descriptor);
+
 /// Builds a scalar UDF specification backed by a batched Java callback.
 /// Determinism is supplied by the canonical callback declaration.
 ScalarUdfSpec makeJvmScalarFunctionSpec(
     const std::string& name,
     const std::vector<std::string>& argumentTypes,
     const std::string& returnType,
-    bool deterministic);
+    bool deterministic,
+    bool defaultNullBehavior = facebook::velox::exec::VectorFunctionMetadata{}.defaultNullBehavior);
 
 }  // namespace pangrova::udf

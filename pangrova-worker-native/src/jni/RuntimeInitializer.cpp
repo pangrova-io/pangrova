@@ -15,6 +15,7 @@
 //   - Thin wrappers that delegate to NativeEngineLifecycle::instance()
 
 #include "jni/RuntimeInitializer.h"
+#include "jni/command/FlightServerRegistry.h"
 
 #include <stdexcept>
 
@@ -237,14 +238,19 @@ std::unordered_map<std::string, std::string> buildFileSystemConfigMap(
 
 void initializeVeloxRuntime(const NativeRuntimeConfig& config,
                             JNIEnv* env, jobject allocationListener) {
+  FlightServerRegistry::instance().shutdownAll();
   NativeEngineLifecycle::instance().initialize(config, env, allocationListener);
+  FlightServerRegistry::instance().activateShuffleRuntime();
 }
 
 void initializeVeloxRuntime(const NativeRuntimeConfig& config) {
+  FlightServerRegistry::instance().shutdownAll();
   NativeEngineLifecycle::instance().initialize(config);
+  FlightServerRegistry::instance().activateShuffleRuntime();
 }
 
 void shutdownVeloxRuntime() {
+  FlightServerRegistry::instance().shutdownAll();
   NativeEngineLifecycle::instance().shutdown();
 }
 

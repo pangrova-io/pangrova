@@ -13,13 +13,10 @@
  */
 package org.pangrova.worker.ai.governance;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Collections;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -37,20 +34,16 @@ import java.util.stream.Stream;
  *   <li>Wildcard all: {@code *\/*} (equivalent to no restriction)</li>
  * </ul>
  *
- * <p>Thread-safe: uses ConcurrentHashMap for parsed whitelist caching.</p>
+ * <p>Stateless: each validation uses its captured table policy. MIME case folding
+ * uses Locale.ROOT so process locale cannot change an authorization decision.</p>
  */
 public final class MimeTypeValidator {
-
-    private static final Logger LOG = LoggerFactory.getLogger(MimeTypeValidator.class);
 
     /** Table property key for MIME type whitelist. */
     public static final String ALLOWED_TYPES_PROPERTY = "pangrova.file.allowed_types";
 
     /** Singleton wildcard that allows all types. */
     private static final Set<String> ALLOW_ALL = Set.of("*/*");
-
-    /** Cache of parsed whitelists keyed by table qualified name. */
-    private final Map<String, Set<String>> whitelistCache = new ConcurrentHashMap<>();
 
     /**
      * Validates that a MIME type is allowed for a given table's FILE column.
@@ -61,9 +54,6 @@ public final class MimeTypeValidator {
      * @throws MimeTypeNotAllowedException if the MIME type is not whitelisted
      */
     public void validate(String mimeType, Map<String, String> tableProperties, String tableName) {
-        if (mimeType == null || mimeType.isBlank()) {
-            return; // NULL MIME type passes (metadata not yet available)
-        }
         if (tableProperties == null) {
             return; // No table properties means no restriction
         }
@@ -72,7 +62,7 @@ public final class MimeTypeValidator {
             return; // No restriction configured
         }
 
-        Set<String> allowedTypes = parseWhitelist(tableName, allowedTypesStr);
+        Set<String> allowedTypes = parseWhitelist(allowedTypesStr);
         if (allowedTypes.equals(ALLOW_ALL)) {
             return;
         }
@@ -92,42 +82,30 @@ public final class MimeTypeValidator {
      * @return true if the MIME type is allowed or no restriction is configured
      */
     public boolean isAllowed(String mimeType, Map<String, String> tableProperties) {
-        if (mimeType == null || tableProperties == null) {
+        if (tableProperties == null) {
             return true;
         }
         String allowedTypesStr = tableProperties.get(ALLOWED_TYPES_PROPERTY);
         if (allowedTypesStr == null || allowedTypesStr.isBlank()) {
             return true;
         }
-        Set<String> allowedTypes = parseWhitelist("", allowedTypesStr);
-        return isAllowed(mimeType, allowedTypes);
+        Set<String> allowedTypes = parseWhitelist(allowedTypesStr);
+        return allowedTypes.equals(ALLOW_ALL) || isAllowed(mimeType, allowedTypes);
     }
 
-    /**
-     * Invalidates the cached whitelist for a specific table (e.g., after ALTER TABLE).
-     *
-     * @param tableName the qualified table name
-     */
-    public void invalidateCache(String tableName) {
-        whitelistCache.remove(tableName);
+    private static Set<String> parseWhitelist(String allowedTypesStr) {
+        return Stream.of(allowedTypesStr.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(value -> value.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toUnmodifiableSet());
     }
 
-    /** Clears all cached whitelists. */
-    public void clearCache() {
-        whitelistCache.clear();
-    }
-
-    private Set<String> parseWhitelist(String tableName, String allowedTypesStr) {
-        return whitelistCache.computeIfAbsent(tableName + ":" + allowedTypesStr, k ->
-                Stream.of(allowedTypesStr.split(","))
-                        .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .map(String::toLowerCase)
-                        .collect(Collectors.toUnmodifiableSet()));
-    }
-
-    private boolean isAllowed(String mimeType, Set<String> allowedTypes) {
-        String normalizedMime = mimeType.toLowerCase().trim();
+    private static boolean isAllowed(String mimeType, Set<String> allowedTypes) {
+        if (mimeType == null || mimeType.isBlank()) {
+            return false;
+        }
+        String normalizedMime = mimeType.toLowerCase(Locale.ROOT).trim();
 
         // Direct match
         if (allowedTypes.contains(normalizedMime)) {
@@ -159,7 +137,7 @@ public final class MimeTypeValidator {
         if (allowedTypesStr == null || allowedTypesStr.isBlank()) {
             return Collections.emptySet();
         }
-        return parseWhitelist("query", allowedTypesStr);
+        return parseWhitelist(allowedTypesStr);
     }
 
     /**

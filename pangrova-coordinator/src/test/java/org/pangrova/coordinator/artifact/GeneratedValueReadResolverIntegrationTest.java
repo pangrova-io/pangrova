@@ -36,7 +36,7 @@ import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExecutionMode;
 import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
-import org.pangrova.protocol.v2.LogicalType;
+import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.spi.connector.ConnectorSession;
 import org.pangrova.spi.connector.base.ConnectorException;
 import org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata;
@@ -62,6 +62,34 @@ class GeneratedValueReadResolverIntegrationTest {
 
     @TempDir
     Path warehouse;
+
+    @Test
+    void retrievalIdentityMayExtendOnlyTheExactDeclaredScanSchema() throws Exception {
+        try (var fixture = fixture()) {
+            long version = fixture.table().currentSnapshot().snapshotId();
+            var declared = metadata(fixture, version);
+            var base = NativeDatasetSchemaCompiler.compile(declared.typedColumns()).schema();
+            var required = io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED;
+            var schema = base.toBuilder().addAllNames(
+                    org.pangrova.protocol.retrieval.RetrievalCandidateIdentity.PHYSICAL_FIELDS);
+            var struct = base.getStruct().toBuilder();
+            for (int index = 0; index < 3; index++) {
+                struct.addTypes(io.substrait.proto.Type.newBuilder().setString(
+                        io.substrait.proto.Type.String.newBuilder().setNullability(required)));
+            }
+            struct.addTypes(io.substrait.proto.Type.newBuilder().setI64(
+                    io.substrait.proto.Type.I64.newBuilder().setNullability(required)));
+            var exact = schema.setStruct(struct).build();
+            assertThat(fixture.resolver().bindReadOverlays(plan(exact), ACTOR,
+                    splits(version), Map.of()).operatorBindings()).isEmpty();
+            var wrong = exact.toBuilder().setStruct(exact.getStruct().toBuilder().setTypes(
+                    exact.getStruct().getTypesCount() - 1,
+                    io.substrait.proto.Type.newBuilder().setI64(io.substrait.proto.Type.I64.newBuilder()
+                            .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE)))).build();
+            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(wrong), ACTOR,
+                    splits(version), Map.of())).hasMessageContaining("declared SDK schema");
+        }
+    }
 
     @Test
     void timeTravelStillConsumesHistoricalGeneratedDeclarationAfterCurrentDefinitionRemoval() throws Exception {
@@ -151,7 +179,11 @@ class GeneratedValueReadResolverIntegrationTest {
     }
 
     private static byte[] plan(ConnectorTableMetadata metadata) {
-        var read = ReadRel.newBuilder().setBaseSchema(NativeDatasetSchemaCompiler.compile(metadata.typedColumns()).schema())
+        return plan(NativeDatasetSchemaCompiler.compile(metadata.typedColumns()).schema());
+    }
+
+    private static byte[] plan(io.substrait.proto.NamedStruct schema) {
+        var read = ReadRel.newBuilder().setBaseSchema(schema)
                 .setNamedTable(ReadRel.NamedTable.newBuilder().addAllNames(List.of("lake", "db", "documents")));
         return Plan.newBuilder().addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
                 .setInput(Rel.newBuilder().setRead(read)))).build().toByteArray();
@@ -182,7 +214,7 @@ class GeneratedValueReadResolverIntegrationTest {
                 .addDefinitions(GeneratedColumnDefinition.newBuilder().setTargetColumn("embedding")
                         .setCapability(BuiltInCapabilityCatalog.aiEmbeddingPlanRef()).setLogicalModelName("embedding")
                         .addSourceColumns("title").setExecutionMode(ExecutionMode.EXECUTION_MODE_ASYNC)
-                        .setOutputType(LogicalType.newBuilder().setCanonicalSql("VECTOR(3, COSINE)")))
+                        .setOutputType(VectorLogicalType.create(3)))
                 .build();
     }
 

@@ -285,6 +285,10 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                             + "filesRequested={} statsReturned={}",
                     files.catalog, files.schema, files.table,
                     files.addedFiles.size(), statistics.size());
+        } catch (org.pangrova.spi.security.AccessDeniedException denied) {
+            // Missing or revoked maintenance authority is not a best-effort
+            // statistics failure: the durable commit event must remain pending.
+            throw denied;
         } catch (Exception e) {
             // Statistics collection failure must not block index builds (best-effort)
             LOG.warn("action=file_statistics_collection_failed catalog={} schema={} table={} error={}",

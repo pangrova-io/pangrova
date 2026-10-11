@@ -301,6 +301,21 @@ class JdbcArtifactStageExchangeStoreTest {
         assertGraphCorruptionRejected("differ");
     }
 
+    @Test
+    void publicGraphIdentityStillRequiresExactCanonicalRepresentation() throws Exception {
+        String expected = spec.stageGraph().sha256();
+        for (String invalid : List.of(expected.toUpperCase(java.util.Locale.ROOT), expected.substring(1),
+                " " + expected.substring(1), "")) {
+            try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                    "UPDATE artifact_stage_exchanges SET graph_sha256=? "
+                            + "WHERE tenant_id='stage-tenant' AND job_id='stage-job'")) {
+                statement.setString(1, invalid);
+                statement.executeUpdate();
+            }
+            assertGraphCorruptionRejected("differ");
+        }
+    }
+
     private void changeEdges(String sql) throws Exception {
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate(sql);

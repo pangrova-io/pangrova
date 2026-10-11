@@ -280,6 +280,9 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableGeneratedValuesAndLocators) {
        {std::vector<uint8_t>{1, 1}, std::vector<uint8_t>{0, 1},
         std::vector<uint8_t>{0, 0}, std::vector<uint8_t>{0, 0}}) {
     const bool denied = scenario++ == 3;
+    const std::string source_object = scenario == 1
+        ? std::string(300, 's')
+        : "source-file-9";
     TestDirectory directory;
     facebook::velox::test::VectorMaker maker(pool_.get());
     auto input = maker.rowVector(
@@ -304,7 +307,7 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableGeneratedValuesAndLocators) {
         capability::generatedValuesArtifactFormat();
     *config.output.mutable_row_locator() =
         capability::physicalRowLocatorContract();
-    config.output.add_expected_source_object_ids("source-file-9");
+    config.output.add_expected_source_object_ids(source_object);
     config.output.set_publication_fencing_token(23);
     config.output.set_work_unit_id("page-9");
     config.output.set_idempotency_key("job-9:page-9:generation-9");
@@ -356,12 +359,15 @@ TEST_F(ArtifactBuildExecutionTest, BuildsImmutableGeneratedValuesAndLocators) {
     EXPECT_EQ(report->outputs(1).object_role(), "ROW_LOCATORS");
     EXPECT_EQ(report->outputs(1).ordinal(), 1);
     for (const auto& output : report->outputs()) {
-      EXPECT_EQ(output.source_object_id(), "source-file-9");
+      EXPECT_EQ(output.source_object_id(), source_object);
+      EXPECT_EQ(output.object_id().size(), 87);
+      EXPECT_EQ(output.object_id().substr(0, 23), "artifact-object-sha256:");
       EXPECT_EQ(output.row_count(), 2);
       EXPECT_EQ(output.checksum().digest().size(), 32);
       EXPECT_EQ(std::filesystem::file_size(output.opaque_uri()),
                 output.size_bytes());
     }
+    EXPECT_NE(report->outputs(0).object_id(), report->outputs(1).object_id());
     auto restored = artifact::GeneratedValueSegment::read(
         report->outputs(0).opaque_uri(), 2, 2, report->outputs(0).size_bytes());
     EXPECT_EQ(restored.validity, validity);

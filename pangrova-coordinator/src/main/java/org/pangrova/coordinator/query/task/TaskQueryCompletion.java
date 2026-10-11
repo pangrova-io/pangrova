@@ -16,18 +16,16 @@ final class TaskQueryCompletion {
     private final QueryManager queryManager;
     private final CoordinatorTaskTracker taskTracker;
     private final StageCompletionCallback stageCompletionCallback;
-    private final org.pangrova.governance.lineage.LineageEventEmitter lineageEmitter;
     private final NativeTaskWriteCompletion writes;
     private final TaskReportSequences sequences;
-    private final SpeculativeTaskReportCompletion speculation;
     private final ConcurrentHashMap<String, Boolean> finalizationGuard = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Thread> rechecks = new ConcurrentHashMap<>();
 
     TaskQueryCompletion(TaskStatusReceiverContext deps, NativeTaskWriteCompletion writes,
-            TaskReportSequences sequences, SpeculativeTaskReportCompletion speculation) {
+            TaskReportSequences sequences) {
         queryManager = deps.queryManager(); taskTracker = deps.taskTracker();
-        stageCompletionCallback = deps.stageCompletionCallback(); lineageEmitter = deps.lineageEmitter();
-        this.writes = writes; this.sequences = sequences; this.speculation = speculation;
+        stageCompletionCallback = deps.stageCompletionCallback();
+        this.writes = writes; this.sequences = sequences;
     }
 
     void evaluateQueryTransitions(String queryId, TaskStatusReport report) {
@@ -142,7 +140,6 @@ final class TaskQueryCompletion {
                                 "Distributed write commit failed: " + e.getMessage()));
                 return;
             }
-            emitTaskCompletedLineage(queryId);
             clearQuerySequences(queryId);
             queryManager.onAllTasksFinished(queryId);
             // Complete waiters only after any deferred distributed write commit
@@ -163,18 +160,6 @@ final class TaskQueryCompletion {
         for (String taskId : taskTracker.getTaskIds(queryId)) {
             sequences.clearTaskSequence(taskId);
         }
-        speculation.clearQuery(queryId);
     }
 
-    private void emitTaskCompletedLineage(String queryId) {
-        if (lineageEmitter == null) {
-            return;
-        }
-        try {
-            lineageEmitter.emitCompleteEvent(queryId);
-        } catch (Exception e) {
-            LOG.debug("event=lineage_task_completed_failed queryId={} error={}",
-                    queryId, e.getMessage());
-        }
-    }
 }

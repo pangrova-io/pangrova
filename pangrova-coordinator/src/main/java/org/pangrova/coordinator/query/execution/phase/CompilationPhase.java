@@ -94,8 +94,8 @@ public final class CompilationPhase implements QueryExecutionPhase {
         plannedQuery = securityPolicyEnforcer.applyPolicies(plannedQuery, context.session());
         plannedQuery = currentCompiler.optimizeProtectedQuery(plannedQuery);
 
-        lineageCapture.captureLineageInfo(
-                context.session().queryId(), context.originalSql(), plannedQuery);
+        context.stateMachine().bindLineageMetadata(lineageCapture.captureLineageInfo(
+                context.session().queryId(), context.originalSql(), plannedQuery));
         lineageCapture.captureColumnNames(
                 context.session().queryId(), preOptNames, plannedQuery);
         return new PhaseResult.Continue(

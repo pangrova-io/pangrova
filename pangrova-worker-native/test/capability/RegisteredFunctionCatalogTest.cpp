@@ -47,8 +47,14 @@ TEST(RegisteredFunctionCatalogTest, EveryActualNameAndTraversalEntryHasOneTypedO
         EXPECT_EQ(implementation.special_type_program(), actual[ordinal].special->typeProgram());
         EXPECT_EQ(implementation.vector_companion(), actual[ordinal].special->vectorCompanion());
       } else if (actual[ordinal].vector) {
+        ASSERT_TRUE(implementation.metadata().has_deterministic());
+        ASSERT_TRUE(implementation.metadata().has_default_null_behavior());
         EXPECT_EQ(implementation.metadata().deterministic(), actual[ordinal].vector->metadata.deterministic);
+        EXPECT_EQ(implementation.metadata().default_null_behavior(), actual[ordinal].vector->metadata.defaultNullBehavior);
       } else {
+        ASSERT_TRUE(implementation.metadata().has_deterministic());
+        ASSERT_TRUE(implementation.metadata().has_default_null_behavior());
+        EXPECT_EQ(implementation.metadata().default_null_behavior(), actual[ordinal].simple->getMetadata().defaultNullBehavior());
         EXPECT_EQ(implementation.priority(), actual[ordinal].simple->getMetadata().priority());
         EXPECT_EQ(implementation.argument_physical_size(), actual[ordinal].simple->getMetadata().argPhysicalTypes().size());
       }
@@ -69,7 +75,10 @@ TEST(RegisteredFunctionCatalogTest, ActualSignaturelessRowCompanionIsNotInvented
     const auto entry = owner->vectorCompanion(companion.implementation_name());
     ASSERT_TRUE(entry);
     EXPECT_TRUE(entry->signatures.empty());
+    ASSERT_TRUE(companion.metadata().has_deterministic());
+    ASSERT_TRUE(companion.metadata().has_default_null_behavior());
     EXPECT_EQ(companion.metadata().deterministic(), entry->metadata.deterministic);
+    EXPECT_EQ(companion.metadata().default_null_behavior(), entry->metadata.defaultNullBehavior);
     const auto digest = companion.contract_sha256();
     companion.clear_contract_sha256();
     EXPECT_EQ(digest, functionContractDigest(companion));

@@ -36,16 +36,16 @@ import java.util.function.Function;
 /**
  * Normalized SQL function: {@code ai_embed(model, text_or_file, purpose) -> VECTOR}.
  *
- * <p>Generates an embedding vector for the input text or FILE via
- * {@link EmbeddingProvider}. When the second argument is a ROW (FILE struct),
- * uses the same ordered provider batch contract for multimodal embedding.
- * Returns a first-class dense vector. Example:
+ * <p>Generates an embedding vector for the input text or FILE via {@link EmbeddingProvider}. When
+ * the second argument is a ROW (FILE struct), uses the same ordered provider batch contract for
+ * multimodal embedding. Returns a first-class dense vector. Example:
+ *
  * <pre>
  *   SELECT ai_embed('text-embedding-3-small', title) FROM articles
  *   SELECT ai_embed('clip-vit-large', photo) FROM products
  * </pre>
  *
- * <p>Thread-safe: delegates to thread-safe EmbeddingProvider.</p>
+ * <p>Thread-safe: delegates to thread-safe EmbeddingProvider.
  */
 public final class AiEmbedFunction implements BatchableScalarFunction {
 
@@ -101,16 +101,22 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
         for (int index = 0; index < argumentsBatch.size(); index++) {
             List<ColumnValue> arguments = argumentsBatch.get(index);
             if (arguments.size() != 3) {
-                throw new IllegalArgumentException("ai_embed requires normalized model, input and purpose");
+                throw new IllegalArgumentException(
+                        "ai_embed requires normalized model, input and purpose");
             }
             String purpose = extractString(arguments.get(2), "purpose");
-            if (purpose == null) throw new IllegalArgumentException("ai_embed purpose must not be NULL");
+            if (purpose == null) {
+                throw new IllegalArgumentException("ai_embed purpose must not be NULL");
+            }
             EmbeddingPurpose semanticPurpose = requirePurpose(purpose);
             String model = extractString(arguments.get(0), "model");
             EmbeddingBatchRequest.Input input = embeddingInput(arguments.get(1));
-            if (model == null || input == null) continue;
+            if (model == null || input == null) {
+                continue;
+            }
             var key = new BatchKey(model, semanticPurpose, input.getClass());
-            groups.computeIfAbsent(key, ignored -> new ArrayList<>()).add(new IndexedInput(index, input));
+            groups.computeIfAbsent(key, ignored -> new ArrayList<>())
+                    .add(new IndexedInput(index, input));
         }
         return groups;
     }
@@ -119,12 +125,15 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
         try {
             return EmbeddingPurpose.valueOf(purpose);
         } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException("ai_embed purpose must be RAW, QUERY or DOCUMENT", exception);
+            throw new IllegalArgumentException(
+                    "ai_embed purpose must be RAW, QUERY or DOCUMENT", exception);
         }
     }
 
     private static EmbeddingBatchRequest.Input embeddingInput(ColumnValue input) {
-        if (input instanceof ColumnValue.NullValue) return null;
+        if (input instanceof ColumnValue.NullValue) {
+            return null;
+        }
         if (input instanceof ColumnValue.StringValue text) {
             return new EmbeddingBatchRequest.TextInput(text.value());
         }
@@ -138,26 +147,34 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
     private void embedGroup(BatchKey key, List<IndexedInput> rows, ColumnValue[] results) {
         EmbeddingProvider provider = embeddingLookup.apply(key.model());
         if (provider == null) {
-            throw new IllegalStateException(
-                    "No EmbeddingProvider found for model: " + key.model());
+            throw new IllegalStateException("No EmbeddingProvider found for model: " + key.model());
         }
         if (!provider.supportedPurposes().contains(key.purpose())) {
-            throw new IllegalStateException("Embedding provider does not support purpose " + key.purpose());
+            throw new IllegalStateException(
+                    "Embedding provider does not support purpose " + key.purpose());
         }
         requireExactOutputBinding(provider, key.model());
         int maxBatchSize = provider.maxBatchSize();
-        for (int offset = 0; offset < rows.size();) {
+        for (int offset = 0; offset < rows.size(); ) {
             int end = offset + Math.min(maxBatchSize, rows.size() - offset);
             List<IndexedInput> chunk = rows.subList(offset, end);
-            var batch = new EmbeddingBatchRequest(key.purpose(), chunk.stream().map(IndexedInput::input).toList());
+            var batch =
+                    new EmbeddingBatchRequest(
+                            key.purpose(), chunk.stream().map(IndexedInput::input).toList());
             var response = provider.embed(batch);
             if (response == null) {
-                throw new AiInvocationException(AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
-                        false, "Embedding provider returned null batch result");
+                throw new AiInvocationException(
+                        AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
+                        false,
+                        "Embedding provider returned null batch result");
             }
-            List<ColumnValue> embeddings = EmbeddingResultValidator.validateBatch(
-                    provider, response.vectors(), chunk.size(), key.model()).stream()
-                    .map(ColumnValue.VectorValue::new).map(ColumnValue.class::cast).toList();
+            List<ColumnValue> embeddings =
+                    EmbeddingResultValidator.validateBatch(
+                                    provider, response.vectors(), chunk.size(), key.model())
+                            .stream()
+                            .map(ColumnValue.VectorValue::new)
+                            .map(ColumnValue.class::cast)
+                            .toList();
             for (int index = 0; index < chunk.size(); index++) {
                 results[chunk.get(index).index()] = embeddings.get(index);
             }
@@ -166,18 +183,27 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
     }
 
     private record BatchKey(String model, EmbeddingPurpose purpose, Class<?> inputRepresentation) {}
+
     private record IndexedInput(int index, EmbeddingBatchRequest.Input input) {}
 
     private static void requireExactOutputBinding(EmbeddingProvider provider, String modelName) {
-        int expectedDimensions = EmbeddingResultValidator.requireProviderContract(provider, modelName);
-        int boundDimension = AiExecutionContext.boundInvocation()
-                .orElseThrow(() -> new IllegalStateException(
-                        "ai_embed requires an exact model output binding"))
-                .outputVectorDimension();
+        int expectedDimensions =
+                EmbeddingResultValidator.requireProviderContract(provider, modelName);
+        int boundDimension =
+                AiExecutionContext.boundInvocation()
+                        .orElseThrow(
+                                () ->
+                                        new IllegalStateException(
+                                                "ai_embed requires an exact model output binding"))
+                        .outputVectorDimension();
         if (expectedDimensions != boundDimension) {
-            throw new IllegalStateException("Embedding provider '" + modelName
-                    + "' dimension " + expectedDimensions
-                    + " differs from exact model binding " + boundDimension);
+            throw new IllegalStateException(
+                    "Embedding provider '"
+                            + modelName
+                            + "' dimension "
+                            + expectedDimensions
+                            + " differs from exact model binding "
+                            + boundDimension);
         }
     }
 
@@ -188,7 +214,6 @@ public final class AiEmbedFunction implements BatchableScalarFunction {
         if (cv instanceof ColumnValue.NullValue) {
             return null;
         }
-        throw new IllegalArgumentException(
-                "ai_embed: " + argName + " must be VARCHAR");
+        throw new IllegalArgumentException("ai_embed: " + argName + " must be VARCHAR");
     }
 }

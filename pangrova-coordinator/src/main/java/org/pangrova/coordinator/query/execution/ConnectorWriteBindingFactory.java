@@ -40,7 +40,7 @@ public final class ConnectorWriteBindingFactory {
             throw new IllegalArgumentException("One output handle cannot own both Dataset and physical sinks");
         }
         if (physical.isPresent()) return physical(catalogBinding(descriptor), serialized, physical.orElseThrow());
-        if (allocation.isPresent()) return lance(catalogBinding(descriptor), serialized, allocation.orElseThrow());
+        if (allocation.isPresent()) return lance(catalogBinding(descriptor), serialized, allocation.orElseThrow(), outputHandle.acceptedWriteBaseSnapshot());
         return WriteOutputBinding.newBuilder().setConnector(ConnectorWriteBinding.newBuilder()
                 .setCatalog(catalogBinding(descriptor)).setOutputHandle(serialized)).build();
     }
@@ -57,11 +57,22 @@ public final class ConnectorWriteBindingFactory {
     }
 
     private static WriteOutputBinding lance(CatalogExecutionBinding catalog,
-            SerializedConnectorOutputHandle serialized, NativeWriteAllocation nativeOutput) {
+            SerializedConnectorOutputHandle serialized, NativeWriteAllocation nativeOutput,
+            java.util.Optional<org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot> baseSnapshot) {
             if (!nativeOutput.writeColumnNames().equals(serialized.getWriteColumnNamesList())) {
                 throw new IllegalArgumentException("Native allocation columns differ from connector handle");
             }
-            return WriteOutputBinding.newBuilder().setLance(LanceWriteBinding.newBuilder()
+            if ((nativeOutput.readVersion() == 0) != baseSnapshot.isEmpty()) {
+                throw new IllegalArgumentException("Dataset write allocation lacks its exact accepted base");
+            }
+            baseSnapshot.ifPresent(base -> {
+                if (!base.datasetUri().equals(nativeOutput.datasetUri())
+                        || base.version() != nativeOutput.readVersion()
+                        || !java.security.MessageDigest.isEqual(base.schemaSha256(), nativeOutput.schemaFenceSha256())) {
+                    throw new IllegalArgumentException("Dataset write allocation differs from its accepted base");
+                }
+            });
+            var binding = LanceWriteBinding.newBuilder()
                     .setCatalog(catalog).setOutputHandle(serialized)
                     .setDatasetUri(nativeOutput.datasetUri())
                     .setOperation(switch (nativeOutput.operation()) {
@@ -76,7 +87,9 @@ public final class ConnectorWriteBindingFactory {
                     .setWriteId(nativeOutput.writeId()).setGeneration(nativeOutput.generation())
                     .setTransactionStagingPrefix(nativeOutput.stagingPrefix())
                     .setAllocationStagingPrefix(nativeOutput.stagingPrefix())
-                    .addAllWriteColumnNames(nativeOutput.writeColumnNames())).build();
+                    .addAllWriteColumnNames(nativeOutput.writeColumnNames());
+            baseSnapshot.ifPresent(base -> binding.setBaseSnapshot(org.pangrova.protocol.SourceSnapshotBindings.encode(base, catalog)));
+            return WriteOutputBinding.newBuilder().setLance(binding).build();
     }
 
     private static WriteOutputBinding physical(CatalogExecutionBinding catalog,

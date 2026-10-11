@@ -5,6 +5,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.Retrieval
 import org.pangrova.metadata.artifact.contract.ArtifactFormatContracts.FormatContract;
 import org.pangrova.metadata.artifact.ArtifactGenerationManifest;
 import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
+import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
 import org.pangrova.metadata.artifact.contract.ArtifactBuildOutputScope;
 import org.pangrova.metadata.artifact.build.ArtifactBuildStore;
 import org.pangrova.metadata.artifact.build.template.ArtifactStageTemplate.PublicationRead;
@@ -16,7 +17,6 @@ import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorBindingSet;
 
-import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,6 +48,14 @@ public final class PublishedArtifactBindingResolver {
     public Optional<ResolvedRetrievalArtifact> resolveTemplate(
             RetrievalArtifactIntent intent, List<String> serializedSplits) {
         Objects.requireNonNull(intent, "intent must not be null");
+        if (org.pangrova.protocol.BuiltInCapabilityCatalog.FILTERED_DISKANN_RETRIEVAL_ID
+                .equals(intent.capability().getCapabilityId())
+                && !FilteredAnnSourceScope.supports(PublishedArtifactBindingContract.parseSplits(serializedSplits),
+                        intent.sourceId(), intent.sourceSnapshot())) {
+            // This runs before any TaskRequest or search starts: retain the actual
+            // original SQL filter and the legal Native exact scan algorithm.
+            return Optional.empty();
+        }
         return resolveTemplate(new ArtifactResolutionIntent(
                 intent.tenantId(), intent.artifactId(),
                 intent.artifactType(), intent.generation(),
@@ -70,8 +78,8 @@ public final class PublishedArtifactBindingResolver {
                         || !split.getSourceSnapshot().equals(intent.sourceSnapshot()))) {
             return Optional.empty();
         }
-        Optional<Map<String, String>> splitChecksums = splitChecksums(splits);
-        if (splitChecksums.isEmpty()) {
+        Optional<Map<String, String>> splitIdentities = splitIdentities(splits);
+        if (splitIdentities.isEmpty()) {
             return Optional.empty();
         }
         ArtifactGenerationManifest manifest = store.findPublishedGeneration(
@@ -88,13 +96,11 @@ public final class PublishedArtifactBindingResolver {
                 .filter(role -> role.scope() == ArtifactBuildOutputScope.SOURCE_OBJECT)
                 .count();
         long expectedObjects = Math.addExact(
-                Math.multiplyExact((long) splitChecksums.orElseThrow().size(),
+                Math.multiplyExact((long) splitIdentities.orElseThrow().size(),
                         publishedSourceRoles),
                 contract.generationFinalizeRoles().size());
         if (!matchesCoverage(intent.coverage(), manifest.objectCount(), expectedObjects)
-                || !store.matchesPublishedSplits(
-                        manifest.tenantId(), manifest.jobId(),
-                        splitChecksums.orElseThrow())) {
+                || !matchesPublishedSourceRanges(manifest, splitIdentities.orElseThrow())) {
             return Optional.empty();
         }
         ArtifactWriteBinding writeTemplate = loadWriteTemplate(manifest);
@@ -106,17 +112,37 @@ public final class PublishedArtifactBindingResolver {
         return coverage == SourceCoverage.COMPLETE_GENERATION ? published == requested : published >= requested;
     }
 
-    private static Optional<Map<String, String>> splitChecksums(
+    private boolean matchesPublishedSourceRanges(
+            ArtifactGenerationManifest manifest, Map<String, String> requested) {
+        Map<String, ArtifactBuildSplit> stored = store.loadPublishedSourceSplits(
+                manifest.tenantId(), manifest.jobId(), requested.keySet());
+        if (!stored.keySet().equals(requested.keySet())) return false;
+        for (var entry : stored.entrySet()) {
+            final DataSplit split;
+            try {
+                split = DataSplit.parseFrom(entry.getValue().canonicalSplitBytes());
+            } catch (InvalidProtocolBufferException malformed) {
+                throw new IllegalStateException("Published canonical source split is malformed", malformed);
+            }
+            if (!entry.getKey().equals(split.getDataObjectId())
+                    || !org.pangrova.protocol.DataSplitProtoCodec.requireStableSplitId(split)
+                            .equals(requested.get(entry.getKey()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Optional<Map<String, String>> splitIdentities(
             List<DataSplit> splits) {
-        Map<String, String> checksums = new LinkedHashMap<>();
+        Map<String, String> identities = new LinkedHashMap<>();
         for (DataSplit split : splits) {
-            String checksum = HexFormat.of().formatHex(
-                    PublishedArtifactBindingContract.sha256Bytes(split.toByteArray()));
-            if (checksums.put(split.getDataObjectId(), checksum) != null) {
+            String splitId = org.pangrova.protocol.DataSplitProtoCodec.requireStableSplitId(split);
+            if (identities.put(split.getDataObjectId(), splitId) != null) {
                 return Optional.empty();
             }
         }
-        return Optional.of(Map.copyOf(checksums));
+        return Optional.of(Map.copyOf(identities));
     }
 
     private static ArtifactBinding bindingTemplate(

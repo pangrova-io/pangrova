@@ -56,10 +56,15 @@ class PaimonLanceNativeWriteE2ETest extends PangrovaE2ETestBase {
         var rows = executeQuery("SELECT id, label, embedding FROM " + name(target) + " ORDER BY id");
         assertThat(rows).hasSize(3);
         assertThat(rows.get(0).getRaw("label")).isEqualTo("café");
-        assertThat(rows.get(0).getRaw("embedding")).isEqualTo(List.of(1.0000000001, -2.0, 3.5));
+        assertThat(rows.get(0).getRaw("embedding")).isInstanceOf(double[].class);
+        assertThat((double[]) rows.get(0).getRaw("embedding")).containsExactly(1.0000000001, -2.0, 3.5);
         assertThat(rows.get(1).getRaw("label")).isNull();
         assertThat(rows.get(1).getRaw("embedding")).isNull();
-        assertThat(rows.get(2).getRaw("embedding")).isEqualTo(List.of(0.0, 4.0, -5.0));
+        assertThat((double[]) rows.get(2).getRaw("embedding")).containsExactly(0.0, 4.0, -5.0);
+        var aliased = executeQuery("SELECT b.embedding AS exported FROM " + name(target) + " a LEFT JOIN "
+                + name(target) + " b ON a.id = b.id WHERE a.id = 1");
+        assertThat(aliased).hasSize(1);
+        assertThat((double[]) aliased.get(0).getRaw("exported")).containsExactly(1.0000000001, -2.0, 3.5);
     }
 
     @Test

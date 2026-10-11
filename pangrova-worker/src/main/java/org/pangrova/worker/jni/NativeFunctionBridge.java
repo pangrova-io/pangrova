@@ -1,6 +1,9 @@
 package org.pangrova.worker.jni;
 
 import org.pangrova.spi.annotation.ThreadSafe;
+import org.pangrova.spi.ai.AiInvocationException;
+import org.pangrova.protocol.v2.ErrorClass;
+import org.pangrova.protocol.v2.ExecutionError;
 import org.pangrova.spi.connector.data.ColumnValue;
 import org.pangrova.spi.function.AggregateFunction;
 import org.pangrova.spi.function.BatchableScalarFunction;
@@ -52,6 +55,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public final class NativeFunctionBridge {
 
     private static final int NANOS_PER_MILLISECOND = 1_000_000;
+    private static final int MAX_AI_FAILURE_MESSAGE_CHARS = 8_192;
 
     private static final Logger LOG = LoggerFactory.getLogger(NativeFunctionBridge.class);
 
@@ -113,14 +117,14 @@ public final class NativeFunctionBridge {
             for (List<String> signature : fn.getArgumentSignatures()) {
                 descriptors.add(new NativeFunctionDescriptor(
                         m.name(), m.returnType(), signature,
-                        NativeFunctionDescriptor.FunctionType.SCALAR, m.deterministic()));
+                        NativeFunctionDescriptor.FunctionType.SCALAR, m.deterministic(), m.defaultNullBehavior()));
             }
         }
         for (AggregateFunction fn : aggregateFunctions.values()) {
             FunctionMetadata m = fn.getMetadata();
             descriptors.add(new NativeFunctionDescriptor(
                     m.name(), m.returnType(), m.argumentTypes(),
-                    NativeFunctionDescriptor.FunctionType.AGGREGATE, m.deterministic()));
+                    NativeFunctionDescriptor.FunctionType.AGGREGATE, m.deterministic(), m.defaultNullBehavior()));
         }
         return Collections.unmodifiableList(descriptors);
     }
@@ -147,6 +151,38 @@ public final class NativeFunctionBridge {
                 context, () -> evaluateBatchInternal(functionName, batchArguments));
     }
 
+    /** Projects a failed AI callback into the canonical Native task error contract. */
+    public byte[] describeAiFailure(Throwable failure) {
+        if (!(failure instanceof AiInvocationException aiFailure)) {
+            return null;
+        }
+        ErrorClass errorClass = switch (aiFailure.category()) {
+            case INVALID_REQUEST, MODEL_NOT_FOUND -> ErrorClass.ERROR_CLASS_INVALID_REQUEST;
+            case CAPABILITY_MISMATCH -> ErrorClass.ERROR_CLASS_CAPABILITY_MISMATCH;
+            case AUTHENTICATION, AUTHORIZATION, MODEL_DISABLED, CONTENT_REJECTED ->
+                    ErrorClass.ERROR_CLASS_POLICY_DENIED;
+            case RATE_LIMIT -> ErrorClass.ERROR_CLASS_ADMISSION;
+            case TIMEOUT -> ErrorClass.ERROR_CLASS_DEADLINE;
+            case BUDGET_EXCEEDED -> ErrorClass.ERROR_CLASS_BUDGET_EXHAUSTED;
+            case PROVIDER_OUTCOME_UNCERTAIN -> ErrorClass.ERROR_CLASS_PROVIDER_OUTCOME_UNCERTAIN;
+            case PROVIDER_UNAVAILABLE, PROVIDER_RESPONSE_INVALID -> ErrorClass.ERROR_CLASS_PROVIDER;
+            case INTERNAL -> ErrorClass.ERROR_CLASS_INTERNAL;
+        };
+        String message = aiFailure.getMessage();
+        if (message != null && message.length() > MAX_AI_FAILURE_MESSAGE_CHARS) {
+            message = message.substring(0, MAX_AI_FAILURE_MESSAGE_CHARS) + " [truncated]";
+        }
+        return ExecutionError.newBuilder()
+                .setErrorClass(errorClass)
+                .setCode("AI_" + aiFailure.category().name())
+                .setMessage(message == null || message.isBlank() ? aiFailure.category().name() : message)
+                .setRetryable(aiFailure.category() != AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN
+                        && aiFailure.retryable())
+                .setFailedComponent("ai-invocation")
+                .build()
+                .toByteArray();
+    }
+
     private Object[] evaluateBatchInternal(String functionName, Object[][] batchArguments) {
         String key = functionName.toLowerCase(Locale.ROOT);
         ScalarFunction fn = scalarFunctions.get(key);
@@ -171,7 +207,7 @@ public final class NativeFunctionBridge {
             return Arrays.stream(batchArguments)
                     .map(args -> evaluateScalar(functionName, args))
                     .toArray();
-        } catch (NativeRuntimeException e) {
+        } catch (NativeRuntimeException | AiInvocationException e) {
             throw e;
         } catch (Exception e) {
             throw new NativeRuntimeException(
@@ -205,7 +241,7 @@ public final class NativeFunctionBridge {
             List<ColumnValue> args = wrapArguments(fn, arguments);
             ColumnValue result = fn.invoke(args);
             return normalizeNativeValue(ColumnValue.toRaw(result));
-        } catch (NativeRuntimeException e) {
+        } catch (NativeRuntimeException | AiInvocationException e) {
             throw e;
         } catch (Exception e) {
             throw new NativeRuntimeException(

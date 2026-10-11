@@ -19,9 +19,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Orchestrates the full Worker startup/shutdown sequence.
- * Delegates to sub-bootstraps: Observability → Resource → NativeRuntime → Task → CDC → Transport → HTTP → Heartbeat.
- * Shutdown runs in reverse order.
+ * Orchestrates the full Worker startup/shutdown sequence. Delegates to sub-bootstraps:
+ * Observability → Resource → NativeRuntime → Task → CDC → Transport → HTTP → Heartbeat. Shutdown
+ * runs in reverse order.
  */
 public final class WorkerBootstrap {
 
@@ -44,16 +44,16 @@ public final class WorkerBootstrap {
         try {
             requireUninstalledCatalog();
             refs.setCatalogResourceResolver(
-                org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime.discover(
-                        config.coordinatorUrl(), config.internalAuthSecret(),
-                        Thread.currentThread().getContextClassLoader()));
+                    org.pangrova.worker.jni.write.catalog.WorkerCatalogRuntime.discover(
+                            config.coordinatorUrl(),
+                            config.internalAuthSecret(),
+                            Thread.currentThread().getContextClassLoader()));
+        } finally {
+            lifecycle.configured();
         }
-        finally { lifecycle.configured(); }
     }
 
-    /**
-     * Executes the ordered startup sequence.
-     */
+    /** Executes the ordered startup sequence. */
     public void start() {
         lifecycle.beginStart();
         try {
@@ -73,8 +73,9 @@ public final class WorkerBootstrap {
         // single unified memory budget (fixes dual-arbitrator split).
         var rc = config.resourceConfig();
         var tenantTracker = new org.pangrova.resource.tenant.TenantResourceTracker();
-        var sharedArbitrator = new org.pangrova.resource.memory.MemoryArbitrator(
-                rc.memoryBudgetBytes(), rc.systemReservedBytes(), tenantTracker);
+        var sharedArbitrator =
+                new org.pangrova.resource.memory.MemoryArbitrator(
+                        rc.memoryBudgetBytes(), rc.systemReservedBytes(), tenantTracker);
         refs.setMemoryArbitrator(sharedArbitrator);
         refs.setTenantResourceTracker(tenantTracker);
         NativeCacheConfig nativeCacheConfig = buildNativeCacheConfig(config.cacheConfig());
@@ -105,17 +106,19 @@ public final class WorkerBootstrap {
             new WorkerBootstrapCleanup(refs).close(config, observability, false);
             success = true;
         } catch (RuntimeException | Error cleanupFailure) {
-            if (startupFailure != cleanupFailure) startupFailure.addSuppressed(cleanupFailure);
+            if (startupFailure != cleanupFailure) {
+                startupFailure.addSuppressed(cleanupFailure);
+            }
         } finally {
             completeCleanup(success);
         }
     }
 
-    /**
-     * Executes the ordered shutdown sequence (reverse of startup).
-     */
+    /** Executes the ordered shutdown sequence (reverse of startup). */
     public void shutdown() {
-        if (!lifecycle.beginShutdown(refs)) return;
+        if (!lifecycle.beginShutdown(refs)) {
+            return;
+        }
         boolean success = false;
         try {
             LOG.info("event=worker_shutdown_start workerId={}", config.workerId());
@@ -129,7 +132,9 @@ public final class WorkerBootstrap {
 
     private void completeCleanup(boolean success) {
         lifecycle.cleaned(success);
-        if (success) shutdownCompleted.countDown();
+        if (success) {
+            shutdownCompleted.countDown();
+        }
     }
 
     /** Keeps the process entry point alive until owned resources finish shutdown. */
@@ -139,8 +144,7 @@ public final class WorkerBootstrap {
 
     /** Loads and fail-closed validates native capabilities via the JNI channel. */
     private static void loadNativeCapabilities(
-            WorkerComponentRefs refs,
-            org.pangrova.worker.jni.NativeFunctionConfig functionConfig) {
+            WorkerComponentRefs refs, org.pangrova.worker.jni.NativeFunctionConfig functionConfig) {
         if (!refs.nativeAvailable()) {
             LOG.info("event=phase_skipped phase=native_capabilities reason=native_unavailable");
             return;
@@ -149,7 +153,8 @@ public final class WorkerBootstrap {
             NativeCapabilityAdvertisement.Advertisement advertisement =
                     NativeCapabilityAdvertisement.load(functionConfig);
             refs.setNativeCapabilityInventory(advertisement.encodedInventory());
-            LOG.info("event=native_capabilities_loaded genericCount={} modelCount={} engineVersion={}",
+            LOG.info(
+                    "event=native_capabilities_loaded genericCount={} modelCount={} engineVersion={}",
                     advertisement.inventory().getCapabilitiesCount(),
                     advertisement.inventory().getModelsCount(),
                     advertisement.engineVersion());
@@ -160,10 +165,9 @@ public final class WorkerBootstrap {
         }
     }
 
-
     /**
-     * Converts the bootstrap {@link WorkerBootstrapConfig.CacheConfig} into the
-     * native-layer {@link NativeCacheConfig} passed across the JNI boundary.
+     * Converts the bootstrap {@link WorkerBootstrapConfig.CacheConfig} into the native-layer {@link
+     * NativeCacheConfig} passed across the JNI boundary.
      */
     private static NativeCacheConfig buildNativeCacheConfig(WorkerBootstrapConfig.CacheConfig cc) {
         if (cc == null || !cc.enabled()) {
@@ -195,7 +199,9 @@ public final class WorkerBootstrap {
 
     // -- Public accessors --
 
-    public boolean isStarted() { return started.get(); }
+    public boolean isStarted() {
+        return started.get();
+    }
 
     public int getHttpPort() {
         return refs.httpServer() != null ? refs.httpServer().getPort() : -1;
@@ -205,37 +211,50 @@ public final class WorkerBootstrap {
         return refs.resultServerPort();
     }
 
-    public TaskManager getTaskManager() { return refs.taskManager(); }
+    public TaskManager getTaskManager() {
+        return refs.taskManager();
+    }
 
-    public NodeMemoryPool getNodeMemoryPool() { return refs.nodeMemoryPool(); }
+    public NodeMemoryPool getNodeMemoryPool() {
+        return refs.nodeMemoryPool();
+    }
 
     /**
-     * Injects an externally-created CDC consumer for lifecycle management.
-     * Uses AutoCloseable to avoid coupling pangrova-worker to pangrova-streaming.
+     * Injects an externally-created CDC consumer for lifecycle management. Uses AutoCloseable to
+     * avoid coupling pangrova-worker to pangrova-streaming.
      */
     public void setCdcConsumer(AutoCloseable consumer) {
         lifecycle.beginConfiguration();
         try {
-            if (refs.cdcConsumer() != null) throw new IllegalStateException("Worker CDC consumer already installed");
+            if (refs.cdcConsumer() != null) {
+                throw new IllegalStateException("Worker CDC consumer already installed");
+            }
             refs.setCdcConsumer(consumer);
+        } finally {
+            lifecycle.configured();
         }
-        finally { lifecycle.configured(); }
     }
 
     /**
-     * Injects a catalog resource resolver for the native write path.
-     * Must be called before {@link #start()} if write tasks are expected.
-     * The resolver is used to construct a {@link org.pangrova.worker.jni.write.NativeWriteExecutor}
-     * that the native engine calls back into for write operations.
+     * Injects a catalog resource resolver for the native write path. Must be called before {@link
+     * #start()} if write tasks are expected. The resolver is used to construct a {@link
+     * org.pangrova.worker.jni.write.NativeWriteExecutor} that the native engine calls back into for
+     * write operations.
      */
     public void setCatalogResourceResolver(
             org.pangrova.worker.jni.write.catalog.CatalogResourceResolver catalogResourceResolver) {
         lifecycle.beginConfiguration();
-        try { requireUninstalledCatalog(); refs.setCatalogResourceResolver(catalogResourceResolver); }
-        finally { lifecycle.configured(); }
+        try {
+            requireUninstalledCatalog();
+            refs.setCatalogResourceResolver(catalogResourceResolver);
+        } finally {
+            lifecycle.configured();
+        }
     }
 
     private void requireUninstalledCatalog() {
-        if (refs.catalogResourceResolver() != null) throw new IllegalStateException("Worker catalog runtime already installed");
+        if (refs.catalogResourceResolver() != null) {
+            throw new IllegalStateException("Worker catalog runtime already installed");
+        }
     }
 }

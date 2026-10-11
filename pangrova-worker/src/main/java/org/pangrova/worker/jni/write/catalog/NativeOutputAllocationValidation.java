@@ -21,36 +21,59 @@ final class NativeOutputAllocationValidation {
             var physical = output.getPhysical();
             validate(physical, handle);
             if (request.getExecutionOptions().getWrite().getFileFormat() != physical.getFileFormat()
-                    || physical.getFilesList().stream().anyMatch(file -> !file.getTaskAttempt().equals(request.getAttempt()))
-                    || !NativeWriteBindings.attemptPrefix(physical.getAllocationPrefix(), request.getAttempt())
-                            .equals(physical.getAttemptPrefix())) throw mismatch();
+                    || physical.getFilesList().stream()
+                            .anyMatch(file -> !file.getTaskAttempt().equals(request.getAttempt()))
+                    || !NativeWriteBindings.attemptPrefix(
+                                    physical.getAllocationPrefix(), request.getAttempt())
+                            .equals(physical.getAttemptPrefix())) {
+                throw mismatch();
+            }
             return;
         }
         var binding = output.getLance();
         validate(binding, handle);
         var allocation = handle.nativeWriteAllocation().orElseThrow();
         if (request.getExecutionOptions().getWrite().getFileFormat() != FileFormat.FILE_FORMAT_LANCE
-                || !NativeWriteBindings.attemptPrefix(allocation.stagingPrefix(), request.getAttempt())
+                || !NativeWriteBindings.attemptPrefix(
+                                allocation.stagingPrefix(), request.getAttempt())
                         .equals(binding.getTransactionStagingPrefix())) {
             throw mismatch();
         }
     }
 
     static void validate(PhysicalFileWriteBinding binding, ConnectorOutputTableHandle handle) {
-        var allocation = handle.nativePhysicalWriteAllocation().orElseThrow(() ->
-                new IllegalArgumentException("Physical binding requires the exact connector physical output handle"));
-        var expected = PhysicalFileWriteBindings.template(allocation).toBuilder()
-                .setCatalog(binding.getCatalog()).setOutputHandle(binding.getOutputHandle()).build();
+        var allocation =
+                handle.nativePhysicalWriteAllocation()
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Physical binding requires the exact connector "
+                                                        + "physical output handle"));
+        var expected =
+                PhysicalFileWriteBindings.template(allocation).toBuilder()
+                        .setCatalog(binding.getCatalog())
+                        .setOutputHandle(binding.getOutputHandle())
+                        .build();
         if (!binding.getAttemptPrefix().isEmpty()) {
-            if (binding.getFilesCount() == 0 || !binding.getFiles(0).hasTaskAttempt()) throw mismatch();
-            expected = NativeWriteBindings.bindPhysical(expected, binding.getFiles(0).getTaskAttempt());
+            if (binding.getFilesCount() == 0 || !binding.getFiles(0).hasTaskAttempt()) {
+                throw mismatch();
+            }
+            expected =
+                    NativeWriteBindings.bindPhysical(
+                            expected, binding.getFiles(0).getTaskAttempt());
         }
-        if (!expected.equals(binding)) throw mismatch();
+        if (!expected.equals(binding)) {
+            throw mismatch();
+        }
     }
 
     static void validate(LanceWriteBinding binding, ConnectorOutputTableHandle handle) {
-        var allocation = handle.nativeWriteAllocation().orElseThrow(() ->
-                new IllegalArgumentException("Native binding requires a Native connector output handle"));
+        var allocation =
+                handle.nativeWriteAllocation()
+                        .orElseThrow(
+                                () ->
+                                        new IllegalArgumentException(
+                                                "Native binding requires a Native connector output handle"));
         String operation = binding.getOperation().name().replace("LANCE_WRITE_OPERATION_", "");
         if (!allocation.datasetUri().equals(binding.getDatasetUri())
                 || !allocation.operation().name().equals(operation)
@@ -59,20 +82,32 @@ final class NativeOutputAllocationValidation {
                 || !allocation.generation().equals(binding.getGeneration())) {
             throw mismatch();
         }
+        var accepted = handle.acceptedWriteBaseSnapshot();
+        if (binding.hasBaseSnapshot() != accepted.isPresent()
+                || (accepted.isPresent()
+                        && !org.pangrova.protocol.SourceSnapshotBindings.encode(
+                                        accepted.orElseThrow(), binding.getCatalog())
+                                .equals(binding.getBaseSnapshot()))) {
+            throw mismatch();
+        }
         validateSchemaAndStaging(binding, allocation);
     }
 
-    private static void validateSchemaAndStaging(LanceWriteBinding binding, NativeWriteAllocation allocation) {
+    private static void validateSchemaAndStaging(
+            LanceWriteBinding binding, NativeWriteAllocation allocation) {
         if (!allocation.stagingPrefix().equals(binding.getAllocationStagingPrefix())
                 || !allocation.writeColumnNames().equals(binding.getWriteColumnNamesList())
-                || binding.getSchemaFenceSha256().getAlgorithm() != Checksum.Algorithm.ALGORITHM_SHA256
-                || !MessageDigest.isEqual(allocation.schemaFenceSha256(),
+                || binding.getSchemaFenceSha256().getAlgorithm()
+                        != Checksum.Algorithm.ALGORITHM_SHA256
+                || !MessageDigest.isEqual(
+                        allocation.schemaFenceSha256(),
                         binding.getSchemaFenceSha256().getDigest().toByteArray())) {
             throw mismatch();
         }
     }
 
     private static IllegalArgumentException mismatch() {
-        return new IllegalArgumentException("Native output binding differs from connector allocation");
+        return new IllegalArgumentException(
+                "Native output binding differs from connector allocation");
     }
 }

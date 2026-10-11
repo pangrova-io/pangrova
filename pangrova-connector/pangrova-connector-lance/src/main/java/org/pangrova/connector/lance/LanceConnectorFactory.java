@@ -17,12 +17,12 @@ public final class LanceConnectorFactory implements ConnectorFactory {
         if (catalogName == null || catalogName.isBlank()) {
             throw new IllegalArgumentException("Lance catalog name is required");
         }
-        String jdbcUrl = config.get("jdbc.url");
-        if (jdbcUrl == null || !jdbcUrl.startsWith("jdbc:postgresql:")) {
-            throw new IllegalArgumentException("Lance catalog requires jdbc.url for PostgreSQL");
+        if (config.containsKey("jdbc.url") || config.containsKey("jdbc.user") || config.containsKey("jdbc.password")) {
+            throw new IllegalArgumentException("Managed Lance uses the shared metadata authority; connector JDBC is forbidden");
         }
         String warehouse = warehouse(config.get("warehouse"));
-        return new LanceConnector(catalogName, warehouse, config, context.nativeDatasetControlPlane());
+        return new LanceConnector(catalogName, warehouse, config, context.nativeDatasetControlPlane(),
+                context.managedSourceCatalog());
     }
 
     private static String warehouse(String value) {

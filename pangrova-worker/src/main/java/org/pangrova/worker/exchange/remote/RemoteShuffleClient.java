@@ -227,15 +227,6 @@ public final class RemoteShuffleClient implements Closeable {
     }
 
     private static long remainingTimeout(
-            ExchangeChannelContext context,
-            long configuredTimeoutMillis,
-            long capabilityExpiryMillis) {
-        return remainingTimeout(
-                context.deadlineEpochMillis(), configuredTimeoutMillis,
-                capabilityExpiryMillis);
-    }
-
-    private static long remainingTimeout(
             long taskDeadlineEpochMs,
             long configuredTimeoutMillis,
             long capabilityExpiryMillis) {

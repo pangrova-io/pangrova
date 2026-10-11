@@ -37,6 +37,7 @@ final class SqlShell {
     private final PrintStream out;
     private final Duration queryTimeout;
     private final String catalog;
+    private final String schema;
 
     SqlShell(QueryClient client, BufferedReader reader, PrintStream out, Duration queryTimeout) {
         this(client, reader, out, queryTimeout, null);
@@ -44,11 +45,17 @@ final class SqlShell {
 
     SqlShell(QueryClient client, BufferedReader reader, PrintStream out, Duration queryTimeout,
              String catalog) {
+        this(client, reader, out, queryTimeout, catalog, null);
+    }
+
+    SqlShell(QueryClient client, BufferedReader reader, PrintStream out, Duration queryTimeout,
+             String catalog, String schema) {
         this.client = client;
         this.reader = reader;
         this.out = out;
         this.queryTimeout = queryTimeout;
         this.catalog = catalog;
+        this.schema = schema;
     }
 
     /**
@@ -117,11 +124,7 @@ final class SqlShell {
 
     private void executeAndDisplay(String sql) {
         try {
-            Map<String, String> sessionProps = catalog != null && !catalog.isEmpty()
-                    ? Map.of("catalog", catalog) : Map.of();
-            SubmitQueryResponse submitResp = client.submitQuery(sql, sessionProps);
-            out.println("Query submitted: " + submitResp.queryId());
-            consumeAndComplete(submitResp);
+            execute(sql);
         } catch (QueryTimeoutException e) {
             out.println("Error [QUERY_TIMEOUT]: " + e.getMessage());
         } catch (PangrovaClientException e) {
@@ -130,6 +133,19 @@ final class SqlShell {
             out.println("Error: " + e.getMessage());
             LOG.debug("Unexpected error during query execution", e);
         }
+    }
+
+    /** Executes one server-parsed statement; failures propagate to batch callers. */
+    String execute(String sql) {
+        if (sql == null || sql.isBlank()) throw new IllegalArgumentException("SQL must not be blank");
+        Map<String, String> sessionProps = new java.util.HashMap<>();
+        if (catalog != null) sessionProps.put("catalog", catalog);
+        if (schema != null) sessionProps.put("schema", schema);
+        SubmitQueryResponse submitResp = client.submitQuery(sql, Map.copyOf(sessionProps));
+        out.println("Query submitted: " + submitResp.queryId());
+        consumeAndComplete(submitResp);
+        if (out.checkError()) throw new IllegalStateException("Failed to write query results");
+        return submitResp.queryId();
     }
 
     private void consumeAndComplete(SubmitQueryResponse submitResp) {
@@ -161,12 +177,11 @@ final class SqlShell {
 
     private void handleQueryResult(SubmitQueryResponse submitResp, QueryStatusResponse status, byte[] resultBytes) {
         if ("FAILED".equalsIgnoreCase(status.state())) {
-            printError(status);
-            return;
+            throw new PangrovaClientException(status.error() == null ? "QUERY_FAILED" : status.error().errorCode(),
+                    status.error() == null ? "Query failed without error detail" : status.error().message());
         }
         if ("CANCELLED".equalsIgnoreCase(status.state())) {
-            out.println("Query cancelled");
-            return;
+            throw new PangrovaClientException("QUERY_CANCELLED", "Query cancelled");
         }
         List<String> columnNames = submitResp.columnNames();
         if (resultBytes == null && (columnNames == null || columnNames.isEmpty())) {
@@ -225,14 +240,6 @@ final class SqlShell {
         List<String> headers = decoded.columnNames().isEmpty()
                 ? columnNames == null ? List.of() : columnNames : decoded.columnNames();
         return TableFormatter.format(headers, decoded.rows());
-    }
-
-    private void printError(QueryStatusResponse status) {
-        if (status.error() != null) {
-            out.println("Error [" + status.error().errorCode() + "]: " + status.error().message());
-        } else {
-            out.println("Query failed (no error detail available)");
-        }
     }
 
     static boolean isQuitCommand(String input) {

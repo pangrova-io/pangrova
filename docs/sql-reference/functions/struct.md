@@ -35,6 +35,7 @@ SELECT address.city, address.zip FROM contacts;
 ## Notes
 
 - STRUCT fields are accessed via dot notation
+- Inserting `ROW(...)` into a named STRUCT column binds values to fields by their declared order.
 - ROW produces positional fields referenced by ordinal
 
 **See Also:** [STRUCT data type](../../data-types/complex/struct.md)

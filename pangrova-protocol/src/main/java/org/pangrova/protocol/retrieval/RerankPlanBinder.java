@@ -46,6 +46,8 @@ public final class RerankPlanBinder {
                 throw new IllegalArgumentException(
                         "rerank requires exactly one rooted fragment");
             }
+            var scope = RetrievalOutputProjection.peel(plan);
+            plan = scope.inner();
             var root = plan.getRelations(0).getRoot();
             if (!root.getInput().hasFetch()
                     || SubstraitFetchBounds.offset(root.getInput().getFetch()) != 0
@@ -61,7 +63,7 @@ public final class RerankPlanBinder {
             Plan overfetch = plan.toBuilder().setRelations(
                     0, plan.getRelations(0).toBuilder().setRoot(
                             root.toBuilder().setInput(candidates))).build();
-            return bindExecution(overfetch.toByteArray(), binding, planNodeId);
+            return scope.restore(bindExecution(overfetch.toByteArray(), binding, planNodeId));
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException(
                     "invalid Substrait output-stage rerank plan", failure);
@@ -83,7 +85,8 @@ public final class RerankPlanBinder {
         }
         try {
             Plan plan = Plan.parseFrom(planBytes);
-            return bindParsed(plan, binding, planNodeId);
+            var scope = RetrievalOutputProjection.peel(plan);
+            return scope.restore(bindParsed(scope.inner(), binding, planNodeId));
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException(
                     "invalid Substrait plan or rerank candidate schema", failure);
@@ -97,9 +100,14 @@ public final class RerankPlanBinder {
             throw new IllegalArgumentException("rerank requires exactly one rooted fragment");
         }
         var root = plan.getRelations(0).getRoot();
-        NamedStruct schema = NamedStruct.parseFrom(binding.candidateSchema());
-        validateSchema(binding, schema);
-        RerankDetail detail = buildDetail(binding, schema, planNodeId);
+        NamedStruct requested = NamedStruct.parseFrom(binding.candidateSchema());
+        validateSchema(binding, requested);
+        NamedStruct schema = SubstraitRelationLayout.describe(root.getInput()).outputSchema();
+        if (!schema.getStruct().getTypesList().equals(requested.getStruct().getTypesList())) {
+            throw new IllegalArgumentException("Rerank schema does not match actual candidate input types");
+        }
+        RerankDetail detail = buildDetail(binding, schema,
+                RetrievalCandidateIdentity.kind(requested, binding.stableKeyFieldIndexes()), planNodeId);
         Rel rerank = Rel.newBuilder().setExtensionSingle(
                 ExtensionSingleRel.newBuilder()
                         .setInput(root.getInput())
@@ -116,14 +124,16 @@ public final class RerankPlanBinder {
     }
 
     private static RerankDetail buildDetail(
-            RerankBinding binding, NamedStruct schema, String planNodeId) {
+            RerankBinding binding, NamedStruct schema,
+            org.pangrova.protocol.v2.CandidateIdentityKind identityKind, String planNodeId) {
         ModelRef model = ModelRef.newBuilder()
                 .setModelId(binding.modelId())
                 .setVersion(binding.modelVersion())
                 .setSignatureSha256(ByteString.copyFrom(binding.modelSignature()))
                 .build();
         CandidateContract.Builder output = CandidateContract.newBuilder()
-                .setSchemaVersion(1)
+                .setSchemaVersion(RetrievalCandidateIdentity.SCHEMA_VERSION)
+                .setIdentityKind(identityKind)
                 .setSchema(schema)
                 .setScoreDirection(ScoreDirection.SCORE_DIRECTION_HIGHER_IS_BETTER);
         binding.stableKeyFieldIndexes().forEach(index ->

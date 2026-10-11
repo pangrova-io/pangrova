@@ -2,15 +2,12 @@ package org.pangrova.planner;
 
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.planner.substrait.ConversionResult;
-import org.pangrova.planner.substrait.SubstraitConversionException;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
 import org.pangrova.planner.validation.NativeCapabilityRegistry;
 import org.pangrova.planner.validation.SubstraitPlanValidator;
 import org.pangrova.planner.validation.PlanValidationResult;
 import org.apache.calcite.rel.RelNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
@@ -20,14 +17,12 @@ import org.pangrova.spi.connector.ConnectorSession;
 /**
  * End-to-end SQL compilation: SQL text → Substrait Plan bytes.
  * Core compile chain: planner.plan() → converter.convert() → validator.validate() → serializer.serialize().
- * Includes safe-plan retry on Calcite REDUCE_EXPRESSIONS bugs.
+ * Compilation failures are reported before any task is dispatched.
  *
  * <p>Security concerns (access control, column masking, row-level security) are handled
  * by dedicated components in {@code org.pangrova.coordinator.query.security}.
  */
 public class SqlCompiler {
-
-    private static final Logger LOG = LoggerFactory.getLogger(SqlCompiler.class);
 
     private final PangrovaPlanner planner;
     private final SubstraitConverter converter;
@@ -224,55 +219,14 @@ public class SqlCompiler {
                 convResult.aiInvocationHints());
     }
 
-    /**
-     * Compile SQL text into Substrait Plan bytes.
-     * If Substrait conversion fails due to Calcite REDUCE_EXPRESSIONS producing
-     * invalid field references (Integer.MIN_VALUE index), retries with safe
-     * optimization that skips expression reduction rules.
-     */
+    /** Compiles SQL through the single Calcite optimization and Substrait conversion path. */
     public byte[] compile(String sql) {
         return compile(sql, "");
     }
 
-    /**
-     * Compile SQL text into Substrait Plan bytes with query ID for log correlation.
-     */
+    /** Compiles SQL with its query identity; failures propagate before task dispatch. */
     public byte[] compile(String sql, String queryId) {
         PlanResult result = compileToResult(sql);
-        try {
-            return convertValidateAndSerialize(result.plan(), result.preOptimizationColumnNames());
-        } catch (Exception e) {
-            if (isReduceExpressionsBug(e)) {
-                LOG.warn("event=substrait_conversion_failed_invalid_ref action=retry_safe sql_length={} queryId={}",
-                        sql.length(), queryId);
-                PlanResult safeResult = planningPlanner().planSafe(sql);
-                return convertValidateAndSerialize(safeResult.plan(), safeResult.preOptimizationColumnNames());
-            }
-            throw e;
-        }
-    }
-
-    private static boolean isReduceExpressionsBug(Exception e) {
-        if (e instanceof SubstraitConversionException) {
-            String msg = e.getMessage();
-            return msg != null && (msg.contains("REDUCE_EXPRESSIONS bug")
-                    || msg.contains("out of bounds"));
-        }
-        if (e instanceof ArrayIndexOutOfBoundsException
-                || e instanceof IndexOutOfBoundsException) {
-            return hasCalciteReduceExpressionsInStack(e);
-        }
-        return false;
-    }
-
-    private static boolean hasCalciteReduceExpressionsInStack(Exception e) {
-        for (StackTraceElement frame : e.getStackTrace()) {
-            String className = frame.getClassName();
-            if (className.contains("ReduceExpressionsRule")
-                    || className.contains("RexSimplify")) {
-                return true;
-            }
-        }
-        return false;
+        return convertValidateAndSerialize(result.plan(), result.preOptimizationColumnNames());
     }
 }

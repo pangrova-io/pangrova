@@ -27,6 +27,12 @@ public record WriteCommitResult(
      */
     public WriteCommitResult {
         filePathsCreated = filePathsCreated != null ? List.copyOf(filePathsCreated) : List.of();
-        commitMetadata = commitMetadata != null ? commitMetadata : new byte[0];
+        commitMetadata = commitMetadata != null ? commitMetadata.clone() : new byte[0];
+    }
+
+    /** Returns a caller-owned copy of the serialized commit fragments. */
+    @Override
+    public byte[] commitMetadata() {
+        return commitMetadata.clone();
     }
 }

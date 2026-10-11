@@ -21,6 +21,8 @@
 #include "velox/type/Filter.h"
 #include "velox/common/memory/Memory.h"
 
+namespace pangrova::resource { class TaskObjectReadBudget; }
+
 namespace pangrova::velox {
 class VeloxTaskRunner;  // forward declaration
 class VeloxMemoryGovernor;
@@ -185,6 +187,7 @@ class PlanExecutionDriver {
   mutable std::mutex runner_mutex_;
 
   std::shared_ptr<velox::VeloxTaskRunner> active_runner_;
+  std::shared_ptr<resource::TaskObjectReadBudget> task_read_budget_;
 
   // Written only by the sink; release reads it after the producer join barrier.
   // This owner must outlive failed SDK drain/private-stage cleanup for retry.

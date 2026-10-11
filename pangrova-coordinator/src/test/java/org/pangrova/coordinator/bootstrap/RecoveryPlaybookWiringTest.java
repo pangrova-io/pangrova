@@ -9,6 +9,7 @@ import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.pangrova.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 /**
  * Verifies that {@link RecoveryPlaybookFramework} is wired into the Coordinator
@@ -95,7 +96,7 @@ class RecoveryPlaybookWiringTest {
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 null, null, null);
-        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap = new CoordinatorBootstrap(withAuthority(config));
         bootstrap.start();
 
         assertThat(bootstrap.getRecoveryPlaybook()).isNotNull();
@@ -103,8 +104,8 @@ class RecoveryPlaybookWiringTest {
 
     @Test
     void fullBootstrap_operationsDisabled_recoveryPlaybookIsNull() {
-        bootstrap = new CoordinatorBootstrap(
-                CoordinatorBootstrapConfig.withDefaults("coord-no-ops", 0));
+        bootstrap = new CoordinatorBootstrap(withAuthority(
+                CoordinatorBootstrapConfig.withDefaults("coord-no-ops", 0)));
         bootstrap.start();
 
         assertThat(bootstrap.getRecoveryPlaybook()).isNull();

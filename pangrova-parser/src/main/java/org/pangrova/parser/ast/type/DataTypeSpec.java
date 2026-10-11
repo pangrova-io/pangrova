@@ -1,5 +1,7 @@
 package org.pangrova.parser.ast.type;
 
+import org.pangrova.spi.connector.data.type.VectorType.ElementType;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -29,7 +31,7 @@ public sealed interface DataTypeSpec permits
     /**
      * Parses a raw SQL type string into a structured DataTypeSpec.
      * Handles primitive types, DECIMAL(p,s), ARRAY(...), MAP(...,...),
-     * STRUCT(...), and VECTOR(dim[, metric]).
+     * STRUCT(...), and VECTOR(dim[, precision|metric[, metric]]).
      *
      * @param rawType the uppercase SQL type string from the grammar
      * @return the corresponding DataTypeSpec
@@ -114,7 +116,7 @@ public sealed interface DataTypeSpec permits
 
     private static VectorType parseVector(String s) {
         String inner = extractInnerContent(s, "VECTOR");
-        String[] parts = inner.split(",");
+        String[] parts = inner.split(",", -1);
         int dimension;
         try {
             dimension = Integer.parseInt(parts[0].trim());
@@ -122,10 +124,22 @@ public sealed interface DataTypeSpec permits
             throw new IllegalArgumentException(
                     "Invalid numeric literal for vector dimension: '" + parts[0].trim() + "' in type: " + s, e);
         }
-        DistanceMetric metric = parts.length > 1
-                ? DistanceMetric.valueOf(parts[1].trim())
-                : DistanceMetric.COSINE;
-        return new VectorType(dimension, metric);
+        if (parts.length > 3) {
+            throw new IllegalArgumentException("VECTOR accepts dimension, precision and optional metric: " + s);
+        }
+        ElementType element = ElementType.FLOAT;
+        DistanceMetric metric = DistanceMetric.COSINE;
+        if (parts.length > 1) {
+            String parameter = parts[1].trim();
+            if (parameter.equals("FLOAT") || parameter.equals("DOUBLE")) {
+                element = ElementType.valueOf(parameter);
+                if (parts.length == 3) metric = DistanceMetric.valueOf(parts[2].trim());
+            } else {
+                if (parts.length == 3) throw new IllegalArgumentException("Invalid VECTOR precision: " + parameter);
+                metric = DistanceMetric.valueOf(parameter);
+            }
+        }
+        return new VectorType(dimension, metric, element);
     }
 
     private static List<FieldSpec> parseStructFields(String inner) {
@@ -278,20 +292,31 @@ public sealed interface DataTypeSpec permits
     }
 
     /**
-     * A fixed-dimension vector type for similarity search, with an associated distance metric.
+     * A fixed-dimension storage declaration with coordinate precision and legacy similarity metadata.
+     * Executable LogicalType canonicalization belongs to the protocol contract, not this neutral DTO.
      */
-    record VectorType(int dimension, DistanceMetric metric) implements DataTypeSpec {
+    record VectorType(int dimension, DistanceMetric metric, ElementType elementType) implements DataTypeSpec {
+
+        /** Preserves existing metric declarations with their declared default FLOAT32 storage. */
+        public VectorType(int dimension, DistanceMetric metric) {
+            this(dimension, metric, ElementType.FLOAT);
+        }
 
         public VectorType {
-            if (dimension <= 0) {
-                throw new IllegalArgumentException("dimension must be positive, got " + dimension);
-            }
             Objects.requireNonNull(metric, "metric must not be null");
+            Objects.requireNonNull(elementType, "elementType must not be null");
+            // The SPI parameterized type owns the storage dimension bounds.
+            new org.pangrova.spi.connector.data.type.VectorType(dimension, elementType);
         }
 
         @Override
         public String toCanonicalString() {
-            return "VECTOR(" + dimension + ", " + metric.name() + ")";
+            if (metric == DistanceMetric.COSINE) {
+                return "VECTOR(" + dimension + (elementType == ElementType.DOUBLE ? ",DOUBLE" : "") + ")";
+            }
+            // Retain non-default legacy metric metadata; it is not executable LogicalType authority.
+            return "VECTOR(" + dimension + ", "
+                    + (elementType == ElementType.DOUBLE ? "DOUBLE, " : "") + metric.name() + ")";
         }
     }
 

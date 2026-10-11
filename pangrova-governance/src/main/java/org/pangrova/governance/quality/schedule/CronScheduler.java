@@ -9,7 +9,7 @@ import org.pangrova.governance.audit.GovernanceAuditTrail;
 import org.pangrova.governance.audit.OperationType;
 import org.pangrova.governance.quality.rule.DataQualityRule;
 import org.pangrova.governance.quality.rule.GovernanceStatementHandler;
-import org.pangrova.common.lifecycle.ResourceCloser;
+import org.pangrova.common.concurrent.ExecutorDrain;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,6 +50,7 @@ public class CronScheduler implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(CronScheduler.class);
     private static final long DEFAULT_INTERVAL_MS = 3_600_000;
+    private static final long SHUTDOWN_TIMEOUT_MS = 5000;
 
     private final GovernanceStatementHandler handler;
     private final BooleanSupplier leaderCheck;
@@ -91,7 +92,10 @@ public class CronScheduler implements AutoCloseable {
         this.handler = Objects.requireNonNull(handler, "handler must not be null");
         this.leaderCheck = Objects.requireNonNull(leaderCheck, "leaderCheck must not be null");
         this.auditTrail = auditTrail;
-        this.executor = ManagedExecutorFactory.newSingleThreadScheduledExecutor("cron-scheduler");
+        var scheduledExecutor = (java.util.concurrent.ScheduledThreadPoolExecutor)
+                ManagedExecutorFactory.newSingleThreadScheduledExecutor("cron-scheduler");
+        scheduledExecutor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        this.executor = scheduledExecutor;
         this.cronParser = new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.UNIX));
     }
 
@@ -124,15 +128,20 @@ public class CronScheduler implements AutoCloseable {
 
     @Override
     public void close() {
-        ResourceCloser.shutdownExecutor(executor, Duration.ofSeconds(5));
+        scheduledTasks.values().forEach(task -> task.cancel(false));
+        ExecutorDrain.shutdownAndAwait(executor, SHUTDOWN_TIMEOUT_MS);
     }
 
     private void scheduleNext(DataQualityRule rule, long delayMs) {
         ScheduledFuture<?> future = executor.schedule(
                 () -> {
-                    executeCheck(rule);
-                    long nextDelay = computeNextDelayMs(rule.schedule());
-                    scheduleNext(rule, nextDelay);
+                    ExecutorDrain.runOwned(executor, () -> {
+                        executeCheck(rule);
+                        if (!executor.isShutdown()) {
+                            long nextDelay = computeNextDelayMs(rule.schedule());
+                            scheduleNext(rule, nextDelay);
+                        }
+                    });
                 },
                 delayMs, TimeUnit.MILLISECONDS);
         scheduledTasks.put(rule.ruleId(), future);

@@ -3,6 +3,8 @@ package org.pangrova.parser;
 import org.pangrova.parser.ast.Query;
 import org.pangrova.parser.ast.Statement;
 import org.pangrova.parser.ast.statement.CreateTableStatement;
+import org.pangrova.parser.ast.type.BaseType;
+import org.pangrova.parser.ast.type.DataTypeSpec;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,5 +66,15 @@ class BlobTypeSyntaxTest {
         assertThat(create.columns().get(1).type()).isEqualTo(
                 new org.pangrova.parser.ast.type.DataTypeSpec.PrimitiveType(
                         org.pangrova.parser.ast.type.BaseType.BLOB));
+    }
+
+    @Test
+    void varbinaryColumnAndNullCastUseCanonicalType() {
+        CreateTableStatement create = (CreateTableStatement) parser.parse(
+                "CREATE TABLE files (id BIGINT, content VARBINARY)");
+        assertThat(create.columns().get(1).type())
+                .isEqualTo(new DataTypeSpec.PrimitiveType(BaseType.VARBINARY));
+        assertThat(parser.parse("SELECT CAST(NULL AS VARBINARY) AS content"))
+                .isInstanceOf(Query.class);
     }
 }

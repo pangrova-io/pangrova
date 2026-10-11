@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-
 /** PostgreSQL-backed implementation of the durable artifact-build state machine. */
 final class JdbcArtifactBuildReader extends JdbcArtifactBuildStoreSupport {
 
@@ -63,7 +62,8 @@ final class JdbcArtifactBuildReader extends JdbcArtifactBuildStoreSupport {
         requireText(generation, "generation");
         requireText(sourceSnapshot, "sourceSnapshot");
         try (Connection connection = dataSource.getConnection()) {
-            return JdbcArtifactPublishedInputs.findManifest(connection, tenantId, artifactId, generation, sourceSnapshot);
+            return JdbcArtifactPublishedInputs.findManifest(
+                    connection, tenantId, artifactId, generation, sourceSnapshot);
         } catch (SQLException failure) {
             throw failure("find published artifact generation", failure);
         }
@@ -145,6 +145,18 @@ final class JdbcArtifactBuildReader extends JdbcArtifactBuildStoreSupport {
         return inTransaction("match published artifact splits", connection ->
                 JdbcArtifactBuildOutputQueries.matchesPublishedSplits(
                         connection, tenantId, jobId, sourceIds, sourceSplitSha256));
+    }
+
+    java.util.Map<String, org.pangrova.metadata.artifact.build.ArtifactBuildSplit> loadPublishedSourceSplits(
+            String tenantId, String jobId, java.util.Set<String> sourceObjectIds) {
+        requireText(tenantId, "tenantId");
+        requireText(jobId, "jobId");
+        Objects.requireNonNull(sourceObjectIds, "sourceObjectIds must not be null");
+        if (sourceObjectIds.isEmpty()) return java.util.Map.of();
+        List<String> sourceIds = JdbcArtifactBuildOutputQueries.requireSourceIds(sourceObjectIds);
+        return inTransaction("load published artifact source splits", connection ->
+                JdbcArtifactBuildOutputQueries.loadPublishedSourceSplits(
+                        connection, tenantId, jobId, sourceIds));
     }
 
 }

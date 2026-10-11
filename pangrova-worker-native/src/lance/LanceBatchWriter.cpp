@@ -161,6 +161,8 @@ void LanceBatchWriter::exportSchemaToArrow() {
       &exported.schema,
       static_cast<int32_t>(config_.operation),
       config_.expectedReadVersion,
+      reinterpret_cast<const uint8_t*>(config_.acceptedBaseSnapshot.data()),
+      config_.acceptedBaseSnapshot.size(),
       config_.schemaFenceSha256.data(),
       config_.schemaFenceSha256.size(),
       config_.writeId.c_str(),

@@ -13,7 +13,7 @@
  */
 package org.pangrova.testing.e2e.index.vector;
 
-import org.pangrova.testing.e2e.SqlE2ETestBase;
+import org.pangrova.testing.e2e.index.VectorIndexE2ETestBase;
 import org.pangrova.spi.connector.data.TypedRow;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
@@ -28,24 +28,15 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * DiskANN Distributed Adaptation E2E tests.
- *
- * <p>Validates all 9 fixes for the DiskANN distributed adaptation:
- * <ol>
- *   <li>Build + search (P0-1, P2-3, P1-1)</li>
- *   <li>Build output path correctness (P0-1)</li>
- *   <li>Index distribution to workers (P0-2)</li>
- *   <li>Shard registration via heartbeat (P0-3)</li>
- *   <li>Cached search performance (P1-1)</li>
- *   <li>Parallel result collection (P1-2)</li>
- *   <li>Algorithm recommendation for large datasets (P1-3)</li>
- *   <li>Filtered search with pre-filter bitset (P2-1)</li>
- *   <li>Reranking precision improvement (P2-3)</li>
- * </ol>
+ * Real SQL-to-Native DiskANN functional acceptance on the in-process Worker.
+ * Every unfiltered search requires READY/PUBLISHED, the issued ANN binding,
+ * Native completion, and checksum-verified Native artifact materialization.
+ * The WHERE case requires the real filtered Native ANN owner.
+ * Local fixtures and timings do not qualify multi-node scale or SF100/1000 performance.
  */
 @Tag("diskann")
 @DisplayName("DiskANN Distributed Adaptation E2E")
-class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
+class DiskAnnDistributedE2ETest extends VectorIndexE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";
     private static final String SCHEMA = "default";
@@ -83,7 +74,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
                 sb.append(",");
             }
             double val = Math.sin(id * 0.3 + d * 0.7);
-            sb.append(String.format("%.6f", val));
+            sb.append(String.format(java.util.Locale.ROOT, "%.6f", val));
         }
         sb.append("]");
         return sb.toString();
@@ -149,15 +140,16 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
         // Create DiskANN index
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_basic ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_basic", fqn);
 
         // Query vector = row 1's vector (should be nearest neighbor to itself)
         String queryVec = generateVector(1, DIM);
 
-        List<TypedRow> rows = sqlRunner.execute(
+        List<TypedRow> rows = executeAnn(
                 "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
                         + " FROM " + fqn
                         + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
-                        + " LIMIT 5");
+                        + " LIMIT 5", publication);
 
         assertThat(rows).hasSize(5);
         // Row 1 should be the exact match (distance ~0)
@@ -182,7 +174,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 2: DiskANN build output path is not /tmp")
+    @DisplayName("Case 2: Published objects are actually materialized by Native")
     void diskAnnBuildOutputPath(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_path_" + System.nanoTime();
 
@@ -192,17 +184,18 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_path ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_path", fqn);
 
-        // Verify the index can be used for search (implies it was stored at accessible path)
+        // Require the actual published ANN task and Native object checks below.
         String queryVec = generateVector(1, DIM);
-        List<TypedRow> rows = sqlRunner.execute(
+        List<TypedRow> rows = executeAnn(
                 "SELECT id FROM " + fqn
                         + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
-                        + " LIMIT 3");
+                        + " LIMIT 3", publication);
         assertThat(rows).isNotEmpty();
 
-        // The fact that search succeeds after index creation proves the index
-        // is stored at a path accessible by the Worker (not Coordinator's /tmp)
+        // Successful rows alone are insufficient; executeAnn verifies the issued binding
+        // and bytes in the runtime-owned content-addressed cache.
         sqlRunner.executeDdl("DROP INDEX idx_diskann_path ON " + fqn);
         sqlRunner.executeDdl("DROP TABLE " + fqn);
         waitForNativeTaskCleanup();
@@ -213,7 +206,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 3: DiskANN index is distributed and searchable on Worker")
+    @DisplayName("Case 3: Published ANN binding is executed by the Worker")
     void diskAnnIndexDistribution(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_dist_" + System.nanoTime();
 
@@ -223,14 +216,15 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_dist ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_dist", fqn);
 
         // Search verifies that the Worker successfully received and loaded the index
         String queryVec = generateVector(50, DIM);
-        List<TypedRow> rows = sqlRunner.execute(
+        List<TypedRow> rows = executeAnn(
                 "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
                         + " FROM " + fqn
                         + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
-                        + " LIMIT 5");
+                        + " LIMIT 5", publication);
 
         assertThat(rows).hasSize(5);
         // Row 50 should be nearest to its own vector
@@ -246,7 +240,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 4: DiskANN shard is registered and query routes to correct Worker")
+    @DisplayName("Case 4: Repeated searches use the published ANN generation")
     void diskAnnShardRegistration(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_shard_" + System.nanoTime();
 
@@ -256,15 +250,16 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_shard ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_shard", fqn);
 
         // Multiple queries to verify routing consistency
         for (int q = 1; q <= 3; q++) {
             String queryVec = generateVector(q * 10, DIM);
-            List<TypedRow> rows = sqlRunner.execute(
+            List<TypedRow> rows = executeAnn(
                     "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
                             + " FROM " + fqn
                             + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
-                            + " LIMIT 3");
+                            + " LIMIT 3", publication);
 
             assertThat(rows).hasSize(3);
             // First result should be the exact match
@@ -281,7 +276,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 5: DiskANN cached search — repeated queries are faster")
+    @DisplayName("Case 5: Repeated ANN searches retain the existing local timing bound")
     void diskAnnCachedSearch(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_cache_" + System.nanoTime();
 
@@ -291,6 +286,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_cache ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_cache", fqn);
 
         String queryVec = generateVector(1, DIM);
         String sql = "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
@@ -300,7 +296,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         // First query — cold cache (loads index from disk)
         long start1 = System.nanoTime();
-        List<TypedRow> rows1 = sqlRunner.execute(sql);
+        List<TypedRow> rows1 = executeAnn(sql, publication);
         long elapsed1 = System.nanoTime() - start1;
 
         assertThat(rows1).hasSize(5);
@@ -310,17 +306,15 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
         int warmRuns = 10;
         for (int i = 0; i < warmRuns; i++) {
             long s = System.nanoTime();
-            List<TypedRow> rows = sqlRunner.execute(sql);
+            List<TypedRow> rows = executeAnn(sql, publication);
             totalWarm += System.nanoTime() - s;
             assertThat(rows).hasSize(5);
             assertThat(((Number) rows.get(0).getRaw("id")).longValue()).isEqualTo(1L);
         }
         long avgWarm = totalWarm / warmRuns;
 
-        // Warm queries should be faster; use a generous 5x multiplier to
-        // account for JVM JIT, OS scheduler, and CI variability.
-        // On real multi-node setups the improvement is dramatic (SSD seek vs
-        // memory hit), but in single-JVM test mode the difference is subtle.
+        // Retain the existing local timing bound. These small samples include
+        // verification overhead and do not establish a calibrated performance benefit.
         assertThat(avgWarm).isLessThan(elapsed1 * 5);
 
         sqlRunner.executeDdl("DROP INDEX idx_diskann_cache ON " + fqn);
@@ -333,7 +327,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 6: DiskANN parallel result collection from multiple workers")
+    @DisplayName("Case 6: Native ANN ordered result collection")
     void diskAnnParallelResultCollection(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_parallel_" + System.nanoTime();
 
@@ -344,13 +338,14 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_par ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_par", fqn);
 
         String queryVec = generateVector(100, DIM);
-        List<TypedRow> rows = sqlRunner.execute(
+        List<TypedRow> rows = executeAnn(
                 "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
                         + " FROM " + fqn
                         + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
-                        + " LIMIT 10");
+                        + " LIMIT 10", publication);
 
         assertThat(rows).hasSize(10);
         // Row 100 should be the closest (exact match)
@@ -372,7 +367,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 7: Large dataset triggers DISK_ANN recommendation")
+    @DisplayName("Case 7: Explicit DISK_ANN supports a multi-file 64-dimensional fixture")
     void diskAnnRecommendation(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_recommend_" + System.nanoTime();
         int dim = 64;
@@ -380,9 +375,8 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
         sqlRunner.executeDdl("CREATE TABLE " + fqn
                 + " (id BIGINT, embedding VECTOR(" + dim + "))");
 
-        // Insert a large dataset that should exceed in-memory budget
-        // to trigger DISK_ANN recommendation. Split into batches to avoid
-        // exceeding the SQL parser's token limit (max ~64K tokens).
+        // This functional fixture spans multiple real source files. DISK_ANN is
+        // explicitly requested; no algorithm recommendation or scale claim follows.
         int batchSize = 50;
         for (int batch = 0; batch < 500 / batchSize; batch++) {
             StringBuilder sb = new StringBuilder("INSERT INTO ").append(fqn).append(" VALUES ");
@@ -399,14 +393,15 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
         // Create index with DISK_ANN explicitly — validates the algorithm is available
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_rec ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_rec", fqn);
 
-        // Verify search still works — recommendation path leads to a usable index
+        // Verify the explicit algorithm reaches the issued Native ANN task.
         String queryVec = generateVector(1, dim);
-        List<TypedRow> rows = sqlRunner.execute(
+        List<TypedRow> rows = executeAnn(
                 "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
                         + " FROM " + fqn
                         + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
-                        + " LIMIT 5");
+                        + " LIMIT 5", publication);
 
         assertThat(rows).hasSize(5);
         assertThat(((Number) rows.get(0).getRaw("id")).longValue()).isEqualTo(1L);
@@ -421,7 +416,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 8: DiskANN filtered ANN search with pre-filter bitset")
+    @DisplayName("Case 8: Native filtered DiskANN preserves SQL semantics with a READY index")
     void diskAnnFilteredSearch(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_filter_" + System.nanoTime();
 
@@ -431,15 +426,18 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_filter ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_filter", fqn);
 
         // Filtered query — only rows with category = 'cat_0' (ids: 4, 8, 12, ...)
         String queryVec = generateVector(4, DIM);
-        List<TypedRow> rows = sqlRunner.execute(
+        var filtered = executeObserved(
                 "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
                         + " FROM " + fqn
                         + " WHERE category = 'cat_0'"
                         + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
                         + " LIMIT 5");
+        assertFilteredAnn(publication, filtered);
+        List<TypedRow> rows = filtered.rows();
 
         assertThat(rows).hasSize(5);
         // All results should belong to category 'cat_0' (id % 4 == 0)
@@ -467,7 +465,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("Case 9: DiskANN reranking improves search precision")
+    @DisplayName("Case 9: Native ANN exact distance rescore retains top-1 accuracy")
     void diskAnnRerankPrecision(TestInfo testInfo) {
         String fqn = FQN_PREFIX + "t_diskann_rerank_" + System.nanoTime();
         int dim = 32;
@@ -487,6 +485,7 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
 
         sqlRunner.executeDdl("CREATE INDEX idx_diskann_rerank ON " + fqn
                 + "(embedding) USING VECTOR WITH ('algorithm'='DISK_ANN', 'metric'='L2')");
+        var publication = awaitPublishedVectorIndex("idx_diskann_rerank", fqn);
 
         // Run search for multiple query points and verify top-1 accuracy
         int correctTop1 = 0;
@@ -494,11 +493,11 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
         for (int q = 1; q <= totalQueries; q++) {
             int targetId = q * 30; // query points: 30, 60, 90, ..., 300
             String queryVec = generateVector(targetId, dim);
-            List<TypedRow> rows = sqlRunner.execute(
+            List<TypedRow> rows = executeAnn(
                     "SELECT id, l2_distance(embedding, " + queryVec + ") AS dist"
                             + " FROM " + fqn
                             + " ORDER BY l2_distance(embedding, " + queryVec + ") ASC"
-                            + " LIMIT 1");
+                            + " LIMIT 1", publication);
 
             assertThat(rows).hasSize(1);
             long topId = ((Number) rows.get(0).getRaw("id")).longValue();
@@ -507,8 +506,8 @@ class DiskAnnDistributedE2ETest extends SqlE2ETestBase {
             }
         }
 
-        // With reranking, top-1 accuracy should be very high (at least 90%)
-        // Without reranking (PQ-only), precision is typically ~60-70%
+        // Retain the original ten-query functional top-1 bound. This is distance
+        // rescore, and does not demonstrate model reranking or a PQ comparison.
         assertThat(correctTop1).isGreaterThanOrEqualTo(9);
 
         sqlRunner.executeDdl("DROP INDEX idx_diskann_rerank ON " + fqn);

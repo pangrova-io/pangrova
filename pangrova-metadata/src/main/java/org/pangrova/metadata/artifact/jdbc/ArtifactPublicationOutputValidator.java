@@ -51,7 +51,8 @@ final class ArtifactPublicationOutputValidator {
         validateWorkPages(connection, job, outputs);
         return outputs.stream().map(PageOutput::output)
                 .filter(output -> output.scope() != ArtifactBuildOutputScope.WORK_UNIT
-                        || job.artifactType().equals(org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TABULAR_EXPORT))
+                        || job.artifactType().equals(
+                                org.pangrova.metadata.artifact.contract.ArtifactTypeIds.TABULAR_EXPORT))
                 .toList();
     }
 

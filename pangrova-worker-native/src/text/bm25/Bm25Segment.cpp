@@ -311,9 +311,10 @@ std::vector<Bm25SearchResult> Bm25Segment::search(
   if (document_lengths_.empty() || query_tokens.empty()) {
     return {};
   }
-  if (corpus_stats.documentCount() < document_lengths_.size()) {
+  if (corpus_stats.documentCount() < document_lengths_.size() ||
+      corpus_stats.totalDocumentLength() < total_document_length_) {
     throw std::invalid_argument(
-        "BM25 corpus statistics contain fewer documents than the segment");
+        "BM25 corpus statistics contain fewer documents or tokens than the segment");
   }
   const double average_length = corpus_stats.averageDocumentLength();
   std::unordered_map<uint32_t, double> scores;
@@ -333,6 +334,12 @@ std::vector<Bm25SearchResult> Bm25Segment::search(
       throw std::runtime_error(
           "BM25 corpus statistics differ from the postings segment");
     }
+    // Empty documents legitimately make the generation average smaller than
+    // one. A positive posting requires a positive, finite average; an all-empty
+    // generation has no matching postings and remains a legal empty result.
+    if (!std::isfinite(average_length) || average_length <= 0) {
+      throw std::runtime_error("BM25 matching postings require positive corpus token statistics");
+    }
     const double idf = std::log1p(
         (corpus_stats.documentCount() - document_frequency + 0.5) /
         (document_frequency + 0.5));
@@ -340,9 +347,17 @@ std::vector<Bm25SearchResult> Bm25Segment::search(
       const auto& posting = postings_.at(term->posting_offset + index);
       const double frequency = posting.term_frequency;
       const double length = document_lengths_.at(posting.document);
-      const double denominator = frequency + k1 *
-          (1.0 - b + b * length / std::max(1.0, average_length));
-      scores[posting.document] += idf * frequency * (k1 + 1.0) / denominator;
+      const double normalization = 1.0 - b + b * length / average_length;
+      // Divide numerator and denominator by k1 when it is large. This preserves
+      // the original BM25 formula without finite k1 overflowing both to infinity.
+      const double factor = k1 >= 1.0
+          ? frequency * (1.0 + 1.0 / k1) / (frequency / k1 + normalization)
+          : frequency * (k1 + 1.0) / (frequency + k1 * normalization);
+      auto& score = scores[posting.document];
+      score += idf * factor;
+      if (!std::isfinite(score)) {
+        throw std::runtime_error("BM25 score is not finite");
+      }
     }
   }
   auto worse = [](const Bm25SearchResult& left, const Bm25SearchResult& right) {

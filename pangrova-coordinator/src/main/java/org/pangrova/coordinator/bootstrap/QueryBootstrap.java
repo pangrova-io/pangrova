@@ -67,6 +67,7 @@ final class QueryBootstrap {
     private TransportServerLifecycle controlPlaneResultServer;
     private CoordinatorResultService controlPlaneResultService;
     private BufferAllocator controlPlaneResultAllocator;
+    private org.pangrova.coordinator.result.CoordinatorResultBuffer controlPlaneResultBuffer;
     private ScheduledExecutorService schedulerExecutor;
     private ExecutorService terminalCleanupExecutor;
     private ExecutorService shuffleCleanupExecutor;
@@ -295,6 +296,9 @@ final class QueryBootstrap {
     private void closeQueryResources(org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission progress) {
         progress.step("audit", () -> CoordinatorShutdownSequence.closeAuditEmitter(auditEmitter));
         progress.step("control-transport", () -> CoordinatorShutdownSequence.stopCoordinatorTransport(controlPlaneResultServer));
+        progress.step("control-buffer", () -> {
+            if (controlPlaneResultBuffer != null) controlPlaneResultBuffer.close();
+        });
         progress.step("transport-allocator", () -> CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
         progress.step("result-cache", () -> CoordinatorShutdownSequence.closeQueryResultCache(queryResultCache));
     }
@@ -356,6 +360,7 @@ final class QueryBootstrap {
                 config, tracingProvider, schedulerExecutor());
         controlPlaneResultServer = started.server();
         controlPlaneResultAllocator = started.allocator();
+        controlPlaneResultBuffer = started.buffer();
         return started.service();
     }
 

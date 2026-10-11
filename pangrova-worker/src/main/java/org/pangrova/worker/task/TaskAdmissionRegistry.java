@@ -18,19 +18,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * Sole process-local admission authority, retaining compact identities until their deadline.
- * Task resource cleanup cannot reopen an admitted attempt. Locks protect only in-memory
- * identities; resource reservation, execution and waiting happen outside the registry lock.
+ * Sole process-local admission authority, retaining compact identities until their deadline. Task
+ * resource cleanup cannot reopen an admitted attempt. Locks protect only in-memory identities;
+ * resource reservation, execution and waiting happen outside the registry lock.
  */
 @ThreadSafe
 final class TaskAdmissionRegistry {
+    private static final int ADMISSION_DRAIN_TIMEOUT_SECONDS = 30;
     private final Map<String, Entry> entries = new HashMap<>();
     private final int capacity;
     private final Clock clock;
     private boolean closed;
 
     TaskAdmissionRegistry(int capacity, Clock clock) {
-        if (capacity <= 0) throw new IllegalArgumentException("Admission capacity must be positive");
+        if (capacity <= 0) {
+            throw new IllegalArgumentException("Admission capacity must be positive");
+        }
         this.capacity = capacity;
         this.clock = java.util.Objects.requireNonNull(clock, "clock");
     }
@@ -38,7 +41,9 @@ final class TaskAdmissionRegistry {
     Reservation reserve(TaskRequest request, String workerTaskId) {
         requireUnexpired(request.getDeadlineEpochMs());
         String taskId = request.getAttempt().getTaskId();
-        if (taskId.isBlank()) throw new IllegalArgumentException("Canonical task identity is required");
+        if (taskId.isBlank()) {
+            throw new IllegalArgumentException("Canonical task identity is required");
+        }
         byte[] digest = CanonicalTaskAdmissionSeals.digest(request);
         synchronized (entries) {
             requireOpen();
@@ -46,15 +51,25 @@ final class TaskAdmissionRegistry {
             Entry current = entries.get(taskId);
             if (current != null) {
                 if (!MessageDigest.isEqual(current.digest, digest)) {
-                    throw new TaskAdmissionException(TaskAdmissionException.Reason.IDENTITY_CONFLICT,
-                            "Canonical task identity was reused with a different request: " + taskId);
+                    throw new TaskAdmissionException(
+                            TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+                            "Canonical task identity was reused with a different request: "
+                                    + taskId);
                 }
-                if (current.sealed) throw new TaskAdmissionException(TaskAdmissionException.Reason.SEALED,
-                        "Exact task admission is sealed: " + taskId);
+                if (current.sealed) {
+                    throw new TaskAdmissionException(
+                            TaskAdmissionException.Reason.SEALED,
+                            "Exact task admission is sealed: " + taskId);
+                }
                 return new Reservation(taskId, current, false);
             }
             ensureCapacity();
-            Entry added = new Entry(digest, workerTaskId, request.getDeadlineEpochMs(), request.getAttempt());
+            Entry added =
+                    new Entry(
+                            digest,
+                            workerTaskId,
+                            request.getDeadlineEpochMs(),
+                            request.getAttempt());
             Reservation reservation = new Reservation(taskId, added, true);
             entries.put(taskId, added);
             return reservation;
@@ -64,7 +79,9 @@ final class TaskAdmissionRegistry {
     boolean knownIdentity(TaskAdmissionSealRequest request) {
         synchronized (entries) {
             Entry entry = entries.get(request.getAttempt().getTaskId());
-            if (entry == null) return false;
+            if (entry == null) {
+                return false;
+            }
             requireSealMatch(entry, request);
             return true;
         }
@@ -76,8 +93,11 @@ final class TaskAdmissionRegistry {
         synchronized (entries) {
             Entry entry = entries.get(taskId);
             if (entry == null) {
-                if (mustExist) throw new TaskAdmissionException(TaskAdmissionException.Reason.IDENTITY_CONFLICT,
-                        "Known exact admission was retired before its seal: " + taskId);
+                if (mustExist) {
+                    throw new TaskAdmissionException(
+                            TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+                            "Known exact admission was retired before its seal: " + taskId);
+                }
                 // Do not retain arbitrary expired identities or invent a lost historical receipt.
                 if (request.getDeadlineEpochMs() <= clock.millis()) {
                     return new SealStatus("", false, Optional.empty());
@@ -92,16 +112,23 @@ final class TaskAdmissionRegistry {
                 requireSealMatch(entry, request);
                 entry.sealed = true;
             }
-            return new SealStatus(entry.handedOff ? entry.workerTaskId : "", entry.noOwnerExited,
+            return new SealStatus(
+                    entry.handedOff ? entry.workerTaskId : "",
+                    entry.noOwnerExited,
                     Optional.ofNullable(entry.drainReceipt));
         }
     }
 
     private static void requireSealMatch(Entry entry, TaskAdmissionSealRequest request) {
-        if (!MessageDigest.isEqual(entry.digest, request.getCanonicalRequestChecksum().getDigest().toByteArray())
-                || entry.deadline != request.getDeadlineEpochMs() || !entry.attempt.equals(request.getAttempt())) {
-            throw new TaskAdmissionException(TaskAdmissionException.Reason.IDENTITY_CONFLICT,
-                    "Admission seal does not match the issued task: " + request.getAttempt().getTaskId());
+        if (!MessageDigest.isEqual(
+                        entry.digest,
+                        request.getCanonicalRequestChecksum().getDigest().toByteArray())
+                || entry.deadline != request.getDeadlineEpochMs()
+                || !entry.attempt.equals(request.getAttempt())) {
+            throw new TaskAdmissionException(
+                    TaskAdmissionException.Reason.IDENTITY_CONFLICT,
+                    "Admission seal does not match the issued task: "
+                            + request.getAttempt().getTaskId());
         }
     }
 
@@ -109,21 +136,32 @@ final class TaskAdmissionRegistry {
         TaskReport compact = CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(receipt);
         synchronized (entries) {
             Entry entry = entries.get(compact.getAttempt().getTaskId());
-            if (entry == null && deadline <= clock.millis()) return;
-            if (entry == null || !entry.workerTaskId.equals(workerTaskId)
+            if (entry == null && deadline <= clock.millis()) {
+                return;
+            }
+            if (entry == null
+                    || !entry.workerTaskId.equals(workerTaskId)
                     || !entry.attempt.equals(compact.getAttempt())) {
-                throw new IllegalStateException("Drain receipt does not own its exact admitted task");
+                throw new IllegalStateException(
+                        "Drain receipt does not own its exact admitted task");
             }
             entry.drainReceipt = compact;
         }
     }
 
     private void ensureCapacity() {
-        if (entries.size() < capacity) return;
-        entries.values().removeIf(entry -> entry.deadline <= clock.millis()
-                && entry.admitted.isDone() && (entry.noOwnerExited || entry.drainReceipt != null));
+        if (entries.size() < capacity) {
+            return;
+        }
+        entries.values()
+                .removeIf(
+                        entry ->
+                                entry.deadline <= clock.millis()
+                                        && entry.admitted.isDone()
+                                        && (entry.noOwnerExited || entry.drainReceipt != null));
         if (entries.size() >= capacity) {
-            throw new TaskAdmissionException(TaskAdmissionException.Reason.CAPACITY,
+            throw new TaskAdmissionException(
+                    TaskAdmissionException.Reason.CAPACITY,
                     "Task admission identity limit reached: " + capacity);
         }
     }
@@ -132,24 +170,30 @@ final class TaskAdmissionRegistry {
 
     void requireUnexpired(long deadline) {
         if (deadline <= clock.millis()) {
-            throw new TaskAdmissionException(TaskAdmissionException.Reason.EXPIRED,
-                    "Task admission deadline has expired");
+            throw new TaskAdmissionException(
+                    TaskAdmissionException.Reason.EXPIRED, "Task admission deadline has expired");
         }
     }
 
     String resolve(String canonicalTaskId) {
         synchronized (entries) {
             Entry entry = entries.get(canonicalTaskId);
-            return entry == null || entry.workerTaskId.isEmpty() || !entry.admitted.isDone()
-                    || entry.admitted.isCompletedExceptionally() ? null : entry.workerTaskId;
+            return entry == null
+                            || entry.workerTaskId.isEmpty()
+                            || !entry.admitted.isDone()
+                            || entry.admitted.isCompletedExceptionally()
+                    ? null
+                    : entry.workerTaskId;
         }
     }
 
     void removeExpired(String canonicalTaskId, String workerTaskId) {
         synchronized (entries) {
             Entry entry = entries.get(canonicalTaskId);
-            if (entry != null && entry.workerTaskId.equals(workerTaskId)
-                    && entry.deadline <= clock.millis() && entry.admitted.isDone()
+            if (entry != null
+                    && entry.workerTaskId.equals(workerTaskId)
+                    && entry.deadline <= clock.millis()
+                    && entry.admitted.isDone()
                     && (entry.noOwnerExited || entry.drainReceipt != null)) {
                 entries.remove(canonicalTaskId, entry);
             }
@@ -166,13 +210,15 @@ final class TaskAdmissionRegistry {
         CompletableFuture<Void> pending;
         synchronized (entries) {
             closed = true;
-            pending = CompletableFuture.allOf(entries.values().stream()
-                    .filter(entry -> !entry.admitted.isDone())
-                    .map(entry -> entry.admitted.handle((result, failure) -> null))
-                    .toArray(CompletableFuture[]::new));
+            pending =
+                    CompletableFuture.allOf(
+                            entries.values().stream()
+                                    .filter(entry -> !entry.admitted.isDone())
+                                    .map(entry -> entry.admitted.handle((result, failure) -> null))
+                                    .toArray(CompletableFuture[]::new));
         }
         try {
-            pending.get(30, TimeUnit.SECONDS);
+            pending.get(ADMISSION_DRAIN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while draining task admissions", failure);
@@ -182,8 +228,10 @@ final class TaskAdmissionRegistry {
     }
 
     private void requireOpen() {
-        if (closed) throw new TaskAdmissionException(TaskAdmissionException.Reason.CLOSED,
-                "Task admission is closed");
+        if (closed) {
+            throw new TaskAdmissionException(
+                    TaskAdmissionException.Reason.CLOSED, "Task admission is closed");
+        }
     }
 
     final class Reservation {
@@ -197,14 +245,19 @@ final class TaskAdmissionRegistry {
             this.first = first;
         }
 
-        boolean first() { return first; }
+        boolean first() {
+            return first;
+        }
 
         void publish(Runnable publication) {
             synchronized (entries) {
                 requireOpen();
                 requireUnexpired(entry.deadline);
-                if (entry.sealed) throw new TaskAdmissionException(TaskAdmissionException.Reason.SEALED,
-                        "Exact task admission is sealed: " + taskId);
+                if (entry.sealed) {
+                    throw new TaskAdmissionException(
+                            TaskAdmissionException.Reason.SEALED,
+                            "Exact task admission is sealed: " + taskId);
+                }
                 publication.run();
             }
         }
@@ -213,8 +266,11 @@ final class TaskAdmissionRegistry {
             synchronized (entries) {
                 requireOpen();
                 requireUnexpired(entry.deadline);
-                if (entry.sealed) throw new TaskAdmissionException(TaskAdmissionException.Reason.SEALED,
-                        "Exact task admission is sealed: " + taskId);
+                if (entry.sealed) {
+                    throw new TaskAdmissionException(
+                            TaskAdmissionException.Reason.SEALED,
+                            "Exact task admission is sealed: " + taskId);
+                }
                 entry.handedOff = true;
             }
             entry.admitted.complete(entry.workerTaskId);
@@ -223,7 +279,9 @@ final class TaskAdmissionRegistry {
         void rejectedBeforeOwnership(Throwable failure) {
             synchronized (entries) {
                 entry.noOwnerExited = true;
-                if (!entry.sealed) entries.remove(taskId, entry);
+                if (!entry.sealed) {
+                    entries.remove(taskId, entry);
+                }
             }
             entry.admitted.completeExceptionally(failure);
         }
@@ -231,17 +289,25 @@ final class TaskAdmissionRegistry {
         String awaitAdmission() {
             requireUnexpired(entry.deadline);
             try {
-                return entry.admitted.get(Math.max(1, entry.deadline - clock.millis()), TimeUnit.MILLISECONDS);
+                return entry.admitted.get(
+                        Math.max(1, entry.deadline - clock.millis()), TimeUnit.MILLISECONDS);
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while awaiting task admission: " + taskId, failure);
+                throw new IllegalStateException(
+                        "Interrupted while awaiting task admission: " + taskId, failure);
             } catch (TimeoutException failure) {
-                throw new TaskAdmissionException(TaskAdmissionException.Reason.EXPIRED,
+                throw new TaskAdmissionException(
+                        TaskAdmissionException.Reason.EXPIRED,
                         "Task admission deadline expired while awaiting its owner: " + taskId);
             } catch (ExecutionException failure) {
-                if (failure.getCause() instanceof RuntimeException error) throw error;
-                if (failure.getCause() instanceof Error error) throw error;
-                throw new IllegalStateException("Task admission failed: " + taskId, failure.getCause());
+                if (failure.getCause() instanceof RuntimeException error) {
+                    throw error;
+                }
+                if (failure.getCause() instanceof Error error) {
+                    throw error;
+                }
+                throw new IllegalStateException(
+                        "Task admission failed: " + taskId, failure.getCause());
             }
         }
     }

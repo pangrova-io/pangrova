@@ -1,7 +1,6 @@
 package org.pangrova.testing.e2e.federation;
 
 import org.pangrova.metadata.cache.CacheStats;
-import org.pangrova.metadata.cache.JdbcInvalidationPoller;
 import org.pangrova.metadata.cache.MetadataCache;
 import org.pangrova.metadata.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.CatalogState;
@@ -269,12 +268,8 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
                     correctMeta, staleChanges);
 
             // Step 4: Create MetadataSyncService and trigger incremental sync
-            JdbcInvalidationPoller poller = new JdbcInvalidationPoller(
-                    metadataDs, new NoOpMetadataCache(), 1);
-            poller.initSchema();
-
             MetadataSyncService syncService = new MetadataSyncService(
-                    store, new NoOpMetadataCache(), eventDispatcher, poller);
+                    store, new NoOpMetadataCache(), eventDispatcher);
 
             syncService.incrementalSync(ICE_CATALOG, driftAdapter);
 
@@ -302,7 +297,6 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
             assertThat(((Number) afterCorrection.get(1).getRaw("value")).longValue())
                     .isEqualTo(200L);
 
-            poller.close();
         }
 
         @Test
@@ -350,12 +344,8 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
             }
 
             // Trigger drift detection and auto-correction via incremental sync
-            JdbcInvalidationPoller poller = new JdbcInvalidationPoller(
-                    metadataDs, new NoOpMetadataCache(), 1);
-            poller.initSchema();
-
             MetadataSyncService syncService = new MetadataSyncService(
-                    store, new NoOpMetadataCache(), eventDispatcher, poller);
+                    store, new NoOpMetadataCache(), eventDispatcher);
 
             syncService.incrementalSync(ICE_CATALOG,
                     new DriftSimulatingAdapter(correctMeta, staleChanges));
@@ -377,7 +367,6 @@ class CrossCatalogConsistencyE2ETest extends SqlE2ETestBase {
             assertThat(rows.get(1).getRaw("name")).isEqualTo("bob");
             assertThat(((Number) rows.get(1).getRaw("score")).doubleValue()).isEqualTo(85.0);
 
-            poller.close();
         }
     }
 

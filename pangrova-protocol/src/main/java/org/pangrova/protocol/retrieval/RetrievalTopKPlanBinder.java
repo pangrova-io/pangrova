@@ -25,7 +25,7 @@ import org.pangrova.spi.annotation.Internal;
 @Internal
 public final class RetrievalTopKPlanBinder {
 
-    private static final int CANDIDATE_SCHEMA_VERSION = 1;
+    private static final int CANDIDATE_SCHEMA_VERSION = RetrievalCandidateIdentity.SCHEMA_VERSION;
     private static final String REL_MESSAGE_NAME = "substrait.Rel";
 
     private RetrievalTopKPlanBinder() {}
@@ -157,7 +157,7 @@ public final class RetrievalTopKPlanBinder {
             io.substrait.proto.FetchRel fetch,
             io.substrait.proto.SortRel sort,
             RetrievalTopKBinding binding) {
-        return SubstraitFetchBounds.count(fetch) == binding.candidateLimit() && sort.getSortsCount() == 1
+        return SubstraitFetchBounds.count(fetch) == binding.outputLimit() && sort.getSortsCount() == 1
                 && scoreFieldIndex(sort.getSorts(0)) == binding.scoreFieldIndex()
                 && directionMatches(sort.getSorts(0).getDirection(), binding);
     }
@@ -170,6 +170,7 @@ public final class RetrievalTopKPlanBinder {
         Expression score = SubstraitFieldReference.fieldReference(binding.scoreFieldIndex());
         CandidateContract.Builder contract = CandidateContract.newBuilder()
                 .setSchemaVersion(CANDIDATE_SCHEMA_VERSION)
+                .setIdentityKind(identityKind(binding))
                 .setSchema(schema)
                 .setScoreDirection(binding.scoreDirection());
         for (int stableKey : binding.stableKeyFieldIndexes()) {
@@ -190,10 +191,20 @@ public final class RetrievalTopKPlanBinder {
                 .setPlanNodeId(nodeId)
                 .setSourceId(binding.exact() ? nodeId + "-source" : binding.sourceId())
                 .setCandidateLimit(binding.candidateLimit())
+                .setOutputLimit(binding.outputLimit())
                 .setExactRescoreLimit(binding.exactRescoreLimit())
                 .setInvocation(invocation)
                 .setOutputContract(contract)
                 .build();
+    }
+
+    private static org.pangrova.protocol.v2.CandidateIdentityKind identityKind(RetrievalTopKBinding binding) {
+        try {
+            return RetrievalCandidateIdentity.kind(NamedStruct.parseFrom(binding.candidateSchema()),
+                    binding.stableKeyFieldIndexes());
+        } catch (InvalidProtocolBufferException failure) {
+            throw new IllegalArgumentException("Invalid retrieval identity schema", failure);
+        }
     }
 
     private static int scoreFieldIndex(SortField sort) {

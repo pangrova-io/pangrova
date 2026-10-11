@@ -23,8 +23,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
-import java.util.List;
 import java.time.Duration;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -189,6 +189,13 @@ class AiSqlReadWriteE2ETest extends PangrovaE2ETestBase {
                     + " (3, ARRAY[0.0, 0.0, 1.0, 0.0])");
             executeDdl("CREATE INDEX idx_ai_rebuild ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
+            org.awaitility.Awaitility.await("initial HNSW generation published")
+                    .atMost(Duration.ofSeconds(60))
+                    .pollInterval(Duration.ofMillis(500))
+                    .untilAsserted(() -> assertThat(executeQuery("SHOW INDEXES FROM " + fqn()).stream()
+                            .filter(row -> "idx_ai_rebuild".equals(row.getRaw("index_name")))
+                            .map(row -> row.getRaw("state")))
+                            .containsExactly("READY"));
             executeDml("INSERT INTO " + fqn() + " VALUES"
                     + " (4, ARRAY[0.99, 0.01, 0.0, 0.0]), (5, ARRAY[0.98, 0.02, 0.0, 0.0])");
             executeDdl("ALTER INDEX idx_ai_rebuild ON " + fqn() + " REBUILD");

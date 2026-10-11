@@ -19,8 +19,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Encapsulates the Worker shutdown sequence.
- * Extracted from WorkerBootstrap to keep class size within 500-line limit.
+ * Encapsulates the Worker shutdown sequence. Extracted from WorkerBootstrap to keep class size
+ * within 500-line limit.
  */
 public final class WorkerShutdownSequence {
 
@@ -37,10 +37,12 @@ public final class WorkerShutdownSequence {
     }
 
     /** Stops the heartbeat sender and its scheduler. */
-    public static void stopHeartbeat(HeartbeatSender sender,
-                               ScheduledExecutorService executor) {
+    public static void stopHeartbeat(HeartbeatSender sender, ScheduledExecutorService executor) {
         var steps = new WorkerCleanupSteps();
-        steps.attempt(() -> { if (sender != null) sender.stop(); });
+        steps.attempt(
+                () -> {
+                    if (sender != null) sender.stop();
+                });
         steps.attempt(() -> stopExecutor(executor));
         steps.requireSuccess();
     }
@@ -74,16 +76,22 @@ public final class WorkerShutdownSequence {
     public static void releaseResources(ShutdownContext ctx, Runnable nativeReleased) {
         var dependents = new WorkerCleanupSteps();
         dependents.attempt(() -> closeShuffleBufferManager(ctx.shuffleBufferManager()));
-        dependents.attempt(() -> stopResultExpiration(ctx.schedulerRefs().resultExpirationExecutor()));
-        dependents.attempt(() -> stopMetrics(ctx.schedulerRefs().metricsExecutor(), ctx.resourceRefs().nativeMetricsPublisher()));
+        dependents.attempt(
+                () -> stopResultExpiration(ctx.schedulerRefs().resultExpirationExecutor()));
+        dependents.attempt(
+                () ->
+                        stopMetrics(
+                                ctx.schedulerRefs().metricsExecutor(),
+                                ctx.resourceRefs().nativeMetricsPublisher()));
         dependents.requireSuccess();
         shutdownNative(ctx.resourceRefs().nativeAvailable(), nativeReleased);
         var resources = new WorkerCleanupSteps();
-        resources.attempt(() -> {
-            if (ctx.resourceRefs().shuffleServiceMemoryLease() != null) {
-                ctx.resourceRefs().shuffleServiceMemoryLease().close();
-            }
-        });
+        resources.attempt(
+                () -> {
+                    if (ctx.resourceRefs().shuffleServiceMemoryLease() != null) {
+                        ctx.resourceRefs().shuffleServiceMemoryLease().close();
+                    }
+                });
         resources.attempt(() -> closeObservability(ctx.resourceRefs().otelInitializer()));
         resources.requireSuccess();
         closeResourceManager(ctx.resourceRefs().resourceManager());
@@ -116,8 +124,8 @@ public final class WorkerShutdownSequence {
         LOG.info("event=resource_manager_closed");
     }
 
-    private static void stopMetrics(ScheduledExecutorService executor,
-                                     NativeMetricsPublisher publisher) {
+    private static void stopMetrics(
+            ScheduledExecutorService executor, NativeMetricsPublisher publisher) {
         stopExecutor(executor);
         if (publisher != null) {
             publisher.stop();
@@ -147,7 +155,10 @@ public final class WorkerShutdownSequence {
             nativeReleased.run();
             LOG.info("event=native_runtime_shutdown");
         } catch (RuntimeException | Error e) {
-            LOG.error("event=native_runtime_shutdown_error lease_retained=true error={}", e.getMessage(), e);
+            LOG.error(
+                    "event=native_runtime_shutdown_error lease_retained=true error={}",
+                    e.getMessage(),
+                    e);
             throw e;
         }
     }

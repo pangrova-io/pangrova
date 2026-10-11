@@ -384,6 +384,7 @@ void drainOutputToLance(
       throw std::invalid_argument("Unsupported Lance write operation");
   }
   config.expectedReadVersion = binding.expected_read_version;
+  config.acceptedBaseSnapshot = binding.accepted_base_snapshot;
   config.storageBinding = binding.storage_binding;
   config.schemaFenceSha256 = binding.schema_fence_sha256;
   config.writeId = binding.write_id;

@@ -106,10 +106,15 @@ class RemoteTaskDispatcherAsyncTest {
     // ── Helpers ──
 
     private static org.pangrova.protocol.rest.task.SubmitTaskRequest dummyRequest() {
-        return org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
+        return org.pangrova.protocol.rest.task.SubmitTaskRequest.from(
+                org.pangrova.coordinator.CanonicalTaskRequestTestFixture.builder(
                 "task-async-1", "q-async", 0, 0,
                 org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
-                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                        .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                                .setGrantId("task-async-1:grant")
+                                .setCpuSlots(1).setNativeMemoryBytes(64L * 1024 * 1024))
+                        .build());
     }
 
     private static WorkerInfo activeWorker(int httpPort) {

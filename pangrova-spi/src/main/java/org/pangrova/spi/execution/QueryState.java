@@ -5,7 +5,7 @@ package org.pangrova.spi.execution;
  *
  * <p>State transitions follow the order:
  * {@code QUEUED → PLANNING → RUNNING → FINISHING → FINISHED}
- * with {@code FAILED} reachable from any active state.</p>
+ * with {@code FAILED} or {@code CANCELLED} reachable from any active state.</p>
  */
 public enum QueryState {
 
@@ -25,5 +25,8 @@ public enum QueryState {
     FINISHED,
 
     /** Query terminated due to an error. */
-    FAILED
+    FAILED,
+
+    /** Query terminated by an explicit cancellation. */
+    CANCELLED
 }

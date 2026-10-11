@@ -19,7 +19,6 @@ import org.pangrova.metadata.artifact.GeneratedValueArtifactMetadataStore;
 import org.pangrova.metadata.artifact.GeneratedValueBuildSubmission;
 import org.pangrova.spi.coordination.WriteCommitEntry;
 import org.pangrova.security.authz.DeferredAuthorizationScopeCodec;
-import org.pangrova.parser.ast.type.DataTypeSpec;
 import org.pangrova.planner.artifact.ArtifactBuildPlan;
 import org.pangrova.planner.artifact.GeneratedValueArtifactBuildPlan;
 import org.pangrova.planner.artifact.GeneratedValueArtifactBuildPlanBuilder;
@@ -350,23 +349,14 @@ public final class DurableGeneratedValueBuildService {
     }
 
     private static int vectorDimension(GeneratedColumnDefinition definition) {
-        final DataTypeSpec type;
         try {
-            type = DataTypeSpec.fromRawTypeString(
-                    definition.getOutputType().getCanonicalSql());
+            return VectorLogicalType.requireDimension(definition.getOutputType());
         } catch (IllegalArgumentException failure) {
             throw new PangrovaException(
                     PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "Generated output has an invalid logical type: "
-                            + definition.getOutputType().getCanonicalSql(),
+                    "Generated embedding output must have the complete canonical FLOAT32 VECTOR contract",
                     failure);
         }
-        if (!(type instanceof DataTypeSpec.VectorType vector)) {
-            throw new PangrovaException(
-                    PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
-                    "Generated embedding output must be a fixed-dimension VECTOR");
-        }
-        return vector.dimension();
     }
 
     private static void requireModelDimension(

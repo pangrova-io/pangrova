@@ -1,6 +1,20 @@
 #include "LancePhysicalWriteFixture.h"
 
 #include <memory>
+#include <thread>
+
+#include <arrow/c/bridge.h>
+#include <arrow/array/concatenate.h>
+#include <arrow/array/util.h>
+#include <arrow/ipc/reader.h>
+#include "columnar/ColumnarImportLayout.h"
+#include "executor/driver/TaskExecutor.h"
+#include "jni/command/StatusSerializer.h"
+#include "velox/expression/FunctionRegistrySnapshot.h"
+#include "velox/connector/PangrovaVeloxConnector.h"
+#include "substrait/plan.pb.h"
+#include "velox/vector/arrow/Bridge.h"
+#include "write/WriteArrowExport.h"
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/memory/VeloxMemoryGovernor.h"
@@ -100,6 +114,205 @@ TEST_F(LancePhysicalWriteFixture, RealPhysicalFileRoundTripPreservesDoubleAndBot
   EXPECT_GE(reader.columnarLayoutOffsetBytes(), 4 * sizeof(int32_t));
   EXPECT_EQ(reader.columnarConversionCopiedBytes(), 0); // Unsliced validity/value buffers share owners.
   EXPECT_EQ(reader.next(16), nullptr);
+}
+
+// The physical decoder may rebase fixed-list primitive buffers, so use an
+// actual BOOLEAN page whose C ABI slices retain bitmap bit offsets.
+class LancePhysicalCopyMetricsTest : public LancePhysicalWriteFixture {
+ protected:
+  PhysicalWriterConfig bitmapConfig() {
+    auto allocation = config();
+    std::shared_ptr<arrow::io::BufferReader> input =
+        arrow::io::BufferReader::FromString(allocation.binding.physical_schema());
+    auto source = arrow::ipc::RecordBatchStreamReader::Open(input).ValueOrDie();
+    auto fields = source->schema()->fields();
+    fields.push_back(arrow::field("flag", arrow::boolean(), true,
+        arrow::key_value_metadata({"PARQUET:field_id"}, {"2"})));
+    auto sink = arrow::io::BufferOutputStream::Create().ValueOrDie();
+    auto encoder = arrow::ipc::MakeStreamWriter(sink, arrow::schema(fields)).ValueOrDie();
+    if (!encoder->Close().ok()) throw std::runtime_error("Cannot encode bitmap schema");
+    allocation.binding.set_physical_schema(sink->Finish().ValueOrDie()->ToString());
+    *allocation.binding.mutable_physical_schema_checksum() = checksum(allocation.binding.physical_schema());
+    auto* column = allocation.binding.add_columns();
+    column->set_field_id(2);
+    column->set_name("flag");
+    column->set_nullable(true);
+    column->mutable_logical_type()->set_canonical_sql("BOOLEAN");
+    column->mutable_logical_type()->mutable_substrait_type()->mutable_bool_()->set_nullability(
+        substrait::Type::NULLABILITY_NULLABLE);
+    output_type_ = ROW({"c0", "c1", "c2"}, {BIGINT(), ARRAY(DOUBLE()), BOOLEAN()});
+    return allocation;
+  }
+
+  RowVectorPtr bitmapBatch() {
+    facebook::velox::test::VectorMaker maker(pool_.get());
+    auto ids = maker.flatVector<int64_t>(16, [](vector_size_t row) { return row + 1; });
+    std::vector<std::optional<std::vector<std::optional<double>>>> values;
+    for (vector_size_t row = 0; row < 16; ++row) {
+      if (row == 7) values.push_back(std::nullopt);
+      else values.push_back(std::vector<std::optional<double>>{row + 0.25, row + 0.5, row + 0.75});
+    }
+    auto embeddings = maker.arrayVectorNullable<double>(values);
+    auto flags = BaseVector::create(BOOLEAN(), 16, pool_.get());
+    for (vector_size_t row = 0; row < 16; ++row) {
+      flags->asFlatVector<bool>()->set(row, row % 2 == 0);
+      if (row % 3 == 0) flags->setNull(row, true);
+    }
+    return std::make_shared<RowVector>(pool_.get(), output_type_, nullptr, 16,
+        std::vector<VectorPtr>{ids, embeddings, flags});
+  }
+
+  uint64_t actualWriteCopyBytes(const RowVectorPtr& input) {
+    auto normalized = pangrova::write::prepareWriteArrowExport(input);
+    ArrowArray array{};
+    ArrowSchema schema{};
+    ArrowOptions options;
+    options.flattenDictionary = true;
+    options.flattenConstant = true;
+    facebook::velox::exportToArrow(normalized, array, pool_.get(), options);
+    facebook::velox::exportToArrow(normalized, schema, options);
+    auto imported = arrow::ImportRecordBatch(&array, &schema).ValueOrDie();
+    auto vectors = std::dynamic_pointer_cast<arrow::ListArray>(imported->column(1));
+    if (!vectors || !vectors->IsNull(7) || vectors->value_length(7) != 0) {
+      throw std::runtime_error("Actual NULL vector must omit its three physical slots");
+    }
+    // Arrow buffers borrow MemoryPool*: all temporary arrays must be destroyed
+    // before this allocator. The imported input still owns its existing buffers.
+    const auto baseline = pool_->usedBytes();
+    auto allocator = std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool_);
+    uint64_t bytes = 0;
+    {
+      arrow::ArrayVector slots;
+      for (int64_t row = 0; row < vectors->length(); ++row) {
+        if (vectors->IsNull(row)) {
+          slots.push_back(arrow::MakeArrayOfNull(arrow::float64(), 3, allocator.get()).ValueOrDie());
+        } else {
+          EXPECT_EQ(vectors->value_length(row), 3);
+          slots.push_back(vectors->value_slice(row));
+        }
+      }
+      // Independent official Arrow concatenation exposes the actual buffers
+      // required to materialize omitted NULL slots; no hand-coded byte constant.
+      auto payload = arrow::Concatenate(slots, allocator.get()).ValueOrDie();
+      EXPECT_EQ(payload->length(), 48);
+      EXPECT_EQ(payload->null_count(), 3);
+      EXPECT_NE(payload->data()->buffers.at(1)->data(), vectors->values()->data()->buffers.at(1)->data());
+      for (const auto& buffer : payload->data()->buffers) if (buffer) bytes += buffer->size();
+      EXPECT_GT(allocator->bytes_allocated(), 0);
+    }
+    EXPECT_EQ(allocator->bytes_allocated(), 0);
+    EXPECT_EQ(pool_->usedBytes(), baseline);
+    return bytes;
+  }
+};
+
+TEST_F(LancePhysicalCopyMetricsTest, ActualReadAndWriteCopiesSumInTaskReportAfterRelease) {
+  auto allocation = bitmapConfig();
+  const auto uri = allocation.binding.files(0).opaque_location();
+  const auto input = bitmapBatch();
+  const auto expected_write = actualWriteCopyBytes(input);
+  ASSERT_GT(expected_write, 0);
+  LancePhysicalBatchWriter writer(pool_, output_type_, allocation);
+  writer.writeBatch(input);
+  const auto written = writer.resourceUsage().columnar_conversion_copied_bytes();
+  ASSERT_GT(written, 0);
+  ASSERT_EQ(written, expected_write);
+  const auto receipt = writer.finish();
+  proto::PhysicalFileWriteFragment fragment;
+  ASSERT_TRUE(fragment.ParseFromArray(receipt.data(), static_cast<int>(receipt.size())));
+  proto::FileSplitDetail detail;
+  detail.set_file_format(proto::FILE_FORMAT_LANCE);
+  auto* physical = detail.mutable_physical_file_scan();
+  physical->set_physical_rows(16);
+  physical->set_row_end(16);
+  const auto detail_bytes = detail.SerializeAsString();
+  const auto file_size = fragment.files(0).size_bytes();
+  uint64_t read = 0;
+  int sliced_bitmaps = 0;
+  {
+    LanceStorageContext storage(allocation.storageBinding);
+    std::unique_ptr<LanceCReader, decltype(&lance_ffi_reader_close)> source(
+        lance_ffi_reader_open(storage.get(), uri.c_str(), 1,
+            reinterpret_cast<const uint8_t*>(detail_bytes.data()), detail_bytes.size(), file_size),
+        lance_ffi_reader_close);
+    ASSERT_NE(source, nullptr) << lance_ffi_last_error();
+    auto allocator = std::make_shared<pangrova::memory::ColumnarMemoryPool>(pool_);
+    for (int row = 0; row < 16; ++row) {
+      ArrowArray array{};
+      ArrowSchema schema{};
+      ASSERT_EQ(lance_ffi_reader_next(source.get(), &array, &schema, 1), 1);
+      auto imported = arrow::ImportRecordBatch(&array, &schema).ValueOrDie();
+      const auto& flag = imported->column(2)->data();
+      ASSERT_EQ(flag->type->id(), arrow::Type::BOOL);
+      ASSERT_NE(flag->buffers.at(1), nullptr);
+      pangrova::columnar::ColumnarImportUsage usage;
+      auto normalized = pangrova::columnar::normalizeImportLayout(*imported, allocator, usage).ValueOrDie();
+      ASSERT_EQ(normalized->num_rows(), 1);
+      EXPECT_GT(usage.allocatedOffsetBytes, 0);
+      if (flag->offset > 0) {
+        ++sliced_bitmaps;
+        EXPECT_GT(usage.copiedBytes, 0);
+        EXPECT_EQ(normalized->column(2)->offset(), 0);
+      }
+      read += usage.copiedBytes;
+    }
+  }
+  ASSERT_GT(sliced_bitmaps, 0);
+  ASSERT_GT(read, 0);
+  substrait::Plan plan;
+  auto* root = plan.add_relations()->mutable_root();
+  root->add_names("id");
+  root->add_names("embedding");
+  root->add_names("flag");
+  auto* relation = root->mutable_input()->mutable_read();
+  relation->mutable_named_table()->add_names("physical_table");
+  auto* schema = relation->mutable_base_schema();
+  schema->add_names("id");
+  schema->add_names("embedding");
+  schema->add_names("flag");
+  schema->mutable_struct_()->add_types()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_REQUIRED);
+  auto* list = schema->mutable_struct_()->add_types()->mutable_list();
+  list->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  list->mutable_type()->mutable_fp64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  schema->mutable_struct_()->add_types()->mutable_bool_()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  pangrova::executor::TaskExecutorConfig task_config;
+  task_config.task_id = "actual-physical-copy-task";
+  task_config.query_id = "actual-physical-copy-query";
+  task_config.function_registry = exec::FunctionRegistrySnapshot::capture();
+  const auto serialized = plan.SerializeAsString();
+  task_config.substrait_plan.assign(serialized.begin(), serialized.end());
+  task_config.shuffle_batch_size = 1;
+  task_config.resource_limit.max_threads = 1;
+  pangrova::split::SplitConfig split;
+  split.split_id = "actual-physical-file";
+  split.connector_id = pangrova::velox::PangrovaVeloxConnector::kConnectorId;
+  split.table_name = "physical_table";
+  split.file_path = uri;
+  split.file_format = pangrova::split::FileFormatType::LANCE;
+  split.physical_lance_file = true;
+  split.length = file_size;
+  split.source_snapshot = "1";
+  split.data_object_id = "actual-physical-file";
+  split.storage_binding = allocation.storageBinding;
+  split.file_scan_detail = detail_bytes;
+  task_config.splits.push_back(std::move(split));
+  pangrova::executor::TaskExecutor executor(task_config);
+  executor.metricsCollector().observeColumnarConversionCopiedBytes(written);
+  executor.start();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  while (executor.state() == pangrova::executor::ExecutorState::RUNNING && std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_EQ(executor.state(), pangrova::executor::ExecutorState::FINISHED) << executor.errorMessage();
+  executor.release();
+  for (int observation = 0; observation < 3; ++observation) {
+    executor.metricsCollector().observeColumnarConversionCopiedBytes(written);
+    const auto bytes = pangrova::jni::serializeTaskStatus(executor);
+    proto::TaskReport report;
+    ASSERT_TRUE(report.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+    EXPECT_EQ(report.usage().columnar_conversion_copied_bytes(), read + written);
+    EXPECT_EQ(executor.metricsCollector().snapshot().columnar_conversion_copied_bytes, read + written);
+  }
 }
 
 TEST_F(LancePhysicalWriteFixture, ConditionalCreateCannotOverwriteExistingActualFile) {

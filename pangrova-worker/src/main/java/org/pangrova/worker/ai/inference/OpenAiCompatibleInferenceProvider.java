@@ -17,7 +17,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
-import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.ai.embedding.BlobReference;
 import org.pangrova.spi.ai.inference.GenerationParameters;
@@ -43,32 +42,26 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 /**
  * Inference provider that calls any OpenAI-compatible /v1/chat/completions endpoint.
  *
- * <p>Handles rate limiting via token bucket, exponential backoff with jitter on 429/503,
- * configurable timeout, and batch splitting. Reuses the same HTTP client
- * and retry strategy as {@code OpenAiCompatibleEmbeddingProvider}.</p>
+ * <p>Handles local rate limiting, configurable timeout, and batch splitting. A provider POST is
+ * sent once unless a separately verified provider idempotency contract permits replay.
  *
- * <p>Thread-safe: uses java.net.http.HttpClient with no mutable shared state
- * beyond the atomic token bucket.</p>
+ * <p>Thread-safe: uses java.net.http.HttpClient with no mutable shared state beyond the atomic
+ * token bucket.
  */
 public final class OpenAiCompatibleInferenceProvider implements InferenceProvider, Closeable {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final int MAX_RETRIES = 3;
-    private static final long INITIAL_BACKOFF_MS = 500;
     private static final int HTTP_OK = 200;
     private static final int HTTP_UNAUTHORIZED = 401;
     private static final int HTTP_FORBIDDEN = 403;
     private static final int HTTP_REQUEST_TIMEOUT = 408;
     private static final int HTTP_TOO_MANY_REQUESTS = 429;
-    private static final int HTTP_SERVER_ERROR_MIN = 500;
-    private static final int HTTP_SERVER_ERROR_MAX = 599;
     private static final int HTTP_GATEWAY_TIMEOUT = 504;
 
     private final String endpoint;
@@ -84,8 +77,7 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
 
     /** Creates a provider using the configured endpoint and admission limits. */
     public OpenAiCompatibleInferenceProvider(
-            OpenAiInferenceConfig config,
-            Optional<Function<BlobReference, byte[]>> blobLoader) {
+            OpenAiInferenceConfig config, Optional<Function<BlobReference, byte[]>> blobLoader) {
         java.util.Objects.requireNonNull(config, "config must not be null");
         requireText(config.endpoint(), "endpoint");
         requireText(config.modelName(), "modelName");
@@ -101,14 +93,15 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         this.maxBatchSize = config.maxBatchSize();
         this.timeout = Duration.ofSeconds(config.timeoutSeconds());
         this.requestEncoder = new OpenAiChatRequestEncoder(modelName, blobLoader);
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10)).build();
+        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
         int permits = Math.max(1, (int) Math.ceil(config.maxRequestsPerSecond()));
         this.rateLimiter = new Semaphore(permits, true);
-        long intervalNanos = Math.max(1L, (long) Math.ceil(1_000_000_000.0 / config.maxRequestsPerSecond()));
-        this.rateReplenisher = ManagedExecutorFactory.newSingleThreadScheduledExecutor(
-                "ai-inference-rate-replenish");
+        long intervalNanos =
+                Math.max(1L, (long) Math.ceil((double) TimeUnit.SECONDS.toNanos(1) / config.maxRequestsPerSecond()));
+        this.rateReplenisher =
+                ManagedExecutorFactory.newSingleThreadScheduledExecutor(
+                        "ai-inference-rate-replenish");
         this.rateReplenisher.scheduleAtFixedRate(
                 () -> {
                     int drain = permits - rateLimiter.availablePermits();
@@ -116,10 +109,13 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
                         rateLimiter.release();
                     }
                 },
-                intervalNanos, intervalNanos, TimeUnit.NANOSECONDS);
-        this.batchExecutor = ManagedExecutorFactory.newFixedThreadPool(
-                "ai-inference-batch",
-                Math.min(config.maxBatchSize(), config.maxConcurrency()));
+                intervalNanos,
+                intervalNanos,
+                TimeUnit.NANOSECONDS);
+        this.batchExecutor =
+                ManagedExecutorFactory.newFixedThreadPool(
+                        "ai-inference-batch",
+                        Math.min(config.maxBatchSize(), config.maxConcurrency()));
     }
 
     private static void requireText(String value, String name) {
@@ -129,10 +125,7 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
     }
 
     private static void validatePositiveValues(
-            int maxBatchSize,
-            double maxRequestsPerSecond,
-            int maxConcurrency,
-            int timeoutSeconds) {
+            int maxBatchSize, double maxRequestsPerSecond, int maxConcurrency, int timeoutSeconds) {
         if (maxBatchSize <= 0) {
             throw new IllegalArgumentException("maxBatchSize must be positive");
         }
@@ -155,12 +148,14 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         if (parameters == null) {
             parameters = GenerationParameters.DEFAULTS;
         }
-        return callWithRetry(prompt, parameters);
+        return callOnce(prompt, parameters);
     }
 
     @Override
-    public List<InferenceResult> completeBatch(List<String> prompts, GenerationParameters parameters) {
-        if (prompts == null || prompts.isEmpty()
+    public List<InferenceResult> completeBatch(
+            List<String> prompts, GenerationParameters parameters) {
+        if (prompts == null
+                || prompts.isEmpty()
                 || prompts.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException(
                     "prompts must not be null or empty and must contain only non-null values");
@@ -173,28 +168,34 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
             parameters = GenerationParameters.DEFAULTS;
         }
         GenerationParameters params = parameters;
-        String invocationKey = AiProviderCallContext.currentIdempotencyKey()
-                .orElse(null);
-        Instant invocationDeadline = AiProviderCallContext.currentDeadline()
-                .orElse(null);
-        AiProviderCallContext.AttemptAdmission attemptAdmission = AiProviderCallContext.currentAttemptAdmission()
-                .orElse(null);
+        String invocationKey = AiProviderCallContext.currentIdempotencyKey().orElse(null);
+        Instant invocationDeadline = AiProviderCallContext.currentDeadline().orElse(null);
+        AiProviderCallContext.AttemptAdmission attemptAdmission =
+                AiProviderCallContext.currentAttemptAdmission().orElse(null);
         List<CompletableFuture<InferenceResult>> futures =
                 java.util.stream.IntStream.range(0, prompts.size())
-                .mapToObj(index -> CompletableFuture.supplyAsync(
-                        () -> invocationKey == null
-                                ? callWithRetry(prompts.get(index), params)
-                                : AiProviderCallContext.callWithOrdinal(
-                                        invocationKey,
-                                        invocationDeadline,
-                                        index,
-                                        attemptAdmission,
-                                        () -> callWithRetry(
-                                                prompts.get(index), params)),
-                        batchExecutor))
-                .toList();
-        CompletableFuture.allOf(
-                futures.toArray(CompletableFuture[]::new)).join();
+                        .mapToObj(
+                                index ->
+                                        CompletableFuture.supplyAsync(
+                                                () ->
+                                                        invocationKey == null
+                                                                ? callOnce(
+                                                                        prompts.get(index), params)
+                                                                : AiProviderCallContext
+                                                                        .callWithOrdinal(
+                                                                                invocationKey,
+                                                                                invocationDeadline,
+                                                                                index,
+                                                                                attemptAdmission,
+                                                                                () ->
+                                                                                        callOnce(
+                                                                                                prompts
+                                                                                                        .get(
+                                                                                                                index),
+                                                                                                params)),
+                                                batchExecutor))
+                        .toList();
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
         return futures.stream().map(CompletableFuture::join).toList();
     }
 
@@ -209,7 +210,8 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
     }
 
     @Override
-    public InferenceResult completeMultimodal(MultimodalPrompt prompt, GenerationParameters parameters) {
+    public InferenceResult completeMultimodal(
+            MultimodalPrompt prompt, GenerationParameters parameters) {
         if (prompt == null) {
             throw new IllegalArgumentException("prompt must not be null");
         }
@@ -217,7 +219,7 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
             parameters = GenerationParameters.DEFAULTS;
         }
         String requestBody = requestEncoder.encodeMultimodal(prompt, parameters);
-        return callWithRetryRaw(requestBody, parameters);
+        return callOnce(requestBody);
     }
 
     @Override
@@ -233,49 +235,32 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         batchExecutor.shutdown();
     }
 
-    private InferenceResult callWithRetry(String prompt, GenerationParameters parameters) {
+    private InferenceResult callOnce(String prompt, GenerationParameters parameters) {
         String requestBody = requestEncoder.encodeText(prompt, parameters);
-        return callWithRetryRaw(requestBody, parameters);
+        return callOnce(requestBody);
     }
 
-    private InferenceResult callWithRetryRaw(String requestBody, GenerationParameters parameters) {
-        long backoffMs = INITIAL_BACKOFF_MS;
-        Exception lastException = null;
-
-        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            if (attempt > 0) {
-                long jitter = ThreadLocalRandom.current().nextLong(backoffMs / 2);
-                sleep(backoffMs + jitter);
-                backoffMs *= 2;
-            }
-            acquireRatePermit();
-
-            try {
-                return attemptOnce(requestBody, attempt);
-            } catch (RetryableStatusException e) {
-                lastException = e;
-            } catch (IOException e) {
-                lastException = e;
-                if (attempt >= MAX_RETRIES) {
-                    break;
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new AiInvocationException(
-                        AiInvocationException.Category.TIMEOUT,
-                        false,
-                        "Inference request was interrupted",
-                        e);
-            }
+    private InferenceResult callOnce(String requestBody) {
+        acquireRatePermit();
+        try {
+            return attemptOnce(requestBody);
+        } catch (IOException failure) {
+            throw new AiInvocationException(
+                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    false,
+                    "Inference provider POST outcome is unknown",
+                    failure);
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AiInvocationException(
+                    AiInvocationException.Category.PROVIDER_OUTCOME_UNCERTAIN,
+                    false,
+                    "Inference provider POST was interrupted with unknown outcome",
+                    failure);
         }
-        throw new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_UNAVAILABLE,
-                true,
-                "Inference request failed after " + (MAX_RETRIES + 1) + " attempts",
-                lastException);
     }
 
-    private InferenceResult attemptOnce(String requestBody, int attempt)
+    private InferenceResult attemptOnce(String requestBody)
             throws IOException, InterruptedException {
         HttpResponse<String> response = sendRequest(requestBody);
         int statusCode = response.statusCode();
@@ -283,31 +268,23 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
         if (statusCode == HTTP_OK) {
             return parseResponse(response.body());
         }
-        if (isRetryable(statusCode) && attempt < MAX_RETRIES) {
-            throw new RetryableStatusException(statusCode);
-        }
         throw responseFailure(statusCode);
     }
 
-    private HttpResponse<String> sendRequest(String requestBody) throws IOException, InterruptedException {
-        HttpRequest.Builder request = HttpRequest.newBuilder()
-                .uri(URI.create(endpoint))
-                .timeout(AiProviderCallContext.remainingTimeout(timeout))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(requestBody));
+    private HttpResponse<String> sendRequest(String requestBody)
+            throws IOException, InterruptedException {
+        HttpRequest.Builder request =
+                HttpRequest.newBuilder()
+                        .uri(URI.create(endpoint))
+                        .timeout(AiProviderCallContext.remainingTimeout(timeout))
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(requestBody));
         if (!apiKey.isBlank()) {
             request.header("Authorization", "Bearer " + apiKey);
         }
-        AiProviderCallContext.currentIdempotencyKey().ifPresent(
-                value -> request.header("Idempotency-Key", value));
+        AiProviderCallContext.currentIdempotencyKey()
+                .ifPresent(value -> request.header("Idempotency-Key", value));
         return AiHttpTransport.send(httpClient, request.build());
-    }
-
-    private static boolean isRetryable(int statusCode) {
-        return statusCode == HTTP_TOO_MANY_REQUESTS
-                || statusCode == HTTP_REQUEST_TIMEOUT
-                || statusCode >= HTTP_SERVER_ERROR_MIN
-                        && statusCode <= HTTP_SERVER_ERROR_MAX;
     }
 
     private void acquireRatePermit() {
@@ -359,44 +336,20 @@ public final class OpenAiCompatibleInferenceProvider implements InferenceProvide
             case HTTP_UNAUTHORIZED -> AiInvocationException.Category.AUTHENTICATION;
             case HTTP_FORBIDDEN -> AiInvocationException.Category.AUTHORIZATION;
             case HTTP_REQUEST_TIMEOUT, HTTP_GATEWAY_TIMEOUT ->
-                    AiInvocationException.Category.TIMEOUT;
+                            AiInvocationException.Category.TIMEOUT;
             case HTTP_TOO_MANY_REQUESTS -> AiInvocationException.Category.RATE_LIMIT;
             default -> AiInvocationException.Category.PROVIDER_UNAVAILABLE;
         };
-        boolean retryable = isRetryable(statusCode);
         return new AiInvocationException(
-                category, retryable,
-                "Inference provider returned HTTP " + statusCode);
+                category, false, "Inference provider returned HTTP " + statusCode);
     }
 
     private static AiInvocationException invalidResponse(String message) {
         return invalidResponse(message, null);
     }
 
-    private static AiInvocationException invalidResponse(
-            String message, Throwable cause) {
+    private static AiInvocationException invalidResponse(String message, Throwable cause) {
         return new AiInvocationException(
-                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID,
-                false,
-                message,
-                cause);
-    }
-
-    private static void sleep(long millis) {
-        ThreadUtils.sleepQuietly(AiProviderCallContext.remainingWaitMillis(
-                Math.max(1, millis)));
-        if (Thread.currentThread().isInterrupted()) {
-            throw new AiInvocationException(
-                    AiInvocationException.Category.TIMEOUT,
-                    false,
-                    "Inference retry was interrupted");
-        }
-    }
-
-    /** Signals a retryable HTTP status so the retry loop can distinguish it from I/O errors. */
-    private static final class RetryableStatusException extends IOException {
-        RetryableStatusException(int statusCode) {
-            super("HTTP " + statusCode + " from inference endpoint");
-        }
+                AiInvocationException.Category.PROVIDER_RESPONSE_INVALID, false, message, cause);
     }
 }

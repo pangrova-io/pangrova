@@ -183,8 +183,8 @@ public final class FeatureViewStatementService {
     /** JSONB can reorder object keys; compare content, while retaining ordered arrays and exact values. */
     private static boolean sameJson(String expected, String actual) {
         try {
-            return MetadataJsonMapper.instance().readTree(expected)
-                    .equals(MetadataJsonMapper.instance().readTree(actual));
+            return MetadataJsonMapper.readTree(expected)
+                    .equals(MetadataJsonMapper.readTree(actual));
         } catch (JsonProcessingException failure) {
             throw invalid("Persisted Feature View logical definition contains invalid JSON");
         }
@@ -224,7 +224,7 @@ public final class FeatureViewStatementService {
         properties.put("catalog", source.catalog());
         properties.put("schema", source.schema());
         return new CoordinatorSessionContext(session.queryId(), properties,
-                session.userIdentity(), session.tenantId(), session.queryAuthority());
+                session.userIdentity(), session.tenantId(), session.queryAuthority(), session.traceContext());
     }
 
     private Actor requireActor(CoordinatorSessionContext session) {

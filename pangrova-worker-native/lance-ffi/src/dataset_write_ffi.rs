@@ -121,6 +121,6 @@ mod tests {
         assert_eq!(evidence.encoders_and_uploads_joined, 0);
         assert_eq!(evidence.private_stage_cleaned, 0);
         assert_eq!(super::lance_ffi_writer_destroy(std::ptr::null_mut()), -1);
-        assert_eq!(crate::lance_ffi_abi_version(), 12);
+        assert_eq!(crate::lance_ffi_abi_version(), 13);
     }
 }

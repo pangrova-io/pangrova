@@ -7,7 +7,7 @@ import org.pangrova.protocol.v2.DatasetSchemaFingerprintRequest;
 import org.pangrova.protocol.v2.DatasetScanPartitionsRequest;
 import org.pangrova.protocol.v2.ObjectStoreExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.protocol.v2.FinalizeDistributedWriteRequest;
+import org.pangrova.protocol.v2.PrepareDistributedWriteRequest;
 import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.protocol.v2.DistributedWriteFragment;
@@ -34,7 +34,7 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
             assertThatThrownBy(() -> execute(control, valid.toBuilder().clearProtocol().build()))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("canonical");
             assertThatThrownBy(() -> execute(control, valid.toBuilder().setPayload(Any.pack(
-                    FinalizeDistributedWriteRequest.getDefaultInstance())).build()))
+                    PrepareDistributedWriteRequest.getDefaultInstance())).build()))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("payload type");
             assertThatThrownBy(() -> control.execute(new ByteArrayInputStream(
                     new byte[NativeDatasetControlService.MAX_REQUEST_BYTES + 1])))
@@ -77,6 +77,9 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("bounded");
             assertThat(fixture.fetchCount()).isZero();
             assertThatThrownBy(() -> execute(control, command))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("accepted membership");
+            assertThat(fixture.fetchCount()).isZero();
+            assertThatThrownBy(() -> execute(control, schemaCommand(true)))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("Tenant");
             assertThat(fixture.fetchCount()).isEqualTo(1);
         }
@@ -93,10 +96,10 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
             assertThatThrownBy(() -> execute(control, expired)).isInstanceOf(ControlDeadlineExceededException.class);
             tasks.requireControlEpochHandshake();
             tasks.observeControlEpoch(2);
-            var finalize = RuntimeCommand.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
-                    .setCommandType(RuntimeCommandType.RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE)
-                    .setPayload(Any.pack(FinalizeDistributedWriteRequest.newBuilder().setControlEpoch(1).build())).build();
-            assertThatThrownBy(() -> execute(control, finalize)).isInstanceOf(ControlEpochFenceException.class);
+            var prepare = RuntimeCommand.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
+                    .setCommandType(RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE)
+                    .setPayload(Any.pack(PrepareDistributedWriteRequest.newBuilder().setControlEpoch(1).build())).build();
+            assertThatThrownBy(() -> execute(control, prepare)).isInstanceOf(ControlEpochFenceException.class);
             assertThat(fixture.fetchCount()).isZero();
         }
     }
@@ -108,19 +111,26 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
             var control = fixture.control();
             tasks.requireControlEpochHandshake();
             tasks.observeControlEpoch(2);
-            var original = ExecutionOwnerIdentity.newBuilder().setOwnerId("original").setOwnerIncarnation("original-1")
-                    .setFencingToken(10).build();
-            var current = original.toBuilder().setOwnerId("current").setOwnerIncarnation("current-1")
-                    .setFencingToken(11).build();
-            var request = recovery(original, current);
-            var forged = request.toBuilder().setFragments(0, request.getFragments(0).toBuilder()
-                    .setTaskAttempt(request.getFragments(0).getTaskAttempt().toBuilder().setExecutionOwner(current)));
-            assertThatThrownBy(() -> execute(control, finalizeCommand(forged.build())))
-                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("provenance");
-            assertThat(fixture.fetchCount()).isZero();
-            assertThatThrownBy(() -> execute(control, finalizeCommand(request)))
-                    .isInstanceOf(SecurityException.class).hasMessageContaining("Tenant");
-            assertThat(fixture.fetchCount()).isEqualTo(1);
+            var anchors = new org.pangrova.metadata.coordination.JdbcExecutionAnchorStore(stateStoreDataSource());
+            String execution = "control-recovery-" + java.util.UUID.randomUUID();
+            var previous = anchors.tryAcquire(execution, "control-original", java.util.UUID.randomUUID().toString(),
+                    java.time.Duration.ofSeconds(60)).orElseThrow();
+            assertThat(anchors.yield(previous)).isTrue();
+            var recovered = anchors.tryAcquire(execution, "control-current", java.util.UUID.randomUUID().toString(),
+                    java.time.Duration.ofSeconds(60)).orElseThrow();
+            try {
+                assertThat(recovered.fencingToken()).isGreaterThan(previous.fencingToken());
+                var original = owner(previous); var current = owner(recovered);
+                var request = recovery(execution, original, current);
+                var forged = request.toBuilder().setFragments(0, request.getFragments(0).toBuilder()
+                        .setTaskAttempt(request.getFragments(0).getTaskAttempt().toBuilder().setExecutionOwner(current)));
+                assertThatThrownBy(() -> execute(control, prepareCommand(forged.build())))
+                        .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("provenance");
+                assertThat(fixture.fetchCount()).isZero();
+                assertThatThrownBy(() -> execute(control, prepareCommand(request)))
+                        .isInstanceOf(SecurityException.class).hasMessageContaining("Tenant");
+                assertThat(fixture.fetchCount()).isEqualTo(1);
+            } finally { assertThat(anchors.release(recovered)).isTrue(); }
         }
     }
 
@@ -135,25 +145,35 @@ class NativeDatasetControlServiceTest extends DatasetControlTestBase {
         }
     }
 
-    private FinalizeDistributedWriteRequest recovery(ExecutionOwnerIdentity original,
+    private PrepareDistributedWriteRequest recovery(String execution, ExecutionOwnerIdentity original,
             ExecutionOwnerIdentity current) throws com.google.protobuf.InvalidProtocolBufferException {
         var schema = schemaCommand(true).getPayload().unpack(DatasetSchemaFingerprintRequest.class);
         byte[] metadata = {1, 2, 3};
-        var attempt = TaskAttemptId.newBuilder().setQueryOrJobId("execution-1").setTaskId("task-1")
-                .setControlEpoch(1).setExecutionOwner(original).setPlanEpoch(1).setFencingToken(1);
-        return FinalizeDistributedWriteRequest.newBuilder().setExecutionId("execution-1")
-                .setExecutionOwner(current).setIntentExecutionOwner(original).setControlEpoch(2).setRecovering(true)
+        var attempt = TaskAttemptId.newBuilder().setQueryOrJobId(execution).setTaskId("task-1")
+                .setControlEpoch(1).setExecutionOwner(original).setPlanEpoch(1).setFencingToken(original.getFencingToken());
+        return PrepareDistributedWriteRequest.newBuilder().setExecutionId(execution)
+                .setExecutionOwner(current).setIntentExecutionOwner(original).setControlEpoch(2)
                 .setCommitFingerprint("a".repeat(64)).setSecurity(schema.getSecurity())
                 .setDeadlineEpochMs(schema.getDeadlineEpochMs()).setOutputBinding(WriteOutputBinding.newBuilder()
                         .setLance(LanceWriteBinding.newBuilder().setCatalog(schema.getCatalog())))
+                // Untrusted request is rejected by the actual tenant allowlist before any Native preparation.
+                .setReservation(org.pangrova.protocol.v2.SourcePublicationReservation.newBuilder()
+                        .setTableId("untrusted-table").setTableGeneration(1).setTenantId(schema.getSecurity().getTenantId())
+                        .setManifestRelativePath("_pangrova/prepared/" + "a".repeat(64) + ".manifest"))
+                .setObjectPageSize(512)
                 .addFragments(DistributedWriteFragment.newBuilder().setTaskAttempt(attempt)
                         .setCommitMetadata(com.google.protobuf.ByteString.copyFrom(metadata))
                         .setSha256(CanonicalTaskRequests.sha256(metadata))).build();
     }
 
-    private static RuntimeCommand finalizeCommand(FinalizeDistributedWriteRequest request) {
+    private static ExecutionOwnerIdentity owner(org.pangrova.spi.coordination.ExecutionAnchor anchor) {
+        return ExecutionOwnerIdentity.newBuilder().setOwnerId(anchor.ownerId()).setOwnerIncarnation(anchor.ownerIncarnation())
+                .setFencingToken(anchor.fencingToken()).build();
+    }
+
+    private static RuntimeCommand prepareCommand(PrepareDistributedWriteRequest request) {
         return RuntimeCommand.newBuilder().setProtocol(CanonicalTaskRequests.protocolVersion())
-                .setCommandType(RuntimeCommandType.RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE)
+                .setCommandType(RuntimeCommandType.RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE)
                 .setPayload(Any.pack(request)).build();
     }
 

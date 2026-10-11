@@ -62,9 +62,10 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
     // -- 2. Governance module wiring --
 
     @Test
-    void startGovernanceInitializesLineageAndQualityComponents() {
+    void startGovernanceInitializesLineageAndQualityComponents() throws Exception {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
-            wiring.startGovernance(buildAllModulesEnabled(), null);
+            wiring.startGovernance(buildAllModulesEnabled(),
+                    org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring"));
             assertThat(wiring.getLineageEmitter()).isNotNull();
         }
     }
@@ -262,12 +263,13 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
     }
 
     @Test
-    void closeWithAllModulesFollowsLifoOrder() {
+    void closeWithAllModulesFollowsLifoOrder() throws Exception {
         // Verifies close() completes without error when all modules are active.
         ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap();
         CoordinatorBootstrapConfig config = buildAllModulesEnabled();
         wiring.startStreaming(config, null);
-        wiring.startGovernance(config, null);
+        wiring.startGovernance(config,
+                org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_close"));
         wiring.startResilience(config);
         wiring.startTenant(config, null);
         wiring.startOperations(config);
@@ -291,6 +293,17 @@ class ModuleIntegrationBootstrapTest extends org.pangrova.coordinator.testinfra.
 
         wiring.close();
         assertThatCode(wiring::close).doesNotThrowAnyException();
+    }
+
+    @Test
+    void enabledGovernanceRejectsMissingDurableDatasourceBeforePublishingComponents() {
+        try (var wiring = new ModuleIntegrationBootstrap()) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(
+                    () -> wiring.startGovernance(buildAllModulesEnabled(), null))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("durable metadata datasource");
+            assertThat(wiring.getLineageEmitter()).isNull();
+        }
     }
 
     // -- Helpers --

@@ -14,8 +14,13 @@ final class QueryJournalLifecycle {
     private static final Logger LOG = LoggerFactory.getLogger(QueryJournalLifecycle.class);
     private final QueryStateJournal journal;
     private volatile String coordinatorId;
+    private final QueryAuditDispatcher audit;
 
-    QueryJournalLifecycle(QueryStateJournal journal) { this.journal = journal; }
+    QueryJournalLifecycle(QueryStateJournal journal) { this(journal, null); }
+    QueryJournalLifecycle(QueryStateJournal journal, QueryAuditDispatcher audit) {
+        this.journal = journal;
+        this.audit = audit;
+    }
     QueryStateJournal journal() { return journal; }
     void setOwner(String owner) { coordinatorId = owner; }
     void purge(String queryId, QueryStateMachine state) {
@@ -27,16 +32,20 @@ final class QueryJournalLifecycle {
                 () -> new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), queryId, sql,
                         org.pangrova.coordinator.query.session.JournalSessionPayload.encode(session),
-                        QueryStateMachine.State.QUEUED.name()));
+                        QueryStateMachine.State.QUEUED.name(), state.lineageStart()));
         record(state, () -> journal.appendQueryEventSync(fact));
     }
 
     void terminal(QueryTerminalCleanup.Context context) {
-        if (!context.state().hasJournalOwnership()) return;
+        if (!context.state().hasJournalOwnership()) {
+            if (audit != null) audit.persistTerminalLineage(context.queryId(), context.state());
+            return;
+        }
         journal.appendQueryEventSync(context.state().journalEvent(context.state().getState(),
                 () -> new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), context.queryId(), null, null,
-                        context.state().getState().name())));
+                        context.state().getState().name(), audit == null ? null
+                                : audit.terminalFact(context.queryId(), context.state(), context.state().getState()))));
     }
 
     void registerListener(String queryId, QueryStateMachine state) {
@@ -47,7 +56,9 @@ final class QueryJournalLifecycle {
                     || current == QueryStateMachine.State.CANCELLED) {
                 journal.appendQueryEvent(state.journalEvent(current,
                         () -> new QueryStateEvent(org.pangrova.spi.coordination.JournalEventContext.create(
-                                System.currentTimeMillis(), coordinatorId), queryId, null, null, current.name())));
+                                System.currentTimeMillis(), coordinatorId), queryId, null, null, current.name(),
+                                current == QueryStateMachine.State.CANCELLED && audit != null
+                                        ? audit.terminalFact(queryId, state, current) : null)));
             }
         });
     }

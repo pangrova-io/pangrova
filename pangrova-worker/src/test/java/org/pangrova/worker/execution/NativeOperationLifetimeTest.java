@@ -127,4 +127,45 @@ class NativeOperationLifetimeTest {
         assertThat(failure.get()).isNull();
         assertThat(interruptedAtExit.get()).isTrue();
     }
+    @Test
+    void cleanupAfterFailedRetirementUsesTheSameExitBarrierWithoutReopeningExecution() throws Exception {
+        var lifetime = new NativeOperationLifetime();
+        var realFailure = new IllegalStateException("Actual exclusive cleanup did not complete");
+        assertThatThrownBy(() -> {
+            try (var failedClaim = lifetime.claim(true)) {
+                failedClaim.awaitReaders();
+                assertThatThrownBy(lifetime::tryEnterCleanup).hasMessageContaining("own entered thread");
+                throw realFailure;
+            }
+        }).isSameAs(realFailure);
+        assertThatThrownBy(lifetime::enter).isInstanceOf(IllegalStateException.class);
+        var cleanup = lifetime.tryEnterCleanup();
+        assertThat(cleanup).isNotNull();
+        var exited = new CountDownLatch(1);
+        var failure = new AtomicReference<Throwable>();
+        var retry = new Thread(() -> {
+            try (var claim = lifetime.claim(true)) {
+                claim.awaitReaders();
+            } catch (Throwable observed) {
+                failure.set(observed);
+            } finally {
+                exited.countDown();
+            }
+        }, "actual-native-cleanup-observer-join");
+        retry.start();
+        try {
+            await().atMost(Duration.ofSeconds(5)).until(() -> cleanup.blocks(retry));
+            assertThat(exited.getCount()).isEqualTo(1);
+            assertThatThrownBy(lifetime::enter).isInstanceOf(IllegalStateException.class);
+        } finally {
+            cleanup.close();
+            cleanup.close();
+        }
+        assertThat(exited.await(5, TimeUnit.SECONDS)).isTrue();
+        retry.join(5_000);
+        assertThat(retry.isAlive()).isFalse();
+        assertThat(failure.get()).isNull();
+        assertThatThrownBy(lifetime::enter).isInstanceOf(IllegalStateException.class);
+    }
+
 }

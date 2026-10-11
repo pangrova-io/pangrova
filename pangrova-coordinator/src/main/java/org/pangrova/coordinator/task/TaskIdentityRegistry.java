@@ -20,9 +20,14 @@ final class TaskIdentityRegistry {
     @javax.annotation.concurrent.GuardedBy("this")
     private final HashMap<String, Scope> scopes = new HashMap<>();
     private final java.util.function.LongSupplier clock;
+    private volatile java.util.function.Consumer<String> connectorOperationExited = ignored -> { };
 
     TaskIdentityRegistry() { this(System::nanoTime); }
     TaskIdentityRegistry(java.util.function.LongSupplier clock) { this.clock = java.util.Objects.requireNonNull(clock); }
+
+    void onConnectorOperationExit(java.util.function.Consumer<String> listener) {
+        connectorOperationExited = java.util.Objects.requireNonNull(listener);
+    }
 
     synchronized org.pangrova.spi.connector.ConnectorQueryAuthority openQuery(String queryId) {
         if (queryId == null || queryId.isBlank()) throw new IllegalArgumentException("queryId must not be blank");
@@ -63,6 +68,11 @@ final class TaskIdentityRegistry {
         if (--scope.operations < 0) throw new IllegalStateException("Query operation was released twice");
     }
 
+    synchronized boolean queryOperationsDrained(String queryId) {
+        Scope scope = scopes.get(queryId);
+        return scope != null && scope.operations == 0;
+    }
+
     synchronized Runnable enterMetadataOperation(String queryId) {
         Scope scope = requireMetadataScope(queryId);
         Runnable exited = () -> exitQueryOperation(scope);
@@ -79,7 +89,8 @@ final class TaskIdentityRegistry {
     }
 
     synchronized TaskReportPublication enterReport(SubmitTaskRequest request,
-            org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly, Runnable notifyDrain) {
+            org.pangrova.protocol.rest.task.TaskStatusReport report, boolean resourceOnly,
+            Runnable notifyDrain, Runnable operationExited) {
         requireIdentity(request);
         Scope scope = requireMetadataScope(report.queryId());
         Fact fact = scope.publications.get(report.taskId());
@@ -95,7 +106,8 @@ final class TaskIdentityRegistry {
         Fact owner = fact;
         if (owner.notificationsCompleted) throw new IllegalStateException("Report publication was already acknowledged");
         TaskReportPublication operation = new TaskReportPublication(owner.report, owner.resourceOnly, owner.completed,
-                () -> completeReport(scope, owner), () -> exitReport(scope, owner, notifyDrain));
+                () -> completeReport(scope, owner),
+                () -> exitReport(scope, owner, notifyDrain, operationExited));
         scope.operations++;
         owner.operations++;
         return operation;
@@ -103,7 +115,8 @@ final class TaskIdentityRegistry {
 
     private synchronized void completeReport(Scope scope, Fact fact) { fact.completed = true; }
 
-    private void exitReport(Scope scope, Fact fact, Runnable notifyDrain) {
+    private void exitReport(Scope scope, Fact fact, Runnable notifyDrain,
+            Runnable operationExited) {
         boolean notify;
         synchronized (this) {
             if (--fact.operations < 0) throw new IllegalStateException("Report operation exited twice");
@@ -111,7 +124,10 @@ final class TaskIdentityRegistry {
             if (notify) fact.notifying = true;
             else exitQueryOperation(scope);
         }
-        if (!notify) return;
+        if (!notify) {
+            operationExited.run();
+            return;
+        }
         boolean completed = false;
         try {
             notifyDrain.run();
@@ -126,6 +142,7 @@ final class TaskIdentityRegistry {
                 }
                 exitQueryOperation(scope);
             }
+            operationExited.run();
         }
     }
 
@@ -512,7 +529,10 @@ final class TaskIdentityRegistry {
                 if (scope.sealed || scope.retired || scope.cleanupClaimed || scopes.get(queryId) != scope) {
                     throw new IllegalStateException("Connector query admission is closed: " + queryId);
                 }
-                QueryIssuanceOperation operation = new QueryIssuanceOperation(() -> exitQueryOperation(scope));
+                QueryIssuanceOperation operation = new QueryIssuanceOperation(() -> {
+                    exitQueryOperation(scope);
+                    connectorOperationExited.accept(queryId);
+                });
                 scope.operations++;
                 return operation;
             }

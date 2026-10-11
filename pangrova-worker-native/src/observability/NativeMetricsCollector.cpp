@@ -1,6 +1,12 @@
 #include "observability/NativeMetricsCollector.h"
 
 #include <algorithm>
+#include <limits>
+#include <stdexcept>
+#include <string>
+
+#include "observability/ColumnarReadMetrics.h"
+#include "velox/exec/TaskStats.h"
 
 namespace pangrova::observability {
 
@@ -55,7 +61,8 @@ TaskStatsSnapshot NativeMetricsCollector::snapshot() const {
         // F-NATIVE-EXEC-08: Queue metrics are populated by TaskExecutor at
         // snapshot time, not accumulated here. Default to 0.
         0, 0, 0, 0,
-        columnar_conversion_copied_bytes_.load(std::memory_order_relaxed)
+        columnar_conversion_copied_bytes_.load(std::memory_order_relaxed) +
+            columnar_read_copied_bytes_.load(std::memory_order_relaxed)
     };
 }
 
@@ -73,12 +80,36 @@ void NativeMetricsCollector::reset() {
     rows_read_.store(0, std::memory_order_relaxed);
     bytes_read_.store(0, std::memory_order_relaxed);
     columnar_conversion_copied_bytes_.store(0, std::memory_order_relaxed);
+    columnar_read_copied_bytes_.store(0, std::memory_order_relaxed);
     merge_reader_input_rows_.store(0, std::memory_order_relaxed);
     merge_reader_output_rows_.store(0, std::memory_order_relaxed);
     deletion_vector_filtered_rows_.store(0, std::memory_order_relaxed);
     schema_evolution_columns_mapped_.store(0, std::memory_order_relaxed);
     partition_columns_injected_.store(0, std::memory_order_relaxed);
     predicate_pushdown_row_groups_skipped_.store(0, std::memory_order_relaxed);
+}
+
+void NativeMetricsCollector::observeColumnarReadTaskStats(
+    const facebook::velox::exec::TaskStats& stats) {
+    uint64_t total = 0;
+    for (const auto& pipeline : stats.pipelineStats) {
+        for (const auto& op : pipeline.operatorStats) {
+            const auto metric = op.runtimeStats.find(std::string(kColumnarReadCopiedBytes));
+            if (metric == op.runtimeStats.end()) continue;
+            if (metric->second.unit != facebook::velox::RuntimeCounter::Unit::kBytes ||
+                metric->second.sum < 0) {
+                throw std::runtime_error("Invalid actual columnar read copy metric");
+            }
+            const auto bytes = static_cast<uint64_t>(metric->second.sum);
+            if (bytes > std::numeric_limits<uint64_t>::max() - total) {
+                throw std::overflow_error("Columnar read copy metric overflow");
+            }
+            total += bytes;
+        }
+    }
+    auto current = columnar_read_copied_bytes_.load(std::memory_order_relaxed);
+    while (total > current && !columnar_read_copied_bytes_.compare_exchange_weak(
+        current, total, std::memory_order_relaxed)) {}
 }
 
 void NativeMetricsCollector::addMergeReaderInputRows(int64_t rows) {

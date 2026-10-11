@@ -46,11 +46,12 @@ def validate_binding(value):
         if "registrationDependency" not in value:
             raise ValueError("Runtime signature cannot invent a pure Native registration")
         runtime = value["runtimeSignature"]
-        exact_keys(runtime, ("returnType", "deterministic", "description"), ("argumentSignatures", "argumentLayout"))
+        exact_keys(runtime, ("returnType", "deterministic", "defaultNullBehavior", "description"), ("argumentSignatures", "argumentLayout"))
         if len({"argumentSignatures", "argumentLayout"} & runtime.keys()) != 1:
             raise ValueError("Callback must select exactly one declared argument source")
         strings([runtime["returnType"]])
         exact_bool(runtime["deterministic"])
+        exact_bool(runtime["defaultNullBehavior"])
         if not isinstance(runtime["description"], str):
             raise ValueError("Runtime signature description must be a string")
         signatures = runtime.get("argumentSignatures", [])

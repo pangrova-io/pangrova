@@ -286,6 +286,18 @@ single Arrow binary cell; the consumer extracts and deserializes that page into
 Velox. Flight's Arrow IPC framing must not be confused with the shuffle
 payload's PrestoVectorSerde format.
 
+At the Velox-to-Arrow IPC boundary, the exported C Data array's `null_count`
+is recomputed from its validity bitmap, including nested children. Velox
+expression results can retain a cached count from an earlier nullable input;
+the wire metadata must describe the exported bitmap before Arrow imports the
+record batch.
+
+Planner serialization keeps Substrait join keys in the current `keys` field.
+The Java SDK may also emit deprecated `left_keys` and `right_keys` for an
+equijoin; the serializer removes those duplicate fields only when each entry
+matches its current key. Native rejects plans that still contain deprecated
+join key lists.
+
 Format conversion paths:
 ```
 Native Velox Pipeline (RowVector)
@@ -383,6 +395,20 @@ Worker exposes (HTTP/REST):
 
 Worker -> Coordinator (HTTP/REST):
 - `POST /v1/task/status-report` ReportTaskStatus
+
+The Coordinator accepts a status report only while it retains the matching
+issued TaskRequest and attempt identity. A report for a merely registered task
+without an issued request is rejected before sequence reservation. An exact
+report whose publication already completed may be reacknowledged after a lost
+HTTP response without repeating publication. Speculative loser cleanup reads
+and retires the retained execution-drain receipt under one lock, so concurrent
+compaction cannot turn the same receipt into a false mismatch; caller-supplied
+receipts still require exact equality.
+For durable artifact producers, a `FINISHED` report may commit its page only
+after the corresponding Coordinator task has entered `SCHEDULED` or `RUNNING`.
+Preparing an issued identity alone cannot commit the page. Exact retransmission
+is acknowledged after publication; a new terminal sequence after completion
+cannot commit the page again.
 
 Arrow Flight (data plane):
 - Shuffle data pull + Client result pull (gRPC streaming)

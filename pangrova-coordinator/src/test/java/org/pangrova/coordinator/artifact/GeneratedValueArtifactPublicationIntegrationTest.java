@@ -72,7 +72,9 @@ class GeneratedValueArtifactPublicationIntegrationTest {
                 "12".repeat(32), GENERATION, SNAPSHOT, START));
 
         DataSplit split = DataSplit.newBuilder()
-                .setSplitId("split-a")
+                .setSplitId(org.pangrova.protocol.DataSplitProtoCodec.stableSplitId(
+                        "iceberg", SOURCE_ID, SNAPSHOT, "object-a",
+                        "s3://warehouse/object-a.parquet", 0, 0))
                 .setConnectorId("iceberg")
                 .setSourceId(SOURCE_ID)
                 .setSourceSnapshot(SNAPSHOT)
@@ -145,7 +147,11 @@ class GeneratedValueArtifactPublicationIntegrationTest {
             throws Exception {
         ArtifactBuildSplit buildSplit = ArtifactBuildSplit.of(
                 split.getDataObjectId(), split.toByteArray());
-        DataSplit second = split.toBuilder().setSplitId("split-b").setDataObjectId("object-b")
+        DataSplit second = split.toBuilder().setSplitId(
+                        org.pangrova.protocol.DataSplitProtoCodec.stableSplitId(
+                                "iceberg", SOURCE_ID, SNAPSHOT, "object-b",
+                                "s3://warehouse/object-b.parquet", 0, 0))
+                .setDataObjectId("object-b")
                 .setOpaqueLocation("s3://warehouse/object-b.parquet").build();
         ArtifactBuildJob job = job();
         buildStore.createJob(job, dispatch(), List.of(new ArtifactBuildPage(
@@ -213,7 +219,7 @@ class GeneratedValueArtifactPublicationIntegrationTest {
         assertThat(template.getArtifacts(0).getSplitObjectsCount()).isZero();
         var manifest = buildStore.findPublishedGeneration(TENANT, ARTIFACT_ID, GENERATION, SNAPSHOT).orElseThrow();
         assertThat(manifest.objectCount()).isEqualTo(4);
-        assertThat(template.getResources().getFillKeys()).isEqualTo(manifest.rowCount() / 2);
+        assertThat(template.getResources().getFillKeys()).isEqualTo(manifest.rowCount());
         assertThat(template.getResources().getObjectStoreReadBytes()).isEqualTo(manifest.totalBytes());
         assertThat(template.getExecutionPolicy().getCoveragePolicy()).isEqualTo(
                 org.pangrova.protocol.v2.CoveragePolicy.COVERAGE_POLICY_REQUIRE_COMPLETE);
@@ -234,7 +240,11 @@ class GeneratedValueArtifactPublicationIntegrationTest {
                         PublishedArtifactBindingResolver.SourceCoverage.COMPLETE_GENERATION),
                 List.of(encodedSplit))).isEmpty();
         String changedSource = java.util.Base64.getEncoder().encodeToString(split.toBuilder()
-                .setOpaqueLocation("s3://warehouse/replaced-object.parquet").build().toByteArray());
+                .setOpaqueLocation("s3://warehouse/replaced-object.parquet")
+                .setSplitId(org.pangrova.protocol.DataSplitProtoCodec.stableSplitId(
+                        "iceberg", SOURCE_ID, SNAPSHOT, "object-a",
+                        "s3://warehouse/replaced-object.parquet", 0, 0))
+                .build().toByteArray());
         assertThatThrownBy(() -> resolver.resolveTemplate(
                 TENANT, "changed-scan", SOURCE_ID, "embedding", SNAPSHOT, List.of(changedSource)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exactly cover");

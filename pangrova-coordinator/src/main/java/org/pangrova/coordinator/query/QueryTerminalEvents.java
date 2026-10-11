@@ -26,7 +26,6 @@ final class QueryTerminalEvents {
             effect(queryId, "completed_metric", () -> increment(completed));
             effect(queryId, "admission", () -> admission.recordOutcome(true));
             LOG.info("event=query_completed queryId={}", queryId);
-            effect(queryId, "lineage", () -> audit.emitLineageOnFinished(queryId));
             effect(queryId, "audit", () -> audit.emitAuditCompleted(queryId, context.state()));
         } else {
             unsuccessful(context);
@@ -45,6 +44,7 @@ final class QueryTerminalEvents {
             effect(queryId, "audit", () -> audit.emitAuditFailed(queryId, context.state(), error));
         } else {
             LOG.info("event=query_cancelled queryId={}", queryId);
+            effect(queryId, "audit", () -> audit.emitAuditCancelled(queryId, context.state()));
         }
     }
 

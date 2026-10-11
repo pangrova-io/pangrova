@@ -42,6 +42,19 @@ class FrozenStageBindingsTest {
     }
 
     @Test
+    void storageDoubleVectorReplaysThroughExistingTemplateWithoutModelAuthority() {
+        var type = ResultColumnLogicalType.newBuilder().setColumnIndex(2)
+                .setLogicalType(VectorLogicalType.create(3, VectorLogicalType.FLOAT64, true, false)).build();
+        var template = FrozenStageBindings.freeze(new BoundExecutionPlan(new byte[]{1}, List.of(), List.of(type)), List.of());
+        assertThat(FrozenStageBindings.resultColumnTypes(stage(template))).containsExactly(type);
+        assertThat(FrozenStageBindings.read(stage(template), List.of()).resultColumnTypes()).containsExactly(type);
+        var narrow = StagePlan.of(1, 1, ArtifactBuildPageKind.RELATIONAL_COMPUTE, new byte[]{1}, template,
+                List.of("lake.raw.documents"), List.of("embedding"), false);
+        assertThatThrownBy(() -> FrozenStageBindings.resultColumnTypes(narrow))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("stage width");
+    }
+
+    @Test
     void rejectsVersionSignatureOrMissingCurrentModelObservation() {
         var template = FrozenStageBindings.freeze(new BoundExecutionPlan(new byte[]{1}, List.of(model())), List.of(MODEL));
         assertThatThrownBy(() -> FrozenStageBindings.read(stage(template), List.of()))
@@ -99,6 +112,6 @@ class FrozenStageBindingsTest {
 
     private static StagePlan stage(ArtifactStageTemplate template) {
         return StagePlan.of(1, 1, ArtifactBuildPageKind.RELATIONAL_COMPUTE, new byte[]{1}, template,
-                List.of("lake.raw.documents"), List.of("embedding"), false);
+                List.of("lake.raw.documents"), List.of("id", "content", "embedding"), false);
     }
 }

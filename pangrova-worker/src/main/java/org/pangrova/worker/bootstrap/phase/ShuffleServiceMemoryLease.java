@@ -6,9 +6,9 @@ import org.pangrova.resource.memory.MemoryArbitrator;
 import org.pangrova.resource.memory.NodeMemoryPool;
 
 /**
- * Process-lifetime memory reservation for Native Flight retention and transit.
- * Both accounting domains must grant the full amount before the Worker can
- * register tasks; a partial grant is rolled back, never silently accepted.
+ * Process-lifetime memory reservation for Native Flight retention and transit. Both accounting
+ * domains must grant the full amount before the Worker can register tasks; a partial grant is
+ * rolled back, never silently accepted.
  */
 public final class ShuffleServiceMemoryLease implements AutoCloseable {
 
@@ -18,25 +18,34 @@ public final class ShuffleServiceMemoryLease implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
 
     private ShuffleServiceMemoryLease(
-            NodeMemoryPool nodePool, MemoryArbitrator arbitrator,
-            long bytes) {
+            NodeMemoryPool nodePool, MemoryArbitrator arbitrator, long bytes) {
         this.nodePool = nodePool;
         this.arbitrator = arbitrator;
         this.bytes = bytes;
     }
 
+    /** Reserves the actual node and arbitrator budgets for shuffle retention and transit. */
     public static ShuffleServiceMemoryLease reserve(
-            String workerId, long retentionBytes, long transitBytes,
-            NodeMemoryPool nodePool, MemoryArbitrator arbitrator) {
-        if (workerId == null || workerId.isBlank() || nodePool == null || arbitrator == null ||
-                retentionBytes <= 0 || transitBytes <= 0) {
-            throw new IllegalArgumentException("Shuffle service requires a valid memory budget and Worker identity");
+            String workerId,
+            long retentionBytes,
+            long transitBytes,
+            NodeMemoryPool nodePool,
+            MemoryArbitrator arbitrator) {
+        if (workerId == null
+                || workerId.isBlank()
+                || nodePool == null
+                || arbitrator == null
+                || retentionBytes <= 0
+                || transitBytes <= 0) {
+            throw new IllegalArgumentException(
+                    "Shuffle service requires a valid memory budget and Worker identity");
         }
         final long requested = Math.addExact(retentionBytes, transitBytes);
         long nodeGranted = nodePool.tryReserve(requested);
         if (nodeGranted != requested) {
             nodePool.free(nodeGranted);
-            throw new IllegalStateException("Insufficient NodePool memory for Native shuffle service");
+            throw new IllegalStateException(
+                    "Insufficient NodePool memory for Native shuffle service");
         }
         long arbGranted = 0;
         try {
@@ -44,7 +53,8 @@ public final class ShuffleServiceMemoryLease implements AutoCloseable {
             // would be reclaimed by the stale-query sweeper after 60 min.
             arbGranted = arbitrator.reserve(nodePool, requested);
             if (arbGranted != requested) {
-                throw new IllegalStateException("Insufficient shared arbitrator memory for Native shuffle service");
+                throw new IllegalStateException(
+                        "Insufficient shared arbitrator memory for Native shuffle service");
             }
             return new ShuffleServiceMemoryLease(nodePool, arbitrator, requested);
         } catch (RuntimeException | Error failure) {

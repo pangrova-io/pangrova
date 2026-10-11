@@ -141,9 +141,10 @@ class GovernanceOperationsTenantIntegrationTest extends org.pangrova.coordinator
     }
 
     @Test
-    void governanceWiredInModuleIntegrationBootstrap() {
+    void governanceWiredInModuleIntegrationBootstrap() throws Exception {
         try (ModuleIntegrationBootstrap wiring = new ModuleIntegrationBootstrap()) {
-            wiring.startGovernance(buildAllModulesEnabled(), null);
+            wiring.startGovernance(buildAllModulesEnabled(),
+                    org.pangrova.coordinator.testinfra.SharedPostgresContainer.migratedDataSource("governance_wiring"));
 
             assertThat(wiring.getLineageEmitter()).isNotNull();
         }

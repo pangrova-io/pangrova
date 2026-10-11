@@ -14,7 +14,6 @@
 package org.pangrova.testing.e2e.index;
 
 import org.pangrova.spi.connector.data.TypedRow;
-import org.pangrova.testing.e2e.SqlE2ETestBase;
 import org.pangrova.testing.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,7 +48,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * GIN, R_TREE, VECTOR (HNSW + IVFPQ).
  */
 @DisplayName("Index Lifecycle Performance E2E")
-class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
+class IndexLifecyclePerformanceE2ETest extends VectorIndexE2ETestBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexLifecyclePerformanceE2ETest.class);
 
@@ -76,28 +75,27 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
      * polling (CLAUDE.md C3 anti-busy-wait rule).
      */
     private static void waitForIndexReady(String indexName, String fqn) {
-        org.awaitility.Awaitility.await("index-ready: " + indexName + " on " + fqn)
+        org.awaitility.Awaitility.await("index-ready: " + indexName)
                 .atMost(java.time.Duration.ofSeconds(30))
                 .pollInterval(java.time.Duration.ofMillis(500))
                 .pollDelay(java.time.Duration.ZERO)
-                .ignoreExceptions()
                 .until(() -> {
                     List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn);
                     for (TypedRow r : indexes) {
                         if (!indexName.equals(r.getRaw("index_name").toString())) continue;
                         String state = r.getRaw("state").toString();
-                        if ("READY".equals(state)) {
-                            LOG.info("event=index_ready index={}", indexName);
-                            return true;
+                        if ("STALE".equals(state) || "DROPPED".equals(state)) {
+                            throw new IllegalStateException(
+                                    "Index did not become ready: " + indexName + " state=" + state);
                         }
-                        if ("STALE".equals(state)) {
-                            LOG.warn("event=index_stale index={} fqn={} "
-                                    + "reason=build_completed_with_failures", indexName, fqn);
-                            return true;
-                        }
+                        return "READY".equals(state);
                     }
                     return false;
                 });
+        var descriptor = findIndex(indexName, fqn);
+        if (descriptor.indexType() == org.pangrova.spi.index.IndexType.VECTOR) {
+            awaitPublishedVectorIndex(indexName, fqn);
+        }
     }
 
     /** F-E2E-04 fix: Awaitility-based deterministic polling. */
@@ -615,7 +613,9 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
                     + " LIMIT 5";
 
             long t1 = System.nanoTime();
-            List<TypedRow> baseline = sqlRunner.execute(query);
+            var exactEvidence = executeObserved(query);
+            assertExact(exactEvidence);
+            List<TypedRow> baseline = exactEvidence.rows();
             long noIndexMs = (System.nanoTime() - t1) / 1_000_000;
             assertThat(baseline).isNotEmpty();
             assertThat(baseline).hasSizeLessThanOrEqualTo(5);
@@ -623,11 +623,16 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_hnsw ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2')");
             waitForIndexReady("idx_hnsw", fqn());
+            var publication = awaitPublishedVectorIndex("idx_hnsw", fqn());
+            assertDatasetSnapshot(exactEvidence, publication);
             List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
             assertThat(indexes).anyMatch(r -> "idx_hnsw".equals(r.getRaw("index_name").toString()));
 
             long t2 = System.nanoTime();
-            List<TypedRow> indexed = sqlRunner.execute(query);
+            var annEvidence = executeObserved(query);
+            double requiredRecall = assertAnn(publication, annEvidence);
+            List<TypedRow> indexed = annEvidence.rows();
+            assertFunctionalRecall(baseline, indexed, requiredRecall);
             long withIndexMs = (System.nanoTime() - t2) / 1_000_000;
             assertThat(indexed).isNotEmpty();
 
@@ -646,7 +651,9 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
             waitForIndexDrop("idx_hnsw", fqn());
 
             long t3 = System.nanoTime();
-            List<TypedRow> afterDrop = sqlRunner.execute(query);
+            var afterDropEvidence = executeObserved(query);
+            assertExact(afterDropEvidence);
+            List<TypedRow> afterDrop = afterDropEvidence.rows();
             long afterDropMs = (System.nanoTime() - t3) / 1_000_000;
             assertThat(afterDrop).isNotEmpty();
 
@@ -663,7 +670,9 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
                     + " LIMIT 5";
 
             long t1 = System.nanoTime();
-            List<TypedRow> baseline = sqlRunner.execute(query);
+            var exactEvidence = executeObserved(query);
+            assertExact(exactEvidence);
+            List<TypedRow> baseline = exactEvidence.rows();
             long noIndexMs = (System.nanoTime() - t1) / 1_000_000;
             assertThat(baseline).isNotEmpty();
 
@@ -671,11 +680,16 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
                     + "(embedding) USING VECTOR WITH ('algorithm'='IVFPQ', 'metric'='L2',"
                     + " 'ivfpq.nlist'='4', 'ivfpq.m'='2', 'ivfpq.nbits'='8')");
             waitForIndexReady("idx_ivfpq", fqn());
+            var publication = awaitPublishedVectorIndex("idx_ivfpq", fqn());
+            assertDatasetSnapshot(exactEvidence, publication);
             List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
             assertThat(indexes).anyMatch(r -> "idx_ivfpq".equals(r.getRaw("index_name").toString()));
 
             long t2 = System.nanoTime();
-            List<TypedRow> indexed = sqlRunner.execute(query);
+            var annEvidence = executeObserved(query);
+            double requiredRecall = assertAnn(publication, annEvidence);
+            List<TypedRow> indexed = annEvidence.rows();
+            assertFunctionalRecall(baseline, indexed, requiredRecall);
             long withIndexMs = (System.nanoTime() - t2) / 1_000_000;
             assertThat(indexed).isNotEmpty();
 
@@ -686,7 +700,9 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
             waitForIndexDrop("idx_ivfpq", fqn());
 
             long t3 = System.nanoTime();
-            List<TypedRow> afterDrop = sqlRunner.execute(query);
+            var afterDropEvidence = executeObserved(query);
+            assertExact(afterDropEvidence);
+            List<TypedRow> afterDrop = afterDropEvidence.rows();
             long afterDropMs = (System.nanoTime() - t3) / 1_000_000;
             assertThat(afterDrop).isNotEmpty();
 
@@ -703,18 +719,25 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
                     + " LIMIT 5";
 
             long t1 = System.nanoTime();
-            List<TypedRow> baseline = sqlRunner.execute(query);
+            var exactEvidence = executeObserved(query);
+            assertExact(exactEvidence);
+            List<TypedRow> baseline = exactEvidence.rows();
             long noIndexMs = (System.nanoTime() - t1) / 1_000_000;
             assertThat(baseline).isNotEmpty();
 
             sqlRunner.executeDdl("CREATE INDEX idx_cos ON " + fqn()
                     + "(embedding) USING VECTOR WITH ('algorithm'='HNSW', 'metric'='COSINE')");
             waitForIndexReady("idx_cos", fqn());
+            var publication = awaitPublishedVectorIndex("idx_cos", fqn());
+            assertDatasetSnapshot(exactEvidence, publication);
             List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
             assertThat(indexes).anyMatch(r -> "idx_cos".equals(r.getRaw("index_name").toString()));
 
             long t2 = System.nanoTime();
-            List<TypedRow> indexed = sqlRunner.execute(query);
+            var annEvidence = executeObserved(query);
+            double requiredRecall = assertAnn(publication, annEvidence);
+            List<TypedRow> indexed = annEvidence.rows();
+            assertFunctionalRecall(baseline, indexed, requiredRecall);
             long withIndexMs = (System.nanoTime() - t2) / 1_000_000;
             assertThat(indexed).isNotEmpty();
 
@@ -725,7 +748,9 @@ class IndexLifecyclePerformanceE2ETest extends SqlE2ETestBase {
             waitForIndexDrop("idx_cos", fqn());
 
             long t3 = System.nanoTime();
-            List<TypedRow> afterDrop = sqlRunner.execute(query);
+            var afterDropEvidence = executeObserved(query);
+            assertExact(afterDropEvidence);
+            List<TypedRow> afterDrop = afterDropEvidence.rows();
             long afterDropMs = (System.nanoTime() - t3) / 1_000_000;
             assertThat(afterDrop).isNotEmpty();
 

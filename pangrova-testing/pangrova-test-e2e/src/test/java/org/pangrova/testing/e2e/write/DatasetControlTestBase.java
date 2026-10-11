@@ -35,8 +35,7 @@ abstract class DatasetControlTestBase extends NativeWriteLifecycleTestBase {
     protected List<ConnectorTestConfig> connectorConfigs() {
         var configs = new ArrayList<>(super.connectorConfigs());
         configs.add(new ConnectorTestConfig(DATASET, SCHEMA, "lance", Map.of(
-                "warehouse", tempDir.resolve("dataset-control").toString(),
-                "jdbc.url", pgJdbcUrl(), "jdbc.user", pgUsername(), "jdbc.password", pgPassword())));
+                "warehouse", tempDir.resolve("dataset-control").toString())));
         return List.copyOf(configs);
     }
 

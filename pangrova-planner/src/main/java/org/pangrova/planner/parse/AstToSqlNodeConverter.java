@@ -216,6 +216,23 @@ public final class AstToSqlNodeConverter {
     }
 
     private SqlNode convertTableRef(TableRef ref) {
+        if (ref.isValues()) {
+            var valuesTable = ref.valuesTable().orElseThrow();
+            SqlNode[] rows = valuesTable.rows().stream()
+                    .map(row -> SqlStdOperatorTable.ROW.createCall(POS,
+                            row.stream().map(this::convertExpression).toArray(SqlNode[]::new)))
+                    .toArray(SqlNode[]::new);
+            SqlNode values = SqlStdOperatorTable.VALUES.createCall(POS, rows);
+            if (ref.alias().isEmpty()) {
+                return values;
+            }
+            List<SqlNode> operands = new ArrayList<>();
+            operands.add(values);
+            operands.add(new SqlIdentifier(ref.alias().orElseThrow(), POS));
+            valuesTable.columnAliases().stream()
+                    .map(name -> new SqlIdentifier(name, POS)).forEach(operands::add);
+            return SqlStdOperatorTable.AS.createCall(POS, operands.toArray(SqlNode[]::new));
+        }
         if (ref.isTableFunction()) {
             return convertLateralTableFunction(ref);
         }
@@ -256,8 +273,9 @@ public final class AstToSqlNodeConverter {
         }
         SqlNode argument = convertExpression(funcRef.argument());
         SqlNode unnest;
-        if (funcRef.functionType() == TableFunctionRef.TableFunctionType.POSEXPLODE) {
-            // POSEXPLODE → UNNEST WITH ORDINALITY
+        if (funcRef.functionType() == TableFunctionRef.TableFunctionType.POSEXPLODE
+                || funcRef.functionType() == TableFunctionRef.TableFunctionType.UNNEST_WITH_ORDINALITY) {
+            // Preserve the value column followed by the ordinality column.
             unnest = new org.apache.calcite.sql.SqlUnnestOperator(true)
                     .createCall(POS, argument);
         } else {

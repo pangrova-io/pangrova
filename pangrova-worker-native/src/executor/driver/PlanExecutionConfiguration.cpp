@@ -79,6 +79,9 @@ velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
   velox::VeloxTaskRunnerConfig runner_config;
   runner_config.function_registry = config.function_registry;
   runner_config.canonical_output_schema = std::make_shared<const substrait::NamedStruct>(converter.canonicalOutputSchema());
+  if (converter.resultOutputSchema().names_size() > 0) {
+    runner_config.result_output_schema = std::make_shared<const substrait::NamedStruct>(converter.resultOutputSchema());
+  }
   runner_config.serde_schema_bindings = converter.serdeSchemaBindings();
   runner_config.executor_handle = config.executor_handle;
   runner_config.task_id = config.task_id;

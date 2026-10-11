@@ -3,6 +3,7 @@ package org.pangrova.metadata.artifact.jdbc.build;
 import org.pangrova.metadata.artifact.build.ArtifactBuildJob;
 import org.pangrova.metadata.artifact.build.ArtifactBuildJobState;
 import org.pangrova.metadata.artifact.build.ArtifactBuildOutput;
+import org.pangrova.metadata.artifact.build.ArtifactBuildSplit;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -162,6 +163,41 @@ final class JdbcArtifactBuildOutputQueries {
                 && stored.entrySet().stream().allMatch(entry ->
                         entry.getValue() != null && entry.getValue().equalsIgnoreCase(
                                 requested.get(entry.getKey())));
+    }
+
+    static Map<String, ArtifactBuildSplit> loadPublishedSourceSplits(
+            Connection connection, String tenantId, String jobId, List<String> sourceIds)
+            throws SQLException {
+        requirePublishedJob(connection, tenantId, jobId);
+        Map<String, ArtifactBuildSplit> stored = new HashMap<>();
+        for (int offset = 0; offset < sourceIds.size(); offset += LOOKUP_BATCH_SIZE) {
+            List<String> batch = sourceIds.subList(
+                    offset, Math.min(sourceIds.size(), offset + LOOKUP_BATCH_SIZE));
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "SELECT source_object_id,split_bytes,split_sha256 "
+                            + "FROM artifact_build_page_sources WHERE tenant_id=? AND job_id=? "
+                            + "AND source_object_id IN (" + placeholders(batch.size()) + ")")) {
+                bindList(statement, tenantId, jobId, batch);
+                try (ResultSet result = statement.executeQuery()) {
+                    while (result.next()) {
+                        String sourceId = result.getString(1);
+                        byte[] bytes = result.getBytes(2);
+                        String checksum = result.getString(3);
+                        if (bytes == null || checksum == null) {
+                            throw new IllegalStateException("Published canonical source split is missing");
+                        }
+                        ArtifactBuildSplit split = ArtifactBuildSplit.of(sourceId, bytes);
+                        if (!split.splitSha256().equalsIgnoreCase(checksum)) {
+                            throw new IllegalStateException("Published canonical source split checksum differs");
+                        }
+                        if (stored.putIfAbsent(sourceId, split) != null) {
+                            throw new IllegalStateException("Published source has duplicate canonical splits");
+                        }
+                    }
+                }
+            }
+        }
+        return Map.copyOf(stored);
     }
 
     private static void loadStoredSplits(

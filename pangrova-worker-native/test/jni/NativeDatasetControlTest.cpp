@@ -7,16 +7,20 @@
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <unordered_set>
 
+#include <arrow/buffer.h>
 #include <arrow/c/abi.h>
+#include <arrow/c/bridge.h>
+#include <arrow/ipc/writer.h>
 #include <openssl/evp.h>
 
 #include "../TestMemoryHelper.h"
-#include "google/protobuf/io/coded_stream.h"
-#include "google/protobuf/io/zero_copy_stream_impl_lite.h"
+#include "google/protobuf/unknown_field_set.h"
 #include "jni/command/NativeCommandDispatcher.h"
 #include "lance/LanceBatchReader.h"
 #include "lance/LanceBatchWriter.h"
@@ -25,6 +29,7 @@
 #include "pangrova/protocol/v2/runtime.pb.h"
 #include "velox/vector/arrow/Bridge.h"
 #include "velox/vector/FlatVector.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::jni::test {
 namespace {
@@ -44,26 +49,6 @@ std::string digest(const std::string& bytes) {
   return {reinterpret_cast<const char*>(output.data()), output.size()};
 }
 
-std::string hex(const std::string& bytes) {
-  constexpr char digits[] = "0123456789abcdef";
-  std::string output;
-  for (unsigned char value : bytes) {
-    output.push_back(digits[value >> 4]);
-    output.push_back(digits[value & 15]);
-  }
-  return output;
-}
-
-std::string canonical(const google::protobuf::Message& message) {
-  std::string bytes(message.ByteSizeLong(), '\0');
-  google::protobuf::io::ArrayOutputStream output(bytes.data(), bytes.size());
-  google::protobuf::io::CodedOutputStream coded(&output);
-  coded.SetSerializationDeterministic(true);
-  EXPECT_TRUE(message.SerializeToCodedStream(&coded));
-  EXPECT_FALSE(coded.HadError());
-  return bytes;
-}
-
 void checksum(proto::Checksum* checksum, const std::string& bytes) {
   checksum->set_algorithm(proto::Checksum::ALGORITHM_SHA256);
   checksum->set_digest(digest(bytes));
@@ -76,7 +61,7 @@ proto::RuntimeCommandResponse dispatch(proto::RuntimeCommandType type, const Req
   command.set_command_type(type);
   command.mutable_payload()->PackFrom(request);
   proto::ObjectStoreExecutionBinding binding;
-  if constexpr (std::is_same_v<Request, proto::FinalizeDistributedWriteRequest>) {
+  if constexpr (std::is_same_v<Request, proto::PrepareDistributedWriteRequest>) {
     binding.ParseFromString(pangrova::test::testStorageBinding(request.output_binding().lance().dataset_uri(),
         request.output_binding().lance().catalog(), request.security().tenant_id()));
   } else if constexpr (std::is_same_v<Request, proto::DatasetScanPartitionsRequest>) {
@@ -85,7 +70,7 @@ proto::RuntimeCommandResponse dispatch(proto::RuntimeCommandType type, const Req
   } else {
     *binding.mutable_catalog() = request.catalog();
     binding.set_tenant_id(request.security().tenant_id());
-    binding.set_warehouse_uri(std::filesystem::temp_directory_path().string());
+    binding.set_warehouse_uri(pangrova::test::LanceManagedSourceTestAuthority::warehouse().string());
   }
   *command.add_worker_local_storage_bindings() = binding;
   const auto serialized = command.SerializeAsString();
@@ -96,18 +81,14 @@ proto::RuntimeCommandResponse dispatch(proto::RuntimeCommandType type, const Req
 }
 
 void catalog(proto::CatalogExecutionBinding* value) {
-  value->set_catalog_name("lake");
-  value->set_connector_provider("iceberg");
-  value->set_catalog_incarnation_id("catalog-incarnation");
-  value->set_catalog_revision(7);
-  checksum(value->mutable_configuration_fingerprint(), "catalog-config");
+  *value = pangrova::test::LanceManagedSourceTestAuthority::catalog();
 }
 
 proto::DatasetSchemaFingerprintRequest schemaRequest() {
   proto::DatasetSchemaFingerprintRequest request;
   catalog(request.mutable_catalog());
   request.mutable_security()->set_tenant_id("tenant-a");
-  request.mutable_security()->set_principal("principal");
+  request.mutable_security()->set_principal("lance-fixture-writer");
   request.set_deadline_epoch_ms(deadline());
   request.mutable_schema()->add_names("id");
   auto* type = request.mutable_schema()->mutable_struct_()->add_types();
@@ -118,102 +99,74 @@ proto::DatasetSchemaFingerprintRequest schemaRequest() {
   return request;
 }
 
-bool isPersistedManifestDigest(const std::filesystem::path& dataset, const std::string& expected) {
-  for (const auto& entry : std::filesystem::directory_iterator(dataset / "_versions")) {
-    if (!entry.is_regular_file() || entry.path().extension() != ".manifest") continue;
-    std::ifstream input(entry.path(), std::ios::binary);
-    const std::string bytes((std::istreambuf_iterator<char>(input)), {});
-    if (digest(bytes) == expected) return true;
-  }
-  return false;
+bool isPersistedManifestDigest(const std::filesystem::path& dataset,
+    const proto::AcceptedSourceSnapshotRef& expected) {
+  std::ifstream input(dataset / expected.manifest_relative_path(), std::ios::binary);
+  if (!input) return false;
+  const std::string bytes((std::istreambuf_iterator<char>(input)), {});
+  return bytes.size() == expected.size_bytes() && digest(bytes) == expected.manifest_sha256().digest();
 }
 
 class NativeDatasetControlTest : public ::testing::Test {
  protected:
   void SetUp() override {
     pool_ = pangrova::test::testLeafPool("NativeDatasetControlTest");
-    directory_ = std::filesystem::temp_directory_path() /
+    directory_ = pangrova::test::LanceManagedSourceTestAuthority::warehouse() /
         ("pangrova-dataset-control-" + std::to_string(
             std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(directory_);
   }
 
   void TearDown() override {
+    preparation_actor_.reset();
     pool_.reset();
     std::error_code ignored;
     std::filesystem::remove_all(directory_, ignored);
   }
 
-  proto::FinalizeDistributedWriteRequest publication(
-      const std::string& write_id, proto::LanceWriteOperation operation = proto::LANCE_WRITE_OPERATION_CREATE,
-      uint64_t base = 0) {
-    const auto schema = schemaRequest();
-    auto schema_response = dispatch(proto::RUNTIME_COMMAND_TYPE_DATASET_SCHEMA_FINGERPRINT, schema);
-    EXPECT_TRUE(schema_response.success()) << schema_response.error().message();
+  lance::LanceWriterConfig allocationConfig(const std::string& writeId,
+      proto::LanceWriteOperation operation, uint64_t base, int32_t partition) {
+    const auto response = dispatch(proto::RUNTIME_COMMAND_TYPE_DATASET_SCHEMA_FINGERPRINT, schemaRequest());
+    EXPECT_TRUE(response.success()) << response.error().message();
     proto::DatasetSchemaFingerprintResult fingerprint;
-    EXPECT_TRUE(schema_response.payload().UnpackTo(&fingerprint));
-    proto::FinalizeDistributedWriteRequest request;
-    *request.mutable_security() = schema.security();
-    request.set_execution_id("execution-1");
-    request.set_commit_fingerprint(hex(digest(write_id)));
-    request.set_deadline_epoch_ms(deadline());
-    request.set_control_epoch(8);
-    auto* owner = request.mutable_execution_owner();
-    owner->set_owner_id("coordinator-current");
-    owner->set_owner_incarnation("current-incarnation");
-    owner->set_fencing_token(9);
-    auto* intent_owner = request.mutable_intent_execution_owner();
-    intent_owner->set_owner_id("coordinator-original");
-    intent_owner->set_owner_incarnation("original-incarnation");
-    intent_owner->set_fencing_token(3);
-    auto* allocation = request.mutable_output_binding()->mutable_lance();
-    allocation->set_dataset_uri((directory_ / "dataset.lance").string());
-    allocation->set_write_id(write_id);
-    allocation->set_generation("generation-1");
-    allocation->set_operation(operation);
-    allocation->set_expected_read_version(base);
-    allocation->set_allocation_staging_prefix("_pangrova/write-staging/" + write_id);
-    allocation->set_transaction_staging_prefix(allocation->allocation_staging_prefix());
-    *allocation->mutable_catalog() = schema.catalog();
-    *allocation->mutable_schema_fence_sha256() = fingerprint.physical_schema_sha256();
-    allocation->add_write_column_names("id");
-    // The connector handle is opaque to Native, but its exact bytes are fenced.
-    auto* handle = allocation->mutable_output_handle();
-    handle->set_type_url("type.googleapis.com/pangrova.protocol.v2.LanceWriteBinding");
-    handle->set_codec_version(1);
-    handle->set_payload(canonical(*allocation));
-    checksum(handle->mutable_payload_checksum(), handle->payload());
-    handle->add_write_column_names("id");
+    EXPECT_TRUE(response.payload().UnpackTo(&fingerprint));
+    lance::LanceWriterConfig config;
+    config.outputPath = (directory_ / "dataset.lance").string();
+    config.storageBinding = pangrova::test::testStorageBinding(config.outputPath);
+    config.writeId = writeId; config.tenantId = "tenant-a"; config.generation = "generation-1";
+    config.operation = static_cast<lance::LanceWriteOperation>(operation); config.expectedReadVersion = base;
+    std::copy(fingerprint.physical_schema_sha256().digest().begin(),
+        fingerprint.physical_schema_sha256().digest().end(), config.schemaFenceSha256.begin());
+    const auto empty = BaseVector::create(ROW({"id"}, {BIGINT()}), 0, pool_.get());
+    ArrowSchema physical{}; exportToArrow(empty, physical);
+    auto schema = arrow::ImportSchema(&physical);
+    if (!schema.ok()) throw std::runtime_error(schema.status().ToString());
+    auto ipc = arrow::ipc::SerializeSchema(**schema, arrow::default_memory_pool());
+    if (!ipc.ok()) throw std::runtime_error(ipc.status().ToString());
+    pangrova::test::LanceManagedSourceTestAuthority::allocate(config,
+        std::string(reinterpret_cast<const char*>((*ipc)->data()), (*ipc)->size()), partition);
+    return config;
+  }
+
+  proto::PrepareDistributedWriteRequest publication(const std::string& writeId,
+      proto::LanceWriteOperation operation = proto::LANCE_WRITE_OPERATION_CREATE, uint64_t base = 0) {
+    const auto config = allocationConfig(writeId, operation, base, 0);
+    proto::TaskAttemptId issued;
+    EXPECT_TRUE(issued.ParseFromArray(config.taskAttempt.data(), config.taskAttempt.size()));
+    proto::PrepareDistributedWriteRequest request;
+    request.mutable_security()->set_tenant_id("tenant-a");
+    request.mutable_security()->set_principal("lance-fixture-writer");
+    *request.mutable_output_binding() = pangrova::test::LanceManagedSourceTestAuthority::allocationBinding(config);
+    request.set_execution_id(issued.query_or_job_id()); request.set_deadline_epoch_ms(deadline());
+    request.set_control_epoch(issued.control_epoch());
+    *request.mutable_execution_owner() = issued.execution_owner();
+    *request.mutable_intent_execution_owner() = issued.execution_owner();
     return request;
   }
 
-  void addWinner(proto::FinalizeDistributedWriteRequest& request, int32_t partition) {
-    const auto& allocation = request.output_binding().lance();
-    proto::TaskAttemptId attempt;
-    attempt.set_query_or_job_id(request.execution_id());
-    attempt.set_stage_id(1);
-    attempt.set_partition_id(partition);
-    attempt.set_plan_epoch(3);
-    attempt.set_attempt_id(2);
-    attempt.set_fencing_token(5);
-    attempt.set_control_epoch(2);
-    attempt.set_task_id("task-" + std::to_string(partition));
-    *attempt.mutable_execution_owner() = request.intent_execution_owner();
-    const auto attempt_bytes = canonical(attempt);
-    lance::LanceWriterConfig config;
-    config.outputPath = allocation.dataset_uri();
-    config.storageBinding = pangrova::test::testStorageBinding(allocation.dataset_uri(), allocation.catalog(),
-        request.security().tenant_id());
-    config.writeId = allocation.write_id();
-    config.tenantId = request.security().tenant_id();
-    config.generation = allocation.generation();
-    config.operation = static_cast<lance::LanceWriteOperation>(allocation.operation());
-    config.expectedReadVersion = allocation.expected_read_version();
-    config.transactionStagingPrefix = allocation.allocation_staging_prefix() +
-        "/attempt-" + hex(digest(attempt_bytes));
-    config.taskAttempt.assign(attempt_bytes.begin(), attempt_bytes.end());
-    std::copy(allocation.schema_fence_sha256().digest().begin(),
-              allocation.schema_fence_sha256().digest().end(), config.schemaFenceSha256.begin());
+  void addWinner(proto::PrepareDistributedWriteRequest& request, int32_t partition) {
+    const auto& output = request.output_binding().lance();
+    auto config = allocationConfig(output.write_id(), output.operation(), output.expected_read_version(), partition);
     const auto type = ROW({"id"}, {BIGINT()});
     lance::LanceBatchWriter writer(pool_, type, config);
     auto values = BaseVector::create(BIGINT(), 2, pool_.get());
@@ -223,23 +176,72 @@ class NativeDatasetControlTest : public ::testing::Test {
     writer.writeBatch(rows);
     const auto bytes = writer.finish();
     auto* winner = request.add_fragments();
-    *winner->mutable_task_attempt() = attempt;
+    EXPECT_TRUE(winner->mutable_task_attempt()->ParseFromArray(config.taskAttempt.data(), config.taskAttempt.size()));
     winner->set_commit_metadata(bytes.data(), bytes.size());
     checksum(winner->mutable_sha256(), winner->commit_metadata());
   }
 
-  proto::FinalizeDistributedWriteResult finalize(const proto::FinalizeDistributedWriteRequest& request) {
-    const auto response = dispatch(proto::RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE, request);
+  void seal(proto::PrepareDistributedWriteRequest& request) {
+    if (!request.commit_fingerprint().empty()) return;
+    std::vector<std::vector<uint8_t>> fragments;
+    for (const auto& winner : request.fragments()) {
+      fragments.emplace_back(winner.commit_metadata().begin(), winner.commit_metadata().end());
+    }
+    if (!preparation_actor_) preparation_actor_ = std::make_unique<pangrova::test::LanceSdkPreparationActor>();
+    request = pangrova::test::LanceManagedSourceTestAuthority::issue(
+        pangrova::test::LanceManagedSourceTestAuthority::reserve(request.execution_id(), fragments), *preparation_actor_);
+  }
+
+  proto::PrepareDistributedWriteResult prepare(proto::PrepareDistributedWriteRequest& request) {
+    seal(request);
+    if (!invoked_.insert(request.invocation_id()).second || !preparation_actor_->matches(request)) {
+      request = pangrova::test::LanceManagedSourceTestAuthority::issue(request, *preparation_actor_);
+      EXPECT_TRUE(invoked_.insert(request.invocation_id()).second);
+    }
+    const auto response = preparation_actor_->prepare(request);
     EXPECT_TRUE(response.success()) << response.error().message();
-    proto::FinalizeDistributedWriteResult result;
-    EXPECT_TRUE(response.payload().UnpackTo(&result));
-    EXPECT_FALSE(response.has_error());
+    proto::PrepareDistributedWriteResult result;
+    EXPECT_TRUE(response.payload().UnpackTo(&result)); EXPECT_FALSE(response.has_error());
     return result;
+  }
+
+  proto::AcceptedSourceSnapshotRef accept(const proto::PrepareDistributedWriteRequest& request,
+      const proto::PrepareDistributedWriteResult& prepared) {
+    const auto accepted = pangrova::test::LanceManagedSourceTestAuthority::registerPrepared(request.execution_id(), prepared);
+    if (!accepted) throw std::runtime_error("Actual PG did not accept complete SDK candidate");
+    EXPECT_EQ(accepted->SerializeAsString(), prepared.publication().candidate().SerializeAsString());
+    return *accepted;
   }
 
   std::shared_ptr<facebook::velox::memory::MemoryPool> pool_;
   std::filesystem::path directory_;
+  std::unordered_set<std::string> invoked_;
+  std::unique_ptr<pangrova::test::LanceSdkPreparationActor> preparation_actor_;
 };
+
+TEST_F(NativeDatasetControlTest, ExactPgIssuanceRunsOnItsListeningSdkActorBeforeAcceptedRead) {
+  auto request = publication("actual-sdk-actor");
+  addWinner(request, 0);
+  seal(request);
+  const auto endpoint = preparation_actor_->endpoint();
+  ASSERT_TRUE(std::filesystem::exists(endpoint));
+  const auto result = prepare(request);
+  ASSERT_EQ(result.outcome(), proto::WRITE_PREPARATION_OUTCOME_PREPARED);
+  ASSERT_TRUE(result.sdk_joined());
+  EXPECT_EQ(result.invocation_id(), request.invocation_id());
+  const auto accepted = accept(request, result);
+  EXPECT_TRUE(isPersistedManifestDigest(directory_ / "dataset.lance", accepted));
+  pangrova::test::PartitionedTestDatasetReader reader(pool_.get(), ROW({"id"}, {BIGINT()}),
+      accepted.dataset_uri(), accepted.version(), {});
+  std::vector<int64_t> rows;
+  while (auto batch = reader.next(8192)) {
+    const DecodedVector values(*batch->childAt(0));
+    for (vector_size_t row = 0; row < batch->size(); ++row) rows.push_back(values.valueAt<int64_t>(row));
+  }
+  EXPECT_EQ(rows, (std::vector<int64_t>{0, 1}));
+  preparation_actor_.reset();
+  EXPECT_FALSE(std::filesystem::exists(endpoint));
+}
 
 TEST_F(NativeDatasetControlTest, SchemaCommandUsesExecutionTypesAndRealPhysicalArrowFingerprint) {
   auto request = schemaRequest();
@@ -341,47 +343,50 @@ TEST_F(NativeDatasetControlTest, SchemaCommandRejectsIncompleteTypedMetadata) {
 }
 
 TEST_F(NativeDatasetControlTest, PublishesAllWinningFragmentsAndReturnsPersistedManifestDigest) {
-  auto request = publication("create-1");
-  addWinner(request, 0);
-  addWinner(request, 1);
-  auto result = finalize(request);
-  ASSERT_EQ(result.outcome(), proto::WRITE_PUBLICATION_OUTCOME_COMMITTED);
+  auto request = publication("create-1"); addWinner(request, 0); addWinner(request, 1);
+  auto result = prepare(request);
+  ASSERT_EQ(result.outcome(), proto::WRITE_PREPARATION_OUTCOME_PREPARED);
   EXPECT_EQ(result.commit_fingerprint(), request.commit_fingerprint());
-  EXPECT_EQ(result.published_version(), 1u);
-  EXPECT_TRUE(isPersistedManifestDigest(directory_ / "dataset.lance", result.manifest_sha256().digest()));
-  EXPECT_NE(result.manifest_sha256().digest(), request.output_binding().lance().schema_fence_sha256().digest());
+  const auto recovered = prepare(request);
+  const auto accepted = accept(request, result);
+  EXPECT_EQ(accepted.version(), 1u);
+  EXPECT_TRUE(isPersistedManifestDigest(directory_ / "dataset.lance", accepted));
+  EXPECT_NE(accepted.manifest_sha256().digest(), request.output_binding().lance().schema_fence_sha256().digest());
+  EXPECT_FALSE(std::filesystem::exists(directory_ / "dataset.lance" / "_versions"));
   pangrova::test::PartitionedTestDatasetReader reader(pool_.get(), ROW({"id"}, {BIGINT()}),
-      request.output_binding().lance().dataset_uri(), result.published_version(), {});
-  int64_t rows = 0;
-  while (auto batch = reader.next(8192)) rows += batch->size();
-  EXPECT_EQ(rows, 4);
-
-  request.set_recovering(true);
-  request.set_known_published_version(result.published_version());
-  *request.mutable_known_manifest_sha256() = result.manifest_sha256();
-  auto recovered = finalize(request);
-  EXPECT_EQ(recovered.outcome(), proto::WRITE_PUBLICATION_OUTCOME_COMMITTED);
-  EXPECT_EQ(recovered.published_version(), result.published_version());
-  EXPECT_EQ(recovered.manifest_sha256().digest(), result.manifest_sha256().digest());
-  request.mutable_known_manifest_sha256()->set_digest(std::string(32, 'x'));
-  auto mismatched = finalize(request);
-  EXPECT_EQ(mismatched.outcome(), proto::WRITE_PUBLICATION_OUTCOME_UNKNOWN);
-  EXPECT_EQ(mismatched.published_version(), 0u);
-  EXPECT_FALSE(mismatched.has_manifest_sha256());
+      request.output_binding().lance().dataset_uri(), accepted.version(), {});
+  int64_t rows = 0; while (auto batch = reader.next(8192)) rows += batch->size(); EXPECT_EQ(rows, 4);
+  EXPECT_EQ(recovered.outcome(), proto::WRITE_PREPARATION_OUTCOME_PREPARED);
+  EXPECT_EQ(recovered.publication().candidate().version(), accepted.version());
+  EXPECT_EQ(recovered.publication().candidate().manifest_sha256().digest(), accepted.manifest_sha256().digest());
+  EXPECT_EQ(pangrova::test::LanceManagedSourceTestAuthority::reference(accepted.dataset_uri(), accepted.version()).SerializeAsString(),
+      accepted.SerializeAsString());
+  // A forged manifest proof cannot claim a successful read/publication acknowledgement.
+  proto::DatasetScanPartitionsRequest forged;
+  *forged.mutable_catalog() = accepted.catalog(); *forged.mutable_security() = request.security();
+  forged.set_dataset_uri(accepted.dataset_uri()); forged.set_version(accepted.version());
+  *forged.mutable_accepted_snapshot() = accepted;
+  forged.mutable_accepted_snapshot()->mutable_manifest_sha256()->set_digest(std::string(32, 'x'));
+  *forged.mutable_physical_schema_sha256() = accepted.physical_schema_sha256();
+  forged.set_page_size(1); forged.set_deadline_epoch_ms(deadline());
+  const auto mismatched = dispatch(proto::RUNTIME_COMMAND_TYPE_DATASET_SCAN_PARTITIONS, forged);
+  EXPECT_FALSE(mismatched.success()); EXPECT_FALSE(mismatched.has_payload());
 }
 
 TEST_F(NativeDatasetControlTest, EnumeratesPinnedManifestPagesAndReadsEachPartitionExactlyOnce) {
   auto create = publication("partition-pages");
   addWinner(create, 0);
   addWinner(create, 1);
-  const auto published = finalize(create);
-  ASSERT_EQ(published.outcome(), proto::WRITE_PUBLICATION_OUTCOME_COMMITTED);
+  const auto prepared = prepare(create);
+  ASSERT_EQ(prepared.outcome(), proto::WRITE_PREPARATION_OUTCOME_PREPARED);
+  const auto published = accept(create, prepared);
   const auto& output = create.output_binding().lance();
   proto::DatasetScanPartitionsRequest request;
   *request.mutable_catalog() = output.catalog();
   *request.mutable_security() = create.security();
   request.set_dataset_uri(output.dataset_uri());
-  request.set_version(published.published_version());
+  request.set_version(published.version());
+  *request.mutable_accepted_snapshot() = published;
   *request.mutable_physical_schema_sha256() = output.schema_fence_sha256();
   request.set_page_size(1);
   request.set_deadline_epoch_ms(deadline());
@@ -469,41 +474,35 @@ TEST_F(NativeDatasetControlTest, MetadataCannotUseUnboundOrCrossScopeWorkerStora
 }
 
 TEST_F(NativeDatasetControlTest, AppendAndOverwritePublishOnlyExactBasePlusOne) {
-  auto create = publication("create-1");
-  addWinner(create, 0);
-  ASSERT_EQ(finalize(create).published_version(), 1u);
-  auto append = publication("append-1", proto::LANCE_WRITE_OPERATION_APPEND, 1);
-  addWinner(append, 0);
-  auto appended = finalize(append);
-  ASSERT_EQ(appended.outcome(), proto::WRITE_PUBLICATION_OUTCOME_COMMITTED);
-  ASSERT_EQ(appended.published_version(), 2u);
-  EXPECT_TRUE(isPersistedManifestDigest(directory_ / "dataset.lance", appended.manifest_sha256().digest()));
-  auto overwrite = publication("overwrite-1", proto::LANCE_WRITE_OPERATION_OVERWRITE, 2);
-  addWinner(overwrite, 0);
-  auto overwritten = finalize(overwrite);
-  ASSERT_EQ(overwritten.outcome(), proto::WRITE_PUBLICATION_OUTCOME_COMMITTED);
-  ASSERT_EQ(overwritten.published_version(), 3u);
-  auto stale = publication("stale-append", proto::LANCE_WRITE_OPERATION_APPEND, 1);
-  addWinner(stale, 0);
-  const auto failed = finalize(stale);
-  EXPECT_EQ(failed.outcome(), proto::WRITE_PUBLICATION_OUTCOME_UNKNOWN);
-  EXPECT_FALSE(failed.has_manifest_sha256());
-  uint64_t version = 0;
-  lance::LanceStorageContext storage(pangrova::test::testStorageBinding(
-      stale.output_binding().lance().dataset_uri(), stale.output_binding().lance().catalog()));
-  ASSERT_EQ(lance_ffi_dataset_version(storage.get(), stale.output_binding().lance().dataset_uri().c_str(), &version), 0);
-  EXPECT_EQ(version, 3u);
+  auto create = publication("create-1"); addWinner(create, 0);
+  const auto first = accept(create, prepare(create)); ASSERT_EQ(first.version(), 1u);
+  auto append = publication("append-1", proto::LANCE_WRITE_OPERATION_APPEND, 1); addWinner(append, 0);
+  const auto appendPrepared = prepare(append);
+  ASSERT_EQ(appendPrepared.outcome(), proto::WRITE_PREPARATION_OUTCOME_PREPARED);
+  const auto appended = accept(append, appendPrepared); ASSERT_EQ(appended.version(), 2u);
+  EXPECT_TRUE(isPersistedManifestDigest(directory_ / "dataset.lance", appended));
+  auto overwrite = publication("overwrite-1", proto::LANCE_WRITE_OPERATION_OVERWRITE, 2); addWinner(overwrite, 0);
+  const auto overwritePrepared = prepare(overwrite);
+  ASSERT_EQ(overwritePrepared.outcome(), proto::WRITE_PREPARATION_OUTCOME_PREPARED);
+  const auto overwritten = accept(overwrite, overwritePrepared); ASSERT_EQ(overwritten.version(), 3u);
+  auto stale = publication("stale-append", proto::LANCE_WRITE_OPERATION_APPEND, 1); addWinner(stale, 0);
+  // The actual PG base CAS rejects before issuing a preparation RPC; no fake Native COMMITTED/UNKNOWN is returned.
+  EXPECT_THROW(seal(stale), std::runtime_error);
+  const auto current = pangrova::test::LanceManagedSourceTestAuthority::reference(
+      stale.output_binding().lance().dataset_uri(), 0);
+  EXPECT_EQ(current.version(), 3u); EXPECT_EQ(current.SerializeAsString(), overwritten.SerializeAsString());
 }
 
 TEST_F(NativeDatasetControlTest, ValidationErrorsCannotPublishOrClaimAnOutcome) {
   auto original = publication("validate-1");
   addWinner(original, 0);
-  const std::vector<std::function<void(proto::FinalizeDistributedWriteRequest&)>> mutations{
+  seal(original);
+  const std::vector<std::function<void(proto::PrepareDistributedWriteRequest&)>> mutations{
       [](auto& r) { r.set_deadline_epoch_ms(0); },
       [](auto& r) { r.clear_execution_owner(); },
       [](auto& r) { r.clear_intent_execution_owner(); },
-      [](auto& r) { r.mutable_execution_owner()->set_fencing_token(2); },
-      [](auto& r) { r.mutable_execution_owner()->set_fencing_token(3); },
+      [](auto& r) { r.mutable_execution_owner()->set_fencing_token(r.intent_execution_owner().fencing_token() - 1); },
+      [](auto& r) { r.mutable_execution_owner()->set_owner_incarnation("different-at-same-real-token"); },
       [](auto& r) { r.set_control_epoch(0); },
       [](auto& r) { r.mutable_security()->set_tenant_id("other-tenant"); },
       [](auto& r) { r.mutable_output_binding()->mutable_lance()->set_generation("other-generation"); },
@@ -513,16 +512,16 @@ TEST_F(NativeDatasetControlTest, ValidationErrorsCannotPublishOrClaimAnOutcome) 
       [](auto& r) { r.mutable_output_binding()->mutable_lance()->set_transaction_staging_prefix("bound-attempt"); },
       [](auto& r) { r.mutable_fragments(0)->mutable_sha256()->set_digest(std::string(32, 'x')); },
       [](auto& r) { r.mutable_fragments(0)->mutable_task_attempt()->set_attempt_id(3); },
-      [](auto& r) { r.mutable_fragments(0)->mutable_task_attempt()->set_control_epoch(9); },
-      [](auto& r) { *r.mutable_fragments(0)->mutable_task_attempt()->mutable_execution_owner() = r.execution_owner(); },
+      [](auto& r) { r.mutable_fragments(0)->mutable_task_attempt()->set_control_epoch(r.control_epoch() + 1); },
+      [](auto& r) { r.mutable_fragments(0)->mutable_task_attempt()->mutable_execution_owner()->set_owner_incarnation("wrong-real-winner-owner"); },
       [](auto& r) { *r.add_fragments() = r.fragments(0); },
-      [](auto& r) { r.set_known_published_version(1); },
-      [](auto& r) { r.set_recovering(true); r.set_known_published_version(1); },
+      [](auto& r) { r.GetReflection()->MutableUnknownFields(&r)->AddVarint(9, 1); },
+      [](auto& r) { r.GetReflection()->MutableUnknownFields(&r)->AddVarint(10, 1); r.GetReflection()->MutableUnknownFields(&r)->AddVarint(9, 1); },
       [](auto& r) { r.clear_fragments(); }};
   for (const auto& mutate : mutations) {
     auto request = original;
     mutate(request);
-    const auto response = dispatch(proto::RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE, request);
+    const auto response = dispatch(proto::RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE, request);
     EXPECT_FALSE(response.success());
     EXPECT_EQ(response.error().error_class(), proto::ERROR_CLASS_INVALID_REQUEST);
     EXPECT_FALSE(response.has_payload());
@@ -531,41 +530,42 @@ TEST_F(NativeDatasetControlTest, ValidationErrorsCannotPublishOrClaimAnOutcome) 
 }
 
 TEST_F(NativeDatasetControlTest, CurrentAuthorityDoesNotRewriteOriginalWinnerEvidence) {
-  auto request = publication("owner-fence");
-  addWinner(request, 0);
-  ASSERT_EQ(request.execution_owner().fencing_token(), 9u);
-  ASSERT_EQ(request.intent_execution_owner().fencing_token(), 3u);
-  ASSERT_EQ(request.control_epoch(), 8u);
-  ASSERT_EQ(request.fragments(0).task_attempt().control_epoch(), 2u);
+  auto request = publication("owner-fence"); addWinner(request, 0); seal(request);
+  const auto original = request.intent_execution_owner();
+  const auto winnerBefore = request.fragments(0).SerializeAsString();
+  const auto current = pangrova::test::LanceManagedSourceTestAuthority::handoff(request.execution_id());
+  *request.mutable_execution_owner() = current;
+  ASSERT_GT(request.execution_owner().fencing_token(), original.fencing_token());
+  ASSERT_EQ(request.intent_execution_owner().SerializeAsString(), original.SerializeAsString());
+  ASSERT_EQ(request.fragments(0).task_attempt().execution_owner().SerializeAsString(), original.SerializeAsString());
+  ASSERT_LE(request.fragments(0).task_attempt().control_epoch(), request.control_epoch());
   auto future = request;
-  future.mutable_fragments(0)->mutable_task_attempt()->set_control_epoch(9);
-  auto response = dispatch(proto::RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE, future);
-  EXPECT_FALSE(response.success());
-  EXPECT_EQ(response.error().error_class(), proto::ERROR_CLASS_INVALID_REQUEST);
+  future.mutable_fragments(0)->mutable_task_attempt()->set_control_epoch(request.control_epoch() + 1);
+  auto response = dispatch(proto::RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE, future);
+  EXPECT_FALSE(response.success()); EXPECT_EQ(response.error().error_class(), proto::ERROR_CLASS_INVALID_REQUEST);
   EXPECT_NE(response.error().message().find("execution owner/control fence"), std::string::npos);
-  auto wrong_owner = request;
-  *wrong_owner.mutable_fragments(0)->mutable_task_attempt()->mutable_execution_owner() = request.execution_owner();
-  response = dispatch(proto::RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE, wrong_owner);
-  EXPECT_FALSE(response.success());
-  EXPECT_NE(response.error().message().find("execution owner/control fence"), std::string::npos);
-  // Original metadata remains intact while a newer authority performs publication.
-  const auto result = finalize(request);
-  EXPECT_EQ(result.outcome(), proto::WRITE_PUBLICATION_OUTCOME_COMMITTED);
-  EXPECT_EQ(result.published_version(), 1u);
+  auto wrongOwner = request;
+  *wrongOwner.mutable_fragments(0)->mutable_task_attempt()->mutable_execution_owner() = request.execution_owner();
+  response = dispatch(proto::RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE, wrongOwner);
+  EXPECT_FALSE(response.success()); EXPECT_NE(response.error().message().find("execution owner/control fence"), std::string::npos);
+  const auto result = prepare(request); EXPECT_EQ(result.outcome(), proto::WRITE_PREPARATION_OUTCOME_PREPARED);
+  const auto accepted = accept(request, result); EXPECT_EQ(accepted.version(), 1u);
+  EXPECT_EQ(request.fragments(0).SerializeAsString(), winnerBefore);
 }
 
 TEST_F(NativeDatasetControlTest, RejectsOversizedMetadataAndTooManyFragmentsBeforeFfi) {
   auto request = publication("bounded-1");
   addWinner(request, 0);
+  seal(request);
   const auto winner = request.fragments(0);
   while (request.fragments_size() <= 4096) *request.add_fragments() = winner;
-  const auto many = dispatch(proto::RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE, request);
+  const auto many = dispatch(proto::RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE, request);
   EXPECT_FALSE(many.success());
   EXPECT_EQ(many.error().error_class(), proto::ERROR_CLASS_INVALID_REQUEST);
   request = publication("bounded-2");
   request.mutable_output_binding()->mutable_lance()->mutable_output_handle()
       ->set_payload(std::string(16 * 1024 * 1024, 'x'));
-  const auto oversized = dispatch(proto::RUNTIME_COMMAND_TYPE_FINALIZE_DISTRIBUTED_WRITE, request);
+  const auto oversized = dispatch(proto::RUNTIME_COMMAND_TYPE_PREPARE_DISTRIBUTED_WRITE, request);
   EXPECT_FALSE(oversized.success());
   EXPECT_EQ(oversized.error().error_class(), proto::ERROR_CLASS_INVALID_REQUEST);
   EXPECT_FALSE(std::filesystem::exists(directory_ / "dataset.lance" / "_versions"));

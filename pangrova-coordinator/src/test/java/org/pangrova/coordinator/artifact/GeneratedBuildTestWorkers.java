@@ -32,8 +32,15 @@ final class GeneratedBuildTestWorkers {
         CapabilityRef ai = BuiltInCapabilityCatalog.aiEmbeddingPlanRef().toBuilder()
                 .setImplementationBuildId(BuiltInCapabilityCatalog.NATIVE_BUILD_ID)
                 .build();
-        CapabilityInventory.Builder inventory = org.pangrova.coordinator.worker
-                .TestWorkerInfoBuilder.canonicalInventory().toBuilder()
+        CapabilityInventory actual = org.pangrova.coordinator.worker
+                .TestWorkerInfoBuilder.canonicalInventory();
+        CapabilityInventory.Builder inventory = actual.toBuilder().clearCapabilities();
+        actual.getCapabilitiesList().stream()
+                .filter(capability -> withMaterializer || !capability.getRef().getCapabilityId()
+                        .equals(BuiltInCapabilityCatalog.generatedValuesArtifactBuildPlanRef()
+                                .getCapabilityId()))
+                .forEach(inventory::addCapabilities);
+        inventory
                 .addCapabilities(CapabilityDescriptor.newBuilder()
                         .setRef(ai)
                         .setKind(CapabilityKind.CAPABILITY_KIND_MODEL_INVOCATION)
@@ -61,19 +68,6 @@ final class GeneratedBuildTestWorkers {
                                 .setMaxProviderAttemptsPerTask(10_000)
                                 .setMaxRequestBytes(1_048_576)
                                 .setMaxResponseBytes(2_097_152)));
-        if (withMaterializer) {
-            inventory.addCapabilities(CapabilityDescriptor.newBuilder()
-                    .setRef(BuiltInCapabilityCatalog
-                            .generatedValuesArtifactBuildPlanRef().toBuilder()
-                            .setImplementationBuildId(
-                                    BuiltInCapabilityCatalog.NATIVE_BUILD_ID))
-                    .setKind(CapabilityKind.CAPABILITY_KIND_BACKGROUND_SINK)
-                    .setPlacement(ExecutionPlacement.EXECUTION_PLACEMENT_NATIVE)
-                    .addExecutionModes(ExecutionMode.EXECUTION_MODE_BATCH)
-                    .setRequiredPrivilege("ALTER TABLE")
-                    .addSupportedArtifactFormats(BuiltInCapabilityCatalog
-                            .generatedValuesArtifactFormat()));
-        }
         return new WorkerInfo(
                 "worker-1", "127.0.0.1", 8080, 8081, 8082,
                 HealthState.ACTIVE, MemoryPressure.NONE, 0, 0,

@@ -11,7 +11,6 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.sql.SqlNode;
 import org.pangrova.planner.mv.DynamicTableResolution;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
-import org.pangrova.planner.rewrite.ConstantFoldingRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.apache.calcite.sql.validate.SqlValidator;
@@ -43,7 +42,8 @@ public final class PangrovaPlanner {
     private final PangrovaParserFactory parserFactory;
     private final RelDataTypeFactory typeFactory;
     private final CalciteCatalogReader catalogReader;
-    private final ConstantFoldingRewriter constantFoldingRewriter = new ConstantFoldingRewriter();
+    private final java.util.concurrent.atomic.AtomicLong constantFoldedTotal =
+            new java.util.concurrent.atomic.AtomicLong();
     private final PangrovaSqlOperatorTable operatorTable = new PangrovaSqlOperatorTable();
 
     // Optional advanced feature integrations (null when not wired)
@@ -97,7 +97,6 @@ public final class PangrovaPlanner {
         this.catalogReader = PlannerComponentFactory.buildCatalogReader(
                 typeFactory, rootSchema, defaultSchemaPath);
         var hepProgram = PlannerComponentFactory.buildHepProgram();
-        var hepProgramSafe = PlannerComponentFactory.buildHepProgramSafe();
         this.statisticsCollector = deps.statisticsCollector();
         this.costEstimator = deps.statisticsCollector() != null
                 ? new StatisticsBasedCostEstimator(deps.statisticsCollector())
@@ -124,16 +123,15 @@ public final class PangrovaPlanner {
         var optimizationContext = new OptimizationContext(cboConfig, selectedCostModel, this.costEstimator);
         this.optimizationRunner = new PlanOptimizationRunner(
                 List.of(
-                        new HepOptimizationPass(hepProgram, hepProgramSafe),
+                        new HepOptimizationPass(hepProgram),
                         new CascadesCboPass()),
-                optimizationContext,
-                hepProgramSafe);
+                optimizationContext);
     }
 
     /**
      * Parse, validate, optimize, and constant-fold SQL into a RelNode plan.
      * Constant expressions (no TableScan/TableModify/Exchange) are folded
-     * into LogicalValues via Calcite Interpreter evaluation.
+     * into LogicalValues by the registered Calcite reduction rules.
      * Pre-parse: Dynamic Table names are rewritten to physical target tables.
      * Post-optimization: MV rewrite is applied when MaterializedViewQueryRewriter is wired.
      */
@@ -170,12 +168,12 @@ public final class PangrovaPlanner {
         List<RuntimeFilterDescriptor> filterDescriptors =
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
-        RelNode folded = constantFoldingRewriter.tryFold(materializedViewRewritten, cluster);
+        recordConstantFold(materializedViewRewritten);
 
         // Verify metadata versions unchanged after compilation
         verifyMetadataVersions(pinnedVersions);
 
-        return new PlanResult(folded, preOptColumnNames, filterDescriptors, mergeOnReadHints);
+        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors, mergeOnReadHints);
     }
 
     /** Binds SQL without deriving facts from expressions that security policies may replace. */
@@ -200,38 +198,8 @@ public final class PangrovaPlanner {
         RelNode optimized = optimizationRunner.optimize(query.plan());
         List<RuntimeFilterDescriptor> descriptors = materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         // An MV substitution would introduce a different source that has not passed this query's authority.
-        RelNode folded = constantFoldingRewriter.tryFold(optimized, optimized.getCluster());
-        return new PlannedQuery(folded, query.columnNames(), descriptors, query.mergeOnReadHints());
-    }
-
-    /**
-     * Plan with safe optimization (no REDUCE_EXPRESSIONS rules).
-     * Used as fallback when normal plan produces corrupted field references.
-     */
-    public PlanResult planSafe(String sql) {
-        String rewrittenSql = dynamicTablePlanningSupport.rewriteIfWired(sql);
-        SqlNode sqlNode = parse(rewrittenSql);
-        SqlValidator validator = buildValidator();
-        SqlNode validated = validate(validator, sqlNode);
-        RelOptCluster cluster = buildCluster();
-        RelNode relNode = convert(validator, cluster, validated);
-
-        Map<String, Long> pinnedVersions = pinMetadataVersions(relNode);
-
-        List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
-        if (containsMutation(relNode)) {
-            verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of());
-        }
-        RelNode optimized = optimizationRunner.optimizeSafe(relNode);
-        List<RuntimeFilterDescriptor> filterDescriptors =
-                materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
-        RelNode materializedViewRewritten = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
-        RelNode folded = constantFoldingRewriter.tryFold(materializedViewRewritten, cluster);
-
-        verifyMetadataVersions(pinnedVersions);
-
-        return new PlanResult(folded, preOptColumnNames, filterDescriptors);
+        recordConstantFold(optimized);
+        return new PlannedQuery(optimized, query.columnNames(), descriptors, query.mergeOnReadHints());
     }
 
     /**
@@ -285,9 +253,9 @@ public final class PangrovaPlanner {
                 materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten =
                 materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
-        RelNode folded = constantFoldingRewriter.tryFold(materializedViewRewritten, cluster);
+        recordConstantFold(materializedViewRewritten);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(folded, preOptColumnNames, filterDescriptors);
+        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors);
     }
 
     // ---- Cross-catalog metadata version pinning ----
@@ -357,7 +325,13 @@ public final class PangrovaPlanner {
 
     /** Counter for constant-folded queries. Exposed for metrics collection. */
     public long getConstantFoldedTotal() {
-        return constantFoldingRewriter.getFoldedTotal();
+        return constantFoldedTotal.get();
+    }
+
+    private void recordConstantFold(RelNode plan) {
+        if (PlanShapeChecks.isFoldedConstant(plan)) {
+            constantFoldedTotal.incrementAndGet();
+        }
     }
 
     /** Returns the statistics collector, or null if not wired. Package-private to limit API surface. */
@@ -422,7 +396,8 @@ public final class PangrovaPlanner {
             SqlToRelConverter converter = new SqlToRelConverter(
                     null, validator, catalogReader, cluster,
                     StandardConvertletTable.INSTANCE,
-                    SqlToRelConverter.config());
+                    SqlToRelConverter.config()
+                            .addRelBuilderConfigTransform(config -> config.withBloat(-1)));
             RelNode rel = converter.convertQuery(validated, false, true).rel;
             return org.pangrova.planner.embedding.GeneratedColumnMutationRewrite.rewrite(
                     DecorrelationSupport.safeDecorrelate(rel), validated, operatorTable);
@@ -438,12 +413,11 @@ public final class PangrovaPlanner {
      * Called by the coordinator's AQE callback after runtime statistics have been
      * fed into the {@link StatisticsCollector} via {@code recordRuntimeFeedback}.
      *
-     * <p>Re-runs the full optimization pipeline on the given plan. If optimization
-     * fails, returns the original plan unchanged (the original plan is always
-     * semantically correct; reoptimization is a best-effort enhancement).</p>
+     * <p>Re-runs the full optimization pipeline on the given plan. Failures
+     * stop compilation before a new fragment is dispatched.</p>
      *
      * @param plan the existing plan fragment to re-optimize
-     * @return the re-optimized plan, or the original if optimization failed
+     * @return the re-optimized plan
      */
     public RelNode reoptimize(RelNode plan) {
         return optimizationRunner.reoptimize(plan, null);
@@ -456,7 +430,7 @@ public final class PangrovaPlanner {
      *
      * @param plan the existing plan fragment to re-optimize
      * @param joinStrategyHint optional join strategy hint from AQE, or null
-     * @return the re-optimized plan, or the original if optimization failed
+     * @return the re-optimized plan
      */
     public RelNode reoptimize(RelNode plan, org.pangrova.planner.adaptive.JoinStrategy joinStrategyHint) {
         return optimizationRunner.reoptimize(plan, joinStrategyHint);

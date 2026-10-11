@@ -25,8 +25,13 @@ bin/pangrova-cli.sh --host localhost --port 8080
 | `--host <host>` | `localhost` | Coordinator host |
 | `--port <port>` | `8080` | Coordinator port |
 | `--catalog <name>` | — | Default catalog |
+| `--schema <name>` | — | Default schema |
+| `--file <path>` | — | Execute one complete SQL statement from a UTF-8 file; failures exit nonzero |
+| `--output <path>` | stdout | Write batch results to a new file; requires `--file` |
+| `--execution-receipt <path>` | — | Write a new JSON execution receipt after consuming results and confirming FINISHED; requires `--file` |
 | `--query-timeout <duration>` | `30m` | Query polling timeout (for example `30s`, `5m`, `1h`) |
 | `--token <token>` | — | Bearer authentication; mutually exclusive with user/password |
+| `--token-env <name>` | — | Read a Bearer token from an existing environment variable; mutually exclusive with other credential sources |
 | `--user <user>` / `--password <password>` | — | UTF-8 Basic authentication; both must be supplied |
 | `--ssl <true/false>` | `false` | Use TLS for REST and require the actual result endpoint to advertise TLS |
 | `--ssl-trust-store <path>` / `--ssl-trust-store-password <password>` | — | JKS/PKCS12 trust-store settings for REST HTTPS only |
@@ -70,6 +75,20 @@ Type `\q` or `exit` to quit. Statements that produce no result set print
 
 ### Script Mode
 
+For automation and benchmarks, execute one SQL file in batch mode:
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080 --catalog lake --schema tpch \
+  --file q01.sql --output q01-results.txt --execution-receipt q01-execution.json
+```
+
+The complete statement is parsed by the server. Batch mode propagates submission,
+query, cancellation, timeout, result decoding and output errors as a nonzero exit.
+The receipt contains `queryId`, `state`, `sqlSha256` and `resultConsumed`; its digest
+covers the original UTF-8 SQL file, including whitespace. It is written only after
+result consumption, FINISHED and successful client close. Output and receipt files
+must not already exist. Unknown, repeated and incomplete options are rejected.
+
 Pipe SQL from a file:
 
 ```bash
@@ -81,3 +100,6 @@ Or use shell redirection:
 ```bash
 echo "SELECT count(*) FROM my_table;" | bin/pangrova-cli.sh --host localhost --port 8080
 ```
+
+Piped input runs the interactive shell, which reports query errors and continues.
+Use `--file` when an automation must fail on a query error.

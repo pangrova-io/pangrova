@@ -99,7 +99,8 @@ PreparedScalarRegistration prepareScalar(
   PreparedScalarRegistration prepared;
   prepared.name = name;
   prepared.metadata = facebook::velox::exec::VectorFunctionMetadataBuilder()
-      .deterministic(overloads.front().deterministic).build();
+      .deterministic(overloads.front().deterministic)
+      .defaultNullBehavior(overloads.front().defaultNullBehavior).build();
   for (const auto& overload : overloads) {
     auto builder = facebook::velox::exec::FunctionSignatureBuilder();
     for (const auto& type : overload.inputTypes) {
@@ -172,7 +173,13 @@ void NativeUdfRegistry::registerScalar(const ScalarUdfSpec& spec) {
         "': vectorFunctionFactory must not be null");
   }
 
-  auto& overloads = scalarUdfs_[spec.name];
+  const auto name = facebook::velox::exec::sanitizeName(spec.name);
+  if (aggregateUdfs_.contains(name)) {
+    throw std::runtime_error(
+        "UDF registration failed for '" + spec.name +
+        "': scalar/aggregate names must not collide in the runtime");
+  }
+  auto& overloads = scalarUdfs_[name];
   for (const auto& existing : overloads) {
     if (sameInputTypes(existing.inputTypes, spec.inputTypes)) {
       throw std::runtime_error(
@@ -188,6 +195,11 @@ void NativeUdfRegistry::registerScalar(const ScalarUdfSpec& spec) {
       throw std::runtime_error(
           "UDF registration failed for '" + spec.name +
           "': overload statefulness must be identical");
+    }
+    if (existing.defaultNullBehavior != spec.defaultNullBehavior) {
+      throw std::runtime_error(
+          "UDF registration failed for '" + spec.name +
+          "': overload NULL-input policy must be identical");
     }
     if (existing.deterministic != spec.deterministic) {
       throw std::runtime_error(
@@ -223,6 +235,17 @@ void NativeUdfRegistry::registerAggregate(const AggregateUdfSpec& spec) {
         "': registry is finalized, registerAllWithVelox() already called");
   }
 
+  const auto name = facebook::velox::exec::sanitizeName(spec.name);
+  if (scalarUdfs_.contains(name)) {
+    throw std::runtime_error(
+        "UDF registration failed for '" + spec.name +
+        "': scalar/aggregate names must not collide in the runtime");
+  }
+  if (aggregateUdfs_.contains(name)) {
+    throw std::runtime_error(
+        "UDF registration failed for '" + spec.name +
+        "': duplicate aggregate runtime name");
+  }
   if (!spec.intermediateType) {
     throw std::runtime_error(
         "UDF registration failed for '" + spec.name +
@@ -235,7 +258,7 @@ void NativeUdfRegistry::registerAggregate(const AggregateUdfSpec& spec) {
         "': aggregateFactory must not be null");
   }
 
-  aggregateUdfs_[spec.name] = spec;
+  aggregateUdfs_.emplace(name, spec);
 }
 
 void NativeUdfRegistry::registerAllWithVelox() {
@@ -279,7 +302,7 @@ void NativeUdfRegistry::registerAllWithVelox() {
 
 std::optional<ScalarUdfSpec> NativeUdfRegistry::findScalar(
     const std::string& name) const {
-  auto it = scalarUdfs_.find(name);
+  auto it = scalarUdfs_.find(facebook::velox::exec::sanitizeName(name));
   if (it == scalarUdfs_.end() || it->second.empty()) {
     return std::nullopt;
   }
@@ -288,7 +311,7 @@ std::optional<ScalarUdfSpec> NativeUdfRegistry::findScalar(
 
 std::optional<AggregateUdfSpec> NativeUdfRegistry::findAggregate(
     const std::string& name) const {
-  auto it = aggregateUdfs_.find(name);
+  auto it = aggregateUdfs_.find(facebook::velox::exec::sanitizeName(name));
   if (it == aggregateUdfs_.end()) {
     return std::nullopt;
   }

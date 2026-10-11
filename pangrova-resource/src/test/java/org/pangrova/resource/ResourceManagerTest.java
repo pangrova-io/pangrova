@@ -7,8 +7,14 @@ import org.pangrova.resource.memory.NodeMemoryPool;
 import org.pangrova.resource.memory.QueryMemoryPool;
 import org.pangrova.resource.memory.RootMemoryPool;
 import org.pangrova.resource.spill.SpillManager;
+import org.pangrova.resource.spill.DiskSpillableBuffer;
+import org.pangrova.resource.spill.SpillManager.SpillCandidate;
 import org.pangrova.resource.thread.ThreadBudgetTracker;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import java.nio.file.Path;
+import org.junit.jupiter.api.AfterEach;
+
 
 import java.util.ArrayList;
 import java.util.List;
@@ -22,6 +28,26 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>Validates: Requirements 11.1</b></p>
  */
 class ResourceManagerTest {
+
+    @TempDir
+    Path spillDirectory;
+
+    private final java.util.List<DiskSpillableBuffer> actualBuffers = new java.util.ArrayList<>();
+
+    private SpillCandidate actualCandidate(String id, int priority, int bytes) {
+        DiskSpillableBuffer buffer = new DiskSpillableBuffer(id, priority, spillDirectory);
+        buffer.addBatch(new byte[bytes]);
+        actualBuffers.add(buffer);
+        return buffer.toSpillCandidate();
+    }
+
+    @AfterEach
+    void closeActualBuffers() {
+        for (DiskSpillableBuffer buffer : actualBuffers) {
+            buffer.close();
+        }
+    }
+
 
     @Test
     void delegatesToMemoryArbitrator() {
@@ -108,7 +134,7 @@ class ResourceManagerTest {
         var threadPool = new ThreadBudgetTracker(4, 2, 1);
         var spill = new SpillManager();
         // Register a spill candidate that can reclaim enough
-        spill.registerCandidate(new SpillManager.SpillCandidate("scan-buf-1", 1, 200));
+        spill.registerCandidate(actualCandidate("scan-buf-1", 1, 200));
 
         List<QueryMemoryPool> killLog = new ArrayList<>();
         var handler = new CriticalPressureHandler(

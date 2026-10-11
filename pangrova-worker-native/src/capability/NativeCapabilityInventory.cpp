@@ -118,6 +118,8 @@ proto::CapabilityInventory runtimeCapabilityInventory(const facebook::velox::exe
     *inventory_v2->add_capabilities() =
         pangrova::capability::diskAnnRetrievalDescriptor();
     *inventory_v2->add_capabilities() =
+        pangrova::capability::filteredDiskAnnRetrievalDescriptor();
+    *inventory_v2->add_capabilities() =
         pangrova::capability::hnswRetrievalDescriptor();
     *inventory_v2->add_capabilities() =
         pangrova::capability::ivfPqRetrievalDescriptor();

@@ -54,8 +54,7 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
 
     @Override protected List<ConnectorTestConfig> connectorConfigs() {
         return List.of(new ConnectorTestConfig(CATALOG, "default", "lance", Map.of(
-                "warehouse", tempDir.resolve("lance-feature-warehouse").toString(),
-                "jdbc.url", pgJdbcUrl(), "jdbc.user", pgUsername(), "jdbc.password", pgPassword())));
+                "warehouse", tempDir.resolve("lance-feature-warehouse").toString())));
     }
 
     @AfterEach void releasePolicyWiring() {
@@ -187,8 +186,8 @@ class LanceFeatureViewExportE2ETest extends PangrovaE2ETestBase {
 
     private void corruptHistoricalManifest(long snapshot) throws Exception {
         try (var connection = stateStoreDataSource().getConnection(); var statement = connection.prepareStatement(
-                "UPDATE pangrova_lance_versions SET manifest_digest=? WHERE catalog_name=? AND tenant_id=? "
-                        + "AND table_id=? AND published_version=?")) {
+                "UPDATE managed_source_publications SET manifest_sha256=? WHERE catalog_name=? AND tenant_id=? "
+                        + "AND table_id=? AND published_version=? AND state='ACCEPTED'")) {
             statement.setBytes(1, new byte[32]); statement.setString(2, CATALOG); statement.setString(3, tenant);
             statement.setString(4, table().tableId()); statement.setLong(5, snapshot);
             assertThat(statement.executeUpdate()).isEqualTo(1);

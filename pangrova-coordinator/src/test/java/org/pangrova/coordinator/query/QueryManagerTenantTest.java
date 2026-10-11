@@ -63,7 +63,8 @@ class QueryManagerTenantTest {
         TaskManager workerTaskManager = TaskManager.forHttpWiringOnly();
         workerHttpServer = new WorkerHttpServer(
                 new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0),
-                workerTaskManager, TestExchangeTransport.INSTANCE);
+                workerTaskManager, TestExchangeTransport.INSTANCE,
+                null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
         workerHttpServer.start();
 
         orchestrator = buildOrchestrator(workerHttpServer.getPort());
@@ -172,7 +173,8 @@ class QueryManagerTenantTest {
         TaskManager localTaskManager = TaskManager.forHttpWiringOnly();
         WorkerHttpServer localServer = new WorkerHttpServer(
                 new WorkerHttpServer.WorkerHttpConfig(0, "localhost", 0),
-                localTaskManager, TestExchangeTransport.INSTANCE);
+                localTaskManager, TestExchangeTransport.INSTANCE,
+                null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
         localServer.start();
         try {
             QueryDispatcher orchestrator = buildOrchestrator(localServer.getPort());

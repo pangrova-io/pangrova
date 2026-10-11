@@ -1,10 +1,8 @@
 package org.pangrova.worker.ai.provider;
 
 import org.pangrova.spi.ai.AiCapabilityDescriptor;
-import org.pangrova.spi.ai.AiInvocationException;
 import org.pangrova.spi.ai.Modality;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -12,9 +10,6 @@ import java.util.Set;
 
 /** Builds canonical AI capabilities from model configuration. */
 final class AiCapabilityConfigParser {
-
-    private static final long INITIAL_RETRY_MILLIS = 500;
-    private static final long MAX_RETRY_SECONDS = 4;
 
     private AiCapabilityConfigParser() {}
 
@@ -148,14 +143,7 @@ final class AiCapabilityConfigParser {
                 spec.maxBatchSize(),
                 resourceLimits,
                 spec.deterministic(),
-                new AiCapabilityDescriptor.RetryPolicy(
-                        4,
-                        Duration.ofMillis(INITIAL_RETRY_MILLIS),
-                        Duration.ofSeconds(MAX_RETRY_SECONDS),
-                        Set.of(
-                                AiInvocationException.Category.RATE_LIMIT,
-                                AiInvocationException.Category.TIMEOUT,
-                                AiInvocationException.Category.PROVIDER_UNAVAILABLE)),
+                AiCapabilityDescriptor.RetryPolicy.noRetry(),
                 Set.of("AI_MODEL_USAGE"));
     }
 

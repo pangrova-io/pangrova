@@ -32,21 +32,21 @@ import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 
 /**
- * Connection pool for {@link RemoteShuffleClient} instances, keyed by remote shuffle server endpoint.
+ * Connection pool for {@link RemoteShuffleClient} instances, keyed by remote shuffle server
+ * endpoint.
  *
- * <p>The lookup cache has independently configured idle retention and size.
- * Eviction retires an owner; an active RPC lease keeps its channel alive.
- * Worker-wide admission counts creating, cached and retired channels until
- * their actual termination. These are ManagedChannel credits, not socket limits.</p>
+ * <p>The lookup cache has independently configured idle retention and size. Eviction retires an
+ * owner; an active RPC lease keeps its channel alive. Worker-wide admission counts creating, cached
+ * and retired channels until their actual termination. These are ManagedChannel credits, not socket
+ * limits.
  *
- * <p>When TLS is enabled, the pool configures proper certificate validation using
- * the provided trust store. Mutual TLS (mTLS) is supported when a key store is also
- * configured. The trust-all pattern is explicitly avoided — all server certificates
- * must be validated against the configured trust store.</p>
+ * <p>When TLS is enabled, the pool configures proper certificate validation using the provided
+ * trust store. Mutual TLS (mTLS) is supported when a key store is also configured. The trust-all
+ * pattern is explicitly avoided — all server certificates must be validated against the configured
+ * trust store.
  *
- * <p>Concurrency strategy: Caffeine cache handles thread-safe access internally.
- * Eviction callbacks run outside any cache lock, so channel shutdown (I/O) never
- * holds a lock.</p>
+ * <p>Concurrency strategy: Caffeine cache handles thread-safe access internally. Eviction callbacks
+ * run outside any cache lock, so channel shutdown (I/O) never holds a lock.
  */
 @ThreadSafe
 public final class RemoteShuffleClientPool implements Closeable {
@@ -55,8 +55,7 @@ public final class RemoteShuffleClientPool implements Closeable {
 
     static final long DEFAULT_IDLE_TIMEOUT_MINUTES = 5;
     static final int DEFAULT_MAX_POOL_SIZE = 100;
-    static final int MAX_INBOUND_MESSAGE_BYTES =
-            CanonicalBatchChunks.MAX_CHUNK_BYTES * 2;
+    static final int MAX_INBOUND_MESSAGE_BYTES = CanonicalBatchChunks.MAX_CHUNK_BYTES * 2;
 
     private final Cache<RemoteShuffleChannelAdmission.Endpoint, RemoteShuffleClient> clients;
     private final long writeTimeoutMs;
@@ -65,41 +64,63 @@ public final class RemoteShuffleClientPool implements Closeable {
     private final ChannelCredentials tlsCredentials;
     private final RemoteShuffleChannelAdmission channelAdmission;
     private final Object admission = new Object();
+
     @GuardedBy("admission")
     private final Map<RemoteShuffleClient, RemoteShuffleClientOwner> owners = new HashMap<>();
+
     @GuardedBy("admission")
     private final Set<RemoteShuffleClientOwner> constructionOwners = new HashSet<>();
+
     @GuardedBy("admission")
     private boolean closed;
+
     @GuardedBy("admission")
     private int creating;
+
     private final ConcurrentLinkedQueue<Throwable> evictionFailures = new ConcurrentLinkedQueue<>();
 
     /**
      * Pool tuning options: eviction timing, capacity, and TLS configuration.
      *
      * @param idleTimeout idle duration before a client is evicted
-     * @param timeUnit    unit for {@code idleTimeout}
+     * @param timeUnit unit for {@code idleTimeout}
      * @param maxCachedChannels maximum number of lookup-cache entries, not owner credits
-     * @param tlsEnabled  whether TLS is enabled for new channels
-     * @param tlsConfig   TLS trust/key store configuration (required when TLS is enabled)
+     * @param tlsEnabled whether TLS is enabled for new channels
+     * @param tlsConfig TLS trust/key store configuration (required when TLS is enabled)
      */
-    public record PoolOptions(long idleTimeout, TimeUnit timeUnit, int maxCachedChannels,
-                              boolean tlsEnabled, ShuffleClientTlsConfig tlsConfig,
-                              PemTlsConfig pemTlsConfig) {
+    public record PoolOptions(
+            long idleTimeout,
+            TimeUnit timeUnit,
+            int maxCachedChannels,
+            boolean tlsEnabled,
+            ShuffleClientTlsConfig tlsConfig,
+            PemTlsConfig pemTlsConfig) {
         public PoolOptions {
-            checkArgument(idleTimeout > 0 && maxCachedChannels > 0, "Cache retention must be positive");
+            checkArgument(
+                    idleTimeout > 0 && maxCachedChannels > 0, "Cache retention must be positive");
             checkNotNull(timeUnit, "timeUnit");
         }
 
+        /** Returns bounded channel retention with the default transport configuration. */
         public static PoolOptions defaults() {
-            return new PoolOptions(DEFAULT_IDLE_TIMEOUT_MINUTES, TimeUnit.MINUTES,
-                    DEFAULT_MAX_POOL_SIZE, false, null, null);
+            return new PoolOptions(
+                    DEFAULT_IDLE_TIMEOUT_MINUTES,
+                    TimeUnit.MINUTES,
+                    DEFAULT_MAX_POOL_SIZE,
+                    false,
+                    null,
+                    null);
         }
 
+        /** Returns bounded retention using the supplied PEM mutual TLS identity. */
         public static PoolOptions mutualTls(PemTlsConfig pem) {
-            return new PoolOptions(DEFAULT_IDLE_TIMEOUT_MINUTES, TimeUnit.MINUTES,
-                    DEFAULT_MAX_POOL_SIZE, true, null, checkNotNull(pem, "pem"));
+            return new PoolOptions(
+                    DEFAULT_IDLE_TIMEOUT_MINUTES,
+                    TimeUnit.MINUTES,
+                    DEFAULT_MAX_POOL_SIZE,
+                    true,
+                    null,
+                    checkNotNull(pem, "pem"));
         }
     }
 
@@ -113,13 +134,15 @@ public final class RemoteShuffleClientPool implements Closeable {
     }
 
     /** Configures actual cache retention and transport security for a deployment. */
-    public RemoteShuffleClientPool(long writeTimeoutMs, long readTimeoutMs,
-                                  PoolOptions options, RemoteShuffleChannelAdmission channelAdmission) {
+    public RemoteShuffleClientPool(
+            long writeTimeoutMs,
+            long readTimeoutMs,
+            PoolOptions options,
+            RemoteShuffleChannelAdmission channelAdmission) {
         checkArgument(writeTimeoutMs > 0, "writeTimeoutMs must be positive");
         checkArgument(readTimeoutMs > 0, "readTimeoutMs must be positive");
         this.channelAdmission = checkNotNull(channelAdmission, "channelAdmission");
-        if (options.tlsEnabled()
-                && options.tlsConfig() == null && options.pemTlsConfig() == null) {
+        if (options.tlsEnabled() && options.tlsConfig() == null && options.pemTlsConfig() == null) {
             throw new IllegalArgumentException(
                     "TLS key and trust material is required when TLS is enabled");
         }
@@ -127,49 +150,64 @@ public final class RemoteShuffleClientPool implements Closeable {
         this.readTimeoutMs = readTimeoutMs;
         this.tlsEnabled = options.tlsEnabled();
         this.tlsCredentials = buildCredentials(options);
-        this.clients = Caffeine.newBuilder()
-                .expireAfterAccess(options.idleTimeout(), options.timeUnit())
-                .maximumSize(options.maxCachedChannels())
-                .removalListener(this::onRemoval)
-                .build();
+        this.clients =
+                Caffeine.newBuilder()
+                        .expireAfterAccess(options.idleTimeout(), options.timeUnit())
+                        .maximumSize(options.maxCachedChannels())
+                        .removalListener(this::onRemoval)
+                        .build();
     }
 
     private static ChannelCredentials buildCredentials(PoolOptions options) {
-        if (!options.tlsEnabled()) return null;
+        if (!options.tlsEnabled()) {
+            return null;
+        }
         var pem = options.pemTlsConfig();
-        return pem == null ? RemoteShuffleCredentials.fromStores(options.tlsConfig())
-                : RemoteShuffleCredentials.fromPem(pem.rootCa(), pem.certificateChain(), pem.privateKey());
+        return pem == null
+                ? RemoteShuffleCredentials.fromStores(options.tlsConfig())
+                : RemoteShuffleCredentials.fromPem(
+                        pem.rootCa(), pem.certificateChain(), pem.privateKey());
     }
 
     /**
-     * Removal listener — called by Caffeine outside any cache lock.
-     * Retires the evicted client; its channel is joined after its last borrower returns.
+     * Removal listener — called by Caffeine outside any cache lock. Retires the evicted client; its
+     * channel is joined after its last borrower returns.
      */
-    private void onRemoval(RemoteShuffleChannelAdmission.Endpoint key, RemoteShuffleClient client, RemovalCause cause) {
+    private void onRemoval(
+            RemoteShuffleChannelAdmission.Endpoint key,
+            RemoteShuffleClient client,
+            RemovalCause cause) {
         if (client == null) {
             return;
         }
         final RemoteShuffleClientOwner owner;
         synchronized (admission) {
             owner = owners.get(client);
-            if (owner == null) return;
+            if (owner == null) {
+                return;
+            }
             owner.retired = true;
-            if (owner.borrowers != 0) return;
+            if (owner.borrowers != 0) {
+                return;
+            }
         }
         try {
             drainOwner(owner);
         } catch (RuntimeException | Error failure) {
-            owner.retirementFailure = failure;
             evictionFailures.add(failure);
-            LOG.error("event=remote_shuffle_client_evict_failed key={} cause={}", key, cause, failure);
+            LOG.error(
+                    "event=remote_shuffle_client_evict_failed key={} cause={}",
+                    key,
+                    cause,
+                    failure);
             return;
         }
         LOG.info("event=remote_shuffle_client_evict key={} cause={}", key, cause);
     }
 
     /**
-     * Borrows a channel owner for the given server endpoint.
-     * Creates a new client if none exists. Accessing a client resets its idle timer.
+     * Borrows a channel owner for the given server endpoint. Creates a new client if none exists.
+     * Accessing a client resets its idle timer.
      *
      * @param endpoint remote shuffle server endpoint and expected TLS identity
      * @return a lease kept until the actual producer/consumer RPCs have drained
@@ -185,8 +223,7 @@ public final class RemoteShuffleClientPool implements Closeable {
         return borrow(address.host(), address.port(), address.tlsIdentity());
     }
 
-    private RemoteShuffleClientLease borrow(
-            String host, int port, String tlsIdentity) {
+    private RemoteShuffleClientLease borrow(String host, int port, String tlsIdentity) {
         if (tlsEnabled != !tlsIdentity.isBlank()) {
             throw new IllegalArgumentException(
                     "Shuffle endpoint TLS identity does not match client TLS policy");
@@ -196,25 +233,39 @@ public final class RemoteShuffleClientPool implements Closeable {
         while (true) {
             final RemoteShuffleClientOwner candidate;
             synchronized (admission) {
-                if (closed) throw new IllegalStateException("Remote shuffle client pool is closed");
+                if (closed) {
+                    throw new IllegalStateException("Remote shuffle client pool is closed");
+                }
                 channelAdmission.requireOpen();
                 var existing = clients.getIfPresent(endpoint);
                 var owner = owners.get(existing);
-                if (owner != null && !owner.retired) return lease(owner);
+                if (owner != null && !owner.retired) {
+                    return lease(owner);
+                }
                 candidate = beginCreation(endpoint);
             }
             try {
                 createCandidate(candidate, endpoint);
             } catch (RuntimeException | Error failure) {
                 abandonCreation(candidate);
-                try { drainOwner(candidate); } catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+                try {
+                    drainOwner(candidate);
+                } catch (RuntimeException | Error cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
                 throw failure;
             }
             try {
                 var admitted = publishCreation(candidate, endpoint);
-                if (admitted != null) return admitted;
+                if (admitted != null) {
+                    return admitted;
+                }
             } catch (RuntimeException | Error failure) {
-                try { drainOwner(candidate); } catch (RuntimeException | Error cleanup) { failure.addSuppressed(cleanup); }
+                try {
+                    drainOwner(candidate);
+                } catch (RuntimeException | Error cleanup) {
+                    failure.addSuppressed(cleanup);
+                }
                 throw failure;
             }
             drainOwner(candidate);
@@ -222,7 +273,8 @@ public final class RemoteShuffleClientPool implements Closeable {
     }
 
     @GuardedBy("admission")
-    private RemoteShuffleClientOwner beginCreation(RemoteShuffleChannelAdmission.Endpoint endpoint) {
+    private RemoteShuffleClientOwner beginCreation(
+            RemoteShuffleChannelAdmission.Endpoint endpoint) {
         var reservation = channelAdmission.reserve(endpoint);
         RemoteShuffleClientOwner candidate = null;
         try {
@@ -231,7 +283,9 @@ public final class RemoteShuffleClientPool implements Closeable {
             creating++;
             return candidate;
         } catch (RuntimeException | Error failure) {
-            if (candidate != null) constructionOwners.remove(candidate);
+            if (candidate != null) {
+                constructionOwners.remove(candidate);
+            }
             reservation.constructionExited();
             reservation.releaseTerminated();
             throw failure;
@@ -246,8 +300,8 @@ public final class RemoteShuffleClientPool implements Closeable {
         }
     }
 
-    private RemoteShuffleClientLease publishCreation(RemoteShuffleClientOwner candidate,
-                                                     RemoteShuffleChannelAdmission.Endpoint endpoint) {
+    private RemoteShuffleClientLease publishCreation(
+            RemoteShuffleClientOwner candidate, RemoteShuffleChannelAdmission.Endpoint endpoint) {
         synchronized (admission) {
             try {
                 owners.put(candidate.client, candidate);
@@ -260,37 +314,49 @@ public final class RemoteShuffleClientPool implements Closeable {
                 // The construction ledger remains authoritative if publication
                 // allocation fails. Retirement must precede any cleanup retry.
                 candidate.retired = true;
-                try { clients.asMap().remove(endpoint, candidate.client); }
-                catch (RuntimeException | Error removalFailure) {
-                    if (removalFailure != failure) failure.addSuppressed(removalFailure);
+                try {
+                    clients.asMap().remove(endpoint, candidate.client);
+                } catch (RuntimeException | Error removalFailure) {
+                    if (removalFailure != failure) {
+                        failure.addSuppressed(removalFailure);
+                    }
                 }
                 throw failure;
             } finally {
-                if (owners.get(candidate.client) == candidate) constructionOwners.remove(candidate);
+                if (owners.get(candidate.client) == candidate) {
+                    constructionOwners.remove(candidate);
+                }
                 creating--;
                 admission.notifyAll();
             }
         }
     }
 
-    private void createCandidate(RemoteShuffleClientOwner candidate, RemoteShuffleChannelAdmission.Endpoint endpoint) {
+    private void createCandidate(
+            RemoteShuffleClientOwner candidate, RemoteShuffleChannelAdmission.Endpoint endpoint) {
         try {
             ManagedChannel channel;
             if (tlsEnabled) {
-                channel = Grpc.newChannelBuilder(endpoint.host() + ":" + endpoint.port(), tlsCredentials)
-                        .maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES)
-                        .overrideAuthority(endpoint.tlsIdentity())
-                        .build();
+                channel =
+                        Grpc.newChannelBuilder(
+                                        endpoint.host() + ":" + endpoint.port(), tlsCredentials)
+                                .maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES)
+                                .overrideAuthority(endpoint.tlsIdentity())
+                                .build();
             } else {
-                channel = ManagedChannelBuilder.forAddress(endpoint.host(), endpoint.port())
-                        .usePlaintext()
-                        .maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES)
-                        .build();
+                channel =
+                        ManagedChannelBuilder.forAddress(endpoint.host(), endpoint.port())
+                                .usePlaintext()
+                                .maxInboundMessageSize(MAX_INBOUND_MESSAGE_BYTES)
+                                .build();
             }
             candidate.reservation.attach(channel);
             candidate.client = new RemoteShuffleClient(channel, writeTimeoutMs, readTimeoutMs);
-            LOG.info("event=remote_shuffle_client_created host={} port={} tls={}",
-                    endpoint.host(), endpoint.port(), tlsEnabled);
+            LOG.info(
+                    "event=remote_shuffle_client_created host={} port={} tls={}",
+                    endpoint.host(),
+                    endpoint.port(),
+                    tlsEnabled);
         } finally {
             candidate.reservation.constructionExited();
         }
@@ -307,12 +373,20 @@ public final class RemoteShuffleClientPool implements Closeable {
         synchronized (admission) {
             owner = owners.get(client);
             if (owner == null) {
-                if (!client.isTerminated()) throw new IllegalStateException("Untracked live shuffle client");
+                if (!client.isTerminated()) {
+                    throw new IllegalStateException("Untracked live shuffle client");
+                }
                 return;
             }
-            if (firstReturn) owner.borrowers--;
-            if (owner.borrowers < 0) throw new IllegalStateException("Negative shuffle client borrower count");
-            if (!owner.retired || owner.borrowers != 0) return;
+            if (firstReturn) {
+                owner.borrowers--;
+            }
+            if (owner.borrowers < 0) {
+                throw new IllegalStateException("Negative shuffle client borrower count");
+            }
+            if (!owner.retired || owner.borrowers != 0) {
+                return;
+            }
         }
         drainOwner(owner);
     }
@@ -326,8 +400,8 @@ public final class RemoteShuffleClientPool implements Closeable {
     }
 
     /**
-     * Returns this pool's exact owned and creating channel count, including
-     * retired owners whose actual join has not yet succeeded.
+     * Returns this pool's exact owned and creating channel count, including retired owners whose
+     * actual join has not yet succeeded.
      */
     public int activeConnectionCount() {
         synchronized (admission) {
@@ -336,8 +410,8 @@ public final class RemoteShuffleClientPool implements Closeable {
     }
 
     /**
-     * Forces pending eviction maintenance to run synchronously.
-     * Useful in tests to ensure eviction callbacks have completed.
+     * Forces pending eviction maintenance to run synchronously. Useful in tests to ensure eviction
+     * callbacks have completed.
      */
     public void cleanUp() {
         clients.cleanUp();
@@ -363,12 +437,15 @@ public final class RemoteShuffleClientPool implements Closeable {
         synchronized (admission) {
             while (creating != 0) {
                 long remaining = deadline - System.nanoTime();
-                if (remaining <= 0) throw new IllegalStateException("Shuffle client creation has not exited");
+                if (remaining <= 0) {
+                    throw new IllegalStateException("Shuffle client creation has not exited");
+                }
                 try {
                     TimeUnit.NANOSECONDS.timedWait(admission, remaining);
                 } catch (InterruptedException failure) {
                     Thread.currentThread().interrupt();
-                    throw new RemoteShuffleClientException("Shuffle pool admission drain interrupted", failure);
+                    throw new RemoteShuffleClientException(
+                            "Shuffle pool admission drain interrupted", failure);
                 }
             }
         }
@@ -383,7 +460,9 @@ public final class RemoteShuffleClientPool implements Closeable {
             for (var owner : snapshot) {
                 if ((!constructionOwners.contains(owner) || owner.retired)
                         && owner.reservation.hasConstructionExited()
-                        && (all || owner.client == null || !clients.asMap().containsValue(owner.client))) {
+                        && (all
+                                || owner.client == null
+                                || !clients.asMap().containsValue(owner.client))) {
                     owner.retired = true;
                 }
             }
@@ -397,8 +476,12 @@ public final class RemoteShuffleClientPool implements Closeable {
             }
         }
         failure = combine(failure, takeEvictionFailures());
-        if (failure instanceof RuntimeException runtime) throw runtime;
-        if (failure instanceof Error error) throw error;
+        if (failure instanceof RuntimeException runtime) {
+            throw runtime;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
     }
 
     private Throwable takeEvictionFailures() {
@@ -410,10 +493,17 @@ public final class RemoteShuffleClientPool implements Closeable {
 
     private void reapOwner(RemoteShuffleClientOwner owner, boolean all) {
         synchronized (admission) {
-            if (!owner.reservation.hasConstructionExited()) return;
-            if (!owner.retired) return;
+            if (!owner.reservation.hasConstructionExited()) {
+                return;
+            }
+            if (!owner.retired) {
+                return;
+            }
             if (owner.borrowers != 0) {
-                if (all) throw new IllegalStateException("Shuffle client still has active producer/reader leases");
+                if (all) {
+                    throw new IllegalStateException(
+                            "Shuffle client still has active producer/reader leases");
+                }
                 return;
             }
         }
@@ -421,9 +511,15 @@ public final class RemoteShuffleClientPool implements Closeable {
     }
 
     private static Throwable combine(Throwable first, Throwable next) {
-        if (next == null) return first;
-        if (first == null) return next;
-        if (first != next) first.addSuppressed(next);
+        if (next == null) {
+            return first;
+        }
+        if (first == null) {
+            return next;
+        }
+        if (first != next) {
+            first.addSuppressed(next);
+        }
         return first;
     }
 }

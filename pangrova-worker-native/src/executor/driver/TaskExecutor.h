@@ -13,6 +13,8 @@
 #include <thread>
 #include <unordered_map>
 #include <vector>
+#include "shuffle/ShuffleControlGate.h"
+#include "shuffle/ShuffleProducerRegistration.h"
 
 #include "split/SplitConfig.h"
 #include "executor/driver/PlanExecutionDriver.h"
@@ -69,6 +71,7 @@ struct WriteConfigInfo {
     pangrova::protocol::v2::LanceWriteOperation operation =
         pangrova::protocol::v2::LANCE_WRITE_OPERATION_UNSPECIFIED;
     uint64_t expected_read_version = 0;
+    std::string accepted_base_snapshot;
     std::array<uint8_t, 32> schema_fence_sha256{};
     std::string write_id;
     std::string transaction_staging_prefix;
@@ -209,6 +212,11 @@ class TaskExecutor {
   void start();
   void cancel();
   void release();
+  shuffle::ShuffleControlGate::Lease acquireShuffleStart();
+  void installShuffleRegistration(const shuffle::ShuffleControlGate::Lease& lease,
+      std::shared_ptr<shuffle::ShuffleProducerRegistration> registration);
+  void closeShuffleRegistration();
+  bool isShuffleStartSealed() const { return shuffle_start_gate_.isSealed(); }
   bool isExecutionReleased() const { return execution_released_.load(std::memory_order_acquire); }
 
   // Binds the process-local handle exactly once while the task is still NEW.
@@ -245,6 +253,7 @@ class TaskExecutor {
   std::string errorMessage() const;
   TaskLifecycle::Snapshot lifecycleSnapshot() const;
   void recordExecutionError(const protocol::v2::ExecutionError& error);
+  void recordResultStreamFailure(const std::string& message);
   std::string nativeStackTrace() const;
   std::optional<protocol::v2::ArtifactWorkReport> artifactWorkReport() const;
 
@@ -286,6 +295,9 @@ class TaskExecutor {
   void startDeadlineWatchdog();
   void stopDeadlineWatchdog();
   void failDeadline();
+  void releaseInternal();
+  void sealShuffleStarts();
+  shuffle::ShuffleControlGate::Lease acquireExecutionStart();
 
   TaskExecutorConfig config_;
 
@@ -296,6 +308,12 @@ class TaskExecutor {
 
   observability::NativeMetricsCollector metrics_collector_;
   std::atomic<bool> execution_released_{false};
+  shuffle::ShuffleControlGate shuffle_start_gate_;
+  std::mutex shuffle_registration_mutex_;
+  std::shared_ptr<shuffle::ShuffleProducerRegistration> shuffle_registration_;
+  std::mutex release_mutex_;
+  std::condition_variable release_cv_;
+  bool release_in_progress_ = false;
 
   // Trace ID for observability — set via constructor config or setTraceId().
   std::string trace_id_;
@@ -306,6 +324,8 @@ class TaskExecutor {
   std::mutex deadline_mutex_;
   std::condition_variable deadline_cv_;
   bool deadline_stop_{false};
+  bool deadline_join_in_progress_ = false;
+  std::thread::id deadline_thread_id_;
 };
 
 }  // namespace pangrova::executor

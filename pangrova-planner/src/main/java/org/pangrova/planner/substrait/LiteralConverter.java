@@ -72,6 +72,10 @@ final class LiteralConverter {
                 case TIME -> convertTimeLiteral(literal, fieldType);
                 case TIMESTAMP, TIMESTAMP_WITH_LOCAL_TIME_ZONE ->
                         convertTimestampLiteral(literal, fieldType);
+                case INTERVAL_DAY, INTERVAL_DAY_HOUR, INTERVAL_DAY_MINUTE, INTERVAL_DAY_SECOND,
+                        INTERVAL_HOUR, INTERVAL_HOUR_MINUTE, INTERVAL_HOUR_SECOND,
+                        INTERVAL_MINUTE, INTERVAL_MINUTE_SECOND, INTERVAL_SECOND ->
+                        convertIntervalDayLiteral(literal, nullable);
                 case BINARY, VARBINARY -> convertBinaryLiteral(literal, nullable);
                 case NULL -> throw unsupported("non-NULL value with NULL type");
                 default -> throw unsupported("literal type: " + fieldType.getSqlTypeName());
@@ -163,6 +167,17 @@ final class LiteralConverter {
         // Calcite stores DATE as days since epoch
         int daysSinceEpoch = requireValue(literal, Integer.class);
         return ExpressionCreator.date(nullable, daysSinceEpoch);
+    }
+
+    private Expression convertIntervalDayLiteral(RexLiteral literal, boolean nullable) {
+        // Calcite stores day-time intervals as exact milliseconds. Substrait
+        // carries separate days, seconds and fractional seconds at precision 6.
+        long millis = numeric(literal).longValueExact();
+        int days = Math.toIntExact(Math.floorDiv(millis, 86_400_000L));
+        long withinDay = Math.floorMod(millis, 86_400_000L);
+        int seconds = Math.toIntExact(withinDay / 1_000L);
+        long micros = (withinDay % 1_000L) * 1_000L;
+        return ExpressionCreator.intervalDay(nullable, days, seconds, micros, 6);
     }
 
     private Expression convertTimeLiteral(RexLiteral literal, RelDataType fieldType) {

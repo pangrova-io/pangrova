@@ -20,8 +20,7 @@ class LanceSqlDdlSessionE2ETest extends PangrovaE2ETestBase {
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
         return List.of(new ConnectorTestConfig(CATALOG, "default", "lance", Map.of(
-                "warehouse", tempDir.resolve("lance-ddl-warehouse").toString(),
-                "jdbc.url", pgJdbcUrl(), "jdbc.user", pgUsername(), "jdbc.password", pgPassword())));
+                "warehouse", tempDir.resolve("lance-ddl-warehouse").toString())));
     }
 
     @Test

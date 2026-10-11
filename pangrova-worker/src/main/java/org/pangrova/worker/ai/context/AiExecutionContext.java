@@ -8,9 +8,9 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Trusted per-task identity made available while a JVM-backed AI SQL function
- * executes. The native engine derives it from the internally authenticated
- * coordinator task request and scopes it to the current callback thread.
+ * Trusted per-task identity made available while a JVM-backed AI SQL function executes. The native
+ * engine derives it from the internally authenticated coordinator task request and scopes it to the
+ * current callback thread.
  */
 public record AiExecutionContext(
         String tenantId,
@@ -28,10 +28,8 @@ public record AiExecutionContext(
         TaskAttemptId taskAttempt) {
 
     private static final ThreadLocal<AiExecutionContext> CURRENT = new ThreadLocal<>();
-    private static final ThreadLocal<String> PROVIDER_IDEMPOTENCY_BASE =
-            new ThreadLocal<>();
-    private static final ThreadLocal<BoundAiInvocation> BOUND_INVOCATION =
-            new ThreadLocal<>();
+    private static final ThreadLocal<String> PROVIDER_IDEMPOTENCY_BASE = new ThreadLocal<>();
+    private static final ThreadLocal<BoundAiInvocation> BOUND_INVOCATION = new ThreadLocal<>();
 
     public AiExecutionContext {
         tenantId = normalize(tenantId);
@@ -40,23 +38,31 @@ public record AiExecutionContext(
         taskId = normalize(taskId);
         traceId = normalize(traceId);
         Objects.requireNonNull(taskAttempt, "canonical taskAttempt required");
-        if (!taskAttempt.getQueryOrJobId().equals(queryId) || !taskAttempt.getTaskId().equals(taskId)) {
-            throw new IllegalArgumentException("AI context identity differs from its canonical task attempt");
+        if (!taskAttempt.getQueryOrJobId().equals(queryId)
+                || !taskAttempt.getTaskId().equals(taskId)) {
+            throw new IllegalArgumentException(
+                    "AI context identity differs from its canonical task attempt");
         }
         if (deadlineEpochMs < 0) {
             throw new IllegalArgumentException("deadlineEpochMs must not be negative");
         }
-        if (maxProviderConcurrency < 0 || maxProviderItems < 0 || maxProviderAttempts < 0
-                || maxProviderRequestBytes < 0 || maxProviderResponseBytes < 0 || maxMediaBytes < 0) {
-            throw new IllegalArgumentException(
-                    "AI execution resource grants must not be negative");
+        if (maxProviderConcurrency < 0
+                || maxProviderItems < 0
+                || maxProviderAttempts < 0
+                || maxProviderRequestBytes < 0
+                || maxProviderResponseBytes < 0
+                || maxMediaBytes < 0) {
+            throw new IllegalArgumentException("AI execution resource grants must not be negative");
         }
     }
 
     /** Fails closed when a provider-backed operator has no bounded grant. */
     public void requireProviderBudget() {
-        if (maxProviderConcurrency <= 0 || maxProviderItems <= 0 || maxProviderAttempts <= 0
-                || maxProviderRequestBytes <= 0 || maxProviderResponseBytes <= 0) {
+        if (maxProviderConcurrency <= 0
+                || maxProviderItems <= 0
+                || maxProviderAttempts <= 0
+                || maxProviderRequestBytes <= 0
+                || maxProviderResponseBytes <= 0) {
             throw new IllegalStateException(
                     "AI execution provider resource grant is not available");
         }
@@ -74,12 +80,14 @@ public record AiExecutionContext(
 
     /** Same canonical projection used when registering the actual Worker task authority. */
     public static AiExecutionContext fromTaskRequest(org.pangrova.protocol.v2.TaskRequest request) {
-        return fromCanonicalCallback(org.pangrova.protocol.task.CanonicalTaskRequests.callbackFor(request).toByteArray());
+        return fromCanonicalCallback(
+                org.pangrova.protocol.task.CanonicalTaskRequests.callbackFor(request)
+                        .toByteArray());
     }
 
     /**
-     * Runs one callback with the supplied context and restores any enclosing
-     * context even when the callback fails.
+     * Runs one callback with the supplied context and restores any enclosing context even when the
+     * callback fails.
      */
     public static <T> T callWith(AiExecutionContext context, Supplier<T> callback) {
         Objects.requireNonNull(context, "context must not be null");
@@ -98,15 +106,14 @@ public record AiExecutionContext(
     }
 
     /**
-     * Binds the stable operator idempotency base while a provider-backed
-     * Native expression is evaluated. The value originates from the operator
-     * execution policy, not from a user-supplied SQL value.
+     * Binds the stable operator idempotency base while a provider-backed Native expression is
+     * evaluated. The value originates from the operator execution policy, not from a user-supplied
+     * SQL value.
      */
     public static <T> T callWithProviderIdempotencyBase(
             String idempotencyBase, Supplier<T> callback) {
         if (idempotencyBase == null || idempotencyBase.isBlank()) {
-            throw new IllegalArgumentException(
-                    "provider idempotency base must not be blank");
+            throw new IllegalArgumentException("provider idempotency base must not be blank");
         }
         Objects.requireNonNull(callback, "callback must not be null");
         String previous = PROVIDER_IDEMPOTENCY_BASE.get();
@@ -128,14 +135,12 @@ public record AiExecutionContext(
     }
 
     /** Runs one expression callback under its exact task OperatorBinding. */
-    public static <T> T callWithBoundInvocation(
-            BoundAiInvocation binding, Supplier<T> callback) {
+    public static <T> T callWithBoundInvocation(BoundAiInvocation binding, Supplier<T> callback) {
         Objects.requireNonNull(binding, "binding must not be null");
         BoundAiInvocation previous = BOUND_INVOCATION.get();
         BOUND_INVOCATION.set(binding);
         try {
-            return callWithProviderIdempotencyBase(
-                    binding.idempotencyBase(), callback);
+            return callWithProviderIdempotencyBase(binding.idempotencyBase(), callback);
         } finally {
             if (previous == null) {
                 BOUND_INVOCATION.remove();

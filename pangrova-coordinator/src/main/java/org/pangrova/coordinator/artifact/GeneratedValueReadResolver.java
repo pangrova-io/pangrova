@@ -116,9 +116,40 @@ public final class GeneratedValueReadResolver {
     private static void requireSchema(io.substrait.proto.ReadRel read,
                                       org.pangrova.spi.connector.metadata.table.ConnectorTableMetadata table) {
         var actual = org.pangrova.planner.substrait.NativeDatasetSchemaCompiler.compile(table.typedColumns()).schema();
-        if (!read.hasBaseSchema() || !read.getBaseSchema().equals(actual)) {
+        if (!read.hasBaseSchema() || !(read.getBaseSchema().equals(actual)
+                || hasExactRetrievalIdentity(read.getBaseSchema(), actual))) {
             throw new IllegalStateException("Generated query compiled scan differs from its declared SDK schema");
         }
+    }
+
+    private static boolean hasExactRetrievalIdentity(io.substrait.proto.NamedStruct read,
+            io.substrait.proto.NamedStruct declared) {
+        var fields = org.pangrova.protocol.retrieval.RetrievalCandidateIdentity.PHYSICAL_FIELDS;
+        int columns = declared.getStruct().getTypesCount();
+        int names = declared.getNamesCount();
+        if (read.getStruct().getTypesCount() != columns + fields.size()
+                || read.getNamesCount() != names + fields.size()
+                || !read.getNamesList().subList(0, names).equals(declared.getNamesList())
+                || !read.getNamesList().subList(names, read.getNamesCount()).equals(fields)
+                || !read.getStruct().toBuilder().clearTypes().build()
+                        .equals(declared.getStruct().toBuilder().clearTypes().build())) {
+            return false;
+        }
+        for (int index = 0; index < columns; index++) {
+            if (!read.getStruct().getTypes(index).equals(declared.getStruct().getTypes(index))) return false;
+        }
+        var required = io.substrait.proto.Type.Nullability.NULLABILITY_REQUIRED;
+        for (int index = 0; index < fields.size(); index++) {
+            var type = read.getStruct().getTypes(columns + index);
+            if (index == fields.size() - 1
+                    ? !type.equals(io.substrait.proto.Type.newBuilder()
+                            .setI64(io.substrait.proto.Type.I64.newBuilder().setNullability(required)).build())
+                    : !type.equals(io.substrait.proto.Type.newBuilder()
+                            .setString(io.substrait.proto.Type.String.newBuilder().setNullability(required)).build())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean isOutput(io.substrait.proto.ReadRel read, String target) {
