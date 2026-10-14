@@ -89,11 +89,12 @@ facebook::velox::RowVectorPtr GenerateSeriesOperator::getOutput() {
   const auto max_batch_size = outputBatchRows();
 
   // Calculate how many values remain in the sequence.
-  int64_t remaining;
+  __int128 remaining;
   if (step_ > 0) {
-    remaining = (stop_ - current_) / step_ + 1;
+    remaining = (static_cast<__int128>(stop_) - current_) / step_ + 1;
   } else {
-    remaining = (current_ - stop_) / (-step_) + 1;
+    remaining = (static_cast<__int128>(current_) - stop_)
+        / -static_cast<__int128>(step_) + 1;
   }
 
   if (remaining <= 0) {
@@ -102,7 +103,7 @@ facebook::velox::RowVectorPtr GenerateSeriesOperator::getOutput() {
   }
 
   auto batch_size = static_cast<facebook::velox::vector_size_t>(
-      std::min(static_cast<int64_t>(max_batch_size), remaining));
+      std::min(static_cast<__int128>(max_batch_size), remaining));
 
   // Allocate output vector.
   auto result = std::dynamic_pointer_cast<facebook::velox::FlatVector<int64_t>>(
@@ -113,14 +114,12 @@ facebook::velox::RowVectorPtr GenerateSeriesOperator::getOutput() {
   auto* raw_values = result->mutableRawValues();
   for (facebook::velox::vector_size_t i = 0; i < batch_size; ++i) {
     raw_values[i] = current_;
-    current_ += step_;
-  }
-
-  // Check if sequence is exhausted after this batch.
-  if (step_ > 0 && current_ > stop_) {
-    finished_ = true;
-  } else if (step_ < 0 && current_ < stop_) {
-    finished_ = true;
+    if (i + 1 == batch_size && remaining == batch_size) {
+      finished_ = true;
+    } else {
+      // A further in-range value exists, so the narrowed result is safe.
+      current_ = static_cast<int64_t>(static_cast<__int128>(current_) + step_);
+    }
   }
 
   // Wrap in a RowVector with the output type from the plan node.

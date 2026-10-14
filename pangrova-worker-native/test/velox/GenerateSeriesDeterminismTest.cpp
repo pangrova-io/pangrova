@@ -18,14 +18,17 @@
 #include "velox/expression/FunctionRegistrySnapshot.h"
 
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "../TestMemoryHelper.h"
 #include "velox/plan/GenerateSeriesOperator.h"
 #include "velox/plan/TableFunctionNode.h"
+#include "velox/runtime/TableFunctionRegistry.h"
 
 #include "velox/core/Expressions.h"
 #include "velox/core/PlanFragment.h"
@@ -353,6 +356,42 @@ TEST_P(GenerateSeriesDeterminismTest, RepeatedExecutionProducesSameResult) {
     EXPECT_EQ(result1[i], result2[i])
         << "Repeated execution must produce same value at index " << i
         << " for " << param.name;
+  }
+}
+
+TEST_F(GenerateSeriesDeterminismTest, Int64BoundariesDoNotOverflow) {
+  constexpr auto max = std::numeric_limits<int64_t>::max();
+  constexpr auto min = std::numeric_limits<int64_t>::min();
+  EXPECT_EQ(executeGenerateSeries(buildGenerateSeriesNode(max - 1, max, 1)),
+            (std::vector<int64_t>{max - 1, max}));
+  EXPECT_EQ(executeGenerateSeries(buildGenerateSeriesNode(min + 1, min, -1)),
+            (std::vector<int64_t>{min + 1, min}));
+  EXPECT_EQ(executeGenerateSeries(buildGenerateSeriesNode(min, max, max)),
+            (std::vector<int64_t>{min, -1, max - 1}));
+  EXPECT_EQ(executeGenerateSeries(buildGenerateSeriesNode(max, max, 1)),
+            (std::vector<int64_t>{max}));
+}
+
+TEST_F(GenerateSeriesDeterminismTest, LateralGeneratorStopsAtInt64Boundaries) {
+  constexpr auto max = std::numeric_limits<int64_t>::max();
+  constexpr auto min = std::numeric_limits<int64_t>::min();
+  TableFunctionRegistry registry;
+  registry.registerBuiltins();
+  auto generate = registry.resolve("generate_series");
+  ASSERT_TRUE(generate);
+
+  for (const auto& [start, stop, step, expected] :
+       std::vector<std::tuple<int64_t, int64_t, int64_t, std::vector<int64_t>>>{
+           {max - 1, max, 1, {max - 1, max}},
+           {min + 1, min, -1, {min + 1, min}}}) {
+    std::vector<int64_t> values;
+    std::vector<vector_size_t> row_indices;
+    auto node = buildGenerateSeriesNode(start, stop, step);
+    const auto count = generate(nullptr, 0, node->arguments(), values,
+                                row_indices, 100, pool_.get());
+    EXPECT_EQ(values, expected);
+    EXPECT_EQ(count, expected.size());
+    EXPECT_EQ(row_indices.size(), expected.size());
   }
 }
 

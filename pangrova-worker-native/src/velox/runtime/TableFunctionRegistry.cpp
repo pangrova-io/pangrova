@@ -96,11 +96,15 @@ int64_t generateSeriesGenerator(
 
   int64_t count = 0;
   for (int64_t v = start;
-       (step > 0 ? v <= stop : v >= stop) && outputValues.size() < maxOutput;
-       v += step) {
+       (step > 0 ? v <= stop : v >= stop) && outputValues.size() < maxOutput;) {
     outputValues.push_back(v);
     inputRowIndices.push_back(row);
     ++count;
+    const auto next = static_cast<__int128>(v) + step;
+    if (step > 0 ? next > stop : next < stop) {
+      break;
+    }
+    v = static_cast<int64_t>(next);
   }
   return count;
 }
