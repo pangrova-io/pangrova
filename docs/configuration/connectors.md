@@ -149,6 +149,12 @@ All other properties are passed through to Hadoop Configuration (supporting S3, 
 | `scope` | string | — | No | OAuth2 scope |
 | `token` | string | — | No | Pre-existing bearer token |
 
+The current write path rejects Iceberg REST catalogs because its declaration
+fence has only been verified with atomic whole-metadata pointer comparison on
+JDBC and local Hadoop catalogs. REST table creation and reads can be used, but
+`INSERT` and other writes require a catalog-specific atomic declaration fence
+before they can be enabled safely.
+
 #### Encryption (both modes)
 
 | Property | Type | Description |
@@ -179,6 +185,10 @@ All other properties are passed through to Paimon Options (supporting S3, HDFS, 
 | Property | Type | Default | Required | Description |
 |----------|------|---------|----------|-------------|
 | `uri` | string | — | Yes | Paimon REST Catalog server endpoint |
+| `warehouse` | string | — | Yes | Server-side catalog/instance identifier expected by the Paimon REST service, not a local filesystem path |
+
+This endpoint must implement the Paimon REST protocol. An Iceberg REST endpoint,
+including Gravitino's Iceberg REST service, is not interchangeable with it.
 
 ### Example: Iceberg on S3 (hadoop mode)
 
