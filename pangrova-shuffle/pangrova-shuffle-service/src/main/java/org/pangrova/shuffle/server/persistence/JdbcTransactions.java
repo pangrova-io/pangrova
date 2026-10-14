@@ -10,6 +10,7 @@ public final class JdbcTransactions {
 
     private JdbcTransactions() {}
 
+    /** Runs one unit of work in an explicit transaction, rolling back on failure. */
     public static <T> T transaction(DataSource dataSource, SqlWork<T> work) {
         try (Connection connection = dataSource.getConnection()) {
             boolean originalAutoCommit = connection.getAutoCommit();
@@ -29,6 +30,7 @@ public final class JdbcTransactions {
         }
     }
 
+    /** Runs one read operation using a managed connection. */
     public static <T> T read(DataSource dataSource, SqlWork<T> work) {
         try (Connection connection = dataSource.getConnection()) {
             return work.execute(connection);

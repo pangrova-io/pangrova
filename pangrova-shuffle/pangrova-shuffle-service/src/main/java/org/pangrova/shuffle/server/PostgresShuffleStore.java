@@ -481,6 +481,4 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             String state,
             String cleanupLeaseOwner,
             Long cleanupLeaseExpiresAtMs) {}
-
-
 }

@@ -107,16 +107,42 @@ final class ShuffleAccessControl {
             requireRenewalAttempt(request.getOperation(), allocation,
                     request.getTaskAttempt());
         }
+        CapabilityScope scope = control
+                ? renewControlAccess(request, allocation, owner, operation,
+                        recovering, now, expiry)
+                : renewDataAccess(request, allocation, owner, operation,
+                        coordinatorPeer, now, expiry);
+        return renewalResponse(scope, expiry);
+    }
+
+    private CapabilityScope renewControlAccess(
+            RenewAccessRequest request,
+            Allocation allocation,
+            ExecutionOwnerIdentity owner,
+            CapabilityOperation operation,
+            boolean recovering,
+            long now,
+            long expiry) {
+        CapabilityScope scope = CapabilityScope.forShuffle(operation,
+                allocation.identity().shuffleId(), owner);
+        if (!recovering) {
+            capabilities.verify(request.getPreviousCapability(), scope, now);
+            lifecycle.renewAccess(allocation.identity().queryId(),
+                    allocation.identity().shuffleId(), owner, expiry);
+        }
+        return scope;
+    }
+
+    private CapabilityScope renewDataAccess(
+            RenewAccessRequest request,
+            Allocation allocation,
+            ExecutionOwnerIdentity owner,
+            CapabilityOperation operation,
+            boolean coordinatorPeer,
+            long now,
+            long expiry) {
         CapabilityScope scope;
-        if (control) {
-            scope = CapabilityScope.forShuffle(operation,
-                    allocation.identity().shuffleId(), owner);
-            if (!recovering) {
-                capabilities.verify(request.getPreviousCapability(), scope, now);
-                lifecycle.renewAccess(allocation.identity().queryId(),
-                        allocation.identity().shuffleId(), owner, expiry);
-            }
-        } else if (coordinatorPeer && request.hasTaskAttempt()) {
+        if (coordinatorPeer && request.hasTaskAttempt()) {
             if (!request.getPreviousCapability().getToken().isEmpty()) {
                 throw new SecurityException("Coordinator task grant cannot reuse a bearer ticket");
             }
@@ -141,7 +167,7 @@ final class ShuffleAccessControl {
             lifecycle.renewAccess(allocation.identity().queryId(),
                     allocation.identity().shuffleId(), owner, expiry);
         }
-        return renewalResponse(scope, expiry);
+        return scope;
     }
 
     private RenewAccessResponse renewalResponse(CapabilityScope scope, long expiry) {

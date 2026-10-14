@@ -36,6 +36,31 @@ final class PostgresShuffleRecords {
             + "a.metadata_version AS metadata_version, a.state AS state, "
             + "q.owner_id AS owner_id, q.owner_incarnation AS owner_incarnation, "
             + "q.owner_fencing_token AS owner_fencing_token";
+    static final String BATCH_SELECT = "SELECT b.*, f.task_id, f.control_epoch, a.query_id, a.stage_id, "
+            + "a.plan_epoch, q.owner_id, q.owner_incarnation, q.owner_fencing_token "
+            + "FROM shuffle_batch b JOIN shuffle_attempt_fence f USING "
+            + "(shuffle_id, producer_partition_id, producer_attempt_id) "
+            + "JOIN shuffle_allocation a USING (shuffle_id) "
+            + "JOIN shuffle_query_scope q USING (query_id)";
+    private static final String FIND_ALLOCATION_SQL = "SELECT " + ALLOCATION_COLUMNS
+            + " FROM shuffle_allocation a JOIN shuffle_query_scope q USING (query_id)"
+            + " WHERE shuffle_id = ?";
+    private static final String FIND_ALLOCATION_FOR_UPDATE_SQL = FIND_ALLOCATION_SQL
+            + " FOR UPDATE OF a";
+    private static final String CLEANUP_OBJECTS_BASE_SQL =
+            "SELECT b.object_key, b.shuffle_id, b.producer_partition_id, "
+                    + "b.producer_attempt_id, b.output_partition_id, b.batch_sequence "
+                    + "FROM shuffle_batch b JOIN shuffle_allocation a USING (shuffle_id) "
+                    + "WHERE a.query_id = ? ";
+    private static final String CLEANUP_OBJECTS_ORDER_SQL =
+            "ORDER BY b.shuffle_id, b.producer_partition_id, b.producer_attempt_id, "
+                    + "b.output_partition_id, b.batch_sequence LIMIT ?";
+    private static final String CLEANUP_OBJECTS_FIRST_SQL =
+            CLEANUP_OBJECTS_BASE_SQL + CLEANUP_OBJECTS_ORDER_SQL;
+    private static final String CLEANUP_OBJECTS_AFTER_SQL = CLEANUP_OBJECTS_BASE_SQL
+            + "AND (b.shuffle_id, b.producer_partition_id, b.producer_attempt_id, "
+            + "b.output_partition_id, b.batch_sequence) > (?, ?, ?, ?, ?) "
+            + CLEANUP_OBJECTS_ORDER_SQL;
 
     private PostgresShuffleRecords() {}
 
@@ -43,9 +68,7 @@ final class PostgresShuffleRecords {
             Connection connection,
             String shuffleId,
             boolean forUpdate) throws SQLException {
-        String sql = "SELECT " + ALLOCATION_COLUMNS
-                + " FROM shuffle_allocation a JOIN shuffle_query_scope q USING (query_id)"
-                + " WHERE shuffle_id = ?" + (forUpdate ? " FOR UPDATE OF a" : "");
+        String sql = forUpdate ? FIND_ALLOCATION_FOR_UPDATE_SQL : FIND_ALLOCATION_SQL;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, shuffleId);
             try (ResultSet rows = statement.executeQuery()) {
@@ -205,15 +228,7 @@ final class PostgresShuffleRecords {
             CleanupPlan plan,
             CleanupCursor after,
             int limit) throws SQLException {
-        String cursor = after == null ? "" : "AND (b.shuffle_id, b.producer_partition_id, "
-                + "b.producer_attempt_id, b.output_partition_id, b.batch_sequence) "
-                + "> (?, ?, ?, ?, ?) ";
-        String sql = "SELECT b.object_key, b.shuffle_id, b.producer_partition_id, "
-                + "b.producer_attempt_id, b.output_partition_id, b.batch_sequence "
-                + "FROM shuffle_batch b JOIN shuffle_allocation a USING (shuffle_id) "
-                + "WHERE a.query_id = ? " + cursor
-                + "ORDER BY b.shuffle_id, b.producer_partition_id, b.producer_attempt_id, "
-                + "b.output_partition_id, b.batch_sequence LIMIT ?";
+        String sql = after == null ? CLEANUP_OBJECTS_FIRST_SQL : CLEANUP_OBJECTS_AFTER_SQL;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             int parameter = 1;
             statement.setString(parameter++, plan.queryId());
@@ -309,7 +324,7 @@ final class PostgresShuffleRecords {
             int outputPartitionId,
             long batchAfter,
             int limit) throws SQLException {
-        String sql = batchSelect() + " WHERE b.shuffle_id = ? AND b.producer_partition_id = ? "
+        String sql = BATCH_SELECT + " WHERE b.shuffle_id = ? AND b.producer_partition_id = ? "
                 + "AND b.producer_attempt_id = ? AND b.output_partition_id = ? "
                 + "AND b.batch_sequence > ? ORDER BY b.batch_sequence LIMIT ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -331,7 +346,7 @@ final class PostgresShuffleRecords {
             int producerAfter,
             long batchAfter,
             int limit) throws SQLException {
-        String sql = batchSelect() + " JOIN shuffle_producer_commit c "
+        String sql = BATCH_SELECT + " JOIN shuffle_producer_commit c "
                 + "ON c.shuffle_id = b.shuffle_id "
                 + "AND c.producer_partition_id = b.producer_partition_id "
                 + "AND c.producer_attempt_id = b.producer_attempt_id "
@@ -355,7 +370,7 @@ final class PostgresShuffleRecords {
             int outputPartitionId,
             long startSequence,
             int limit) throws SQLException {
-        String sql = batchSelect() + " WHERE b.shuffle_id = ? "
+        String sql = BATCH_SELECT + " WHERE b.shuffle_id = ? "
                 + "AND b.output_partition_id = ? AND b.output_sequence >= ? "
                 + "ORDER BY b.output_sequence LIMIT ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -411,15 +426,6 @@ final class PostgresShuffleRecords {
         return new StoredBatch(identity, attempt, rows.getString("object_key"),
                 rows.getLong("batch_size_bytes"), rows.getLong("row_count"),
                 rows.getBytes("batch_checksum"));
-    }
-
-    static String batchSelect() {
-        return "SELECT b.*, f.task_id, f.control_epoch, a.query_id, a.stage_id, "
-                + "a.plan_epoch, q.owner_id, q.owner_incarnation, q.owner_fencing_token "
-                + "FROM shuffle_batch b JOIN shuffle_attempt_fence f USING "
-                + "(shuffle_id, producer_partition_id, producer_attempt_id) "
-                + "JOIN shuffle_allocation a USING (shuffle_id) "
-                + "JOIN shuffle_query_scope q USING (query_id)";
     }
 
     private static Allocation readAllocation(ResultSet rows) throws SQLException {

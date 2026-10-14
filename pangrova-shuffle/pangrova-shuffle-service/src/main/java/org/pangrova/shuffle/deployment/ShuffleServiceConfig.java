@@ -30,6 +30,8 @@ public record ShuffleServiceConfig(
     private static final int DEFAULT_MAX_WRITE_STREAMS = 64;
     private static final int DEFAULT_IO_THREADS = 32;
     private static final int DEFAULT_MAX_QUEUED_OPERATIONS = 1024;
+    private static final int DEFAULT_API_CALL_TIMEOUT_SECONDS = 120;
+    private static final int DEFAULT_API_CALL_ATTEMPT_TIMEOUT_SECONDS = 45;
     private static final int MAX_PORT = 65_535;
 
     public ShuffleServiceConfig {
@@ -116,9 +118,11 @@ public record ShuffleServiceConfig(
                         optionalBoolean(objectStorage, "path-style-access", false),
                         optionalBoolean(objectStorage, "replication-enabled", false),
                         Duration.ofSeconds(optionalInteger(
-                                objectStorage, "api-call-timeout-seconds", 120)),
+                                objectStorage, "api-call-timeout-seconds",
+                                DEFAULT_API_CALL_TIMEOUT_SECONDS)),
                         Duration.ofSeconds(optionalInteger(
-                                objectStorage, "api-call-attempt-timeout-seconds", 45))),
+                                objectStorage, "api-call-attempt-timeout-seconds",
+                                DEFAULT_API_CALL_ATTEMPT_TIMEOUT_SECONDS))),
                 new Security(
                         Path.of(string(security, "certificate-chain-path")),
                         Path.of(string(security, "private-key-path")),
@@ -351,7 +355,8 @@ public record ShuffleServiceConfig(
         public ObjectStorage(String bucket, String prefix, String region, URI endpoint,
                 boolean pathStyleAccess, boolean replicationEnabled) {
             this(bucket, prefix, region, endpoint, pathStyleAccess, replicationEnabled,
-                    Duration.ofSeconds(120), Duration.ofSeconds(45));
+                    Duration.ofSeconds(DEFAULT_API_CALL_TIMEOUT_SECONDS),
+                    Duration.ofSeconds(DEFAULT_API_CALL_ATTEMPT_TIMEOUT_SECONDS));
         }
 
         public ObjectStorage {

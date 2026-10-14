@@ -2,6 +2,7 @@ package org.pangrova.shuffle.server;
 
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -91,7 +92,7 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
                 throw conflict;
             }
             byte[] existing = get(key);
-            if (!java.util.Arrays.equals(sha256, ShuffleChecksums.sha256(existing))) {
+            if (!MessageDigest.isEqual(sha256, ShuffleChecksums.sha256(existing))) {
                 throw new IllegalStateException(
                         "immutable shuffle object conflicts with existing content", conflict);
             }

@@ -25,7 +25,6 @@ import org.pangrova.protocol.v2.shuffle.RegisterShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.RegisterShuffleResponse;
 import org.pangrova.protocol.v2.shuffle.RenewAccessRequest;
 import org.pangrova.protocol.v2.shuffle.RenewAccessResponse;
-import org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation;
 import org.pangrova.shuffle.ShufflePartitionManifestChecksum;
 import org.pangrova.shuffle.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
@@ -55,6 +54,7 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
 final class ShuffleServiceEngine implements AutoCloseable {
 
     private static final int BATCH_PAGE_SIZE = 1_000;
+    private static final long WRITE_INTENT_DRAIN_GRACE_MILLIS = 60_000L;
 
     private final ShuffleServiceConfig config;
     private final ShuffleLifecycleStore lifecycle;
@@ -108,7 +108,8 @@ final class ShuffleServiceEngine implements AutoCloseable {
                 batch.attempt(), key, batch.canonicalBytes().length,
                 batch.rowCount(), batch.checksum());
         String reservationId = batches.beginWriteIntent(stored,
-                Math.addExact(config.objectStorage().apiCallTimeout().toMillis(), 60_000L));
+                Math.addExact(config.objectStorage().apiCallTimeout().toMillis(),
+                        WRITE_INTENT_DRAIN_GRACE_MILLIS));
         // A failed network PUT is ambiguous: the object server can still commit it.
         // Retain the IN_PROGRESS reservation so cleanup cannot pass a late PUT.
         objects.putImmutable(key, batch.canonicalBytes(), batch.checksum());

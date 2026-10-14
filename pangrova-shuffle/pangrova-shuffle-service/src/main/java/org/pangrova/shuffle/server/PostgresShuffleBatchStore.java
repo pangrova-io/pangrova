@@ -16,7 +16,7 @@ import static org.pangrova.shuffle.server.persistence.JdbcTransactions.transacti
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.findAllocation;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireOwner;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireRegistered;
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.batchSelect;
+import static org.pangrova.shuffle.server.PostgresShuffleRecords.BATCH_SELECT;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.readBatch;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.selectAttemptPage;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.selectCommittedPage;
@@ -300,7 +300,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
 
     private static StoredBatch findBatch(Connection connection, BatchIdentity identity)
             throws SQLException {
-        String sql = batchSelect() + " WHERE b.shuffle_id = ? AND b.producer_partition_id = ? "
+        String sql = BATCH_SELECT + " WHERE b.shuffle_id = ? AND b.producer_partition_id = ? "
                 + "AND b.producer_attempt_id = ? AND b.output_partition_id = ? "
                 + "AND b.batch_sequence = ?";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {

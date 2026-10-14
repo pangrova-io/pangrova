@@ -35,6 +35,18 @@ import static org.pangrova.shuffle.server.persistence.JdbcTransactions.transacti
 
 /** Durable finalization and cleanup transitions sharing the shuffle transaction authority. */
 final class PostgresShuffleLifecycleTransitions {
+    private static final long MAX_SWEEP_INTERVAL_MILLIS = 3_600_000L;
+    private static final String UNCERTAIN_SWEEP_RENEW_SQL =
+            "UPDATE shuffle_uncertain_write_tombstone SET "
+                    + "lease_expires_at = clock_timestamp() + (? * INTERVAL '1 millisecond') "
+                    + "WHERE shuffle_id = ? AND lease_owner = ?::uuid "
+                    + "AND lease_expires_at > clock_timestamp()";
+    private static final String UNCERTAIN_SWEEP_COMPLETE_SQL =
+            "UPDATE shuffle_uncertain_write_tombstone SET "
+                    + "next_sweep_at = clock_timestamp() + (? * INTERVAL '1 millisecond'), "
+                    + "lease_owner = NULL, lease_expires_at = NULL "
+                    + "WHERE shuffle_id = ? AND lease_owner = ?::uuid "
+                    + "AND lease_expires_at > clock_timestamp()";
     private final DataSource dataSource;
 
     PostgresShuffleLifecycleTransitions(DataSource dataSource) {
@@ -153,9 +165,7 @@ final class PostgresShuffleLifecycleTransitions {
     void renewUncertainSweep(String shuffleId, String owner, long leaseMillis) {
         requireSweepInterval(leaseMillis);
         transaction(dataSource, connection -> {
-            updateUncertainSweep(connection, shuffleId, owner,
-                    "lease_expires_at = clock_timestamp() "
-                            + "+ (? * INTERVAL '1 millisecond')", leaseMillis);
+            updateUncertainSweep(connection, shuffleId, owner, false, leaseMillis);
             return null;
         });
     }
@@ -163,10 +173,7 @@ final class PostgresShuffleLifecycleTransitions {
     void completeUncertainSweep(String shuffleId, String owner, long intervalMillis) {
         requireSweepInterval(intervalMillis);
         transaction(dataSource, connection -> {
-            updateUncertainSweep(connection, shuffleId, owner,
-                    "next_sweep_at = clock_timestamp() "
-                            + "+ (? * INTERVAL '1 millisecond'), "
-                            + "lease_owner = NULL, lease_expires_at = NULL", intervalMillis);
+            updateUncertainSweep(connection, shuffleId, owner, true, intervalMillis);
             return null;
         });
     }
@@ -245,11 +252,9 @@ final class PostgresShuffleLifecycleTransitions {
 
     private static void updateUncertainSweep(
             Connection connection, String shuffleId, String owner,
-            String assignment, long intervalMillis) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE shuffle_uncertain_write_tombstone SET " + assignment
-                        + " WHERE shuffle_id = ? AND lease_owner = ?::uuid "
-                        + "AND lease_expires_at > clock_timestamp()")) {
+            boolean complete, long intervalMillis) throws SQLException {
+        String sql = complete ? UNCERTAIN_SWEEP_COMPLETE_SQL : UNCERTAIN_SWEEP_RENEW_SQL;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, intervalMillis);
             statement.setString(2, shuffleId);
             statement.setString(3, owner);
@@ -260,7 +265,7 @@ final class PostgresShuffleLifecycleTransitions {
     }
 
     private static void requireSweepInterval(long millis) {
-        if (millis <= 0 || millis > 3_600_000L) {
+        if (millis <= 0 || millis > MAX_SWEEP_INTERVAL_MILLIS) {
             throw new IllegalArgumentException("uncertain sweep interval is invalid");
         }
     }
