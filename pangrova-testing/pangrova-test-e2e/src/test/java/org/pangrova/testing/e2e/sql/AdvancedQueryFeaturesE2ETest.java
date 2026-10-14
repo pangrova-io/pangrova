@@ -218,8 +218,13 @@ class AdvancedQueryFeaturesE2ETest extends PangrovaE2ETestBase {
             executeDdl("CREATE TABLE " + newTable
                     + " AS SELECT dept, AVG(salary) AS avg_salary FROM " + fqn() + " GROUP BY dept");
 
-            List<TypedRow> rows = executeQuery("SELECT * FROM " + newTable);
+            List<TypedRow> rows = executeQuery(
+                    "SELECT dept, avg_salary FROM " + newTable + " ORDER BY dept");
             assertThat(rows).hasSize(2);
+            assertThat(rows.get(0).getString("dept")).isEqualTo("eng");
+            assertThat(rows.get(0).getDouble("avg_salary")).isEqualTo(110.0);
+            assertThat(rows.get(1).getString("dept")).isEqualTo("sales");
+            assertThat(rows.get(1).getDouble("avg_salary")).isEqualTo(90.0);
 
             executeDdl("DROP TABLE " + newTable);
             executeDdl("DROP TABLE " + fqn());

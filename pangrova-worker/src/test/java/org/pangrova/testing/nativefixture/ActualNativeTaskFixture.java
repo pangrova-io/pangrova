@@ -82,7 +82,7 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
             NativeFunctionBootstrap.initialize(nativeRefs, functionConfig);
             startingExecutor = new NativeTaskExecutor();
             var resultTickets = initializeTickets();
-            startingResults = new NativeResultTransport(startingExecutor, "127.0.0.1");
+            startingResults = new NativeResultTransport(startingExecutor, "127.0.0.1", "127.0.0.1");
             startingResults.startServer(0);
             startingExchange = new NativeExchangeTransport(startingExecutor);
             return new Endpoints(startingExecutor, startingResults, startingExchange, resultTickets);

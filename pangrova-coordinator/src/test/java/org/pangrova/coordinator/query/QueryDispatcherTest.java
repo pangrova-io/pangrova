@@ -81,7 +81,7 @@ class QueryDispatcherTest {
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
         assertNotNull(result);
-        assertEquals("localhost", result.workerHost());
+        assertEquals("127.0.0.1", result.workerHost());
         assertEquals(QueryStateMachine.State.RUNNING, sm.getState());
     }
 

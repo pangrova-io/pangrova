@@ -181,7 +181,9 @@ public final class WorkerTaskBootstrap {
                         : "";
         var shuffleTransport = new NativeShuffleTransport(executor, workerHost, tlsIdentity);
         ownership.retain(shuffleTransport);
-        var resultTransport = new NativeResultTransport(executor, workerHost);
+        String resultBindHost = config.httpHost() == null || config.httpHost().isBlank()
+                ? "0.0.0.0" : config.httpHost().trim();
+        var resultTransport = new NativeResultTransport(executor, workerHost, resultBindHost);
         ownership.retain(resultTransport);
         resultTransport.startServer(config.transportPort());
         var exchangeTransport =

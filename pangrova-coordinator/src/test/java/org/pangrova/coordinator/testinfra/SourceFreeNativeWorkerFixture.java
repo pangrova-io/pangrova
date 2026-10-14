@@ -60,6 +60,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
     private static final Object OWNERSHIP = new Object();
     private static boolean owned;
     public static final long MEMORY_BYTES = 1024L * 1024 * 1024;
+    private static final String LOOPBACK_HOST = "127.0.0.1";
     private final String workerId;
     private final MemoryArbitrator arbitrator = new MemoryArbitrator(MEMORY_BYTES, 64L * 1024 * 1024);
     private final ThreadBudgetTracker threads = new ThreadBudgetTracker(4, 2, 1);
@@ -119,7 +120,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         NativeRuntime.nativeSetHmacKey(key, new byte[0]);
         resultTickets = new ResultReadTickets(key);
         executor = new NativeTaskExecutor();
-        results = new NativeResultTransport(executor, "localhost");
+        results = new NativeResultTransport(executor, LOOPBACK_HOST, LOOPBACK_HOST);
         results.startServer(0);
         memory = new MemoryRefs(new ResourceManager(arbitrator, threads, new SpillManager()), node, null);
         WorkerNode primary = addWorker(workerId);
@@ -134,11 +135,11 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         }
         var exchange = new NativeExchangeTransport(executor);
         var context = new TaskManagerContext(this::report, executor, memory,
-                new TransportRefs(new NativeShuffleTransport(executor, "localhost", ""), results, exchange), monitors);
+                new TransportRefs(new NativeShuffleTransport(executor, LOOPBACK_HOST, ""), results, exchange), monitors);
         var tasks = new TaskManager(context, id, 0.0);
         tasks.requireControlEpochHandshake();
         tasks.observeControlEpoch(1L);
-        var http = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, "localhost", results.boundPort()),
+        var http = new WorkerHttpServer(new WorkerHttpServer.WorkerHttpConfig(0, LOOPBACK_HOST, results.boundPort()),
                 tasks, exchange, null, null, resultTickets);
         var worker = new WorkerNode(id, tasks, http);
         workers.add(worker);
@@ -173,7 +174,7 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
 
     public WorkerInfo workerInfo(WorkerNode worker) {
         var advertisement = NativeCapabilityAdvertisement.load(NativeFunctionConfig.DISABLED);
-        return new WorkerInfo(worker.workerId(), "localhost", worker.httpServer().getPort(), results.boundPort(), results.boundPort(),
+        return new WorkerInfo(worker.workerId(), LOOPBACK_HOST, worker.httpServer().getPort(), results.boundPort(), results.boundPort(),
                 HealthState.ACTIVE, MemoryPressure.NONE, 0.0, 0, MEMORY_BYTES,
                 Instant.now(), 1.0, null, 2, null, List.of(), null, advertisement.inventory());
     }

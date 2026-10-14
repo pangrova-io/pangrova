@@ -86,8 +86,8 @@ class QueryDispatcherUnifiedPathTest {
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1", session);
 
         assertThat(result).isNotNull();
-        assertThat(result.workerHost()).isEqualTo("localhost");
-        assertThat(result.resultEndpoint().host()).isEqualTo("localhost");
+        assertThat(result.workerHost()).isEqualTo("127.0.0.1");
+        assertThat(result.resultEndpoint().host()).isEqualTo("127.0.0.1");
         assertThat(result.resultEndpoint().protocol()).isEqualTo("grpc");
         assertThat(result.taskId()).doesNotStartWith("local-");
         assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
@@ -102,7 +102,7 @@ class QueryDispatcherUnifiedPathTest {
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1+2, 'hello'", session);
 
         assertThat(result).isNotNull();
-        assertThat(result.workerHost()).isEqualTo("localhost");
+        assertThat(result.workerHost()).isEqualTo("127.0.0.1");
         assertThat(sm.getState()).isEqualTo(QueryStateMachine.State.RUNNING);
         assertThat(worker.rows(result)).singleElement().satisfies(row -> {
             assertThat(row).hasSize(2);
@@ -120,7 +120,7 @@ class QueryDispatcherUnifiedPathTest {
         DispatchResult result = worker.execute(dispatcher, sm, "SELECT 1 LIMIT 0", session);
 
         assertThat(result).isNotNull();
-        assertThat(result.workerHost()).isEqualTo("localhost");
+        assertThat(result.workerHost()).isEqualTo("127.0.0.1");
         assertThat(result.taskId()).doesNotStartWith("local-");
         assertThat(worker.rows(result)).isEmpty();
     }

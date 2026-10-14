@@ -128,6 +128,11 @@ Java schedules and issues JNI control commands; `NativeRuntime` has no
 `nativeGetNextBatch` row-pull API. The Coordinator does not relay result batches.
 The output consumer is part of task completion: an admitted endpoint is not a
 terminal success report, and unconsumed output must be cancelled and drained.
+The result-server start command carries its listener `bind_host` separately from
+the Worker endpoint advertised to clients. Worker bootstrap uses `worker.host`
+for the listener (`0.0.0.0` by default) and `worker.advertised-host` for the
+endpoint when configured. A test Worker can bind to `127.0.0.1` so an unrelated
+IPv4 service cannot receive its Flight traffic through an IPv6-only listener.
 
 ### 2.2 Memory Ownership Hierarchy
 

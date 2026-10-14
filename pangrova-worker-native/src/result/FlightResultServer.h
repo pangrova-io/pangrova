@@ -79,6 +79,8 @@ arrow::Result<std::shared_ptr<arrow::Schema>> withResultColumnTypes(
 struct FlightResultServerConfig {
   // Port to bind the Flight server (0 = auto-assign).
   int port = 0;
+  // Actual listener interface, independent of the advertised endpoint.
+  std::string bind_host = "0.0.0.0";
   // Number of server threads for handling DoGet requests.
   int num_threads = 4;
   // Maximum bytes per getData() call to OutputBufferManager.

@@ -102,7 +102,10 @@ final class SpeculativeTaskReportCompletion {
             return true;
         }
         if (!isSpeculationActive()) {
+            // The DAG terminal callback may finalize a distributed write.
+            // Retain its physical fragment before making the stage terminal.
             writes.collectWriteCommitMetadata(queryId, report);
+            notifyStageTerminal(queryId, taskId, report);
             evaluate.accept(queryId, report);
             return true;
         }

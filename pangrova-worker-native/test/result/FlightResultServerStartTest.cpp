@@ -21,13 +21,16 @@ namespace pangrova::result::test {
 namespace {
 namespace proto = pangrova::protocol::v2;
 
-proto::RuntimeCommandResponse resultServerCommand(proto::RuntimeCommandType type, int port = 0) {
+proto::RuntimeCommandResponse resultServerCommand(
+    proto::RuntimeCommandType type, int port = 0,
+    const std::string& bind_host = "127.0.0.1") {
   proto::RuntimeCommand command;
   command.mutable_protocol()->set_major(2);
   command.set_command_type(type);
   if (type == proto::RUNTIME_COMMAND_TYPE_START_RESULT_SERVER) {
     proto::StartResultServerRequest request;
     request.set_preferred_port(port);
+    request.set_bind_host(bind_host);
     command.mutable_payload()->PackFrom(request);
   }
   std::vector<uint8_t> bytes(command.ByteSizeLong());
@@ -139,9 +142,53 @@ TEST_F(FlightResultServerStartTest, OccupiedListenerThrowsWithoutPublishingThenF
   EXPECT_NO_THROW(recovered.stop());
 }
 
-TEST_F(FlightResultServerStartTest, DispatcherReturnsActualFailureWithoutRegistryLeakAndRetryCanDrain) {
+TEST_F(FlightResultServerStartTest, ExplicitIpv4ListenerRejectsAnOccupiedIpv4Port) {
+  arrow::internal::FileDescriptor occupied_ipv4(::socket(AF_INET, SOCK_STREAM, 0));
+  ASSERT_GE(occupied_ipv4.fd(), 0) << std::strerror(errno);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  ASSERT_EQ(::bind(occupied_ipv4.fd(), reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0)
+      << std::strerror(errno);
+  ASSERT_EQ(::listen(occupied_ipv4.fd(), 1), 0) << std::strerror(errno);
+  socklen_t size = sizeof(address);
+  ASSERT_EQ(::getsockname(occupied_ipv4.fd(), reinterpret_cast<sockaddr*>(&address), &size), 0)
+      << std::strerror(errno);
+
+  FlightResultServerConfig config;
+  config.bind_host = "127.0.0.1";
+  config.port = ntohs(address.sin_port);
+  FlightResultServer rejected(config);
+  EXPECT_THROW(rejected.start(), std::runtime_error);
+  EXPECT_FALSE(rejected.isRunning());
+  EXPECT_EQ(rejected.boundPort(), 0);
+  EXPECT_EQ(FlightResultServer::instance(), nullptr);
+}
+
+TEST_F(FlightResultServerStartTest, DispatcherRejectsMissingListenerAddress) {
   const auto rejected = resultServerCommand(
-      proto::RUNTIME_COMMAND_TYPE_START_RESULT_SERVER, occupied_port_);
+      proto::RUNTIME_COMMAND_TYPE_START_RESULT_SERVER, 0, "");
+  EXPECT_FALSE(rejected.success());
+  EXPECT_FALSE(rejected.has_payload());
+  EXPECT_NE(rejected.error().message().find("bind_host is required"), std::string::npos);
+  EXPECT_EQ(pangrova::jni::FlightServerRegistry::instance().resultServer(), nullptr);
+  EXPECT_EQ(FlightResultServer::instance(), nullptr);
+}
+
+TEST_F(FlightResultServerStartTest, DispatcherReturnsActualFailureWithoutRegistryLeakAndRetryCanDrain) {
+  arrow::internal::FileDescriptor occupied_ipv4(::socket(AF_INET, SOCK_STREAM, 0));
+  ASSERT_GE(occupied_ipv4.fd(), 0) << std::strerror(errno);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  ASSERT_EQ(::bind(occupied_ipv4.fd(), reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0)
+      << std::strerror(errno);
+  ASSERT_EQ(::listen(occupied_ipv4.fd(), 1), 0) << std::strerror(errno);
+  socklen_t size = sizeof(address);
+  ASSERT_EQ(::getsockname(occupied_ipv4.fd(), reinterpret_cast<sockaddr*>(&address), &size), 0)
+      << std::strerror(errno);
+  const auto rejected = resultServerCommand(
+      proto::RUNTIME_COMMAND_TYPE_START_RESULT_SERVER, ntohs(address.sin_port));
   EXPECT_FALSE(rejected.success());
   EXPECT_FALSE(rejected.has_payload());
   EXPECT_NE(rejected.error().message().find("Failed to init Flight result server:"), std::string::npos);

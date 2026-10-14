@@ -164,8 +164,8 @@ int FlightResultServer::start() {
       !config_.tls_private_key_path.empty() ||
       !config_.tls_root_ca_path.empty();
   auto location_result = any_tls_path
-      ? arrow::flight::Location::ForGrpcTls("0.0.0.0", config_.port)
-      : arrow::flight::Location::ForGrpcTcp("0.0.0.0", config_.port);
+      ? arrow::flight::Location::ForGrpcTls(config_.bind_host, config_.port)
+      : arrow::flight::Location::ForGrpcTcp(config_.bind_host, config_.port);
   if (!location_result.ok()) {
     throw std::runtime_error("Failed to create Flight location: " +
         location_result.status().ToString());

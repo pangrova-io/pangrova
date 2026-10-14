@@ -341,7 +341,11 @@ enum MemoryPressureLevel {
 
 message MemoryPressureRequest { MemoryPressureLevel level = 1; }
 
-message StartResultServerRequest { uint32 preferred_port = 1; }
+message StartResultServerRequest {
+  uint32 preferred_port = 1;
+  // Actual listener address. Advertised client address is a separate Worker contract.
+  string bind_host = 2;
+}
 message StartResultServerResponse { uint32 bound_port = 1; }
 
 message CacheMetrics {

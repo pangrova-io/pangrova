@@ -37,6 +37,7 @@ public final class NativeResultTransport implements ResultTransport {
 
     private final TaskExecutor taskExecutor;
     private final String localHost;
+    private final String bindHost;
     private volatile int boundPort = -1;
 
     /**
@@ -44,8 +45,17 @@ public final class NativeResultTransport implements ResultTransport {
      * @param localHost    hostname to report in result server endpoint
      */
     public NativeResultTransport(TaskExecutor taskExecutor, String localHost) {
+        this(taskExecutor, localHost, "0.0.0.0");
+    }
+
+    /** Separates the client-facing endpoint from the actual listener interface. */
+    public NativeResultTransport(TaskExecutor taskExecutor, String localHost, String bindHost) {
         this.taskExecutor = checkNotNull(taskExecutor, "taskExecutor must not be null");
         this.localHost = localHost != null ? localHost : "localhost";
+        if (bindHost == null || bindHost.isBlank()) {
+            throw new IllegalArgumentException("bindHost must not be blank");
+        }
+        this.bindHost = bindHost.trim();
     }
 
     /**
@@ -67,7 +77,7 @@ public final class NativeResultTransport implements ResultTransport {
      * @throws IllegalStateException if the native command returns an invalid response
      */
     public int startServer(int preferredPort) {
-        StartResultServerRequest commandPayload = buildStartResultServerPayload(preferredPort);
+        StartResultServerRequest commandPayload = buildStartResultServerPayload(preferredPort, bindHost);
         byte[] command = buildCommand(CMD_START_RESULT_SERVER, commandPayload);
         byte[] response = taskExecutor.executeCommand(0, command);
 
@@ -125,11 +135,20 @@ public final class NativeResultTransport implements ResultTransport {
      * Port zero intentionally requests automatic port allocation.
      */
     public static StartResultServerRequest buildStartResultServerPayload(int preferredPort) {
+        return buildStartResultServerPayload(preferredPort, "0.0.0.0");
+    }
+
+    /** Encodes the requested port and actual listener interface for the Native server. */
+    public static StartResultServerRequest buildStartResultServerPayload(int preferredPort, String bindHost) {
         if (preferredPort < 0 || preferredPort > MAX_PORT) {
             throw new IllegalArgumentException("preferredPort must be in [0, 65535]");
         }
+        if (bindHost == null || bindHost.isBlank()) {
+            throw new IllegalArgumentException("bindHost must not be blank");
+        }
         return StartResultServerRequest.newBuilder()
                 .setPreferredPort(preferredPort)
+                .setBindHost(bindHost.trim())
                 .build();
     }
 

@@ -20,12 +20,21 @@ class NativeResultTransportTest {
     void buildStartResultServerPayload_port0_encodesCorrectly() {
         StartResultServerRequest payload = NativeResultTransport.buildStartResultServerPayload(0);
         assertThat(payload.getPreferredPort()).isZero();
+        assertThat(payload.getBindHost()).isEqualTo("0.0.0.0");
     }
 
     @Test
     void buildStartResultServerPayload_port8080_encodesCorrectly() {
         StartResultServerRequest payload = NativeResultTransport.buildStartResultServerPayload(8080);
         assertThat(payload.getPreferredPort()).isEqualTo(8080);
+        assertThat(payload.getBindHost()).isEqualTo("0.0.0.0");
+    }
+
+    @Test
+    void explicitListenerAddressIsPreservedInCanonicalCommand() {
+        StartResultServerRequest payload = NativeResultTransport.buildStartResultServerPayload(
+                0, "127.0.0.1");
+        assertThat(payload.getBindHost()).isEqualTo("127.0.0.1");
     }
 
     @Test

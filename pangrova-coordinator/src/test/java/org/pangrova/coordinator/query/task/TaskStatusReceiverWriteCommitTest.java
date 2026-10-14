@@ -60,7 +60,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -142,6 +144,45 @@ class TaskStatusReceiverWriteCommitTest {
         callback.complete(false);
 
         assertThat(queryManager.getQueryState(QUERY_ID)).contains(QueryStateMachine.State.RUNNING);
+    }
+
+    @Test
+    void terminalDagCallbackSeesWriteFragmentBeforeCatalogCommit() {
+        byte[] fragment = {7, 8, 9};
+        AtomicInteger fragmentsAtTerminal = new AtomicInteger(-1);
+        AtomicBoolean dagComplete = new AtomicBoolean();
+        AtomicReference<Consumer<Boolean>> terminalListener = new AtomicReference<>();
+        receiver = receiverWithStageCallback(new StageCompletionCallback() {
+            @Override public void onTaskTerminal(String queryId, String taskId, String state, ErrorDetail error) {
+                if (!"t-2".equals(taskId)) return;
+                var writeState = writeCommitTracker.peekWriteState(queryId);
+                fragmentsAtTerminal.set(writeState == null ? -1 : writeState.fragments().size());
+                dagComplete.set(true);
+                Consumer<Boolean> listener = terminalListener.get();
+                if (listener != null) listener.accept(true);
+            }
+
+            @Override public boolean isQueryComplete(String queryId) {
+                return dagComplete.get();
+            }
+
+            @Override public void onQueryTerminal(String queryId, Consumer<Boolean> listener) {
+                terminalListener.set(listener);
+            }
+        });
+        writeCommitTracker.registerWriteContext(
+                QUERY_ID, CATALOG_NAME, new TestOutputTableHandle(), new TestConnectorSession(),
+                binding(), org.pangrova.coordinator.testinfra.CoordinatorWriteReceiptFixtures.receipt(),
+                new org.pangrova.coordinator.query.task.write.WriteAllocationIntent("INSERT", Map.of()));
+        registerRunningQuery();
+        registerTwoTasks();
+
+        receiver.onTaskStatus(finishedWithoutWriteResult("t-1"));
+        receiver.onTaskStatus(finishedWithWriteResult("t-2", fragment));
+
+        assertThat(fragmentsAtTerminal.get()).isEqualTo(1);
+        assertThat(recordingMetadata.finishCalls).hasSize(1);
+        assertThat(recordingMetadata.finishCalls.get(0).fragments()).containsExactly(fragment);
     }
 
     private TaskStatusReceiver receiverWithStageCallback(StageCompletionCallback callback) {

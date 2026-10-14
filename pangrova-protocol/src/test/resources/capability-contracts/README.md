@@ -8,13 +8,17 @@ immutable-cache readiness gate. It is distinct from the cache-disabled function
 exporter catalogue used by function-contract tests.
 
 The snapshot was recaptured on 2026-10-14 from the matching packaged Release
-Native library after the canonical v2 task statistics contract changed. The
+Native library after the canonical v2 result-server bind-address contract changed. The
 cache-disabled function catalogue was captured separately from the current
-Native exporter (SHA-256 `e7d999733e4e2c1ded8159e1b443ee56c5cfca66e88c53a8dc61e2a142ca5d25`).
+Native exporter (SHA-256 `c615388f67918ee4d44b0d5b56452ab857773b9bec8e34ae0f866df5a788602a`).
 The complete cache-enabled inventory came from actual E2E JNI startup:
 
-- Native library SHA-256: `e4bd09d6a14f1fd371e40c93a3cf31f8ff495d4daac09d154a774c7c8069313e`.
-- Inventory SHA-256: `949bb49aa127f8cda756442e3a313161de95d3b5934110b1acc97837d38bb0c8`.
+- Native library SHA-256: `a769ab2dccd8be95dd1def4e5a3e31c0360ea9b550292479d98c1380abdcae23`.
+- Inventory SHA-256: `a3511e913a26311a87cf240f29f098ada8ba4a103cab443e0e718d0b76d0f4fd`.
+
+The E2E capture enabled the real governed FILE callback deployment before Native
+startup. It retained 19 capabilities and 99 functions; text-format comparison
+against the previous inventory changed only descriptor and derived manifest hashes.
 
 Tests retain every actual capability and function in the positive round trip.
 Negative inputs mutate the actual inventory while retaining capability identity.

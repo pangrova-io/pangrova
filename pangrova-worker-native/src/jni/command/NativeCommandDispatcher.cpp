@@ -553,8 +553,12 @@ void handleStartResultServer(const proto::RuntimeCommand& cmd,
   }
 
   auto& registry = FlightServerRegistry::instance();
+  if (payload.bind_host().empty()) {
+    throw std::invalid_argument("Result server bind_host is required");
+  }
   pangrova::result::FlightResultServerConfig config;
   config.port = payload.preferred_port();
+  config.bind_host = payload.bind_host();
   const int bound_port = registry.ensureResultServerRunning(std::move(config));
 
   proto::StartResultServerResponse result;

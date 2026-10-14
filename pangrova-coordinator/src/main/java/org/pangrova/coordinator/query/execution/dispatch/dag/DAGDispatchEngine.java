@@ -353,7 +353,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         BoundExecutionPlan boundPlan = stagePlanBinder.bind(new DAGStagePlanBinder.Input(
                 serialized, plan, splits, queryContext, state.session(), state.workerSelector(),
                 state.dag().findDownstreamEdge(plan.stageId()) == null));
-        var writeConfig = queryContext == null ? null : queryContext.writeConfig();
+        // Only the terminal stage owns the table write. Upstream stages must
+        // produce their ExchangeRel shuffle output with a shuffle task binding.
+        var writeConfig = queryContext == null
+                || state.dag().findDownstreamEdge(plan.stageId()) != null
+                ? null : queryContext.writeConfig();
         var dispatch = new LeafStageDispatcher.LeafDispatch(
                 state.execution(), plan, boundPlan, splits, state.workerSelector(),
                 state.dag(), state.dispatched(), writeConfig,

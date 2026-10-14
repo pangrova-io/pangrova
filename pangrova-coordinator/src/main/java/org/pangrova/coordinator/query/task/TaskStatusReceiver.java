@@ -219,14 +219,11 @@ public final class TaskStatusReceiver {
             return true;
         }
 
-        // A speculative FINISHED report has not won its logical partition yet.
-        // Route only the elected completion to the DAG's original task slot.
-        notifyAcceptedTerminal(report);
-
         if (isFinishedState(report.state())) {
             return speculation.handleTaskCompletion(queryId, taskId, report);
         }
 
+        notifyAcceptedTerminal(report);
         evaluateQueryTransitions(queryId, report);
         return true;
     }
