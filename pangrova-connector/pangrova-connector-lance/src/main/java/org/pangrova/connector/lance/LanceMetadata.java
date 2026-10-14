@@ -89,7 +89,8 @@ public final class LanceMetadata implements ConnectorMetadata {
                 selected.version() == 0
                         ? org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.EMPTY
                         : org.pangrova.spi.connector.metadata.table.ConnectorReadBinding.SnapshotState.SNAPSHOT,
-                selected.version() == 0 ? java.util.OptionalLong.empty() : java.util.OptionalLong.of(selected.version()),
+                selected.version() == 0 ? java.util.OptionalLong.empty()
+                        : java.util.OptionalLong.of(selected.version()),
                 selected.tableId() + ":" + selected.version());
     }
     @Override public void validateReadBinding(ConnectorSession session,
@@ -157,7 +158,8 @@ public final class LanceMetadata implements ConnectorMetadata {
                 throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                         "Native dataset preparation is UNKNOWN; reserved objects remain held for replay");
             }
-            accepted = Optional.of(store.get().accept(lance, reservation, preparation.publication().orElseThrow(), rows));
+            accepted = Optional.of(store.get().accept(
+                    lance, reservation, preparation.publication().orElseThrow(), rows));
         }
         var reference = accepted.orElseThrow().reference();
         NativeWriteFinalization publication = new NativeWriteFinalization(NativeWriteFinalization.Outcome.COMMITTED,
@@ -167,10 +169,14 @@ public final class LanceMetadata implements ConnectorMetadata {
     }
 
     @Override public org.pangrova.spi.connector.metadata.DistributedWriteAbortReceipt abortDistributedWrite(
-            ConnectorSession session, ConnectorOutputTableHandle output, List<byte[]> fragments, DistributedWriteCommitContext context) {
-        if (!(output instanceof LanceOutputHandle lance)) throw new IllegalArgumentException("Expected Lance output handle");
+            ConnectorSession session, ConnectorOutputTableHandle output,
+            List<byte[]> fragments, DistributedWriteCommitContext context) {
+        if (!(output instanceof LanceOutputHandle lance)) {
+            throw new IllegalArgumentException("Expected Lance output handle");
+        }
         requireTable(session, lance.table());
-        if (!context.tenantId().equals(lance.table().tenantId()) || context.baseSnapshotId() != lance.table().version()) {
+        if (!context.tenantId().equals(lance.table().tenantId())
+                || context.baseSnapshotId() != lance.table().version()) {
             throw new SecurityException("Lance abort intent tenant or base snapshot mismatch");
         }
         LanceCommitFragments.validate(lance, fragments, context);
@@ -184,7 +190,9 @@ public final class LanceMetadata implements ConnectorMetadata {
         throw new UnsupportedOperationException("Lance abort requires its exact durable journal context");
     }
 
-    private void cleanupAfterBarrier(ConnectorSession session, LanceOutputHandle output, DistributedWriteCommitContext context) {
+    private void cleanupAfterBarrier(
+            ConnectorSession session, LanceOutputHandle output,
+            DistributedWriteCommitContext context) {
         try {
             nativeControl().cleanupSourceObjects(session, store.get().reservation(output, context));
         } catch (RuntimeException held) {

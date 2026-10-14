@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -57,8 +58,9 @@ public final class JdbcCdcRegistrationStore implements CdcRegistrationStore {
     }
 
     private void initSchema() {
-        try (Connection conn = dataSource.getConnection()) {
-            conn.createStatement().execute(CREATE_TABLE);
+        try (Connection conn = dataSource.getConnection();
+             Statement statement = conn.createStatement()) {
+            statement.execute(CREATE_TABLE);
             LOG.info("event=jdbc_cdc_registration_store_initialized");
         } catch (SQLException e) {
             LOG.warn("event=jdbc_cdc_registration_store_init_failed error={}", e.getMessage(), e);

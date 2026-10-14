@@ -118,5 +118,13 @@ public class JsonSerializationBenchmark {
             String status,
             List<String> tablesAccessed,
             Map<String, Long> metrics
-    ) {}
+    ) {
+        public QueryMetadataPayload {
+            tablesAccessed = List.copyOf(tablesAccessed);
+            metrics = Map.copyOf(metrics);
+        }
+
+        @Override public List<String> tablesAccessed() { return List.copyOf(tablesAccessed); }
+        @Override public Map<String, Long> metrics() { return Map.copyOf(metrics); }
+    }
 }

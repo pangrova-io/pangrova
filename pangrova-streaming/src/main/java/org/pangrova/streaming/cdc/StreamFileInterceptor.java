@@ -87,7 +87,7 @@ public final class StreamFileInterceptor {
     public StreamFileInterceptor(
             Map<String, FileColumnConfig> enabledTables,
             BiFunction<FileWriteRequest, String, Map<String, String>> blobWriter) {
-        this.enabledTables = Objects.requireNonNull(enabledTables);
+        this.enabledTables = Map.copyOf(Objects.requireNonNull(enabledTables));
         this.blobWriter = Objects.requireNonNull(blobWriter);
     }
 
@@ -195,6 +195,9 @@ public final class StreamFileInterceptor {
             Objects.requireNonNull(columnName);
             Objects.requireNonNull(content);
             Objects.requireNonNull(mimeType);
+            content = content.clone();
         }
+
+        @Override public byte[] content() { return content.clone(); }
     }
 }

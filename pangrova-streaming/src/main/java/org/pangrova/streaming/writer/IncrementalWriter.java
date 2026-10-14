@@ -19,7 +19,7 @@ import java.util.List;
  * Part of the declarative incremental data transformation subsystem.
  * Flush triggers: maxBufferBytes, maxBufferRows, maxBufferTime.
  */
-public class IncrementalWriter implements AutoCloseable {
+public final class IncrementalWriter implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IncrementalWriter.class);
 

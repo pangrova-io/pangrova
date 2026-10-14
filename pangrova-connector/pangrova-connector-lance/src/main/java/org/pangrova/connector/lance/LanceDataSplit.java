@@ -1,5 +1,7 @@
 package org.pangrova.connector.lance;
 
+import java.security.MessageDigest;
+
 import org.pangrova.protocol.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
@@ -18,7 +20,7 @@ public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Parti
         if (table.version() <= 0) throw new IllegalArgumentException("Lance scan requires a published version");
         if (snapshot.version() != table.version() || !snapshot.tableId().equals(table.tableId())
                 || !snapshot.tenant().equals(table.tenantId()) || !snapshot.datasetUri().equals(table.datasetUri())
-                || !java.util.Arrays.equals(manifestSha256, snapshot.manifestSha256())) {
+                || !MessageDigest.isEqual(manifestSha256, snapshot.manifestSha256())) {
             throw new IllegalArgumentException("Split differs from exact accepted source membership");
         }
         serializedCatalogBinding = serializedCatalogBinding.clone();
@@ -34,7 +36,8 @@ public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Parti
                 FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_LANCE)
                         .setScanPartition(ScanPartitionDetail.newBuilder().setPartitionId(partition.id())
                                 .setPhysicalRows(partition.physicalRows()).setManifestSha256(checksum(manifestSha256))
-                                .setAcceptedSnapshot(org.pangrova.protocol.SourceSnapshotBindings.encode(snapshot, catalogBinding()))
+                                .setAcceptedSnapshot(org.pangrova.protocol.SourceSnapshotBindings.encode(
+                                        snapshot, catalogBinding()))
                                 .setPhysicalSchemaSha256(checksum(table.schemaFence()))).build()))
                 .toBuilder().setCatalog(catalogBinding()).build().toByteArray();
     }

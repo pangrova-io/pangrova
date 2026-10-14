@@ -20,7 +20,8 @@ public record LanceOutputHandle(LanceTableHandle table, NativeWriteAllocation al
             throw new IllegalArgumentException("Positive Dataset write requires exact accepted base membership");
         }
         if (acceptedBase != null && (!acceptedBase.tableId().equals(table.tableId())
-                || !acceptedBase.tenant().equals(table.tenantId()) || !acceptedBase.datasetUri().equals(table.datasetUri())
+                || !acceptedBase.tenant().equals(table.tenantId())
+                || !acceptedBase.datasetUri().equals(table.datasetUri())
                 || acceptedBase.version() != table.version() || acceptedBase.generation() != 1
                 || !java.util.Arrays.equals(acceptedBase.schemaSha256(), table.schemaFence()))) {
             throw new IllegalArgumentException("Dataset allocation accepted base differs");

@@ -8,4 +8,10 @@ public record CdcRegistrationRequest(
     List<String> targetTables,
     int maxConcurrentWrites,
     long maxPendingBytes
-) {}
+) {
+    public CdcRegistrationRequest {
+        targetTables = List.copyOf(targetTables);
+    }
+
+    @Override public List<String> targetTables() { return List.copyOf(targetTables); }
+}

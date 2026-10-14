@@ -23,7 +23,6 @@ public final class LanceConnector implements Connector {
     private final Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> authority;
     private final LanceMetadata metadata;
     private final LanceSplitManager splits;
-    private final LanceOutputHandleCodec codec = new LanceOutputHandleCodec();
     private final AtomicReference<CompletableFuture<LanceCatalogStore>> catalogStore = new AtomicReference<>();
 
     LanceConnector(String catalog, String warehouse, Map<String, String> config,
@@ -42,7 +41,8 @@ public final class LanceConnector implements Connector {
                 ready = creating;
                 try {
                     creating.complete(new LanceCatalogStore(authority.orElseThrow(() ->
-                            new IllegalStateException("Lance catalog authority is available only in the owner process"))));
+                            new IllegalStateException(
+                                    "Lance catalog authority is available only in the owner process"))));
                 } catch (RuntimeException | Error failure) {
                     creating.completeExceptionally(failure);
                 }
@@ -58,7 +58,9 @@ public final class LanceConnector implements Connector {
     }
     @Override public ConnectorMetadata getMetadata(ConnectorSession session) { return metadata; }
     @Override public ConnectorSplitManager getSplitManager() { return splits; }
-    @Override public ConnectorOutputHandleCodec getOutputHandleCodec() { return codec; }
+    @Override public ConnectorOutputHandleCodec getOutputHandleCodec() {
+        return new LanceOutputHandleCodec();
+    }
     @Override public void registerCommitListener(org.pangrova.spi.connector.index.CommitListener listener) {
         metadata.registerCommitListener(listener);
     }

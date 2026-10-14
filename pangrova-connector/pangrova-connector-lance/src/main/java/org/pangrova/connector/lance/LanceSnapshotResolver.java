@@ -41,11 +41,7 @@ final class LanceSnapshotResolver {
         }
         var evidence = store.get().loadSnapshot(selector);
         var historical = evidence.table();
-        if (!historical.catalog().equals(selector.catalog()) || !historical.tenantId().equals(selector.tenantId())
-                || !historical.table().equals(selector.table()) || !historical.tableId().equals(selector.tableId())
-                || !historical.datasetUri().equals(selector.datasetUri()) || historical.version() != selector.version()) {
-            throw new IllegalStateException("Lance historical publication identity mismatch");
-        }
+        requireHistoricalIdentity(historical, selector);
         var page = control.orElseThrow(() -> new IllegalStateException("Lance snapshot requires Native control"))
                 .scanPartitions(session, evidence.reference(), OptionalLong.empty(), 1);
         if (page.version() != historical.version()
@@ -54,5 +50,17 @@ final class LanceSnapshotResolver {
             throw new IllegalStateException("Lance Native manifest differs from historical publication evidence");
         }
         return historical;
+    }
+
+    private static void requireHistoricalIdentity(
+            LanceTableHandle historical, LanceTableHandle selector) {
+        if (!historical.catalog().equals(selector.catalog())
+                || !historical.tenantId().equals(selector.tenantId())
+                || !historical.table().equals(selector.table())
+                || !historical.tableId().equals(selector.tableId())
+                || !historical.datasetUri().equals(selector.datasetUri())
+                || historical.version() != selector.version()) {
+            throw new IllegalStateException("Lance historical publication identity mismatch");
+        }
     }
 }

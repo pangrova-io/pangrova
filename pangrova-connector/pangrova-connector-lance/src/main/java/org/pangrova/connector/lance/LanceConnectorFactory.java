@@ -18,7 +18,8 @@ public final class LanceConnectorFactory implements ConnectorFactory {
             throw new IllegalArgumentException("Lance catalog name is required");
         }
         if (config.containsKey("jdbc.url") || config.containsKey("jdbc.user") || config.containsKey("jdbc.password")) {
-            throw new IllegalArgumentException("Managed Lance uses the shared metadata authority; connector JDBC is forbidden");
+            throw new IllegalArgumentException(
+                    "Managed Lance uses the shared metadata authority; connector JDBC is forbidden");
         }
         String warehouse = warehouse(config.get("warehouse"));
         return new LanceConnector(catalogName, warehouse, config, context.nativeDatasetControlPlane(),

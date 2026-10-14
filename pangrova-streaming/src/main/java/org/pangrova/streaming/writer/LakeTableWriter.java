@@ -140,5 +140,15 @@ public class LakeTableWriter implements TableWriter {
         List<WriteRecord> inserts,
         List<WriteRecord> positionDeletes,
         List<WriteRecord> equalityDeletes
-    ) {}
+    ) {
+        public DeleteClassification {
+            inserts = List.copyOf(inserts);
+            positionDeletes = List.copyOf(positionDeletes);
+            equalityDeletes = List.copyOf(equalityDeletes);
+        }
+
+        @Override public List<WriteRecord> inserts() { return List.copyOf(inserts); }
+        @Override public List<WriteRecord> positionDeletes() { return List.copyOf(positionDeletes); }
+        @Override public List<WriteRecord> equalityDeletes() { return List.copyOf(equalityDeletes); }
+    }
 }

@@ -17,7 +17,13 @@ public final class FuzzerCoordinator {
         int totalTests,
         int passed,
         int failed,
-        List<String> failures) {}
+        List<String> failures) {
+        public FuzzerResult {
+            failures = List.copyOf(failures);
+        }
+
+        @Override public List<String> failures() { return List.copyOf(failures); }
+    }
 
     @FunctionalInterface
     public interface NativeFuzzerBridge {

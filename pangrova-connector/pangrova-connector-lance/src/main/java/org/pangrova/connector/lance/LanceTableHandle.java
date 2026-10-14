@@ -28,6 +28,8 @@ public record LanceTableHandle(String catalog, String tenantId, SchemaTableName 
         }
     }
 
+    @Override public List<LanceColumn> columns() { return List.copyOf(columns); }
+    @Override public Map<String, String> properties() { return Map.copyOf(properties); }
     @Override public byte[] schemaFence() { return schemaFence.clone(); }
 
     /** Selects an exact version; metadata and split access resolve its persisted publication evidence. */

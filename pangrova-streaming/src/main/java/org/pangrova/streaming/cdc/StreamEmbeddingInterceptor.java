@@ -48,7 +48,7 @@ public final class StreamEmbeddingInterceptor {
     public StreamEmbeddingInterceptor(
             Map<String, EmbeddingColumnConfig> enabledTables,
             Consumer<EmbeddingWorkRequest> embeddingEnqueuer) {
-        this.enabledTables = Objects.requireNonNull(enabledTables);
+        this.enabledTables = Map.copyOf(Objects.requireNonNull(enabledTables));
         this.embeddingEnqueuer = Objects.requireNonNull(embeddingEnqueuer);
     }
 

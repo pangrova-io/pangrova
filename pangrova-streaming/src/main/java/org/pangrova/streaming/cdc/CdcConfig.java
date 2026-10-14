@@ -13,4 +13,10 @@ public record CdcConfig(
     String tenantId,
     int maxConcurrentWrites,
     long maxPendingBytes
-) {}
+) {
+    public CdcConfig {
+        topics = List.copyOf(topics);
+    }
+
+    @Override public List<String> topics() { return List.copyOf(topics); }
+}

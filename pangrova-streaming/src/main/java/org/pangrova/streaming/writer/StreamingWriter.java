@@ -18,7 +18,7 @@ import java.util.List;
  * Mini-batch buffering layer on top of TableWriter SPI.
  * Flush triggers: maxBufferBytes, maxBufferRows, maxBufferTime.
  */
-public class StreamingWriter implements AutoCloseable {
+public final class StreamingWriter implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(StreamingWriter.class);
 

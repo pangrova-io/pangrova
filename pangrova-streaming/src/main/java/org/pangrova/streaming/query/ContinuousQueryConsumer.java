@@ -30,7 +30,7 @@ public class ContinuousQueryConsumer implements AutoCloseable {
             Map<String, Duration> queries,
             ContinuousQueryExecutor executor,
             Duration scanInterval) {
-        this.queries = queries;
+        this.queries = Map.copyOf(queries);
         this.executor = executor;
         this.scanInterval = scanInterval;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {

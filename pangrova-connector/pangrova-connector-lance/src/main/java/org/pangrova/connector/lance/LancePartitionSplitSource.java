@@ -29,7 +29,9 @@ final class LancePartitionSplitSource implements ConnectorSplitSource {
             org.pangrova.spi.connector.metadata.AcceptedSourceSnapshot snapshot) {
         this.table = table;
         this.snapshot = snapshot;
-        if ((table.version() == 0) != (snapshot == null)) throw new IllegalArgumentException("Scan membership is required");
+        if ((table.version() == 0) != (snapshot == null)) {
+            throw new IllegalArgumentException("Scan membership is required");
+        }
         this.session = session;
         this.control = control;
         finished = table.version() == 0;
