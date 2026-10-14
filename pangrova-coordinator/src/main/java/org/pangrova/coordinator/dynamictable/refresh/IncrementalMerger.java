@@ -246,7 +246,6 @@ public final class IncrementalMerger {
 
     private static Object minNumbers(Object a, Object b) {
         Comparable<Object> ca = toComparable(a);
-        Comparable<Object> cb = toComparable(b);
         return ca.compareTo(b) <= 0 ? a : b;
     }
 

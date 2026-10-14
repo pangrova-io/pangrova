@@ -24,7 +24,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
  * delegates to thread-safe WorkerManager for state transitions.</p>
  */
 @ThreadSafe
-public class WorkerHealthScheduler {
+public final class WorkerHealthScheduler {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerHealthScheduler.class);
     private static final long DEFAULT_INTERVAL_MS = 10_000;

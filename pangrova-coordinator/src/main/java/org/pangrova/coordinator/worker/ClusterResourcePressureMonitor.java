@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
  * that was previously missing.</p>
  */
 @ThreadSafe
-public class ClusterResourcePressureMonitor {
+public final class ClusterResourcePressureMonitor {
 
     private static final Logger LOG = LoggerFactory.getLogger(ClusterResourcePressureMonitor.class);
 

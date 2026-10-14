@@ -35,6 +35,7 @@ public final class StatementDispatcher {
     private final AccessControl accessControl;
     private final DdlLeadershipGuard ddlGuard;
 
+    /** Creates a statement dispatcher from its execution dependencies. */
     public StatementDispatcher(StatementDispatcherContext deps) {
         this.compiler = deps.compiler();
         this.resultService = deps.resultService();

@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
  * configuration if no cache service has been bound.
  */
 public final class CacheModule implements CoordinatorModule {
+    private static final int CACHE_STARTUP_PRIORITY = 50;
 
     private static final Logger LOG = LoggerFactory.getLogger(CacheModule.class);
 
@@ -28,6 +29,6 @@ public final class CacheModule implements CoordinatorModule {
 
     @Override
     public int priority() {
-        return 50;
+        return CACHE_STARTUP_PRIORITY;
     }
 }

@@ -69,6 +69,8 @@ final class QueryExecutionBootstrap {
     private WorkerManager workerManager;
     private org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory metadataFactory;
 
+    // This internal composition root binds the exact optional execution owners.
+    @SuppressWarnings("checkstyle:ParameterNumber")
     QueryExecutionBootstrap(CoordinatorBootstrapConfig config, TracingProvider tracingProvider,
                          AccessControl accessControl, MetadataBootstrap metadataBootstrap,
                          ModuleIntegrationBootstrap moduleWiring, StreamingBootstrap streamingBootstrap,
@@ -219,7 +221,8 @@ final class QueryExecutionBootstrap {
             var featureViewService = featureViewServiceFactory.apply((sql, actor) -> {
                 QueryDispatcher dispatcher = queryDispatcherRef.get();
                 if (dispatcher == null) {
-                    throw new IllegalStateException("QueryDispatcher not initialized for authenticated Feature compilation");
+                    throw new IllegalStateException(
+                            "QueryDispatcher not initialized for authenticated Feature compilation");
                 }
                 return dispatcher.compileAuthorizedRelation(sql, actor);
             });
@@ -314,7 +317,8 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(ddlExecutor, dmlDispatch));
         // SHOW / DESCRIBE
         tasks.put(org.pangrova.parser.ast.ShowSchemasStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowSchemasTask(showDescribeExecutor));
+                new org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowSchemasTask(
+                        showDescribeExecutor));
         tasks.put(org.pangrova.parser.ast.statement.ShowTablesStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.ShowTablesTask(showDescribeExecutor));
         tasks.put(org.pangrova.parser.ast.statement.DescribeTableStatement.class,

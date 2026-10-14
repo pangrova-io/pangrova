@@ -15,6 +15,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public final class DistributedDispatchPhase implements QueryExecutionPhase {
 
     private final Function<QueryExecutionContext, DispatchResult> dispatchFunction;
+
     public DistributedDispatchPhase(
             Function<QueryExecutionContext, DispatchResult> dispatchFunction) {
         this.dispatchFunction = checkNotNull(dispatchFunction, "dispatchFunction");

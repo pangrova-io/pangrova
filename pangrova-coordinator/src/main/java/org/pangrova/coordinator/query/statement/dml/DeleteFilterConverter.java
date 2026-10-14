@@ -25,6 +25,7 @@ public final class DeleteFilterConverter {
 
     private DeleteFilterConverter() {}
 
+    /** Returns a delete filter when the expression can be converted. */
     public static DeleteFilter tryConvert(Expression expr) {
         try {
             return convert(expr);
@@ -33,6 +34,7 @@ public final class DeleteFilterConverter {
         }
     }
 
+    /** Converts a supported expression into a delete filter. */
     public static DeleteFilter convert(Expression expr) {
         if (expr instanceof BinaryExpression bin) {
             return convertBinary(bin);

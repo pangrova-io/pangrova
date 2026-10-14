@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
  */
 @ThreadSafe
 public final class SplitAssignmentManager {
+    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MS = 5_000L;
 
     private static final Logger LOG = LoggerFactory.getLogger(SplitAssignmentManager.class);
 
@@ -72,6 +73,7 @@ public final class SplitAssignmentManager {
         this(new SplitAssignmentConfig(leaseDurationMs, cacheAffinityAssigner, stealDelayMs, PULL_MODE_DEFAULT));
     }
 
+    /** Creates a split assignment manager from its lease configuration. */
     public SplitAssignmentManager(SplitAssignmentConfig config) {
         this.leaseDurationMs = config.leaseDurationMs() > 0 ? config.leaseDurationMs() : DEFAULT_LEASE_DURATION_MS;
         this.cacheAffinityAssigner = config.cacheAffinityAssigner();
@@ -110,7 +112,7 @@ public final class SplitAssignmentManager {
             reclaimTask.cancel(false);
         }
         if (scheduler != null) {
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, 5000);
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
             LOG.info("event=lease_reclamation_stopped");
         }
     }

@@ -135,7 +135,8 @@ public final class DurableStageRuntime {
         try {
             AuthorizedStageGraph.validateExchangeContracts(plans, transfers);
         } catch (IllegalArgumentException failure) {
-            throw new IllegalArgumentException("Persisted exchange wire contract is invalid; rebuild required", failure);
+            throw new IllegalArgumentException(
+                    "Persisted exchange wire contract is invalid; rebuild required", failure);
         }
     }
 

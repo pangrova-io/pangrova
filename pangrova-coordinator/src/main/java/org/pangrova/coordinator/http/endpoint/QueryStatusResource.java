@@ -159,7 +159,11 @@ public final class QueryStatusResource {
     public record QueryListResponse(
             List<QueryInfo> queries,
             int totalCount,
-            String nextPageToken) {}
+            String nextPageToken) {
+        public QueryListResponse {
+            queries = List.copyOf(queries);
+        }
+    }
 
     /** Summary info for a query in the list view. */
     public record QueryInfo(
@@ -186,7 +190,11 @@ public final class QueryStatusResource {
     public record QueryStagesResponse(
             String queryId,
             String queryState,
-            List<StageInfo> stages) {}
+            List<StageInfo> stages) {
+        public QueryStagesResponse {
+            stages = List.copyOf(stages);
+        }
+    }
 
     /** Info for a single stage. */
     public record StageInfo(

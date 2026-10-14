@@ -19,6 +19,7 @@ import org.slf4j.LoggerFactory;
 
 /** Sends task control-plane requests after a task has been dispatched. */
 final class WorkerTaskControlClient {
+    private static final int HTTP_TIMEOUT_SECONDS = 30;
 
     private static final Logger LOG = LoggerFactory.getLogger(
             WorkerTaskControlClient.class);
@@ -82,7 +83,7 @@ final class WorkerTaskControlClient {
                 .uri(URI.create(url)).header("Content-Type", "application/x-protobuf")
                 .header("Accept", "application/x-protobuf")
                 .method("DELETE", HttpRequest.BodyPublishers.ofByteArray(seal.toByteArray()))
-                .timeout(java.time.Duration.ofSeconds(30)).build();
+                .timeout(java.time.Duration.ofSeconds(HTTP_TIMEOUT_SECONDS)).build();
         try {
             HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
             return mapCancelResponse(response, issued);
@@ -219,14 +220,16 @@ final class WorkerTaskControlClient {
         if (response.statusCode() == HTTP_OK) {
             String contentType = response.headers().firstValue("Content-Type").orElse("");
             if (!contentType.split(";", 2)[0].equalsIgnoreCase("application/x-protobuf")) {
-                return SchedulerCancelResult.failed("Worker did not return a canonical drain receipt media type", false);
+                return SchedulerCancelResult.failed(
+                    "Worker did not return a canonical drain receipt media type", false);
             }
             try {
                 var actual = new org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator()
                         .validateExecutionDrainReceipt(response.body(), issued);
                 return SchedulerCancelResult.drained(actual);
             } catch (IllegalArgumentException malformed) {
-                return SchedulerCancelResult.failed("Worker execution drain receipt rejected: " + malformed.getMessage(), false);
+                return SchedulerCancelResult.failed(
+                    "Worker execution drain receipt rejected: " + malformed.getMessage(), false);
             }
         }
         if (response.statusCode() == HTTP_ACCEPTED) return SchedulerCancelResult.pending();

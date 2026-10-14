@@ -422,7 +422,8 @@ final class QueryPipelineExecutor {
         String selectedTable = canonicalName(table, metadata.listTables(session, java.util.Optional.of(selectedSchema))
                 .stream().map(SchemaTableName::table).toList());
         if (selectedTable == null) return java.util.OptionalLong.empty();
-        return metadata.resolveRefSnapshotId(session, new SchemaTableName(selectedSchema, selectedTable), refType, refName);
+        return metadata.resolveRefSnapshotId(session,
+                new SchemaTableName(selectedSchema, selectedTable), refType, refName);
     }
 
     private static String canonicalName(String requested, List<String> names) {

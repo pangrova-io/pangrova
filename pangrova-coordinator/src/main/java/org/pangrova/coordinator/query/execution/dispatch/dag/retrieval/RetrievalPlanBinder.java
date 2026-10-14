@@ -27,6 +27,7 @@ import org.pangrova.protocol.v2.ScoreDirection;
 
 /** Binds planner retrieval intents to canonical protocol operator bindings. */
 public final class RetrievalPlanBinder {
+    private static final int MAX_CANDIDATES = 100_000;
     private static final double GRAPH_RECALL = 0.95;
     private static final double QUANTIZED_RECALL = 0.90;
 
@@ -262,7 +263,7 @@ public final class RetrievalPlanBinder {
                     .findFirst().orElseThrow().getValue().getInt64Value();
             long sourceObjects = artifact.sourceObjectCount();
             candidateLimit = Math.toIntExact(Math.multiplyExact(perSource, sourceObjects));
-            if (candidateLimit < outputLimit || candidateLimit > 100_000) {
+            if (candidateLimit < outputLimit || candidateLimit > MAX_CANDIDATES) {
                 throw validationFailure("Filtered retrieval work exceeds the bounded task contract");
             }
         }
@@ -377,6 +378,10 @@ public final class RetrievalPlanBinder {
             Optional<RetrievalMergeIntent> mergeIntent,
             Optional<RerankIntent> rerankIntent,
             Map<String, ResolvedRetrievalArtifact> artifacts) {
+
+        public DistributedRetrieval {
+            artifacts = Map.copyOf(artifacts);
+        }
 
         String idPrefix() {
             return stagePrefix(queryId, stageId);

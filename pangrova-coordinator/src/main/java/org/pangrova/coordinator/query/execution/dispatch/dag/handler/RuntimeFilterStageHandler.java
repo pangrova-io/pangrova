@@ -50,6 +50,7 @@ public final class RuntimeFilterStageHandler implements StageLifecycleHandler {
      */
     private final ConcurrentHashMap<String, FilterTarget> filterTargets = new ConcurrentHashMap<>();
 
+    /** Creates a stage handler with runtime-filter generation and dispatch. */
     public RuntimeFilterStageHandler(RuntimeFilterGenerator generator,
                                      RuntimeFilterRegistry registry,
                                      TaskDispatcher dispatcher,

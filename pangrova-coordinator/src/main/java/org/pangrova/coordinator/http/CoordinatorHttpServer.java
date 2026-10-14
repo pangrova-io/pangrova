@@ -39,7 +39,7 @@ import org.glassfish.jersey.servlet.ServletContainer;
  * Coordinator-side Jetty HTTP server lifecycle wrapper.
  * Uses Jersey ResourceConfig + ServletContainer for JAX-RS resource registration.
  */
-public class CoordinatorHttpServer {
+public final class CoordinatorHttpServer {
 
     /** Max concurrent request threads for Coordinator (Requirement 50.4). */
     static final int COORDINATOR_MAX_THREADS = 256;

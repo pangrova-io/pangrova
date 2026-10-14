@@ -13,7 +13,7 @@ import org.pangrova.common.exception.PangrovaException;
  * Worker fatal failures, while settling backpressure and local fencing as healthy.</p>
  */
 @Internal
-public class TaskDispatchException extends PangrovaException {
+public final class TaskDispatchException extends PangrovaException {
 
     private final ErrorCategory category;
     private final String workerHost;

@@ -18,10 +18,10 @@ final class CoordinatorRegistryClient {
     private volatile String host;
     private volatile int httpPort;
 
-    void configure(CoordinatorRegistry registry, String host, int httpPort) {
-        this.registry = registry;
-        this.host = host;
-        this.httpPort = httpPort;
+    void configure(CoordinatorRegistry configuredRegistry, String advertisedHost, int advertisedHttpPort) {
+        this.registry = configuredRegistry;
+        this.host = advertisedHost;
+        this.httpPort = advertisedHttpPort;
     }
 
     void heartbeat(String coordinatorId) {

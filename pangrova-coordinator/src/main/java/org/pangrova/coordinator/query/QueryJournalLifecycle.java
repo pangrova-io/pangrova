@@ -77,8 +77,9 @@ final class QueryJournalLifecycle {
 
     Optional<QueryStateMachine.State> lookup(String queryId) {
         return journal.latestQueryEvent(queryId).flatMap(event -> {
-            try { return Optional.of(QueryStateMachine.State.valueOf(event.state())); }
-            catch (IllegalArgumentException malformed) {
+            try {
+                return Optional.of(QueryStateMachine.State.valueOf(event.state()));
+            } catch (IllegalArgumentException malformed) {
                 LOG.warn("event=journal_state_unparseable queryId={} state={}", queryId, event.state());
                 return Optional.empty();
             }

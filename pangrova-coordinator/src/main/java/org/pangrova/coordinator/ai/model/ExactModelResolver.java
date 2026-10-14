@@ -18,17 +18,7 @@ public final class ExactModelResolver {
             List<WorkerInfo> activeWorkers,
             String modelName,
             CapabilityRef capability) {
-        if (activeWorkers == null) {
-            throw new IllegalArgumentException("activeWorkers must not be null");
-        }
-        if (modelName == null || modelName.isBlank()
-                || capability == null
-                || capability.getCapabilityId().isBlank()
-                || capability.getSemanticVersion().isBlank()
-                || capability.getSignatureSha256().size() != 32) {
-            throw new IllegalArgumentException(
-                    "exact model resolution requires a complete model and capability identity");
-        }
+        validateRequest(activeWorkers, modelName, capability);
         List<ModelAvailability> matches = activeWorkers.stream()
                 .flatMap(worker -> worker.capabilityInventory().getModelsList().stream())
                 .filter(availability -> availability.getModel().getId().equals(modelName))
@@ -49,6 +39,26 @@ public final class ExactModelResolver {
                             + "' resolves to multiple active versions, signatures or limits");
         }
         ModelAvailability match = matches.get(0);
+        requireCompleteEnvelope(modelName, match);
+        return match;
+    }
+
+    private static void validateRequest(
+            List<WorkerInfo> activeWorkers, String modelName, CapabilityRef capability) {
+        if (activeWorkers == null) {
+            throw new IllegalArgumentException("activeWorkers must not be null");
+        }
+        if (modelName == null || modelName.isBlank()
+                || capability == null
+                || capability.getCapabilityId().isBlank()
+                || capability.getSemanticVersion().isBlank()
+                || capability.getSignatureSha256().size() != 32) {
+            throw new IllegalArgumentException(
+                    "exact model resolution requires a complete model and capability identity");
+        }
+    }
+
+    private static void requireCompleteEnvelope(String modelName, ModelAvailability match) {
         if (match.getModel().getVersion().isBlank()
                 || match.getModel().getSignatureSha256().size() != 32
                 || match.getLimits().getMaxBatchItems() == 0
@@ -66,6 +76,5 @@ public final class ExactModelResolver {
                     "Active model '" + modelName + "' advertises an incomplete serving envelope: "
                             + malformedEnvelope.getMessage());
         }
-        return match;
     }
 }

@@ -42,6 +42,7 @@ public record CoordinatorBootstrapConfig(
         // is enabled. Callers must check featureFlags before accessing them.
     }
 
+    /** Creates a standalone coordinator configuration with production defaults. */
     public static CoordinatorBootstrapConfig withDefaults(String coordinatorId, int httpPort) {
         return new CoordinatorBootstrapConfig(
                 new CoreConfig(coordinatorId, httpPort, CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS),
@@ -183,6 +184,8 @@ public record CoordinatorBootstrapConfig(
             else shuffleEndpoints = List.copyOf(shuffleEndpoints);
         }
 
+        // Existing positional config adapter preserves the declared feature ordering.
+        @SuppressWarnings("checkstyle:ParameterNumber")
         public FeatureFlags(boolean observability, boolean security, boolean metadata,
                             boolean streaming, boolean governance, boolean resilience,
                             boolean tenant, boolean operations,
@@ -240,6 +243,7 @@ public record CoordinatorBootstrapConfig(
                     queryRetentionSeconds, queryCleanupIntervalSeconds, SpillConfig.DISABLED);
         }
 
+        /** Returns the default query execution configuration. */
         public static QueryConfig defaults() {
             return new QueryConfig(
                     DEFAULT_QUERY_TIMEOUT_SECONDS,
@@ -291,6 +295,7 @@ public record CoordinatorBootstrapConfig(
         public static final long DEFAULT_DEAD_THRESHOLD_MS = 60_000;
         public static final long DEFAULT_CHECK_INTERVAL_MS = 10_000;
 
+        /** Returns the default worker health thresholds. */
         public static WorkerHealthConfig defaults() {
             return new WorkerHealthConfig(
                     DEFAULT_SUSPECT_THRESHOLD_MS,

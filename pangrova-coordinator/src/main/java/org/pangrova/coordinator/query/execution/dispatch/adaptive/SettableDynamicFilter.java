@@ -223,6 +223,7 @@ public final class SettableDynamicFilter implements DynamicFilter {
         return awaitable;
     }
 
+    /** Invokes a listener when the filter reaches a terminal state. */
     public void onReady(Runnable listener) {
         Objects.requireNonNull(listener, "listener must not be null");
         if (isComplete()) {
@@ -236,6 +237,7 @@ public final class SettableDynamicFilter implements DynamicFilter {
         }
     }
 
+    /** Cancels the pending filter and notifies listeners. */
     public void cancel() {
         State previous = state.getAndSet(State.CANCELLED);
         if (previous != State.CANCELLED && previous != State.COMPLETED) {

@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.protocol.rest.shuffle.PartitionStats;
@@ -39,7 +40,7 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
             return;
         }
         long planEpoch = event.execution()
-                instanceof org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Durable durable
+                instanceof StageExecutionContext.Durable durable
                 ? durable.planEpoch(stage.stageId()) : Math.addExact(stage.currentGeneration(), 1L);
         int expectedProducerCount = stage.plan().parallelism();
         long estimatedBytesPerPartition = estimatedBytesPerPartition(
@@ -57,8 +58,7 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
                     "external shuffle registration returned no partition endpoints");
         }
         stage.bindShuffleAllocation(handle, planEpoch);
-        if (event.execution()
-                instanceof org.pangrova.coordinator.query.execution.dispatch.dag.control.StageExecutionContext.Durable durable) {
+        if (event.execution() instanceof StageExecutionContext.Durable durable) {
             var owner = durable.authority().executionAnchor();
             stage.bindShuffleExecutionIdentity(planEpoch, org.pangrova.protocol.v2.ExecutionOwnerIdentity.newBuilder()
                     .setOwnerId(owner.ownerId()).setOwnerIncarnation(owner.ownerIncarnation())

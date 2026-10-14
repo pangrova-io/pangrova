@@ -41,6 +41,7 @@ public final class AdaptiveQueryEvaluator {
     private final SkewJoinHandler skewJoinHandler;
     private final SubPlanReoptimizer subPlanReoptimizer;
 
+    /** Creates an adaptive evaluator with its executor and reoptimizer. */
     public AdaptiveQueryEvaluator(AdaptiveQueryConfig config,
                                   AdaptiveQueryExecutor adaptiveQueryExecutor,
                                   SubPlanReoptimizer subPlanReoptimizer) {
@@ -111,6 +112,7 @@ public final class AdaptiveQueryEvaluator {
         }
     }
 
+    /** Builds shuffle statistics from a completed stage report. */
     public ShuffleStageStats buildStatsFromReport(Stage finished) {
         ShuffleStageStatsReport report = finished.shuffleStatsReport();
         String stageId = String.valueOf(finished.stageId());

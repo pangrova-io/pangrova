@@ -41,6 +41,7 @@ public final class DynamicTableWriter {
         this(tableWriter, queryCache, null, null);
     }
 
+    /** Writes dynamic table refresh results and notifies the commit listener. */
     public DynamicTableWriter(TableWriter tableWriter, QueryResultCache queryCache,
                               CommitListener commitListener, String tenantId) {
         this.tableWriter = Objects.requireNonNull(tableWriter, "tableWriter must not be null");

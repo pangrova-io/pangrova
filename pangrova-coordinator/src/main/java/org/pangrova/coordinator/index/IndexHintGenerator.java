@@ -8,6 +8,7 @@ import org.pangrova.spi.index.IndexDescriptor;
 import org.pangrova.spi.index.predicate.IndexPredicate;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
+import org.apache.calcite.plan.RelOptTable;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -174,7 +175,11 @@ public final class IndexHintGenerator {
 
     private static void collectTableScanInfo(RelNode node, List<TableScanInfo> out) {
         if (node instanceof TableScan scan) {
-            List<String> qn = scan.getTable().getQualifiedName();
+            RelOptTable table = scan.getTable();
+            if (table == null) {
+                throw new IllegalStateException("TableScan has no table");
+            }
+            List<String> qn = table.getQualifiedName();
             Set<String> cols = scan.getRowType().getFieldNames().stream()
                     .collect(Collectors.toSet());
             out.add(TableScanInfo.fromQualifiedName(qn, cols));

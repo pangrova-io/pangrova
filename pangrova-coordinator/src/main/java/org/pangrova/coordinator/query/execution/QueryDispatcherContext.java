@@ -104,6 +104,8 @@ public record QueryDispatcherContext(
      * Factory method for callers that only need the core parameters.
      * Optional fields default to null.
      */
+    // The compact test/standalone adapter mirrors the existing constructor contract.
+    @SuppressWarnings("checkstyle:ParameterNumber")
     public static QueryDispatcherContext withDefaults(
             SqlCompiler compiler,
             AccessControlEnforcer accessControlEnforcer,

@@ -12,6 +12,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * Priority 20 — runs after schema refresh.
  */
 public final class CacheInvalidationListener implements StatementCompletionListener {
+    private static final int INVALIDATION_PRIORITY = 20;
 
     private final QueryCacheService cacheService;
 
@@ -47,6 +48,6 @@ public final class CacheInvalidationListener implements StatementCompletionListe
 
     @Override
     public int priority() {
-        return 20;
+        return INVALIDATION_PRIORITY;
     }
 }

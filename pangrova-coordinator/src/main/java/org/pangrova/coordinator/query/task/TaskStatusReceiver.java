@@ -22,7 +22,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 /** Validates exact issued reports before required journal, publication, sequencing and drain notifications. */
 @ThreadSafe
-public class TaskStatusReceiver {
+public final class TaskStatusReceiver {
     private static final Logger LOG = LoggerFactory.getLogger(TaskStatusReceiver.class);
     private final CoordinatorTaskTracker taskTracker;
     private final WorkerManager workerManager;
@@ -35,13 +35,16 @@ public class TaskStatusReceiver {
     private final SpeculativeTaskReportCompletion speculation;
     private final TaskQueryCompletion queryCompletion;
 
+    /** Creates a receiver for task reports and completion notifications. */
     public TaskStatusReceiver(TaskStatusReceiverContext deps) {
-        taskTracker = deps.taskTracker(); workerManager = deps.workerManager();
+        taskTracker = deps.taskTracker();
+        workerManager = deps.workerManager();
         stateJournal = deps.queryManager().getStateJournal();
         if (deps.stateJournal() != null && deps.stateJournal() != stateJournal) {
             throw new IllegalArgumentException("Task reports must use their QueryManager's exact journal owner");
         }
-        stageCompletionCallback = deps.stageCompletionCallback(); artifactWorkReportSink = deps.artifactWorkReportSink();
+        stageCompletionCallback = deps.stageCompletionCallback();
+        artifactWorkReportSink = deps.artifactWorkReportSink();
         writes = new NativeTaskWriteCompletion(deps);
         speculation = new SpeculativeTaskReportCompletion(deps, writes, sequences, this::evaluateQueryTransitions);
         taskTracker.addQueryRetirementListener(speculation::clearQuery);
@@ -363,7 +366,8 @@ public class TaskStatusReceiver {
     private void journalTaskEvent(TaskStatusReport report, SubmitTaskRequest issued) {
         TaskStateEvent event = new TaskStateEvent(org.pangrova.coordinator.task.TaskJournalEventContext.create(
                 issued.taskRequest().getAttempt(), report.reportSequence(), report.timestampMs()),
-                report.queryId(), report.taskId(), report.workerId(), report.state(), report.stageId(), report.reportSequence());
+                report.queryId(), report.taskId(), report.workerId(), report.state(),
+                report.stageId(), report.reportSequence());
         if (isTerminalTaskState(report.state())) {
             stateJournal.appendTaskEventSync(event);
         } else {

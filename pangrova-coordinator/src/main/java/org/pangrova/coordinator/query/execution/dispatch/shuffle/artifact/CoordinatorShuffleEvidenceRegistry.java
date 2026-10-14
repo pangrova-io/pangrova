@@ -7,6 +7,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class CoordinatorShuffleEvidenceRegistry {
     private final ConcurrentHashMap<String, ShuffleLifecycleEvidence> executions = new ConcurrentHashMap<>();
 
+    /** Binds durable shuffle evidence to an execution identity. */
     public void bind(String executionId, ShuffleLifecycleEvidence evidence) {
         if (executionId == null || executionId.isBlank() || evidence == null) {
             throw new IllegalArgumentException("Durable shuffle evidence requires exact execution identity");

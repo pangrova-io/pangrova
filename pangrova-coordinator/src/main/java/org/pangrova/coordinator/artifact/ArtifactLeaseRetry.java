@@ -34,7 +34,8 @@ final class ArtifactLeaseRetry {
 
     private static boolean jobTerminated(ArtifactBuildStore store, ArtifactBuildLease lease) {
         var job = store.findJob(lease.tenantId(), lease.jobId()).orElseThrow(() ->
-                new IllegalStateException("Exact artifact job disappeared before its attempt retired: " + lease.jobId()));
+                new IllegalStateException(
+                        "Exact artifact job disappeared before its attempt retired: " + lease.jobId()));
         return switch (job.state()) {
             case CANCELLED, FAILED, PUBLISHED -> true;
             case QUEUED, RUNNING, READY_TO_PUBLISH -> false;

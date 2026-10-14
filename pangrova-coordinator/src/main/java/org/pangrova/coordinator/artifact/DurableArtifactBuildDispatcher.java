@@ -367,7 +367,8 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
         try {
             return taskTracker.getTaskState(attempt.lease.executionAnchor().executionId(), taskId);
         } catch (IllegalArgumentException gone) {
-            throw new IllegalStateException("Exact artifact attempt disappeared without a drain receipt: " + taskId, gone);
+            throw new IllegalStateException(
+                    "Exact artifact attempt disappeared without a drain receipt: " + taskId, gone);
         }
     }
 
@@ -378,7 +379,8 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
             // The shared DAG still needs the issued attempt until its late HTTP acknowledgement is processed.
             if (!attempt.acknowledged) return;
         }
-        if (attempt.retryReason != null || receipt.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
+        if (attempt.retryReason != null
+                || receipt.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
             retryLease(attempt.lease, attempt.retryReason == null
                     ? "Native background task terminated: " + receipt.getState() : attempt.retryReason, now);
         }
@@ -464,8 +466,11 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
     private void cleanupOwnedWork() {
         Throwable failure = null;
         for (var key : ownedJobs.keySet()) {
-            try { graphs.cancel(key); }
-            catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            try {
+                graphs.cancel(key);
+            } catch (RuntimeException | Error cleanup) {
+                failure = appendFailure(failure, cleanup);
+            }
         }
         for (Map.Entry<String, ActiveAttempt> entry : active.entrySet()) {
             ActiveAttempt attempt = entry.getValue();
@@ -473,19 +478,26 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
                 attempt.cancelling = true;
                 cancelActiveTask(entry.getKey(), attempt);
                 var receipt = taskTracker.executionDrainReceipt(entry.getKey());
-                if (receipt.isPresent()) retireDrainedAttempt(entry.getKey(), attempt, receipt.orElseThrow(), clock.instant());
+                if (receipt.isPresent()) {
+                    retireDrainedAttempt(entry.getKey(), attempt, receipt.orElseThrow(), clock.instant());
+                }
             } catch (RuntimeException | Error cleanup) {
                 failure = appendFailure(failure, cleanup);
             }
         }
-        if (!active.isEmpty()) failure = appendFailure(failure, new IllegalStateException(
-                "Artifact shutdown retains " + active.size() + " exact attempts awaiting execution drain receipts"));
+        if (!active.isEmpty()) {
+            failure = appendFailure(failure, new IllegalStateException(
+                    "Artifact shutdown retains " + active.size()
+                            + " exact attempts awaiting execution drain receipts"));
+        }
         rethrowCleanupFailure(failure);
         for (var entry : ownedJobs.entrySet()) {
             try {
                 executionOwnership.yield(entry.getValue());
                 ownedJobs.remove(entry.getKey(), entry.getValue());
-            } catch (RuntimeException | Error cleanup) { failure = appendFailure(failure, cleanup); }
+            } catch (RuntimeException | Error cleanup) {
+                failure = appendFailure(failure, cleanup);
+            }
         }
         rethrowCleanupFailure(failure);
     }

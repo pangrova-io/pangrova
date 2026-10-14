@@ -25,6 +25,7 @@ public final class CatalogDeploymentResource {
         this.metadataService = java.util.Objects.requireNonNull(metadataService, "metadataService");
     }
 
+    /** Returns deployment information for a catalog. */
     @GET
     @Path("/{catalog}")
     public CatalogDeploymentResponse get(

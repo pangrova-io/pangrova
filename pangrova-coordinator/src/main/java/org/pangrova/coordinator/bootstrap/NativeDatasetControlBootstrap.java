@@ -18,7 +18,8 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
     private boolean closed;
 
     NativeDatasetControlBootstrap(String secret, Supplier<QueryBootstrap> queries,
-                                 Supplier<HighAvailabilityCoordinationService> coordination, javax.sql.DataSource metadataDataSource) {
+                                 Supplier<HighAvailabilityCoordinationService> coordination,
+                                 javax.sql.DataSource metadataDataSource) {
         this.metadataDataSource = java.util.Objects.requireNonNull(metadataDataSource);
         client = new NativeDatasetControlClient(secret);
         dependencies = new WorkerNativeDatasetControl.Dependencies(
@@ -35,7 +36,8 @@ final class NativeDatasetControlBootstrap implements AutoCloseable {
         return Optional.of(new WorkerNativeDatasetControl(catalog, dependencies, client, sourceCatalog(catalog)));
     }
 
-    synchronized Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> sourceForCatalog(CatalogDescriptor catalog) {
+    synchronized Optional<org.pangrova.spi.connector.metadata.ManagedSourceCatalog> sourceForCatalog(
+            CatalogDescriptor catalog) {
         if (closed) throw new IllegalStateException("Native metadata control bootstrap is closed");
         return Optional.of(sourceCatalog(catalog));
     }

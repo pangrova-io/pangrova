@@ -127,6 +127,15 @@ class TaskSchedulerFairSchedulingTest {
         assertThat(selected).isEmpty();
     }
 
+    @Test
+    void unknownTaskMemoryDoesNotPlaceOnHighPressureWorker() {
+        TaskScheduler scheduler = new TaskScheduler(new WorkerPerformanceScorer());
+        List<WorkerInfo> candidates = List.of(
+                worker("w-high", "batch-pool", MemoryPressure.HIGH));
+
+        assertThat(scheduler.selectWorker(0L, candidates, "batch-pool")).isEmpty();
+    }
+
     private static WorkerInfo worker(String id, String resourcePoolId, MemoryPressure pressure) {
         return new WorkerInfo(
                 id, "host-" + id, 8080, 9090, 0,

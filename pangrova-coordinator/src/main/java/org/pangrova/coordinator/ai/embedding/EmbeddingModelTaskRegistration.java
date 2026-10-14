@@ -19,6 +19,7 @@ public final class EmbeddingModelTaskRegistration {
 
     private EmbeddingModelTaskRegistration() {}
 
+    /** Registers embedding model metadata tasks with the execution factory. */
     public static void register(
             MetadataExecutionFactory factory,
             EmbeddingModelRegistry registry,

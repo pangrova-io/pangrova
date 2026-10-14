@@ -46,6 +46,8 @@ public record TaskStatusReceiverContext(
         ArtifactWorkReportSink artifactWorkReportSink) {
 
     /** Compatibility constructor for callers that cannot dispatch background artifact work. */
+    // The compatibility adapter retains exact fields for existing report producers.
+    @SuppressWarnings("checkstyle:ParameterNumber")
     public TaskStatusReceiverContext(
             QueryManager queryManager,
             CoordinatorTaskTracker taskTracker,

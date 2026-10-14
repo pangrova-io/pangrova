@@ -16,6 +16,7 @@ package org.pangrova.coordinator.query.audit;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.planner.PlannedQuery;
 import org.pangrova.planner.lineage.ColumnDerivation;
+import org.pangrova.spi.execution.eventlistener.QueryLineageMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,6 +55,7 @@ public final class QueryLineageCapture {
         this.ttlMs = DEFAULT_TTL_MS;
     }
 
+    /** Creates a bounded lineage cache with the specified entry time to live. */
     public QueryLineageCapture(long ttlMs) {
         if (ttlMs <= 0) {
             throw new IllegalArgumentException("ttlMs must be positive, got: " + ttlMs);
@@ -109,27 +111,25 @@ public final class QueryLineageCapture {
         return metadata(info);
     }
 
-    private static org.pangrova.spi.execution.eventlistener.QueryLineageMetadata metadata(QueryLineageInfo info) {
+    private static QueryLineageMetadata metadata(QueryLineageInfo info) {
         var inputs = info.sourceTables().stream().map(name ->
-                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.Dataset(
+                new QueryLineageMetadata.Dataset(
                         "pangrova", name, List.of())).toList();
-        var columns = info.columnDerivations().stream().map(column ->
-                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.Column(column.outputColumn(),
-                        column.sourceColumns().stream().map(source ->
-                                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.SourceColumn(
-                                        "pangrova", source.table(), source.column())).toList(),
-                        switch (column.expression()) {
-                            case DIRECT -> org.pangrova.spi.execution.eventlistener.QueryLineageMetadata
-                                    .DerivationKind.DIRECT;
-                            case TRANSFORM -> org.pangrova.spi.execution.eventlistener.QueryLineageMetadata
-                                    .DerivationKind.TRANSFORM;
-                            case AGGREGATE -> org.pangrova.spi.execution.eventlistener.QueryLineageMetadata
-                                    .DerivationKind.AGGREGATE;
-                        })).toList();
+        var columns = info.columnDerivations().stream().map(column -> {
+            var kind = switch (column.expression()) {
+                case DIRECT -> QueryLineageMetadata.DerivationKind.DIRECT;
+                case TRANSFORM -> QueryLineageMetadata.DerivationKind.TRANSFORM;
+                case AGGREGATE -> QueryLineageMetadata.DerivationKind.AGGREGATE;
+            };
+            return new QueryLineageMetadata.Column(column.outputColumn(),
+                    column.sourceColumns().stream().map(source ->
+                            new QueryLineageMetadata.SourceColumn(
+                                    "pangrova", source.table(), source.column())).toList(), kind);
+        }).toList();
         var outputs = info.targetTables().stream().map(name ->
-                new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata.Dataset(
+                new QueryLineageMetadata.Dataset(
                         "pangrova", name, columns)).toList();
-        return new org.pangrova.spi.execution.eventlistener.QueryLineageMetadata(inputs, outputs);
+        return new QueryLineageMetadata(inputs, outputs);
     }
 
     private List<ColumnDerivation> extractColumnDerivations(PlannedQuery plannedQuery) {

@@ -42,6 +42,9 @@ import org.slf4j.LoggerFactory;
 final class QueryBootstrap {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryBootstrap.class);
+    private static final long EXECUTOR_DRAIN_TIMEOUT_MILLIS = 5_000;
+    private static final long SPLIT_ASSIGNMENT_LEASE_MILLIS = 60_000;
+    private static final long SPLIT_RECLAMATION_INTERVAL_MILLIS = 10_000;
 
     private final CoordinatorBootstrapConfig config;
     private final TracingProvider tracingProvider;
@@ -131,6 +134,8 @@ final class QueryBootstrap {
                                 .jdbc(metadataDataSource));
     }
 
+    // The bootstrap assembles these lifecycle owners exactly once at process startup.
+    @SuppressWarnings("checkstyle:ParameterNumber")
     QueryBootstrap(CoordinatorBootstrapConfig config, TracingProvider tracingProvider,
                    MetricsProvider metricsProvider, AccessControl accessControl,
                    MetadataBootstrap metadataBootstrap, ModuleIntegrationBootstrap moduleWiring,
@@ -273,7 +278,8 @@ final class QueryBootstrap {
         if (artifactPoll != null) artifactPoll.cancel(false);
         if (selfIntelligence != null) selfIntelligence.stopScheduling();
         if (asyncSubmitExecutor != null) {
-            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(asyncSubmitExecutor, 5000);
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                    asyncSubmitExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
         }
         if (artifactBuildDispatcher != null) artifactBuildDispatcher.close();
     }
@@ -286,20 +292,31 @@ final class QueryBootstrap {
                 () -> CoordinatorShutdownSequence.stopTimeoutEnforcer(queryTimeoutEnforcer),
                 () -> { if (splitAssignmentManager != null) splitAssignmentManager.stopLeaseReclamation(); });
         CoordinatorResourceRelease.close(null,
-                () -> { if (terminalCleanupExecutor != null) org.pangrova.common.concurrent.ExecutorDrain
-                        .shutdownAndAwait(terminalCleanupExecutor, 5000); },
-                () -> { if (shuffleCleanupExecutor != null) org.pangrova.common.concurrent.ExecutorDrain
-                        .shutdownAndAwait(shuffleCleanupExecutor, 5000); },
+                () -> {
+                    if (terminalCleanupExecutor != null) {
+                        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                                terminalCleanupExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
+                    }
+                },
+                () -> {
+                    if (shuffleCleanupExecutor != null) {
+                        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                                shuffleCleanupExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
+                    }
+                },
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor));
     }
 
-    private void closeQueryResources(org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission progress) {
+    private void closeQueryResources(
+            org.pangrova.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission progress) {
         progress.step("audit", () -> CoordinatorShutdownSequence.closeAuditEmitter(auditEmitter));
-        progress.step("control-transport", () -> CoordinatorShutdownSequence.stopCoordinatorTransport(controlPlaneResultServer));
+        progress.step("control-transport", () ->
+                CoordinatorShutdownSequence.stopCoordinatorTransport(controlPlaneResultServer));
         progress.step("control-buffer", () -> {
             if (controlPlaneResultBuffer != null) controlPlaneResultBuffer.close();
         });
-        progress.step("transport-allocator", () -> CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
+        progress.step("transport-allocator", () ->
+                CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
         progress.step("result-cache", () -> CoordinatorShutdownSequence.closeQueryResultCache(queryResultCache));
     }
 
@@ -335,7 +352,8 @@ final class QueryBootstrap {
                 new org.pangrova.coordinator.artifact.DurableArtifactBuildDispatcher.Dependencies(
                         artifactBuildStore, taskScheduler, workerManager, remoteTaskDispatcher,
                         taskTracker, config.coordinatorId(), activeControlTerm,
-                        new org.pangrova.coordinator.artifact.ArtifactExecutionOwnership(service, config.coordinatorId()),
+                        new org.pangrova.coordinator.artifact.ArtifactExecutionOwnership(
+                                service, config.coordinatorId()),
                         new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(
                                 metadataDataSource),
                         new org.pangrova.metadata.artifact.jdbc.JdbcArtifactStageExchangeStore(metadataDataSource),
@@ -388,8 +406,9 @@ final class QueryBootstrap {
             LOG.info("event=split_assignment_initialized cacheAffinity=enabled pullMode=false");
             return;
         }
-        splitAssignmentManager = new SplitAssignmentManager(60_000L, cacheAffinityAssigner);
-        splitAssignmentManager.startLeaseReclamation(10_000L);
+        splitAssignmentManager = new SplitAssignmentManager(
+                SPLIT_ASSIGNMENT_LEASE_MILLIS, cacheAffinityAssigner);
+        splitAssignmentManager.startLeaseReclamation(SPLIT_RECLAMATION_INTERVAL_MILLIS);
         LOG.info("event=split_assignment_initialized cacheAffinity=enabled pullMode=true");
     }
 
@@ -444,14 +463,15 @@ final class QueryBootstrap {
      */
     private TaskStatusReceiver createTaskStatusReceiver(
             CatalogRegistry catalog, StageCompletionCallback stageCallback,
-            org.pangrova.spi.coordination.WriteCommitJournal writeCommitJournal) {
+            org.pangrova.spi.coordination.WriteCommitJournal journal) {
         boolean speculative = config.speculationEnabled() && speculativeTaskLauncher != null;
         org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink artifactSink =
                 artifactBuildStore == null
                         ? org.pangrova.coordinator.query.task.report.ArtifactWorkReportSink.rejecting()
                         : new org.pangrova.coordinator.query.task.report.DurableArtifactWorkReportSink(
                                 artifactBuildStore,
-                                new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(metadataDataSource));
+                                new org.pangrova.metadata.artifact.jdbc.build.JdbcArtifactStageExecutionStore(
+                                        metadataDataSource));
         return new TaskStatusReceiver(new TaskStatusReceiverContext(
                 queryManager, taskTracker, workerManager,
                 speculative ? speculativeTaskLauncher : null,
@@ -459,7 +479,7 @@ final class QueryBootstrap {
                 speculative ? remoteTaskDispatcher : null,
                 queryManager.getStateJournal(), catalog, writeCommitTracker, stageCallback,
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
-                writeCommitJournal, artifactSink));
+                journal, artifactSink));
     }
 
     private CircuitBreakerPolicy resolveCircuitBreaker() {
@@ -492,5 +512,7 @@ final class QueryBootstrap {
     SplitAssignmentManager splitAssignmentManager() { return splitAssignmentManager; }
     CacheAffinityAssigner cacheAffinityAssigner() { return cacheAffinityAssigner; }
     QueryDispatcher queryDispatcher() { return queryDispatcher; }
-    org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker() { return writeCommitTracker; }
+    org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker writeCommitTracker() {
+        return writeCommitTracker;
+    }
 }

@@ -81,7 +81,11 @@ public class PluginManager {
     }
 
     private void loadPlugin(Path dir) {
-        String name = dir.getFileName().toString();
+        Path fileName = dir.getFileName();
+        if (fileName == null) {
+            throw new IllegalArgumentException("Plugin directory has no name: " + dir);
+        }
+        String name = fileName.toString();
         URL[] urls = collectJarUrls(dir);
         PluginClassLoader cl = new PluginClassLoader(name, urls, spiClassLoader);
         pluginClassLoaders.put(name, cl);

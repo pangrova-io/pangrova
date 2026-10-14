@@ -21,7 +21,8 @@ final class CanonicalExecutionDrainReports {
                     throw invalid("Worker-reconciled TaskReport needs a structured error");
                 }
             }
-            case TASK_REPORT_ORIGIN_UNSPECIFIED, UNRECOGNIZED -> throw invalid("terminal TaskReport has no valid report origin");
+            case TASK_REPORT_ORIGIN_UNSPECIFIED, UNRECOGNIZED ->
+                    throw invalid("terminal TaskReport has no valid report origin");
             default -> throw invalid("terminal TaskReport has no valid report origin");
         }
         switch (status.getExecutionDrainState()) {

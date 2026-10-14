@@ -14,6 +14,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.artifact.CoordinatorShuffleEvidenceRegistry;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.artifact.ShuffleLifecycleEvidence;
+import org.pangrova.coordinator.query.execution.dispatch.shuffle.lifecycle.ShuffleLifecycleOperations;
 import org.pangrova.protocol.v2.shuffle.CleanupRequest;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleRequest;
 import org.pangrova.protocol.v2.shuffle.FinalizeShuffleResponse;
@@ -81,8 +82,7 @@ public final class CoordinatorShuffleLifecycleManager
             new ConcurrentHashMap<>();
     private final ConcurrentHashMap<QueryStageKey, ShuffleCommitResult> finalizedShuffles =
             new ConcurrentHashMap<>();
-    private final org.pangrova.coordinator.query.execution.dispatch.shuffle.lifecycle.ShuffleLifecycleOperations operations =
-            new org.pangrova.coordinator.query.execution.dispatch.shuffle.lifecycle.ShuffleLifecycleOperations();
+    private final ShuffleLifecycleOperations operations = new ShuffleLifecycleOperations();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final CoordinatorShuffleEvidenceRegistry evidence = new CoordinatorShuffleEvidenceRegistry();
 

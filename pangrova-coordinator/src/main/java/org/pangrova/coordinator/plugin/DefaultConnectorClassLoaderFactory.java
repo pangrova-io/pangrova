@@ -4,6 +4,8 @@ import org.pangrova.spi.connector.classloader.ConnectorClassLoaderFactory;
 import org.pangrova.spi.connector.classloader.SharedPackagePolicy;
 
 import java.net.URL;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.Objects;
 import java.util.Set;
 
@@ -35,7 +37,7 @@ public final class DefaultConnectorClassLoaderFactory implements ConnectorClassL
      */
     public DefaultConnectorClassLoaderFactory(SharedPackagePolicy policy, Set<String> customPackages) {
         Objects.requireNonNull(policy, "policy must not be null");
-        this.sharedPackages = policy.resolveSharedPackages(customPackages);
+        this.sharedPackages = Set.copyOf(policy.resolveSharedPackages(customPackages));
     }
 
     /**
@@ -48,11 +50,12 @@ public final class DefaultConnectorClassLoaderFactory implements ConnectorClassL
     @Override
     public ClassLoader createClassLoader(String pluginName, URL[] pluginUrls,
                                          ClassLoader spiClassLoader) {
-        return new PluginClassLoader(pluginName, pluginUrls, spiClassLoader);
+        return AccessController.doPrivileged((PrivilegedAction<ClassLoader>) () ->
+                new PluginClassLoader(pluginName, pluginUrls, spiClassLoader));
     }
 
     /** Returns the resolved shared-package prefixes (for diagnostics / tests). */
     public Set<String> getSharedPackages() {
-        return sharedPackages;
+        return Set.copyOf(sharedPackages);
     }
 }

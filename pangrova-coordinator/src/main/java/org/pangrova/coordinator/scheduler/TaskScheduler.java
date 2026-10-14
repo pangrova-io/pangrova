@@ -34,7 +34,6 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public class TaskScheduler {
 
     private static final Logger LOG = LoggerFactory.getLogger(TaskScheduler.class);
-    private static final long ONE_GB = 1L * 1024 * 1024 * 1024;
 
     private final WorkerPerformanceScorer scorer;
     private final WeightedFairScheduler fairScheduler;
@@ -333,7 +332,7 @@ public class TaskScheduler {
         if (estimatedMemoryBytes > 0) {
             return estimatedMemoryBytes <= worker.availableMemoryBytes();
         }
-        return worker.memoryPressure() != MemoryPressure.HIGH || estimatedMemoryBytes < ONE_GB;
+        return worker.memoryPressure() != MemoryPressure.HIGH;
     }
 
     /**

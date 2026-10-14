@@ -27,6 +27,9 @@ import org.pangrova.protocol.v2.TypedValue;
 
 /** Binds validated retrieval/rerank intent for Native task dispatch. */
 public final class RetrievalIntentCollector {
+    private static final int DEFAULT_RRF_RANK_CONSTANT = 60;
+    private static final double DEFAULT_BM25_K1 = 1.2;
+    private static final double DEFAULT_BM25_B = 0.75;
 
     private final WorkerManager workerManager;
 
@@ -251,7 +254,7 @@ public final class RetrievalIntentCollector {
             return plan.strategy();
         }
         if (plan.strategy() instanceof RerankerPlanNode.CrossEncoderStrategy) {
-            return new RerankerPlanNode.RrfStrategy(60);
+            return new RerankerPlanNode.RrfStrategy(DEFAULT_RRF_RANK_CONSTANT);
         }
         if (plan.strategy() instanceof RerankerPlanNode.CascadeStrategy cascade
                 && cascade.stages().size() == 2
@@ -363,11 +366,11 @@ public final class RetrievalIntentCollector {
                 .build();
         TypedValue k1 = TypedValue.newBuilder()
                 .setType(LogicalType.newBuilder().setCanonicalSql("DOUBLE"))
-                .setDoubleValue(1.2)
+                .setDoubleValue(DEFAULT_BM25_K1)
                 .build();
         TypedValue b = TypedValue.newBuilder()
                 .setType(LogicalType.newBuilder().setCanonicalSql("DOUBLE"))
-                .setDoubleValue(0.75)
+                .setDoubleValue(DEFAULT_BM25_B)
                 .build();
         return List.of(
                 NamedValue.newBuilder().setName("query_text").setValue(query).build(),

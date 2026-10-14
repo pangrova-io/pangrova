@@ -17,6 +17,7 @@ public final class DdlNotOnLeaderException extends PangrovaException {
 
     private final String leaderEndpoint;
 
+    /** Reports the leader endpoint required for DDL execution. */
     public DdlNotOnLeaderException(String leaderEndpoint) {
         super(PangrovaErrorCode.COORDINATOR_DDL_NOT_ON_LEADER,
                 "DDL statements must execute on the leader coordinator. "

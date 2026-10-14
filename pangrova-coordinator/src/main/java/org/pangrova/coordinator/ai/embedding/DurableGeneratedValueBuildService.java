@@ -238,8 +238,10 @@ public final class DurableGeneratedValueBuildService {
             ArtifactBuildPlan plan, OperatorBindingSet bindings, List<ArtifactBuildPage> pages,
             UserIdentity user, DeferredAuthorizationScope authorizationScope) {
         var models = authorizationScope.definitionSnapshot().map(DeferredAuthorizationScope.DefinitionSnapshot::models)
-                .orElseThrow(() -> new IllegalArgumentException("Generated durable stage requires observed model authority"));
-        var template = FrozenStageBindings.freeze(new BoundExecutionPlan(plan.planBytes(), bindings.getBindingsList()), models);
+                .orElseThrow(() -> new IllegalArgumentException(
+                            "Generated durable stage requires observed model authority"));
+        var template = FrozenStageBindings.freeze(
+                new BoundExecutionPlan(plan.planBytes(), bindings.getBindingsList()), models);
         return ArtifactBuildDispatchSpec.of(
                 identity.jobId(),
                 ArtifactStageGraph.forArtifactPages(plan.planBytes(), template.bindingBytes(), pages, models),

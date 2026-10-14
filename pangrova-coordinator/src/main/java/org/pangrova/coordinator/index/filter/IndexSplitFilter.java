@@ -42,6 +42,7 @@ import java.util.concurrent.TimeoutException;
  */
 @ThreadSafe
 public final class IndexSplitFilter implements AutoCloseable {
+    private static final int EXECUTOR_SHUTDOWN_SECONDS = 30;
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexSplitFilter.class);
     private static final int PARALLEL_THRESHOLD = 100;
@@ -74,7 +75,7 @@ public final class IndexSplitFilter implements AutoCloseable {
 
     @Override
     public void close() {
-        ResourceCloser.shutdownExecutor(evalPool, java.time.Duration.ofSeconds(30));
+        ResourceCloser.shutdownExecutor(evalPool, java.time.Duration.ofSeconds(EXECUTOR_SHUTDOWN_SECONDS));
     }
 
     /** Filters splits by evaluating index hints (convenience overload without snapshot). */

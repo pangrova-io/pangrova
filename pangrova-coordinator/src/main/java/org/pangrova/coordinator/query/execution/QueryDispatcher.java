@@ -128,13 +128,17 @@ public class QueryDispatcher {
             // QueryManager owns the terminal transition and its durable journal,
             // active-count and admission cleanup. This layer only releases the
             // dispatch ownership it acquired before propagating the failure.
-            try { ownershipTracker.cancelDispatchedTasks(session.queryId());
+            try {
+                ownershipTracker.cancelDispatchedTasks(session.queryId());
                 ownershipTracker.cleanupQuery(session.queryId());
-            } catch (RuntimeException | Error cleanup) { if (cleanup != e) e.addSuppressed(cleanup); }
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != e) e.addSuppressed(cleanup);
+            }
             throw wrapIfNeeded(e, session.queryId());
         }
     }
 
+    /** Executes DML SQL using the session's default write mode. */
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
                                         CoordinatorSessionContext session) {
         return executeDmlSql(sm, sql, session, null);
@@ -146,6 +150,7 @@ public class QueryDispatcher {
         return pipelineExecutor.compileAuthorizedRelation(sql, session);
     }
 
+    /** Executes DML SQL with an explicit write-mode override when provided. */
     public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
                                         CoordinatorSessionContext session,
                                         String writeModeOverride) {
@@ -155,6 +160,7 @@ public class QueryDispatcher {
         }
     }
 
+    /** Executes an already-parsed DML statement under the query's connector authority. */
     public DispatchResult executeDmlStatement(
             QueryStateMachine sm,
             org.pangrova.parser.ast.Statement stmt,
@@ -228,13 +234,17 @@ public class QueryDispatcher {
         return taskTracker.openQueryIssuance(queryId);
     }
 
-    public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryOperation(String queryId) { return taskTracker.enterQueryOperation(queryId); }
+    public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryOperation(String queryId) {
+        return taskTracker.enterQueryOperation(queryId);
+    }
 
     public org.pangrova.coordinator.task.QueryIssuanceOperation enterQueryMetadataOperation(String queryId) {
         return taskTracker.enterQueryMetadataOperation(queryId);
     }
 
-    public void markRecoveredIssuanceUnresolved(String queryId) { taskTracker.markRecoveredIssuanceUnresolved(queryId); }
+    public void markRecoveredIssuanceUnresolved(String queryId) {
+        taskTracker.markRecoveredIssuanceUnresolved(queryId);
+    }
 
     public void retireQueryIssuance(String queryId) { taskTracker.retireQueryIssuance(queryId); }
 

@@ -37,6 +37,7 @@ public final class CommitLogPoller implements AutoCloseable {
     private final ScheduledExecutorService scheduler;
     private volatile boolean pollingActive = true;
 
+    /** Creates a leader-gated index commit-log poller. */
     public CommitLogPoller(IndexCommitContext deps,
                            MaintenanceLeaderElection leaderElection,
                            int batchMax,
@@ -162,9 +163,12 @@ public final class CommitLogPoller implements AutoCloseable {
     }
 
     static CommitEventType parseEventType(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("Unknown commit event type: null");
+        }
         try {
             return CommitEventType.valueOf(value);
-        } catch (IllegalArgumentException | NullPointerException failure) {
+        } catch (IllegalArgumentException failure) {
             throw new IllegalArgumentException("Unknown commit event type: " + value, failure);
         }
     }

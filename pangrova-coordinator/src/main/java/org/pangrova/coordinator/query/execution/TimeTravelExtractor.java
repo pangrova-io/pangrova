@@ -79,7 +79,8 @@ final class TimeTravelExtractor {
         long selected;
         if (spec.type() == TimeTravelSpec.Type.BRANCH || spec.type() == TimeTravelSpec.Type.TAG) {
             if (resolver == null) throw invalid("BRANCH/TAG time travel requires a ref resolver");
-            var resolved = resolver.resolve(parts.get(0), parts.get(1), parts.get(2), spec.type().name(), spec.refName());
+            var resolved = resolver.resolve(parts.get(0), parts.get(1), parts.get(2),
+                spec.type().name(), spec.refName());
             if (resolved.isEmpty()) throw invalid("Selected source ref is unavailable: " + spec.refName());
             selected = resolved.getAsLong();
         } else if (spec.expression() instanceof Literal literal

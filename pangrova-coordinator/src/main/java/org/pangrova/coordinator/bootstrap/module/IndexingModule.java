@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
  * is available. Silently skips if no {@link IndexingBootstrap} is bound.
  */
 public final class IndexingModule implements CoordinatorModule {
+    private static final int INDEXING_STARTUP_PRIORITY = 200;
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexingModule.class);
 
@@ -43,6 +44,6 @@ public final class IndexingModule implements CoordinatorModule {
 
     @Override
     public int priority() {
-        return 200;
+        return INDEXING_STARTUP_PRIORITY;
     }
 }

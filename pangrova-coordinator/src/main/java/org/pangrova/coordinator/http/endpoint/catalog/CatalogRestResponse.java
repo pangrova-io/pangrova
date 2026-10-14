@@ -14,32 +14,65 @@ public final class CatalogRestResponse {
     /** GET /v1/config response. */
     public record ConfigResponse(
             Map<String, String> overrides,
-            Map<String, String> defaults) {}
+            Map<String, String> defaults) {
+        public ConfigResponse {
+            overrides = Map.copyOf(overrides);
+            defaults = Map.copyOf(defaults);
+        }
+    }
 
     /** GET /v1/namespaces response. */
-    public record ListNamespacesResponse(List<List<String>> namespaces) {}
+    public record ListNamespacesResponse(List<List<String>> namespaces) {
+        public ListNamespacesResponse {
+            namespaces = namespaces.stream().map(List::copyOf).toList();
+        }
+    }
 
     /** GET /v1/namespaces/{ns} response. */
     public record GetNamespaceResponse(
             List<String> namespace,
-            Map<String, String> properties) {}
+            Map<String, String> properties) {
+        public GetNamespaceResponse {
+            namespace = List.copyOf(namespace);
+            properties = properties == null ? null : Map.copyOf(properties);
+        }
+    }
 
     /** POST /v1/namespaces response (same shape as GET). */
     public record CreateNamespaceResponse(
             List<String> namespace,
-            Map<String, String> properties) {}
+            Map<String, String> properties) {
+        public CreateNamespaceResponse {
+            namespace = List.copyOf(namespace);
+            properties = properties == null ? null : Map.copyOf(properties);
+        }
+    }
 
     /** POST /v1/namespaces/{ns}/properties response. */
     public record UpdatePropertiesResponse(
             List<String> updated,
             List<String> removed,
-            List<String> missing) {}
+            List<String> missing) {
+        public UpdatePropertiesResponse {
+            updated = List.copyOf(updated);
+            removed = List.copyOf(removed);
+            missing = List.copyOf(missing);
+        }
+    }
 
     /** GET /v1/namespaces/{ns}/tables response. */
-    public record ListTablesResponse(List<TableIdentifier> identifiers) {}
+    public record ListTablesResponse(List<TableIdentifier> identifiers) {
+        public ListTablesResponse {
+            identifiers = List.copyOf(identifiers);
+        }
+    }
 
     /** Table identifier within a namespace. */
-    public record TableIdentifier(List<String> namespace, String name) {}
+    public record TableIdentifier(List<String> namespace, String name) {
+        public TableIdentifier {
+            namespace = List.copyOf(namespace);
+        }
+    }
 
     /** GET /v1/namespaces/{ns}/tables/{table} response (simplified metadata). */
     public record LoadTableResponse(
@@ -55,12 +88,22 @@ public final class CatalogRestResponse {
             int currentSchemaId,
             List<PartitionSpecPayload> partitionSpecs,
             int defaultSpecId,
-            Map<String, String> properties) {}
+            Map<String, String> properties) {
+        public TableMetadataPayload {
+            schemas = List.copyOf(schemas);
+            partitionSpecs = List.copyOf(partitionSpecs);
+            properties = Map.copyOf(properties);
+        }
+    }
 
     /** Schema representation in REST catalog responses. */
     public record SchemaPayload(
             int schemaId,
-            List<FieldPayload> fields) {}
+            List<FieldPayload> fields) {
+        public SchemaPayload {
+            fields = List.copyOf(fields);
+        }
+    }
 
     /** Field representation in REST catalog responses. */
     public record FieldPayload(
@@ -72,7 +115,11 @@ public final class CatalogRestResponse {
     /** Partition spec representation. */
     public record PartitionSpecPayload(
             int specId,
-            List<PartitionFieldPayload> fields) {}
+            List<PartitionFieldPayload> fields) {
+        public PartitionSpecPayload {
+            fields = List.copyOf(fields);
+        }
+    }
 
     /** Partition field representation. */
     public record PartitionFieldPayload(
@@ -82,7 +129,11 @@ public final class CatalogRestResponse {
             int fieldId) {}
 
     /** GET /v1/namespaces/{ns}/views response. */
-    public record ListViewsResponse(List<TableIdentifier> identifiers) {}
+    public record ListViewsResponse(List<TableIdentifier> identifiers) {
+        public ListViewsResponse {
+            identifiers = List.copyOf(identifiers);
+        }
+    }
 
     /** Error response following REST catalog specification. */
     public record ErrorResponse(ErrorBody error) {}

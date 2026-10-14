@@ -74,7 +74,8 @@ public sealed interface StageExecutionContext permits StageExecutionContext.Live
     }
 
     /** The private-constructor authority object can only be obtained from the current same-transaction PG resolver. */
-    record Deferred(CurrentDeferredExecutionContext authority, ArtifactBuildLease lease, ExecutionTraceContext traceContext)
+    record Deferred(CurrentDeferredExecutionContext authority, ArtifactBuildLease lease,
+                    ExecutionTraceContext traceContext)
             implements StageExecutionContext {
         public Deferred {
             Objects.requireNonNull(authority, "authority");

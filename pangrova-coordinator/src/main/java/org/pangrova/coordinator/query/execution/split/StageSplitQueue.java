@@ -15,6 +15,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
  */
 @ThreadSafe
 public final class StageSplitQueue {
+    private static final long DEFAULT_LEASE_DURATION_MS = 60_000L;
 
     private final ConcurrentLinkedQueue<SplitAssignment> pending;
     private final ConcurrentHashMap<Integer, SplitLease> activeLeases = new ConcurrentHashMap<>();
@@ -27,15 +28,16 @@ public final class StageSplitQueue {
         this(splits, leaseDurationMs, 0);
     }
 
+    /** Creates a stage queue with its split lease and steal delays. */
     public StageSplitQueue(List<SplitAssignment> splits, long leaseDurationMs, long stealDelayMs) {
         this.pending = new ConcurrentLinkedQueue<>(splits);
         this.totalSplits = new AtomicInteger(splits.size());
-        this.leaseDurationMs = leaseDurationMs > 0 ? leaseDurationMs : 60_000;
+        this.leaseDurationMs = leaseDurationMs > 0 ? leaseDurationMs : DEFAULT_LEASE_DURATION_MS;
         this.stealDelayMs = stealDelayMs >= 0 ? stealDelayMs : 0;
     }
 
     public StageSplitQueue(List<SplitAssignment> splits) {
-        this(splits, 60_000, 0);
+        this(splits, DEFAULT_LEASE_DURATION_MS, 0);
     }
 
     /**
@@ -110,6 +112,7 @@ public final class StageSplitQueue {
         return pollWithLease(workerId, workerLocality, null);
     }
 
+    /** Leases the next split, preferring worker-local data. */
     public Optional<SplitLease> pollWithLease(String workerId, List<String> workerLocality,
                                        CacheAffinityAssigner cacheAffinityAssigner) {
         // Priority 1: cache-affine

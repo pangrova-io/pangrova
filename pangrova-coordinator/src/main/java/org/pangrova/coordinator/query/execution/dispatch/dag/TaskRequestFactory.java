@@ -119,7 +119,8 @@ public final class TaskRequestFactory {
                 task.resultColumnTypes(),
                 TaskExecutionOptionsFactory.build(
                         execution.executionProperties(), null, task.shuffleConfig(),
-                        execution instanceof StageExecutionContext.Live && "OUTPUT".equals(stage.taskType()), task.shuffleHandle(),
+                        execution instanceof StageExecutionContext.Live
+                        && "OUTPUT".equals(stage.taskType()), task.shuffleHandle(),
                         task.attempt().planEpoch())));
         return SubmitTaskRequest.from(request);
     }
@@ -381,7 +382,8 @@ public final class TaskRequestFactory {
     private static String deferredTaskId(StageExecutionContext.Deferred deferred, LeafTask task) {
         var lease = deferred.lease();
         if (lease.stageId() != task.stage().stageId() || lease.partitionId() != task.partition()
-                || lease.attemptId() != task.attempt().attemptId() || lease.fencingToken() != task.attempt().fencingToken()) {
+                || lease.attemptId() != task.attempt().attemptId()
+                    || lease.fencingToken() != task.attempt().fencingToken()) {
             throw new IllegalArgumentException("Deferred Leaf request changes the exact claimed partition or attempt");
         }
         return StageTaskIdentity.fromLease(lease);
@@ -394,10 +396,12 @@ public final class TaskRequestFactory {
                     .setOwnerIncarnation(anchor.ownerIncarnation()).setFencingToken(anchor.fencingToken()).build();
             request.setAttempt(request.getAttempt().toBuilder().setControlEpoch(deferred.lease().ownerEpoch())
                     .setExecutionOwner(owner));
-            if (request.getExecutionOptions().hasShuffle() && request.getExecutionOptions().getShuffle().hasExecutionBinding()) {
+            if (request.getExecutionOptions().hasShuffle()
+                && request.getExecutionOptions().getShuffle().hasExecutionBinding()) {
                 request.setExecutionOptions(request.getExecutionOptions().toBuilder().setShuffle(
                         request.getExecutionOptions().getShuffle().toBuilder().setExecutionBinding(
-                                request.getExecutionOptions().getShuffle().getExecutionBinding().toBuilder().setExecutionOwner(owner))));
+                                request.getExecutionOptions().getShuffle().getExecutionBinding()
+                            .toBuilder().setExecutionOwner(owner))));
             }
         }
     }

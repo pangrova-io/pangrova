@@ -23,7 +23,8 @@ import org.pangrova.shuffle.spool.SpoolStore;
  *
  * <p>Configuration properties:
  * <ul>
- *   <li>{@code shuffle.local-spill.dir} — base directory for spool files (default: java.io.tmpdir/pangrova-shuffle)</li>
+ *   <li>{@code shuffle.local-spill.dir} — base directory for spool files
+ *       (default: java.io.tmpdir/pangrova-shuffle)</li>
  * </ul>
  */
 public final class LocalSpillShuffleManagerFactory implements ShuffleManagerFactory {

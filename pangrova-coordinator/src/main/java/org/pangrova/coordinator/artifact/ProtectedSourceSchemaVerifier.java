@@ -20,6 +20,7 @@ public final class ProtectedSourceSchemaVerifier {
         this.catalogRegistry = Objects.requireNonNull(catalogRegistry, "catalogRegistry must not be null");
     }
 
+    /** Checks that a protected source still matches the authorized relation. */
     public void verify(QualifiedTableName source, String snapshot, ConnectorSession session,
                 AuthorizedRelation compiled) {
         if (!source.catalog().equals(session.getCatalog().orElse(null))

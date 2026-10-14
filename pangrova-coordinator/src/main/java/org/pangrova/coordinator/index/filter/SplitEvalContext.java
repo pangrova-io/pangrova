@@ -45,11 +45,29 @@ public record SplitEvalContext(
         nativeCapabilities = nativeCapabilities != null
                 ? List.copyOf(nativeCapabilities) : List.of();
         indexFileMappings = indexFileMappings != null
-                ? Map.copyOf(indexFileMappings) : Map.of();
+                ? indexFileMappings.entrySet().stream().collect(
+                        java.util.stream.Collectors.toUnmodifiableMap(
+                                Map.Entry::getKey, entry -> Map.copyOf(entry.getValue())))
+                : Map.of();
         descriptorsByIndex = descriptorsByIndex != null
                 ? Map.copyOf(descriptorsByIndex) : Map.of();
+        fileStatistics = fileStatistics != null
+                ? fileStatistics.entrySet().stream().collect(
+                        java.util.stream.Collectors.toUnmodifiableMap(
+                                Map.Entry::getKey, entry -> List.copyOf(entry.getValue())))
+                : null;
         deleteFilesByPath = deleteFilesByPath != null
                 ? java.util.Set.copyOf(deleteFilesByPath) : java.util.Set.of();
+    }
+
+    @Override
+    public Map<String, Map<String, String>> indexFileMappings() {
+        return Map.copyOf(indexFileMappings);
+    }
+
+    @Override
+    public Map<String, List<FileColumnStatistics>> fileStatistics() {
+        return fileStatistics == null ? null : Map.copyOf(fileStatistics);
     }
 
     /** Returns true if the given data file path has associated delete files. */

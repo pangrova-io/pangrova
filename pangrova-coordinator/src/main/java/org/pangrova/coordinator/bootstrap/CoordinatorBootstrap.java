@@ -67,8 +67,12 @@ public final class CoordinatorBootstrap {
     public void start() {
         lifecycle.beginStart();
         boolean succeeded = false;
-        try { startOwned(); succeeded = true; }
-        finally { lifecycle.endStart(succeeded); }
+        try {
+            startOwned();
+            succeeded = true;
+        } finally {
+            lifecycle.endStart(succeeded);
+        }
     }
 
     private void startOwned() {
@@ -177,8 +181,9 @@ public final class CoordinatorBootstrap {
     }
 
     private void closeResources(Throwable primary) {
-        try { closeOwnedResources(); }
-        catch (RuntimeException | Error failure) {
+        try {
+            closeOwnedResources();
+        } catch (RuntimeException | Error failure) {
             if (primary == null) throw failure;
             if (primary != failure) primary.addSuppressed(failure);
         }

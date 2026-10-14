@@ -26,6 +26,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  */
 @ThreadSafe
 public final class SpeculativeExecutionScheduler implements Closeable {
+    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MS = 5_000L;
 
     private static final Logger LOG = LoggerFactory.getLogger(SpeculativeExecutionScheduler.class);
 
@@ -76,7 +77,7 @@ public final class SpeculativeExecutionScheduler implements Closeable {
         if (task != null) {
             task.cancel(false);
         }
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, 5000);
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(executor, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
         LOG.info("event=speculation_scheduler_stopped");
     }
 

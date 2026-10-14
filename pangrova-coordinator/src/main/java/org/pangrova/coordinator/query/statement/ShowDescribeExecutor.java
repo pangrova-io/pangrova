@@ -119,6 +119,7 @@ public final class ShowDescribeExecutor {
         }
     }
 
+    /** Describes a table in the current session context. */
     public List<TypedRow> executeDescribeTable(DescribeTableStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(
                 stmt.tableName().parts(), context);
@@ -137,6 +138,7 @@ public final class ShowDescribeExecutor {
                 .toList();
     }
 
+    /** Lists the catalogs visible to the coordinator. */
     public List<TypedRow> executeShowCatalogs() {
         return catalogRegistry.listCatalogNames().stream()
                 .map(name -> TypedRow.builder()

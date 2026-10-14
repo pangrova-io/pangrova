@@ -30,6 +30,7 @@ public final class MaintenanceExecutor {
         this.maintenance = maintenance != null ? maintenance : NoOpMaintenance.INSTANCE;
     }
 
+    /** Executes a table compaction statement. */
     public List<TypedRow> executeCompact(CompactStatement stmt) {
         String tableName = String.join(".", stmt.tableName().parts());
         LOG.info("event=compact_table table={}", tableName);
@@ -43,6 +44,7 @@ public final class MaintenanceExecutor {
                 .build());
     }
 
+    /** Executes a table vacuum statement. */
     public List<TypedRow> executeVacuum(VacuumStatement stmt) {
         String tableName = String.join(".", stmt.tableName().parts());
         LOG.info("event=vacuum_table table={}", tableName);
@@ -55,6 +57,7 @@ public final class MaintenanceExecutor {
                 .build());
     }
 
+    /** Executes a table optimization statement. */
     public List<TypedRow> executeOptimize(OptimizeStatement stmt) {
         String tableName = String.join(".", stmt.tableName().parts());
         LOG.info("event=optimize_table table={}", tableName);

@@ -69,6 +69,7 @@ public final class DmlExpressionEvaluator {
                     new InExpression(((NotInExpression) e).value(), ((NotInExpression) e).list()), r, true)
     );
 
+    /** Evaluates an expression against a typed row. */
     public static ColumnValue evaluateExpr(Expression expr, TypedRow row) {
         var handler = EXPR_DISPATCH.get(expr.getClass());
         if (handler != null) return handler.apply(expr, row);

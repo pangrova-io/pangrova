@@ -12,6 +12,7 @@ public final class DynamicTableResultConverter {
 
     private DynamicTableResultConverter() {}
 
+    /** Converts a dynamic table DDL result into query rows. */
     public static List<TypedRow> toRows(DdlResult result) {
         if (result instanceof DdlResult.Success s) {
             return List.of(TypedRow.builder().putString("result", s.message()).build());

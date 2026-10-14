@@ -85,14 +85,17 @@ final class QueryAuditDispatcher {
         if (info == null) return QueryLineageMetadata.empty();
         var inputs = info.sourceTables().stream().map(name -> new QueryLineageMetadata.Dataset(
                 "pangrova", name, List.of())).toList();
-        var columns = info.columnDerivations().stream().map(derivation -> new QueryLineageMetadata.Column(
-                derivation.outputColumn(), derivation.sourceColumns().stream().map(source ->
-                        new QueryLineageMetadata.SourceColumn("pangrova", source.table(), source.column())).toList(),
-                switch (derivation.expression()) {
-                    case DIRECT -> QueryLineageMetadata.DerivationKind.DIRECT;
-                    case TRANSFORM -> QueryLineageMetadata.DerivationKind.TRANSFORM;
-                    case AGGREGATE -> QueryLineageMetadata.DerivationKind.AGGREGATE;
-                }))
+        var columns = info.columnDerivations().stream().map(derivation -> {
+            var kind = switch (derivation.expression()) {
+                case DIRECT -> QueryLineageMetadata.DerivationKind.DIRECT;
+                case TRANSFORM -> QueryLineageMetadata.DerivationKind.TRANSFORM;
+                case AGGREGATE -> QueryLineageMetadata.DerivationKind.AGGREGATE;
+            };
+            return new QueryLineageMetadata.Column(
+                    derivation.outputColumn(), derivation.sourceColumns().stream().map(source ->
+                            new QueryLineageMetadata.SourceColumn(
+                                    "pangrova", source.table(), source.column())).toList(), kind);
+        })
                 .toList();
         var outputs = info.targetTables().stream().map(name -> new QueryLineageMetadata.Dataset(
                 "pangrova", name, columns)).toList();
@@ -107,9 +110,12 @@ final class QueryAuditDispatcher {
             case CANCELLED -> QueryLineageFact.Phase.ABORT;
             default -> throw new IllegalArgumentException("Lineage requires a terminal query state");
         };
-        return state.freezeLineage(phase, () -> new QueryLineageFact(lineageEmitter.namespace(), queryId, phase,
-                System.currentTimeMillis(), null, phase == QueryLineageFact.Phase.FAIL
-                        ? state.getError().map(ErrorDetail::message).orElse("unknown") : null, state.lineageMetadata()));
+        return state.freezeLineage(phase, () -> {
+            String failureMessage = phase == QueryLineageFact.Phase.FAIL
+                    ? state.getError().map(ErrorDetail::message).orElse("unknown") : null;
+            return new QueryLineageFact(lineageEmitter.namespace(), queryId, phase,
+                    System.currentTimeMillis(), null, failureMessage, state.lineageMetadata());
+        });
     }
 
     /** Unadmitted failures also require a committed fact before logical cleanup can be released. */

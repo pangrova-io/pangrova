@@ -87,12 +87,14 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                     ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
                     var receipt = catalog.getMetadata(session).abortDistributedWrite(
                             session, handle, entry.fragments(), entry.commitContext());
-                    if (!receipt.executionId().equals(entry.queryId()) || !receipt.commitFingerprint().equals(entry.commitFingerprint())) {
+                    if (!receipt.executionId().equals(entry.queryId())
+                            || !receipt.commitFingerprint().equals(entry.commitFingerprint())) {
                         throw new IllegalStateException("Durable abort receipt differs from journal intent");
                     }
                     return RecoveryOutcome.ABORTED;
                 } catch (RuntimeException barrierFailure) {
-                    LOG.warn("event=write_commit_reconcile queryId={} outcome=QUARANTINED reason=source_abort_unconfirmed error={}",
+                    LOG.warn("event=write_commit_reconcile queryId={} outcome=QUARANTINED "
+                            + "reason=source_abort_unconfirmed error={}",
                             entry.queryId(), barrierFailure.toString());
                     return RecoveryOutcome.QUARANTINED;
                 }
@@ -130,6 +132,14 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
         }
         ConnectorOutputTableHandle handle = codec.deserialize(
                 outputBinding.getCodecVersion(), payload);
+        validateDecodedHandle(entry, table, catalog, binding, outputBinding, codec, payload, handle);
+        return handle;
+    }
+
+    private static void validateDecodedHandle(WriteCommitEntry entry, SchemaTableName table,
+            ConnectorCatalogHandle catalog, WriteOutputBinding binding,
+            org.pangrova.protocol.v2.SerializedConnectorOutputHandle outputBinding,
+            ConnectorOutputHandleCodec codec, byte[] payload, ConnectorOutputTableHandle handle) {
         if (!Arrays.equals(codec.serialize(handle), payload)
                 || !codec.writeColumnNames(handle).equals(outputBinding.getWriteColumnNamesList())
                 || !handle.targetTable().equals(Optional.of(table))
@@ -139,7 +149,6 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                         .create(catalog, handle).equals(binding)) {
             throw new IllegalArgumentException("Decoded output allocation differs from durable write intent");
         }
-        return handle;
     }
 
     private static void validateCatalog(WriteCommitEntry entry, ConnectorCatalogHandle catalog,

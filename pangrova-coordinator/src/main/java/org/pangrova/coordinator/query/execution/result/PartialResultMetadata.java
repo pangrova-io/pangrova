@@ -12,6 +12,10 @@ public record PartialResultMetadata(
         List<Integer> missingPartitions,
         String warningMessage) {
 
+    public PartialResultMetadata {
+        missingPartitions = List.copyOf(missingPartitions);
+    }
+
     /**
      * Factory method computing ratio and generating a warning message.
      */

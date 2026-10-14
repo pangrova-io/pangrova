@@ -40,6 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @ThreadSafe
 public final class StreamScheduler implements AutoCloseable {
+    private static final long CDC_POLL_INTERVAL_MS = 500L;
+    private static final int CDC_RETRY_MAX_DELAY_MS = 30_000;
 
     private static final Logger LOG = LoggerFactory.getLogger(StreamScheduler.class);
 
@@ -165,7 +167,7 @@ public final class StreamScheduler implements AutoCloseable {
                 effectiveState.targetTable(),
                 batchSize,
                 Duration.ofSeconds(1),
-                500L,
+                CDC_POLL_INTERVAL_MS,
                 maxFailures,
                 5,
                 Duration.parse(config.defaultFlushInterval()));
@@ -183,7 +185,8 @@ public final class StreamScheduler implements AutoCloseable {
         CdcPipelineLoopContext loopDeps = new CdcPipelineLoopContext(
                 reader, converter, writeSink, quotaEnforcer,
                 deps.watermarkTracker(), deps.maintenanceScheduler(),
-                new CdcPipelineRuntimeHooks(listener, BackoffStrategy.retry(100, 30_000), null));
+                new CdcPipelineRuntimeHooks(
+                        listener, BackoffStrategy.retry(100, CDC_RETRY_MAX_DELAY_MS), null));
 
         CdcPipelineLoop loop = new CdcPipelineLoop(pipelineConfig, loopDeps, offsets);
         PipelineEntry entry = new PipelineEntry(loop, effectiveState.targetTable());

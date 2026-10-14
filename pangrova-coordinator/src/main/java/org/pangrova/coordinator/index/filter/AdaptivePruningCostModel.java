@@ -15,6 +15,7 @@ import java.util.List;
  * <p>Selectivity estimation uses NDV and range overlap from L0 file statistics.</p>
  */
 public final class AdaptivePruningCostModel {
+    private static final double UNKNOWN_SELECTIVITY = 0.5;
 
     private static final double L0_PRUNE_SKIP_THRESHOLD = 0.95;
     private static final double COVERAGE_SKIP_THRESHOLD = 0.50;
@@ -52,7 +53,7 @@ public final class AdaptivePruningCostModel {
     public double estimateSelectivity(List<FileColumnStatistics> fileStats,
                                       IndexPredicate predicate) {
         if (fileStats == null || fileStats.isEmpty()) {
-            return 0.5; // unknown — conservative, allow L1
+            return UNKNOWN_SELECTIVITY; // unknown — conservative, allow L1
         }
         double totalSelectivity = 0.0;
         int counted = 0;
@@ -62,6 +63,6 @@ public final class AdaptivePruningCostModel {
                 counted++;
             }
         }
-        return counted > 0 ? totalSelectivity / counted : 0.5;
+        return counted > 0 ? totalSelectivity / counted : UNKNOWN_SELECTIVITY;
     }
 }

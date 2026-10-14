@@ -16,7 +16,11 @@ public class StageScheduler {
     /**
      * Descriptor for a single stage in the DAG.
      */
-    public record StageInfo(String stageId, List<String> dependencyStageIds, boolean isOutput) {}
+    public record StageInfo(String stageId, List<String> dependencyStageIds, boolean isOutput) {
+        public StageInfo {
+            dependencyStageIds = List.copyOf(dependencyStageIds);
+        }
+    }
 
     /**
      * Returns stages in topological order (leaf-first, output-last).

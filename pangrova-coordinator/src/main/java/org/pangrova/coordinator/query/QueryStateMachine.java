@@ -17,8 +17,10 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.exception.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.stage.StageStateMachine;
+import org.pangrova.coordinator.task.QueryIssuanceOperation;
 import org.pangrova.protocol.rest.error.ErrorDetail;
 import org.pangrova.protocol.rest.query.ResultEndpoint;
+import org.pangrova.spi.coordination.QueryStateEvent;
 
 /**
  * CAS-based state machine for query lifecycle.
@@ -114,8 +116,8 @@ public class QueryStateMachine {
     private final List<QueryStateChangeListener> listeners = new CopyOnWriteArrayList<>();
     private volatile Runnable beforeTerminalTransition = () -> { };
     private volatile java.util.function.BiConsumer<State, State> transitionRecorder;
-    private volatile java.util.function.Supplier<org.pangrova.coordinator.task.QueryIssuanceOperation> transitionOperations;
-    private final ConcurrentHashMap<State, org.pangrova.spi.coordination.QueryStateEvent> journalFacts = new ConcurrentHashMap<>();
+    private volatile java.util.function.Supplier<QueryIssuanceOperation> transitionOperations;
+    private final ConcurrentHashMap<State, QueryStateEvent> journalFacts = new ConcurrentHashMap<>();
     private final CompletableFuture<Boolean> ownershipReady;
     private final boolean locallySubmitted;
     /** A reserved terminal transition; waiters join only after leaving this monitor. */
@@ -233,7 +235,10 @@ public class QueryStateMachine {
             while (true) {
                 Transition decision = reserveTransition(target);
                 if (decision == null) return false;
-                if (decision.previous() == null) { decision.pending().join(); continue; }
+                if (decision.previous() == null) {
+                    decision.pending().join();
+                    continue;
+                }
                 publishTransition(decision, target, failureError, executionOwned);
                 completeResultEndpointReadiness();
                 notifyListeners(decision.previous(), target);
@@ -286,7 +291,7 @@ public class QueryStateMachine {
         transitionRecorder = java.util.Objects.requireNonNull(recorder);
     }
 
-    void setTransitionOperations(java.util.function.Supplier<org.pangrova.coordinator.task.QueryIssuanceOperation> operations) {
+    void setTransitionOperations(java.util.function.Supplier<QueryIssuanceOperation> operations) {
         transitionOperations = java.util.Objects.requireNonNull(operations);
     }
 

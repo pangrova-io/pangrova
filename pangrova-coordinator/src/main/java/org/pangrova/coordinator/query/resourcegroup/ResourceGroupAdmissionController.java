@@ -63,7 +63,8 @@ public final class ResourceGroupAdmissionController implements ClusterAdmissionC
             int queued = state.queued.get();
 
             if (running < config.maxConcurrency()) {
-                AdmissionDecision decision = tryAdmitWithinConcurrencyLimit(config, state, request, groupId, running, queued);
+                AdmissionDecision decision = tryAdmitWithinConcurrencyLimit(
+                    config, state, request, groupId, running, queued);
                 if (decision != null) {
                     return decision;
                 }

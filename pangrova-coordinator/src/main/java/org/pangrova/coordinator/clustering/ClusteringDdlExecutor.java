@@ -45,7 +45,8 @@ public final class ClusteringDdlExecutor {
      * Handles ALTER TABLE t SET CLUSTERING ORDER (col1, col2) [MODE ...].
      * Validates connector support, stores descriptor, returns confirmation.
      */
-    public List<TypedRow> executeSetClusteringOrder(SetClusteringOrderStatement stmt, CoordinatorSessionContext context) {
+    public List<TypedRow> executeSetClusteringOrder(
+            SetClusteringOrderStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         ClusteringCapability capability = resolveCapability(tableRef, context);
         ClusteringMode mode = parseMode(stmt.mode());
@@ -100,7 +101,8 @@ public final class ClusteringDdlExecutor {
      * Handles SHOW CLUSTERING STATUS FOR TABLE t.
      * Returns clustering ratio, file counts, and state.
      */
-    public List<TypedRow> executeShowClusteringStatus(ShowClusteringStatusStatement stmt, CoordinatorSessionContext context) {
+    public List<TypedRow> executeShowClusteringStatus(
+            ShowClusteringStatusStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName tableRef = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
         ClusteringCapability capability = resolveCapability(tableRef, context);
 

@@ -42,20 +42,21 @@ public final class ConnectorAccessorResolver {
     /**
      * Binds this process resource to an immutable, exactly resolved connector operation.
      *
-     * @param session trusted authenticated connector session supplied by the query authority
+     * @param authenticatedSession trusted connector session supplied by the query authority
      * @return a resolver scoped to the supplied tenant, principal and catalog/schema
      * @throws org.pangrova.spi.security.AccessDeniedException if the scope is incomplete
      */
-    public ConnectorAccessorResolver forSession(ConnectorSession session) {
-        if (session == null || session.getUser() == null || session.getUser().isBlank()
-                || session.getProperties().getOrDefault("tenant_id", "").isBlank()
-                || session.getCatalog().isEmpty() || session.getSchema().isEmpty()) {
+    public ConnectorAccessorResolver forSession(ConnectorSession authenticatedSession) {
+        if (authenticatedSession == null || authenticatedSession.getUser() == null
+                || authenticatedSession.getUser().isBlank()
+                || authenticatedSession.getProperties().getOrDefault("tenant_id", "").isBlank()
+                || authenticatedSession.getCatalog().isEmpty() || authenticatedSession.getSchema().isEmpty()) {
             throw new org.pangrova.spi.security.AccessDeniedException(
                     "Index connector access requires an authenticated tenant and resolved catalog/schema");
         }
         return new ConnectorAccessorResolver(catalogRegistry, new ScopedSession(
-                session.getUser(), session.getCatalog(), session.getSchema(),
-                Map.copyOf(session.getProperties()), session.getQueryAuthority()));
+                authenticatedSession.getUser(), authenticatedSession.getCatalog(), authenticatedSession.getSchema(),
+                Map.copyOf(authenticatedSession.getProperties()), authenticatedSession.getQueryAuthority()));
     }
 
     /**

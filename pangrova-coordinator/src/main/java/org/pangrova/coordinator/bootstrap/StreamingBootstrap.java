@@ -50,6 +50,7 @@ import java.util.Optional;
  * which stops all pipelines and shuts down the thread pool.</p>
  */
 final class StreamingBootstrap implements AutoCloseable {
+    private static final int EXECUTOR_SHUTDOWN_SECONDS = 30;
 
     private static final Logger LOG = LoggerFactory.getLogger(StreamingBootstrap.class);
 
@@ -98,7 +99,7 @@ final class StreamingBootstrap implements AutoCloseable {
         // which provides a real incremental refresh executor bound to the planner.
         scheduler.startContinuousQueryConsumer(
                 cqName -> LOG.debug("event=continuous_query_refresh_tick cqName={}", cqName),
-                java.time.Duration.ofSeconds(30));
+                java.time.Duration.ofSeconds(EXECUTOR_SHUTDOWN_SECONDS));
 
         StreamDdlContext ddlDeps = new StreamDdlContext(
                 stateStore, offsetStore, scheduler, config);

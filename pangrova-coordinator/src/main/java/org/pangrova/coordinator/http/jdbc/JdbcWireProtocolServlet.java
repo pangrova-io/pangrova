@@ -30,11 +30,12 @@ import java.nio.charset.StandardCharsets;
  */
 public final class JdbcWireProtocolServlet extends HttpServlet {
 
+    private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(JdbcWireProtocolServlet.class);
     private static final String CONTENT_TYPE_PROTOBUF = "application/x-google-protobuf";
 
-    private final JsonHandler jsonHandler;
-    private final ProtobufHandler protobufHandler;
+    private final transient JsonHandler jsonHandler;
+    private final transient ProtobufHandler protobufHandler;
 
     /** Builds the JSON and Protobuf wire handlers over the given Avatica metadata. */
     public JdbcWireProtocolServlet(Meta meta) {

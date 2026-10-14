@@ -45,7 +45,8 @@ record DurableIndexBuildSubmission(
         ArtifactBuildDispatchSpec dispatch = ArtifactBuildDispatchSpec.of(
                 definition.jobId(), org.pangrova.metadata.artifact.build.ArtifactStageGraph.forArtifactPages(
                         definition.plan().planBytes(),
-                        OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(), definition.pages(), java.util.List.of()),
+                        OperatorBindingSet.newBuilder().addBindings(binding).build().toByteArray(),
+                        definition.pages(), java.util.List.of()),
                 definition.tenantId(), definition.principal(),
                 org.pangrova.security.authz.DeferredAuthorizationScope.raw(
                         definition.table(), java.util.Set.copyOf(definition.descriptor().columnNames()),

@@ -50,6 +50,10 @@ public final class CompilationPhase implements QueryExecutionPhase {
 
     /** Result of time-travel extraction. */
     public record TimeTravelResult(String strippedSql, Map<String, Long> snapshotOverrides) {
+        public TimeTravelResult {
+            snapshotOverrides = Map.copyOf(snapshotOverrides);
+        }
+
         public static TimeTravelResult passthrough(String sql) {
             return new TimeTravelResult(sql, Map.of());
         }
@@ -75,7 +79,8 @@ public final class CompilationPhase implements QueryExecutionPhase {
     @Override
     public PhaseResult execute(QueryExecutionContext context) {
         SqlCompiler snapshot = compilerSnapshotFn.apply(context.compiler());
-        var session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(context.session());
+        var session = org.pangrova.coordinator.query.session.SessionContextConverter
+                .toConnectorSession(context.session());
         SqlCompiler extractionCompiler = snapshot.forSession(session);
         TimeTravelResult ttResult = timeTravelExtractor.extract(context.sql(), extractionCompiler, context.session());
         SqlCompiler currentCompiler = ttResult.snapshotOverrides().isEmpty() ? extractionCompiler

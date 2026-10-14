@@ -113,26 +113,26 @@ public final class WorkStealingBroker {
      */
     static final class WorkerSplitTracker {
         private final String workerId;
-        private volatile int pendingCount;
+        private final java.util.concurrent.atomic.AtomicInteger pendingCount;
 
         WorkerSplitTracker(String workerId, int pendingCount) {
             this.workerId = workerId;
-            this.pendingCount = pendingCount;
+            this.pendingCount = new java.util.concurrent.atomic.AtomicInteger(pendingCount);
         }
 
         String workerId() { return workerId; }
-        int pendingCount() { return pendingCount; }
+        int pendingCount() { return pendingCount.get(); }
 
-        synchronized void decrementPending() {
-            if (pendingCount > 0) pendingCount--;
+        void decrementPending() {
+            pendingCount.updateAndGet(current -> Math.max(0, current - 1));
         }
 
-        synchronized void transferSplits(int count) {
-            pendingCount = Math.max(0, pendingCount - count);
+        void transferSplits(int count) {
+            pendingCount.updateAndGet(current -> Math.max(0, current - count));
         }
 
-        synchronized void addPending(int count) {
-            pendingCount += count;
+        void addPending(int count) {
+            pendingCount.addAndGet(count);
         }
     }
 }

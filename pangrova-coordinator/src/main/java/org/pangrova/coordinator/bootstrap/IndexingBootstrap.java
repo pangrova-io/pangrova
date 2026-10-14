@@ -402,7 +402,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         commitHandler.registerDurableCommitProcessor(additional);
         LOG.info("event=durable_commit_processor_registered catalogs={}",
                 commitListenerCatalogs);
-        return commitListenerCatalogs;
+        return java.util.Set.copyOf(commitListenerCatalogs);
     }
 
     /** Returns the build coordinator for auto-rebuild triggers. */

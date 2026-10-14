@@ -55,6 +55,7 @@ public record WorkerInfo(
                         "capabilityInventory must not be null"));
     }
 
+    /** Returns a Worker snapshot with the updated health state. */
     public WorkerInfo withHealthState(HealthState newState) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, resultServerPort,
                 newState, memoryPressure, cpuUtilization, runningTaskCount,
@@ -63,6 +64,7 @@ public record WorkerInfo(
                 rackId, dataLocality, cacheSummary, capabilityInventory);
     }
 
+    /** Returns a Worker snapshot with the updated cache summary. */
     public WorkerInfo withCacheSummary(CacheCatalogSummary summary) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, resultServerPort,
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,

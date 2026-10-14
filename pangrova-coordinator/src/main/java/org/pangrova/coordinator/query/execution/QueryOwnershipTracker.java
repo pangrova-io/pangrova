@@ -4,6 +4,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.JdbcShuffleCleanupIntentStore;
+import org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleLifecycleManager;
 import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -42,6 +43,7 @@ public final class QueryOwnershipTracker {
     record OwnershipSnapshot(
             HighAvailabilityCoordinationService service, String coordinatorId) {}
 
+    /** Creates a query ownership tracker for task and connector cleanup. */
     public QueryOwnershipTracker(CoordinatorTaskTracker taskTracker,
                                  WorkerManager workerManager,
                                  CatalogRegistry catalogRegistry,
@@ -130,9 +132,7 @@ public final class QueryOwnershipTracker {
             // after remote cleanup atomically deleted the scope and intent
             // would make cleanup loop forever.
             if (intents.isPending(queryId)) {
-                if (shuffleLifecycleManager instanceof
-                        org.pangrova.coordinator.query.execution.dispatch.shuffle
-                                .CoordinatorShuffleLifecycleManager remote) {
+                if (shuffleLifecycleManager instanceof CoordinatorShuffleLifecycleManager remote) {
                     remote.recoverCleanupShuffle(queryId);
                 } else {
                     shuffleLifecycleManager.cleanupShuffle(queryId);

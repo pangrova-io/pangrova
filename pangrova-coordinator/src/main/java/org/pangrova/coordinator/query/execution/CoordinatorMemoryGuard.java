@@ -28,6 +28,7 @@ public final class CoordinatorMemoryGuard {
         this(DEFAULT_MAX_BYTES);
     }
 
+    /** Creates a coordinator memory guard with a positive byte limit. */
     public CoordinatorMemoryGuard(long maxBytes) {
         if (maxBytes <= 0) {
             throw new IllegalArgumentException("maxBytes must be positive, got " + maxBytes);

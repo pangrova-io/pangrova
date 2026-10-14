@@ -37,6 +37,7 @@ public final class ConnectorPageSinkCdcWriter implements CdcWriteSink {
     private static final long ESTIMATED_BYTES_PER_ROW = 256L;
 
     private final PageSinkStreamWriterContext deps;
+
     /** Creates the current coordinator-local connector writer. */
     public ConnectorPageSinkCdcWriter(PageSinkStreamWriterContext deps) {
         this.deps = Objects.requireNonNull(deps, "deps must not be null");

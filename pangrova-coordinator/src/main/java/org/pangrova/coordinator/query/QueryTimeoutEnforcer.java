@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
  */
 @ThreadSafe
 public class QueryTimeoutEnforcer {
+    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MS = 5_000L;
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryTimeoutEnforcer.class);
     private static final String TIMEOUT_ERROR_CODE = "QUERY_TIMEOUT";
@@ -90,7 +91,7 @@ public class QueryTimeoutEnforcer {
      */
     public void stop() {
         cancelScheduledTask();
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, 5000);
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
     }
 
     private void enforceTimeouts(Supplier<Map<String, QueryStateMachine>> queryProvider) {

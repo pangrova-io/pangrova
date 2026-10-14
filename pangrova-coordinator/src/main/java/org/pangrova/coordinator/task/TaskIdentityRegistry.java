@@ -23,7 +23,9 @@ final class TaskIdentityRegistry {
     private volatile java.util.function.Consumer<String> connectorOperationExited = ignored -> { };
 
     TaskIdentityRegistry() { this(System::nanoTime); }
-    TaskIdentityRegistry(java.util.function.LongSupplier clock) { this.clock = java.util.Objects.requireNonNull(clock); }
+    TaskIdentityRegistry(java.util.function.LongSupplier clock) {
+        this.clock = java.util.Objects.requireNonNull(clock);
+    }
 
     void onConnectorOperationExit(java.util.function.Consumer<String> listener) {
         connectorOperationExited = java.util.Objects.requireNonNull(listener);
@@ -43,7 +45,9 @@ final class TaskIdentityRegistry {
 
     synchronized void requireOpenQuery(String queryId) {
         Scope scope = scopes.get(queryId);
-        if (scope == null || scope.sealed) throw new IllegalStateException("Query has no open issuance authority: " + queryId);
+        if (scope == null || scope.sealed) {
+            throw new IllegalStateException("Query has no open issuance authority: " + queryId);
+        }
     }
 
     synchronized void markRecoveryUnresolved(String queryId) {
@@ -104,7 +108,9 @@ final class TaskIdentityRegistry {
             throw new IllegalArgumentException("Same report sequence has a different frozen fact");
         }
         Fact owner = fact;
-        if (owner.notificationsCompleted) throw new IllegalStateException("Report publication was already acknowledged");
+        if (owner.notificationsCompleted) {
+            throw new IllegalStateException("Report publication was already acknowledged");
+        }
         TaskReportPublication operation = new TaskReportPublication(owner.report, owner.resourceOnly, owner.completed,
                 () -> completeReport(scope, owner),
                 () -> exitReport(scope, owner, notifyDrain, operationExited));
@@ -255,8 +261,12 @@ final class TaskIdentityRegistry {
     synchronized void requireQueryDrained(String queryId) {
         Scope scope = scopes.get(queryId);
         if (scope == null || !scope.sealed) throw new IllegalStateException("Query issuance is not sealed: " + queryId);
-        if (scope.recoveryUnresolved) throw new IllegalStateException("Recovered query lacks durable issued authority: " + queryId);
-        if (scope.operations != 0) throw new IllegalStateException("Query dispatch operations have not exited: " + queryId);
+        if (scope.recoveryUnresolved) {
+            throw new IllegalStateException("Recovered query lacks durable issued authority: " + queryId);
+        }
+        if (scope.operations != 0) {
+            throw new IllegalStateException("Query dispatch operations have not exited: " + queryId);
+        }
         if (scope.publications.values().stream().anyMatch(fact -> !fact.notificationsCompleted)) {
             throw new IllegalStateException("Query still owns required report journal/publication work: " + queryId);
         }
@@ -282,27 +292,40 @@ final class TaskIdentityRegistry {
 
     synchronized boolean acknowledgesDrain(org.pangrova.protocol.rest.task.TaskStatusReport report) {
         Identity identity = identities.get(report.taskId());
-        if (identity == null || identity.drainReceipt() == null
-                || identity.ackDeadline() - clock.getAsLong() <= 0
-                || !report.workerId().equals(identity.workerId()) || report.canonicalTaskReport() == null
-                || report.reportSequence() <= 0) return false;
+        if (!hasLiveDrainReceipt(report, identity)) {
+            return false;
+        }
         Scope scope = scopes.get(report.queryId());
         Fact publication = scope == null ? null : scope.publications.get(report.taskId());
-        if (scope == null || publication == null || !publication.notificationsCompleted
-                || publication.operations != 0 || !publication.matches(report)) return false;
+        if (publication == null || !publication.notificationsCompleted
+                || publication.operations != 0 || !publication.matches(report)) {
+            return false;
+        }
         try {
             var actual = org.pangrova.protocol.v2.TaskReport.parseFrom(report.canonicalTaskReport());
-            return actual.getAttempt().getQueryOrJobId().equals(report.queryId())
-                    && actual.getState().name().equals("TASK_STATE_" + report.state())
-                    && actual.getAttempt().getStageId() == report.stageId()
-                    && actual.getAttempt().getPartitionId() == report.partitionId()
-                    && identity.attempt().equals(report.attempt())
-                    && org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(actual)
-                            .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
-                                    .compactExecutionDrainReceipt(identity.drainReceipt()));
+            return matchesDrainReceipt(report, identity, actual);
         } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException malformed) {
             return false;
         }
+    }
+
+    private boolean hasLiveDrainReceipt(org.pangrova.protocol.rest.task.TaskStatusReport report, Identity identity) {
+        return identity != null && identity.drainReceipt() != null
+                && identity.ackDeadline() - clock.getAsLong() > 0
+                && report.workerId().equals(identity.workerId())
+                && report.canonicalTaskReport() != null && report.reportSequence() > 0;
+    }
+
+    private static boolean matchesDrainReceipt(org.pangrova.protocol.rest.task.TaskStatusReport report,
+            Identity identity, org.pangrova.protocol.v2.TaskReport actual) {
+        return actual.getAttempt().getQueryOrJobId().equals(report.queryId())
+                && actual.getState().name().equals("TASK_STATE_" + report.state())
+                && actual.getAttempt().getStageId() == report.stageId()
+                && actual.getAttempt().getPartitionId() == report.partitionId()
+                && identity.attempt().equals(report.attempt())
+                && org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(actual)
+                        .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                                .compactExecutionDrainReceipt(identity.drainReceipt()));
     }
 
     synchronized boolean acknowledgesPublication(org.pangrova.protocol.rest.task.TaskStatusReport report) {
@@ -399,7 +422,9 @@ final class TaskIdentityRegistry {
             identities.put(taskId, existing.compact());
             return;
         }
-        if (existing.request() != null) scopes.get(existing.request().taskRequest().getAttempt().getQueryOrJobId()).tasks.remove(taskId);
+        if (existing.request() != null) {
+            scopes.get(existing.request().taskRequest().getAttempt().getQueryOrJobId()).tasks.remove(taskId);
+        }
         identities.remove(taskId, existing);
     }
 
@@ -418,19 +443,24 @@ final class TaskIdentityRegistry {
             }
             if (existing.drainReceipt() != null && !org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
                     .compactExecutionDrainReceipt(existing.drainReceipt())
-                    .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.compactExecutionDrainReceipt(report))) {
+                    .equals(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals
+                            .compactExecutionDrainReceipt(report))) {
                 throw new IllegalStateException("Exact execution drain evidence changed after first acceptance");
             }
-            return existing.drainReceipt() == null
-                    ? new Identity(existing.attempt(), existing.request(), report, existing.worker(), existing.entered(),
-                            existing.workerId(), existing.deadline(), clock.getAsLong()
-                            + org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos()) : existing;
+            if (existing.drainReceipt() != null) {
+                return existing;
+            }
+            long ackDeadline = clock.getAsLong()
+                    + org.pangrova.protocol.task.TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos();
+            return new Identity(existing.attempt(), existing.request(), report, existing.worker(), existing.entered(),
+                    existing.workerId(), existing.deadline(), ackDeadline);
         });
     }
 
     private Identity requireIdentity(SubmitTaskRequest request) {
         Identity existing = identities.get(request.taskRequest().getAttempt().getTaskId());
-        if (existing == null || !request.equals(retainedRequest(request.taskRequest().getAttempt().getTaskId(), existing))) {
+        if (existing == null || !request.equals(retainedRequest(
+                request.taskRequest().getAttempt().getTaskId(), existing))) {
             throw new IllegalStateException("Task has no exact retained issued request");
         }
         return existing;
@@ -525,7 +555,8 @@ final class TaskIdentityRegistry {
             synchronized (TaskIdentityRegistry.this) {
                 if (scopes.get(queryId) != scope) {
                     if (scope.cleanupClaimed && scope.retired && scope.operations == 0) return;
-                    throw new IllegalStateException("Connector cleanup does not own the issued query scope: " + queryId);
+                    throw new IllegalStateException(
+                            "Connector cleanup does not own the issued query scope: " + queryId);
                 }
                 requireQueryDrained(queryId);
             }

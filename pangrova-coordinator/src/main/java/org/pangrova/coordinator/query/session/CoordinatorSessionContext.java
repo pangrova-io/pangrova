@@ -46,7 +46,8 @@ public record CoordinatorSessionContext(
     }
 
     public CoordinatorSessionContext withTraceContext(ExecutionTraceContext context) {
-        return new CoordinatorSessionContext(queryId, sessionProperties, userIdentity, tenantId, queryAuthority, context);
+        return new CoordinatorSessionContext(
+                queryId, sessionProperties, userIdentity, tenantId, queryAuthority, context);
     }
 
     /** Binds the actual engine-owned query lifetime without altering the authenticated actor. */

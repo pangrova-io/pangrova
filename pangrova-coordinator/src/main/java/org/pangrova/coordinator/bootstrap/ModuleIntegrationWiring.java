@@ -48,6 +48,7 @@ import javax.sql.DataSource;
  * leader-aware subsystems.</p>
  */
 final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoCloseable {
+    private static final int INDEX_QUERY_REFRESH_INTERVAL_MS = 5_000;
 
     private static final Logger LOG = LoggerFactory.getLogger(ModuleIntegrationWiring.class);
 
@@ -145,9 +146,9 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
      * Must be called during bootstrap after MetadataBootstrap is initialized.
      */
     void setMetadataSyncDeps(org.pangrova.metadata.sync.MetadataSyncService syncService,
-                             org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry) {
+                             org.pangrova.metadata.catalog.CatalogRegistry syncCatalogRegistry) {
         this.metadataSyncService = syncService;
-        this.catalogRegistry = catalogRegistry;
+        this.catalogRegistry = syncCatalogRegistry;
     }
 
     void setInvalidationPoller(org.pangrova.metadata.cache.JdbcInvalidationPoller poller) {
@@ -378,7 +379,8 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
     void startIndexQuery(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
                          org.pangrova.spi.observability.MetricsProvider metricsProvider) {
         try {
-            indexQueryBootstrap = new IndexQueryBootstrap(metadataStore, metricsProvider, 5000, 0);
+            indexQueryBootstrap = new IndexQueryBootstrap(
+                    metadataStore, metricsProvider, INDEX_QUERY_REFRESH_INTERVAL_MS, 0);
             LOG.info("Phase: index-query — initialized (query-only split filter)");
         } catch (Exception e) {
             LOG.warn("event=index_query_start_failed error={} action=skip_index_filtering",
@@ -388,17 +390,17 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
     }
 
     void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
-                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.metadata.catalog.CatalogRegistry indexCatalogRegistry,
                        org.pangrova.spi.observability.MetricsProvider metricsProvider,
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
                        org.pangrova.spi.coordination.DistributedLease distributedLease) {
-        startIndexing(metadataStore, catalogRegistry, metricsProvider, accessControl,
+        startIndexing(metadataStore, indexCatalogRegistry, metricsProvider, accessControl,
                 baseIndexPath, distributedLease, null);
     }
 
     void startIndexing(org.pangrova.metadata.index.IndexMetadataStore metadataStore,
-                       org.pangrova.metadata.catalog.CatalogRegistry catalogRegistry,
+                       org.pangrova.metadata.catalog.CatalogRegistry indexCatalogRegistry,
                        org.pangrova.spi.observability.MetricsProvider metricsProvider,
                        org.pangrova.spi.security.AccessControl accessControl,
                        String baseIndexPath,
@@ -407,7 +409,7 @@ final class ModuleIntegrationWiring implements MaintenanceLeaderAware, AutoClose
         try {
             indexingBootstrap = new IndexingBootstrap(
                     baseIndexPath, distributedLease, artifactBuildStore);
-            indexingBootstrap.start(metadataStore, catalogRegistry, metricsProvider, accessControl);
+            indexingBootstrap.start(metadataStore, indexCatalogRegistry, metricsProvider, accessControl);
             LOG.info("Phase: indexing — initialized");
         } catch (Exception e) {
             LOG.warn("event=indexing_start_failed error={} action=skip_index_filtering",

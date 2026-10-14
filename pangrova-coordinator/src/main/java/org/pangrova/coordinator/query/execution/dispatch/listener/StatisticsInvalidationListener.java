@@ -22,6 +22,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * statistics are invalidated.</p>
  */
 public final class StatisticsInvalidationListener implements StatementCompletionListener {
+    private static final int INVALIDATION_PRIORITY = 15;
 
     private final StatisticsCollector statisticsCollector;
 
@@ -68,6 +69,6 @@ public final class StatisticsInvalidationListener implements StatementCompletion
 
     @Override
     public int priority() {
-        return 15;
+        return INVALIDATION_PRIORITY;
     }
 }

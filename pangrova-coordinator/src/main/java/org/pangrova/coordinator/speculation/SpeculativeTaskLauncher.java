@@ -105,8 +105,11 @@ public class SpeculativeTaskLauncher {
             dispatched = dispatchSpeculativeCopy(queryId, originalTaskId, speculativeId, excludeWorkerId);
         } catch (RuntimeException | Error failure) {
             candidate.dispatching = false;
-            try { removePair(originalTaskId); }
-            catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            try {
+                removePair(originalTaskId);
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            }
             throw failure;
         }
         candidate.dispatching = false;
@@ -160,9 +163,14 @@ public class SpeculativeTaskLauncher {
         if (pair == null) return;
         var retained = taskTracker.executionDrainReceipt(taskId).orElseThrow(() ->
                 new IllegalStateException("Speculative drain notification lacks exact retained authority"));
-        if (!retained.getAttempt().equals(report.getAttempt())) throw new IllegalStateException("Speculative attempt changed");
-        if (taskId.equals(pair.copyId)) pair.copyDrained = true;
-        else if (taskId.equals(pair.originalId)) pair.originalDrained = true;
+        if (!retained.getAttempt().equals(report.getAttempt())) {
+            throw new IllegalStateException("Speculative attempt changed");
+        }
+        if (taskId.equals(pair.copyId)) {
+            pair.copyDrained = true;
+        } else if (taskId.equals(pair.originalId)) {
+            pair.originalDrained = true;
+        }
         retirePairIfDrained(pair);
     }
 
@@ -231,7 +239,8 @@ public class SpeculativeTaskLauncher {
         }
     }
 
-    private boolean handleCopyFailure(String queryId, String originalId, String copyId, WorkerInfo worker, Throwable failure) {
+    private boolean handleCopyFailure(
+            String queryId, String originalId, String copyId, WorkerInfo worker, Throwable failure) {
         LOG.warn("event=speculative_dispatch_failed originalTaskId={} speculativeId={} targetWorker={} error={}",
                 originalId, copyId, worker.workerId(), failure.getMessage(), failure);
         var pair = speculativePairs.get(originalId);
@@ -255,7 +264,8 @@ public class SpeculativeTaskLauncher {
         return false;
     }
 
-    private void registerAndDispatchCopy(String queryId, String originalId, SubmitTaskRequest request, WorkerInfo worker) {
+    private void registerAndDispatchCopy(
+            String queryId, String originalId, SubmitTaskRequest request, WorkerInfo worker) {
         String copyId = request.taskRequest().getAttempt().getTaskId();
         taskTracker.registerTask(queryId, copyId);
         taskTracker.registerTaskRequest(copyId, request);

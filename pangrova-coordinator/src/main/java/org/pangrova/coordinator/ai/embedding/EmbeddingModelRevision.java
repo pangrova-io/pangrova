@@ -9,6 +9,7 @@ public final class EmbeddingModelRevision {
 
     private EmbeddingModelRevision() {}
 
+    /** Applies an update while preserving the model revision contract. */
     public static EmbeddingModelDescriptor applyUpdate(
             EmbeddingModelDescriptor current, ModelUpdateRequest update) {
         Objects.requireNonNull(current, "current must not be null");

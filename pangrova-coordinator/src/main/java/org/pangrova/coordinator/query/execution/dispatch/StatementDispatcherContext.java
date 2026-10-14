@@ -22,6 +22,7 @@ public record StatementDispatcherContext(
 
     public StatementDispatcherContext {
         checkNotNull(factories, "factories");
+        factories = List.copyOf(factories);
         listeners = listeners != null ? List.copyOf(listeners) : List.of();
         // compiler is nullable — late-bound via StatementDispatcher.updateCompiler()
         // accessControl is nullable for anonymous/test contexts

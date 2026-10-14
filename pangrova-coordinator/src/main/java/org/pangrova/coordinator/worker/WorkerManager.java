@@ -30,7 +30,7 @@ import org.slf4j.LoggerFactory;
  * use ConcurrentHashMap.compute for atomicity.</p>
  */
 @ThreadSafe
-public class WorkerManager {
+public final class WorkerManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerManager.class);
 
@@ -106,6 +106,7 @@ public class WorkerManager {
         this.registry = checkNotNull(registry, "registry must not be null");
     }
 
+    /** Persists and publishes a newly admitted Worker in the topology view. */
     public void registerWorker(WorkerInfo info) {
         checkNotNull(info, "WorkerInfo must not be null");
         registry.register(toSnapshot(info));
@@ -113,6 +114,7 @@ public class WorkerManager {
         fireTopologyChanged();
     }
 
+    /** Refreshes one Worker's health, registry heartbeat, and tenant usage. */
     public void onHeartbeat(String workerId, HeartbeatData data) {
         checkNotNull(workerId, "workerId must not be null");
         checkNotNull(data, "HeartbeatData must not be null");
@@ -150,6 +152,7 @@ public class WorkerManager {
         }
     }
 
+    /** Evaluates the Worker's heartbeat age and updates topology on a liveness transition. */
     public HealthState evaluateHealth(String workerId, Instant now) {
         // BUG-C04: Use computeIfPresent to atomically read + evaluate + update,
         // eliminating the TOCTOU race between get() and computeIfPresent().
@@ -186,6 +189,7 @@ public class WorkerManager {
     }
 
 
+    /** Removes dead Workers from both the local view and durable registry. */
     public void removeDeadWorkers() {
         // C-WK-04: Sync registry when removing dead workers to prevent
         // stale DB entries from being reloaded via loadFromRegistry().
@@ -204,6 +208,7 @@ public class WorkerManager {
         fireTopologyChanged();
     }
 
+    /** Unregisters a Worker and withdraws its tenant usage from aggregation. */
     public void removeWorker(String workerId) {
         WorkerInfo prev = workers.remove(workerId);
         if (prev != null) {

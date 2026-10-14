@@ -19,6 +19,7 @@ public final class DefaultShuffleProvider implements ShuffleProvider {
     private final ExchangeChannelManager exchangeManager;
     private final ShuffleCapabilities capabilities;
 
+    /** Creates a shuffle provider backed by the lifecycle and exchange managers. */
     public DefaultShuffleProvider(
             ShuffleLifecycleManager lifecycleManager,
             ExchangeChannelManager exchangeManager,

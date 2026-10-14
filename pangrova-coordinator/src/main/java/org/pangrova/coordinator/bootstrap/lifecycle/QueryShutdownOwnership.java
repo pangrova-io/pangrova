@@ -9,6 +9,7 @@ import org.pangrova.spi.coordination.QueryStateJournal;
 /** Query-side dependency barriers. Successful result streams drain naturally; shutdown does not DELETE them. */
 @ThreadSafe
 public final class QueryShutdownOwnership {
+    private static final long QUERY_DRAIN_TIMEOUT_MILLIS = 30_000;
     private final Supplier<QueryManager> queries;
     private final Supplier<QueryStateJournal> journal;
     private final Runnable submissions;
@@ -39,7 +40,7 @@ public final class QueryShutdownOwnership {
         progress.step("submissions", submissions);
         progress.step("queries", () -> {
             QueryManager owner = queries.get();
-            if (owner != null && !owner.awaitAllQueries(30_000)) {
+            if (owner != null && !owner.awaitAllQueries(QUERY_DRAIN_TIMEOUT_MILLIS)) {
                 throw new IllegalStateException("Queries still own execution or publication resources");
             }
         });
@@ -57,14 +58,17 @@ public final class QueryShutdownOwnership {
         QueryStateJournal owner = journal.get();
         Throwable semanticFailure = null;
         if (owner != null) {
-            try { progress.step("journal", owner::close); }
-            catch (RuntimeException | Error failure) {
+            try {
+                progress.step("journal", owner::close);
+            } catch (RuntimeException | Error failure) {
                 if (!owner.isDrained()) throw failure;
                 semanticFailure = failure;
             }
         }
-        try { resources.accept(progress); drained = true; }
-        catch (RuntimeException | Error failure) {
+        try {
+            resources.accept(progress);
+            drained = true;
+        } catch (RuntimeException | Error failure) {
             if (semanticFailure == null) throw failure;
             if (semanticFailure != failure) semanticFailure.addSuppressed(failure);
         }

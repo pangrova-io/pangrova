@@ -32,10 +32,15 @@ final class SpeculativeTaskReportCompletion {
 
     SpeculativeTaskReportCompletion(TaskStatusReceiverContext deps, NativeTaskWriteCompletion writes,
             TaskReportSequences sequences, BiConsumer<String, TaskStatusReport> evaluate) {
-        taskTracker = deps.taskTracker(); workerManager = deps.workerManager();
-        speculativeLauncher = deps.speculativeLauncher(); duplicateResolver = deps.duplicateResolver();
-        taskDispatcher = deps.taskDispatcher(); stageCompletionCallback = deps.stageCompletionCallback();
-        this.writes = writes; this.sequences = sequences; this.evaluate = evaluate;
+        taskTracker = deps.taskTracker();
+        workerManager = deps.workerManager();
+        speculativeLauncher = deps.speculativeLauncher();
+        duplicateResolver = deps.duplicateResolver();
+        taskDispatcher = deps.taskDispatcher();
+        stageCompletionCallback = deps.stageCompletionCallback();
+        this.writes = writes;
+        this.sequences = sequences;
+        this.evaluate = evaluate;
     }
 
     void clearQuery(String queryId) {

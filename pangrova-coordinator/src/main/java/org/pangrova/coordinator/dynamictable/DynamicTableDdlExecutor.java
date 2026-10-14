@@ -51,6 +51,7 @@ public final class DynamicTableDdlExecutor implements MetadataEventListener {
     private final DynamicTableViewRegistrar viewRegistrar;
     private final AstPrinter astPrinter = new AstPrinter();
 
+    /** Creates a dynamic table DDL executor from its bound dependencies. */
     public DynamicTableDdlExecutor(DynamicTableDdlContext deps) {
         this.deps = Objects.requireNonNull(deps, "deps must not be null");
         this.schemaInspector = new DynamicTableSchemaInspector(
@@ -294,18 +295,6 @@ public final class DynamicTableDdlExecutor implements MetadataEventListener {
     }
 
     // ── Tenant ownership ────────────────────────────────────────────
-
-    /**
-     * Verifies the requesting tenant owns the Dynamic Table (loads state by name).
-     * Throws {@link AccessDeniedException} on mismatch.
-     */
-    private void verifyTenantOwnership(String dtName, CoordinatorSessionContext ctx, String operation) {
-        Optional<DynamicTableState> loaded = stateStore().loadState(dtName);
-        if (loaded.isEmpty()) {
-            return; // not-found is handled by the caller
-        }
-        verifyTenantOwnership(loaded.get(), ctx, operation);
-    }
 
     /**
      * Verifies the requesting tenant owns the Dynamic Table (pre-loaded state).

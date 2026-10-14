@@ -28,12 +28,14 @@ import org.slf4j.LoggerFactory;
  * flags default to {@code true} except {@code security.enabled} which defaults to {@code false}.
  */
 public final class PangrovaCoordinatorMain {
+    private static final int MAX_TCP_PORT = 65535;
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaCoordinatorMain.class);
     private static final String CLASSPATH_DEFAULT = "coordinator.yml";
 
     private PangrovaCoordinatorMain() {}
 
+    /** Starts the coordinator from its command-line configuration. */
     public static void main(String[] args) {
         try {
             PangrovaConfiguration pangrovaConfig = loadPangrovaConfiguration(args);
@@ -71,7 +73,7 @@ public final class PangrovaCoordinatorMain {
     public static ConfigValidator coordinatorValidator() {
         return new ConfigValidator()
                 .require(CoordinatorOptions.COORDINATOR_ID)
-                .intRange(CoordinatorOptions.COORDINATOR_PORT, 1, 65535)
+                .intRange(CoordinatorOptions.COORDINATOR_PORT, 1, MAX_TCP_PORT)
                 .positiveInt(CoordinatorOptions.METADATA_CACHE_L1_MAX_SIZE)
                 .positiveInt(CoordinatorOptions.QUERY_MAX_CONCURRENT);
     }
@@ -91,7 +93,8 @@ public final class PangrovaCoordinatorMain {
         String configPath = parseConfigPath(args);
         Map<String, String> flatMap;
         if (configPath != null) {
-            LOG.info("event=config_loading source=cli_yaml path={}", configPath);
+            LOG.info("event=config_loading source=cli_yaml path={}",
+                    configPath.replace('\r', '_').replace('\n', '_'));
             flatMap = YamlConfigLoader.loadWithDefaults(Path.of(configPath), CLASSPATH_DEFAULT);
         } else {
             LOG.info("event=config_loading source=classpath_default resource={}", CLASSPATH_DEFAULT);

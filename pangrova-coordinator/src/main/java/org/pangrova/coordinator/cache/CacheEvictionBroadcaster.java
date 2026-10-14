@@ -41,6 +41,7 @@ public final class CacheEvictionBroadcaster implements CacheEvictionListener {
         this(DEFAULT_MAX_PENDING);
     }
 
+    /** Creates a broadcaster with a bounded pending notification queue. */
     public CacheEvictionBroadcaster(int maxPending) {
         if (maxPending <= 0) {
             throw new IllegalArgumentException("maxPending must be > 0, got: " + maxPending);

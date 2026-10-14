@@ -82,6 +82,7 @@ public final class DdlExecutor {
         }
     }
 
+    /** Creates a table using the resolved catalog and session. */
     public List<TypedRow> executeCreateTable(
             CreateTableStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
@@ -147,6 +148,7 @@ public final class DdlExecutor {
         return props;
     }
 
+    /** Drops a table using the resolved catalog and session. */
     public List<TypedRow> executeDropTable(
             DropTableStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
@@ -163,6 +165,7 @@ public final class DdlExecutor {
         return List.of();
     }
 
+    /** Alters a table using the resolved catalog and session. */
     public List<TypedRow> executeAlterTable(
             AlterTableStatement stmt, CoordinatorSessionContext context) {
         QualifiedTableName ref = TableResolver.resolveTableRef(stmt.tableName().parts(), context);
@@ -364,6 +367,7 @@ public final class DdlExecutor {
                 tenantId, ref.catalog(), ref.schema(), ref.table()));
     }
 
+    /** Creates a schema in the resolved catalog. */
     public List<TypedRow> executeCreateSchema(
             CreateSchemaStatement stmt, CoordinatorSessionContext context) {
         List<String> parts = stmt.schemaName().parts();
@@ -380,6 +384,7 @@ public final class DdlExecutor {
         return List.of();
     }
 
+    /** Creates a catalog from the statement properties. */
     public List<TypedRow> executeCreateCatalog(CreateCatalogStatement stmt) {
         Map<String, String> props = DmlExpressionEvaluator.convertProperties(stmt.properties());
         // Resolve provider: explicit USING clause > 'connector' property > fallback 'unknown'

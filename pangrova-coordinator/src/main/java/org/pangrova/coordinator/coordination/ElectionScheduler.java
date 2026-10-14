@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
  */
 @ThreadSafe
 class ElectionScheduler {
+    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_MS = 5_000L;
 
     private static final Logger LOG = LoggerFactory.getLogger(ElectionScheduler.class);
 
@@ -162,6 +163,6 @@ class ElectionScheduler {
         if (scheduler == null) {
             return;
         }
-        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, 5000);
+        org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(scheduler, EXECUTOR_SHUTDOWN_TIMEOUT_MS);
     }
 }

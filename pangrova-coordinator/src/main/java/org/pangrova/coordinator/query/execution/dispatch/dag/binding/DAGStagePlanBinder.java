@@ -36,7 +36,11 @@ public final class DAGStagePlanBinder {
     /** Authenticated live compilation metadata for one exact stage. */
     public record Input(SerializedPlanFragment serialized, StageNode plan,
             List<SplitFetcher.SplitWithPaths> splits, DAGQueryContext queryContext,
-            CoordinatorSessionContext session, WorkerSelector workerSelector, boolean outputStage) {}
+            CoordinatorSessionContext session, WorkerSelector workerSelector, boolean outputStage) {
+        public Input {
+            splits = List.copyOf(splits);
+        }
+    }
 
     /** Resolves live protected-stage bindings through the canonical model/artifact ports. */
     public BoundExecutionPlan bind(Input input) {

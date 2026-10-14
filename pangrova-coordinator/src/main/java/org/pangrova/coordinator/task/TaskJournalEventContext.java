@@ -17,6 +17,9 @@ import java.util.UUID;
 /** Freezes task-journal identity from an already validated issued attempt and producer sequence. */
 public final class TaskJournalEventContext {
     private static final byte[] DOMAIN = "pangrova.task-journal-event.v1\0".getBytes(StandardCharsets.UTF_8);
+    private static final int UUID_VERSION_CLEAR_MASK = 0x0f;
+    private static final int UUID_VARIANT_CLEAR_MASK = 0x3f;
+    private static final int UUID_VERSION_BITS = 0x80;
 
     private TaskJournalEventContext() {}
 
@@ -36,8 +39,8 @@ public final class TaskJournalEventContext {
         }
         byte[] hash = hash(attempt, sequence);
         // A domain-separated 128-bit content identity, not a random identity regenerated on retry.
-        hash[6] = (byte) ((hash[6] & 0x0f) | 0x80);
-        hash[8] = (byte) ((hash[8] & 0x3f) | 0x80);
+        hash[6] = (byte) ((hash[6] & UUID_VERSION_CLEAR_MASK) | UUID_VERSION_BITS);
+        hash[8] = (byte) ((hash[8] & UUID_VARIANT_CLEAR_MASK) | UUID_VERSION_BITS);
         ByteBuffer bytes = ByteBuffer.wrap(hash);
         return new JournalEventContext(new UUID(bytes.getLong(), bytes.getLong()), timestampMs,
                 attempt.getExecutionOwner().getOwnerId());

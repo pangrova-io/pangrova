@@ -37,6 +37,7 @@ public final class TableResolver {
         };
     }
 
+    /** Resolves a rename target within the source catalog. */
     public static QualifiedTableName resolveRenameTarget(List<String> parts, QualifiedTableName source) {
         QualifiedTableName target = resolveTableRef(parts, source.catalog(), source.schema());
         if (!target.catalog().equals(source.catalog())) {
@@ -59,6 +60,7 @@ public final class TableResolver {
         return SessionContextConverter.toConnectorSession(context, catalog, schema);
     }
 
+    /** Returns the table handle or rejects an unknown table. */
     public static ConnectorTableHandle requireTableHandle(
             ConnectorMetadata metadata, ConnectorSession session, QualifiedTableName ref) {
         ConnectorTableHandle handle = metadata.getTableHandle(
@@ -95,6 +97,7 @@ public final class TableResolver {
         return handle.getMetadata(session);
     }
 
+    /** Resolves and validates the columns targeted by an insert. */
     public static List<String> resolveInsertColumns(
             Optional<List<String>> explicitColumns, ConnectorMetadata metadata,
             ConnectorSession session, ConnectorTableHandle tableHandle) {

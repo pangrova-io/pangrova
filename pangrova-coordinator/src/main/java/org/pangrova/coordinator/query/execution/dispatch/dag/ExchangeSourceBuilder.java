@@ -25,6 +25,7 @@ import org.pangrova.protocol.v2.ShuffleServiceEndpoint;
  * Resolves upstream task locations and fetches splits for leaf stages.
  */
 final class ExchangeSourceBuilder {
+    private static final long MIN_TICKET_VALIDITY_MS = 30_000L;
 
     private ExchangeSourceBuilder() {}
 
@@ -155,7 +156,7 @@ final class ExchangeSourceBuilder {
         }
         var attempt = producerRequest.taskRequest().getAttempt();
         var ticket = endpoint.ticketFor(partitionId);
-        if (ticket.expiresAtEpochMs() <= System.currentTimeMillis() + 30_000L) {
+        if (ticket.expiresAtEpochMs() <= System.currentTimeMillis() + MIN_TICKET_VALIDITY_MS) {
             throw new IllegalStateException(
                     "Producer shuffle ticket expires before safe consumer bind: task="
                             + rec.result().taskId() + " exchange=" + edge.exchangeId());

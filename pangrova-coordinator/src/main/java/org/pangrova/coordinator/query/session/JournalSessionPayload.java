@@ -18,7 +18,8 @@ public record JournalSessionPayload(String queryId, String tenantId) {
             return JsonMapperFactory.writer().writeValueAsString(new JournalSessionPayload(session.queryId(),
                     session.tenantId() != null ? session.tenantId() : ""));
         } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
-            throw new IllegalStateException("Query journal session serialization failed before event transfer", failure);
+            throw new IllegalStateException(
+                    "Query journal session serialization failed before event transfer", failure);
         }
     }
 }

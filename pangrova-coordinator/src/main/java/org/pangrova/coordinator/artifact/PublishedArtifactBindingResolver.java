@@ -222,13 +222,15 @@ public final class PublishedArtifactBindingResolver {
     }
 
     /** Pure task-local materialization from immutable evidence read on the claim transaction's connection. */
-    public static List<OperatorBinding> materializePrepared(List<OperatorBinding> bindings, List<String> serializedSplits,
+    public static List<OperatorBinding> materializePrepared(
+            List<OperatorBinding> bindings, List<String> serializedSplits,
             Map<PublicationRead, PublishedInput> publications) {
         var splits = PublishedArtifactBindingContract.parseSplits(serializedSplits);
         Set<PublicationRead> required = bindings.stream().flatMap(binding -> binding.getArtifactsList().stream())
                 .map(PublishedArtifactBindingResolver::publicationRead).collect(java.util.stream.Collectors.toSet());
         if (!required.equals(publications.keySet())) {
-            throw new IllegalStateException("Prepared publication evidence differs from immutable stage read templates");
+            throw new IllegalStateException(
+                    "Prepared publication evidence differs from immutable stage read templates");
         }
         return bindings.stream().map(binding -> {
             var result = binding.toBuilder().clearArtifacts();
