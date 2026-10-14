@@ -8,8 +8,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -23,19 +25,21 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * table creation, data insertion, querying, and table deletion through a
  * REST catalog server.
  *
- * <p>Tests are conditionally enabled via the {@code PANGROVA_REST_CATALOG_URI}
- * environment variable, which must point to a running REST catalog server.
- * When the variable is not set, tests are skipped — REST catalog requires
- * an external catalog server (e.g., Polaris, Nessie, or Gravitino) that
- * provides the Iceberg REST protocol endpoint.
+ * <p>Iceberg and Paimon have separate REST protocols and require independently
+ * configured servers. Iceberg may use Gravitino; Paimon requires a Paimon REST
+ * server and its warehouse identifier. Each suite runs only with its own endpoint.
  *
  * <p>Full pipeline: SQL → Parser → Planner → Substrait → Native → transport → Client.
  *
  * <p>Requirements: B7 (Iceberg REST Catalog), C12 (Paimon REST Catalog), D3 (REST Catalog Unified)
  */
 @DisplayName("REST Catalog - E2E Tests")
-@EnabledIfEnvironmentVariable(named = "PANGROVA_REST_CATALOG_URI", matches = ".+")
+@EnabledIf("hasConfiguredCatalog")
 class RestCatalogTest extends SqlE2ETestBase {
+
+    private static final String ICEBERG_URI = "PANGROVA_ICEBERG_REST_CATALOG_URI";
+    private static final String PAIMON_URI = "PANGROVA_PAIMON_REST_CATALOG_URI";
+    private static final String PAIMON_WAREHOUSE = "PANGROVA_PAIMON_REST_CATALOG_WAREHOUSE";
 
     private static final String ICE_CATALOG = "iceberg_rest";
     private static final String PAI_CATALOG = "paimon_rest";
@@ -45,16 +49,29 @@ class RestCatalogTest extends SqlE2ETestBase {
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
-        String restUri = System.getenv("PANGROVA_REST_CATALOG_URI");
-        return List.of(
-                new ConnectorTestConfig(ICE_CATALOG, SCHEMA, "iceberg", Map.of(
-                        "catalog-type", "rest",
-                        "uri", restUri
-                )),
-                new ConnectorTestConfig(PAI_CATALOG, SCHEMA, "paimon", Map.of(
-                        "metastore", "rest",
-                        "uri", restUri
-                )));
+        List<ConnectorTestConfig> configs = new ArrayList<>();
+        if (configured(ICEBERG_URI)) {
+            configs.add(new ConnectorTestConfig(ICE_CATALOG, SCHEMA, "iceberg", Map.of(
+                    "catalog-type", "rest", "uri", System.getenv(ICEBERG_URI))));
+        }
+        if (configured(PAIMON_URI)) {
+            if (!configured(PAIMON_WAREHOUSE)) {
+                throw new IllegalArgumentException(PAIMON_WAREHOUSE + " is required for Paimon REST tests");
+            }
+            configs.add(new ConnectorTestConfig(PAI_CATALOG, SCHEMA, "paimon", Map.of(
+                    "metastore", "rest", "uri", System.getenv(PAIMON_URI),
+                    "warehouse", System.getenv(PAIMON_WAREHOUSE))));
+        }
+        return List.copyOf(configs);
+    }
+
+    private static boolean hasConfiguredCatalog() {
+        return configured(ICEBERG_URI) || configured(PAIMON_URI);
+    }
+
+    private static boolean configured(String name) {
+        String value = System.getenv(name);
+        return value != null && !value.isBlank();
     }
 
     private String tableName;
@@ -69,7 +86,23 @@ class RestCatalogTest extends SqlE2ETestBase {
 
     @Nested
     @DisplayName("2.15.3 - Iceberg REST Catalog CRUD")
+    @EnabledIfEnvironmentVariable(named = ICEBERG_URI, matches = ".+")
     class IcebergRestCatalogCrud {
+
+        @Test
+        @DisplayName("Iceberg REST Catalog: create, read empty table, drop")
+        void createReadEmptyDrop() {
+            String fqn = ICE_FQN_PREFIX + tableName;
+
+            sqlRunner.executeDdl("CREATE TABLE " + fqn + " (id BIGINT, name VARCHAR)");
+            try {
+                assertThat(sqlRunner.execute("SELECT id, name FROM " + fqn)).isEmpty();
+            } finally {
+                sqlRunner.executeDdl("DROP TABLE " + fqn);
+            }
+            assertThatThrownBy(() -> sqlRunner.execute("SELECT * FROM " + fqn))
+                    .isInstanceOf(RuntimeException.class);
+        }
 
         @Test
         @DisplayName("Iceberg REST Catalog: create table, insert, query")
@@ -112,6 +145,7 @@ class RestCatalogTest extends SqlE2ETestBase {
 
     @Nested
     @DisplayName("2.15.4 - Paimon REST Catalog CRUD")
+    @EnabledIfEnvironmentVariable(named = PAIMON_URI, matches = ".+")
     class PaimonRestCatalogCrud {
 
         @Test
