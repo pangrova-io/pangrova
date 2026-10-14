@@ -114,6 +114,15 @@ For integration and E2E tests, **no test doubles/stubs/mocks are permitted**. Al
 
 > **Rationale**: Integration tests validate cross-module interactions with real protocols and serialization. Test doubles at this level hide bugs in serialization, network handling, and state management that only surface in production.
 
+`RestCatalogTest` needs real, separately configured catalog services. Set
+`PANGROVA_ICEBERG_REST_CATALOG_URI` to an Iceberg REST endpoint with the
+`default` namespace already created; the service and test workers must be able
+to access the same warehouse files. Set `PANGROVA_PAIMON_REST_CATALOG_URI` and
+`PANGROVA_PAIMON_REST_CATALOG_WAREHOUSE` together for a Paimon REST service;
+the warehouse value identifies the server-side catalog instance. An Iceberg
+REST endpoint cannot serve the Paimon tests. When an endpoint is absent, its
+suite is skipped and does not count as REST catalog validation.
+
 ## 3. Fuzzer Testing Framework
 
 ### 3.1 Fuzzer Architecture
