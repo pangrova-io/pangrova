@@ -391,6 +391,11 @@ build_velox() {
       install_velox_deps
     fi
   elif [[ "$OS" == "Linux" ]]; then
+    local archive_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-codeload-archives.patch"
+    if ! git apply --reverse --check "$archive_patch" >/dev/null 2>&1; then
+      git apply --check "$archive_patch"
+      git apply "$archive_patch"
+    fi
     ./scripts/setup-ubuntu.sh
     # setup-ubuntu.sh installs core Velox dependencies but leaves cloud adapters
     # to an explicit command. The S3-enabled Velox configure requires AWSSDK.

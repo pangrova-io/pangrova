@@ -67,6 +67,7 @@ COPY pangrova-worker-native/bin/prepare-lance-sdk.sh /workspace/pangrova-worker-
 COPY pangrova-worker-native/patches/lance-writer-drain.patch /workspace/pangrova-worker-native/patches/lance-writer-drain.patch
 RUN --mount=type=cache,id=pangrova-native-deps-${TARGETARCH},target=/tmp/pangrova-native-build,sharing=locked \
     SKIP_VELOX=1 pangrova-worker-native/bin/setup-native-build-env.sh
+COPY pangrova-worker-native/patches/velox-codeload-archives.patch /workspace/pangrova-worker-native/patches/velox-codeload-archives.patch
 # Use one pinned binary distribution rather than Velox's unversioned installer.
 # Keep this layer after the native dependency archives so changing the bootstrap
 # tool does not rebuild protobuf/gRPC/Arrow.
