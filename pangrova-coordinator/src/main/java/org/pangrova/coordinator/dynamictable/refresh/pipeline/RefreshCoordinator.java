@@ -120,10 +120,6 @@ public final class RefreshCoordinator {
      * stale epoch. Now we re-validate just before writing, and the final
      * commit uses saveStateIfEpoch() as a CAS guard.
      *
-     * <p>Incremental split optimization: when the connector supports
-     * incremental append scan and the detected change range is append-only,
-     * uses {@code getIncrementalSplits()} for O(delta) split generation
-     * instead of a full table scan.</p>
      */
     private RefreshResult executeRefreshPipeline(DynamicTableState state, TriggerType triggerType,
                                                   String refreshId, Instant startTime) {
@@ -132,10 +128,6 @@ public final class RefreshCoordinator {
             return handleNoOp(state, triggerType, refreshId, startTime);
         }
         String sourceCheckpoint = changes.extractCheckpoint();
-
-        // When connector supports incremental scan and the range is append-only,
-        // use getIncrementalSplits() for O(delta) refresh instead of full scan.
-        tryUseIncrementalSplits(state, changes);
 
         // Native dispatch: compile the refresh query to a Substrait plan
         // (ReadRel → FilterRel → ProjectRel → HashAggregateRel → WriteRel)
@@ -183,39 +175,6 @@ public final class RefreshCoordinator {
         DynamicTableWriteResult writeResult = new DynamicTableWriteResult(
                 0L, 0L, state.dtName(), sourceCheckpoint);
         return commitAndRecord(state, triggerType, refreshId, startTime, writeResult);
-    }
-
-    /**
-     * Attempts to use incremental splits when the connector supports it
-     * and the change range is append-only.
-     *
-     * <p>When conditions are met, fetches incremental splits via
-     * {@code ConnectorSplitManager.getIncrementalSplits()} and logs the
-     * optimization. The split source is consumed eagerly to verify the
-     * connector can produce incremental splits for this range.</p>
-     */
-    private void tryUseIncrementalSplits(DynamicTableState state, ChangeResult changes) {
-        if (!deps.supportsIncrementalSplits()) {
-            return;
-        }
-        if (!(changes instanceof ChangeResult.Incremental incremental)) {
-            return;
-        }
-        long fromSnapshot = incremental.plan().fromSnapshot();
-        long toSnapshot = incremental.plan().toSnapshot();
-        String tableName = state.dtName();
-
-        try {
-            var capability = deps.incrementalScanCapability();
-            if (capability.supportsIncrementalAppendScan()
-                    && capability.isAppendOnly(tableName, fromSnapshot, toSnapshot)) {
-                LOG.info("event=dt_incremental_splits_enabled dtName={} from_snapshot={} to_snapshot={}",
-                        tableName, fromSnapshot, toSnapshot);
-            }
-        } catch (Exception e) {
-            LOG.warn("event=dt_incremental_splits_check_failed dtName={} error={} action=fallback_to_full_scan",
-                    tableName, e.getMessage());
-        }
     }
 
     /**

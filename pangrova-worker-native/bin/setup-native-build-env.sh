@@ -140,7 +140,7 @@ configure_compiler() {
 }
 
 ensure_folly_compiler_abi() {
-  [[ "$OS" == "Darwin" ]] || return
+  [[ "$OS" == "Darwin" ]] || return 0
   local folly_source="$VELOX_DIR/deps-download/folly"
   local folly_archive="$VELOX_DIR/deps-install/lib/libfolly.a"
   # Consume nm fully: grep -q closes the pipe early and pipefail turns a

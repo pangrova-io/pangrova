@@ -10,32 +10,27 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.StringJoiner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * E2E test for incremental split generation during DT refresh.
+ * E2E test for the test harness's Dynamic Table read rewrite.
  *
- * <p>Proves that tasks 5.3-5.6 (incremental splits in ConnectorSplitManager
- * SPI, Iceberg/Paimon implementations, and RefreshCoordinator wiring)
- * actually use incremental splits O(delta) instead of full scan O(total)
- * for append-only workloads, and correctly fall back to full scan when
- * non-append changes (DELETE/UPDATE) are detected.</p>
+ * <p>The E2E harness installs a refresh executor that points reads at the
+ * defining source query. These assertions check SQL rewrite and source-row
+ * visibility across changes. They do not exercise a materialized refresh,
+ * physical split selection, or {@code RefreshCoordinator}.</p>
  *
  * <p>Three scenarios:</p>
  * <ol>
- *   <li>Delta refresh correctness: 5 batches → CREATE DT → full refresh →
- *       INSERT 1 more → delta refresh → all 6 batches present, second
- *       refresh only scanned the 1 new batch.</li>
- *   <li>Non-append falls back to full scan: INSERT → CREATE DT → refresh →
- *       DELETE → refresh → full scan used, results still correct.</li>
- *   <li>CDC append-only path: CDC writes 3 snapshots → DT refresh → CDC
- *       writes 1 more → delta refresh → only last snapshot scanned,
- *       results match full scan baseline.</li>
+ *   <li>Append-only source changes remain visible through a rewritten read.</li>
+ *   <li>Deleted source rows disappear from a rewritten read.</li>
+ *   <li>CDC-mode declarations use the same harness rewrite.</li>
  * </ol>
  */
-@DisplayName("Incremental Split Refresh E2E — O(delta) vs O(total)")
-class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
+@DisplayName("Dynamic Table read rewrite against changing source data")
+class DynamicTableReadRewriteE2ETest extends SqlE2ETestBase {
 
     private static final String ICE_CATALOG = "iceberg_catalog";
     private static final String PAIMON_CATALOG = "paimon_catalog";
@@ -50,13 +45,31 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
                         PAIMON_CATALOG, SCHEMA, paimonWarehouse().toString()));
     }
 
+    private static void insertIcebergBatch(String source, int batch) {
+        StringJoiner values = new StringJoiner(", ");
+        for (int i = 1; i <= 10; i++) {
+            int id = (batch - 1) * 10 + i;
+            values.add("(" + id + ", " + batch + ", " + (id * 1.5) + ")");
+        }
+        sqlRunner.execute("INSERT INTO " + source + " VALUES " + values);
+    }
+
+    private static void insertCdcSnapshot(String source, int snapshot) {
+        StringJoiner values = new StringJoiner(", ");
+        for (int i = 1; i <= 5; i++) {
+            int id = (snapshot - 1) * 5 + i;
+            values.add("(" + id + ", 'event_" + snapshot + "', 'payload_" + id + "')");
+        }
+        sqlRunner.execute("INSERT INTO " + source + " VALUES " + values);
+    }
+
     // -----------------------------------------------------------------------
-    // Scenario 1: Delta refresh correctness (Iceberg — append-only)
+    // Scenario 1: Iceberg source rewrite after append-only changes
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Scenario 1 — Delta refresh correctness")
-    class DeltaRefreshCorrectness {
+    @DisplayName("Scenario 1 — Iceberg source rewrite")
+    class IcebergSourceRewrite {
 
         private static final String SOURCE = ICE_CATALOG + "." + SCHEMA + ".incr_delta_source";
         private static final String DT_FULL = ICE_CATALOG + "." + SCHEMA + ".incr_delta_dt";
@@ -83,23 +96,18 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("INSERT 5 batches → CREATE DT → refresh → INSERT 1 more → "
-                + "delta refresh → all 6 batches present, second refresh O(delta)")
-        void deltaRefreshOnlyScansNewBatch() {
-            // Insert 5 batches into source (each INSERT creates a new snapshot)
+        @DisplayName("Source reads show all 6 Iceberg batches after append")
+        void rewriteIncludesNewBatch() {
+            // Insert 5 batches into source (one INSERT/snapshot per batch).
             for (int batch = 1; batch <= 5; batch++) {
-                for (int i = 1; i <= 10; i++) {
-                    int id = (batch - 1) * 10 + i;
-                    sqlRunner.execute("INSERT INTO " + SOURCE
-                            + " VALUES (" + id + ", " + batch + ", " + (id * 1.5) + ")");
-                }
+                insertIcebergBatch(SOURCE, batch);
             }
 
-            // CREATE DT triggers initial full-scan refresh
+            // The E2E harness registers a source-query rewrite on CREATE DT.
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT_FULL
                     + " TARGET_LAG = 'PT1H' AS SELECT * FROM " + SOURCE);
 
-            // Verify initial refresh captured all 50 rows from 5 batches
+            // Verify the rewrite exposes all 50 source rows.
             List<TypedRow> initialRows = sqlRunner.execute(
                     "SELECT * FROM " + DT_FULL + " ORDER BY id");
             assertThat(initialRows).hasSize(50);
@@ -113,17 +121,16 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
             assertThat(initialBatches).containsExactly(1, 2, 3, 4, 5);
 
             // INSERT 1 more batch (batch 6) — creates a new snapshot
-            for (int i = 1; i <= 10; i++) {
-                int id = 50 + i;
-                sqlRunner.execute("INSERT INTO " + SOURCE
-                        + " VALUES (" + id + ", 6, " + (id * 1.5) + ")");
-            }
+            insertIcebergBatch(SOURCE, 6);
 
-            // Trigger manual refresh — should use incremental splits (O(delta))
-            // because the range is append-only (only INSERTs since last refresh)
+            // The fixture is a live source rewrite: the new rows are visible
+            // before the explicit refresh command.
+            assertThat(sqlRunner.execute("SELECT * FROM " + DT_FULL)).hasSize(60);
+
+            // Exercise the SQL refresh command; the fixture keeps the source rewrite.
             sqlRunner.execute("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH");
 
-            // Verify DT now has all 60 rows from 6 batches
+            // Verify the rewritten read now shows all 60 source rows.
             List<TypedRow> afterRefresh = sqlRunner.execute(
                     "SELECT * FROM " + DT_FULL + " ORDER BY id");
             assertThat(afterRefresh).hasSize(60);
@@ -155,12 +162,12 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
     }
 
     // -----------------------------------------------------------------------
-    // Scenario 2: Non-append falls back to full scan
+    // Scenario 2: Iceberg source rewrite after non-append changes
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Scenario 2 — Non-append falls back to full scan")
-    class NonAppendFallbackToFullScan {
+    @DisplayName("Scenario 2 — Iceberg source rewrite after deletes")
+    class IcebergDeleteRewrite {
 
         private static final String SOURCE = ICE_CATALOG + "." + SCHEMA + ".incr_fallback_source";
         private static final String DT_FULL = ICE_CATALOG + "." + SCHEMA + ".incr_fallback_dt";
@@ -187,9 +194,8 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("INSERT → CREATE DT → refresh → DELETE → refresh → "
-                + "full scan used (DELETE is not append-only) → results correct")
-        void deleteTriggersFullScanFallback() {
+        @DisplayName("Source reads omit deleted rows")
+        void rewriteOmitsDeletedRows() {
             // Seed source with initial data
             sqlRunner.execute("INSERT INTO " + SOURCE + " VALUES (1, 'Alice', 100.0)");
             sqlRunner.execute("INSERT INTO " + SOURCE + " VALUES (2, 'Bob', 200.0)");
@@ -197,7 +203,7 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + SOURCE + " VALUES (4, 'Diana', 400.0)");
             sqlRunner.execute("INSERT INTO " + SOURCE + " VALUES (5, 'Eve', 500.0)");
 
-            // CREATE DT — initial full-scan refresh
+            // CREATE DT installs the fixture's source-query rewrite.
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT_FULL
                     + " TARGET_LAG = 'PT1H' AS SELECT * FROM " + SOURCE);
 
@@ -205,14 +211,13 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
                     "SELECT * FROM " + DT_FULL + " ORDER BY id");
             assertThat(initial).hasSize(5);
 
-            // DELETE some rows — this creates delete files, making the range
-            // non-append-only. The next refresh must fall back to full scan.
+            // DELETE some source rows; the rewritten read must reflect them.
             sqlRunner.execute("DELETE FROM " + SOURCE + " WHERE id IN (2, 4)");
 
-            // Trigger refresh — should detect non-append changes and use full scan
+            // Exercise the SQL refresh command after a non-append source change.
             sqlRunner.execute("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH");
 
-            // Verify results are correct despite full-scan fallback
+            // Verify results reflect deleted rows.
             List<TypedRow> afterDelete = sqlRunner.execute(
                     "SELECT * FROM " + DT_FULL + " ORDER BY id");
             assertThat(afterDelete).hasSize(3);
@@ -227,9 +232,8 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Mixed append + delete: INSERT new rows then DELETE old → "
-                + "full scan fallback preserves all surviving rows")
-        void mixedAppendDeleteFallback() {
+        @DisplayName("Source reads show appended rows and omit deleted rows")
+        void rewritePreservesSurvivorsAfterMixedChanges() {
             // Initial data
             sqlRunner.execute("INSERT INTO " + SOURCE + " VALUES (1, 'Alice', 100.0)");
             sqlRunner.execute("INSERT INTO " + SOURCE + " VALUES (2, 'Bob', 200.0)");
@@ -244,7 +248,7 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
             sqlRunner.execute("INSERT INTO " + SOURCE + " VALUES (3, 'Charlie', 300.0)");
             sqlRunner.execute("DELETE FROM " + SOURCE + " WHERE id = 1");
 
-            // Refresh — must use full scan due to DELETE
+            // Exercise the SQL refresh command after mixed source changes.
             sqlRunner.execute("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH");
 
             List<TypedRow> afterMixed = sqlRunner.execute(
@@ -256,12 +260,12 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
     }
 
     // -----------------------------------------------------------------------
-    // Scenario 3: CDC append-only path (Paimon — native changelog)
+    // Scenario 3: Paimon source rewrite with a CDC-mode declaration
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Scenario 3 — CDC append-only path")
-    class CdcAppendOnlyPath {
+    @DisplayName("Scenario 3 — Paimon source rewrite in CDC mode")
+    class PaimonCdcModeRewrite {
 
         private static final String SOURCE = PAIMON_CATALOG + "." + SCHEMA + ".incr_cdc_source";
         private static final String DT_FULL = PAIMON_CATALOG + "." + SCHEMA + ".incr_cdc_dt";
@@ -289,19 +293,14 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("CDC writes 3 snapshots → DT refresh → CDC writes 1 more → "
-                + "delta refresh → only last snapshot scanned → results match baseline")
-        void cdcDeltaRefreshScansOnlyNewSnapshot() {
-            // CDC writes 3 snapshots (each INSERT batch = 1 snapshot)
+        @DisplayName("Rewritten read includes rows from a fourth source snapshot")
+        void rewriteIncludesFourthSnapshot() {
+            // Write 3 Paimon source snapshots (one INSERT per batch).
             for (int snap = 1; snap <= 3; snap++) {
-                for (int i = 1; i <= 5; i++) {
-                    int id = (snap - 1) * 5 + i;
-                    sqlRunner.execute("INSERT INTO " + SOURCE
-                            + " VALUES (" + id + ", 'event_" + snap + "', 'payload_" + id + "')");
-                }
+                insertCdcSnapshot(SOURCE, snap);
             }
 
-            // CREATE DT with CDC mode — initial full refresh
+            // CREATE DT with CDC mode installs the fixture's source rewrite.
             sqlRunner.execute("CREATE DYNAMIC TABLE " + DT_FULL
                     + " TARGET_LAG = 'PT1H' REFRESH_MODE = CDC "
                     + "AS SELECT * FROM " + SOURCE);
@@ -316,18 +315,13 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
                     "SELECT * FROM " + SOURCE + " ORDER BY id");
             assertThat(baselineBeforeDelta).hasSize(15);
 
-            // CDC writes 1 more snapshot (snapshot 4)
-            for (int i = 1; i <= 5; i++) {
-                int id = 15 + i;
-                sqlRunner.execute("INSERT INTO " + SOURCE
-                        + " VALUES (" + id + ", 'event_4', 'payload_" + id + "')");
-            }
+            // Write one more Paimon source snapshot (snapshot 4).
+            insertCdcSnapshot(SOURCE, 4);
 
-            // Trigger delta refresh — should use incremental splits for the
-            // append-only CDC range (only snapshot 4's files scanned)
+            // Exercise the SQL refresh command after the fourth source snapshot.
             sqlRunner.execute("ALTER DYNAMIC TABLE " + DT_FULL + " REFRESH");
 
-            // Verify DT has all 20 rows (3 original snapshots + 1 new)
+            // Verify the rewritten read shows all 20 source rows.
             List<TypedRow> afterDelta = sqlRunner.execute(
                     "SELECT * FROM " + DT_FULL + " ORDER BY id");
             assertThat(afterDelta).hasSize(20);
@@ -338,7 +332,7 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
                     .toList();
             assertThat(snap4Rows).hasSize(5);
 
-            // Verify results match full-scan baseline from source
+            // Verify results match a direct source read.
             List<TypedRow> fullScanBaseline = sqlRunner.execute(
                     "SELECT * FROM " + SOURCE + " ORDER BY id");
             assertThat(afterDelta).hasSameSizeAs(fullScanBaseline);
@@ -354,8 +348,8 @@ class IncrementalSplitRefreshE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("Multiple delta refreshes accumulate correctly without data loss")
-        void multipleDeltaRefreshesAccumulate() {
+        @DisplayName("Repeated reads expose successive source changes")
+        void rewrittenReadsExposeSuccessiveChanges() {
             // Initial snapshot
             sqlRunner.execute("INSERT INTO " + SOURCE
                     + " VALUES (1, 'init', 'first_event')");

@@ -192,7 +192,9 @@ dependency 没有作为 definition 的持久化记录；recovery 清空 DAG 后�
 
 DT detector 还重复实现了一套 CDC 注册/heartbeat/消费逻辑，没有复用仓库已有的 `CdcPipelineLoop`、`CdcTwoPhaseCommitter` 和 durable commit state。AUTO 从 CDC fallback 到 snapshot 时只替换 pipeline 类型，却继续复用原 detector/evaluator，实质上可能仍在走 CDC detector；CDC offset 与 snapshot ID 之间也没有使用一致的 handoff boundary。
 
-Snapshot 增量 split 也没有真正进入 refresh plan。`tryUseIncrementalSplits` 的注释称会调用 `ConnectorSplitManager.getIncrementalSplits()` 并消费 split source，实际实现只询问 `IncrementalScanCapability` 并记录日志，而且传入的是 DT 名称而不是已解析的 source object。即使日志显示 `dt_incremental_splits_enabled`，执行也不一定是 O(delta)。
+Snapshot 增量 split 也没有真正进入 refresh plan。此前 `tryUseIncrementalSplits` 的注释称会调用 `ConnectorSplitManager.getIncrementalSplits()` 并消费 split source，实际实现只询问 `IncrementalScanCapability` 并记录日志，而且传入的是 DT 名称而不是已解析的 source object。现已删除这段不会改变扫描计划的检查和 `dt_incremental_splits_enabled` 误导性日志；真正的修复仍需把 source handle、快照范围及 connector 产生的 splits 接入实际 refresh dispatch，并用物理扫描证据验证 O(delta)。
+
+现有跨快照 E2E 夹具 `SqlE2ETestBase.executeRefresh` 把 DT 读取直接重写为源表/定义查询，未运行 `RefreshCoordinator`，因此行值正确不能证明物化刷新、CDC checkpoint 或增量 split。该用例已改名为 `DynamicTableReadRewriteE2ETest`，仅记录它实际覆盖的查询重写行为；生产验收需要独立进程的真实 refresh executor、持久化物化结果以及物理扫描统计。
 
 可恢复的 position 应是 connector-owned opaque vector：
 
