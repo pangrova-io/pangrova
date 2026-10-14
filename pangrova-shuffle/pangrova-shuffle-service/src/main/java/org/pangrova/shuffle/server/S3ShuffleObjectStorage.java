@@ -2,10 +2,12 @@ package org.pangrova.shuffle.server;
 
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
+import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.pangrova.shuffle.deployment.ShuffleServiceConfig;
 
@@ -74,7 +76,8 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
     }
 
     @Override
-    public void putImmutable(String key, byte[] data, byte[] sha256) {
+    public void putImmutable(
+            String key, Supplier<InputStream> data, long sizeBytes, byte[] sha256) {
         String objectKey = objectKey(key);
         PutObjectRequest request = PutObjectRequest.builder()
                 .bucket(bucket)
@@ -85,7 +88,8 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
                         .build())
                 .build();
         try {
-            client.putObject(request, RequestBody.fromBytes(data));
+            client.putObject(request, RequestBody.fromContentProvider(
+                    data::get, sizeBytes, "application/octet-stream"));
         } catch (S3Exception conflict) {
             if (conflict.statusCode() != HTTP_CONFLICT
                     && conflict.statusCode() != HTTP_PRECONDITION_FAILED) {

@@ -105,14 +105,15 @@ final class ShuffleServiceEngine implements AutoCloseable {
                 new BatchIdentity(batch.shuffleId(), batch.attempt().getPartitionId(),
                         batch.attempt().getAttemptId(), batch.outputPartitionId(),
                         batch.batchSequence()),
-                batch.attempt(), key, batch.canonicalBytes().length,
+                batch.attempt(), key, batch.canonicalSize(),
                 batch.rowCount(), batch.checksum());
         String reservationId = batches.beginWriteIntent(stored,
                 Math.addExact(config.objectStorage().apiCallTimeout().toMillis(),
                         WRITE_INTENT_DRAIN_GRACE_MILLIS));
         // A failed network PUT is ambiguous: the object server can still commit it.
         // Retain the IN_PROGRESS reservation so cleanup cannot pass a late PUT.
-        objects.putImmutable(key, batch.canonicalBytes(), batch.checksum());
+        objects.putImmutable(key, batch::openCanonicalStream,
+                batch.canonicalSize(), batch.checksum());
         try {
             batches.completeWriteIntent(reservationId, stored);
         } catch (RuntimeException | Error failure) {

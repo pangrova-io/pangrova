@@ -1354,6 +1354,45 @@
          in the owning DTOs. Only the observed class/method/signature/field/type/bug
          tuples are classified; mutable payloads and all other findings stay checked.
          Contract: https://protobuf.dev/reference/java/java-generated/ -->
+    <!-- Shuffle capability records carry immutable, built protobuf messages.
+         Only these exact message-valued fields are classified; the canonicalBytes
+         byte[] in CompleteWriteBatch remains checked for ownership exposure. -->
+    <Match>
+        <Class name="org.pangrova.shuffle.security.CapabilityScope"/>
+        <Method name="taskAttempt" params="" returns="org.pangrova.protocol.v2.TaskAttemptId"/>
+        <Field name="taskAttempt" type="org.pangrova.protocol.v2.TaskAttemptId"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.security.CapabilityScope"/>
+        <Method name="&lt;init&gt;" params="org.pangrova.shuffle.security.CapabilityOperation,java.lang.String,java.lang.String,java.lang.String,long,org.pangrova.protocol.v2.TaskAttemptId" returns="void"/>
+        <Field name="taskAttempt" type="org.pangrova.protocol.v2.TaskAttemptId"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
+        <Method name="attempt" params="" returns="org.pangrova.protocol.v2.TaskAttemptId"/>
+        <Field name="attempt" type="org.pangrova.protocol.v2.TaskAttemptId"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
+        <Method name="capability" params="" returns="org.pangrova.protocol.v2.ShuffleAccessCapability"/>
+        <Field name="capability" type="org.pangrova.protocol.v2.ShuffleAccessCapability"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
+        <Method name="&lt;init&gt;" params="java.lang.String,int,long,long,org.pangrova.protocol.v2.TaskAttemptId,org.pangrova.protocol.v2.ShuffleAccessCapability,byte[],byte[]" returns="void"/>
+        <Field name="attempt" type="org.pangrova.protocol.v2.TaskAttemptId"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
+        <Method name="&lt;init&gt;" params="java.lang.String,int,long,long,org.pangrova.protocol.v2.TaskAttemptId,org.pangrova.protocol.v2.ShuffleAccessCapability,byte[],byte[]" returns="void"/>
+        <Field name="capability" type="org.pangrova.protocol.v2.ShuffleAccessCapability"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
     <Match>
         <Class name="org.pangrova.worker.ai.context.AiExecutionContext" />
         <Method name="taskAttempt" params="" returns="org.pangrova.protocol.v2.TaskAttemptId" />

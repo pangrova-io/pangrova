@@ -45,6 +45,29 @@ class BatchStreamAssemblerTest {
     }
 
     @Test
+    void completedBatchOwnsBytesAndOpensIndependentUploadStreams() throws Exception {
+        byte[] source = "canonical-batch".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] expected = source.clone();
+        WriteBatchRequest first = request(source, 0, 0, 1, 11);
+        CompleteWriteBatch complete = new CompleteWriteBatch(
+                first.getShuffleId(), first.getPartitionId(), 0, 11,
+                first.getProducerAttempt(), first.getAccessCapability(),
+                source, ShuffleChecksums.sha256(source));
+
+        source[0] ^= 1;
+        byte[] exported = complete.canonicalBytes();
+        exported[0] ^= 1;
+
+        assertThat(complete.canonicalSize()).isEqualTo(expected.length);
+        assertThat(complete.canonicalBytes()).isEqualTo(expected);
+        try (var firstUpload = complete.openCanonicalStream();
+                var retryUpload = complete.openCanonicalStream()) {
+            assertThat(firstUpload.readAllBytes()).isEqualTo(expected);
+            assertThat(retryUpload.readAllBytes()).isEqualTo(expected);
+        }
+    }
+
+    @Test
     void declaredMaximumDoesNotPreallocatePerStream() {
         List<BatchStreamAssembler> streams = new ArrayList<>();
 

@@ -261,7 +261,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
                         acknowledgements.computeIfAbsent(complete.outputPartitionId(),
                                 ignored -> new PartitionWriteAccumulator()).accepted(
                                         stored.identity().batchSequence(), stored.sizeBytes());
-                        releaseBytes(complete.canonicalBytes().length);
+                        releaseBytes(complete.canonicalSize());
                     }
                     if (!closed.get()) {
                         response.request(1);

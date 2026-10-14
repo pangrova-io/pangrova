@@ -98,7 +98,9 @@ final class InlineInsertValuesNormalizer {
         for (int column = 0; column < union.getRowType().getFieldCount(); column++) {
             if (!SqlTypeUtil.equalSansNullability(modify.getCluster().getTypeFactory(),
                     project.getRowType().getFieldList().get(column).getType(),
-                    union.getRowType().getFieldList().get(column).getType())) return modify;
+                    union.getRowType().getFieldList().get(column).getType())) {
+                return modify;
+            }
         }
         return modify.copy(modify.getTraitSet(), List.of(project));
     }
