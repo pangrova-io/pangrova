@@ -29,7 +29,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * configured servers. Iceberg may use Gravitino; Paimon requires a Paimon REST
  * server and its warehouse identifier. Each suite runs only with its own endpoint.
  *
- * <p>Full pipeline: SQL → Parser → Planner → Substrait → Native → transport → Client.
+ * <p>Reads exercise SQL → Planner → Substrait → Native → transport → Client.
+ * Writes also exercise the catalog's declaration-fenced commit path.
  *
  * <p>Requirements: B7 (Iceberg REST Catalog), C12 (Paimon REST Catalog), D3 (REST Catalog Unified)
  */

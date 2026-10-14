@@ -151,9 +151,9 @@ All other properties are passed through to Hadoop Configuration (supporting S3, 
 
 The current write path rejects Iceberg REST catalogs because its declaration
 fence has only been verified with atomic whole-metadata pointer comparison on
-JDBC and local Hadoop catalogs. REST table creation and reads can be used, but
-`INSERT` and other writes require a catalog-specific atomic declaration fence
-before they can be enabled safely.
+JDBC and local Hadoop catalogs. REST table creation and metadata access remain
+available, but `INSERT` and other writes require a catalog-specific atomic
+declaration fence before they can be enabled safely.
 
 #### Encryption (both modes)
 
