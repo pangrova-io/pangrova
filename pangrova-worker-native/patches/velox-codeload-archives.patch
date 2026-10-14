@@ -1,6 +1,19 @@
 diff --git a/scripts/setup-helper-functions.sh b/scripts/setup-helper-functions.sh
 --- a/scripts/setup-helper-functions.sh
 +++ b/scripts/setup-helper-functions.sh
+@@ -68,6 +68,11 @@ function github_checkout {
+     ${SUDO} rm -rf "${DIRNAME}"
+   fi
+   if [ ! -d "${DIRNAME}" ]; then
+-    git clone -q -b "$VERSION" "${GIT_CLONE_PARAMS[@]}" "https://github.com/${REPO}.git"
++    if [[ "$REPO" == "aws/aws-sdk-cpp" && "$VERSION" == "1.11.654" &&
++          -n "${PANGROVA_AWS_PREPARE_SCRIPT:-}" ]]; then
++      bash "$PANGROVA_AWS_PREPARE_SCRIPT" "$(dirname "$DEPENDENCY_DIR")"
++    else
++      git clone -q -b "$VERSION" "${GIT_CLONE_PARAMS[@]}" "https://github.com/${REPO}.git"
++    fi
+   fi
+ }
 @@ -215,5 +215,10 @@ if [[ ${BASH_SOURCE[0]} == "${0}" && $1 == "detect_sve_flags" ]]; then
  function wget_and_untar {
    local URL=$1
