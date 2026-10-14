@@ -34,9 +34,11 @@ public final class PangrovaStandaloneMain {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaStandaloneMain.class);
     private static final String CLASSPATH_DEFAULT = "coordinator.yml";
+    private static final int MAX_PORT = 65535;
 
     private PangrovaStandaloneMain() {}
 
+    /** Starts a Coordinator and Worker from the standalone YAML configuration. */
     public static void main(String[] args) {
         try {
             PangrovaConfiguration config = loadPangrovaConfiguration(args);
@@ -78,7 +80,8 @@ public final class PangrovaStandaloneMain {
         String configPath = parseConfigPath(args);
         Map<String, String> flatMap;
         if (configPath != null) {
-            LOG.info("event=config_loading source=cli_yaml path={}", configPath);
+            LOG.info("event=config_loading source=cli_yaml path={}",
+                    configPath.replace('\r', '_').replace('\n', '_'));
             flatMap = YamlConfigLoader.loadWithDefaults(Path.of(configPath), CLASSPATH_DEFAULT);
         } else {
             LOG.info("event=config_loading source=classpath_default resource={}", CLASSPATH_DEFAULT);
@@ -192,8 +195,8 @@ public final class PangrovaStandaloneMain {
     static ConfigValidator standaloneWorkerValidator() {
         return new ConfigValidator()
                 .require(WorkerOptions.WORKER_ID)
-                .intRange(WorkerOptions.WORKER_PORT, 1, 65535)
-                .intRange(WorkerOptions.TRANSPORT_PORT, 0, 65535)
+                .intRange(WorkerOptions.WORKER_PORT, 1, MAX_PORT)
+                .intRange(WorkerOptions.TRANSPORT_PORT, 0, MAX_PORT)
                 .positiveLong(WorkerOptions.MEMORY_BUDGET_BYTES);
     }
 
