@@ -202,6 +202,10 @@ Pangrova 因此应区分两类 connector：
 
 Pangrova 自己的 catalog REST API 可以用于 engine 管理面，但不应假装等同于 Iceberg/Paimon 官方协议；需要明确 profile、版本和 capability negotiation。
 
+Iceberg REST 的标准提交是服务端对 `requirements` 校验后应用 `updates`，不是客户端比较 `metadata-location` 后替换指针；加载表时可选的 ETag 只用于 `If-None-Match` 缓存复验，不能推断提交支持 `If-Match` 声明栅栏。[^iceberg-rest-protocol] 当前固定的 Iceberg 1.11.0 `UpdateRequirement` 可以断言表 UUID、ref snapshot 和当前 schema/spec/sort-order ID，却不能原子断言 Pangrova 依赖的任意生成列表达式、向量维度等属性或表位置。
+
+Gravitino Iceberg REST 1.2.0 的真实建表和空表读取已通过，但 INSERT 被现有完整元数据 CAS 校验安全拒绝；服务端虽返回 `metadata-location`，未返回 ETag，且即使返回加载缓存 ETag 也不等于提交条件。要开放 REST 写入，须由服务端在同一提交事务中提供并声明覆盖这些字段的 opaque 版本/声明栅栏，再以并发 ALTER、属性/位置变化、删除重建、超时重试和数据 append 竞争测试验证；在此之前保持写入拒绝，允许已验收的建表与空表读取。[^iceberg-rest-protocol]
+
 ### Gravitino 与 Nessie：适用在不同层次
 
 Gravitino 的价值在“metalake/catalog/provider”联邦、统一 REST/SDK、治理与多类型资产管理；它适合参考 Pangrova 的 catalog 控制面和库存治理，而不是替代格式原生快照模型。[^gravitino]
