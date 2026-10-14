@@ -162,26 +162,7 @@ public final class PageDecoder {
             return value.toString();
         }
         if (field.getType() instanceof ArrowType.Map) {
-            if (!(value instanceof List<?> entries) || field.getChildren().size() != 1
-                    || field.getChildren().get(0).getChildren().size() != 2) {
-                throw new IllegalArgumentException("Arrow MAP has invalid entries");
-            }
-            Field pair = field.getChildren().get(0);
-            Field keyField = pair.getChildren().get(0);
-            Field valueField = pair.getChildren().get(1);
-            java.util.Map<Object, Object> result = new java.util.LinkedHashMap<>();
-            for (Object entry : entries) {
-                if (!(entry instanceof java.util.Map<?, ?> item)) {
-                    throw new IllegalArgumentException("Arrow MAP entry is not a key-value struct");
-                }
-                Object key = toJavaValue(item.get(keyField.getName()), keyField);
-                Object element = toJavaValue(item.get(valueField.getName()), valueField);
-                if (key == null || result.containsKey(key)) {
-                    throw new IllegalArgumentException("Arrow MAP contains null or duplicate key");
-                }
-                result.put(key, element);
-            }
-            return result;
+            return toJavaMap(value, field);
         }
         if (value instanceof java.util.Map<?, ?> struct) {
             java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
@@ -198,6 +179,29 @@ public final class PageDecoder {
             return list.stream().map(item -> toJavaValue(item, element)).toList();
         }
         return value;
+    }
+
+    private static java.util.Map<Object, Object> toJavaMap(Object value, Field field) {
+        if (!(value instanceof List<?> entries) || field.getChildren().size() != 1
+                || field.getChildren().get(0).getChildren().size() != 2) {
+            throw new IllegalArgumentException("Arrow MAP has invalid entries");
+        }
+        Field pair = field.getChildren().get(0);
+        Field keyField = pair.getChildren().get(0);
+        Field valueField = pair.getChildren().get(1);
+        java.util.Map<Object, Object> result = new java.util.LinkedHashMap<>();
+        for (Object entry : entries) {
+            if (!(entry instanceof java.util.Map<?, ?> item)) {
+                throw new IllegalArgumentException("Arrow MAP entry is not a key-value struct");
+            }
+            Object key = toJavaValue(item.get(keyField.getName()), keyField);
+            Object element = toJavaValue(item.get(valueField.getName()), valueField);
+            if (key == null || result.containsKey(key)) {
+                throw new IllegalArgumentException("Arrow MAP contains null or duplicate key");
+            }
+            result.put(key, element);
+        }
+        return result;
     }
 
 }

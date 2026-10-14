@@ -9,7 +9,6 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.StageCompletionCall
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.coordinator.coordination.inmemory.InMemoryQueryStateJournal;
 import org.pangrova.governance.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.CatalogRegistry;
 import org.pangrova.spi.coordination.QueryStateJournal;

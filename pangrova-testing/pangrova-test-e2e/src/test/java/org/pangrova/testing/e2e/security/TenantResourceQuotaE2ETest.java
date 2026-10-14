@@ -63,11 +63,11 @@ class TenantResourceQuotaE2ETest extends SqlE2ETestBase {
         tableName = "quota_test_" + Long.toHexString(System.nanoTime());
         dataSetup.createTestTable(CATALOG, SCHEMA, tableName,
                 "id BIGINT, name VARCHAR, value BIGINT");
-        for (int i = 1; i <= 20; i++) {
-            sqlRunner.execute(String.format(
-                    "INSERT INTO %s%s (id, name, value) VALUES (%d, 'item_%d', %d)",
-                    FQN_PREFIX, tableName, i, i, i * 10));
-        }
+        String rows = java.util.stream.IntStream.rangeClosed(1, 20)
+                .mapToObj(i -> String.format("(%d, 'item_%d', %d)", i, i, i * 10))
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + FQN_PREFIX + tableName
+                + " (id, name, value) VALUES " + rows);
     }
 
     // -----------------------------------------------------------------------

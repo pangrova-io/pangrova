@@ -18,6 +18,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
@@ -250,11 +251,14 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                 throw epochCatchupExpired(worker);
             }
             try {
-                Thread.sleep(EPOCH_CATCHUP_RETRY_MS);
+                CompletableFuture.runAsync(() -> { }, CompletableFuture.delayedExecutor(
+                        EPOCH_CATCHUP_RETRY_MS, TimeUnit.MILLISECONDS)).get();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED,
                         "Epoch catch-up interrupted for worker " + worker.host(), e);
+            } catch (ExecutionException e) {
+                throw new IllegalStateException("Epoch catch-up retry scheduling failed", e.getCause());
             }
         }
     }

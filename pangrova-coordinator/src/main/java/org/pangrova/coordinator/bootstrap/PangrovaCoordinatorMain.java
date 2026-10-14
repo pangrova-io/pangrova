@@ -2,7 +2,6 @@ package org.pangrova.coordinator.bootstrap;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 
 import org.pangrova.common.exception.PangrovaErrorCode;

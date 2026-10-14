@@ -3,7 +3,6 @@ package org.pangrova.coordinator.query.lifecycle;
 import org.pangrova.coordinator.query.QueryManager;
 import org.pangrova.coordinator.query.QueryStateMachine;
 
-import org.pangrova.coordinator.query.session.CoordinatorSessionContext;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;

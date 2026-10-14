@@ -1257,6 +1257,8 @@ What happens if a network partition occurs? Consider: Coordinator↔Worker, Work
 
 Can concurrent execution on multiple coordinators (split-brain) cause data corruption? All metadata writes must use fencing tokens (monotonic epoch). Stale coordinators must be rejected with `FENCED_OUT`.
 
+Query execution anchors are renewed in a batch for one exact Coordinator incarnation. Local admission and release may run concurrently, but the bulk renewal holds an exclusive boundary against those cache mutations. A changed batch row count alone is not evidence of lost ownership: the Coordinator checks each locally retained anchor's current fenced token before demoting. A genuinely missing or replaced token still fails closed.
+
 ### 3. Crash Recovery
 
 If any node crashes mid-operation, does the system recover to a consistent state? Task state must be persisted to WAL before dispatch. Workers deduplicate by task ID + attempt number. Orphaned files cleaned by background GC.
