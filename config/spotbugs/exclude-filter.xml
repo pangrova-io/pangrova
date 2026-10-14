@@ -2459,4 +2459,28 @@
         <Field name="tenantUsageAggregator" type="org.pangrova.coordinator.worker.ClusterTenantUsageAggregator" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
+    <!-- Worker bootstrap and backpressure share the active output buffer instance
+         so cancellation, admission and drain observe the same live registry. -->
+    <Match>
+        <Class name="org.pangrova.worker.bootstrap.WorkerComponentRefs" />
+        <Field name="activeOutputBuffer" type="org.pangrova.worker.buffer.ActiveOutputBuffer" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.worker.buffer.ActiveOutputBuffer" />
+        <Field name="registry" type="org.pangrova.worker.buffer.QueryOutputBufferRegistry" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.worker.buffer.OutputBufferBackpressure" />
+        <Field name="activeOutputBuffer" type="org.pangrova.worker.buffer.ActiveOutputBuffer" />
+        <Bug pattern="EI_EXPOSE_REP2" />
+    </Match>
+    <!-- The connector owns its output handle; the write commit path must retain
+         that exact SPI identity through page-sink creation and final commit. -->
+    <Match>
+        <Class name="org.pangrova.worker.jni.write.catalog.CatalogResourceResolver$CatalogResources" />
+        <Field name="outputHandle" type="org.pangrova.spi.connector.metadata.ConnectorOutputTableHandle" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
 </FindBugsFilter>
