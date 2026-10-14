@@ -15,12 +15,12 @@ import java.util.stream.Collectors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * End-to-end tests verifying the GENERATE_SERIES table function through
- * the complete Native Velox execution pipeline.
+ * End-to-end tests for SQL GENERATE_SERIES results with a running Native worker.
  *
- * <p>Validates that GENERATE_SERIES(start, stop) produces the correct
- * integer sequence and that the TableFunctionNode operator reports
- * statistics via TaskStats.
+ * <p>The planner currently expands integer literals to VALUES. These tests
+ * validate the returned sequence and Native runtime availability, not the
+ * GenerateSeriesOperator or its TaskStats. Native table-function routing needs
+ * a separate physical-plan and execution assertion.
  *
  * <p>Validates: Requirements 5.2, 5.6
  */
@@ -98,12 +98,12 @@ class GenerateSeriesE2ETest extends SqlE2ETestBase {
     }
 
     @Nested
-    @DisplayName("GENERATE_SERIES Operator Statistics")
-    class OperatorStatistics {
+    @DisplayName("Native Runtime Availability")
+    class RuntimeAvailability {
 
         @Test
-        @DisplayName("GENERATE_SERIES query execution produces native memory activity")
-        void generateSeriesReportsOperatorStatistics() {
+        @DisplayName("GENERATE_SERIES query leaves the Native runtime available")
+        void nativeRuntimeRemainsAvailable() {
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM TABLE(GENERATE_SERIES(1, 100))");
 
@@ -115,8 +115,7 @@ class GenerateSeriesE2ETest extends SqlE2ETestBase {
             byte[] memSnapshot = NativeRuntime.nativeGetMemorySnapshot();
             assertThat(memSnapshot)
                     .as("Native memory snapshot should be available after "
-                            + "GENERATE_SERIES query execution, confirming "
-                            + "TableFunctionNode operator ran in native engine")
+                            + "GENERATE_SERIES query execution")
                     .isNotNull();
         }
     }
