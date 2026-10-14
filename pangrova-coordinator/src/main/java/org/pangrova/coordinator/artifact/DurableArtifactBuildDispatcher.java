@@ -374,10 +374,10 @@ public final class DurableArtifactBuildDispatcher implements AutoCloseable {
 
     private void retireDrainedAttempt(String taskId, ActiveAttempt attempt,
             org.pangrova.protocol.v2.TaskReport receipt, Instant now) {
-        if (receipt.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
-                && !attempt.cancelling) {
-            // The shared DAG still needs the issued attempt until its late HTTP acknowledgement is processed.
-            if (!attempt.acknowledged) return;
+        if (receipt.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
+            // The physical drain can precede the terminal HTTP publication. Keep
+            // the issued identity until the same FINISHED fact is durably accepted.
+            if (!attempt.acknowledged || !taskTracker.finishedPublicationComplete(receipt)) return;
         }
         if (attempt.retryReason != null
                 || receipt.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {

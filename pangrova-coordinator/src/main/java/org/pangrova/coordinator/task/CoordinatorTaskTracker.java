@@ -485,6 +485,11 @@ public class CoordinatorTaskTracker {
         return taskIdentityStore.acknowledgesPublication(report);
     }
 
+    /** A completed exact FINISHED publication must precede durable artifact task retirement. */
+    public boolean finishedPublicationComplete(org.pangrova.protocol.v2.TaskReport receipt) {
+        return taskIdentityStore.finishedPublicationComplete(receipt);
+    }
+
     public record IssuedTask(SubmitTaskRequest request, org.pangrova.coordinator.worker.WorkerInfo worker,
                             java.util.Optional<org.pangrova.protocol.v2.TaskReport> drainReceipt) {}
 

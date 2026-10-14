@@ -160,6 +160,20 @@ final class TaskIdentityRegistry {
         return fact == null || fact.notificationsCompleted;
     }
 
+    synchronized boolean finishedPublicationComplete(org.pangrova.protocol.v2.TaskReport receipt) {
+        String taskId = receipt.getAttempt().getTaskId();
+        Identity identity = identities.get(taskId);
+        if (identity == null || !receipt.equals(identity.drainReceipt())) return false;
+        Scope scope = scopes.get(receipt.getAttempt().getQueryOrJobId());
+        Fact fact = scope == null ? null : scope.publications.get(taskId);
+        return fact != null && fact.notificationsCompleted && fact.operations == 0
+                && "FINISHED".equals(fact.state)
+                && fact.attempt.equals(TaskAttemptDescriptor.from(receipt.getAttempt()))
+                && fact.canonicalDigest != null
+                && java.security.MessageDigest.isEqual(fact.canonicalDigest,
+                        org.pangrova.common.util.DigestUtils.sha256().digest(receipt.toByteArray()));
+    }
+
     synchronized void registerRequest(String taskId, SubmitTaskRequest request) {
         requireTaskId(taskId);
         if (request == null) {

@@ -39,13 +39,19 @@ class CoordinatorTaskTrackerDrainNotificationTest {
 
         try (var publication = tracker.enterReportPublication(request, report, false)) {
             tracker.recordExecutionDrain(request, receipt);
+            assertThat(tracker.finishedPublicationComplete(receipt)).isFalse();
             publication.accepted();
             assertThat(calls).hasValue(0);
             assertThat(tracker.acknowledgesExecutionDrain(report)).isFalse();
+            assertThat(tracker.finishedPublicationComplete(receipt)).isFalse();
         }
 
         assertThat(calls).hasValue(1);
         assertThat(tracker.acknowledgesExecutionDrain(report)).isTrue();
+        assertThat(tracker.finishedPublicationComplete(receipt)).isTrue();
+        assertThat(tracker.finishedPublicationComplete(receipt.toBuilder().setCoverage(
+                org.pangrova.protocol.v2.CoverageReport.newBuilder().setExpectedWorkUnits(1).build()).build()))
+                .isFalse();
         tracker.requireQueryExecutionDrained("query");
         tracker.retireQueryIssuance("query");
         assertThat(tracker.getTaskRequest("task")).isNull();

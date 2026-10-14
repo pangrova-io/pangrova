@@ -30,6 +30,33 @@ TEST(TaskLifecycleTest, FailedCleanupRetainsOriginalErrorAndStack) {
   EXPECT_EQ(lifecycle.state(), ExecutorState::FAILED);
 }
 
+TEST(TaskLifecycleTest, ProducerFailurePrecedesResultStreamRevocation) {
+  TaskLifecycle lifecycle;
+  ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::RUNNING));
+  protocol::v2::ExecutionError producer;
+  producer.set_error_class(protocol::v2::ERROR_CLASS_INTERNAL);
+  producer.set_code("NATIVE_TASK_FAILED");
+  producer.set_message("division by zero");
+  producer.set_retryable(false);
+  producer.set_failed_component("native-executor");
+  lifecycle.recordExecutionError(producer);
+
+  protocol::v2::ExecutionError stream;
+  stream.set_error_class(protocol::v2::ERROR_CLASS_RESULT_VALIDATION);
+  stream.set_code("RESULT_STREAM_FAILED");
+  stream.set_message("Result authority was revoked");
+  stream.set_retryable(false);
+  stream.set_failed_component("native-result-stream");
+  lifecycle.recordExecutionError(stream);
+  lifecycle.notifyTaskFailed(stream.message());
+
+  const auto state = lifecycle.snapshot();
+  ASSERT_TRUE(state.error.has_value());
+  EXPECT_EQ(state.error->code(), "NATIVE_TASK_FAILED");
+  EXPECT_EQ(state.error->message(), "division by zero");
+  EXPECT_EQ(state.state, ExecutorState::FAILED);
+}
+
 TEST(TaskLifecycleTest, ConcurrentCleanupDiagnosticsAreNotLost) {
   TaskLifecycle lifecycle;
   ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::CANCELLED));

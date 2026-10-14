@@ -1104,9 +1104,22 @@ bool VeloxTaskRunner::handleTaskCompletion() {
   }
   auto task_state = velox_task_->state();
   if (task_state == facebook::velox::exec::TaskState::kFailed) {
+    const std::string failure = velox_task_->errorMessage();
     {
       std::lock_guard<std::mutex> lock(error_mutex_);
-      error_message_ = velox_task_->errorMessage();
+      error_message_ = failure;
+    }
+    // A Flight reader may observe result revocation as soon as cleanup runs.
+    // Publish the producer's actual failure first so that the later stream
+    // cancellation cannot replace the canonical execution diagnostic.
+    if (config_.is_result_task && config_.executor_handle > 0) {
+      protocol::v2::ExecutionError error;
+      error.set_error_class(protocol::v2::ERROR_CLASS_INTERNAL);
+      error.set_code("NATIVE_TASK_FAILED");
+      error.set_message(failure.empty() ? "Native result producer failed" : failure);
+      error.set_retryable(false);
+      error.set_failed_component("native-executor");
+      pangrova::jni::HandleRegistry::instance().acquire(config_.executor_handle)->recordExecutionError(error);
     }
 #if __has_include(<glog/logging.h>)
     LOG(ERROR) << "velox_task_failed"
